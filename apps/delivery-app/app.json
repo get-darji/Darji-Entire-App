@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Darzi Delivery",
+    "slug": "darzi-delivery",
+    "scheme": "darzidelivery",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.darzi.delivery",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "extra": {
+      "apiUrl": "http://10.0.2.2:4000/api",
+      "eas": {
+        "projectId": "968c9b32-8390-4eda-8b4a-2fb3056451eb"
+      }
+    }
+  }
+}

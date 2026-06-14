@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Darzi Customer",
+    "slug": "darzi-customer",
+    "scheme": "darzicustomer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.darzi.customer",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "extra": {
+      "apiUrl": "http://10.0.2.2:4000/api",
+      "eas": {
+        "projectId": "4838cd1b-b7cd-4ac5-a665-5091d061fecf"
+      }
+    }
+  }
+}

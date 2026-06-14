@@ -1,0 +1,27 @@
+{
+  "name": "darzi",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "shared",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:admin": "npm --workspace @darzi/admin-panel run dev",
+    "prisma:generate": "npm --workspace backend run prisma:generate",
+    "prisma:migrate": "npm --workspace backend run prisma:migrate",
+    "seed": "npm --workspace backend run seed",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "android:customer": "npm --workspace @darzi/customer-app run android",
+    "android:tailor": "npm --workspace @darzi/tailor-app run android",
+    "android:delivery": "npm --workspace @darzi/delivery-app run android"
+  },
+  "devDependencies": {
+    "@esbuild/win32-x64": "^0.28.1",
+    "eas-cli": "^20.1.0",
+    "typescript": "^5.9.3"
+  }
+}

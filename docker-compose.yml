@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: darzi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: darzi
+      POSTGRES_PASSWORD: darzi
+      POSTGRES_DB: darzi
+    ports:
+      - "5432:5432"
+    volumes:
+      - darzi_postgres:/var/lib/postgresql/data
+
+volumes:
+  darzi_postgres:

@@ -1,0 +1,34 @@
+{
+  "name": "@darzi/customer-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "apk": "eas build --platform android --profile preview",
+    "aab": "eas build --platform android --profile production",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@darzi/shared": "0.1.0",
+    "@expo/vector-icons": "^15.0.3",
+    "@hookform/resolvers": "^5.2.2",
+    "expo": "^56.0.11",
+    "expo-image-picker": "^56.0.17",
+    "expo-location": "^56.0.17",
+    "expo-notifications": "^56.0.17",
+    "nativewind": "^4.2.5",
+    "react": "^19.2.7",
+    "react-hook-form": "^7.68.0",
+    "react-native": "^0.86.0",
+    "zod": "^4.2.1",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.17",
+    "babel-preset-expo": "^56.0.15",
+    "tailwindcss": "^3.4.18",
+    "typescript": "^5.9.3"
+  }
+}

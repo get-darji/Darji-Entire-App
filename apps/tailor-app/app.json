@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Darzi Tailor",
+    "slug": "darzi-tailor",
+    "scheme": "darzitailor",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.darzi.tailor",
+      "permissions": [
+        "CAMERA",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "extra": {
+      "apiUrl": "http://10.0.2.2:4000/api",
+      "eas": {
+        "projectId": "1c43b695-9dfe-437b-9aed-05b1851c6c93"
+      }
+    }
+  }
+}
