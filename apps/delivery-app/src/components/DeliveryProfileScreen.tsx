@@ -36,7 +36,7 @@ type DeliveryProfile = {
   monthlyEarnings?: number;
   workingHours?: string;
   settings?: DeliverySettings;
-  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED";
+  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
 };
 type MeResponse = {
   id: string;

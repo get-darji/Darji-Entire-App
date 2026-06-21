@@ -112,7 +112,7 @@ type DeliveryProfile = {
     radius?: string;
     availability?: string;
   };
-  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED";
+  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verificationSubmittedAt?: string;
   verificationRejectionReason?: string;
   verification?: Record<string, unknown>;
@@ -643,8 +643,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
     try {
       setLoading(true);
       const result = await api<{ otp?: string }>("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
-      verifyForm.setValue("phone", values.phone);
-      if (result.otp) verifyForm.setValue("otp", result.otp);
+      verifyForm.reset({ phone: values.phone, role: "DELIVERY_PARTNER", otp: result.otp ?? "123456" });
       setTimer(30);
       setStep("otp");
     } catch (error) {
@@ -714,7 +713,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                     style={styles.otpInput}
                     keyboardType="number-pad"
                     maxLength={6}
-                    onChangeText={field.onChange}
+                    onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))}
                     placeholder="000000"
                     placeholderTextColor="#9aa6b8"
                     value={field.value}
@@ -1044,7 +1043,11 @@ function OnboardingScreen({
     <Screen>
       <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
         <Header title={step.title} subtitle={`${step.subtitle} - ${progress}`} />
-        {profile?.verificationStatus === "REJECTED" ? <Text style={styles.noticeText}>Verification update required. {rejectionReason ?? "Please review your details and submit again."}</Text> : null}
+        {profile?.verificationStatus === "REJECTED" || profile?.verificationStatus === "REUPLOAD_REQUIRED" ? (
+          <Text style={styles.noticeText}>
+            Document reupload required. {rejectionReason ?? "Darji admin requested clearer documents. Please review your details and submit again."}
+          </Text>
+        ) : null}
         {currentStepError && step.key !== "review" ? <Text style={styles.helperWarning}>Complete this step to continue.</Text> : null}
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${((stepIndex + 1) / onboardingSteps.length) * 100}%` }]} />
@@ -2054,22 +2057,33 @@ function MainApp({
   );
 }
 
-function VerificationPendingScreen({ me, onRefresh, onSignOut }: { me?: MeResponse; onRefresh: () => void; onSignOut: () => void }) {
+function VerificationPendingScreen({
+  me,
+  onOpenRegistration,
+  onRefresh,
+  onSignOut
+}: {
+  me?: MeResponse;
+  onOpenRegistration: () => void;
+  onRefresh: () => void;
+  onSignOut: () => void;
+}) {
   const submittedAt = me?.deliveryProfile?.verificationSubmittedAt;
   const rejectionReason = me?.deliveryProfile?.verificationRejectionReason;
-  const isRejected = (me?.deliveryProfile?.verificationStatus ?? "NOT_SUBMITTED") === "REJECTED";
+  const status = me?.deliveryProfile?.verificationStatus ?? "NOT_SUBMITTED";
+  const needsUpdate = status === "REJECTED" || status === "REUPLOAD_REQUIRED";
 
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <View style={styles.pendingHero}>
           <View style={styles.pendingBadge}>
-            <Ionicons name={isRejected ? "alert-circle-outline" : "hourglass-outline"} size={32} color={BRAND_ORANGE} />
+            <Ionicons name={needsUpdate ? "alert-circle-outline" : "hourglass-outline"} size={32} color={BRAND_ORANGE} />
           </View>
-          <Text style={styles.pendingTitle}>{isRejected ? "Verification needs update" : "Verification under process"}</Text>
+          <Text style={styles.pendingTitle}>{needsUpdate ? "Document reupload required" : "Verification under process"}</Text>
           <Text style={styles.pendingCopy}>
-            {isRejected
-              ? rejectionReason ?? "Darji admins requested clearer information. Open registration again and resubmit the details."
+            {needsUpdate
+              ? rejectionReason ?? "Darji admin requested clearer documents. Open registration again and resubmit the details."
               : "Your registration is complete. The app will stay locked until Darji admins verify this delivery partner account."}
           </Text>
         </View>
@@ -2080,7 +2094,11 @@ function VerificationPendingScreen({ me, onRefresh, onSignOut }: { me?: MeRespon
           <StatusRow label="Submitted" value={submittedAt ? new Date(submittedAt).toLocaleString("en-IN") : "Just now"} />
           <Text style={styles.noticeText}>You cannot access live delivery jobs, orders, or profile settings until admin verification is complete.</Text>
         </Card>
-        <PrimaryButton icon="refresh-outline" label={isRejected ? "Open Registration Again" : "Refresh Status"} onPress={onRefresh} />
+        <PrimaryButton
+          icon="refresh-outline"
+          label={needsUpdate ? "Open Registration Again" : "Refresh Status"}
+          onPress={needsUpdate ? onOpenRegistration : onRefresh}
+        />
         <PrimaryButton icon="log-out-outline" label="Logout" onPress={onSignOut} variant="secondary" />
       </ScrollView>
     </Screen>
@@ -2113,6 +2131,7 @@ export default function App() {
       const verificationStatus = profile.deliveryProfile?.verificationStatus ?? "NOT_SUBMITTED";
       if (verificationStatus === "VERIFIED") setStage("main");
       else if (verificationStatus === "PENDING") setStage("pending");
+      else if (verificationStatus === "REUPLOAD_REQUIRED" || verificationStatus === "REJECTED") setStage("pending");
       else setStage("onboarding");
     } catch (error) {
       if (isSessionError(error)) {
@@ -2169,7 +2188,12 @@ export default function App() {
   if (stage === "pending") {
     return (
       <>
-        <VerificationPendingScreen me={me} onRefresh={() => void refreshProfile()} onSignOut={() => { signOut(); setMe(undefined); setStage("auth"); }} />
+        <VerificationPendingScreen
+          me={me}
+          onOpenRegistration={() => setStage("onboarding")}
+          onRefresh={() => void refreshProfile()}
+          onSignOut={() => { signOut(); setMe(undefined); setStage("auth"); }}
+        />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </>
     );

@@ -13,7 +13,18 @@
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "extra": {
@@ -24,8 +35,25 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker",
-      ["expo-notifications", { "icon": "./darji-notification.png", "color": "#F98A04", "defaultChannel": "darji-alerts-v2", "sounds": ["./ding.mp3"] }],
+      [
+        "expo-notifications",
+        {
+          "icon": "./darji-notification.png",
+          "color": "#F98A04",
+          "defaultChannel": "darji-alerts-v2",
+          "sounds": [
+            "./ding.mp3"
+          ]
+        }
+      ],
       "expo-audio"
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/968c9b32-8390-4eda-8b4a-2fb3056451eb"
+    },
+    "ios": {}
   }
 }

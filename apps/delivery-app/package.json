@@ -23,6 +23,7 @@
     "expo-image-picker": "^56.0.17",
     "expo-location": "^56.0.17",
     "expo-notifications": "^56.0.17",
+    "expo-updates": "~56.0.19",
     "nativewind": "^4.2.5",
     "react": "19.2.3",
     "react-hook-form": "^7.68.0",
