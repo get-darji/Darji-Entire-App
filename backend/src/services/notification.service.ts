@@ -1,8 +1,18 @@
-import { prisma } from "../prisma.js";
+import { NotificationModel } from "../models.js";
+import { sendPushToUsers } from "./push.service.js";
 
-export async function notifyUser(input: { userId: string; orderId?: string; title: string; body: string }) {
-  const notification = await prisma.notification.create({ data: input });
-  // FCM dispatch belongs here once Firebase credentials are configured.
+export async function notifyUser(input: { userId: string; orderId?: string; title: string; body: string; data?: Record<string, string | number | boolean | undefined>; imageUrl?: string; actions?: string[] }) {
+  const notification = await NotificationModel.create(input);
+  await sendPushToUsers([input.userId], {
+    title: input.title,
+    body: input.body,
+    imageUrl: input.imageUrl,
+    actions: input.actions,
+    data: {
+      orderId: input.orderId,
+      ...(input.data ?? {})
+    }
+  });
   return notification;
 }
 

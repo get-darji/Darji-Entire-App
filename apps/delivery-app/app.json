@@ -1,13 +1,15 @@
 {
   "expo": {
-    "name": "Darzi Delivery",
+    "name": "Darji Delivery",
     "slug": "darzi-delivery",
     "scheme": "darzidelivery",
+    "icon": "./app-icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.darzi.delivery",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION",
@@ -15,10 +17,15 @@
       ]
     },
     "extra": {
-      "apiUrl": "http://10.0.2.2:4000/api",
+      "apiUrl": "http://192.168.1.2:4000/api",
       "eas": {
         "projectId": "968c9b32-8390-4eda-8b4a-2fb3056451eb"
       }
-    }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      ["expo-notifications", { "icon": "./darji-notification.png", "color": "#F98A04", "defaultChannel": "darji-alerts-v2", "sounds": ["./ding.mp3"] }],
+      "expo-audio"
+    ]
   }
 }

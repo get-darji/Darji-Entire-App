@@ -1,8 +1,27 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
-    "types": ["nativewind/types"]
+    "types": [
+      "nativewind/types"
+    ]
   },
-  "include": ["App.tsx", "src", "nativewind-env.d.ts"]
+  "include": [
+    "App.tsx",
+    "src",
+    "nativewind-env.d.ts",
+    "css.d.ts"
+  ],
+  "extends": "expo/tsconfig.base"
 }

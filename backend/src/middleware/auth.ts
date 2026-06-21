@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import type { Role } from "@darzi/shared";
-import { prisma } from "../prisma.js";
+import { UserModel } from "../models.js";
 import { AppError } from "./error.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 
@@ -25,11 +25,36 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
   try {
     const payload = verifyAccessToken(token);
-    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, role: true } });
+    const user = await UserModel.findById(payload.sub).select("role accountStatus suspendedUntil moderationReason").lean();
     if (!user) {
       return next(new AppError(401, "Invalid session"));
     }
-    req.user = { id: user.id, role: user.role as Role };
+    if (user.accountStatus === "BANNED") {
+      return next(new AppError(403, user.moderationReason ? `Account banned: ${user.moderationReason}` : "Account banned"));
+    }
+    if (user.accountStatus === "SUSPENDED") {
+      const suspendedUntil = user.suspendedUntil ? new Date(user.suspendedUntil) : null;
+      if (suspendedUntil && suspendedUntil.getTime() <= Date.now()) {
+        await UserModel.findByIdAndUpdate(payload.sub, {
+          accountStatus: "ACTIVE",
+          suspendedUntil: null,
+          moderationReason: null,
+          moderatedAt: new Date()
+        });
+      } else {
+        return next(
+          new AppError(
+            403,
+            user.moderationReason
+              ? `Account suspended: ${user.moderationReason}`
+              : suspendedUntil
+                ? `Account suspended until ${suspendedUntil.toISOString()}`
+                : "Account suspended"
+          )
+        );
+      }
+    }
+    req.user = { id: String(user._id), role: user.role as Role };
     return next();
   } catch {
     return next(new AppError(401, "Invalid or expired token"));

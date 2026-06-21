@@ -4,7 +4,7 @@ Monorepo for the Darzi customer app, tailor app, delivery partner app, admin pan
 
 ## Projects
 
-- `backend` - Express, Prisma 7, PostgreSQL, JWT, OTP auth, role protected REST APIs.
+- `backend` - Express, Mongoose, MongoDB, JWT, OTP auth, role protected REST APIs.
 - `shared` - shared roles, order statuses, Zod validation, service catalog types.
 - `apps/customer-app` - Expo React Native customer ordering app.
 - `apps/tailor-app` - Expo React Native tailor dashboard app.
@@ -19,33 +19,27 @@ Monorepo for the Darzi customer app, tailor app, delivery partner app, admin pan
    npm install
    ```
 
-2. Start PostgreSQL. If Docker is installed:
+2. Optional: set a MongoDB connection string in `backend/.env`:
 
    ```bash
-   docker compose up -d postgres
+   MONGODB_URI="mongodb+srv://..."
    ```
 
-3. Generate Prisma client and apply migrations:
+   If `MONGODB_URI` is empty, the backend starts an in-memory MongoDB automatically for local testing. Data resets when the backend stops.
 
-   ```bash
-   npm run prisma:generate
-   npm run prisma:migrate -- --name init
-   npm run seed
-   ```
-
-4. Start the backend:
+3. Start the backend:
 
    ```bash
    npm run dev:backend
    ```
 
-5. Start the admin panel:
+4. Start the admin panel:
 
    ```bash
    npm run dev:admin
    ```
 
-6. Start a mobile app:
+5. Start a mobile app:
 
    ```bash
    npm --workspace @darzi/customer-app run start
@@ -82,7 +76,7 @@ APK/AAB generation requires EAS authentication and a configured Android build en
 The current workspace passes:
 
 ```bash
-npm run prisma:generate
+npm --workspace backend run typecheck
 npm run typecheck
 npm run build
 npm --workspace @darzi/customer-app exec -- expo config --type public
@@ -90,4 +84,4 @@ npm --workspace @darzi/tailor-app exec -- expo config --type public
 npm --workspace @darzi/delivery-app exec -- expo config --type public
 ```
 
-Database migration and seed commands require a reachable PostgreSQL instance at `DATABASE_URL`.
+The backend auto-seeds service catalog and test users on startup. For persistent data, use MongoDB Atlas and set `MONGODB_URI`.

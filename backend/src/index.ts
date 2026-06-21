@@ -3,9 +3,12 @@ import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
 import { env } from "./env.js";
-import { prisma } from "./prisma.js";
+import { connectDatabase, disconnectDatabase } from "./db.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import { router } from "./routes/index.js";
+import { seedDatabase } from "./seed.js";
+import { initFirebaseAdmin } from "./services/push.service.js";
+import { setupSocketServer } from "./services/socket.service.js";
 
 const app = express();
 
@@ -18,12 +21,17 @@ app.use("/api", router);
 app.use(notFound);
 app.use(errorHandler);
 
+await connectDatabase();
+await seedDatabase();
+initFirebaseAdmin();
+
 const server = app.listen(env.PORT, () => {
   console.log(`Darzi backend running on http://localhost:${env.PORT}/api`);
 });
+setupSocketServer(server);
 
 process.on("SIGINT", async () => {
   server.close();
-  await prisma.$disconnect();
+  await disconnectDatabase();
   process.exit(0);
 });

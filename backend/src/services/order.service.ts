@@ -1,22 +1,85 @@
 import { createOrderSchema, updateOrderStatusSchema } from "@darzi/shared";
-import { prisma } from "../prisma.js";
+import {
+  AddressModel,
+  CouponModel,
+  DeliveryPartnerModel,
+  OrderModel,
+  PaymentModel,
+  ServiceCategoryModel,
+  ServiceModel,
+  TailorModel,
+  UserModel
+} from "../models.js";
 import { AppError } from "../middleware/error.js";
 import { notifyUser, orderStatusMessage } from "./notification.service.js";
+
+type JsonDoc = { toJSON: () => Record<string, unknown> };
 
 function generateOrderNumber() {
   return `DRZ-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+function json<T extends { toJSON?: () => unknown } | null | undefined>(doc: T) {
+  if (!doc) return null;
+  return typeof doc.toJSON === "function" ? doc.toJSON() : doc;
+}
+
+async function partnerWithUser(model: { findById: (id: string) => Promise<(JsonDoc & { userId: string }) | null> }, id?: string) {
+  if (!id) return null;
+  const profile = await model.findById(id);
+  if (!profile) return null;
+  const user = await UserModel.findById(profile.userId).select("name phone role");
+  return { ...profile.toJSON(), user: json(user) };
+}
+
+export async function hydrateOrder(orderInput: unknown) {
+  const order = typeof (orderInput as { toJSON?: unknown })?.toJSON === "function" ? (orderInput as { toJSON: () => Record<string, unknown> }).toJSON() : (orderInput as Record<string, unknown>);
+  if (!order) return null;
+
+  const orderId = String(order.id ?? order._id);
+  const [address, customer, tailor, pickupPartner, deliveryPartner, payments] = await Promise.all([
+    AddressModel.findById(order.addressId),
+    UserModel.findById(order.customerId).select("name phone role"),
+    partnerWithUser(TailorModel, order.tailorId as string | undefined),
+    partnerWithUser(DeliveryPartnerModel, order.pickupPartnerId as string | undefined),
+    partnerWithUser(DeliveryPartnerModel, order.deliveryPartnerId as string | undefined),
+    PaymentModel.find({ orderId }).sort({ createdAt: -1 })
+  ]);
+
+  const items = await Promise.all(
+    ((order.items as Array<Record<string, unknown>> | undefined) ?? []).map(async (item) => {
+      const service = await ServiceModel.findById(item.serviceId);
+      const category = service ? await ServiceCategoryModel.findById(service.categoryId) : null;
+      return {
+        ...item,
+        id: item.id ?? item._id,
+        service: service ? { ...service.toJSON(), category: json(category) } : null
+      };
+    })
+  );
+
+  return {
+    ...order,
+    address: json(address),
+    customer: json(customer),
+    tailor,
+    pickupPartner,
+    deliveryPartner,
+    items,
+    payments: payments.map((payment) => json(payment))
+  };
+}
+
+export const orderInclude = {};
+
 export async function createOrder(customerId: string, payload: unknown) {
   const input = createOrderSchema.parse(payload);
-  const address = await prisma.address.findFirst({ where: { id: input.addressId, userId: customerId } });
+  const address = await AddressModel.findOne({ _id: input.addressId, userId: customerId });
   if (!address) {
     throw new AppError(404, "Address not found");
   }
 
-  const services = await prisma.service.findMany({
-    where: { id: { in: input.items.map((item) => item.serviceId) }, isActive: true }
-  });
+  const services = await ServiceModel.find({ _id: { $in: input.items.map((item) => item.serviceId) }, isActive: true });
   const serviceMap = new Map(services.map((service) => [service.id, service]));
 
   const subtotal = input.items.reduce((sum, item) => {
@@ -29,7 +92,7 @@ export async function createOrder(customerId: string, payload: unknown) {
 
   let discount = 0;
   if (input.couponCode) {
-    const coupon = await prisma.coupon.findUnique({ where: { code: input.couponCode.toUpperCase() } });
+    const coupon = await CouponModel.findOne({ code: input.couponCode.toUpperCase() });
     if (coupon?.isActive && (!coupon.expiresAt || coupon.expiresAt > new Date()) && subtotal >= Number(coupon.minOrderValue)) {
       discount =
         coupon.discountType === "FLAT"
@@ -40,49 +103,31 @@ export async function createOrder(customerId: string, payload: unknown) {
 
   const totalAmount = Math.max(subtotal - discount, 0);
 
-  const order = await prisma.order.create({
-    data: {
-      orderNumber: generateOrderNumber(),
-      customerId,
-      addressId: input.addressId,
-      paymentMethod: input.paymentMethod,
-      paymentStatus: input.paymentMethod === "COD" ? "PENDING" : "PENDING",
-      subtotal,
-      discount,
-      totalAmount,
-      pickupScheduledAt: new Date(input.pickupScheduledAt),
-      instructions: input.instructions,
-      items: {
-        create: input.items.map((item) => {
-          const service = serviceMap.get(item.serviceId)!;
-          return {
-            serviceId: service.id,
-            quantity: item.quantity,
-            price: service.price,
-            referenceImageUrl: item.referenceImageUrl,
-            instructions: item.instructions,
-            measurement: item.measurement
-              ? {
-                  create: {
-                    label: item.measurement.label,
-                    fields: item.measurement.fields,
-                    imageUrl: item.measurement.imageUrl
-                  }
-                }
-              : undefined
-          };
-        })
-      },
-      payments: {
-        create: {
-          method: input.paymentMethod,
-          amount: totalAmount,
-          status: input.paymentMethod === "COD" ? "PENDING" : "PENDING"
-        }
-      }
-    },
-    include: orderInclude
+  const order = await OrderModel.create({
+    orderNumber: generateOrderNumber(),
+    customerId,
+    addressId: input.addressId,
+    paymentMethod: input.paymentMethod,
+    paymentStatus: "PENDING",
+    subtotal,
+    discount,
+    totalAmount,
+    pickupScheduledAt: new Date(input.pickupScheduledAt),
+    instructions: input.instructions,
+    items: input.items.map((item) => {
+      const service = serviceMap.get(item.serviceId)!;
+      return {
+        serviceId: service.id,
+        quantity: item.quantity,
+        price: service.price,
+        referenceImageUrl: item.referenceImageUrl,
+        instructions: item.instructions,
+        measurement: item.measurement
+      };
+    })
   });
+
+  await PaymentModel.create({ orderId: order.id, method: input.paymentMethod, amount: totalAmount, status: "PENDING" });
 
   await notifyUser({
     userId: customerId,
@@ -91,18 +136,8 @@ export async function createOrder(customerId: string, payload: unknown) {
     body: "Your Darzi pickup request has been created."
   });
 
-  return order;
+  return hydrateOrder(order);
 }
-
-export const orderInclude = {
-  address: true,
-  customer: { select: { id: true, name: true, phone: true } },
-  tailor: { include: { user: { select: { id: true, name: true, phone: true } } } },
-  pickupPartner: { include: { user: { select: { id: true, name: true, phone: true } } } },
-  deliveryPartner: { include: { user: { select: { id: true, name: true, phone: true } } } },
-  items: { include: { service: { include: { category: true } }, measurement: true } },
-  payments: true
-} as const;
 
 export async function listOrders(user: { id: string; role: string }, query: Record<string, unknown>) {
   const status = typeof query.status === "string" ? query.status : undefined;
@@ -111,19 +146,25 @@ export async function listOrders(user: { id: string; role: string }, query: Reco
   if (user.role === "CUSTOMER") {
     where.customerId = user.id;
   } else if (user.role === "TAILOR") {
-    const tailor = await prisma.tailor.findUnique({ where: { userId: user.id } });
+    const tailor = await TailorModel.findOne({ userId: user.id });
     where.tailorId = tailor?.id ?? "__none__";
   } else if (user.role === "DELIVERY_PARTNER") {
-    const partner = await prisma.deliveryPartner.findUnique({ where: { userId: user.id } });
-    where.OR = [{ pickupPartnerId: partner?.id ?? "__none__" }, { deliveryPartnerId: partner?.id ?? "__none__" }];
+    const partner = await DeliveryPartnerModel.findOne({ userId: user.id });
+    where.$or = [{ pickupPartnerId: partner?.id ?? "__none__" }, { deliveryPartnerId: partner?.id ?? "__none__" }];
   }
 
-  return prisma.order.findMany({ where, include: orderInclude, orderBy: { createdAt: "desc" }, take: 100 });
+  const orders = await OrderModel.find(where).sort({ createdAt: -1 }).limit(100);
+  return Promise.all(orders.map((order) => hydrateOrder(order)));
+}
+
+export async function getOrder(orderId: string) {
+  const order = await OrderModel.findById(orderId);
+  return order ? hydrateOrder(order) : null;
 }
 
 export async function updateOrderStatus(orderId: string, payload: unknown, actor: { id: string; role: string }) {
   const input = updateOrderStatusSchema.parse(payload);
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  const order = await OrderModel.findById(orderId);
   if (!order) {
     throw new AppError(404, "Order not found");
   }
@@ -133,7 +174,11 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
   if (input.status === "READY" && input.imageUrl) data.finalImageUrl = input.imageUrl;
   if (input.status === "DELIVERED" && input.imageUrl) data.deliveryProofUrl = input.imageUrl;
 
-  const updated = await prisma.order.update({ where: { id: orderId }, data, include: orderInclude });
+  const updated = await OrderModel.findByIdAndUpdate(orderId, data, { returnDocument: "after" });
+  if (!updated) {
+    throw new AppError(404, "Order not found");
+  }
+
   await notifyUser({
     userId: updated.customerId,
     orderId,
@@ -142,10 +187,10 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
   });
 
   if (actor.role === "TAILOR" && input.status === "READY" && updated.tailorId) {
-    await prisma.tailor.update({ where: { id: updated.tailorId }, data: { earnings: { increment: Number(updated.totalAmount) * 0.45 } } });
+    await TailorModel.findByIdAndUpdate(updated.tailorId, { $inc: { earnings: Number(updated.totalAmount) * 0.45 } });
   }
 
-  return updated;
+  return hydrateOrder(updated);
 }
 
 export async function assignOrder(orderId: string, input: { tailorId?: string; deliveryPartnerId?: string; mode?: "pickup" | "delivery" }) {
@@ -153,19 +198,16 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
   if (input.tailorId) data.tailorId = input.tailorId;
   if (input.deliveryPartnerId && input.mode === "delivery") data.deliveryPartnerId = input.deliveryPartnerId;
   if (input.deliveryPartnerId && input.mode !== "delivery") data.pickupPartnerId = input.deliveryPartnerId;
+  if (input.deliveryPartnerId && input.mode !== "delivery") data.status = "PICKUP_ASSIGNED";
 
   if (Object.keys(data).length === 0) {
     throw new AppError(400, "Nothing to assign");
   }
 
-  const order = await prisma.order.update({
-    where: { id: orderId },
-    data: {
-      ...data,
-      status: input.deliveryPartnerId && input.mode !== "delivery" ? "PICKUP_ASSIGNED" : undefined
-    },
-    include: orderInclude
-  });
+  const order = await OrderModel.findByIdAndUpdate(orderId, data, { returnDocument: "after" });
+  if (!order) {
+    throw new AppError(404, "Order not found");
+  }
 
   await notifyUser({
     userId: order.customerId,
@@ -174,5 +216,5 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
     body: input.tailorId ? "A tailor has been assigned to your order." : "A delivery partner has been assigned to your order."
   });
 
-  return order;
+  return hydrateOrder(order);
 }

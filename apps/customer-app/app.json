@@ -1,13 +1,15 @@
 {
   "expo": {
-    "name": "Darzi Customer",
+    "name": "Darji",
     "slug": "darzi-customer",
     "scheme": "darzicustomer",
+    "icon": "./app-icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.darzi.customer",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION",
@@ -15,10 +17,27 @@
       ]
     },
     "extra": {
-      "apiUrl": "http://10.0.2.2:4000/api",
+      "apiUrl": "http://192.168.1.2:4000/api",
       "eas": {
         "projectId": "4838cd1b-b7cd-4ac5-a665-5091d061fecf"
       }
-    }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "icon": "./darji transparent.png",
+          "color": "#F98A04",
+          "defaultChannel": "darji-alerts-v2",
+          "sounds": [
+            "./ding.mp3"
+          ]
+        }
+      ],
+      "expo-audio"
+    ]
   }
 }

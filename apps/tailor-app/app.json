@@ -1,23 +1,42 @@
 {
   "expo": {
-    "name": "Darzi Tailor",
+    "name": "Darji Tailor",
     "slug": "darzi-tailor",
     "scheme": "darzitailor",
+    "icon": "./app-icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.darzi.tailor",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
         "POST_NOTIFICATIONS"
       ]
     },
     "extra": {
-      "apiUrl": "http://10.0.2.2:4000/api",
+      "apiUrl": "http://192.168.1.2:4000/api",
       "eas": {
         "projectId": "1c43b695-9dfe-437b-9aed-05b1851c6c93"
       }
-    }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./darji-notification.png",
+          "color": "#F98A04",
+          "defaultChannel": "darji-alerts-v2",
+          "sounds": [
+            "./ding.mp3"
+          ]
+        }
+      ],
+      "expo-audio"
+    ]
   }
 }

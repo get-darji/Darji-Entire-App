@@ -1,0 +1,143 @@
+{
+  "project_info": {
+    "project_number": "188050990879",
+    "project_id": "darji-otp",
+    "storage_bucket": "darji-otp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:f2d6c56d5c29cda9c9722a",
+        "android_client_info": {
+          "package_name": "com.amank.darjiotp2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:943338b386e16d97c9722a",
+        "android_client_info": {
+          "package_name": "com.darji.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:144bb572a291e4aec9722a",
+        "android_client_info": {
+          "package_name": "com.darji.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:11564bbf30472a8ac9722a",
+        "android_client_info": {
+          "package_name": "com.darji.delivery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:3fbc40d49d40d5e8c9722a",
+        "android_client_info": {
+          "package_name": "com.darji.tailor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:f9336dafecffedc2c9722a",
+        "android_client_info": {
+          "package_name": "com.darzi.delivery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:188050990879:android:ee541ec7d6b3bf37c9722a",
+        "android_client_info": {
+          "package_name": "com.darzi.tailor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8XMN7BsbLRlcCTYgZJYyGL8GXpLM01RE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
