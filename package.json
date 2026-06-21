@@ -13,7 +13,7 @@
     "db:seed": "npm --workspace backend run seed",
     "seed": "npm --workspace backend run seed",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace=shared && npm run build --workspace=backend",
     "android:customer": "npm --workspace @darzi/customer-app run android",
     "android:tailor": "npm --workspace @darzi/tailor-app run android",
     "android:delivery": "npm --workspace @darzi/delivery-app run android"
