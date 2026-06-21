@@ -1,0 +1,17 @@
+.git
+.github
+.next
+.turbo
+node_modules
+dist
+coverage
+tmp
+*.log
+.env
+.env.*
+!.env.example
+admin-dev-3001.log
+admin-dev.log
+backend-dev-4000.log
+backend-dev.log
+backend-start.log

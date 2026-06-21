@@ -1455,15 +1455,15 @@ function LoginPanel({
                   </button>
                 </div>
 
-                {returnedOtp ? (
-                  <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    Development OTP: <span className="font-semibold">{returnedOtp}</span>
-                  </div>
-                ) : (
-                  <div className="rounded-[18px] border border-[#f2dfb8] bg-[#fff8e6] px-4 py-3 text-sm text-[#7d6b58]">
-                    Seeded admin number: <span className="font-semibold text-[#4a3620]">9999999999</span>
-                  </div>
-                )}
+                  {returnedOtp ? (
+                    <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      Current test OTP: <span className="font-semibold">{returnedOtp}</span>
+                    </div>
+                  ) : (
+                    <div className="rounded-[18px] border border-[#f2dfb8] bg-[#fff8e6] px-4 py-3 text-sm text-[#7d6b58]">
+                      Temporary login OTP: <span className="font-semibold text-[#4a3620]">123456</span>
+                    </div>
+                  )}
 
                 <ActionButton
                   className="h-[58px] w-full justify-center rounded-[18px] text-[1.05rem] font-semibold shadow-[0_18px_32px_rgba(246,163,19,0.22)]"

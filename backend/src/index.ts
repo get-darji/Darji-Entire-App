@@ -26,7 +26,7 @@ await seedDatabase();
 initFirebaseAdmin();
 
 const server = app.listen(env.PORT, () => {
-  console.log(`Darzi backend running on http://localhost:${env.PORT}/api`);
+  console.log(`Darzi backend running on port ${env.PORT}`);
 });
 setupSocketServer(server);
 

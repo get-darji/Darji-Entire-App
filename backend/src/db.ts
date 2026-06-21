@@ -13,6 +13,10 @@ export async function connectDatabase() {
     return;
   }
 
+  if (env.NODE_ENV === "production") {
+    throw new Error("MONGODB_URI is required in production. Refusing to start with mongodb-memory-server.");
+  }
+
   memoryServer = await MongoMemoryServer.create();
   await mongoose.connect(memoryServer.getUri());
   console.log("MongoDB memory server connected. Data resets when backend stops.");

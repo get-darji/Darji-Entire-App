@@ -3,7 +3,10 @@ import { io, type Socket } from "socket.io-client";
 
 export type ConnectionStatus = "Connected" | "Reconnecting" | "Offline";
 
-const apiUrl = (Constants.expoConfig?.extra?.apiUrl as string | undefined) ?? "http://localhost:4000/api";
+const apiUrl =
+  process.env.EXPO_PUBLIC_API_URL ??
+  (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
+  "https://backend-production-5a7e4.up.railway.app/api";
 const socketUrl = apiUrl.replace(/\/api\/?$/, "");
 
 export function createRealtimeSocket(
