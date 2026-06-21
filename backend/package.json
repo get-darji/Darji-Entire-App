@@ -13,7 +13,7 @@
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
-    "@darzi/shared": "0.1.0",
+    "@darzi/shared": "*",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
