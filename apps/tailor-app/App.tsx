@@ -757,6 +757,8 @@ function QuoteScreen({
   const [estimatedTime, setEstimatedTime] = useState(quoteWindow.mode === "hours" ? "" : String(quoteWindow.min));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const allowedTimes = Array.from({ length: quoteWindow.max - quoteWindow.min + 1 }, (_, index) => quoteWindow.min + index);
+  const timeUnit = quoteWindow.mode === "hours" ? "hour" : "day";
 
   async function submitQuote() {
     if (!token) return;
@@ -811,6 +813,12 @@ function QuoteScreen({
       <View style={styles.whiteCard}>
         <Text style={styles.cardLabel}>QUOTE DETAILS</Text>
         <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
+        <View style={styles.urgencyRuleCard}>
+          <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
+          <Text style={styles.urgencyRuleText}>
+            {quoteWindow.label}: quote completion must be between {quoteWindow.min} and {quoteWindow.max} {timeUnit}{quoteWindow.max === 1 ? "" : "s"}.
+          </Text>
+        </View>
         <Text style={styles.formLabel}>Quote Amount</Text>
         <TextInput style={styles.input} value={price} onChangeText={setPrice} placeholder="Example: Rs 350" placeholderTextColor="#9aa6b8" keyboardType="number-pad" />
         <Text style={styles.formLabel}>{quoteWindow.mode === "hours" ? "Completion Time (Hours)" : "Completion Time (Days)"}</Text>
@@ -823,7 +831,19 @@ function QuoteScreen({
           keyboardType="number-pad"
           maxLength={quoteWindow.mode === "hours" ? 2 : 1}
         />
-        <Text style={styles.helperText}>{quoteWindow.label}: {quoteWindow.helper}.</Text>
+        <View style={styles.timeChoiceGrid}>
+          {allowedTimes.map((time) => {
+            const selected = estimatedTime === String(time);
+            return (
+              <Pressable key={time} style={[styles.timeChoiceChip, selected && styles.timeChoiceChipActive]} onPress={() => setEstimatedTime(String(time))}>
+                <Text style={[styles.timeChoiceText, selected && styles.timeChoiceTextActive]}>
+                  {time} {timeUnit}{time === 1 ? "" : "s"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.helperText}>{quoteWindow.helper}.</Text>
         <Text style={styles.formLabel}>Message</Text>
         <TextInput style={styles.textArea} value={message} onChangeText={setMessage} placeholder="Add fitting or pickup notes..." placeholderTextColor="#9aa6b8" multiline />
       </View>
@@ -1062,6 +1082,15 @@ function OrderDetailsScreen({
         <DetailRow icon="cash-outline" label="Order Value" value={money(order.totalAmount)} />
         {acceptedRequest?.ownQuote ? <DetailRow icon="checkmark-circle-outline" label="Quote" value={`${money(acceptedRequest.ownQuote.price)} accepted by customer`} /> : null}
       </View>
+      {order.status === "CANCELLED" || acceptedRequest?.status === "CANCELLED" ? (
+        <View style={styles.cancelledNoticeCard}>
+          <Ionicons name="close-circle-outline" size={22} color="#b91c1c" />
+          <View style={styles.cardMain}>
+            <Text style={styles.cancelledNoticeTitle}>This order has been cancelled</Text>
+            <Text style={styles.cancelledNoticeCopy}>Do not start stitching or hand over this package for delivery.</Text>
+          </View>
+        </View>
+      ) : null}
       <TailorHandoffOtpCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
 
       <View style={styles.whiteCard}>
@@ -2497,6 +2526,16 @@ export default function App() {
       void showRequestFromEvent(requestId);
       void refreshWorkspace();
     });
+    socket.on("tailoring:order_cancelled", ({ requestId, orderId }: { requestId?: string; orderId?: string }) => {
+      const cancelledId = requestId ?? orderId;
+      if (!cancelledId) return;
+      setRequests((current) => current.map((request) => request.id === cancelledId ? { ...request, status: "CANCELLED" } : request));
+      setOrders((current) => current.map((order) => order.id === cancelledId || order.request?.id === cancelledId ? { ...order, status: "CANCELLED", request: order.request ? { ...order.request, status: "CANCELLED" } : order.request } : order));
+      setActiveRequest((current) => current?.id === cancelledId ? { ...current, status: "CANCELLED" } : current);
+      setActiveOrder((current) => current && (current.id === cancelledId || current.request?.id === cancelledId) ? { ...current, status: "CANCELLED", request: current.request ? { ...current.request, status: "CANCELLED" } : current.request } : current);
+      setDialog({ title: "Order cancelled", message: `Order ${shortId(cancelledId)} has been cancelled by the customer.`, icon: "close-circle-outline" });
+      void refreshWorkspace();
+    });
     socket.on("tailoring:work_status_updated", () => {
       void refreshWorkspace();
     });
@@ -2697,6 +2736,9 @@ const styles = StyleSheet.create({
   orderCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
   readyOrderCard: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
   whiteCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
+  cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
+  cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: SUCCESS, backgroundColor: "#dcfce7" },
@@ -2713,6 +2755,13 @@ const styles = StyleSheet.create({
   quotedPill: { overflow: "hidden", borderRadius: 14, backgroundColor: "#dcfce7", color: SUCCESS, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
   urgencyPill: { overflow: "hidden", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900", textAlign: "center", maxWidth: 112 },
   urgencyPillInline: { alignSelf: "flex-start", marginTop: 8, maxWidth: 220 },
+  urgencyRuleCard: { marginTop: 12, borderRadius: 14, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 9 },
+  urgencyRuleText: { flex: 1, minWidth: 0, color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "900" },
+  timeChoiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  timeChoiceChip: { minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  timeChoiceChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff2d8" },
+  timeChoiceText: { color: MUTED, fontSize: 12, fontWeight: "900" },
+  timeChoiceTextActive: { color: BRAND_DEEP },
   infoRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 9 },
   infoText: { color: MUTED, fontSize: 13, fontWeight: "700", flex: 1 },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

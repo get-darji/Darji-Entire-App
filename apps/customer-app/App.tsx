@@ -16,6 +16,7 @@ import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -177,6 +178,7 @@ type PaymentSheetState = {
   requestId: string;
   quote: Quote;
   draft: RequestDraft;
+  paymentMethod: string;
   config: NonNullable<CheckoutStartResponse["razorpay"]>;
 };
 type ProfileData = { name: string; phone: string; dateOfBirth?: string; avatarUri?: string; hasCompletedOnboarding?: boolean };
@@ -1928,9 +1930,16 @@ function statusFromBackendRequest(request: BackendTailoringRequest): OrderStatus
 }
 
 function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder?: CustomerOrder): CustomerOrder | undefined {
-  if (!request.selectedQuote && request.status !== "PAYMENT_PENDING" && request.status !== "CANCELLED" && request.status !== "TAILOR_SELECTED") return existingOrder;
-  const selectedQuote = request.selectedQuote ? quoteFromBackend(request.selectedQuote) : existingOrder?.tailor;
-  if (!selectedQuote) return existingOrder;
+  const selectedQuote = request.selectedQuote ? quoteFromBackend(request.selectedQuote) : existingOrder?.tailor ?? {
+    id: `pending-${request.id}`,
+    backendRequestId: request.id,
+    initials: "DQ",
+    name: request.status === "CANCELLED" ? "No tailor assigned" : "Waiting for tailor quotes",
+    rating: "New",
+    reviews: 0,
+    eta: "Pending",
+    price: 0
+  };
 
   const fallbackDraft = existingOrder?.draft ?? makeEmptyDraft(request.pickupAddress);
   const draft: RequestDraft = {
@@ -2085,17 +2094,20 @@ function ConfirmOrderScreen({
   quote,
   draft,
   setScreen,
-  onPlaceOrder
+  onPlaceOrder,
+  isPlacingOrder
 }: {
   quote: Quote;
   draft: RequestDraft;
   setScreen: (screen: Screen) => void;
   onPlaceOrder: (paymentMethod: string) => void;
+  isPlacingOrder?: boolean;
 }) {
   const [payment, setPayment] = useState("ONLINE");
   const deliveryFee = deliveryFeeForUrgency(draft.urgency);
   const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
   const total = totalForQuote(quote, draft);
+  const buttonLabel = payment === "COD" ? `Confirm COD Rs${total}` : payment === "UPI" ? `Pay UPI Rs${total}` : `Pay Online Rs${total}`;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -2137,17 +2149,22 @@ function ConfirmOrderScreen({
           <Text style={styles.cardLabel}>PAYMENT METHOD</Text>
           {[
             ["ONLINE", "Online Payment"],
+            ["UPI", "UPI Payment"],
             ["COD", "Cash on Delivery"]
           ].map(([key, label]) => (
-            <Pressable key={key} style={styles.paymentRow} onPress={() => setPayment(key)}>
+            <Pressable key={key} style={styles.paymentRow} onPress={() => !isPlacingOrder && setPayment(key)} disabled={isPlacingOrder}>
               <Ionicons name={payment === key ? "radio-button-on" : "radio-button-off"} size={21} color={payment === key ? BRAND_ORANGE : "#111111"} />
               <Text style={styles.paymentText}>{label}</Text>
             </Pressable>
           ))}
         </View>
 
-        <Pressable style={styles.primaryWideButton} onPress={() => onPlaceOrder(payment)}>
-          <Text style={styles.primaryWideButtonText}>{payment === "ONLINE" ? `Pay Online Rs${total}` : `Confirm COD Rs${total}`}</Text>
+        <Pressable style={[styles.primaryWideButton, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment)} disabled={isPlacingOrder}>
+          {isPlacingOrder ? (
+            <ActivityIndicator color="#111111" />
+          ) : (
+            <Text style={styles.primaryWideButtonText}>{buttonLabel}</Text>
+          )}
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -2889,7 +2906,17 @@ function HelpCenterScreen({ setScreen, onOpenCancellationPolicy }: { setScreen: 
   );
 }
 
-function CancellationPolicyScreen({ order, setScreen, onConfirmCancel }: { order?: CustomerOrder; setScreen: (screen: Screen) => void; onConfirmCancel?: (order: CustomerOrder) => void }) {
+function CancellationPolicyScreen({
+  order,
+  setScreen,
+  onConfirmCancel,
+  isCancelling
+}: {
+  order?: CustomerOrder;
+  setScreen: (screen: Screen) => void;
+  onConfirmCancel?: (order: CustomerOrder) => void;
+  isCancelling?: boolean;
+}) {
   const canConfirm = Boolean(order && canCancelOrder(order.status));
 
   return (
@@ -2941,15 +2968,15 @@ function CancellationPolicyScreen({ order, setScreen, onConfirmCancel }: { order
               <Text style={styles.secondaryWideButtonText}>Keep Order</Text>
             </Pressable>
             <Pressable
-              style={[styles.cancelOrderButton, !canConfirm && styles.buttonDisabled]}
-              disabled={!canConfirm}
+              style={[styles.cancelOrderButton, (!canConfirm || isCancelling) && styles.buttonDisabled]}
+              disabled={!canConfirm || isCancelling}
               onPress={() => {
                 if (!order || !onConfirmCancel) return;
                 onConfirmCancel(order);
               }}
             >
-              <Ionicons name="close-circle-outline" size={18} color="#c24141" />
-              <Text style={styles.cancelOrderText}>{canConfirm ? "I Understand, Cancel Order" : "Cancellation Not Allowed"}</Text>
+              {isCancelling ? <ActivityIndicator color="#c24141" /> : <Ionicons name="close-circle-outline" size={18} color="#c24141" />}
+              <Text style={styles.cancelOrderText}>{isCancelling ? "Cancelling Order..." : canConfirm ? "I Understand, Cancel Order" : "Cancellation Not Allowed"}</Text>
             </Pressable>
           </>
         ) : null}
@@ -3315,6 +3342,17 @@ function OrderDetailsScreenV2({
             <StatusPill status={order.status} />
           </View>
         </View>
+        {order.status === "Cancelled" ? (
+          <View style={styles.cancelledNoticeCard}>
+            <Ionicons name="close-circle-outline" size={22} color="#b91c1c" />
+            <View style={styles.noticeTextBlock}>
+              <Text style={styles.cancelledNoticeTitle}>This order has been cancelled</Text>
+              <Text style={styles.cancelledNoticeCopy}>
+                {order.cancellationFee ? `Cancellation fee: Rs${order.cancellationFee}.` : "No cancellation charge applies before pickup."}
+              </Text>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>TAILOR</Text>
           <View style={styles.orderTailorBlock}>
@@ -3538,6 +3576,9 @@ export default function App() {
   const [deliveryLocations, setDeliveryLocations] = useState<Record<string, { latitude: number; longitude: number; updatedAt?: string }>>({});
   const [paymentSheet, setPaymentSheet] = useState<PaymentSheetState | undefined>();
   const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<string | undefined>();
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | undefined>();
+  const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
 
@@ -3636,6 +3677,13 @@ export default function App() {
       current.map((order) => (order.backendOrderId === requestId || order.tailor.backendRequestId === requestId ? { ...order, status: nextStatus } : order))
     );
     setActiveOrder((current) => current && (current.backendOrderId === requestId || current.tailor.backendRequestId === requestId) ? { ...current, status: nextStatus } : current);
+    if (nextStatus === "Cancelled") {
+      setDialog({
+        title: "Order cancelled",
+        message: `Order REQ-${requestId.slice(0, 8).toUpperCase()} has been cancelled.`,
+        actions: [{ label: "OK" }]
+      });
+    }
     updateCustomerData((data) => ({
       ...data,
       notifications: [
@@ -3722,7 +3770,9 @@ export default function App() {
 
   async function confirmCancelOrder(order: CustomerOrder) {
     if (!token || !order.backendOrderId) return;
+    if (cancellingOrderId) return;
     try {
+      setCancellingOrderId(order.backendOrderId);
       const cancelled = await api<BackendTailoringRequest>(`/tailoring-requests/${order.backendOrderId}/cancel`, { method: "POST" }, token);
       const nextOrder = orderFromBackendRequest(cancelled, order) ?? { ...order, status: "Cancelled" as const };
       updateOrder(nextOrder);
@@ -3735,6 +3785,8 @@ export default function App() {
       });
     } catch (error) {
       Alert.alert("Cancellation failed", error instanceof Error ? error.message : "Could not cancel this order.");
+    } finally {
+      setCancellingOrderId(undefined);
     }
   }
 
@@ -3764,11 +3816,11 @@ export default function App() {
       >
         {node}
         <AppDialog dialog={dialog} onClose={() => setDialog(undefined)} />
-        <Modal visible={Boolean(paymentSheet)} animationType="slide" onRequestClose={() => setPaymentSheet(undefined)}>
+        <Modal visible={Boolean(paymentSheet)} animationType="slide" onRequestClose={() => !verifyingPayment && setPaymentSheet(undefined)}>
           <SafeAreaView style={styles.safe}>
             <View style={[styles.rowBetween, { paddingHorizontal: 20, paddingTop: 12 }]}>
               <Text style={styles.sectionTitle}>{verifyingPayment ? "Verifying payment" : "Complete Payment"}</Text>
-              <Pressable onPress={() => setPaymentSheet(undefined)}>
+              <Pressable onPress={() => !verifyingPayment && setPaymentSheet(undefined)} disabled={verifyingPayment}>
                 <Ionicons name="close" size={22} color={BRAND_DEEP} />
               </Pressable>
             </View>
@@ -3792,6 +3844,23 @@ export default function App() {
         description: ${JSON.stringify(paymentSheet.config.description)},
         order_id: ${JSON.stringify(paymentSheet.config.orderId)},
         prefill: ${JSON.stringify(paymentSheet.config.prefill ?? {})},
+        method: ${JSON.stringify(paymentSheet.paymentMethod === "UPI" ? { upi: true } : { upi: true, card: true, netbanking: true, wallet: true })},
+        config: ${JSON.stringify(paymentSheet.paymentMethod === "UPI" ? {
+          display: {
+            blocks: {
+              upi: {
+                name: "Pay using UPI",
+                instruments: [{ method: "upi" }]
+              }
+            },
+            sequence: ["block.upi"],
+            preferences: { show_default_blocks: true }
+          }
+        } : {
+          display: {
+            preferences: { show_default_blocks: true }
+          }
+        })},
         theme: { color: "#F6A313" },
         handler: function (response) { send({ type: "success", ...response }); }
       };
@@ -3879,6 +3948,14 @@ export default function App() {
   useEffect(() => {
     if (!token || !hasLoadedCustomerData) return;
     void refreshCustomerOrders();
+  }, [token, hasLoadedCustomerData]);
+
+  useEffect(() => {
+    if (!token || !hasLoadedCustomerData) return undefined;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshCustomerOrders();
+    });
+    return () => subscription.remove();
   }, [token, hasLoadedCustomerData]);
 
   useEffect(() => {
@@ -4003,12 +4080,14 @@ export default function App() {
 
   async function placeOrder(paymentMethod: string) {
     if (!selectedQuote?.backendRequestId || !selectedQuote.backendQuoteId || !token) return;
+    if (checkoutPaymentMethod) return;
     const orderDraft = { ...draft, pickup: defaultAddress?.address ?? draft.pickup };
     const deliveryFee = deliveryFeeForUrgency(orderDraft.urgency);
     const homeMeasurementFee = homeMeasurementFeeForDraft(orderDraft);
     const totalAmount = totalForQuote(selectedQuote, orderDraft);
 
     try {
+      setCheckoutPaymentMethod(paymentMethod);
       const response = await api<CheckoutStartResponse>(
         `/tailoring-requests/${selectedQuote.backendRequestId}/checkout`,
         {
@@ -4039,20 +4118,25 @@ export default function App() {
       }
 
       if (response.razorpay) {
+        paymentMessageHandledRef.current = false;
         setPaymentSheet({
           requestId: selectedQuote.backendRequestId,
           quote: selectedQuote,
           draft: orderDraft,
+          paymentMethod,
           config: response.razorpay
         });
       }
     } catch (error) {
       Alert.alert("Checkout failed", error instanceof Error ? error.message : "Could not start checkout.");
+    } finally {
+      setCheckoutPaymentMethod(undefined);
     }
   }
 
   async function handlePaymentSheetMessage(raw: string) {
     if (!paymentSheet || !token) return;
+    if (paymentMessageHandledRef.current) return;
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(raw);
@@ -4060,17 +4144,20 @@ export default function App() {
       return;
     }
     if (payload.type === "cancel") {
+      paymentMessageHandledRef.current = true;
       setPaymentSheet(undefined);
       Alert.alert("Payment cancelled", "You can retry online payment or switch to COD.");
       return;
     }
     if (payload.type === "failure") {
+      paymentMessageHandledRef.current = true;
       setPaymentSheet(undefined);
       Alert.alert("Payment failed", "Razorpay could not complete the payment. Please try again.");
       return;
     }
     if (payload.type !== "success") return;
     try {
+      paymentMessageHandledRef.current = true;
       setVerifyingPayment(true);
       const result = await api<CheckoutVerifyResponse>(
         `/tailoring-requests/${paymentSheet.requestId}/checkout/verify`,
@@ -4116,7 +4203,7 @@ export default function App() {
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
   if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} />);
-  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setScreen={setScreen} onPlaceOrder={placeOrder} />);
+  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
   if (screen === "trackOrder" && activeOrderForCustomer) {
     const locationKey = activeOrderForCustomer.backendOrderId ?? activeOrderForCustomer.tailor.backendRequestId ?? activeOrderForCustomer.id;
@@ -4138,7 +4225,7 @@ export default function App() {
   if (screen === "walletPayments") return withAppChrome(<WalletPaymentsScreen setScreen={setScreen} />);
   if (screen === "coupons") return withAppChrome(<CouponsScreenV2 setScreen={setScreen} />);
   if (screen === "helpCenter") return withAppChrome(<HelpCenterScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />);
-  if (screen === "cancellationPolicy") return withAppChrome(<CancellationPolicyScreen order={pendingCancellationOrder} setScreen={setScreen} onConfirmCancel={confirmCancelOrder} />);
+  if (screen === "cancellationPolicy") return withAppChrome(<CancellationPolicyScreen order={pendingCancellationOrder} setScreen={setScreen} onConfirmCancel={confirmCancelOrder} isCancelling={Boolean(cancellingOrderId)} />);
   if (screen === "contactSupport") return withAppChrome(<ContactSupportScreen onSave={saveSupportTicket} setScreen={setScreen} />);
   if (screen === "rateApp") return withAppChrome(<RateAppScreen onSave={saveAppReview} setScreen={setScreen} />);
   if (screen === "privacyPolicy") return withAppChrome(<PolicyScreen title="Privacy Policy" setScreen={setScreen} />);
@@ -4523,6 +4610,10 @@ function createStyles(isDark = false) {
   orderTailorText: { flex: 1, minWidth: 0, marginLeft: 12 },
   orderNumber: { color: "#dc2626", fontSize: 22, fontWeight: "900", letterSpacing: 0.4 },
   orderService: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 6 },
+  cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  noticeTextBlock: { flex: 1, minWidth: 0 },
+  cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
+  cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
   orderCardDivider: { height: 1, backgroundColor: border, marginVertical: 14 },
   smallQuoteAvatar: { width: 38, height: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   smallAvatarText: { color: "#111111", fontSize: 11, fontWeight: "900" },

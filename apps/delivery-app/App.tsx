@@ -1576,6 +1576,17 @@ function ActiveOrderScreenView({
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title="Active job" subtitle={`${shortId(order.id)} - ${order.status}`} onBack={onBack} />
         <Text style={styles.activeOrderId}>REQ-{order.orderId.slice(0, 8).toUpperCase()}</Text>
+        {order.taskStatus === "cancelled" || order.status === "CANCELLED" ? (
+          <Card>
+            <View style={styles.cancelledNoticeRow}>
+              <Ionicons name="close-circle-outline" size={22} color="#b91c1c" />
+              <View style={styles.flexOne}>
+                <Text style={styles.cancelledNoticeTitle}>This delivery has been cancelled</Text>
+                <Text style={styles.cancelledNoticeCopy}>Do not pick up, collect cash, or deliver this package.</Text>
+              </View>
+            </View>
+          </Card>
+        ) : null}
         <View style={styles.detailSectionNav}>
           {(["summary", "route", "confirmations"] as ActiveOrderScreen[]).map((item) => (
             <Pressable style={[styles.detailSectionButton, screen === item && styles.detailSectionButtonActive]} key={item} onPress={() => setScreen(item)}>
@@ -1884,6 +1895,30 @@ function MainApp({
       const request = normalizeDeliveryTask(payload);
       setRequests((current) => [request, ...current.filter((item) => item.id !== request.id)]);
       setActiveOrder((current) => current?.id === request.id ? request : current);
+    });
+    socket.on("delivery:task_cancelled", ({ orderId, taskIds }: { orderId?: string; taskIds?: string[] }) => {
+      const ids = new Set(taskIds ?? []);
+      setRequestVisible(false);
+      setPopupRequest((current) => current && (ids.has(current.id) || current.orderId === orderId) ? undefined : current);
+      setRequests((current) =>
+        current.map((request) =>
+          ids.has(request.id) || request.orderId === orderId
+            ? { ...request, taskStatus: "cancelled", status: "CANCELLED" }
+            : request
+        )
+      );
+      setActiveOrder((current) =>
+        current && (ids.has(current.id) || current.orderId === orderId)
+          ? { ...current, taskStatus: "cancelled", status: "CANCELLED" }
+          : current
+      );
+      if (orderId || ids.size) {
+        showDialog({
+          title: "Order cancelled",
+          message: `Delivery ${orderId ? orderId.slice(0, 8).toUpperCase() : "request"} has been cancelled.`,
+          icon: "close-circle-outline"
+        });
+      }
     });
     return () => {
       socket.disconnect();
@@ -2324,6 +2359,9 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 },
   noticeText: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 12 },
+  cancelledNoticeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
+  cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
   navRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   documentBox: { minHeight: 104, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 10, marginTop: 10, overflow: "hidden" },
   documentPreview: { width: 76, height: 76, flexShrink: 0, borderRadius: 14, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", overflow: "hidden" },

@@ -461,8 +461,39 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
 
   emitToCustomer(request.customerId, "customer:order_status_updated", { requestId: request.id, status: "CANCELLED" });
   const acceptedQuote = await findSelectedQuote(request.id, request.selectedQuoteId);
-  if (acceptedQuote?.tailorId) emitToTailor(acceptedQuote.tailorId, "tailoring:delivery_status_updated", { orderId: request.id, status: "cancelled" });
+  if (acceptedQuote?.tailorId) {
+    emitToTailor(acceptedQuote.tailorId, "tailoring:order_cancelled", { orderId: request.id, requestId: request.id, status: "cancelled" });
+    emitToTailor(acceptedQuote.tailorId, "tailoring:delivery_status_updated", { orderId: request.id, status: "cancelled" });
+    const tailor = await TailorModel.findById(acceptedQuote.tailorId).select("userId");
+    if (tailor?.userId) {
+      await sendPushToUsers([tailor.userId], {
+        title: "Order cancelled",
+        body: `${request.clothType} order ${request.id.slice(0, 8).toUpperCase()} has been cancelled by the customer.`,
+        data: { type: "ORDER_CANCELLED", requestId: request.id, orderId: request.id, screen: "orderDetails" },
+        channelId: "tailor-new-requests-v2",
+        categoryId: "TAILOR_QUOTE_ACCEPTED",
+        sound: "ding.mp3",
+        actions: ["View Details"]
+      });
+    }
+  }
   emitToDeliveryPartners("delivery:task_cancelled", { orderId: request.id, taskIds: tasks.map((task) => task.id) });
+  const assignedPartnerIds = [...new Set(tasks.map((task) => task.assignedDeliveryPartnerId).filter((id): id is string => typeof id === "string" && id.length > 0))];
+  if (assignedPartnerIds.length) {
+    const assignedPartners = await DeliveryPartnerModel.find({ _id: { $in: assignedPartnerIds } }).select("userId");
+    const userIds = assignedPartners.map((partner) => partner.userId).filter(Boolean);
+    if (userIds.length) {
+      await sendPushToUsers(userIds, {
+        title: "Delivery cancelled",
+        body: `${request.clothType} pickup for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
+        data: { type: "DELIVERY_CANCELLED", requestId: request.id, orderId: request.id, screen: "pickupDetails" },
+        channelId: "delivery-updates-v2",
+        categoryId: "DELIVERY_PICKUP_REQUEST",
+        sound: "ding.mp3",
+        actions: ["View Details"]
+      });
+    }
+  }
   return updated;
 }
 
