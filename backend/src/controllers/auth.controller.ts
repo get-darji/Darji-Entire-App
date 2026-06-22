@@ -5,8 +5,26 @@ import { DeliveryPartnerModel, OrderModel, ReviewModel, TailorModel, UserModel, 
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
+import { env } from "../env.js";
 
 const deliveryVerificationBypassPhones = new Set(["9999966666"]);
+
+function parsePhoneAllowlist(value: string) {
+  return new Set(
+    value
+      .split(",")
+      .map((phone) => phone.trim())
+      .filter(Boolean)
+  );
+}
+
+function assertAdminPhoneAllowed(phone: string, role?: string) {
+  if (role !== "ADMIN") return;
+  const allowedPhones = parsePhoneAllowlist(env.ADMIN_ALLOWED_PHONES);
+  if (!allowedPhones.has(phone)) {
+    throw new AppError(403, "This phone number is not allowed to access the admin portal");
+  }
+}
 
 async function clearExpiredSuspension(user: {
   accountStatus?: string | null;
@@ -51,12 +69,14 @@ function assertUserCanAccess(user: {
 
 export async function requestOtpController(req: Request, res: Response) {
   const input = requestOtpSchema.parse(req.body);
+  assertAdminPhoneAllowed(input.phone, input.role);
   const result = await requestOtp(input.phone);
   res.json({ data: result, message: "OTP sent" });
 }
 
 export async function verifyOtpController(req: Request, res: Response) {
   const input = verifyOtpSchema.parse(req.body);
+  assertAdminPhoneAllowed(input.phone, input.role);
   await verifyOtp(input.phone, input.otp);
 
   const user = await UserModel.findOneAndUpdate(

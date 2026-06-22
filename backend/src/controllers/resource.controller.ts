@@ -430,7 +430,8 @@ export async function submitTailorVerificationController(req: Request, res: Resp
         verificationSubmittedAt: new Date(),
         verificationReviewedAt: undefined,
         verificationRejectionReason: undefined,
-        verification: input
+        verification: input,
+        verificationDraft: undefined
       },
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     )
@@ -606,7 +607,8 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
         verificationSubmittedAt: new Date(),
         verificationReviewedAt: undefined,
         verificationRejectionReason: undefined,
-        verification: input
+        verification: input,
+        verificationDraft: undefined
       },
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     )

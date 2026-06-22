@@ -22,7 +22,9 @@ app.use(notFound);
 app.use(errorHandler);
 
 await connectDatabase();
-await seedDatabase();
+if (env.AUTO_SEED || env.NODE_ENV !== "production") {
+  await seedDatabase();
+}
 initFirebaseAdmin();
 
 const server = app.listen(env.PORT, () => {

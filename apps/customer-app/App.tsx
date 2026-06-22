@@ -9,6 +9,7 @@ import * as Notifications from "expo-notifications";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { WebView } from "react-native-webview";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -76,6 +77,7 @@ type BackendTailorQuote = {
   tailorId: string;
   price: number;
   estimatedDays: number;
+  estimatedHours?: number;
   message?: string;
   pickupIncluded?: boolean;
   status: "SUBMITTED" | "ACCEPTED" | "REJECTED";
@@ -88,13 +90,15 @@ type BackendTailorQuote = {
 };
 type LocalMedia = { uri: string; type: "image" | "video"; name: string; size?: number };
 type OrderStatus =
+  | "Awaiting Payment"
   | "Pending"
   | "Confirmed"
+  | "Pickup Started"
   | "Order Placed"
   | "Picked Up"
-  | "Delivered to Tailor"
+  | "Package Handover to Tailor"
   | "Tailor Started"
-  | "Picked Up from Tailor"
+  | "Tailor Completed"
   | "On the Way"
   | "Delivered"
   | "Cancelled";
@@ -109,6 +113,9 @@ type CustomerOrder = {
   placedAt: string;
   pickupWindow: string;
   paymentMethod: string;
+  paymentStatus?: string;
+  backendRequestStatus?: string;
+  cancellationFee?: number;
   tailorRating?: number;
   deliveryRating?: number;
   tailorReview?: string;
@@ -119,6 +126,58 @@ type CustomerOrder = {
   deliveryFee?: number;
   platformFee?: number;
   homeMeasurementFee?: number;
+};
+type BackendRequestQuote = BackendTailorQuote & { estimatedHours?: number; tailor?: BackendTailorQuote["tailor"] };
+type BackendTailoringRequest = {
+  id: string;
+  description: string;
+  gender?: string;
+  clothType: string;
+  workType: string;
+  urgency: string;
+  pickupAddress: string;
+  sampleProvided?: boolean;
+  sampleMedia?: UploadedMedia[];
+  status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
+  orderStatus?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  quoteAmount?: number;
+  deliveryFee?: number;
+  platformFee?: number;
+  homeMeasurementFee?: number;
+  totalAmount?: number;
+  cancellationFee?: number;
+  cancelledAt?: string;
+  confirmedAt?: string;
+  createdAt: string;
+  selectedQuote?: BackendRequestQuote | null;
+};
+type CheckoutStartResponse = {
+  mode: "cod" | "online";
+  request?: BackendTailoringRequest;
+  quote?: BackendRequestQuote | null;
+  deliveryRequest?: { id: string } | null;
+  razorpay?: {
+    keyId: string;
+    orderId: string;
+    amount: number;
+    currency: string;
+    name: string;
+    description: string;
+    prefill?: { name?: string; contact?: string };
+  };
+};
+type CheckoutVerifyResponse = {
+  request: BackendTailoringRequest;
+  quote?: BackendRequestQuote | null;
+  deliveryRequest?: { id: string } | null;
+};
+type PaymentSheetState = {
+  requestId: string;
+  quote: Quote;
+  draft: RequestDraft;
+  config: NonNullable<CheckoutStartResponse["razorpay"]>;
 };
 type ProfileData = { name: string; phone: string; dateOfBirth?: string; avatarUri?: string; hasCompletedOnboarding?: boolean };
 type AppSettings = { notifications: boolean; orderUpdates: boolean; darkMode: boolean; compactCards: boolean; locationAccess: boolean; saveMedia: boolean };
@@ -177,43 +236,27 @@ configureForegroundNotificationHandler();
 const cancellationPolicySections = [
   {
     title: "Before Pickup",
-    status: "Order placed or pickup scheduled",
+    status: "Awaiting payment, confirmed, or pickup not started",
     cancellation: "Allowed",
     refund: "100% refund",
     charges: "No cancellation charges",
-    reason: "The garment has not entered pickup or tailoring operations yet."
+    reason: "If the package has not been picked up from your home, cancellation is free."
   },
   {
-    title: "After Pickup, Before Stitching Starts",
-    status: "Picked up or accepted by tailor",
+    title: "After Pickup, Before Tailor Handover",
+    status: "Pickup started or clothes collected from customer",
     cancellation: "Allowed",
-    refund: "65%-70% of the order amount",
-    charges: "30%-35% of the order amount",
-    reason: "Charges cover pickup, transportation, tailor inspection, preparation, packaging, handling, and operational expenses."
+    refund: "Order refund after deducting charges",
+    charges: "Delivery charge + cancellation fee",
+    reason: "Once the rider has picked up the package, transport and handling charges apply even if tailoring has not started."
   },
   {
-    title: "After Stitching Starts",
-    status: "In progress",
+    title: "After Tailor Handover",
+    status: "Delivered to tailor, stitching started, ready, or out for delivery",
     cancellation: "Not allowed",
     refund: "No refund",
     charges: "Full order amount may be charged",
-    reason: "Customized garments cannot be undone or resold once stitching starts."
-  },
-  {
-    title: "Ready for Delivery",
-    status: "Ready",
-    cancellation: "Not allowed",
-    refund: "No refund",
-    charges: "Full order amount may be charged",
-    reason: "The tailoring work is complete and ready to dispatch."
-  },
-  {
-    title: "Out for Delivery",
-    status: "Out for delivery",
-    cancellation: "Not allowed",
-    refund: "No refund",
-    charges: "Full order amount may be charged",
-    reason: "The order is already in final delivery movement."
+    reason: "Once the package is handed over to the tailor, the order is locked and cannot be cancelled."
   }
 ] as const;
 
@@ -560,26 +603,28 @@ function parseDateInput(value?: string) {
 function statusStyle(status: OrderStatus) {
   if (status === "Delivered") return { color: "#15803d", backgroundColor: "#dcfce7" };
   if (status === "Cancelled") return { color: "#b91c1c", backgroundColor: "#fee2e2" };
-  if (status === "Pending") return { color: "#a16207", backgroundColor: "#fef3c7" };
-  if (status === "Confirmed" || status === "Order Placed") return { color: "#2563eb", backgroundColor: "#dbeafe" };
+  if (status === "Pending" || status === "Awaiting Payment") return { color: "#a16207", backgroundColor: "#fef3c7" };
+  if (status === "Confirmed" || status === "Order Placed" || status === "Pickup Started") return { color: "#2563eb", backgroundColor: "#dbeafe" };
   if (status === "Tailor Started") return { color: "#7c3aed", backgroundColor: "#ede9fe" };
-  if (status === "On the Way" || status === "Picked Up from Tailor") return { color: "#c76f00", backgroundColor: "#fff2d8" };
+  if (status === "On the Way" || status === "Tailor Completed") return { color: "#c76f00", backgroundColor: "#fff2d8" };
   return { color: "#c76f00", backgroundColor: "#fff2d8" };
 }
 
 function trackStepsForStatus(status: OrderStatus) {
-  const labels = ["Order Placed", "Picked Up", "Delivered to Tailor", "Tailor Started", "Picked Up from Tailor", "On the Way", "Delivered"];
-  const times = ["10:30 AM", "11:20 AM", "12:10 PM", "", "", "", ""];
+  const labels = ["Order Confirmed", "Pickup Started", "Picked Up From Customer", "Package Handover to Tailor", "Tailor Started", "Tailor Completed", "Out for Delivery", "Delivered"];
+  const times = ["", "", "", "", "", "", "", ""];
   const completedMap: Record<OrderStatus, number> = {
-    Pending: 0,
-    Confirmed: 1,
+    "Awaiting Payment": -1,
+    Pending: -1,
+    Confirmed: 0,
+    "Pickup Started": 1,
     "Order Placed": 0,
-    "Picked Up": 1,
-    "Delivered to Tailor": 2,
-    "Tailor Started": 3,
-    "Picked Up from Tailor": 4,
-    "On the Way": 5,
-    Delivered: 6,
+    "Picked Up": 2,
+    "Package Handover to Tailor": 3,
+    "Tailor Started": 4,
+    "Tailor Completed": 5,
+    "On the Way": 6,
+    Delivered: 7,
     Cancelled: 0
   };
   const completed = completedMap[status];
@@ -587,7 +632,15 @@ function trackStepsForStatus(status: OrderStatus) {
 }
 
 function canCancelOrder(status: OrderStatus) {
-  return ["Pending", "Confirmed", "Order Placed", "Picked Up", "Delivered to Tailor"].includes(status);
+  return ["Awaiting Payment", "Pending", "Confirmed", "Pickup Started", "Order Placed", "Picked Up"].includes(status);
+}
+
+function etaLabel(quote?: { estimatedDays?: number; estimatedHours?: number; eta?: string }) {
+  if (!quote) return "1 day";
+  if (typeof quote.eta === "string") return quote.eta;
+  if (quote.estimatedHours && quote.estimatedHours > 0) return `${quote.estimatedHours} hour${quote.estimatedHours === 1 ? "" : "s"}`;
+  const days = quote.estimatedDays ?? 1;
+  return `${days} day${days === 1 ? "" : "s"}`;
 }
 
 function normalizeDigits(value: string) {
@@ -705,8 +758,7 @@ function AuthScreen() {
     try {
       setIsRequestingOtp(true);
       const result = await api<{ otp?: string }>("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
-      verifyForm.setValue("phone", values.phone);
-      if (result.otp) verifyForm.setValue("otp", result.otp);
+      verifyForm.reset({ phone: values.phone, role: "CUSTOMER", otp: result.otp ?? "123456" });
       setOtpRequested(true);
     } catch (error) {
       Alert.alert("OTP failed", error instanceof Error ? error.message : "Check backend connection");
@@ -1846,7 +1898,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
   );
 }
 
-function quoteFromBackend(quote: BackendTailorQuote): Quote {
+function quoteFromBackend(quote: BackendRequestQuote): Quote {
   const name = quote.tailor?.shopName || quote.tailor?.user?.name || "Darji Tailor";
   return {
     id: quote.id,
@@ -1857,8 +1909,67 @@ function quoteFromBackend(quote: BackendTailorQuote): Quote {
     name,
     rating: String(quote.tailor?.rating ?? "4.5"),
     reviews: 0,
-    eta: `${quote.estimatedDays} ${quote.estimatedDays === 1 ? "day" : "days"}`,
+    eta: etaLabel(quote),
     price: quote.price
+  };
+}
+
+function statusFromBackendRequest(request: BackendTailoringRequest): OrderStatus {
+  if (request.status === "CANCELLED" || request.orderStatus === "cancelled") return "Cancelled";
+  if (request.status === "PAYMENT_PENDING" || request.orderStatus === "payment_pending") return "Awaiting Payment";
+  if (request.orderStatus === "pickup_started") return "Pickup Started";
+  if (request.orderStatus === "picked_up_from_customer") return "Picked Up";
+  if (request.orderStatus === "received_by_tailor") return "Package Handover to Tailor";
+  if (request.orderStatus === "ready_for_delivery") return "Tailor Completed";
+  if (request.orderStatus === "out_for_delivery") return "On the Way";
+  if (request.orderStatus === "completed") return "Delivered";
+  if (request.status === "TAILOR_SELECTED") return "Confirmed";
+  return "Pending";
+}
+
+function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder?: CustomerOrder): CustomerOrder | undefined {
+  if (!request.selectedQuote && request.status !== "PAYMENT_PENDING" && request.status !== "CANCELLED" && request.status !== "TAILOR_SELECTED") return existingOrder;
+  const selectedQuote = request.selectedQuote ? quoteFromBackend(request.selectedQuote) : existingOrder?.tailor;
+  if (!selectedQuote) return existingOrder;
+
+  const fallbackDraft = existingOrder?.draft ?? makeEmptyDraft(request.pickupAddress);
+  const draft: RequestDraft = {
+    ...fallbackDraft,
+    description: request.description,
+    gender: request.gender,
+    clothType: request.clothType,
+    workType: request.workType,
+    urgency: request.urgency,
+    pickup: request.pickupAddress,
+    sampleProvided: request.sampleProvided,
+    backendRequestId: request.id
+  };
+
+  return {
+    ...(existingOrder ?? {}),
+    id: existingOrder?.id ?? request.id,
+    backendOrderId: request.id,
+    orderNumber: `REQ-${request.id.slice(0, 8).toUpperCase()}`,
+    tailor: { ...selectedQuote, eta: etaLabel(request.selectedQuote ?? selectedQuote) },
+    draft,
+    total: request.totalAmount ?? existingOrder?.total ?? selectedQuote.price,
+    status: statusFromBackendRequest(request),
+    placedAt: request.confirmedAt ?? request.createdAt,
+    pickupWindow: existingOrder?.pickupWindow ?? "Today, 2:00 - 4:00 PM",
+    paymentMethod: (request.paymentMethod ?? existingOrder?.paymentMethod ?? "COD").toUpperCase(),
+    paymentStatus: request.paymentStatus ?? existingOrder?.paymentStatus,
+    backendRequestStatus: request.status,
+    cancellationFee: request.cancellationFee,
+    deliveryFee: request.deliveryFee ?? existingOrder?.deliveryFee,
+    platformFee: request.platformFee ?? existingOrder?.platformFee,
+    homeMeasurementFee: request.homeMeasurementFee ?? existingOrder?.homeMeasurementFee,
+    tailorRating: existingOrder?.tailorRating,
+    deliveryRating: existingOrder?.deliveryRating,
+    tailorReview: existingOrder?.tailorReview,
+    deliveryReview: existingOrder?.deliveryReview,
+    tailorRatingSubmittedAt: existingOrder?.tailorRatingSubmittedAt,
+    deliveryRatingSubmittedAt: existingOrder?.deliveryRatingSubmittedAt,
+    invoiceGeneratedAt: existingOrder?.invoiceGeneratedAt
   };
 }
 
@@ -1904,21 +2015,9 @@ function QuotesScreen({
       setScreen("confirmOrder");
       return;
     }
-
-    try {
-      setConfirming(true);
-      await api(`/tailoring-requests/${selectedQuote.backendRequestId}/quotes/${selectedQuote.backendQuoteId}/select`, { method: "POST" }, token);
-      setScreen("confirmOrder");
-    } catch (error) {
-      if (isSessionError(error)) {
-        Alert.alert("Session expired", "Please log in again before selecting a tailor.");
-        signOut();
-        return;
-      }
-      Alert.alert("Selection failed", error instanceof Error ? error.message : "Could not select this tailor.");
-    } finally {
-      setConfirming(false);
-    }
+    setConfirming(true);
+    setScreen("confirmOrder");
+    setConfirming(false);
   }
 
   return (
@@ -1993,7 +2092,7 @@ function ConfirmOrderScreen({
   setScreen: (screen: Screen) => void;
   onPlaceOrder: (paymentMethod: string) => void;
 }) {
-  const [payment, setPayment] = useState("upi");
+  const [payment, setPayment] = useState("ONLINE");
   const deliveryFee = deliveryFeeForUrgency(draft.urgency);
   const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
   const total = totalForQuote(quote, draft);
@@ -2037,9 +2136,8 @@ function ConfirmOrderScreen({
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>PAYMENT METHOD</Text>
           {[
-            ["upi", "UPI"],
-            ["card", "Credit / Debit Card"],
-            ["cod", "Cash on Delivery"]
+            ["ONLINE", "Online Payment"],
+            ["COD", "Cash on Delivery"]
           ].map(([key, label]) => (
             <Pressable key={key} style={styles.paymentRow} onPress={() => setPayment(key)}>
               <Ionicons name={payment === key ? "radio-button-on" : "radio-button-off"} size={21} color={payment === key ? BRAND_ORANGE : "#111111"} />
@@ -2049,7 +2147,7 @@ function ConfirmOrderScreen({
         </View>
 
         <Pressable style={styles.primaryWideButton} onPress={() => onPlaceOrder(payment)}>
-          <Text style={styles.primaryWideButtonText}>Place Order Rs{total}</Text>
+          <Text style={styles.primaryWideButtonText}>{payment === "ONLINE" ? `Pay Online Rs${total}` : `Confirm COD Rs${total}`}</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -2165,8 +2263,10 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
           <SummaryRow label="Pickup" value={order.pickupWindow} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
+          <SummaryRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} />
           <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} />
+          {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} /> : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
           <View style={styles.summaryDivider} />
@@ -2800,7 +2900,7 @@ function CancellationPolicyScreen({ order, setScreen, onConfirmCancel }: { order
           <Ionicons name="document-text-outline" size={26} color={BRAND_ORANGE} />
           <View style={styles.policyHeroText}>
             <Text style={styles.addressTitle}>Darzi Cancellation Policy</Text>
-            <Text style={styles.infoCopy}>Once stitching begins, the order becomes personalized and cannot be cancelled or refunded.</Text>
+            <Text style={styles.infoCopy}>Cancellation is free before pickup. After pickup, delivery charges and a cancellation fee apply until the package reaches the tailor.</Text>
           </View>
         </View>
         {order ? (
@@ -3436,6 +3536,8 @@ export default function App() {
   const [requestProgressScreen, setRequestProgressScreen] = useState<RequestFlowScreen>("newRequest");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [deliveryLocations, setDeliveryLocations] = useState<Record<string, { latitude: number; longitude: number; updatedAt?: string }>>({});
+  const [paymentSheet, setPaymentSheet] = useState<PaymentSheetState | undefined>();
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
 
@@ -3486,24 +3588,46 @@ export default function App() {
     setActiveOrder(nextOrder);
   }
 
+  async function refreshCustomerOrders() {
+    if (!token) return;
+    try {
+      const requestData = await api<BackendTailoringRequest[]>("/tailoring-requests", {}, token);
+      let nextOrders: CustomerOrder[] = [];
+      setCustomerOrders((current) => {
+        nextOrders = requestData
+          .map((request) => orderFromBackendRequest(request, current.find((order) => order.backendOrderId === request.id || order.id === request.id)))
+          .filter((order): order is CustomerOrder => Boolean(order))
+          .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
+        return nextOrders;
+      });
+      setActiveOrder((current) => current ? nextOrders.find((order) => order.backendOrderId === current.backendOrderId || order.id === current.id) : current);
+    } catch (error) {
+      if (isSessionError(error)) signOut();
+    }
+  }
+
   function statusFromRealtime(status: string): OrderStatus {
     const map: Record<string, OrderStatus> = {
+      PAYMENT_PENDING: "Awaiting Payment",
       TAILOR_ACCEPTED: "Confirmed",
-      PICKUP_STARTED: "Picked Up",
+      PICKUP_STARTED: "Pickup Started",
       PICKED_UP: "Picked Up",
-      ORDER_REACHED_TAILOR: "Delivered to Tailor",
+      ORDER_REACHED_TAILOR: "Package Handover to Tailor",
       STITCHING_STARTED: "Tailor Started",
-      READY_FOR_DELIVERY: "Picked Up from Tailor",
+      READY_FOR_DELIVERY: "Tailor Completed",
       OUT_FOR_DELIVERY: "On the Way",
       DELIVERED: "Delivered",
-      pickup_started: "Confirmed",
+      CANCELLED: "Cancelled",
+      payment_pending: "Awaiting Payment",
+      pickup_started: "Pickup Started",
       picked_up_from_customer: "Picked Up",
-      received_by_tailor: "Delivered to Tailor",
-      ready_for_delivery: "Picked Up from Tailor",
+      received_by_tailor: "Package Handover to Tailor",
+      ready_for_delivery: "Tailor Completed",
       out_for_delivery: "On the Way",
-      completed: "Delivered"
+      completed: "Delivered",
+      cancelled: "Cancelled"
     };
-    return map[status] ?? "Confirmed";
+    return map[status] ?? "Pending";
   }
 
   function applyRealtimeOrderStatus(requestId: string, status: string) {
@@ -3515,7 +3639,7 @@ export default function App() {
     updateCustomerData((data) => ({
       ...data,
       notifications: [
-        { id: `rt-${requestId}-${status}-${Date.now()}`, icon: "notifications-outline", title: "Order update", text: status.replace(/_/g, " ").toLowerCase(), time: "Now", read: false },
+        { id: `rt-${requestId}-${status}-${Date.now()}`, icon: "notifications-outline", title: "Order update", text: nextStatus, time: "Now", read: false },
         ...data.notifications
       ]
     }));
@@ -3596,15 +3720,22 @@ export default function App() {
     setScreen("cancellationPolicy");
   }
 
-  function confirmCancelOrder(order: CustomerOrder) {
-    updateOrder({ ...order, status: "Cancelled" });
-    setPendingCancellationOrder(undefined);
-    setScreen("orderDetails");
-    setDialog({
-      title: "Order cancelled",
-      message: `${order.orderNumber} has been cancelled according to the Darzi cancellation policy.`,
-      actions: [{ label: "Done" }]
-    });
+  async function confirmCancelOrder(order: CustomerOrder) {
+    if (!token || !order.backendOrderId) return;
+    try {
+      const cancelled = await api<BackendTailoringRequest>(`/tailoring-requests/${order.backendOrderId}/cancel`, { method: "POST" }, token);
+      const nextOrder = orderFromBackendRequest(cancelled, order) ?? { ...order, status: "Cancelled" as const };
+      updateOrder(nextOrder);
+      setPendingCancellationOrder(undefined);
+      setScreen("orderDetails");
+      setDialog({
+        title: "Order cancelled",
+        message: `Order ${nextOrder.orderNumber} is cancelled.`,
+        actions: [{ label: "Done" }]
+      });
+    } catch (error) {
+      Alert.alert("Cancellation failed", error instanceof Error ? error.message : "Could not cancel this order.");
+    }
   }
 
   function notifyForPressLaunch() {
@@ -3633,6 +3764,53 @@ export default function App() {
       >
         {node}
         <AppDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        <Modal visible={Boolean(paymentSheet)} animationType="slide" onRequestClose={() => setPaymentSheet(undefined)}>
+          <SafeAreaView style={styles.safe}>
+            <View style={[styles.rowBetween, { paddingHorizontal: 20, paddingTop: 12 }]}>
+              <Text style={styles.sectionTitle}>{verifyingPayment ? "Verifying payment" : "Complete Payment"}</Text>
+              <Pressable onPress={() => setPaymentSheet(undefined)}>
+                <Ionicons name="close" size={22} color={BRAND_DEEP} />
+              </Pressable>
+            </View>
+            {paymentSheet ? (
+              <WebView
+                source={{
+                  html: `<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  </head>
+  <body style="margin:0;background:#f7faff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+    <script>
+      function send(data){ window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(data)); }
+      var options = {
+        key: ${JSON.stringify(paymentSheet.config.keyId)},
+        amount: ${JSON.stringify(paymentSheet.config.amount)},
+        currency: ${JSON.stringify(paymentSheet.config.currency)},
+        name: ${JSON.stringify(paymentSheet.config.name)},
+        description: ${JSON.stringify(paymentSheet.config.description)},
+        order_id: ${JSON.stringify(paymentSheet.config.orderId)},
+        prefill: ${JSON.stringify(paymentSheet.config.prefill ?? {})},
+        theme: { color: "#F6A313" },
+        handler: function (response) { send({ type: "success", ...response }); }
+      };
+      var rzp = new Razorpay(options);
+      rzp.on("payment.failed", function (response) { send({ type: "failure", error: response.error || null }); });
+      rzp.on("modal.closed", function () { send({ type: "cancel" }); });
+      rzp.open();
+    </script>
+  </body>
+</html>`
+                }}
+                onMessage={(event) => {
+                  void handlePaymentSheetMessage(event.nativeEvent.data);
+                }}
+                startInLoadingState
+              />
+            ) : null}
+          </SafeAreaView>
+        </Modal>
       </NotificationProvider>
     );
   }
@@ -3697,6 +3875,11 @@ export default function App() {
   useEffect(() => {
     if (REQUEST_FLOW_SCREENS.has(screen)) setRequestProgressScreen(screen as RequestFlowScreen);
   }, [screen]);
+
+  useEffect(() => {
+    if (!token || !hasLoadedCustomerData) return;
+    void refreshCustomerOrders();
+  }, [token, hasLoadedCustomerData]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -3774,41 +3957,151 @@ export default function App() {
     };
   }, [token, customerPhone, customerData.hasCapturedCurrentAddress]);
 
-  function placeOrder(paymentMethod: string) {
-    if (!selectedQuote) return;
+  function storeConfirmedOrder(request: BackendTailoringRequest, quoteOverride?: Quote, draftOverride?: RequestDraft) {
+    const existing = orders.find((order) => order.backendOrderId === request.id || order.id === request.id);
+    const nextOrder =
+      orderFromBackendRequest(request, existing ? { ...existing, ...(quoteOverride ? { tailor: quoteOverride } : {}), ...(draftOverride ? { draft: draftOverride } : {}) } : undefined) ??
+      (quoteOverride
+        ? {
+            id: request.id,
+            backendOrderId: request.id,
+            orderNumber: `REQ-${request.id.slice(0, 8).toUpperCase()}`,
+            tailor: quoteOverride,
+            draft: draftOverride ?? draft,
+            total: request.totalAmount ?? totalForQuote(quoteOverride, draftOverride ?? draft),
+            status: statusFromBackendRequest(request),
+            placedAt: request.confirmedAt ?? request.createdAt,
+            pickupWindow: "Today, 2:00 - 4:00 PM",
+            paymentMethod: request.paymentMethod ?? "COD",
+            paymentStatus: request.paymentStatus,
+            backendRequestStatus: request.status,
+            deliveryFee: request.deliveryFee,
+            platformFee: request.platformFee,
+            homeMeasurementFee: request.homeMeasurementFee
+          } satisfies CustomerOrder
+        : undefined);
+    if (!nextOrder) return;
+
+    setCustomerOrders((current) => {
+      const filtered = current.filter((order) => order.backendOrderId !== request.id && order.id !== request.id);
+      return [nextOrder, ...filtered];
+    });
+    setCustomerNotifications([
+      {
+        id: `order-${request.id}-${Date.now()}`,
+        icon: "cube-outline",
+        title: nextOrder.status === "Awaiting Payment" ? "Payment pending" : "Order confirmed",
+        text: `${nextOrder.orderNumber} is now ${nextOrder.status.toLowerCase()}.`,
+        time: "Now",
+        read: false
+      },
+      ...notifications
+    ]);
+    setActiveOrder(nextOrder);
+    void playAppSound("confirmation");
+  }
+
+  async function placeOrder(paymentMethod: string) {
+    if (!selectedQuote?.backendRequestId || !selectedQuote.backendQuoteId || !token) return;
     const orderDraft = { ...draft, pickup: defaultAddress?.address ?? draft.pickup };
     const deliveryFee = deliveryFeeForUrgency(orderDraft.urgency);
     const homeMeasurementFee = homeMeasurementFeeForDraft(orderDraft);
-    const order: CustomerOrder = {
-      id: `${Date.now()}`,
-      backendOrderId: selectedQuote.backendRequestId,
-      orderNumber: selectedQuote.backendRequestId ? `REQ-${selectedQuote.backendRequestId.slice(0, 8).toUpperCase()}` : createOrderNumber(customerPhone, orders.length),
-      tailor: selectedQuote,
-      draft: orderDraft,
-      total: totalForQuote(selectedQuote, orderDraft),
-      status: "Confirmed",
-      placedAt: new Date().toISOString(),
-      pickupWindow: "Today, 2:00 - 4:00 PM",
-      paymentMethod,
-      deliveryFee,
-      platformFee: PLATFORM_FEE,
-      homeMeasurementFee
-    };
-    setCustomerOrders((current) => [order, ...current]);
-    setCustomerNotifications([
-      { id: `order-${order.id}`, icon: "cube-outline", title: "Order confirmed", text: `${order.orderNumber} has been created for ${order.tailor.name}.`, time: "Now", read: false },
-      ...notifications
-    ]);
-    setActiveOrder(order);
-    void playAppSound("confirmation");
-    setDraft(makeEmptyDraft(defaultAddress?.address ?? ""));
-    setSelectedQuote(undefined);
-    setScreen("orderDetails");
-    setDialog({
-      title: "Order placed",
-      message: `${order.orderNumber} has been created. You can track pickup, tailoring, and delivery from Orders.`,
-      actions: [{ label: "View Order" }]
-    });
+    const totalAmount = totalForQuote(selectedQuote, orderDraft);
+
+    try {
+      const response = await api<CheckoutStartResponse>(
+        `/tailoring-requests/${selectedQuote.backendRequestId}/checkout`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            quoteId: selectedQuote.backendQuoteId,
+            paymentMethod,
+            deliveryFee,
+            platformFee: PLATFORM_FEE,
+            homeMeasurementFee,
+            totalAmount
+          })
+        },
+        token
+      );
+
+      if (response.mode === "cod" && response.request) {
+        storeConfirmedOrder(response.request, selectedQuote, orderDraft);
+        setDraft(makeEmptyDraft(defaultAddress?.address ?? ""));
+        setSelectedQuote(undefined);
+        setScreen("orderDetails");
+        setDialog({
+          title: "Order confirmed",
+          message: `Order REQ-${response.request.id.slice(0, 8).toUpperCase()} is confirmed with COD.`,
+          actions: [{ label: "View Order" }]
+        });
+        return;
+      }
+
+      if (response.razorpay) {
+        setPaymentSheet({
+          requestId: selectedQuote.backendRequestId,
+          quote: selectedQuote,
+          draft: orderDraft,
+          config: response.razorpay
+        });
+      }
+    } catch (error) {
+      Alert.alert("Checkout failed", error instanceof Error ? error.message : "Could not start checkout.");
+    }
+  }
+
+  async function handlePaymentSheetMessage(raw: string) {
+    if (!paymentSheet || !token) return;
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (payload.type === "cancel") {
+      setPaymentSheet(undefined);
+      Alert.alert("Payment cancelled", "You can retry online payment or switch to COD.");
+      return;
+    }
+    if (payload.type === "failure") {
+      setPaymentSheet(undefined);
+      Alert.alert("Payment failed", "Razorpay could not complete the payment. Please try again.");
+      return;
+    }
+    if (payload.type !== "success") return;
+    try {
+      setVerifyingPayment(true);
+      const result = await api<CheckoutVerifyResponse>(
+        `/tailoring-requests/${paymentSheet.requestId}/checkout/verify`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            razorpay_payment_id: payload.razorpay_payment_id,
+            razorpay_order_id: payload.razorpay_order_id,
+            razorpay_signature: payload.razorpay_signature
+          })
+        },
+        token
+      );
+      if (result.request) {
+        storeConfirmedOrder(result.request, paymentSheet.quote, paymentSheet.draft);
+        setDraft(makeEmptyDraft(defaultAddress?.address ?? ""));
+        setSelectedQuote(undefined);
+        setScreen("orderDetails");
+        setDialog({
+          title: "Payment successful",
+          message: `Order REQ-${result.request.id.slice(0, 8).toUpperCase()} is confirmed and the tailor has been notified.`,
+          actions: [{ label: "View Order" }]
+        });
+        void refreshCustomerOrders();
+      }
+    } catch (error) {
+      Alert.alert("Payment verification failed", error instanceof Error ? error.message : "Could not verify payment.");
+    } finally {
+      setVerifyingPayment(false);
+      setPaymentSheet(undefined);
+    }
   }
 
   if (!token) return <AuthScreen />;

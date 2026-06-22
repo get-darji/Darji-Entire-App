@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -14,10 +14,17 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clear:orders": "tsx src/clear-dev-data.ts",
     "db:seed": "tsx src/seed.ts",
+    "db:reset": "tsx src/reset-database.ts",
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
     "@darzi/shared": "*",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.10.2",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
@@ -34,12 +41,6 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/morgan": "^1.9.10",
-    "@types/multer": "^2.0.0",
-    "@types/node": "^24.10.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

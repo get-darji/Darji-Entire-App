@@ -43,7 +43,7 @@ type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" |
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: string; bytes?: number };
-type TailorQuote = { id: string; price: number; estimatedDays: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "ACCEPTED" | "REJECTED" };
+type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "ACCEPTED" | "REJECTED" };
 type HandoffOtp = { taskId: string; type: "customer_to_tailor" | "tailor_to_customer"; stage: "pickup" | "drop"; otp: string; verified: boolean };
 type Customer = { id: string; name?: string; phone: string };
 type TailoringRequest = {
@@ -56,7 +56,7 @@ type TailoringRequest = {
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
   pickupAddress: string;
-  status: "QUOTE_REQUESTED" | "TAILOR_SELECTED" | "CANCELLED";
+  status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
   workStatus?: "ACCEPTED" | "WORKING" | "READY";
   media: MediaItem[];
   receivedMedia?: MediaItem[];
@@ -97,7 +97,7 @@ type TailorProfile = {
   earnings: number;
   workingHours?: { from?: string; to?: string };
   settings?: { notifications?: boolean; soundAlerts?: boolean; compactCards?: boolean; autoOpenNewRequests?: boolean; maxOrdersPerDay?: number };
-  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED";
+  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verificationSubmittedAt?: string;
   verificationRejectionReason?: string;
   verification?: TailorVerificationPayload;
@@ -195,6 +195,27 @@ function statusTone(status: string) {
   return { color: "#c76f00", backgroundColor: "#fff2d8" };
 }
 
+function urgencyWindow(urgency?: string) {
+  const value = String(urgency ?? "").toLowerCase();
+  if (value.includes("instant")) return { mode: "hours" as const, min: 1, max: 24, label: "Instant delivery", helper: "Enter hours only" };
+  if (value.includes("same day")) return { mode: "days" as const, min: 1, max: 1, label: "Same day", helper: "Only 1 day is allowed" };
+  if (value.includes("express")) return { mode: "days" as const, min: 1, max: 2, label: "Express", helper: "Allowed range: 1-2 days" };
+  return { mode: "days" as const, min: 1, max: 4, label: "Normal", helper: "Allowed range: 1-4 days" };
+}
+
+function urgencyTone(urgency?: string) {
+  const value = String(urgency ?? "").toLowerCase();
+  if (value.includes("instant") || value.includes("same day")) return { color: "#b91c1c", backgroundColor: "#fee2e2" };
+  if (value.includes("express")) return { color: "#c2410c", backgroundColor: "#ffedd5" };
+  return { color: "#1d4ed8", backgroundColor: "#dbeafe" };
+}
+
+function quoteEtaLabel(quote: { estimatedDays?: number; estimatedHours?: number }) {
+  if (quote.estimatedHours && quote.estimatedHours > 0) return `${quote.estimatedHours} hour${quote.estimatedHours === 1 ? "" : "s"}`;
+  const days = quote.estimatedDays ?? 1;
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 function money(value: number | string | undefined) {
   return `Rs ${Number(value ?? 0).toFixed(0)}`;
 }
@@ -274,8 +295,7 @@ function AuthScreen() {
     try {
       setIsRequesting(true);
       const result = await api<{ otp?: string }>("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
-      verifyForm.setValue("phone", values.phone);
-      if (result.otp) verifyForm.setValue("otp", result.otp);
+      verifyForm.reset({ phone: values.phone, role: "TAILOR", otp: result.otp ?? "123456" });
       setOtpRequested(true);
     } catch (error) {
       setDialog({ title: "OTP failed", message: error instanceof Error ? error.message : "Check backend connection.", icon: "alert-circle-outline" });
@@ -321,7 +341,7 @@ function AuthScreen() {
               control={verifyForm.control}
               name="otp"
               render={({ field }) => (
-                <TextInput style={styles.input} value={field.value} onChangeText={field.onChange} placeholder="Enter OTP" placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} />
+                <TextInput style={styles.input} value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder="Enter OTP" placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} />
               )}
             />
             <AuthButton label="Verify OTP" loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: "Enter OTP", message: "Enter the 6 digit OTP to continue.", icon: "keypad-outline" }))} />
@@ -386,8 +406,9 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
         <View style={styles.cardMain}>
           <Text style={styles.prominentOrderId}>REQ-{request.id.slice(0, 8).toUpperCase()}</Text>
           <Text style={styles.cardTitle}>{request.workType}</Text>
-          <Text style={styles.cardMeta}>{request.clothType} - {request.urgency}</Text>
+          <Text style={styles.cardMeta}>{request.clothType}</Text>
         </View>
+        <Text style={[styles.urgencyPill, urgencyTone(request.urgency)]}>{request.urgency}</Text>
         {request.ownQuote ? <Text style={styles.quotedPill}>Quoted</Text> : <StatusPill status={request.status} />}
       </View>
       <Text style={styles.cardCopy} numberOfLines={2}>{request.description}</Text>
@@ -555,7 +576,15 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
           <DetailRow icon="receipt-outline" label="Request ID" value={shortId(request.id)} />
           <DetailRow icon="person-outline" label="Gender / Fit Type" value={request.gender ?? "Not specified"} />
           <DetailRow icon="shirt-outline" label="Cloth" value={request.clothType} />
-          <DetailRow icon="time-outline" label="Urgency" value={request.urgency} />
+          <View style={styles.detailRow}>
+            <View style={styles.smallIcon}>
+              <Ionicons name="time-outline" size={16} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.cardMain}>
+              <Text style={styles.detailLabel}>Urgency</Text>
+              <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.whiteCard}>
@@ -611,7 +640,7 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>YOUR QUOTE</Text>
             <Text style={styles.bigTitle}>{money(request.ownQuote.price)}</Text>
-            <Text style={styles.helperText}>Estimated {request.ownQuote.estimatedDays} days.</Text>
+            <Text style={styles.helperText}>Estimated {quoteEtaLabel(request.ownQuote)}.</Text>
             {request.ownQuote.message ? <Text style={styles.infoText}>{request.ownQuote.message}</Text> : null}
           </View>
         ) : (
@@ -724,7 +753,8 @@ function QuoteScreen({
   maxOrdersPerDay: number;
 }) {
   const [price, setPrice] = useState("");
-  const [estimatedDays, setEstimatedDays] = useState("");
+  const quoteWindow = urgencyWindow(request.urgency);
+  const [estimatedTime, setEstimatedTime] = useState(quoteWindow.mode === "hours" ? "" : String(quoteWindow.min));
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -739,16 +769,27 @@ function QuoteScreen({
       return;
     }
     const amount = Number(price);
-    const days = Number(estimatedDays);
-    if (!amount || amount <= 0 || !Number.isInteger(days) || days < 1 || days > 6) {
-      showDialog({ title: "Check quote", message: "Enter a valid quote amount and a completion time from 1 to 6 days.", icon: "cash-outline" });
+    const eta = Number(estimatedTime);
+    if (!amount || amount <= 0 || !Number.isInteger(eta) || eta < quoteWindow.min || eta > quoteWindow.max) {
+      showDialog({
+        title: "Check quote",
+        message: quoteWindow.mode === "hours"
+          ? `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} hours.`
+          : `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} day${quoteWindow.max === 1 ? "" : "s"}.`,
+        icon: "cash-outline"
+      });
       return;
     }
     try {
       setSaving(true);
       await api(`/tailoring-requests/${request.id}/quotes`, {
         method: "POST",
-        body: JSON.stringify({ price: amount, estimatedDays: days, message })
+        body: JSON.stringify({
+          price: amount,
+          estimatedDays: quoteWindow.mode === "hours" ? 1 : eta,
+          estimatedHours: quoteWindow.mode === "hours" ? eta : undefined,
+          message
+        })
       }, token);
       void playAppSound("confirmation");
       showDialog({ title: "Quote sent", message: `Your quote for request ${shortId(request.id)} has been sent to the customer.`, icon: "checkmark-circle-outline" });
@@ -769,11 +810,20 @@ function QuoteScreen({
       <Header title="Send Quote" subtitle={request.workType} onBack={() => setScreen("requestDetails")} />
       <View style={styles.whiteCard}>
         <Text style={styles.cardLabel}>QUOTE DETAILS</Text>
+        <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
         <Text style={styles.formLabel}>Quote Amount</Text>
         <TextInput style={styles.input} value={price} onChangeText={setPrice} placeholder="Example: Rs 350" placeholderTextColor="#9aa6b8" keyboardType="number-pad" />
-        <Text style={styles.formLabel}>Completion Time</Text>
-        <TextInput style={styles.input} value={estimatedDays} onChangeText={(value) => setEstimatedDays(value.replace(/\D/g, "").slice(0, 1))} placeholder="1 to 6 days" placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={1} />
-        <Text style={styles.helperText}>Maximum completion time: 6 days.</Text>
+        <Text style={styles.formLabel}>{quoteWindow.mode === "hours" ? "Completion Time (Hours)" : "Completion Time (Days)"}</Text>
+        <TextInput
+          style={styles.input}
+          value={estimatedTime}
+          onChangeText={(value) => setEstimatedTime(value.replace(/\D/g, "").slice(0, quoteWindow.mode === "hours" ? 2 : 1))}
+          placeholder={quoteWindow.mode === "hours" ? `${quoteWindow.min} to ${quoteWindow.max} hours` : `${quoteWindow.min} to ${quoteWindow.max} days`}
+          placeholderTextColor="#9aa6b8"
+          keyboardType="number-pad"
+          maxLength={quoteWindow.mode === "hours" ? 2 : 1}
+        />
+        <Text style={styles.helperText}>{quoteWindow.label}: {quoteWindow.helper}.</Text>
         <Text style={styles.formLabel}>Message</Text>
         <TextInput style={styles.textArea} value={message} onChangeText={setMessage} placeholder="Add fitting or pickup notes..." placeholderTextColor="#9aa6b8" multiline />
       </View>
@@ -1264,7 +1314,7 @@ function TailorVerificationFlow({
   onSessionExpired: () => void;
 }) {
   const status = me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
-  const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" ? 6 : 1);
+  const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? 6 : 1);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
@@ -1315,7 +1365,7 @@ function TailorVerificationFlow({
 
   function applyDraft(draft?: Partial<VerificationDraft>) {
     if (!draft) return;
-    if (draft.step && status !== "PENDING" && status !== "REJECTED") setStep(Math.min(Math.max(draft.step, 1), 5));
+    if (draft.step && status !== "PENDING" && status !== "REJECTED" && status !== "REUPLOAD_REQUIRED") setStep(Math.min(Math.max(draft.step, 1), 5));
     if (draft.personal) setPersonal((current) => ({ ...current, ...draft.personal, location: draft.personal?.location ?? current.location }));
     if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, machinery: draft.shop?.machinery ?? current.machinery }));
     if (draft.category) setCategory(draft.category);
@@ -1569,15 +1619,16 @@ function TailorVerificationFlow({
   }
 
   if (step === 6) {
+    const needsUpdate = status === "REJECTED" || status === "REUPLOAD_REQUIRED";
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.pageContent}>
           <View style={styles.verificationHero}>
-            <Ionicons name={status === "REJECTED" ? "alert-circle-outline" : "hourglass-outline"} size={38} color={BRAND_ORANGE} />
-            <Text style={styles.verificationTitle}>{status === "REJECTED" ? "Verification needs update" : "Verification under review"}</Text>
+            <Ionicons name={needsUpdate ? "alert-circle-outline" : "hourglass-outline"} size={38} color={BRAND_ORANGE} />
+            <Text style={styles.verificationTitle}>{needsUpdate ? "Document reupload required" : "Verification under review"}</Text>
             <Text style={styles.verificationCopy}>
-              {status === "REJECTED"
-                ? me?.tailorProfile?.verificationRejectionReason ?? "Darji team needs clearer details. Update and submit again."
+              {needsUpdate
+                ? me?.tailorProfile?.verificationRejectionReason ?? "Darji admin requested clearer documents. Update the required details and submit again."
                 : "Your application has been successfully submitted. The Darji team is reviewing your details. Verification usually takes 24-48 hours. Once approved, you will gain access to the app."}
             </Text>
           </View>
@@ -1602,7 +1653,7 @@ function TailorVerificationFlow({
               </Pressable>
             ))}
           </View>
-          {status === "REJECTED" ? (
+          {needsUpdate ? (
             <Pressable style={styles.secondaryButton} onPress={() => setStep(1)}>
               <Text style={styles.secondaryButtonText}>Update Verification</Text>
             </Pressable>
@@ -2660,6 +2711,8 @@ const styles = StyleSheet.create({
   cardDivider: { height: 1, backgroundColor: BORDER, marginVertical: 13 },
   statusPill: { overflow: "hidden", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900", textAlign: "center" },
   quotedPill: { overflow: "hidden", borderRadius: 14, backgroundColor: "#dcfce7", color: SUCCESS, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
+  urgencyPill: { overflow: "hidden", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900", textAlign: "center", maxWidth: 112 },
+  urgencyPillInline: { alignSelf: "flex-start", marginTop: 8, maxWidth: 220 },
   infoRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 9 },
   infoText: { color: MUTED, fontSize: 13, fontWeight: "700", flex: 1 },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

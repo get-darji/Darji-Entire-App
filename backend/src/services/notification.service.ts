@@ -8,6 +8,8 @@ export async function notifyUser(input: { userId: string; orderId?: string; titl
     body: input.body,
     imageUrl: input.imageUrl,
     actions: input.actions,
+    channelId: "customer-orders-v2",
+    categoryId: "DARJI_ORDER",
     data: {
       orderId: input.orderId,
       ...(input.data ?? {})

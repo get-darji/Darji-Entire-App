@@ -52,6 +52,8 @@ import { notificationRoutes } from "./notificationRoutes.js";
 import {
   createTailoringRequestController,
   acceptDeliveryRequestController,
+  cancelTailoringRequestController,
+  confirmDeliveryCashCollectionController,
   getDeliveryRequestController,
   getDeliveryTaskOtpsController,
   listDeliveryRequestsController,
@@ -61,8 +63,10 @@ import {
   listTailoringRequestsController,
   selectTailorQuoteController,
   saveDeliveryTaskPhotosController,
+  startTailoringCheckoutController,
   updateDeliveryTaskStatusController,
   verifyDeliveryTaskOtpController,
+  verifyTailoringCheckoutController,
   updateTailoringWorkStatusController,
   uploadTailoringMedia,
   uploadTailoringAuditMediaController,
@@ -95,6 +99,9 @@ router.get("/tailoring-requests/events/watch", requireAuth, requireRole("TAILOR"
 router.get("/tailoring-requests/:id", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), getTailoringRequestController);
 router.post("/tailoring-requests/:id/audit-media", requireAuth, requireRole("TAILOR", "ADMIN"), uploadTailoringMedia, uploadTailoringAuditMediaController);
 router.patch("/tailoring-requests/:id/work-status", requireAuth, requireRole("TAILOR", "ADMIN"), updateTailoringWorkStatusController);
+router.post("/tailoring-requests/:id/checkout", requireAuth, requireRole("CUSTOMER", "ADMIN"), startTailoringCheckoutController);
+router.post("/tailoring-requests/:id/checkout/verify", requireAuth, requireRole("CUSTOMER", "ADMIN"), verifyTailoringCheckoutController);
+router.post("/tailoring-requests/:id/cancel", requireAuth, requireRole("CUSTOMER", "ADMIN"), cancelTailoringRequestController);
 router.get("/tailoring-requests/:id/quotes", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), listTailorQuotesController);
 router.post("/tailoring-requests/:id/quotes", requireAuth, requireRole("TAILOR", "ADMIN"), createTailorQuoteController);
 router.post("/tailoring-requests/:id/quotes/:quoteId/select", requireAuth, requireRole("CUSTOMER", "ADMIN"), selectTailorQuoteController);
@@ -107,6 +114,7 @@ router.get("/delivery-requests/:id", requireAuth, requireRole("DELIVERY_PARTNER"
 router.post("/delivery-requests/:id/accept", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), acceptDeliveryRequestController);
 router.post("/delivery-requests/:id/verify-otp", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), verifyDeliveryTaskOtpController);
 router.patch("/delivery-requests/:id/photos", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), saveDeliveryTaskPhotosController);
+router.patch("/delivery-requests/:id/cash-collection", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), confirmDeliveryCashCollectionController);
 router.patch("/delivery-requests/:id/status", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), updateDeliveryTaskStatusController);
 
 router.get("/addresses", requireAuth, listAddressesController);

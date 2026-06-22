@@ -323,13 +323,25 @@ const tailoringRequestSchema = new Schema(
     sampleMedia: [requestMediaSchema],
     receivedMedia: [requestMediaSchema],
     stitchedMedia: [requestMediaSchema],
+    selectedQuoteId: { type: String, index: true },
+    paymentMethod: { type: String, enum: paymentMethods },
+    paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING", index: true },
+    quoteAmount: Number,
+    deliveryFee: Number,
+    platformFee: Number,
+    homeMeasurementFee: Number,
+    totalAmount: Number,
+    confirmedAt: Date,
+    cancelledAt: Date,
+    cancellationFee: Number,
+    cancellationReason: String,
     orderStatus: {
       type: String,
-      enum: ["tailor_accepted", "pickup_started", "picked_up_from_customer", "received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"],
+      enum: ["payment_pending", "tailor_accepted", "pickup_started", "picked_up_from_customer", "received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed", "cancelled"],
       index: true
     },
     workStatus: { type: String, enum: ["ACCEPTED", "WORKING", "READY"], default: "ACCEPTED", index: true },
-    status: { type: String, enum: ["QUOTE_REQUESTED", "TAILOR_SELECTED", "CANCELLED"], default: "QUOTE_REQUESTED", index: true }
+    status: { type: String, enum: ["QUOTE_REQUESTED", "PAYMENT_PENDING", "TAILOR_SELECTED", "CANCELLED"], default: "QUOTE_REQUESTED", index: true }
   },
   baseOptions
 );
@@ -341,9 +353,10 @@ const tailorQuoteSchema = new Schema(
     tailorId: { type: String, required: true, index: true },
     price: { type: Number, required: true },
     estimatedDays: { type: Number, required: true },
+    estimatedHours: Number,
     message: String,
     pickupIncluded: { type: Boolean, default: true },
-    status: { type: String, enum: ["SUBMITTED", "ACCEPTED", "REJECTED"], default: "SUBMITTED", index: true }
+    status: { type: String, enum: ["SUBMITTED", "RESERVED", "ACCEPTED", "REJECTED"], default: "SUBMITTED", index: true }
   },
   baseOptions
 );
@@ -372,6 +385,12 @@ const deliveryRequestSchema = new Schema(
     tailorPhone: String,
     clothType: String,
     workType: String,
+    paymentMethod: { type: String, enum: paymentMethods },
+    paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING" },
+    totalAmount: Number,
+    cashCollectionRequired: { type: Boolean, default: false },
+    cashCollected: { type: Boolean, default: false },
+    cashCollectedAt: Date,
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
     partnerLocation: { type: Schema.Types.Mixed },

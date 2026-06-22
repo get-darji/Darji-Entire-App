@@ -505,10 +505,10 @@ export function AdminPortal() {
         isVerifying={verifyOtpMutation.isPending}
         onRequestOtp={async (phone) => {
           try {
-            await requestOtpMutation.mutateAsync(phone);
-            return true;
+            const result = await requestOtpMutation.mutateAsync(phone);
+            return result.otp ?? "123456";
           } catch {
-            return false;
+            return undefined;
           }
         }}
         onVerifyOtp={(phone, otp) => verifyOtpMutation.mutate({ phone, otp })}
@@ -606,7 +606,8 @@ export function AdminPortal() {
       tone: "teal" as const,
       value: metrics.ordersToday.toLocaleString("en-IN"),
       change: orderDelta.label,
-      changeTone: orderDelta.tone
+      changeTone: orderDelta.tone,
+      target: "orders" as SectionId
     },
     {
       icon: LayoutGrid,
@@ -615,7 +616,8 @@ export function AdminPortal() {
       tone: "sky" as const,
       value: analytics.orders.toLocaleString("en-IN"),
       change: orderDelta.label,
-      changeTone: orderDelta.tone
+      changeTone: orderDelta.tone,
+      target: "orders" as SectionId
     },
     {
       icon: ReceiptIndianRupee,
@@ -624,7 +626,8 @@ export function AdminPortal() {
       tone: "emerald" as const,
       value: formatCurrency(metrics.revenueToday),
       change: revenueDelta.label,
-      changeTone: revenueDelta.tone
+      changeTone: revenueDelta.tone,
+      target: "payments" as SectionId
     },
     {
       icon: BarChart3,
@@ -633,7 +636,8 @@ export function AdminPortal() {
       tone: "sky" as const,
       value: formatCurrency(metrics.totalRevenue),
       change: revenueDelta.label,
-      changeTone: revenueDelta.tone
+      changeTone: revenueDelta.tone,
+      target: "payments" as SectionId
     },
     {
       icon: ShieldCheck,
@@ -642,7 +646,8 @@ export function AdminPortal() {
       tone: "amber" as const,
       value: analytics.activeTailors.toLocaleString("en-IN"),
       change: tailorDelta.label,
-      changeTone: tailorDelta.tone
+      changeTone: tailorDelta.tone,
+      target: "tailors" as SectionId
     },
     {
       icon: Users,
@@ -651,7 +656,8 @@ export function AdminPortal() {
       tone: "violet" as const,
       value: analytics.customers.toLocaleString("en-IN"),
       change: customerDelta.label,
-      changeTone: customerDelta.tone
+      changeTone: customerDelta.tone,
+      target: "users" as SectionId
     },
     {
       icon: Truck,
@@ -660,7 +666,8 @@ export function AdminPortal() {
       tone: "cyan" as const,
       value: analytics.activeDeliveryPartners.toLocaleString("en-IN"),
       change: partnerDelta.label,
-      changeTone: partnerDelta.tone
+      changeTone: partnerDelta.tone,
+      target: "partners" as SectionId
     },
     {
       icon: ShieldCheck,
@@ -669,7 +676,8 @@ export function AdminPortal() {
       tone: "amber" as const,
       value: metrics.pendingVerifications.toLocaleString("en-IN"),
       change: verificationDelta.label,
-      changeTone: verificationDelta.tone
+      changeTone: verificationDelta.tone,
+      target: "tailors" as SectionId
     },
     {
       icon: CreditCard,
@@ -678,7 +686,8 @@ export function AdminPortal() {
       tone: "amber" as const,
       value: metrics.pendingCollections.toLocaleString("en-IN"),
       change: collectionDelta.label,
-      changeTone: collectionDelta.tone
+      changeTone: collectionDelta.tone,
+      target: "payments" as SectionId
     },
     {
       icon: AlertCircle,
@@ -687,7 +696,8 @@ export function AdminPortal() {
       tone: "rose" as const,
       value: percentage(metrics.cancellationRate),
       change: cancellationDelta.label,
-      changeTone: cancellationDelta.tone
+      changeTone: cancellationDelta.tone,
+      target: "orders" as SectionId
     }
   ];
   const miniTrendCards = [
@@ -910,6 +920,7 @@ export function AdminPortal() {
                   value={item.value}
                   change={item.change}
                   changeTone={item.changeTone}
+                  onClick={() => setActiveSection(item.target)}
                 />
               ))}
             </div>
@@ -1338,7 +1349,7 @@ function LoginPanel({
 }: {
   isRequesting: boolean;
   isVerifying: boolean;
-  onRequestOtp: (phone: string) => Promise<boolean>;
+  onRequestOtp: (phone: string) => Promise<string | undefined>;
   onVerifyOtp: (phone: string, otp: string) => void;
   returnedOtp?: string;
 }) {
@@ -1432,8 +1443,10 @@ function LoginPanel({
                       <ShieldCheck size={20} className="text-[#8f8f95]" />
                       <input
                         className="w-full bg-transparent text-[1.05rem] font-medium tracking-[0.28em] outline-none placeholder:text-[#9a9aa3]"
+                        inputMode="numeric"
+                        maxLength={6}
                         value={otp}
-                        onChange={(event) => setOtp(event.target.value)}
+                        onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
                         placeholder="Enter OTP"
                       />
                     </div>
@@ -1474,15 +1487,18 @@ function LoginPanel({
                         toast.error("Enter a valid 10 digit mobile number");
                         return;
                       }
-                      const ok = await onRequestOtp(phone);
-                      if (ok) setRequested(true);
+                      const nextOtp = await onRequestOtp(phone.trim());
+                      if (nextOtp) {
+                        setOtp(nextOtp.replace(/\D/g, "").slice(0, 6));
+                        setRequested(true);
+                      }
                       return;
                     }
                     if (!/^\d{6}$/.test(otp.trim())) {
                       toast.error("Enter the 6 digit OTP");
                       return;
                     }
-                    onVerifyOtp(phone, otp);
+                    onVerifyOtp(phone.trim(), otp.trim());
                   }}
                 >
                   {isRequesting || isVerifying ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
@@ -2041,6 +2057,7 @@ function StatCard({
   icon: Icon,
   label,
   note,
+  onClick,
   tone,
   value
 }: {
@@ -2049,6 +2066,7 @@ function StatCard({
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   note: React.ReactNode;
+  onClick?: () => void;
   tone: "teal" | "sky" | "amber" | "rose" | "emerald" | "violet" | "cyan" | "slate";
   value: string;
 }) {
@@ -2063,8 +2081,7 @@ function StatCard({
     violet: "bg-[#f2edff] text-[#7b61ff]"
   };
 
-  return (
-    <Panel className="p-0">
+  const content = (
       <div className="flex h-full flex-col rounded-[26px] p-4">
         <div className="flex items-center justify-between gap-4">
           <span className={cn("rounded-[18px] p-3 shadow-sm", toneMap[tone])}>
@@ -2078,6 +2095,17 @@ function StatCard({
           <p className="mt-1 text-sm text-[var(--muted)]">{note}</p>
         </div>
       </div>
+  );
+
+  return (
+    <Panel className="p-0">
+      {onClick ? (
+        <button className="block h-full w-full text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" onClick={onClick} type="button">
+          {content}
+        </button>
+      ) : (
+        content
+      )}
     </Panel>
   );
 }
@@ -2719,6 +2747,55 @@ function MediaStrip({
   );
 }
 
+type VerificationMediaItem = { label: string; resourceType: string; url: string };
+
+function collectVerificationMedia(value: unknown, path: string[] = [], seen = new Set<string>()): VerificationMediaItem[] {
+  if (!value) return [];
+  if (typeof value === "string") {
+    const key = path[path.length - 1] ?? "document";
+    const isUrl = /^https?:\/\//i.test(value);
+    const isMediaField = /(url|photo|image|front|back|pan|aadhaar|aadhar|license|document|selfie|face)/i.test(key);
+    if (!isUrl || !isMediaField || seen.has(value)) return [];
+    seen.add(value);
+    return [{ label: humanizeFieldLabel(key), resourceType: /\.(mp4|mov|webm)(\?|$)/i.test(value) ? "video" : "image", url: value }];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectVerificationMedia(item, [...path, String(index + 1)], seen));
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, nested]) => collectVerificationMedia(nested, [...path, key], seen));
+  }
+  return [];
+}
+
+function VerificationMediaGallery({ items, title }: { items: VerificationMediaItem[]; title: string }) {
+  if (!items.length) return null;
+  return (
+    <Panel>
+      <h4 className="text-lg font-semibold">{title}</h4>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <a key={item.url} className="overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff]" href={item.url} rel="noreferrer" target="_blank">
+            {item.resourceType === "video" ? (
+              <video className="aspect-video w-full object-cover" controls src={item.url} />
+            ) : (
+              <img alt={item.label} className="aspect-video w-full object-cover" src={item.url} />
+            )}
+            <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs text-[var(--muted)]">
+              <span>{item.label}</span>
+              <span className="font-semibold text-[var(--accent)]">Open document</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function humanizeFieldLabel(value: string) {
+  return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function OrderDetailDialog({
   onAssign,
   onStatusChange,
@@ -2943,6 +3020,9 @@ function ProfileDialog({
   setOpen: (open: boolean) => void;
   subtitle: string;
 }) {
+  const submittedMedia = collectVerificationMedia(profile?.verification);
+  const draftMedia = collectVerificationMedia(profile?.verificationDraft);
+
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
@@ -3002,6 +3082,8 @@ function ProfileDialog({
                     {stringifyUnknown(profile.verification)}
                   </pre>
                 </Panel>
+                <VerificationMediaGallery items={submittedMedia} title="Uploaded verification documents" />
+                <VerificationMediaGallery items={draftMedia} title="Draft verification documents" />
               </div>
             </>
           ) : null}

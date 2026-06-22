@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel } from "../models.js";
+import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -84,7 +84,31 @@ const createTailoringRequestSchema = z.object({
 const createTailorQuoteSchema = z.object({
   price: z.number().positive(),
   estimatedDays: z.number().int().min(1).max(6),
+  estimatedHours: z.number().int().min(1).max(24).optional(),
   message: z.string().trim().max(500).optional()
+});
+
+const checkoutTailoringRequestSchema = z.object({
+  quoteId: z.string().trim().min(1),
+  paymentMethod: z.enum(["ONLINE", "COD", "UPI"]),
+  deliveryFee: z.number().nonnegative().default(0),
+  platformFee: z.number().nonnegative().default(0),
+  homeMeasurementFee: z.number().nonnegative().default(0),
+  totalAmount: z.number().positive()
+});
+
+const verifyCheckoutSchema = z.object({
+  razorpay_payment_id: z.string().trim().min(1),
+  razorpay_order_id: z.string().trim().min(1),
+  razorpay_signature: z.string().trim().min(1)
+});
+
+const cancelTailoringRequestSchema = z.object({
+  reason: z.string().trim().max(300).optional()
+});
+
+const cashCollectionSchema = z.object({
+  collected: z.boolean().default(true)
 });
 
 const auditMediaSchema = z.object({
@@ -116,6 +140,29 @@ const deliveryTaskPhotosSchema = z.object({
   })).min(1, "Upload at least one photo").max(MAX_FILES)
 });
 
+function normalizeUrgency(urgency?: string) {
+  const value = String(urgency ?? "").toLowerCase();
+  if (value.includes("instant")) return "instant";
+  if (value.includes("same day")) return "same_day";
+  if (value.includes("express")) return "express";
+  return "normal";
+}
+
+function urgencyWindow(urgency?: string) {
+  const normalized = normalizeUrgency(urgency);
+  if (normalized === "instant") return { mode: "hours" as const, min: 1, max: 24 };
+  if (normalized === "same_day") return { mode: "days" as const, min: 1, max: 1 };
+  if (normalized === "express") return { mode: "days" as const, min: 1, max: 2 };
+  return { mode: "days" as const, min: 1, max: 4 };
+}
+
+function quoteEtaLabel(quote: { estimatedDays?: number | null; estimatedHours?: number | null }) {
+  if (quote.estimatedHours && quote.estimatedHours > 0) {
+    return `${quote.estimatedHours} hour(s)`;
+  }
+  return `${quote.estimatedDays ?? 1} day(s)`;
+}
+
 function taskOtp(taskId: string, stage: "pickup" | "drop"): string {
   const digest = createHmac("sha256", env.JWT_ACCESS_SECRET).update(`delivery:${taskId}:${stage}`).digest();
   const otp = String(digest.readUInt32BE(0) % 10000).padStart(4, "0");
@@ -127,6 +174,43 @@ function otpMatches(actual: string, expected: string) {
   const actualBuffer = Buffer.from(actual);
   const expectedBuffer = Buffer.from(expected);
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function assertRazorpayConfigured() {
+  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) {
+    throw new AppError(503, "Razorpay is not configured on the backend");
+  }
+}
+
+async function createRazorpayOrder(input: { amount: number; receipt: string; notes: Record<string, string> }) {
+  assertRazorpayConfigured();
+  const token = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
+  const response = await fetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      amount: Math.round(input.amount * 100),
+      currency: "INR",
+      receipt: input.receipt,
+      notes: input.notes
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new AppError(502, `Razorpay order creation failed${body ? `: ${body}` : ""}`);
+  }
+  return response.json() as Promise<{ id: string; amount: number; currency: string; receipt: string; status: string }>;
+}
+
+async function findSelectedQuote(requestId: string, selectedQuoteId?: string | null) {
+  if (selectedQuoteId) {
+    const selected = await TailorQuoteModel.findById(selectedQuoteId);
+    if (selected) return selected;
+  }
+  return TailorQuoteModel.findOne({ requestId, status: { $in: ["RESERVED", "ACCEPTED"] } }).sort({ updatedAt: -1, createdAt: -1 });
 }
 
 async function hydrateTailorQuote(quoteInput: unknown) {
@@ -156,12 +240,14 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
     tailorUserId ? TailorModel.findOne({ userId: tailorUserId }) : null
   ]);
   const ownQuote = tailor ? await TailorQuoteModel.findOne({ requestId: String(request.id ?? request._id), tailorId: tailor.id }) : null;
+  const selectedQuoteDoc = await findSelectedQuote(String(request.id ?? request._id), typeof request.selectedQuoteId === "string" ? request.selectedQuoteId : undefined);
   const quoteCount = await TailorQuoteModel.countDocuments({ requestId: String(request.id ?? request._id) });
 
   return {
     ...request,
     customer: customer?.toJSON(),
     ownQuote: ownQuote?.toJSON() ?? null,
+    selectedQuote: selectedQuoteDoc ? await hydrateTailorQuote(selectedQuoteDoc) : null,
     quoteCount
   };
 }
@@ -214,6 +300,11 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         tailorPhone: tailorUser?.phone,
         clothType: request.clothType,
         workType: request.workType,
+        paymentMethod: request.paymentMethod,
+        paymentStatus: request.paymentStatus,
+        totalAmount: request.totalAmount,
+        cashCollectionRequired: type === "tailor_to_customer" && request.paymentMethod === "COD",
+        cashCollected: false,
         sampleProvided: request.sampleProvided === true,
         sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : []
       });
@@ -238,7 +329,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
       userId: partner.userId,
       title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
-      body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. Earnings Rs.${type === "customer_to_tailor" ? 80 : 90}.`,
+      body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${type === "customer_to_tailor" ? 80 : 90}.`,
       data: {
         type: "PICKUP_ASSIGNED",
         taskType: type,
@@ -251,6 +342,128 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   }
 
   return deliveryRequest;
+}
+
+async function finalizeTailoringRequestConfirmation(
+  requestId: string,
+  quoteId: string,
+  paymentMethod: "ONLINE" | "COD" | "UPI",
+  paymentStatus: "PENDING" | "PAID",
+  breakdown?: { deliveryFee: number; platformFee: number; homeMeasurementFee: number; totalAmount: number }
+) {
+  const request = await TailoringRequestModel.findById(requestId);
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (request.status === "CANCELLED") throw new AppError(409, "Cancelled requests cannot be confirmed");
+
+  const quote = await TailorQuoteModel.findOne({ _id: quoteId, requestId: request.id });
+  if (!quote) throw new AppError(404, "Quote not found");
+
+  await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id } }, { status: "REJECTED" });
+  await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "ACCEPTED" });
+
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
+    request.id,
+    {
+      status: "TAILOR_SELECTED",
+      workStatus: "ACCEPTED",
+      selectedQuoteId: quote.id,
+      paymentMethod,
+      paymentStatus,
+      quoteAmount: quote.price,
+      deliveryFee: breakdown?.deliveryFee ?? request.deliveryFee ?? 0,
+      platformFee: breakdown?.platformFee ?? request.platformFee ?? 0,
+      homeMeasurementFee: breakdown?.homeMeasurementFee ?? request.homeMeasurementFee ?? 0,
+      totalAmount: breakdown?.totalAmount ?? request.totalAmount ?? quote.price,
+      orderStatus: "tailor_accepted",
+      confirmedAt: new Date()
+    },
+    { returnDocument: "after" }
+  );
+  if (!updatedRequest) throw new AppError(404, "Tailoring request not found");
+
+  emitTailoringEvent({ type: "QUOTE_ACCEPTED", requestId: request.id, quoteId: quote.id, tailorId: quote.tailorId });
+  emitToTailors("tailoring:request_closed", { requestId: request.id, acceptedTailorId: quote.tailorId });
+  emitToTailor(quote.tailorId, "tailoring:quote_accepted", {
+    requestId: request.id,
+    quoteId: quote.id,
+    request: await hydrateTailoringRequest(updatedRequest)
+  });
+  emitToCustomer(request.customerId, "customer:order_status_updated", {
+    requestId: request.id,
+    status: "TAILOR_ACCEPTED",
+    request: await hydrateTailoringRequest(updatedRequest)
+  });
+
+  const acceptedTailor = await hydrateTailorQuote(await TailorQuoteModel.findById(quote.id));
+  const acceptedTailorProfile = await TailorModel.findById(quote.tailorId).select("userId");
+  if (acceptedTailorProfile?.userId) {
+    await sendOrderConfirmedNotification({
+      userId: acceptedTailorProfile.userId,
+      title: "Quote accepted",
+      body: `The customer confirmed your quote for ${request.clothType}.`,
+      data: {
+        type: "ORDER_CONFIRMED",
+        requestId: request.id,
+        orderId: request.id,
+        quoteId: quote.id,
+        screen: "requestDetails"
+      }
+    });
+  }
+  await sendPushToUsers([request.customerId], {
+    title: paymentStatus === "PAID" ? "Payment received" : "Order confirmed",
+    body: `Your order has been confirmed with ${(acceptedTailor as { tailor?: { shopName?: string } } | null)?.tailor?.shopName ?? "Darzi Tailor"}.`,
+    data: {
+      type: paymentStatus === "PAID" ? "PAYMENT_SUCCESS" : "TAILOR_ACCEPTED",
+      requestId: request.id,
+      quoteId: quote.id,
+      screen: "trackOrder"
+    },
+    channelId: "customer-orders-v2",
+    categoryId: "DARJI_ORDER",
+    sound: "ding.mp3",
+    actions: ["View Order"]
+  });
+
+  const deliveryRequest = await createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId);
+  return {
+    request: await hydrateTailoringRequest(updatedRequest),
+    quote: acceptedTailor,
+    deliveryRequest
+  };
+}
+
+async function cancelTailoringRequestAndTasks(requestId: string, reason?: string) {
+  const request = await TailoringRequestModel.findById(requestId);
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (request.status === "CANCELLED") return request;
+  if (["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(String(request.orderStatus ?? ""))) {
+    throw new AppError(409, "This order can no longer be cancelled after tailor handover");
+  }
+
+  const pickedUp = ["pickup_started", "picked_up_from_customer"].includes(String(request.orderStatus ?? ""));
+  const cancellationFee = pickedUp ? Number(request.deliveryFee ?? 0) + 50 : 0;
+
+  const updated = await TailoringRequestModel.findByIdAndUpdate(
+    request.id,
+    {
+      status: "CANCELLED",
+      orderStatus: "cancelled",
+      cancelledAt: new Date(),
+      cancellationFee,
+      cancellationReason: reason
+    },
+    { returnDocument: "after" }
+  );
+  await TailorQuoteModel.updateMany({ requestId: request.id, status: { $in: ["RESERVED", "ACCEPTED"] } }, { status: "REJECTED" });
+  const tasks = await DeliveryRequestModel.find({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } });
+  await DeliveryRequestModel.updateMany({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } }, { taskStatus: "cancelled" });
+
+  emitToCustomer(request.customerId, "customer:order_status_updated", { requestId: request.id, status: "CANCELLED" });
+  const acceptedQuote = await findSelectedQuote(request.id, request.selectedQuoteId);
+  if (acceptedQuote?.tailorId) emitToTailor(acceptedQuote.tailorId, "tailoring:delivery_status_updated", { orderId: request.id, status: "cancelled" });
+  emitToDeliveryPartners("delivery:task_cancelled", { orderId: request.id, taskIds: tasks.map((task) => task.id) });
+  return updated;
 }
 
 export async function listDeliveryRequestsController(req: Request, res: Response) {
@@ -378,8 +591,11 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
       if (!(existingTask.clothPhotos?.length ?? 0)) throw new AppError(409, "Upload cloth photos first");
       if (existingTask.sampleProvided && !(existingTask.samplePhotos?.length ?? 0)) throw new AppError(409, "Upload sample photos first");
     }
-  } else if (!existingTask.dropOtpVerifiedAt) {
-    throw new AppError(409, "Verify the delivery OTP first");
+  } else {
+    if (!existingTask.dropOtpVerifiedAt) throw new AppError(409, "Verify the delivery OTP first");
+    if (existingTask.type === "tailor_to_customer" && existingTask.paymentMethod === "COD" && existingTask.cashCollectionRequired && !existingTask.cashCollected) {
+      throw new AppError(409, "Confirm COD cash collection before completing delivery");
+    }
   }
 
   const task = await DeliveryRequestModel.findOneAndUpdate(
@@ -472,6 +688,28 @@ export async function verifyDeliveryTaskOtpController(req: Request, res: Respons
   const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, { [timestampField]: new Date() }, { returnDocument: "after" });
   if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
   if (updated) {
+    const realtimeStatus =
+      updated.type === "customer_to_tailor" && input.stage === "drop"
+        ? "received_by_tailor"
+        : updated.type === "tailor_to_customer" && input.stage === "pickup"
+          ? "ready_for_delivery"
+          : undefined;
+    if (realtimeStatus) {
+      await TailoringRequestModel.findByIdAndUpdate(updated.orderId, { orderStatus: realtimeStatus });
+      emitToCustomer(updated.customerId, "customer:delivery_status_updated", {
+        taskId: updated.id,
+        orderId: updated.orderId,
+        tailoringRequestId: updated.orderId,
+        status: realtimeStatus,
+        deliveryTask: updated.toJSON()
+      });
+      emitToTailor(updated.tailorId, "tailoring:delivery_status_updated", {
+        taskId: updated.id,
+        orderId: updated.orderId,
+        status: realtimeStatus,
+        deliveryTask: updated.toJSON()
+      });
+    }
     await sendOtpNotification({
       userId: updated.customerId,
       title: input.stage === "pickup" ? "Pickup OTP verified" : "Delivery OTP verified",
@@ -502,6 +740,34 @@ export async function saveDeliveryTaskPhotosController(req: Request, res: Respon
 
   const field = input.kind === "cloth" ? "clothPhotos" : "samplePhotos";
   const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, { [field]: input.photos }, { returnDocument: "after" });
+  if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
+  res.json({ data: updated });
+}
+
+export async function confirmDeliveryCashCollectionController(req: Request, res: Response) {
+  const input = cashCollectionSchema.parse(req.body);
+  const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
+  if (!partner) throw new AppError(404, "Delivery partner profile not found");
+  if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+
+  const task = await DeliveryRequestModel.findOne({
+    _id: String(req.params.id),
+    assignedDeliveryPartnerId: partner.id,
+    type: "tailor_to_customer",
+    paymentMethod: "COD",
+    taskStatus: "picked_up"
+  });
+  if (!task) throw new AppError(409, "COD collection is only available on final customer delivery");
+  if (!task.dropOtpVerifiedAt) throw new AppError(409, "Verify the final delivery OTP before confirming cash collection");
+  if (!input.collected) throw new AppError(400, "Cash collection confirmation was not provided");
+
+  const updated = await DeliveryRequestModel.findByIdAndUpdate(
+    task.id,
+    { cashCollected: true, cashCollectedAt: new Date(), paymentStatus: "PAID" },
+    { returnDocument: "after" }
+  );
+  await TailoringRequestModel.findByIdAndUpdate(task.orderId, { paymentStatus: "PAID" });
+  await PaymentModel.findOneAndUpdate({ orderId: task.orderId, method: "COD" }, { status: "PAID" }, { sort: { createdAt: -1 } });
   if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
   res.json({ data: updated });
 }
@@ -758,6 +1024,18 @@ export async function createTailorQuoteController(req: Request, res: Response) {
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (request.status !== "QUOTE_REQUESTED") throw new AppError(400, "This request is not accepting quotes");
 
+  const window = urgencyWindow(request.urgency);
+  if (window.mode === "hours") {
+    if (!input.estimatedHours || input.estimatedHours < window.min || input.estimatedHours > window.max) {
+      throw new AppError(400, `Instant delivery quotes must be between ${window.min} and ${window.max} hours`);
+    }
+    if (input.estimatedDays !== 1) {
+      throw new AppError(400, "Instant delivery quotes should keep the day value at 1 and use hours for ETA");
+    }
+  } else if (input.estimatedDays < window.min || input.estimatedDays > window.max) {
+    throw new AppError(400, `This urgency allows only ${window.min}${window.min === window.max ? "" : `-${window.max}`} day quote(s)`);
+  }
+
   const tailor = await TailorModel.findOneAndUpdate(
     { userId: req.user!.id },
     { $setOnInsert: { userId: req.user!.id, shopName: "Darji Tailor", specialization: [] } },
@@ -771,6 +1049,7 @@ export async function createTailorQuoteController(req: Request, res: Response) {
       tailorId: tailor.id,
       price: input.price,
       estimatedDays: input.estimatedDays,
+      estimatedHours: input.estimatedHours,
       message: input.message,
       status: "SUBMITTED"
     },
@@ -780,7 +1059,7 @@ export async function createTailorQuoteController(req: Request, res: Response) {
   await sendQuoteReceivedNotification({
     userId: request.customerId,
     title: "New quote received",
-    body: `${tailor.shopName} quoted Rs.${input.price} with an estimate of ${input.estimatedDays} day(s).`,
+    body: `${tailor.shopName} quoted Rs.${input.price} with an estimate of ${quoteEtaLabel(input)}.`,
     data: { type: "QUOTE_RECEIVED", requestId: request.id, orderId: request.id, screen: "orderDetails" }
   });
 
@@ -802,68 +1081,137 @@ export async function listTailorQuotesController(req: Request, res: Response) {
   res.json({ data: await Promise.all(quotes.map((quote) => hydrateTailorQuote(quote))) });
 }
 
+export async function startTailoringCheckoutController(req: Request, res: Response) {
+  const input = checkoutTailoringRequestSchema.parse(req.body);
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+  if (request.status === "CANCELLED") throw new AppError(409, "Cancelled requests cannot be confirmed");
+  if (request.status === "TAILOR_SELECTED") throw new AppError(409, "This request is already confirmed");
+
+  const quote = await TailorQuoteModel.findOne({ _id: input.quoteId, requestId: request.id });
+  if (!quote) throw new AppError(404, "Quote not found");
+  if (input.totalAmount < quote.price) throw new AppError(400, "Total amount cannot be lower than the quoted price");
+
+  await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
+  await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: input.paymentMethod === "COD" ? "ACCEPTED" : "RESERVED" });
+
+  await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    status: input.paymentMethod === "COD" ? "TAILOR_SELECTED" : "PAYMENT_PENDING",
+    selectedQuoteId: quote.id,
+    paymentMethod: input.paymentMethod,
+    paymentStatus: "PENDING",
+    quoteAmount: quote.price,
+    deliveryFee: input.deliveryFee,
+    platformFee: input.platformFee,
+    homeMeasurementFee: input.homeMeasurementFee,
+    totalAmount: input.totalAmount,
+    orderStatus: input.paymentMethod === "COD" ? "tailor_accepted" : "payment_pending"
+  });
+
+  if (input.paymentMethod === "COD") {
+    await PaymentModel.create({ orderId: request.id, method: "COD", amount: input.totalAmount, status: "PENDING" });
+    res.json({ data: { mode: "cod", ...(await finalizeTailoringRequestConfirmation(request.id, quote.id, "COD", "PENDING", input)) } });
+    return;
+  }
+
+  const razorpayOrder = await createRazorpayOrder({
+    amount: input.totalAmount,
+    receipt: `darzi-${request.id.slice(0, 12)}`,
+    notes: {
+      requestId: request.id,
+      quoteId: quote.id,
+      paymentMethod: input.paymentMethod
+    }
+  });
+  await PaymentModel.create({ orderId: request.id, method: input.paymentMethod, amount: input.totalAmount, status: "PENDING", providerRef: razorpayOrder.id });
+
+  const customer = await UserModel.findById(request.customerId).select("name phone");
+  res.json({
+    data: {
+      mode: "online",
+      request: await hydrateTailoringRequest(await TailoringRequestModel.findById(request.id)),
+      quote: await hydrateTailorQuote(quote),
+      razorpay: {
+        keyId: env.RAZORPAY_KEY_ID,
+        orderId: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        name: "Darzi",
+        description: `${request.workType} - ${request.clothType}`,
+        prefill: {
+          name: customer?.name ?? "Darzi Customer",
+          contact: customer?.phone ?? ""
+        }
+      }
+    }
+  });
+}
+
+export async function verifyTailoringCheckoutController(req: Request, res: Response) {
+  const input = verifyCheckoutSchema.parse(req.body);
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+  if (!request.selectedQuoteId) throw new AppError(409, "No quote is reserved for this request");
+  if (!request.paymentMethod || request.paymentMethod === "COD") throw new AppError(409, "This request is not waiting for online payment");
+
+  assertRazorpayConfigured();
+  const expectedSignature = createHmac("sha256", env.RAZORPAY_KEY_SECRET!).update(`${input.razorpay_order_id}|${input.razorpay_payment_id}`).digest("hex");
+  if (!otpMatches(input.razorpay_signature, expectedSignature)) {
+    throw new AppError(400, "Payment signature verification failed");
+  }
+
+  const payment = await PaymentModel.findOne({
+    orderId: request.id,
+    method: request.paymentMethod,
+    providerRef: input.razorpay_order_id,
+    status: "PENDING"
+  }).sort({ createdAt: -1 });
+  if (!payment) throw new AppError(404, "Pending payment record not found");
+
+  await PaymentModel.findByIdAndUpdate(payment.id, { status: "PAID" });
+  res.json({
+    data: await finalizeTailoringRequestConfirmation(
+      request.id,
+      request.selectedQuoteId,
+      request.paymentMethod as "ONLINE" | "UPI",
+      "PAID",
+      {
+        deliveryFee: Number(request.deliveryFee ?? 0),
+        platformFee: Number(request.platformFee ?? 0),
+        homeMeasurementFee: Number(request.homeMeasurementFee ?? 0),
+        totalAmount: Number(request.totalAmount ?? payment.amount)
+      }
+    )
+  });
+}
+
+export async function cancelTailoringRequestController(req: Request, res: Response) {
+  const input = cancelTailoringRequestSchema.parse(req.body);
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+
+  const updated = await cancelTailoringRequestAndTasks(request.id, input.reason);
+  res.json({ data: await hydrateTailoringRequest(updated) });
+}
+
 export async function selectTailorQuoteController(req: Request, res: Response) {
   const request = await TailoringRequestModel.findById(String(req.params.id));
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
-  if (request.status !== "QUOTE_REQUESTED") throw new AppError(400, "This request is already closed");
+  if (request.status !== "QUOTE_REQUESTED" && request.status !== "PAYMENT_PENDING") throw new AppError(400, "This request is already closed");
 
   const quote = await TailorQuoteModel.findOne({ _id: String(req.params.quoteId), requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
 
-  await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id } }, { status: "REJECTED" });
-  await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "ACCEPTED" });
-  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, { status: "TAILOR_SELECTED", workStatus: "ACCEPTED" }, { returnDocument: "after" });
-  emitTailoringEvent({ type: "QUOTE_ACCEPTED", requestId: request.id, quoteId: quote.id, tailorId: quote.tailorId });
-  emitToTailors("tailoring:request_closed", { requestId: request.id, acceptedTailorId: quote.tailorId });
-  emitToTailor(quote.tailorId, "tailoring:quote_accepted", {
-    requestId: request.id,
-    quoteId: quote.id,
-    request: updatedRequest ? await hydrateTailoringRequest(updatedRequest) : undefined
-  });
-  emitToCustomer(request.customerId, "customer:order_status_updated", {
-    requestId: request.id,
-    status: "TAILOR_ACCEPTED",
-    request: updatedRequest ? await hydrateTailoringRequest(updatedRequest) : undefined
-  });
-  const acceptedTailor = await hydrateTailorQuote(await TailorQuoteModel.findById(quote.id));
-  const acceptedTailorProfile = await TailorModel.findById(quote.tailorId).select("userId");
-  if (acceptedTailorProfile?.userId) {
-    await sendOrderConfirmedNotification({
-      userId: acceptedTailorProfile.userId,
-      title: "Quote accepted",
-      body: `The customer accepted your quote for ${request.clothType}.`,
-      data: {
-        type: "ORDER_CONFIRMED",
-        requestId: request.id,
-        orderId: request.id,
-        quoteId: quote.id,
-        screen: "requestDetails"
-      }
-    });
-  }
-  await sendPushToUsers([request.customerId], {
-    title: "Tailor accepted order",
-    body: `Your order has been accepted by ${(acceptedTailor as { tailor?: { shopName?: string } } | null)?.tailor?.shopName ?? "Darzi Tailor"}.`,
-    data: {
-      type: "TAILOR_ACCEPTED",
-      requestId: request.id,
-      quoteId: quote.id,
-      screen: "trackOrder"
-    },
-    channelId: "customer-orders-v2",
-    categoryId: "DARJI_ORDER",
-    sound: "ding.mp3",
-    actions: ["View Order"]
-  });
-  await TailoringRequestModel.findByIdAndUpdate(request.id, { orderStatus: "tailor_accepted" });
-  const deliveryRequest = await createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId);
-
-  res.json({
-    data: {
-      request: await hydrateTailoringRequest(updatedRequest),
-      quote: acceptedTailor,
-      deliveryRequest
-    }
-  });
+  await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
+  await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "RESERVED" });
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
+    request.id,
+    { status: "PAYMENT_PENDING", selectedQuoteId: quote.id, paymentStatus: "PENDING", orderStatus: "payment_pending" },
+    { returnDocument: "after" }
+  );
+  res.json({ data: { request: await hydrateTailoringRequest(updatedRequest), quote: await hydrateTailorQuote(await TailorQuoteModel.findById(quote.id)) } });
 }

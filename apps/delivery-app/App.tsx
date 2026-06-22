@@ -78,6 +78,12 @@ type DeliveryRequest = {
   tailorPhone?: string;
   clothType?: string;
   workType?: string;
+  paymentMethod?: "UPI" | "COD" | "ONLINE";
+  paymentStatus?: "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+  totalAmount?: number;
+  cashCollectionRequired?: boolean;
+  cashCollected?: boolean;
+  cashCollectedAt?: string;
   sampleProvided?: boolean;
   sampleMedia?: DeliveryMedia[];
   clothPhotos?: DeliveryMedia[];
@@ -312,6 +318,23 @@ function requestTitle(request: DeliveryRequest) {
 
 function requestEarning(request: DeliveryRequest) {
   return request.estimatedEarnings ?? (request.leg === "CUSTOMER_TO_TAILOR" ? 80 : 90);
+}
+
+function paymentLabel(request: DeliveryRequest) {
+  if (request.paymentMethod === "COD") {
+    if (request.cashCollectionRequired) return request.cashCollected ? "COD cash collected" : `COD cash collect Rs ${Number(request.totalAmount ?? 0).toFixed(0)}`;
+    return "COD on final delivery";
+  }
+  if (request.paymentStatus === "PAID") return "Online paid";
+  if (request.paymentMethod) return `${request.paymentMethod} payment pending`;
+  return "Payment not specified";
+}
+
+function paymentTone(request: DeliveryRequest) {
+  if (request.paymentMethod === "COD" && request.cashCollectionRequired && !request.cashCollected) return { color: "#b91c1c", backgroundColor: "#fee2e2" };
+  if (request.paymentMethod === "COD") return { color: "#c2410c", backgroundColor: "#ffedd5" };
+  if (request.paymentStatus === "PAID") return { color: SUCCESS, backgroundColor: "#dcfce7" };
+  return { color: "#1d4ed8", backgroundColor: "#dbeafe" };
 }
 
 function deadlineLabel(value?: string) {
@@ -1342,6 +1365,7 @@ function OrderRequestModal({
           <StatusRow label="Drop" value={request.dropAddress} />
           <StatusRow label="Distance" value={request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Calculated when route opens"} />
           <StatusRow label="Expected earning" value={`Rs ${requestEarning(request)}`} />
+          <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
           <View style={styles.navRow}>
             <View style={styles.flexOne}><PrimaryButton icon="close-outline" label="Close" onPress={onClose} variant="danger" /></View>
             <View style={styles.flexOne}><PrimaryButton icon="checkmark-outline" label="Accept" loading={accepting} onPress={onAccept} /></View>
@@ -1391,7 +1415,10 @@ function OrdersScreen({ requests, onOpenOrder }: { requests: DeliveryRequest[]; 
           </View>
           <View style={styles.cardDivider} />
           <Text style={styles.cardCopy} numberOfLines={2}>{item.pickupAddress} to {item.dropAddress}</Text>
-          <Text style={styles.priceText}>Rs {requestEarning(item)}</Text>
+          <View style={styles.rowBetween}>
+            <Text style={styles.priceText}>Rs {requestEarning(item)}</Text>
+            <Text style={[styles.paymentPill, paymentTone(item)]}>{paymentLabel(item)}</Text>
+          </View>
         </Pressable>
       )}
     />
@@ -1438,6 +1465,7 @@ function ActiveOrderScreenView({
   const sampleRequired = order.sampleProvided === true;
   const samplePhotosUploaded = !sampleRequired || Boolean(order.samplePhotos?.length);
   const pickupChecklistComplete = pickupOtpVerified && (order.type === "tailor_to_customer" || (clothPhotosUploaded && samplePhotosUploaded));
+  const needsCashCollection = order.type === "tailor_to_customer" && order.paymentMethod === "COD" && order.cashCollectionRequired === true && !order.cashCollected;
 
   async function addProof(kind: "cloth" | "sample", source: "camera" | "gallery") {
     if (!pickupOtpVerified) {
@@ -1528,6 +1556,21 @@ function ActiveOrderScreenView({
     }
   }
 
+  async function confirmCashCollection() {
+    try {
+      setUpdating(true);
+      const updated = await api<DeliveryTaskPayload>(`/delivery-requests/${order.id}/cash-collection`, {
+        method: "PATCH",
+        body: JSON.stringify({ collected: true })
+      }, token);
+      onTaskUpdated(normalizeDeliveryTask(updated));
+    } catch (error) {
+      showDialog({ title: "Cash update failed", message: error instanceof Error ? error.message : "Could not confirm cash collection.", icon: "cash-outline" });
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.pageContent}>
@@ -1549,6 +1592,7 @@ function ActiveOrderScreenView({
             <StatusRow label="Customer" value={order.customerName ?? "Customer"} />
             <StatusRow label="Tailor" value={order.tailorName ?? "Tailor"} />
             <StatusRow label="Clothes" value={`${order.clothType ?? "Clothes"} - ${order.workType ?? "Tailoring"}`} />
+            <StatusRow label="Payment" value={paymentLabel(order)} />
             <StatusRow label="Deadline" value={deadlineLabel(order.deadlineAt)} />
             <View style={styles.navRow}>
               <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call pickup" onPress={() => Linking.openURL(`tel:${order.leg === "CUSTOMER_TO_TAILOR" ? order.customerPhone ?? "" : order.tailorPhone ?? ""}`)} variant="secondary" /></View>
@@ -1625,8 +1669,14 @@ function ActiveOrderScreenView({
               <>
                 <ChecklistRow label={order.type === "customer_to_tailor" ? "Verify Tailor Receive OTP" : "Verify Delivery OTP"} complete={dropOtpVerified} current={!dropOtpVerified} />
                 {!dropOtpVerified ? <><Field label="4 digit OTP" keyboardType="number-pad" onChange={(value) => setOtp(value.replace(/\D/g, "").slice(0, 4))} placeholder="Enter OTP" value={otp} /><PrimaryButton icon="shield-checkmark-outline" label="Verify OTP" loading={updating} disabled={otp.length !== 4} onPress={verifyOtp} /></> : null}
-                <ChecklistRow label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} complete={false} current={dropOtpVerified} locked={!dropOtpVerified} />
-                <PrimaryButton icon="checkmark-done-outline" label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} loading={updating} onPress={advanceTask} disabled={!dropOtpVerified} />
+                {order.type === "tailor_to_customer" && order.paymentMethod === "COD" ? (
+                  <>
+                    <ChecklistRow label="Collect COD Cash" complete={order.cashCollected === true} current={dropOtpVerified && needsCashCollection} locked={!dropOtpVerified} />
+                    {needsCashCollection ? <PrimaryButton icon="cash-outline" label={`Confirm Cash Collected Rs ${Number(order.totalAmount ?? 0).toFixed(0)}`} loading={updating} onPress={confirmCashCollection} disabled={!dropOtpVerified} /> : null}
+                  </>
+                ) : null}
+                <ChecklistRow label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} complete={false} current={dropOtpVerified && !needsCashCollection} locked={!dropOtpVerified || needsCashCollection} />
+                <PrimaryButton icon="checkmark-done-outline" label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} loading={updating} onPress={advanceTask} disabled={!dropOtpVerified || needsCashCollection} />
               </>
             ) : <ChecklistRow label="Delivery completed" complete />}
           </Card>
@@ -2309,9 +2359,11 @@ const styles = StyleSheet.create({
   cardCopy: { color: "#526276", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 4 },
   helperText: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", marginTop: 8 },
   cardDivider: { height: 1, backgroundColor: BORDER, marginVertical: 13 },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   statusPill: { overflow: "hidden", borderRadius: 14, backgroundColor: "#fff2d8", color: BRAND_ORANGE, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900", textAlign: "center" },
   statusAccepted: { color: "#2563eb", backgroundColor: "#dbeafe" },
   statusCompleted: { color: SUCCESS, backgroundColor: "#dcfce7" },
+  paymentPill: { overflow: "hidden", borderRadius: 13, paddingHorizontal: 9, paddingVertical: 7, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "center", maxWidth: 190, marginTop: 10 },
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center" },
   popupIcon: { width: 58, height: 58, borderRadius: 20, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
