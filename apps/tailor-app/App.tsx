@@ -572,7 +572,8 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
             <StatusPill status={request.status} />
           </View>
           <Text style={styles.bigTitle}>{request.workType}</Text>
-          <Text style={styles.helperText}>{request.description}</Text>
+          <Text style={styles.cardLabel}>CUSTOMER DESCRIPTION</Text>
+          <Text style={styles.customerDescriptionText}>{request.description}</Text>
           <DetailRow icon="receipt-outline" label="Request ID" value={shortId(request.id)} />
           <DetailRow icon="person-outline" label="Gender / Fit Type" value={request.gender ?? "Not specified"} />
           <DetailRow icon="shirt-outline" label="Cloth" value={request.clothType} />
@@ -816,7 +817,7 @@ function QuoteScreen({
         <View style={styles.urgencyRuleCard}>
           <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
           <Text style={styles.urgencyRuleText}>
-            {quoteWindow.label}: quote completion must be between {quoteWindow.min} and {quoteWindow.max} {timeUnit}{quoteWindow.max === 1 ? "" : "s"}.
+            Completion time must be within allowed range for selected urgency. {quoteWindow.label}: {quoteWindow.min}-{quoteWindow.max} {timeUnit}{quoteWindow.max === 1 ? "" : "s"}.
           </Text>
         </View>
         <Text style={styles.formLabel}>Quote Amount</Text>
@@ -825,7 +826,17 @@ function QuoteScreen({
         <TextInput
           style={styles.input}
           value={estimatedTime}
-          onChangeText={(value) => setEstimatedTime(value.replace(/\D/g, "").slice(0, quoteWindow.mode === "hours" ? 2 : 1))}
+          onChangeText={(value) => {
+            const digits = value.replace(/\D/g, "").slice(0, quoteWindow.mode === "hours" ? 2 : 1);
+            if (!digits) {
+              setEstimatedTime("");
+              return;
+            }
+            const parsed = Number(digits);
+            if (parsed < quoteWindow.min) setEstimatedTime(String(quoteWindow.min));
+            else if (parsed > quoteWindow.max) setEstimatedTime(String(quoteWindow.max));
+            else setEstimatedTime(String(parsed));
+          }}
           placeholder={quoteWindow.mode === "hours" ? `${quoteWindow.min} to ${quoteWindow.max} hours` : `${quoteWindow.min} to ${quoteWindow.max} days`}
           placeholderTextColor="#9aa6b8"
           keyboardType="number-pad"
@@ -855,8 +866,12 @@ function QuoteScreen({
 }
 
 function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; setScreen: (screen: Screen) => void; setActiveOrder: (order: Order) => void }) {
-  const [filter, setFilter] = useState<"ACCEPTED" | "READY">("ACCEPTED");
-  const filteredOrders = orders.filter((order) => (filter === "READY" ? order.status === "READY" : ["QUOTE_ACCEPTED", "AT_TAILOR", "WORKING"].includes(order.status)));
+  const [filter, setFilter] = useState<"ACCEPTED" | "READY" | "HISTORY">("ACCEPTED");
+  const filteredOrders = orders.filter((order) => {
+    if (filter === "READY") return order.status === "READY";
+    if (filter === "HISTORY") return ["DELIVERED", "CANCELLED", "COMPLETED"].includes(order.status);
+    return ["QUOTE_ACCEPTED", "AT_TAILOR", "WORKING"].includes(order.status);
+  });
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
@@ -868,8 +883,11 @@ function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; 
         <Pressable style={[styles.filterChip, filter === "READY" && styles.readyFilterChip]} onPress={() => setFilter("READY")}>
           <Text style={[styles.filterChipText, filter === "READY" && styles.readyFilterChipText]}>Ready to Deliver</Text>
         </Pressable>
+        <Pressable style={[styles.filterChip, filter === "HISTORY" && styles.filterChipActive]} onPress={() => setFilter("HISTORY")}>
+          <Text style={[styles.filterChipText, filter === "HISTORY" && styles.filterChipTextActive]}>History</Text>
+        </Pressable>
       </View>
-      {filteredOrders.length === 0 ? <EmptyState icon="cube-outline" title="No orders here" copy="Matching accepted or ready orders will appear here." /> : null}
+      {filteredOrders.length === 0 ? <EmptyState icon="cube-outline" title="No orders here" copy={filter === "HISTORY" ? "Completed and cancelled orders will appear here." : "Matching accepted or ready orders will appear here."} /> : null}
       {filteredOrders.map((order) => (
         <OrderCard
           key={order.id}
@@ -2770,6 +2788,7 @@ const styles = StyleSheet.create({
   emptyState: { minHeight: 170, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", padding: 22, marginBottom: 14 },
   emptyTitle: { color: BRAND_DEEP, fontSize: 17, fontWeight: "900", marginTop: 12 },
   bigTitle: { color: BRAND_DEEP, fontSize: 22, fontWeight: "900", marginTop: 10 },
+  customerDescriptionText: { color: BRAND_DEEP, fontSize: 14, lineHeight: 22, fontWeight: "800", marginBottom: 12 },
   detailRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#eef2f7" },
   smallIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   detailLabel: { color: MUTED, fontSize: 12, fontWeight: "900" },

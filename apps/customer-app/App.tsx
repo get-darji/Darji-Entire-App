@@ -71,7 +71,7 @@ type Screen =
 type RequestFlowScreen = "newRequest" | "clothIssue" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
-type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
+type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
 type BackendTailorQuote = {
   id: string;
   requestId: string;
@@ -918,6 +918,7 @@ function HomeScreen({
   const { width } = useWindowDimensions();
   const serviceCardWidth = (width - 52) / 2;
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
+  const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -973,6 +974,29 @@ function HomeScreen({
           </View>
           <Ionicons name={activeOrder ? "cube-outline" : "add-circle-outline"} size={24} color={BRAND_ORANGE} />
         </Pressable>
+
+        {incompleteOrders.length ? (
+          <View style={styles.homeIncompleteBlock}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.listTitle}>Incomplete Requests</Text>
+              <Pressable onPress={() => setScreen("orders")}>
+                <Text style={styles.seeAll}>View all</Text>
+              </Pressable>
+            </View>
+            {incompleteOrders.slice(0, 2).map((order) => (
+              <Pressable key={order.id} style={styles.incompleteRequestCard} onPress={() => setScreen("orders")}>
+                <View style={styles.profileRowIcon}>
+                  <Ionicons name="time-outline" size={18} color="#b91c1c" />
+                </View>
+                <View style={styles.profileRowText}>
+                  <Text style={styles.addressTitle}>{order.orderNumber}</Text>
+                  <Text style={styles.mutedSmall}>{order.status === "Awaiting Payment" ? "Payment pending before confirmation" : "Waiting for tailor quotes"}</Text>
+                </View>
+                <StatusPill status={order.status} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
 
         <Pressable style={styles.measureHomeCard} onPress={() => setScreen("measurementGuide")}>
           <Image source={measurementsImage} style={styles.measureHomeThumb} resizeMode="cover" />
@@ -1912,7 +1936,8 @@ function quoteFromBackend(quote: BackendRequestQuote): Quote {
     rating: String(quote.tailor?.rating ?? "4.5"),
     reviews: 0,
     eta: etaLabel(quote),
-    price: quote.price
+    price: quote.price,
+    message: quote.message
   };
 }
 
@@ -2078,6 +2103,12 @@ function QuotesScreen({
               <View style={styles.chipRow}>
                 <Text style={styles.quoteChip}>Kurta Alteration</Text>
               </View>
+              {quote.message ? (
+                <View style={styles.quoteMessageBox}>
+                  <Text style={styles.cardLabel}>TAILOR NOTE</Text>
+                  <Text style={styles.quoteMessageText}>{quote.message}</Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -2167,6 +2198,15 @@ function ConfirmOrderScreen({
           )}
         </Pressable>
       </ScrollView>
+      {isPlacingOrder ? (
+        <View style={styles.checkoutBlockingOverlay}>
+          <View style={styles.checkoutBlockingCard}>
+            <ActivityIndicator color={BRAND_ORANGE} size="large" />
+            <Text style={styles.checkoutBlockingTitle}>Processing checkout</Text>
+            <Text style={styles.checkoutBlockingCopy}>Please wait. Do not close the app or tap again.</Text>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -3227,6 +3267,43 @@ function OrdersScreenV2({
   setActiveOrder: (order: CustomerOrder) => void;
   setScreen: (screen: Screen) => void;
 }) {
+  const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
+  const activeOrders = orders.filter((order) => !["Pending", "Awaiting Payment", "Delivered", "Cancelled"].includes(order.status));
+  const historyOrders = orders.filter((order) => ["Delivered", "Cancelled"].includes(order.status));
+  const renderOrderCard = (order: CustomerOrder) => (
+    <Pressable
+      key={order.id}
+      style={styles.orderCardV2}
+      onPress={() => {
+        setActiveOrder(order);
+        setScreen("orderDetails");
+      }}
+    >
+      <View style={styles.orderTopRow}>
+        <View style={styles.orderTitleBlock}>
+          <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+          <Text style={styles.orderService} numberOfLines={2}>
+            {order.draft.workType ?? "Tailoring"} - {order.draft.clothType ?? "Cloth"}
+          </Text>
+        </View>
+        <StatusPill status={order.status} />
+      </View>
+      <View style={styles.orderCardDivider} />
+      <View style={styles.orderBottomRow}>
+        <View style={styles.orderTailorBlock}>
+          <View style={styles.smallQuoteAvatar}>
+            <Text style={styles.smallAvatarText}>{order.tailor.initials}</Text>
+          </View>
+          <View style={styles.orderTailorText}>
+            <Text style={styles.addressTitle} numberOfLines={1}>{order.tailor.name}</Text>
+            <Text style={styles.mutedSmall} numberOfLines={2}>{order.status === "Cancelled" ? "Cancelled order" : `Pickup: ${order.pickupWindow}`}</Text>
+          </View>
+        </View>
+        <Text style={styles.orderPrice}>Rs{order.total}</Text>
+      </View>
+    </Pressable>
+  );
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
@@ -3241,39 +3318,27 @@ function OrdersScreenV2({
             </Pressable>
           </View>
         ) : (
-          orders.map((order) => (
-            <Pressable
-              key={order.id}
-              style={styles.orderCardV2}
-              onPress={() => {
-                setActiveOrder(order);
-                setScreen("orderDetails");
-              }}
-            >
-              <View style={styles.orderTopRow}>
-                <View style={styles.orderTitleBlock}>
-                  <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-                  <Text style={styles.orderService} numberOfLines={2}>
-                    {order.draft.workType ?? "Tailoring"} - {order.draft.clothType ?? "Cloth"}
-                  </Text>
-                </View>
-                <StatusPill status={order.status} />
+          <>
+            {incompleteOrders.length ? (
+              <View style={styles.orderSectionBlock}>
+                <Text style={styles.listTitle}>Incomplete</Text>
+                <Text style={styles.helperText}>Requests waiting for quotes or payment.</Text>
+                {incompleteOrders.map(renderOrderCard)}
               </View>
-              <View style={styles.orderCardDivider} />
-              <View style={styles.orderBottomRow}>
-                <View style={styles.orderTailorBlock}>
-                  <View style={styles.smallQuoteAvatar}>
-                    <Text style={styles.smallAvatarText}>{order.tailor.initials}</Text>
-                  </View>
-                  <View style={styles.orderTailorText}>
-                    <Text style={styles.addressTitle} numberOfLines={1}>{order.tailor.name}</Text>
-                    <Text style={styles.mutedSmall} numberOfLines={2}>Pickup: {order.pickupWindow}</Text>
-                  </View>
-                </View>
-                <Text style={styles.orderPrice}>Rs{order.total}</Text>
+            ) : null}
+            {activeOrders.length ? (
+              <View style={styles.orderSectionBlock}>
+                <Text style={styles.listTitle}>Active Orders</Text>
+                {activeOrders.map(renderOrderCard)}
               </View>
-            </Pressable>
-          ))
+            ) : null}
+            {historyOrders.length ? (
+              <View style={styles.orderSectionBlock}>
+                <Text style={styles.listTitle}>History</Text>
+                {historyOrders.map(renderOrderCard)}
+              </View>
+            ) : null}
+          </>
         )}
       </ScrollView>
       <BottomTabs active="orders" setScreen={setScreen} />
@@ -4352,6 +4417,8 @@ function createStyles(isDark = false) {
   featureButton: { marginTop: 18, height: 46, minWidth: 150, alignSelf: "flex-start", borderRadius: 23, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   featureButtonText: { color: "#111111", fontWeight: "900", fontSize: 15 },
   homeOrderPreview: { minHeight: 78, borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, marginBottom: 20 },
+  homeIncompleteBlock: { marginBottom: 20 },
+  incompleteRequestCard: { minHeight: 68, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 12, padding: 12, marginBottom: 10 },
   measureHomeCard: { minHeight: 88, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: 14, gap: 12, marginBottom: 20 },
   measureHomeIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   measureHomeThumb: { width: 56, height: 56, borderRadius: 15, backgroundColor: iconBg },
@@ -4571,6 +4638,10 @@ function createStyles(isDark = false) {
   homeMeasurementModalButton: { flex: 1, marginTop: 0 },
   disabledDarkButton: { backgroundColor: "#252525" },
   disabledText: { color: "#777777" },
+  checkoutBlockingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(7, 13, 24, 0.45)", alignItems: "center", justifyContent: "center", padding: 24 },
+  checkoutBlockingCard: { width: "100%", maxWidth: 320, borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 20, alignItems: "center" },
+  checkoutBlockingTitle: { color: text, fontSize: 17, fontWeight: "900", marginTop: 12 },
+  checkoutBlockingCopy: { color: muted, fontSize: 13, lineHeight: 19, fontWeight: "700", textAlign: "center", marginTop: 6 },
   infoBanner: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8, marginBottom: 14 },
   infoBannerText: { color: muted, fontSize: 13, fontWeight: "700" },
   quoteCard: { width: "100%", minHeight: 162, borderRadius: 20, backgroundColor: surfaceAlt, padding: 18, marginBottom: 16, borderWidth: 1.2, borderColor: "#efcf92" },
@@ -4587,6 +4658,8 @@ function createStyles(isDark = false) {
   quotePrice: { color: BRAND_ORANGE, fontSize: 19, fontWeight: "900", lineHeight: 24 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 22, paddingLeft: 72 },
   quoteChip: { color: muted, backgroundColor: surface, overflow: "hidden", borderRadius: 10, borderWidth: 1, borderColor: border, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
+  quoteMessageBox: { borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 12, marginTop: 12 },
+  quoteMessageText: { color: text, fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 5 },
   whiteCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
@@ -4603,6 +4676,7 @@ function createStyles(isDark = false) {
   orderId: { color: "#dc2626", fontSize: 22, fontWeight: "900", marginTop: 4, letterSpacing: 0.4 },
   orderCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   orderCardV2: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 16 },
+  orderSectionBlock: { marginBottom: 16 },
   orderTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   orderTitleBlock: { flex: 1, minWidth: 0 },
   orderBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

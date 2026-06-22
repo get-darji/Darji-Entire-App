@@ -6,7 +6,6 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
-import { WebView } from "react-native-webview";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -51,6 +50,14 @@ type DialogState = {
   message: string;
   icon?: keyof typeof Ionicons.glyphMap;
   actions?: Array<{ label: string; variant?: "primary" | "secondary"; onPress?: () => void }>;
+};
+type DeliveryNotification = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  taskId?: string;
+  orderId?: string;
 };
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
@@ -393,89 +400,6 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
       <Text style={[styles.connectionText, { color }]}>{status}</Text>
     </View>
   );
-}
-
-function buildLeafletHtml(order: DeliveryRequest) {
-  const pickup = JSON.stringify(order.pickupAddress);
-  const drop = JSON.stringify(order.dropAddress);
-  return `
-<!doctype html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<style>
-  html, body, #map { height: 100%; margin: 0; background: #0b2241; font-family: Arial, sans-serif; }
-  .panel { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 999; background: #111; color: #fff; border: 1px solid #F98A04; border-radius: 14px; padding: 10px; }
-  .title { color: #FEC104; font-weight: 800; font-size: 13px; }
-  .meta { font-size: 12px; line-height: 17px; margin-top: 4px; }
-</style>
-</head>
-<body>
-<div id="map"></div>
-<div class="panel"><div class="title" id="summary">Building route...</div><div class="meta" id="steps">Open Google Maps for live turn-by-turn navigation.</div></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-const pickupAddress = ${pickup};
-const dropAddress = ${drop};
-const map = L.map('map', { zoomControl: false }).setView([28.6139, 77.2090], 12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: 'OpenStreetMap' }).addTo(map);
-const orangeIcon = L.divIcon({ className: '', html: '<div style="width:18px;height:18px;border-radius:9px;background:#F98A04;border:3px solid #fff"></div>' });
-const yellowIcon = L.divIcon({ className: '', html: '<div style="width:18px;height:18px;border-radius:9px;background:#FEC104;border:3px solid #111"></div>' });
-const blueIcon = L.divIcon({ className: '', html: '<div style="width:18px;height:18px;border-radius:9px;background:#2563eb;border:3px solid #fff"></div>' });
-let partnerMarker;
-async function geocode(q) {
-  const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q));
-  const data = await res.json();
-  if (!data.length) throw new Error('Address not found');
-  return [Number(data[0].lat), Number(data[0].lon)];
-}
-async function route() {
-  try {
-    const pickup = await geocode(pickupAddress);
-    const drop = await geocode(dropAddress);
-    L.marker(pickup, { icon: orangeIcon }).addTo(map).bindPopup('Pickup');
-    L.marker(drop, { icon: yellowIcon }).addTo(map).bindPopup('Drop');
-    const res = await fetch('https://router.project-osrm.org/route/v1/driving/' + pickup[1] + ',' + pickup[0] + ';' + drop[1] + ',' + drop[0] + '?overview=full&geometries=geojson&steps=true');
-    const data = await res.json();
-    const best = data.routes && data.routes[0];
-    if (!best) throw new Error('Route unavailable');
-    const coords = best.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
-    L.polyline(coords, { color: '#F98A04', weight: 5 }).addTo(map);
-    map.fitBounds(coords, { padding: [24, 24] });
-    document.getElementById('summary').innerText = (best.distance / 1000).toFixed(1) + ' km - ' + Math.round(best.duration / 60) + ' min';
-    document.getElementById('steps').innerText = best.legs[0].steps.slice(0, 4).map(function(s){ return s.maneuver.instruction || s.name || 'Continue'; }).join(' • ');
-  } catch (e) {
-    document.getElementById('summary').innerText = 'Route preview unavailable';
-    document.getElementById('steps').innerText = 'Use external navigation for exact turn-by-turn route.';
-  }
-}
-document.addEventListener('message', function(event) {
-  try {
-    const msg = JSON.parse(event.data);
-    if (msg.type === 'location' && msg.latitude && msg.longitude) {
-      const latlng = [msg.latitude, msg.longitude];
-      if (!partnerMarker) partnerMarker = L.marker(latlng, { icon: blueIcon }).addTo(map).bindPopup('You');
-      else partnerMarker.setLatLng(latlng);
-    }
-  } catch {}
-});
-route();
-</script>
-</body>
-</html>`;
-}
-
-function RouteMap({ order, location }: { order: DeliveryRequest; location?: { latitude: number; longitude: number } }) {
-  const webViewRef = useRef<WebView>(null);
-
-  useEffect(() => {
-    if (!location) return;
-    const payload = JSON.stringify({ type: "location", ...location });
-    webViewRef.current?.injectJavaScript(`document.dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(payload)} })); true;`);
-  }, [location?.latitude, location?.longitude]);
-
-  return <WebView ref={webViewRef} originWhitelist={["*"]} source={{ html: buildLeafletHtml(order) }} style={styles.routeWebView} />;
 }
 
 function Card({ children, accent = false }: { children: ReactNode; accent?: boolean }) {
@@ -1492,6 +1416,7 @@ function ActiveOrderScreenView({
   }
 
   async function verifyOtp() {
+    if (updating) return;
     if (otp.length !== 4) {
       showDialog({ title: "OTP required", message: "Enter the 4 digit OTP.", icon: "shield-checkmark-outline" });
       return;
@@ -1513,6 +1438,7 @@ function ActiveOrderScreenView({
   }
 
   async function savePhotos(kind: "cloth" | "sample") {
+    if (uploadingPhotos) return;
     const drafts = kind === "cloth" ? clothProofs : sampleProofs;
     if (!drafts.length) {
       showDialog({ title: "Photos required", message: `Upload at least one ${kind} photo.`, icon: "images-outline" });
@@ -1541,6 +1467,7 @@ function ActiveOrderScreenView({
   }
 
   async function advanceTask() {
+    if (updating) return;
     const nextStatus = order.taskStatus === "accepted" ? "picked_up" : "delivered";
     try {
       setUpdating(true);
@@ -1557,6 +1484,7 @@ function ActiveOrderScreenView({
   }
 
   async function confirmCashCollection() {
+    if (updating) return;
     try {
       setUpdating(true);
       const updated = await api<DeliveryTaskPayload>(`/delivery-requests/${order.id}/cash-collection`, {
@@ -1615,13 +1543,12 @@ function ActiveOrderScreenView({
         {screen === "route" ? (
           <Card accent>
             <Text style={styles.cardTitle}>Best route</Text>
-            <Text style={styles.helperText}>Google Maps opens with driving directions for the exact pickup and drop addresses from the backend request.</Text>
+            <Text style={styles.helperText}>Use Google Maps for live navigation. The in-app OpenStreetMap preview has been removed to avoid broken route loading.</Text>
             <StatusRow label="Pickup" value={order.pickupAddress} />
             <StatusRow label="Drop" value={order.dropAddress} />
-            <RouteMap order={order} location={currentLocation} />
             <View style={styles.navRow}>
-              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Pickup route" onPress={() => openDirections(order.pickupAddress)} variant="secondary" /></View>
-              <View style={styles.flexOne}><PrimaryButton icon="flag-outline" label="Full route" onPress={() => openDirections(order.dropAddress, order.pickupAddress)} /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Open Pickup Route" onPress={() => openDirections(order.pickupAddress)} variant="secondary" /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="flag-outline" label="Open Delivery Route" onPress={() => openDirections(order.dropAddress, order.pickupAddress)} /></View>
             </View>
           </Card>
         ) : null}
@@ -1741,17 +1668,27 @@ function EarningsScreen() {
   );
 }
 
-function NotificationsScreen({ requests }: { requests: DeliveryRequest[] }) {
+function NotificationsScreen({ notifications, onOpen }: { notifications: DeliveryNotification[]; onOpen: (notification: DeliveryNotification) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header subtitle="Push notifications, payments, and announcements" title="Notifications" />
-      {requests.slice(0, 8).map((request) => (
-        <Card key={request.id}>
-          <Text style={styles.cardTitle}>{requestTitle(request)}</Text>
-          <Text style={styles.cardMeta}>{request.pickupAddress} to {request.dropAddress}</Text>
-        </Card>
+      <Header subtitle="Tap an alert to open the related delivery" title="Notification Center" />
+      {notifications.map((notification) => (
+        <Pressable key={notification.id} onPress={() => onOpen(notification)}>
+          <Card>
+            <View style={styles.cardTopRow}>
+              <View style={styles.iconTile}>
+                <Ionicons name="notifications-outline" size={21} color={BRAND_ORANGE} />
+              </View>
+              <View style={styles.cardMain}>
+                <Text style={styles.cardTitle}>{notification.title}</Text>
+                <Text style={styles.cardMeta}>{notification.body}</Text>
+                <Text style={styles.cardCopy}>{new Date(notification.createdAt).toLocaleString("en-IN")}</Text>
+              </View>
+            </View>
+          </Card>
+        </Pressable>
       ))}
-      {!requests.length ? <EmptyState title="No alerts yet" copy="New delivery requests and job updates will appear here." /> : null}
+      {!notifications.length ? <EmptyState title="No alerts yet" copy="New delivery requests and job updates will appear here." /> : null}
     </ScrollView>
   );
 }
@@ -1803,6 +1740,7 @@ function MainApp({
   const [activeOrder, setActiveOrder] = useState<DeliveryRequest | undefined>();
   const [activeOrderScreen, setActiveOrderScreen] = useState<ActiveOrderScreen>("summary");
   const [accepting, setAccepting] = useState(false);
+  const [notificationCenterItems, setNotificationCenterItems] = useState<DeliveryNotification[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number }>();
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
@@ -1816,6 +1754,28 @@ function MainApp({
   useEffect(() => {
     setOnline(Boolean(me?.deliveryProfile?.isAvailable ?? false));
   }, [me?.deliveryProfile?.isAvailable]);
+
+  function addDeliveryNotification(input: Omit<DeliveryNotification, "id" | "createdAt">) {
+    setNotificationCenterItems((current) => [
+      {
+        id: `${input.taskId ?? input.orderId ?? "delivery"}-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        ...input
+      },
+      ...current
+    ].slice(0, 80));
+  }
+
+  function openNotification(notification: DeliveryNotification) {
+    const request = requests.find((item) => item.id === notification.taskId || item.orderId === notification.orderId);
+    if (request) {
+      setActiveOrder(request);
+      setActiveOrderScreen(request.taskStatus === "pending" ? "summary" : "route");
+      setTab("orders");
+      return;
+    }
+    showDialog({ title: "Delivery not found", message: "This delivery is no longer available in your current queue.", icon: "alert-circle-outline" });
+  }
 
   const showOpenRequestPopup = useCallback((requestList: DeliveryRequest[]) => {
     if (!online || requestVisible || activeOrder) return;
@@ -1872,6 +1832,12 @@ function MainApp({
       if (!payload?.id) return;
       const request = normalizeDeliveryTask(payload);
       setRequests((current) => current.some((item) => item.id === request.id) ? current : [request, ...current]);
+      addDeliveryNotification({
+        title: "New delivery request",
+        body: requestTitle(request),
+        taskId: request.id,
+        orderId: request.orderId
+      });
       showOpenRequestPopupRef.current([request]);
     });
     socket.on("delivery:task_accepted", ({ taskId, deliveryPartnerId }: { taskId: string; deliveryPartnerId?: string }) => {
@@ -1889,12 +1855,24 @@ function MainApp({
       setRequests((current) => [request, ...current.filter((item) => item.id !== request.id)]);
       setActiveOrder(request);
       setActiveOrderScreen("route");
+      addDeliveryNotification({
+        title: "Delivery assigned",
+        body: requestTitle(request),
+        taskId: request.id,
+        orderId: request.orderId
+      });
     });
     socket.on("delivery:task_updated", (payload: DeliveryTaskPayload) => {
       if (!payload?.id) return;
       const request = normalizeDeliveryTask(payload);
       setRequests((current) => [request, ...current.filter((item) => item.id !== request.id)]);
       setActiveOrder((current) => current?.id === request.id ? request : current);
+      addDeliveryNotification({
+        title: "Delivery updated",
+        body: `${requestTitle(request)} is ${request.taskStatus.replace(/_/g, " ")}.`,
+        taskId: request.id,
+        orderId: request.orderId
+      });
     });
     socket.on("delivery:task_cancelled", ({ orderId, taskIds }: { orderId?: string; taskIds?: string[] }) => {
       const ids = new Set(taskIds ?? []);
@@ -1913,6 +1891,12 @@ function MainApp({
           : current
       );
       if (orderId || ids.size) {
+        addDeliveryNotification({
+          title: "Delivery cancelled",
+          body: `Order ${orderId ? orderId.slice(0, 8).toUpperCase() : "request"} has been cancelled.`,
+          taskId: taskIds?.[0],
+          orderId
+        });
         showDialog({
           title: "Order cancelled",
           message: `Delivery ${orderId ? orderId.slice(0, 8).toUpperCase() : "request"} has been cancelled.`,
@@ -1975,6 +1959,7 @@ function MainApp({
 
   async function acceptPopupRequest() {
     if (!token || !popupRequest) return;
+    if (accepting) return;
     try {
       setAccepting(true);
       const acceptedPayload = await api<DeliveryTaskPayload>(`/delivery-requests/${popupRequest.id}/accept`, { method: "POST" }, token);
@@ -2006,6 +1991,8 @@ function MainApp({
     }
 
     if (destination.actionIdentifier === "ACCEPT" && taskId && token) {
+      if (accepting) return;
+      setAccepting(true);
       void api<DeliveryTaskPayload>(`/delivery-requests/${taskId}/accept`, { method: "POST" }, token)
         .then((payload) => {
           const accepted = normalizeDeliveryTask(payload);
@@ -2016,7 +2003,8 @@ function MainApp({
           setActiveOrderScreen("route");
           void playAppSound("confirmation");
         })
-        .catch((error) => showDialog({ title: "Accept failed", message: error instanceof Error ? error.message : "Could not accept request.", icon: "alert-circle-outline" }));
+        .catch((error) => showDialog({ title: "Accept failed", message: error instanceof Error ? error.message : "Could not accept request.", icon: "alert-circle-outline" }))
+        .finally(() => setAccepting(false));
       return;
     }
 
@@ -2112,7 +2100,7 @@ function MainApp({
           }
         }} requests={requests} /> : null}
         {tab === "earnings" ? <EarningsScreen /> : null}
-        {tab === "notifications" ? <NotificationsScreen requests={requests} /> : null}
+        {tab === "notifications" ? <NotificationsScreen notifications={notificationCenterItems} onOpen={openNotification} /> : null}
         {tab === "profile" ? (
           <DeliveryProfileScreen
             me={me}
@@ -2436,7 +2424,6 @@ const styles = StyleSheet.create({
   checklistLabel: { flex: 1, fontSize: 14, fontWeight: "900" },
   mapPreview: { minHeight: 150, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center", marginTop: 12 },
   mapPreviewText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 8 },
-  routeWebView: { height: 300, borderRadius: 18, overflow: "hidden", backgroundColor: BRAND_DEEP, marginTop: 12 },
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
   proofImage: { width: 82, height: 82, borderRadius: 14, backgroundColor: "#fff4dc" },
   sampleBlock: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 14 },

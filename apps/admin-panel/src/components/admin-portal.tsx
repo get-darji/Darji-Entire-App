@@ -839,7 +839,8 @@ export function AdminPortal() {
   const orderColumns = getOrderColumns({
     onAssign: setAssignOrderTarget,
     onOpen: setOrderDetail,
-    onStatusChange: (orderId, status) => statusMutation.mutate({ orderId, status })
+    onStatusChange: (orderId, status) => statusMutation.mutate({ orderId, status }),
+    pending: statusMutation.isPending
   });
   const tailoringColumns = getTailoringColumns({ onOpen: setTailoringDetail });
   const deliveryColumns = getDeliveryColumns({ onOpen: setDeliveryDetail, partners });
@@ -3293,11 +3294,13 @@ function AssignOrderDialog({
 function getOrderColumns({
   onAssign,
   onOpen,
-  onStatusChange
+  onStatusChange,
+  pending
 }: {
   onAssign: (order: Order) => void;
   onOpen: (order: Order) => void;
   onStatusChange: (orderId: string, status: string) => void;
+  pending: boolean;
 }): Array<ColumnDef<Order>> {
   return [
     {
@@ -3366,7 +3369,7 @@ function getOrderColumns({
           <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onAssign(row.original)}>
             Assign
           </ActionButton>
-          <ActionButton className="px-3 py-2" variant="danger" onClick={() => onStatusChange(row.original.id, "CANCELLED")}>
+          <ActionButton className="px-3 py-2" disabled={pending} variant="danger" onClick={() => onStatusChange(row.original.id, "CANCELLED")}>
             Cancel
           </ActionButton>
         </div>
