@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -43,7 +44,7 @@ import type { NotificationDestination } from "./src/utils/deepLinking";
 type AuthStep = "login" | "otp";
 type AppStage = "auth" | "loading" | "onboarding" | "pending" | "main";
 type OnboardingStep = "personal" | "identity" | "license" | "vehicle" | "bank" | "preferences" | "tutorial" | "review";
-type Tab = "home" | "orders" | "earnings" | "notifications" | "profile";
+type Tab = "home" | "orders" | "earnings" | "notifications" | "profile" | "transactions";
 type ActiveOrderScreen = "summary" | "route" | "confirmations";
 type DialogState = {
   title: string;
@@ -59,6 +60,7 @@ type DeliveryNotification = {
   taskId?: string;
   orderId?: string;
 };
+type CancellationAlert = { id: string; title: string; message: string };
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaDraft = { uri: string; name: string };
@@ -98,6 +100,7 @@ type DeliveryRequest = {
   pickupOtpVerifiedAt?: string;
   dropOtpVerifiedAt?: string;
   deadlineAt?: string;
+  deliveredAt?: string;
   createdAt?: string;
 };
 
@@ -115,6 +118,8 @@ type DeliveryProfile = {
   dailyEarnings?: number;
   weeklyEarnings?: number;
   monthlyEarnings?: number;
+  totalEarnings?: number;
+  withdrawableBalance?: number;
   workingHours?: string;
   settings?: {
     notifications?: boolean;
@@ -324,7 +329,18 @@ function requestTitle(request: DeliveryRequest) {
 }
 
 function requestEarning(request: DeliveryRequest) {
-  return request.estimatedEarnings ?? (request.leg === "CUSTOMER_TO_TAILOR" ? 80 : 90);
+  return Number(request.estimatedEarnings ?? 0);
+}
+
+function taskCompletedAt(request: DeliveryRequest) {
+  const value = request.deliveredAt ?? request.createdAt;
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function isAfterDate(value: Date | undefined, threshold: Date) {
+  return Boolean(value && value >= threshold);
 }
 
 function paymentLabel(request: DeliveryRequest) {
@@ -695,7 +711,8 @@ function OnboardingScreen({
   const profile = me?.deliveryProfile;
   const rejectionReason = profile?.verificationRejectionReason;
   const initialData = useMemo(() => onboardingFromProfile(profile), [profile]);
-  const initialStep = Math.min(Math.max(Number((profile?.verificationDraft as { step?: number } | undefined)?.step ?? 1) - 1, 0), onboardingSteps.length - 1);
+  const reuploadRequired = profile?.verificationStatus === "REJECTED" || profile?.verificationStatus === "REUPLOAD_REQUIRED";
+  const initialStep = reuploadRequired ? 1 : Math.min(Math.max(Number((profile?.verificationDraft as { step?: number } | undefined)?.step ?? 1) - 1, 0), onboardingSteps.length - 1);
   const [stepIndex, setStepIndex] = useState(initialStep);
   const [data, setData] = useState<OnboardingData>(initialData);
   const [scanning, setScanning] = useState<"ocr" | "face" | undefined>();
@@ -1156,6 +1173,10 @@ function DocumentBox({ label, media, onGallery, onCamera, loading = false }: { l
 function HomeScreen({
   activeOrder,
   pendingCount,
+  completedJobs,
+  todayEarnings,
+  totalEarnings,
+  rating,
   online,
   onToggleOnline,
   onOpenOrder,
@@ -1163,6 +1184,10 @@ function HomeScreen({
 }: {
   activeOrder?: DeliveryRequest;
   pendingCount: number;
+  completedJobs: number;
+  todayEarnings: number;
+  totalEarnings: number;
+  rating: string;
   online: boolean;
   onToggleOnline: (value: boolean) => void;
   onOpenOrder: () => void;
@@ -1191,12 +1216,12 @@ function HomeScreen({
         </View>
       </View>
       <View style={styles.statsRow}>
-        <Stat label="Today" value="Rs 1,240" />
-        <Stat label="Completed" value="12" tone="green" />
+        <Stat label="Today" value={`Rs ${todayEarnings.toFixed(0)}`} />
+        <Stat label="Completed" value={String(completedJobs)} tone="green" />
       </View>
       <View style={styles.statsRow}>
-        <Stat label="Rating" value="4.8" tone="blue" />
-        <Stat label="Wallet" value="Rs 3,860" />
+        <Stat label="Rating" value={rating} tone="blue" />
+        <Stat label="Wallet" value={`Rs ${totalEarnings.toFixed(0)}`} />
       </View>
       {activeOrder ? (
         <Card>
@@ -1301,12 +1326,13 @@ function OrderRequestModal({
 }
 
 function OrdersScreen({ requests, onOpenOrder }: { requests: DeliveryRequest[]; onOpenOrder: (request: DeliveryRequest) => void }) {
-  const [queue, setQueue] = useState<"new" | "pickup" | "drop" | "history">("new");
+  const [queue, setQueue] = useState<"new" | "pickup" | "drop" | "history" | "cancelled">("new");
   const visibleRequests = requests.filter((request) => {
     if (queue === "new") return request.taskStatus === "pending";
     if (queue === "pickup") return request.taskStatus === "accepted";
     if (queue === "drop") return request.taskStatus === "picked_up";
-    return request.taskStatus === "delivered" || request.taskStatus === "cancelled";
+    if (queue === "history") return request.taskStatus === "delivered";
+    return request.taskStatus === "cancelled";
   });
   return (
     <FlatList
@@ -1316,9 +1342,9 @@ function OrdersScreen({ requests, onOpenOrder }: { requests: DeliveryRequest[]; 
       ListHeaderComponent={<>
         <Header subtitle="Batch pickup and delivery workflow" title="Delivery Queues" />
         <View style={styles.segmentRow}>
-          {(["new", "pickup", "drop", "history"] as const).map((item) => (
-            <Pressable key={item} style={[styles.segment, queue === item && styles.segmentActive]} onPress={() => setQueue(item)}>
-              <Text style={[styles.segmentText, queue === item && styles.segmentTextActive]}>{item === "new" ? "New Requests" : item === "pickup" ? "Pickup Queue" : item === "drop" ? "Drop Queue" : "History"}</Text>
+          {(["new", "pickup", "drop", "history", "cancelled"] as const).map((item) => (
+            <Pressable key={item} style={[styles.segment, queue === item && styles.segmentActive, item === "cancelled" && queue === item && styles.cancelledSegmentActive]} onPress={() => setQueue(item)}>
+              <Text style={[styles.segmentText, queue === item && styles.segmentTextActive, item === "cancelled" && queue === item && styles.cancelledSegmentText]}>{item === "new" ? "New Requests" : item === "pickup" ? "Pickup Queue" : item === "drop" ? "Drop Queue" : item === "history" ? "History" : "Cancelled"}</Text>
             </Pressable>
           ))}
         </View>
@@ -1641,29 +1667,91 @@ function EmptyState({ title, copy }: { title: string; copy: string }) {
   );
 }
 
-function EarningsScreen() {
+function EarningsScreen({ requests, me }: { requests: DeliveryRequest[]; me?: MeResponse }) {
+  const delivered = useMemo(() => requests.filter((request) => request.taskStatus === "delivered"), [requests]);
+  const today = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }, []);
+  const week = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const day = start.getDay();
+    start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+    return start;
+  }, []);
+  const month = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }, []);
+  const todayEarnings = useMemo(
+    () => delivered.reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), today) ? requestEarning(request) : 0), 0),
+    [delivered, today]
+  );
+  const weeklyEarnings = useMemo(
+    () => delivered.reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), week) ? requestEarning(request) : 0), 0),
+    [delivered, week]
+  );
+  const monthlyEarnings = useMemo(
+    () => delivered.reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), month) ? requestEarning(request) : 0), 0),
+    [delivered, month]
+  );
+  const totalEarnings = useMemo(() => delivered.reduce((sum, request) => sum + requestEarning(request), 0), [delivered]);
+  const pickupJobs = delivered.filter((request) => request.type === "customer_to_tailor");
+  const dropJobs = delivered.filter((request) => request.type === "tailor_to_customer");
+  const averagePerJob = delivered.length ? totalEarnings / delivered.length : 0;
+  const withdrawableBalance = Number(me?.deliveryProfile?.withdrawableBalance ?? totalEarnings);
+
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header subtitle="Daily, weekly, monthly payout analytics" title="Earnings" />
+      <Header subtitle="Completed delivery payouts" title="Earnings" />
       <View style={styles.statsRow}>
-        <Stat label="Today" value="Rs 1,240" />
-        <Stat label="Weekly" value="Rs 7,850" tone="green" />
+        <Stat label="Today" value={`Rs ${todayEarnings.toFixed(0)}`} />
+        <Stat label="Weekly" value={`Rs ${weeklyEarnings.toFixed(0)}`} tone="green" />
       </View>
       <Card>
         <Text style={styles.cardTitle}>Breakdown</Text>
-        {[
-          ["Base earning", "Rs 820"],
-          ["Instant bonus", "Rs 180"],
-          ["Distance bonus", "Rs 140"],
-          ["Tips", "Rs 100"],
-          ["Penalties", "Rs 0"]
-        ].map(([label, value]) => <StatusRow key={label} label={label} value={value} />)}
+        <StatusRow label="Monthly earned" value={`Rs ${monthlyEarnings.toFixed(0)}`} />
+        <StatusRow label="Pickup jobs" value={String(pickupJobs.length)} />
+        <StatusRow label="Drop jobs" value={String(dropJobs.length)} />
+        <StatusRow label="Average per job" value={`Rs ${averagePerJob.toFixed(0)}`} />
+        <StatusRow label="Completed jobs" value={String(delivered.length)} />
       </Card>
       <Card accent>
         <Text style={styles.cardMeta}>Withdrawable balance</Text>
-        <Text style={styles.walletValue}>Rs 3,860</Text>
+        <Text style={styles.walletValue}>Rs {withdrawableBalance.toFixed(0)}</Text>
         <PrimaryButton icon="wallet-outline" label="Withdraw" onPress={() => undefined} />
       </Card>
+    </ScrollView>
+  );
+}
+
+function TransactionHistoryScreen({ requests }: { requests: DeliveryRequest[] }) {
+  const entries = [...requests]
+    .filter((request) => request.taskStatus === "delivered" || request.taskStatus === "cancelled")
+    .sort((a, b) => new Date(taskCompletedAt(b) ?? b.createdAt ?? 0).getTime() - new Date(taskCompletedAt(a) ?? a.createdAt ?? 0).getTime());
+
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent}>
+      <Header subtitle="Completed and cancelled delivery activity" title="Transactions" />
+      {entries.length === 0 ? <EmptyState title="No transactions yet" copy="Delivered jobs and payout entries will appear here." /> : null}
+      {entries.map((request) => (
+        <Card key={request.id}>
+          <View style={styles.cardTopRow}>
+            <View style={styles.iconTile}>
+              <Ionicons name={request.taskStatus === "cancelled" ? "close-circle-outline" : "receipt-outline"} size={21} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.cardMain}>
+              <Text style={styles.cardTitle}>{shortId(request.id)} - {requestTitle(request)}</Text>
+              <Text style={styles.cardMeta}>{request.clothType ?? "Cloth"} / {request.workType ?? "Delivery"}</Text>
+            </View>
+            <Text style={styles.priceText}>Rs {request.taskStatus === "cancelled" ? "0" : requestEarning(request).toFixed(0)}</Text>
+          </View>
+          <StatusRow label="Status" value={request.taskStatus.replace("_", " ").toUpperCase()} />
+          <StatusRow label="Order" value={shortId(request.orderId)} />
+          <StatusRow label="Completed" value={taskCompletedAt(request)?.toLocaleString("en-IN") ?? "Pending"} />
+        </Card>
+      ))}
     </ScrollView>
   );
 }
@@ -1732,7 +1820,8 @@ function MainApp({
   const token = useAppStore((state) => state.token);
   const user = useAppStore((state) => state.user);
   useRegisterPushNotifications({ authToken: token, app: "delivery", userId: user?.id });
-  const [tab, setTab] = useState<Tab>("home");
+  const [tab, setTabState] = useState<Tab>("home");
+  const [tabStack, setTabStack] = useState<Tab[]>([]);
   const [online, setOnline] = useState(Boolean(me?.deliveryProfile?.isAvailable ?? false));
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [requestVisible, setRequestVisible] = useState(false);
@@ -1743,6 +1832,7 @@ function MainApp({
   const [notificationCenterItems, setNotificationCenterItems] = useState<DeliveryNotification[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number }>();
+  const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const presentedRequestIdsRef = useRef<Set<string>>(new Set());
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
@@ -1750,6 +1840,60 @@ function MainApp({
   const acceptedRequests = useMemo(() => requests.filter((request) => request.taskStatus === "accepted" || request.taskStatus === "picked_up"), [requests]);
   const currentActiveOrder = activeOrder ?? acceptedRequests[0];
   const completedJobs = useMemo(() => requests.filter((request) => request.taskStatus === "delivered").length, [requests]);
+  const totalEarnings = useMemo(() => requests.filter((request) => request.taskStatus === "delivered").reduce((sum, request) => sum + requestEarning(request), 0), [requests]);
+  const todayEarnings = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return requests
+      .filter((request) => request.taskStatus === "delivered")
+      .reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), start) ? requestEarning(request) : 0), 0);
+  }, [requests]);
+  const deliveryRating = useMemo(() => {
+    const rating = Number(me?.deliveryProfile?.rating ?? 0);
+    return rating > 0 ? rating.toFixed(1) : "0.0";
+  }, [me?.deliveryProfile?.rating]);
+
+  function setTab(nextTab: Tab, options?: { resetStack?: boolean; replace?: boolean }) {
+    if (nextTab === tab) return;
+    if (options?.resetStack || nextTab === "home") {
+      setTabStack([]);
+    } else if (!options?.replace) {
+      setTabStack((current) => [...current, tab].slice(-12));
+    }
+    setTabState(nextTab);
+  }
+
+  const goBack = useCallback(() => {
+    if (requestVisible) {
+      setRequestVisible(false);
+      return true;
+    }
+    if (activeOrder) {
+      if (activeOrderScreen !== "summary") {
+        setActiveOrderScreen("summary");
+        return true;
+      }
+      setActiveOrder(undefined);
+      setActiveOrderScreen("summary");
+      return true;
+    }
+    if (tabStack.length > 0) {
+      setTabState(tabStack[tabStack.length - 1]);
+      setTabStack((currentStack) => currentStack.slice(0, -1));
+      return true;
+    }
+    if (tab !== "home") {
+      setTabState("home");
+      setTabStack([]);
+      return true;
+    }
+    return false;
+  }, [activeOrder, activeOrderScreen, requestVisible, tab, tabStack]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", goBack);
+    return () => subscription.remove();
+  }, [goBack]);
 
   useEffect(() => {
     setOnline(Boolean(me?.deliveryProfile?.isAvailable ?? false));
@@ -1766,11 +1910,26 @@ function MainApp({
     ].slice(0, 80));
   }
 
+  function openCancelledDelivery(taskId: string) {
+    const request = requests.find((item) => item.id === taskId || item.orderId === taskId);
+    setCancellationAlert(undefined);
+    setTab("orders");
+    if (!request) return;
+    setActiveOrder(request);
+    setActiveOrderScreen("summary");
+  }
+
   function openNotification(notification: DeliveryNotification) {
     const request = requests.find((item) => item.id === notification.taskId || item.orderId === notification.orderId);
     if (request) {
+      if (request.taskStatus === "pending") {
+        setPopupRequest(request);
+        setRequestVisible(true);
+        setTab("orders");
+        return;
+      }
       setActiveOrder(request);
-      setActiveOrderScreen(request.taskStatus === "pending" ? "summary" : "route");
+      setActiveOrderScreen("route");
       setTab("orders");
       return;
     }
@@ -1897,10 +2056,10 @@ function MainApp({
           taskId: taskIds?.[0],
           orderId
         });
-        showDialog({
+        setCancellationAlert({
+          id: taskIds?.[0] ?? orderId ?? "",
           title: "Order cancelled",
-          message: `Delivery ${orderId ? orderId.slice(0, 8).toUpperCase() : "request"} has been cancelled.`,
-          icon: "close-circle-outline"
+          message: `Delivery ${orderId ? orderId.slice(0, 8).toUpperCase() : "request"} has been cancelled.`
         });
       }
     });
@@ -2040,27 +2199,39 @@ function MainApp({
   if (currentActiveOrder && activeOrder) {
     return (
       <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
-        <ActiveOrderScreenView
-          onBack={() => {
-            setActiveOrder(undefined);
-            setActiveOrderScreen("summary");
-          }}
-          order={currentActiveOrder}
-          screen={activeOrderScreen}
-          setScreen={setActiveOrderScreen}
-          currentLocation={currentLocation}
-          token={token!}
-          showDialog={showDialog}
-          onTaskUpdated={(updated) => {
-            setRequests((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
-            if (updated.taskStatus === "delivered") {
+        <>
+          {cancellationAlert ? (
+            <Pressable style={styles.topDisclaimer} onPress={() => openCancelledDelivery(cancellationAlert.id)}>
+              <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
+              <View style={styles.topDisclaimerText}>
+                <Text style={styles.topDisclaimerTitle}>{cancellationAlert.title}</Text>
+                <Text style={styles.topDisclaimerCopy} numberOfLines={1}>{cancellationAlert.message}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#b91c1c" />
+            </Pressable>
+          ) : null}
+          <ActiveOrderScreenView
+            onBack={() => {
               setActiveOrder(undefined);
               setActiveOrderScreen("summary");
-            } else {
-              setActiveOrder(updated);
-            }
-          }}
-        />
+            }}
+            order={currentActiveOrder}
+            screen={activeOrderScreen}
+            setScreen={setActiveOrderScreen}
+            currentLocation={currentLocation}
+            token={token!}
+            showDialog={showDialog}
+            onTaskUpdated={(updated) => {
+              setRequests((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+              if (updated.taskStatus === "delivered") {
+                setActiveOrder(undefined);
+                setActiveOrderScreen("summary");
+              } else {
+                setActiveOrder(updated);
+              }
+            }}
+          />
+        </>
       </NotificationProvider>
     );
   }
@@ -2068,10 +2239,21 @@ function MainApp({
   return (
     <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
       <Screen>
+        {cancellationAlert ? (
+          <Pressable style={styles.topDisclaimer} onPress={() => openCancelledDelivery(cancellationAlert.id)}>
+            <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
+            <View style={styles.topDisclaimerText}>
+              <Text style={styles.topDisclaimerTitle}>{cancellationAlert.title}</Text>
+              <Text style={styles.topDisclaimerCopy} numberOfLines={1}>{cancellationAlert.message}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#b91c1c" />
+          </Pressable>
+        ) : null}
         <View style={styles.mainArea}>
         {tab === "home" ? (
           <HomeScreen
             activeOrder={currentActiveOrder}
+            completedJobs={completedJobs}
             onOpenOrder={() => {
               if (currentActiveOrder) {
                 setActiveOrder(currentActiveOrder);
@@ -2088,6 +2270,9 @@ function MainApp({
             onToggleOnline={toggleOnline}
             online={online}
             pendingCount={openRequests.length}
+            rating={deliveryRating}
+            todayEarnings={todayEarnings}
+            totalEarnings={Number(me?.deliveryProfile?.totalEarnings ?? totalEarnings)}
           />
         ) : null}
         {tab === "orders" ? <OrdersScreen onOpenOrder={(request) => {
@@ -2099,7 +2284,8 @@ function MainApp({
             setActiveOrderScreen("summary");
           }
         }} requests={requests} /> : null}
-        {tab === "earnings" ? <EarningsScreen /> : null}
+        {tab === "earnings" ? <EarningsScreen me={me} requests={requests} /> : null}
+        {tab === "transactions" ? <TransactionHistoryScreen requests={requests} /> : null}
         {tab === "notifications" ? <NotificationsScreen notifications={notificationCenterItems} onOpen={openNotification} /> : null}
         {tab === "profile" ? (
           <DeliveryProfileScreen
@@ -2111,6 +2297,7 @@ function MainApp({
             onSessionExpired={onSessionExpired}
             onSignOut={onSignOut}
             showDialog={showDialog}
+            onOpenTransactions={() => setTab("transactions")}
           />
         ) : null}
         </View>
@@ -2166,10 +2353,20 @@ function VerificationPendingScreen({
           <StatusRow label="Status" value={me?.deliveryProfile?.verificationStatus ?? "PENDING"} />
           <StatusRow label="Submitted" value={submittedAt ? new Date(submittedAt).toLocaleString("en-IN") : "Just now"} />
           <Text style={styles.noticeText}>You cannot access live delivery jobs, orders, or profile settings until admin verification is complete.</Text>
+          {needsUpdate ? (
+            <View style={styles.reuploadChecklist}>
+              {["Identity front photo", "Identity back photo if Aadhaar", "Selfie/face photo", "Driving license front", "Driving license back", "RC photo", "Insurance photo"].map((item) => (
+                <View key={item} style={styles.reuploadChecklistRow}>
+                  <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
+                  <Text style={styles.cardMeta}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </Card>
         <PrimaryButton
           icon="refresh-outline"
-          label={needsUpdate ? "Open Registration Again" : "Refresh Status"}
+          label={needsUpdate ? "Reupload Documents" : "Refresh Status"}
           onPress={needsUpdate ? onOpenRegistration : onRefresh}
         />
         <PrimaryButton icon="log-out-outline" label="Logout" onPress={onSignOut} variant="secondary" />
@@ -2297,6 +2494,12 @@ const styles = StyleSheet.create({
   pendingBadge: { width: 74, height: 74, borderRadius: 37, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: BORDER },
   pendingTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center", marginTop: 16 },
   pendingCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 10 },
+  topDisclaimer: { minHeight: 54, marginHorizontal: 18, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
+  topDisclaimerText: { flex: 1, minWidth: 0 },
+  topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
+  topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
+  reuploadChecklist: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: BORDER },
+  reuploadChecklistRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   activeOrderId: { color: "#dc2626", fontSize: 25, lineHeight: 31, fontWeight: "900", letterSpacing: 0.6, marginBottom: 14 },
   detailSectionNav: { flexDirection: "row", gap: 10, marginBottom: 18 },
   detailSectionButton: { flex: 1, minHeight: 76, borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
@@ -2418,6 +2621,8 @@ const styles = StyleSheet.create({
   segmentActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
   segmentText: { color: MUTED, fontSize: 12, fontWeight: "900", textTransform: "capitalize" },
   segmentTextActive: { color: BRAND_ORANGE },
+  cancelledSegmentActive: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
+  cancelledSegmentText: { color: "#b91c1c" },
   checklistRow: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, marginTop: 10 },
   checklistCurrent: { borderColor: BRAND_ORANGE, backgroundColor: "#fff7e8" },
   checklistLocked: { opacity: 0.45, backgroundColor: "#eef1f5" },

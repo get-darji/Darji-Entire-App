@@ -40,6 +40,9 @@ export function resolveNotificationDestination(
   }
 
   if (app === "customer") {
+    if (String(data.type) === "QUOTE_RECEIVED") {
+      return { screen: "quotes", entityId, actionIdentifier, data };
+    }
     return { screen: customerOrderTypes.has(String(data.type)) ? "orderDetails" : "notifications", entityId, actionIdentifier, data };
   }
   if (app === "tailor") {

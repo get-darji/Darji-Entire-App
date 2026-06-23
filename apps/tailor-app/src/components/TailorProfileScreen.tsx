@@ -56,6 +56,7 @@ type Props = {
   refresh: () => void;
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
+  onOpenTransactions: () => void;
 };
 
 function isSessionError(error: unknown) {
@@ -63,7 +64,7 @@ function isSessionError(error: unknown) {
   return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
 }
 
-export function TailorProfileScreen({ me, token, orders, refresh, showDialog, onSessionExpired }: Props) {
+export function TailorProfileScreen({ me, token, orders, refresh, showDialog, onSessionExpired, onOpenTransactions }: Props) {
   const { signOut } = useAppStore();
   const profile = me?.tailorProfile;
   const settingsFromServer = profile?.settings ?? {};
@@ -245,6 +246,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             <Text style={styles.rowCopy}>{ratingCount ? `Based on ${ratingCount} customer ratings.` : "No customer ratings yet."}</Text>
           </View>
         </View>
+      </Section>
+
+      <Section title="Payments" icon="receipt-outline" styles={styles}>
+        <InfoRow icon="receipt-outline" title="Transaction History" value="Completed tailoring payouts" styles={styles} onPress={onOpenTransactions} />
       </Section>
 
       <Section title="General Settings" icon="settings-outline" styles={styles}>

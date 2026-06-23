@@ -58,6 +58,7 @@ type Props = {
   onSessionExpired: () => void;
   onSignOut: () => void;
   showDialog: (dialog: { title: string; message: string; icon?: IconName }) => void;
+  onOpenTransactions: () => void;
 };
 
 function isSessionError(error: unknown) {
@@ -65,7 +66,7 @@ function isSessionError(error: unknown) {
   return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
 }
 
-export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog }: Props) {
+export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions }: Props) {
   const signOut = useAppStore((state) => state.signOut);
   const profile = me?.deliveryProfile;
   const settings = profile?.settings ?? {};
@@ -232,6 +233,10 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
         <SwitchRow title="Go Online" copy={savingAvailability ? "Updating..." : "Receive pickup and delivery requests."} value={available} onValueChange={updateAvailability} styles={styles} />
         <ReadonlyMetric title="Active Jobs" value={String(activeJobs)} copy="Current accepted tasks." styles={styles} />
         <ReadonlyMetric title="Completed Jobs" value={String(completedJobs)} copy="Finished deliveries." styles={styles} />
+      </Section>
+
+      <Section title="Payments" icon="receipt-outline" styles={styles}>
+        <InfoRow icon="receipt-outline" title="Transaction History" value="Completed delivery payouts" styles={styles} onPress={onOpenTransactions} />
       </Section>
 
       <Section title="Notifications" icon="notifications-outline" styles={styles}>

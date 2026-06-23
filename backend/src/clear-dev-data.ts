@@ -1,5 +1,8 @@
+import { config as loadEnv } from "dotenv";
+import { fileURLToPath } from "node:url";
 import { connectDatabase, disconnectDatabase } from "./db.js";
 import {
+  DeliveryPartnerModel,
   DeliveryBatchModel,
   DeliveryRequestModel,
   NotificationModel,
@@ -7,10 +10,15 @@ import {
   PaymentModel,
   ReviewModel,
   SupportTicketModel,
+  TailorModel,
   TailorQuoteModel,
   TailoringRequestModel,
-  TransactionModel
+  TransactionModel,
+  WalletModel
 } from "./models.js";
+
+loadEnv({ path: fileURLToPath(new URL("../../.env.local", import.meta.url)) });
+loadEnv();
 
 const modelsToClear = [
   DeliveryBatchModel.collection,
@@ -32,6 +40,14 @@ try {
     const result = await collection.deleteMany({});
     console.log(`${collection.collectionName}: ${result.deletedCount}`);
   }
+  const [tailors, deliveryPartners, wallets] = await Promise.all([
+    TailorModel.updateMany({}, { $set: { earnings: 0 } }),
+    DeliveryPartnerModel.updateMany({}, { $set: { dailyEarnings: 0, weeklyEarnings: 0, monthlyEarnings: 0 } }),
+    WalletModel.updateMany({}, { $set: { balance: 0 } })
+  ]);
+  console.log(`tailors reset: ${tailors.modifiedCount}`);
+  console.log(`delivery partners reset: ${deliveryPartners.modifiedCount}`);
+  console.log(`wallets reset: ${wallets.modifiedCount}`);
 } finally {
   await disconnectDatabase();
 }

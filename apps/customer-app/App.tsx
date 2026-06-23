@@ -11,12 +11,13 @@ import * as Sharing from "expo-sharing";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
   Alert,
   AppState,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -52,6 +53,7 @@ type Screen =
   | "savedAddresses"
   | "addAddress"
   | "walletPayments"
+  | "transactionHistory"
   | "coupons"
   | "helpCenter"
   | "contactSupport"
@@ -190,6 +192,14 @@ type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean };
 type AppDialogState = { title: string; message: string; actions: DialogAction[] };
+type RazorpayFailurePayload = {
+  code?: string;
+  description?: string;
+  source?: string;
+  step?: string;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+};
 type CustomerData = {
   profile: ProfileData;
   settings: AppSettings;
@@ -933,9 +943,11 @@ function HomeScreen({
               <Ionicons name="notifications-outline" size={19} color={BRAND_ORANGE} />
               {unreadCount > 0 ? <View style={styles.notificationDot} /> : null}
             </Pressable>
-            {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} /> : <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initialsFor(profile.name)}</Text>
-            </View>}
+            <Pressable onPress={() => setScreen("profile")}>
+              {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} /> : <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initialsFor(profile.name)}</Text>
+              </View>}
+            </Pressable>
           </View>
         </View>
 
@@ -2011,15 +2023,18 @@ function QuotesScreen({
   draft,
   selectedQuote,
   setSelectedQuote,
-  setScreen
+  setScreen,
+  showDialog,
+  onDeleteRequest
 }: {
   draft: RequestDraft;
   selectedQuote?: Quote;
   setSelectedQuote: (quote: Quote) => void;
   setScreen: (screen: Screen) => void;
+  showDialog: (dialog: AppDialogState) => void;
+  onDeleteRequest?: () => void;
 }) {
   const token = useAppStore((state) => state.token);
-  const signOut = useAppStore((state) => state.signOut);
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -2029,9 +2044,14 @@ function QuotesScreen({
     try {
       setLoading(true);
       const data = await api<BackendTailorQuote[]>(`/tailoring-requests/${draft.backendRequestId}/quotes`, {}, token);
-      setBackendQuotes(data.filter((quote) => quote.status === "SUBMITTED").map(quoteFromBackend));
+      const allowedStatuses = new Set(["SUBMITTED", "RESERVED", "ACCEPTED"]);
+      setBackendQuotes(data.filter((quote) => allowedStatuses.has(quote.status)).map(quoteFromBackend));
     } catch (error) {
-      Alert.alert("Quotes failed", error instanceof Error ? error.message : "Could not load tailor quotes.");
+      showDialog({
+        title: "Quotes unavailable",
+        message: error instanceof Error ? error.message : "Could not load tailor quotes.",
+        actions: [{ label: "OK" }]
+      });
     } finally {
       setLoading(false);
     }
@@ -2116,6 +2136,12 @@ function QuotesScreen({
         <Pressable disabled={!selectedQuote || confirming} style={[styles.primaryWideButton, (!selectedQuote || confirming) && styles.disabledDarkButton]} onPress={confirmTailor}>
           {confirming ? <ActivityIndicator color="#777777" /> : <Text style={[styles.primaryWideButtonText, !selectedQuote && styles.disabledText]}>Confirm This Tailor</Text>}
         </Pressable>
+        {draft.backendRequestId && onDeleteRequest ? (
+          <Pressable style={styles.cancelOrderButton} onPress={onDeleteRequest}>
+            <Ionicons name="trash-outline" size={18} color="#c24141" />
+            <Text style={styles.cancelOrderText}>Delete Request</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -2126,13 +2152,15 @@ function ConfirmOrderScreen({
   draft,
   setScreen,
   onPlaceOrder,
-  isPlacingOrder
+  isPlacingOrder,
+  onDeleteRequest
 }: {
   quote: Quote;
   draft: RequestDraft;
   setScreen: (screen: Screen) => void;
   onPlaceOrder: (paymentMethod: string) => void;
   isPlacingOrder?: boolean;
+  onDeleteRequest?: () => void;
 }) {
   const [payment, setPayment] = useState("ONLINE");
   const deliveryFee = deliveryFeeForUrgency(draft.urgency);
@@ -2198,6 +2226,14 @@ function ConfirmOrderScreen({
           )}
         </Pressable>
       </ScrollView>
+      {quote.backendRequestId && onDeleteRequest && !isPlacingOrder ? (
+        <View style={styles.checkoutDeleteWrap}>
+          <Pressable style={styles.cancelOrderButton} onPress={onDeleteRequest}>
+            <Ionicons name="trash-outline" size={18} color="#c24141" />
+            <Text style={styles.cancelOrderText}>Delete Request</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {isPlacingOrder ? (
         <View style={styles.checkoutBlockingOverlay}>
           <View style={styles.checkoutBlockingCard}>
@@ -2218,6 +2254,13 @@ function SummaryRow({ label, value, strong }: { label: string; value: string; st
       <Text style={[styles.summaryValue, strong && styles.summaryStrong]}>{value}</Text>
     </View>
   );
+}
+
+function razorpayFailureMessage(error: unknown) {
+  if (!error || typeof error !== "object") return "Razorpay could not complete the payment. Please try again.";
+  const failure = error as RazorpayFailurePayload;
+  const details = [failure.description, failure.reason, failure.step].filter(Boolean);
+  return details.length > 0 ? details.join("\n") : "Razorpay could not complete the payment. Please try again.";
 }
 
 function OrdersScreen({
@@ -2570,6 +2613,7 @@ function ProfileScreen({
           <Text style={styles.cardLabel}>ACCOUNT</Text>
           <ProfileRow icon="location-outline" label="Saved Addresses" value={`${addresses.length} saved`} onPress={() => setScreen("savedAddresses")} />
           <ProfileRow icon="wallet-outline" label="Wallet & Payments" value="UPI enabled" onPress={() => setScreen("walletPayments")} />
+          <ProfileRow icon="receipt-outline" label="Transaction History" value={`${orders.filter((order) => order.paymentStatus === "PAID" || order.paymentMethod === "COD").length} entries`} onPress={() => setScreen("transactionHistory")} />
           <ProfileRow icon="ticket-outline" label="Coupons" value="DARZI100" onPress={() => setScreen("coupons")} />
         </View>
 
@@ -2901,6 +2945,40 @@ function WalletPaymentsScreen({ setScreen }: { setScreen: (screen: Screen) => vo
         <Text style={styles.cardLabel}>RECENT TRANSACTIONS</Text>
         <InfoRow label="No transactions yet" value="Your payment activity will show here." />
       </View>
+    </ProfileSubPage>
+  );
+}
+
+function TransactionHistoryScreen({ setScreen, orders }: { setScreen: (screen: Screen) => void; orders: CustomerOrder[] }) {
+  const entries = [...orders]
+    .filter((order) => Boolean(order.backendOrderId))
+    .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
+
+  return (
+    <ProfileSubPage title="Transaction History" setScreen={setScreen}>
+      {entries.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="receipt-outline" size={34} color={BRAND_ORANGE} />
+          <Text style={styles.emptyTitle}>No transactions yet</Text>
+          <Text style={styles.helperText}>Completed, pending, and cancelled payment activity will show here.</Text>
+        </View>
+      ) : null}
+      {entries.map((order) => (
+        <View key={order.id} style={styles.whiteCard}>
+          <View style={styles.rowBetween}>
+            <View style={styles.orderTitleBlock}>
+              <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+              <Text style={styles.orderService}>{order.draft.workType ?? "Tailoring"} - {order.draft.clothType ?? "Cloth"}</Text>
+            </View>
+            <Text style={styles.orderPrice}>Rs{order.total}</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <InfoRow label="Payment Method" value={order.paymentMethod.toUpperCase()} />
+          <InfoRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
+          <InfoRow label="Order Status" value={order.status} />
+          <InfoRow label="Placed" value={new Date(order.placedAt).toLocaleString("en-IN")} />
+        </View>
+      ))}
     </ProfileSubPage>
   );
 }
@@ -3260,24 +3338,30 @@ function CouponsScreenV2({ setScreen }: { setScreen: (screen: Screen) => void })
 
 function OrdersScreenV2({
   orders,
-  setActiveOrder,
+  onOpenOrder,
   setScreen
 }: {
   orders: CustomerOrder[];
-  setActiveOrder: (order: CustomerOrder) => void;
+  onOpenOrder: (order: CustomerOrder) => void;
   setScreen: (screen: Screen) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"incomplete" | "active" | "history" | "cancelled">("incomplete");
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeOrders = orders.filter((order) => !["Pending", "Awaiting Payment", "Delivered", "Cancelled"].includes(order.status));
-  const historyOrders = orders.filter((order) => ["Delivered", "Cancelled"].includes(order.status));
+  const historyOrders = orders.filter((order) => order.status === "Delivered");
+  const cancelledOrders = orders.filter((order) => order.status === "Cancelled");
+  const tabs = [
+    { key: "incomplete" as const, label: "Incomplete", items: incompleteOrders },
+    { key: "active" as const, label: "Active", items: activeOrders },
+    { key: "history" as const, label: "History", items: historyOrders },
+    { key: "cancelled" as const, label: "Cancelled", items: cancelledOrders }
+  ];
+  const activeItems = tabs.find((tab) => tab.key === activeTab)?.items ?? incompleteOrders;
   const renderOrderCard = (order: CustomerOrder) => (
     <Pressable
       key={order.id}
       style={styles.orderCardV2}
-      onPress={() => {
-        setActiveOrder(order);
-        setScreen("orderDetails");
-      }}
+      onPress={() => onOpenOrder(order)}
     >
       <View style={styles.orderTopRow}>
         <View style={styles.orderTitleBlock}>
@@ -3319,25 +3403,30 @@ function OrdersScreenV2({
           </View>
         ) : (
           <>
-            {incompleteOrders.length ? (
-              <View style={styles.orderSectionBlock}>
-                <Text style={styles.listTitle}>Incomplete</Text>
-                <Text style={styles.helperText}>Requests waiting for quotes or payment.</Text>
-                {incompleteOrders.map(renderOrderCard)}
+            <View style={styles.orderTabRow}>
+              {tabs.map((tab) => (
+                <Pressable key={tab.key} style={[styles.orderTabButton, activeTab === tab.key && styles.orderTabButtonActive]} onPress={() => setActiveTab(tab.key)}>
+                  <Text style={[styles.orderTabText, activeTab === tab.key && styles.orderTabTextActive]}>{tab.label}</Text>
+                  <Text style={[styles.orderTabCount, activeTab === tab.key && styles.orderTabTextActive]}>{tab.items.length}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.helperText}>
+              {activeTab === "incomplete"
+                ? "Requests waiting for quotes or payment."
+                : activeTab === "active"
+                  ? "Confirmed orders currently moving through pickup, tailoring, or delivery."
+                  : activeTab === "history"
+                    ? "Delivered orders and invoices."
+                    : "Cancelled requests and orders."}
+            </Text>
+            {activeItems.length ? activeItems.map(renderOrderCard) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="file-tray-outline" size={32} color={BRAND_ORANGE} />
+                <Text style={styles.emptyTitle}>Nothing here</Text>
+                <Text style={styles.helperText}>No {tabs.find((tab) => tab.key === activeTab)?.label.toLowerCase()} orders yet.</Text>
               </View>
-            ) : null}
-            {activeOrders.length ? (
-              <View style={styles.orderSectionBlock}>
-                <Text style={styles.listTitle}>Active Orders</Text>
-                {activeOrders.map(renderOrderCard)}
-              </View>
-            ) : null}
-            {historyOrders.length ? (
-              <View style={styles.orderSectionBlock}>
-                <Text style={styles.listTitle}>History</Text>
-                {historyOrders.map(renderOrderCard)}
-              </View>
-            ) : null}
+            )}
           </>
         )}
       </ScrollView>
@@ -3627,6 +3716,7 @@ export default function App() {
   const user = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
   const [screen, setScreenState] = useState<Screen>("home");
+  const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [customerDataByPhone, setCustomerDataByPhone] = useState<Record<string, CustomerData>>({});
   const [hasLoadedCustomerData, setHasLoadedCustomerData] = useState(false);
   const [activeOrder, setActiveOrder] = useState<CustomerOrder | undefined>();
@@ -3654,12 +3744,130 @@ export default function App() {
   const unreadCount = notifications.filter((item) => !item.read).length;
   const activeOrderForCustomer = activeOrder && orders.some((order) => order.id === activeOrder.id) ? activeOrder : undefined;
 
-  function setScreen(nextScreen: Screen) {
+  const goBack = useCallback(() => {
+    if (paymentSheet && !verifyingPayment) {
+      setPaymentSheet(undefined);
+      return true;
+    }
+    if (dialog) {
+      setDialog(undefined);
+      return true;
+    }
+    if (screenStack.length > 0) {
+      setScreenState(screenStack[screenStack.length - 1]);
+      setScreenStack((currentStack) => currentStack.slice(0, -1));
+      return true;
+    }
+    if (screen !== "home") {
+      setScreenState("home");
+      setScreenStack([]);
+      return true;
+    }
+    return false;
+  }, [dialog, paymentSheet, screen, screenStack, verifyingPayment]);
+
+  function setScreen(nextScreen: Screen, options?: { replace?: boolean; resetStack?: boolean }) {
+    let resolvedScreen = nextScreen;
     if (nextScreen === "newRequest" && !REQUEST_FLOW_SCREENS.has(screen) && (hasRequestDraftData(draft) || draft.backendRequestId || selectedQuote)) {
-      setScreenState(requestProgressScreen);
+      resolvedScreen = requestProgressScreen;
+    }
+    if (resolvedScreen === screen) return;
+    if (options?.resetStack || resolvedScreen === "home") {
+      setScreenStack([]);
+    } else if (!options?.replace) {
+      setScreenStack((currentStack) => [...currentStack, screen].slice(-16));
+    }
+    setScreenState(resolvedScreen);
+  }
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", goBack);
+    return () => subscription.remove();
+  }, [goBack]);
+
+  function openRequestResume(order: CustomerOrder) {
+    setActiveOrder(order);
+    setDraft(order.draft);
+    if (order.status === "Awaiting Payment" || order.tailor.backendQuoteId) {
+      setSelectedQuote(order.tailor);
+      setRequestProgressScreen("confirmOrder");
+      setScreen("confirmOrder");
       return;
     }
-    setScreenState(nextScreen);
+    setSelectedQuote(undefined);
+    setRequestProgressScreen("quotes");
+    setScreen("quotes");
+  }
+
+  function openOrderFromList(order: CustomerOrder) {
+    if (["Pending", "Awaiting Payment"].includes(order.status)) {
+      openRequestResume(order);
+      return;
+    }
+    setActiveOrder(order);
+    setScreen("orderDetails");
+  }
+
+  async function openRequestById(requestId: string, preferredScreen: "quotes" | "confirmOrder" = "quotes") {
+    const matchingOrder = orders.find((order) => order.id === requestId || order.backendOrderId === requestId || order.tailor.backendRequestId === requestId);
+    if (matchingOrder) {
+      if (preferredScreen === "quotes" && matchingOrder.status === "Pending") {
+        setActiveOrder(matchingOrder);
+        setDraft(matchingOrder.draft);
+        setSelectedQuote(undefined);
+        setRequestProgressScreen("quotes");
+        setScreen("quotes");
+        return;
+      }
+      openRequestResume(matchingOrder);
+      return;
+    }
+    if (!token) return;
+    try {
+      const request = await api<BackendTailoringRequest>(`/tailoring-requests/${requestId}`, {}, token);
+      const nextOrder = orderFromBackendRequest(request);
+      if (!nextOrder) return;
+      setCustomerOrders((current) => [nextOrder, ...current.filter((order) => order.id !== nextOrder.id && order.backendOrderId !== nextOrder.backendOrderId)]);
+      setActiveOrder(nextOrder);
+      setDraft(nextOrder.draft);
+      setSelectedQuote(preferredScreen === "confirmOrder" || nextOrder.status === "Awaiting Payment" ? nextOrder.tailor : undefined);
+      setRequestProgressScreen(preferredScreen === "quotes" && nextOrder.status === "Pending" ? "quotes" : "confirmOrder");
+      setScreen(preferredScreen === "quotes" && nextOrder.status === "Pending" ? "quotes" : "confirmOrder");
+    } catch (error) {
+      setDialog({
+        title: "Request unavailable",
+        message: error instanceof Error ? error.message : "Could not open this request.",
+        actions: [{ label: "OK" }]
+      });
+    }
+  }
+
+  async function deleteIncompleteRequest(requestId?: string) {
+    if (!requestId || !token) return;
+    try {
+      const cancelled = await api<BackendTailoringRequest>(`/tailoring-requests/${requestId}/cancel`, { method: "POST" }, token);
+      const existing = orders.find((order) => order.backendOrderId === requestId || order.id === requestId);
+      const cancelledOrder = orderFromBackendRequest(cancelled, existing);
+      if (cancelledOrder) {
+        setCustomerOrders((current) => [cancelledOrder, ...current.filter((order) => order.id !== cancelledOrder.id && order.backendOrderId !== cancelledOrder.backendOrderId)]);
+      }
+      if (activeOrder?.backendOrderId === requestId || activeOrder?.id === requestId) setActiveOrder(cancelledOrder);
+      resetRequestDraft();
+      setSelectedQuote(undefined);
+      setScreen("orders");
+      setDialog({
+        title: "Request deleted",
+        message: `Request REQ-${requestId.slice(0, 8).toUpperCase()} has been moved to cancelled orders.`,
+        actions: [{ label: "OK" }]
+      });
+      void refreshCustomerOrders();
+    } catch (error) {
+      setDialog({
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Could not delete this request.",
+        actions: [{ label: "OK" }]
+      });
+    }
   }
 
   function updateCustomerData(updater: (data: CustomerData) => CustomerData) {
@@ -3873,7 +4081,19 @@ export default function App() {
           const matchingOrder = destination.entityId
             ? orders.find((order) => order.id === destination.entityId || order.backendOrderId === destination.entityId || order.tailor.backendRequestId === destination.entityId)
             : undefined;
+          if (matchingOrder && ["Pending", "Awaiting Payment"].includes(matchingOrder.status)) {
+            openRequestResume(matchingOrder);
+            return;
+          }
           if (matchingOrder) setActiveOrder(matchingOrder);
+          if (destination.screen === "quotes" && matchingOrder) {
+            openRequestResume(matchingOrder);
+            return;
+          }
+          if (destination.screen === "quotes" && destination.entityId) {
+            void openRequestById(destination.entityId, "quotes");
+            return;
+          }
           if (destination.screen === "trackOrder") setScreen("trackOrder");
           else if (destination.screen === "notifications") setScreen("notifications");
           else setScreen("orderDetails");
@@ -3884,21 +4104,34 @@ export default function App() {
         <Modal visible={Boolean(paymentSheet)} animationType="slide" onRequestClose={() => !verifyingPayment && setPaymentSheet(undefined)}>
           <SafeAreaView style={styles.safe}>
             <View style={[styles.rowBetween, { paddingHorizontal: 20, paddingTop: 12 }]}>
-              <Text style={styles.sectionTitle}>{verifyingPayment ? "Verifying payment" : "Complete Payment"}</Text>
+              <Text style={styles.sectionTitle}>{verifyingPayment ? "Confirming payment" : "Complete Payment"}</Text>
               <Pressable onPress={() => !verifyingPayment && setPaymentSheet(undefined)} disabled={verifyingPayment}>
                 <Ionicons name="close" size={22} color={BRAND_DEEP} />
               </Pressable>
             </View>
             {paymentSheet ? (
-              <WebView
-                source={{
-                  html: `<!doctype html>
+              <View style={styles.paymentSheetWrap}>
+                <WebView
+                  source={{
+                    html: `<!doctype html>
 <html>
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   </head>
-  <body style="margin:0;background:#f7faff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+  <body style="margin:0;background:#f7faff;font-family:sans-serif;">
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;">
+      <div style="width:100%;max-width:360px;background:#ffffff;border:1px solid #efcf92;border-radius:24px;padding:24px;box-sizing:border-box;text-align:center;box-shadow:0 20px 50px rgba(11,34,65,0.08);">
+        <div style="width:64px;height:64px;border-radius:22px;background:#fff4dc;margin:0 auto;display:flex;align-items:center;justify-content:center;color:#f6a313;font-size:30px;font-weight:700;">D</div>
+        <div style="margin-top:16px;color:#0b2241;font-size:22px;font-weight:800;">Opening secure payment</div>
+        <div style="margin-top:8px;color:#65748a;font-size:14px;line-height:22px;">Darji is connecting Razorpay for your order. Do not close this screen.</div>
+        <div style="margin-top:18px;background:#fffaf0;border:1px solid #efcf92;border-radius:16px;padding:14px;text-align:left;">
+          <div style="color:#65748a;font-size:12px;font-weight:700;">Order</div>
+          <div style="margin-top:4px;color:#0b2241;font-size:16px;font-weight:800;">${String(paymentSheet.config.description).replace(/</g, "&lt;")}</div>
+          <div style="margin-top:6px;color:#f6a313;font-size:20px;font-weight:800;">Rs${Math.round(Number(paymentSheet.config.amount) / 100)}</div>
+        </div>
+      </div>
+    </div>
     <script>
       function send(data){ window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(data)); }
       var options = {
@@ -3932,16 +4165,31 @@ export default function App() {
       var rzp = new Razorpay(options);
       rzp.on("payment.failed", function (response) { send({ type: "failure", error: response.error || null }); });
       rzp.on("modal.closed", function () { send({ type: "cancel" }); });
-      rzp.open();
+      window.setTimeout(function () { rzp.open(); }, 180);
     </script>
   </body>
 </html>`
-                }}
-                onMessage={(event) => {
-                  void handlePaymentSheetMessage(event.nativeEvent.data);
-                }}
-                startInLoadingState
-              />
+                  }}
+                  onMessage={(event) => {
+                    void handlePaymentSheetMessage(event.nativeEvent.data);
+                  }}
+                  startInLoadingState
+                  renderLoading={() => (
+                    <View style={styles.paymentSheetLoading}>
+                      <ActivityIndicator color={BRAND_ORANGE} size="large" />
+                      <Text style={styles.checkoutBlockingTitle}>Opening Razorpay</Text>
+                      <Text style={styles.checkoutBlockingCopy}>Preparing your secure Darji payment page.</Text>
+                    </View>
+                  )}
+                />
+                {verifyingPayment ? (
+                  <View style={styles.paymentVerificationOverlay}>
+                    <ActivityIndicator color={BRAND_ORANGE} size="large" />
+                    <Text style={styles.checkoutBlockingTitle}>We are confirming your payment</Text>
+                    <Text style={styles.checkoutBlockingCopy}>Please wait while Darji verifies the Razorpay response.</Text>
+                  </View>
+                ) : null}
+              </View>
             ) : null}
           </SafeAreaView>
         </Modal>
@@ -4183,6 +4431,7 @@ export default function App() {
       }
 
       if (response.razorpay) {
+        if (response.request) storeConfirmedOrder(response.request, selectedQuote, orderDraft);
         paymentMessageHandledRef.current = false;
         setPaymentSheet({
           requestId: selectedQuote.backendRequestId,
@@ -4193,7 +4442,11 @@ export default function App() {
         });
       }
     } catch (error) {
-      Alert.alert("Checkout failed", error instanceof Error ? error.message : "Could not start checkout.");
+      setDialog({
+        title: "Checkout failed",
+        message: error instanceof Error ? error.message : "Could not start checkout.",
+        actions: [{ label: "OK" }]
+      });
     } finally {
       setCheckoutPaymentMethod(undefined);
     }
@@ -4211,13 +4464,32 @@ export default function App() {
     if (payload.type === "cancel") {
       paymentMessageHandledRef.current = true;
       setPaymentSheet(undefined);
-      Alert.alert("Payment cancelled", "You can retry online payment or switch to COD.");
+      setSelectedQuote(paymentSheet.quote);
+      setDraft(paymentSheet.draft);
+      setRequestProgressScreen("confirmOrder");
+      setScreen("confirmOrder");
+      void refreshCustomerOrders();
+      setDialog({
+        title: "Payment cancelled",
+        message: "You can retry online payment or switch to COD.",
+        actions: [{ label: "Retry Payment" }]
+      });
       return;
     }
     if (payload.type === "failure") {
       paymentMessageHandledRef.current = true;
       setPaymentSheet(undefined);
-      Alert.alert("Payment failed", "Razorpay could not complete the payment. Please try again.");
+      console.warn("Razorpay payment failed", payload.error);
+      setSelectedQuote(paymentSheet.quote);
+      setDraft(paymentSheet.draft);
+      setRequestProgressScreen("confirmOrder");
+      setScreen("confirmOrder");
+      void refreshCustomerOrders();
+      setDialog({
+        title: "Payment failed",
+        message: razorpayFailureMessage(payload.error),
+        actions: [{ label: "Try Again" }]
+      });
       return;
     }
     if (payload.type !== "success") return;
@@ -4249,7 +4521,16 @@ export default function App() {
         void refreshCustomerOrders();
       }
     } catch (error) {
-      Alert.alert("Payment verification failed", error instanceof Error ? error.message : "Could not verify payment.");
+      setSelectedQuote(paymentSheet.quote);
+      setDraft(paymentSheet.draft);
+      setRequestProgressScreen("confirmOrder");
+      setScreen("confirmOrder");
+      void refreshCustomerOrders();
+      setDialog({
+        title: "Payment verification failed",
+        message: error instanceof Error ? error.message : "Could not verify payment.",
+        actions: [{ label: "OK" }]
+      });
     } finally {
       setVerifyingPayment(false);
       setPaymentSheet(undefined);
@@ -4267,14 +4548,14 @@ export default function App() {
   if (screen === "measurementGuide") return withAppChrome(<MeasurementGuideScreen setScreen={setScreen} />);
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
-  if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} />);
-  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} />);
+  if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => void deleteIncompleteRequest(draft.backendRequestId)} />);
+  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => void deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
   if (screen === "trackOrder" && activeOrderForCustomer) {
     const locationKey = activeOrderForCustomer.backendOrderId ?? activeOrderForCustomer.tailor.backendRequestId ?? activeOrderForCustomer.id;
     return withAppChrome(<TrackOrderScreenV2 deliveryLocation={deliveryLocations[locationKey]} order={activeOrderForCustomer} setScreen={setScreen} />);
   }
-  if (screen === "orderDetails" || screen === "trackOrder") return withAppChrome(<OrdersScreenV2 orders={orders} setActiveOrder={setActiveOrder} setScreen={setScreen} />);
+  if (screen === "orderDetails" || screen === "trackOrder") return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
   if (screen === "profile") {
     return withAppChrome(
       <>
@@ -4288,6 +4569,7 @@ export default function App() {
   if (screen === "savedAddresses") return withAppChrome(<SavedAddressesScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />);
   if (screen === "addAddress") return withAppChrome(<AddAddressScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />);
   if (screen === "walletPayments") return withAppChrome(<WalletPaymentsScreen setScreen={setScreen} />);
+  if (screen === "transactionHistory") return withAppChrome(<TransactionHistoryScreen setScreen={setScreen} orders={orders} />);
   if (screen === "coupons") return withAppChrome(<CouponsScreenV2 setScreen={setScreen} />);
   if (screen === "helpCenter") return withAppChrome(<HelpCenterScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />);
   if (screen === "cancellationPolicy") return withAppChrome(<CancellationPolicyScreen order={pendingCancellationOrder} setScreen={setScreen} onConfirmCancel={confirmCancelOrder} isCancelling={Boolean(cancellingOrderId)} />);
@@ -4296,7 +4578,7 @@ export default function App() {
   if (screen === "privacyPolicy") return withAppChrome(<PolicyScreen title="Privacy Policy" setScreen={setScreen} />);
   if (screen === "termsService") return withAppChrome(<PolicyScreen title="Terms of Service" setScreen={setScreen} />);
   if (screen === "appInfo") return withAppChrome(<AppInfoScreen setScreen={setScreen} />);
-  if (screen === "orders") return withAppChrome(<OrdersScreenV2 orders={orders} setActiveOrder={setActiveOrder} setScreen={setScreen} />);
+  if (screen === "orders") return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
   return withAppChrome(<SearchScreen setScreen={setScreen} />);
 }
 
@@ -4642,6 +4924,10 @@ function createStyles(isDark = false) {
   checkoutBlockingCard: { width: "100%", maxWidth: 320, borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 20, alignItems: "center" },
   checkoutBlockingTitle: { color: text, fontSize: 17, fontWeight: "900", marginTop: 12 },
   checkoutBlockingCopy: { color: muted, fontSize: 13, lineHeight: 19, fontWeight: "700", textAlign: "center", marginTop: 6 },
+  checkoutDeleteWrap: { paddingHorizontal: 18, paddingBottom: 18, backgroundColor: pageBg },
+  paymentSheetWrap: { flex: 1, marginTop: 10 },
+  paymentSheetLoading: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, backgroundColor: surface },
+  paymentVerificationOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(247, 250, 255, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   infoBanner: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8, marginBottom: 14 },
   infoBannerText: { color: muted, fontSize: 13, fontWeight: "700" },
   quoteCard: { width: "100%", minHeight: 162, borderRadius: 20, backgroundColor: surfaceAlt, padding: 18, marginBottom: 16, borderWidth: 1.2, borderColor: "#efcf92" },
@@ -4677,6 +4963,12 @@ function createStyles(isDark = false) {
   orderCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   orderCardV2: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 16 },
   orderSectionBlock: { marginBottom: 16 },
+  orderTabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  orderTabButton: { minHeight: 42, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 11 },
+  orderTabButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  orderTabText: { color: muted, fontSize: 12, fontWeight: "900" },
+  orderTabTextActive: { color: BRAND_ORANGE },
+  orderTabCount: { color: subtle, fontSize: 11, fontWeight: "900" },
   orderTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   orderTitleBlock: { flex: 1, minWidth: 0 },
   orderBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

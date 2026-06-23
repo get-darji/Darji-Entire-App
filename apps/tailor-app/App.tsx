@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Linking,
   Modal,
@@ -39,7 +40,7 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 
-type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "earnings" | "profile";
+type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "earnings" | "profile" | "transactions";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: string; bytes?: number };
@@ -113,6 +114,7 @@ type MeResponse = {
 };
 type DialogAction = { label: string; onPress?: () => void; variant?: "primary" | "secondary" };
 type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[] };
+type CancellationAlert = { id: string; title: string; message: string };
 type VerificationMediaDraft = { uri: string; name: string; uploadedUrl?: string };
 type SpecializationRow = { id: string; gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: string };
 type OcrDetails = { rawText?: string; name?: string; dob?: string; aadhaarLast4?: string; panNumber?: string; addressHint?: string };
@@ -218,6 +220,10 @@ function quoteEtaLabel(quote: { estimatedDays?: number; estimatedHours?: number 
 
 function money(value: number | string | undefined) {
   return `Rs ${Number(value ?? 0).toFixed(0)}`;
+}
+
+function tailorOrderEarning(order: Order) {
+  return Number(order.totalAmount ?? order.items[0]?.price ?? 0);
 }
 
 function shortId(id?: string) {
@@ -399,7 +405,7 @@ function StatusPill({ status }: { status: string }) {
 function RequestCard({ request, onPress }: { request: TailoringRequest; onPress: () => void }) {
   return (
     <Pressable style={styles.requestCard} onPress={onPress}>
-      <View style={styles.cardTopRow}>
+      <View style={styles.requestCardTopRow}>
         <View style={styles.iconTile}>
           <Ionicons name={request.media?.length ? "images-outline" : "shirt-outline"} size={22} color={BRAND_ORANGE} />
         </View>
@@ -408,6 +414,8 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
           <Text style={styles.cardTitle}>{request.workType}</Text>
           <Text style={styles.cardMeta}>{request.clothType}</Text>
         </View>
+      </View>
+      <View style={styles.requestChipRow}>
         <Text style={[styles.urgencyPill, urgencyTone(request.urgency)]}>{request.urgency}</Text>
         {request.ownQuote ? <Text style={styles.quotedPill}>Quoted</Text> : <StatusPill status={request.status} />}
       </View>
@@ -866,10 +874,11 @@ function QuoteScreen({
 }
 
 function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; setScreen: (screen: Screen) => void; setActiveOrder: (order: Order) => void }) {
-  const [filter, setFilter] = useState<"ACCEPTED" | "READY" | "HISTORY">("ACCEPTED");
+  const [filter, setFilter] = useState<"ACCEPTED" | "READY" | "HISTORY" | "CANCELLED">("ACCEPTED");
   const filteredOrders = orders.filter((order) => {
     if (filter === "READY") return order.status === "READY";
-    if (filter === "HISTORY") return ["DELIVERED", "CANCELLED", "COMPLETED"].includes(order.status);
+    if (filter === "HISTORY") return ["DELIVERED", "COMPLETED"].includes(order.status);
+    if (filter === "CANCELLED") return order.status === "CANCELLED" || order.request?.status === "CANCELLED";
     return ["QUOTE_ACCEPTED", "AT_TAILOR", "WORKING"].includes(order.status);
   });
 
@@ -886,8 +895,11 @@ function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; 
         <Pressable style={[styles.filterChip, filter === "HISTORY" && styles.filterChipActive]} onPress={() => setFilter("HISTORY")}>
           <Text style={[styles.filterChipText, filter === "HISTORY" && styles.filterChipTextActive]}>History</Text>
         </Pressable>
+        <Pressable style={[styles.filterChip, filter === "CANCELLED" && styles.cancelledFilterChip]} onPress={() => setFilter("CANCELLED")}>
+          <Text style={[styles.filterChipText, filter === "CANCELLED" && styles.cancelledFilterChipText]}>Cancelled</Text>
+        </Pressable>
       </View>
-      {filteredOrders.length === 0 ? <EmptyState icon="cube-outline" title="No orders here" copy={filter === "HISTORY" ? "Completed and cancelled orders will appear here." : "Matching accepted or ready orders will appear here."} /> : null}
+      {filteredOrders.length === 0 ? <EmptyState icon="cube-outline" title="No orders here" copy={filter === "CANCELLED" ? "Cancelled orders will appear here." : filter === "HISTORY" ? "Completed orders will appear here." : "Matching accepted or ready orders will appear here."} /> : null}
       {filteredOrders.map((order) => (
         <OrderCard
           key={order.id}
@@ -1211,15 +1223,16 @@ function OrderDetailsScreen({
 
 function EarningsScreen({ orders, me }: { orders: Order[]; me?: MeResponse }) {
   const completed = orders.filter((order) => ["READY", "DELIVERED", "STITCHING_COMPLETED"].includes(order.status));
-  const earned = useMemo(() => completed.reduce((sum, order) => sum + Number(order.totalAmount) * 0.45, 0), [completed]);
+  const earned = useMemo(() => completed.reduce((sum, order) => sum + tailorOrderEarning(order), 0), [completed]);
+  const displayedEarnings = completed.length ? earned : Number(me?.tailorProfile?.earnings ?? 0);
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header title="Earnings" subtitle="Estimated tailor earnings" />
+      <Header title="Earnings" subtitle="Completed tailoring payouts" />
       <View style={styles.earningsCard}>
         <Text style={styles.heroLabel}>TOTAL EARNED</Text>
-        <Text style={styles.earningsValue}>{money(me?.tailorProfile?.earnings || earned)}</Text>
-        <Text style={styles.heroCopy}>Final payout rules can be changed later from admin.</Text>
+        <Text style={styles.earningsValue}>{money(displayedEarnings)}</Text>
+        <Text style={styles.heroCopy}>Payouts are calculated from completed orders and accepted quote amounts.</Text>
       </View>
       {completed.length === 0 ? <EmptyState icon="wallet-outline" title="No completed work" copy="Completed and ready orders will appear in earnings." /> : null}
       {completed.map((order) => (
@@ -1228,7 +1241,35 @@ function EarningsScreen({ orders, me }: { orders: Order[]; me?: MeResponse }) {
             <Text style={styles.cardTitle}>{order.orderNumber}</Text>
             <Text style={styles.cardMeta}>{formatStatus(order.status)}</Text>
           </View>
-          <Text style={styles.priceText}>{money(Number(order.totalAmount) * 0.45)}</Text>
+          <Text style={styles.priceText}>{money(tailorOrderEarning(order))}</Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+function TransactionHistoryScreen({ orders }: { orders: Order[] }) {
+  const entries = [...orders]
+    .filter((order) => ["READY", "DELIVERED", "STITCHING_COMPLETED", "CANCELLED"].includes(order.status))
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent}>
+      <Header title="Transactions" subtitle="Completed and cancelled tailoring activity" />
+      {entries.length === 0 ? <EmptyState icon="receipt-outline" title="No transactions yet" copy="Completed order payouts will appear here." /> : null}
+      {entries.map((order) => (
+        <View key={order.id} style={styles.whiteCard}>
+          <View style={styles.rowBetween}>
+            <View style={styles.cardMain}>
+              <Text style={styles.cardTitle}>{order.orderNumber}</Text>
+              <Text style={styles.cardMeta}>{order.customer?.name ?? "Customer"} - {formatStatus(order.status)}</Text>
+            </View>
+            <Text style={styles.priceText}>{order.status === "CANCELLED" ? money(0) : money(tailorOrderEarning(order))}</Text>
+          </View>
+          <View style={styles.cardDivider} />
+          <DetailRow icon="checkmark-circle-outline" label="Status" value={formatStatus(order.status)} />
+          <DetailRow icon="cash-outline" label="Order value" value={money(order.totalAmount)} />
+          <DetailRow icon="time-outline" label="Created" value={order.createdAt ? new Date(order.createdAt).toLocaleString("en-IN") : "Not available"} />
         </View>
       ))}
     </ScrollView>
@@ -1683,6 +1724,20 @@ function TailorVerificationFlow({
             <Text style={styles.cardLabel}>STATUS</Text>
             <Text style={styles.cardTitle}>Pending Verification</Text>
             {me?.tailorProfile?.darjiTailorId ? <Text style={styles.cardMeta}>Tailor ID: {me.tailorProfile.darjiTailorId}</Text> : null}
+            {needsUpdate ? (
+              <View style={styles.reuploadChecklist}>
+                {[
+                  idType === "Aadhaar" ? "Aadhaar front photo" : "PAN card photo",
+                  idType === "Aadhaar" ? "Aadhaar back photo" : undefined,
+                  "Live face verification selfie"
+                ].filter(Boolean).map((item) => (
+                  <View key={item} style={styles.reuploadChecklistRow}>
+                    <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
+                    <Text style={styles.cardMeta}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
           <Pressable style={styles.primaryButton} onPress={() => setInfoPage("tutorial")}>
             <Ionicons name="play-circle-outline" size={18} color="#111111" />
@@ -1701,8 +1756,13 @@ function TailorVerificationFlow({
             ))}
           </View>
           {needsUpdate ? (
+            <Pressable style={styles.secondaryButton} onPress={() => setStep(4)}>
+              <Text style={styles.secondaryButtonText}>Reupload Documents</Text>
+            </Pressable>
+          ) : null}
+          {needsUpdate ? (
             <Pressable style={styles.secondaryButton} onPress={() => setStep(1)}>
-              <Text style={styles.secondaryButtonText}>Update Verification</Text>
+              <Text style={styles.secondaryButtonText}>Edit Full Details</Text>
             </Pressable>
           ) : null}
         </ScrollView>
@@ -2357,7 +2417,8 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
-  const [screen, setScreen] = useState<Screen>("dashboard");
+  const [screen, setScreenState] = useState<Screen>("dashboard");
+  const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
   const [requests, setRequests] = useState<TailoringRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -2371,6 +2432,7 @@ export default function App() {
   const [alertFlashOn, setAlertFlashOn] = useState(false);
   const [acceptedQuoteRequest, setAcceptedQuoteRequest] = useState<TailoringRequest>();
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
+  const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const knownRequestIdsRef = useRef<Set<string>>(new Set());
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const alertedRequestIdsRef = useRef<Set<string>>(new Set());
@@ -2381,6 +2443,42 @@ export default function App() {
   const newRequestNotificationsEnabled = me?.tailorProfile?.settings?.notifications !== false;
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
   const activeTailorOrderCount = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
+
+  function setScreen(nextScreen: Screen, options?: { resetStack?: boolean; replace?: boolean }) {
+    if (nextScreen === screen) return;
+    if (options?.resetStack || nextScreen === "dashboard") {
+      setScreenStack([]);
+    } else if (!options?.replace) {
+      setScreenStack((current) => [...current, screen].slice(-16));
+    }
+    setScreenState(nextScreen);
+  }
+
+  const goBack = useCallback(() => {
+    if (dialog) {
+      setDialog(undefined);
+      return true;
+    }
+    if (acceptedQuoteRequest) {
+      setAcceptedQuoteRequest(undefined);
+      return true;
+    }
+    if (newRequestPopup) {
+      closeNewRequestPopup();
+      return true;
+    }
+    if (screenStack.length > 0) {
+      setScreenState(screenStack[screenStack.length - 1]);
+      setScreenStack((currentStack) => currentStack.slice(0, -1));
+      return true;
+    }
+    if (screen !== "dashboard") {
+      setScreenState("dashboard");
+      setScreenStack([]);
+      return true;
+    }
+    return false;
+  }, [acceptedQuoteRequest, dialog, newRequestPopup, screen, screenStack]);
 
   function resetWorkspaceTracking() {
     knownRequestIdsRef.current.clear();
@@ -2410,6 +2508,18 @@ export default function App() {
     setActiveOrder(undefined);
     resetWorkspaceTracking();
     signOut();
+  }
+
+  function openCancelledOrder(cancelledId: string) {
+    const cancelledOrder = orders.find((order) => order.id === cancelledId || order.request?.id === cancelledId);
+    if (cancelledOrder) {
+      setActiveOrder(cancelledOrder);
+      setCancellationAlert(undefined);
+      setScreen("orderDetails");
+      return;
+    }
+    setCancellationAlert(undefined);
+    setScreen("orders");
   }
 
   function processWorkspaceEvents(requestData: TailoringRequest[]) {
@@ -2444,6 +2554,11 @@ export default function App() {
     if (newRequestPopup) dismissedRequestIdsRef.current.add(newRequestPopup.id);
     setNewRequestPopup(undefined);
   }
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", goBack);
+    return () => subscription.remove();
+  }, [goBack]);
 
   function openPopupRequest(screenName: "quote" | "requestDetails") {
     if (!newRequestPopup) return;
@@ -2551,7 +2666,11 @@ export default function App() {
       setOrders((current) => current.map((order) => order.id === cancelledId || order.request?.id === cancelledId ? { ...order, status: "CANCELLED", request: order.request ? { ...order.request, status: "CANCELLED" } : order.request } : order));
       setActiveRequest((current) => current?.id === cancelledId ? { ...current, status: "CANCELLED" } : current);
       setActiveOrder((current) => current && (current.id === cancelledId || current.request?.id === cancelledId) ? { ...current, status: "CANCELLED", request: current.request ? { ...current.request, status: "CANCELLED" } : current.request } : current);
-      setDialog({ title: "Order cancelled", message: `Order ${shortId(cancelledId)} has been cancelled by the customer.`, icon: "close-circle-outline" });
+      setCancellationAlert({
+        id: cancelledId,
+        title: "Order cancelled",
+        message: `Order ${shortId(cancelledId)} has been cancelled by the customer.`
+      });
       void refreshWorkspace();
     });
     socket.on("tailoring:work_status_updated", () => {
@@ -2635,6 +2754,7 @@ export default function App() {
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
   if (screen === "earnings") body = <EarningsScreen orders={orders} me={me} />;
+  if (screen === "transactions") body = <TransactionHistoryScreen orders={orders} />;
   if (screen === "profile") {
     body = (
       <TailorProfileScreen
@@ -2644,6 +2764,7 @@ export default function App() {
         showDialog={setDialog}
         onSessionExpired={handleSessionExpired}
         refresh={() => void refreshWorkspace()}
+        onOpenTransactions={() => setScreen("transactions")}
       />
     );
   }
@@ -2679,6 +2800,16 @@ export default function App() {
     >
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent={false} />
+        {cancellationAlert ? (
+          <Pressable style={styles.topDisclaimer} onPress={() => openCancelledOrder(cancellationAlert.id)}>
+            <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
+            <View style={styles.topDisclaimerText}>
+              <Text style={styles.topDisclaimerTitle}>{cancellationAlert.title}</Text>
+              <Text style={styles.topDisclaimerCopy} numberOfLines={1}>{cancellationAlert.message}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#b91c1c" />
+          </Pressable>
+        ) : null}
         <View style={styles.screenHost}>{body}</View>
         <BottomTabs screen={screen} setScreen={setScreen} />
         <LoadingOverlay visible={loading} />
@@ -2725,6 +2856,10 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   textButton: { alignItems: "center", marginTop: 18 },
   textButtonText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
+  topDisclaimer: { minHeight: 54, marginHorizontal: 18, marginTop: 8, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
+  topDisclaimerText: { flex: 1, minWidth: 0 },
+  topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
+  topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
   pageContent: { paddingHorizontal: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 96 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", marginBottom: 18 },
   roundIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", marginRight: 12 },
@@ -2744,6 +2879,8 @@ const styles = StyleSheet.create({
   sectionTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900" },
   linkText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   requestCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
+  requestCardTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  requestChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12, marginLeft: 60 },
   filterRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
   filterChip: { flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   filterChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff5df" },
@@ -2751,6 +2888,8 @@ const styles = StyleSheet.create({
   filterChipTextActive: { color: BRAND_ORANGE },
   readyFilterChip: { borderColor: SUCCESS, backgroundColor: "#dcfce7" },
   readyFilterChipText: { color: SUCCESS },
+  cancelledFilterChip: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
+  cancelledFilterChipText: { color: "#b91c1c" },
   orderCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
   readyOrderCard: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
   whiteCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
@@ -2873,6 +3012,8 @@ const styles = StyleSheet.create({
   verificationDocBox: { flex: 1, minHeight: 112, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 10, marginTop: 12, overflow: "hidden" },
   verificationDocImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   verificationDocText: { color: BRAND_ORANGE, backgroundColor: "rgba(255,255,255,0.88)", overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5, fontSize: 11, fontWeight: "900", textAlign: "center" },
+  reuploadChecklist: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: BORDER },
+  reuploadChecklistRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   faceVerificationPanel: { minHeight: 112, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginTop: 14 },
   faceCircle: { width: 78, height: 78, borderRadius: 39, borderWidth: 3, alignItems: "center", justifyContent: "center", overflow: "hidden", backgroundColor: SURFACE },
   faceCircleReady: { borderColor: SUCCESS },

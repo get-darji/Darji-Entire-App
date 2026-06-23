@@ -257,6 +257,15 @@ function tailorDropAddress(tailor: Record<string, unknown> | null | undefined) {
   return verification?.shop?.shopAddress || verification?.personal?.address || String(tailor?.shopName ?? "Tailor address pending");
 }
 
+function deliveryTaskEstimatedEarnings(
+  request: { deliveryFee?: number | null },
+  _type: "customer_to_tailor" | "tailor_to_customer"
+) {
+  const deliveryFee = Number(request.deliveryFee ?? 0);
+  if (deliveryFee <= 0) return 0;
+  return Number((deliveryFee / 2).toFixed(2));
+}
+
 async function createDeliveryRequestForTailoringRequest(requestId: string, type: "customer_to_tailor" | "tailor_to_customer", acceptedTailorId?: string) {
   const request = await TailoringRequestModel.findById(requestId);
   if (!request) return null;
@@ -280,6 +289,8 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const tailorAddress = tailorDropAddress(tailorJson);
   const pickupAddress = type === "customer_to_tailor" ? customerAddress : tailorAddress;
   const dropAddress = type === "customer_to_tailor" ? tailorAddress : customerAddress;
+  const estimatedEarnings = deliveryTaskEstimatedEarnings(request, type);
+  const cashCollectionRequired = type === "tailor_to_customer" && request.paymentMethod === "COD";
 
   let deliveryRequest = await DeliveryRequestModel.findOne({ orderId: request.id, type });
   try {
@@ -291,7 +302,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         type,
         taskStatus: "pending",
         shift: type === "customer_to_tailor" ? "morning" : "evening",
-        estimatedEarnings: type === "customer_to_tailor" ? 80 : 90,
+        estimatedEarnings,
         pickupAddress,
         dropAddress,
         customerName: customer?.name,
@@ -303,11 +314,25 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         paymentMethod: request.paymentMethod,
         paymentStatus: request.paymentStatus,
         totalAmount: request.totalAmount,
-        cashCollectionRequired: type === "tailor_to_customer" && request.paymentMethod === "COD",
+        cashCollectionRequired,
         cashCollected: false,
         sampleProvided: request.sampleProvided === true,
         sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : []
       });
+    } else {
+      deliveryRequest = await DeliveryRequestModel.findByIdAndUpdate(
+        deliveryRequest.id,
+        {
+          estimatedEarnings,
+          paymentMethod: request.paymentMethod,
+          paymentStatus: request.paymentStatus,
+          totalAmount: request.totalAmount,
+          cashCollectionRequired,
+          sampleProvided: request.sampleProvided === true,
+          sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : []
+        },
+        { returnDocument: "after" }
+      );
     }
   } catch (error) {
     const raced = await DeliveryRequestModel.findOne({ orderId: request.id, type });
@@ -329,7 +354,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
       userId: partner.userId,
       title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
-      body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${type === "customer_to_tailor" ? 80 : 90}.`,
+      body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
       data: {
         type: "PICKUP_ASSIGNED",
         taskType: type,
