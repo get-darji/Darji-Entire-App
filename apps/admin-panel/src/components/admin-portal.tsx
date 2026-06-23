@@ -1207,13 +1207,36 @@ export function AdminPortal() {
                       <h3 className="text-lg font-semibold">{setting.key}</h3>
                       <p className="text-sm text-[var(--muted)]">Last updated {formatDate(setting.updatedAt, true)}</p>
                     </div>
-                    <Badge tone="slate">{typeof setting.value === "string" ? "Text" : "JSON"}</Badge>
+                    <Badge tone="slate">
+                      {setting.key === "enable_area_filtering" 
+                        ? "Boolean" 
+                        : (typeof setting.value === "string" ? "Text" : "JSON")}
+                    </Badge>
                   </div>
-                  <textarea
-                    className="h-48 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 font-mono text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
-                    value={settingsDrafts[setting.key] ?? ""}
-                    onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
-                  />
+                  {setting.key === "enable_area_filtering" ? (
+                    <div className="mt-2 rounded-2xl border border-[var(--panel-border)] bg-black/5 p-4 dark:bg-white/5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-[var(--foreground)]">Enable Logistics Area Filtering</p>
+                          <p className="text-xs text-[var(--muted)]">If disabled, delivery boys can see and accept orders from any area.</p>
+                        </div>
+                        <select
+                          className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-1.5 text-sm outline-none text-[var(--foreground)]"
+                          value={settingsDrafts[setting.key] === "true" ? "true" : "false"}
+                          onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
+                        >
+                          <option value="false">Disabled (All Areas)</option>
+                          <option value="true">Enabled (Restricted by Area)</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <textarea
+                      className="h-48 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 font-mono text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
+                      value={settingsDrafts[setting.key] ?? ""}
+                      onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
+                    />
+                  )}
                   <div className="mt-4 flex justify-end">
                     <ActionButton
                       onClick={() => {

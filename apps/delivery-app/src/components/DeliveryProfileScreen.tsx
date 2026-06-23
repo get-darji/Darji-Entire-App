@@ -49,7 +49,7 @@ type MeResponse = {
   role: string;
   deliveryProfile?: DeliveryProfile;
 };
-type SupportScreen = "help" | "chat" | "call" | "email" | "faq" | "privacy" | "terms" | "safety" | "version";
+type SupportScreen = "help" | "chat" | "call" | "email" | "faq" | "privacy" | "terms" | "safety" | "version" | "about";
 
 type Props = {
   me?: MeResponse;
@@ -206,86 +206,65 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
           <Text style={styles.title}>{name || "Darji Delivery"}</Text>
           <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}</Text>
           <Text style={styles.meta}>{email || "Email not added"}</Text>
-          <Text style={styles.meta}>Vehicle: {vehicleNumber || "Pending update"}</Text>
           <Text style={styles.meta}>Role: {profile?.deliveryType || "PICKUP"} ({profile?.assignedArea || "unassigned"})</Text>
           <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
         </View>
-        <Pressable style={styles.editButton} onPress={() => setEditing((value) => !value)}>
-          <Text style={styles.editButtonText}>{editing ? "Close" : "Edit"}</Text>
-        </Pressable>
       </View>
 
+      <Section title="Account" icon="person-outline" styles={styles}>
+        <InfoRow icon="create-outline" title="Edit Profile" value={editing ? "Close Edit Mode" : "Update name, email, and hours"} styles={styles} onPress={() => setEditing((v) => !v)} />
+        <InfoRow icon="car-outline" title="Vehicle Details" value={vehicleNumber || "No vehicle details registered"} styles={styles} onPress={() => showDialog({ title: "Vehicle Details", message: vehicleNumber ? `Your registered vehicle number: ${vehicleNumber}` : "Vehicle details not registered. Please contact administration.", icon: "car-outline" })} />
+        <InfoRow icon="card-outline" title="Bank Account Details" value="Configure payment payouts" styles={styles} onPress={() => showDialog({ title: "Bank Account Details", message: "Payout bank account configuration is processed during onboarding. Contact admin to update bank details.", icon: "card-outline" })} />
+      </Section>
+
       {editing ? (
-        <Section title="Edit Profile" icon="create-outline" styles={styles}>
+        <Section title="Edit Profile Form" icon="create-outline" styles={styles}>
           <Input label="Full Name" value={name} onChangeText={setName} styles={styles} />
           <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
           <Input label="Working Hours" value={workingHours} onChangeText={setWorkingHours} styles={styles} />
-          <Input label="Vehicle Number" value={vehicleNumber} onChangeText={setVehicleNumber} styles={styles} editable={false} />
           <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
             {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
           </Pressable>
         </Section>
       ) : null}
 
-      <Section title="Verification" icon="shield-checkmark-outline" styles={styles}>
-        <ReadonlyMetric title="Status" value={profile?.verificationStatus ?? "NOT_SUBMITTED"} copy="Only verified partners receive live jobs." styles={styles} />
-        <ReadonlyMetric title="Vehicle Number" value={vehicleNumber || "Pending"} copy="Vehicle details come from your registration profile." styles={styles} />
+      <Section title="Performance" icon="bar-chart-outline" styles={styles}>
+        <InfoRow icon="wallet-outline" title="Earnings" value="Transaction history & payouts" styles={styles} onPress={onOpenTransactions} />
+        <InfoRow icon="cube-outline" title="Delivery History" value={`${completedJobs} completed deliveries`} styles={styles} onPress={() => showDialog({ title: "Delivery History", message: `You have successfully completed ${completedJobs} deliveries. Thank you for your service!`, icon: "cube-outline" })} />
       </Section>
 
-      <Section title="Logistics Assignment" icon="compass-outline" styles={styles}>
-        <ReadonlyMetric title="Role Type" value={profile?.deliveryType || "PICKUP"} copy="Assigned logistics role (PICKUP or DROP)." styles={styles} />
-        <ReadonlyMetric title="Assigned Area" value={profile?.assignedArea || "unassigned"} copy="Your logistics operations area." styles={styles} />
-      </Section>
-
-      <Section title="Availability" icon="toggle-outline" styles={styles}>
+      <Section title="Preferences" icon="options-outline" styles={styles}>
         <SwitchRow title="Go Online" copy={savingAvailability ? "Updating..." : "Receive pickup and delivery requests."} value={available} onValueChange={updateAvailability} styles={styles} />
-        <ReadonlyMetric title="Active Jobs" value={String(activeJobs)} copy="Current accepted tasks." styles={styles} />
-        <ReadonlyMetric title="Completed Jobs" value={String(completedJobs)} copy="Finished deliveries." styles={styles} />
-      </Section>
-
-      <Section title="Payments" icon="receipt-outline" styles={styles}>
-        <InfoRow icon="receipt-outline" title="Transaction History" value="Completed delivery payouts" styles={styles} onPress={onOpenTransactions} />
-      </Section>
-
-      <Section title="Notifications" icon="notifications-outline" styles={styles}>
         <SwitchRow title="Push Notifications" copy="Heads-up alerts for new jobs." value={preferences.notifications} onValueChange={(value) => setPreferences((current) => ({ ...current, notifications: value }))} styles={styles} />
         <SwitchRow title="Sound Alerts" copy="Play the Darji delivery sounds." value={preferences.sound} onValueChange={(value) => setPreferences((current) => ({ ...current, sound: value }))} styles={styles} />
         <SwitchRow title="Vibration Alerts" copy="Vibrate on urgent tasks." value={preferences.vibration} onValueChange={(value) => setPreferences((current) => ({ ...current, vibration: value }))} styles={styles} />
       </Section>
 
-      <Section title="Work Preferences" icon="options-outline" styles={styles}>
-        <SwitchRow title="Instant Deliveries" copy="Allow urgent same-window jobs." value={preferences.instantDeliveries} onValueChange={(value) => setPreferences((current) => ({ ...current, instantDeliveries: value }))} styles={styles} />
-        <ChoiceRow title="Availability Type" options={["Full time", "Part time"]} value={preferences.availability} onChange={(value) => setPreferences((current) => ({ ...current, availability: value }))} styles={styles} />
-        <ChoiceRow title="Preferred Radius" options={["2 km", "5 km", "10 km"]} value={preferences.radius} onChange={(value) => setPreferences((current) => ({ ...current, radius: value }))} styles={styles} />
+      <Section title="Support" icon="help-circle-outline" styles={styles}>
+        <InfoRow icon="help-buoy-outline" title="Help Center" value="Delivery workflows and details" styles={styles} onPress={() => setSupportScreen("help")} />
+        <InfoRow icon="chatbubble-outline" title="Contact Support" value="Get help from our support team" styles={styles} onPress={() => setSupportScreen("chat")} />
       </Section>
 
-      <Section title="Appearance" icon="color-palette-outline" styles={styles}>
-        <SwitchRow title="Dark Mode" copy="Use a darker interface theme." value={preferences.darkMode} onValueChange={(value) => setPreferences((current) => ({ ...current, darkMode: value }))} styles={styles} />
-        <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
-          {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Settings</Text>}
-        </Pressable>
+      <Section title="Policies & Information" icon="document-text-outline" styles={styles}>
+        <InfoRow icon="information-circle-outline" title="About Darji" value="Learn about Darji Delivery Partner network" styles={styles} onPress={() => setSupportScreen("about")} />
+        <InfoRow icon="shield-checkmark-outline" title="Privacy Policy" value="How your personal data is handled" styles={styles} onPress={() => setSupportScreen("privacy")} />
+        <InfoRow icon="reader-outline" title="Terms of Use" value="Terms of service agreements" styles={styles} onPress={() => setSupportScreen("terms")} />
       </Section>
 
-      <Section title="Help & Legal" icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title="Help Center" value="Delivery workflow and support" styles={styles} onPress={() => setSupportScreen("help")} />
-        <InfoRow icon="chatbubble-outline" title="Chat Support" value="Open support options" styles={styles} onPress={() => setSupportScreen("chat")} />
-        <InfoRow icon="call-outline" title="Call Support" value="Support hours and callback help" styles={styles} onPress={() => setSupportScreen("call")} />
-        <InfoRow icon="mail-outline" title="Email Support" value="Write to the Darji team" styles={styles} onPress={() => setSupportScreen("email")} />
-        <InfoRow icon="information-circle-outline" title="FAQs" value="Common delivery questions" styles={styles} onPress={() => setSupportScreen("faq")} />
-        <InfoRow icon="shield-outline" title="Safety Guidelines" value="Pickup and handoff rules" styles={styles} onPress={() => setSupportScreen("safety")} />
-        <InfoRow icon="document-text-outline" title="Privacy Policy" value="View" styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title="Terms of Service" value="View" styles={styles} onPress={() => setSupportScreen("terms")} />
-        <InfoRow icon="phone-portrait-outline" title="App Version" value="0.1.0" styles={styles} onPress={() => setSupportScreen("version")} />
+      <Section title="App" icon="phone-portrait-outline" styles={styles}>
+        <View style={styles.row}>
+          <View style={styles.smallIcon}><Ionicons name="phone-portrait-outline" size={16} color={BRAND_ORANGE} /></View>
+          <View style={styles.rowMain}>
+            <Text style={styles.rowTitle}>App Version</Text>
+            <Text style={styles.rowCopy}>0.1.0 (Development)</Text>
+          </View>
+        </View>
       </Section>
 
-      <Pressable style={styles.logoutButton} onPress={logout}>
-        <Ionicons name="log-out-outline" size={18} color={palette.text} />
-        <Text style={styles.logoutText}>Logout</Text>
-      </Pressable>
-      <Pressable style={styles.deleteButton} onPress={() => showDialog({ title: "Delete account", message: "Account deletion can be connected to the admin workflow.", icon: "trash-outline" })}>
-        <Ionicons name="trash-outline" size={18} color="#ffffff" />
-        <Text style={styles.deleteText}>Delete Account</Text>
-      </Pressable>
+      <Section title="Account Settings" icon="settings-outline" styles={styles}>
+        <InfoRow icon="trash-outline" title="Delete Account" value="Permanently remove your account" styles={styles} danger onPress={() => showDialog({ title: "Delete account", message: "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} />
+        <InfoRow icon="log-out-outline" title="Logout" value="Sign out of your account" styles={styles} onPress={logout} />
+      </Section>
     </ScrollView>
   );
 }
@@ -350,15 +329,15 @@ function ReadonlyMetric({ title, value, copy, styles }: { title: string; value: 
   );
 }
 
-function InfoRow({ icon, title, value, styles, onPress }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress: () => void }) {
+function InfoRow({ icon, title, value, styles, onPress, danger }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress: () => void; danger?: boolean }) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
-      <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={BRAND_ORANGE} /></View>
+      <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : BRAND_ORANGE} /></View>
       <View style={styles.rowMain}>
-        <Text style={styles.rowTitle}>{title}</Text>
+        <Text style={[styles.rowTitle, danger && { color: DANGER }]}>{title}</Text>
         <Text style={styles.rowCopy}>{value}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={MUTED} />
+      <Ionicons name="chevron-forward" size={18} color={danger ? DANGER : MUTED} />
     </Pressable>
   );
 }
@@ -428,6 +407,18 @@ const supportDetails: Record<SupportScreen, { title: string; subtitle: string; i
     icon: "phone-portrait-outline",
     copy: "Darji Delivery version 0.1.0",
     points: ["Expo React Native build", "Socket.IO live requests enabled", "FCM push notifications configured"]
+  },
+  about: {
+    title: "About Darji",
+    subtitle: "Darji Delivery Partner network",
+    icon: "information-circle-outline",
+    copy: "Darji Delivery is an automated, area-based logistics assignment platform that connects tailors and customers.",
+    points: [
+      "View automated area batches dynamically scheduled for 1 PM and 6 PM rounds.",
+      "Track live navigation and stops in sequence.",
+      "Secure pickups and drop-offs using OTP verification codes.",
+      "Get transparent calculations of daily, weekly, and monthly delivery earnings."
+    ]
   }
 };
 
@@ -437,7 +428,7 @@ function SupportDetailScreen({ screen, styles, onBack }: { screen: SupportScreen
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.detailHeader}>
         <Pressable style={styles.backButton} onPress={onBack}>
-          <Ionicons name="chevron-back" size={22} color={BRAND_DEEP} />
+          <Ionicons name="chevron-back" size={22} color="#ffffff" />
         </Pressable>
         <View style={styles.rowMain}>
           <Text style={styles.title}>{detail.title}</Text>
@@ -464,25 +455,25 @@ function SupportDetailScreen({ screen, styles, onBack }: { screen: SupportScreen
 }
 
 const lightPalette = {
-  background: SCREEN_BG,
-  card: SURFACE,
-  cardBorder: BORDER,
-  text: BRAND_DEEP,
-  subtext: MUTED,
-  accentSurface: "#fff4dc",
-  accentBorder: "#efcf92",
-  iconSurface: "#ffffff"
+  background: "#000000",
+  card: "#121212",
+  cardBorder: "#222222",
+  text: "#ffffff",
+  subtext: "#94a3b8",
+  accentSurface: "#1a1a1a",
+  accentBorder: "#222222",
+  iconSurface: "#0d0d0d"
 };
 
 const darkPalette = {
-  background: "#0f172a",
-  card: "#111827",
-  cardBorder: "#1f2937",
-  text: "#f8fafc",
+  background: "#000000",
+  card: "#121212",
+  cardBorder: "#222222",
+  text: "#ffffff",
   subtext: "#94a3b8",
-  accentSurface: "#2b1d0b",
-  accentBorder: "#6b4a16",
-  iconSurface: "#18212f"
+  accentSurface: "#1a1a1a",
+  accentBorder: "#222222",
+  iconSurface: "#0d0d0d"
 };
 
 function createStyles(palette: typeof lightPalette) {

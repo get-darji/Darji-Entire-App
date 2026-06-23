@@ -62,6 +62,7 @@ type Screen =
   | "privacyPolicy"
   | "termsService"
   | "appInfo"
+  | "aboutDarji"
   | "featureSoon"
   | "notifications"
   | "measurementGuide"
@@ -2574,86 +2575,106 @@ function ProfileScreen({
   onDeleteAccount: () => void;
 }) {
   const { user, signOut } = useAppStore();
+  const profileStyles = createStyles(true); // Enforce dark/black theme for the profile screen
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+    <SafeAreaView style={profileStyles.safe}>
+      <ScrollView contentContainerStyle={profileStyles.pageContent}>
         <Header title="Profile" />
-        <View style={styles.profileHero}>
-          {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.profileAvatarImage} /> : <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>{initialsFor(profile.name)}</Text>
-          </View>}
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{profile.name}</Text>
-            <Text style={styles.profilePhone}>+91 {user?.phone ?? profile.phone}</Text>
-          </View>
-          <Pressable style={styles.profileEditButton} onPress={() => setScreen("editProfile")}>
-            <Ionicons name="create-outline" size={18} color={BRAND_ORANGE} />
-          </Pressable>
-          <Pressable style={styles.profileEditButton} onPress={() => setScreen("settings")}>
-            <Ionicons name="settings-outline" size={18} color={BRAND_ORANGE} />
-          </Pressable>
-        </View>
-
-        <View style={styles.profileStatsRow}>
-          <View style={styles.profileStat}>
-            <Text style={styles.profileStatValue}>{orders.length}</Text>
-            <Text style={styles.profileStatLabel}>Orders</Text>
-          </View>
-          <View style={styles.profileStat}>
-            <Text style={styles.profileStatValue}>{addresses.length}</Text>
-            <Text style={styles.profileStatLabel}>Addresses</Text>
-          </View>
-          <View style={styles.profileStat}>
-            <Text style={styles.profileStatValue}>₹0</Text>
-            <Text style={styles.profileStatLabel}>Wallet</Text>
+        <View style={profileStyles.profileHero}>
+          {profile.avatarUri ? (
+            <Image source={{ uri: profile.avatarUri }} style={profileStyles.profileAvatarImage} />
+          ) : (
+            <View style={profileStyles.profileAvatar}>
+              <Text style={profileStyles.profileAvatarText}>{initialsFor(profile.name)}</Text>
+            </View>
+          )}
+          <View style={profileStyles.profileInfo}>
+            <Text style={profileStyles.profileName}>{profile.name}</Text>
+            <Text style={profileStyles.profilePhone}>+91 {user?.phone ?? profile.phone}</Text>
           </View>
         </View>
 
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>ACCOUNT</Text>
-          <ProfileRow icon="location-outline" label="Saved Addresses" value={`${addresses.length} saved`} onPress={() => setScreen("savedAddresses")} />
-          <ProfileRow icon="wallet-outline" label="Wallet & Payments" value="UPI enabled" onPress={() => setScreen("walletPayments")} />
-          <ProfileRow icon="receipt-outline" label="Transaction History" value={`${orders.filter((order) => order.paymentStatus === "PAID" || order.paymentMethod === "COD").length} entries`} onPress={() => setScreen("transactionHistory")} />
-          <ProfileRow icon="ticket-outline" label="Coupons" value="DARZI100" onPress={() => setScreen("coupons")} />
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>ACCOUNT</Text>
+          <ProfileRow icon="person-outline" label="Edit Profile" value="Name, Date of Birth" onPress={() => setScreen("editProfile")} styles={profileStyles} />
+          <ProfileRow icon="location-outline" label="Saved Addresses" value={`${addresses.length} saved`} onPress={() => setScreen("savedAddresses")} styles={profileStyles} />
         </View>
 
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>SUPPORT</Text>
-          <ProfileRow icon="help-circle-outline" label="Help Center" value="Chat & FAQs" onPress={() => setScreen("helpCenter")} />
-          <ProfileRow icon="call-outline" label="Contact Support" value="1800-000-000" onPress={() => setScreen("contactSupport")} />
-          <ProfileRow icon="star-outline" label="Rate Darji" value="Share feedback" onPress={() => setScreen("rateApp")} />
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>ORDERS</Text>
+          <ProfileRow icon="cube-outline" label="Order History" value="View active and past orders" onPress={() => setScreen("orders")} styles={profileStyles} />
         </View>
 
-        <Pressable style={styles.secondaryWideButton} onPress={() => setScreen("orders")}>
-          <Ionicons name="cube-outline" size={18} color={BRAND_DEEP} />
-          <Text style={styles.secondaryWideButtonText}>View My Orders</Text>
-        </Pressable>
-        <Pressable style={styles.signOutButton} onPress={signOut}>
-          <Text style={styles.signOutText}>Sign out</Text>
-        </Pressable>
-        <Pressable
-          style={styles.deleteAccountButton}
-          onPress={onDeleteAccount}
-        >
-          <Ionicons name="trash-outline" size={18} color="#c24141" />
-          <Text style={styles.deleteAccountText}>Delete Account</Text>
-        </Pressable>
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>PREFERENCES</Text>
+          <ProfileRow icon="notifications-outline" label="Notifications" value="Configure order alerts & promos" onPress={() => setScreen("settings")} styles={profileStyles} />
+        </View>
+
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>SUPPORT</Text>
+          <ProfileRow icon="help-circle-outline" label="Help Center" value="FAQs & workflows" onPress={() => setScreen("helpCenter")} styles={profileStyles} />
+          <ProfileRow icon="call-outline" label="Contact Support" value="Contact customer support team" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+          <ProfileRow icon="bug-outline" label="Report a Bug" value="Submit an application bug report" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+        </View>
+
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>POLICIES & INFORMATION</Text>
+          <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value="Refund and cancellation rules" onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} />
+          <ProfileRow icon="information-circle-outline" label="About Darji" value="Who we are & how it works" onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
+          <ProfileRow icon="shield-checkmark-outline" label="Privacy Policy" value="Read privacy policy" onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
+          <ProfileRow icon="document-text-outline" label="Terms of Use" value="Read terms of service" onPress={() => setScreen("termsService")} styles={profileStyles} />
+        </View>
+
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>APP</Text>
+          <View style={profileStyles.profileRow}>
+            <View style={profileStyles.profileRowIcon}>
+              <Ionicons name="phone-portrait-outline" size={18} color={BRAND_ORANGE} />
+            </View>
+            <View style={profileStyles.profileRowText}>
+              <Text style={profileStyles.addressTitle}>App Version</Text>
+              <Text style={profileStyles.mutedSmall}>0.1.0 (Development)</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={profileStyles.whiteCard}>
+          <Text style={profileStyles.cardLabel}>ACCOUNT SETTINGS</Text>
+          <ProfileRow icon="trash-outline" label="Delete Account" value="Permanently remove account" onPress={onDeleteAccount} danger styles={profileStyles} />
+          <ProfileRow icon="log-out-outline" label="Logout" value="Sign out of your account" onPress={signOut} styles={profileStyles} />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function ProfileRow({ icon, label, value, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; onPress?: () => void }) {
+function ProfileRow({
+  icon,
+  label,
+  value,
+  onPress,
+  danger,
+  styles: propStyles
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  onPress?: () => void;
+  danger?: boolean;
+  styles?: any;
+}) {
+  const currentStyles = propStyles || styles;
   return (
-    <Pressable style={styles.profileRow} onPress={onPress}>
-      <View style={styles.profileRowIcon}>
-        <Ionicons name={icon} size={18} color={BRAND_ORANGE} />
+    <Pressable style={currentStyles.profileRow} onPress={onPress}>
+      <View style={currentStyles.profileRowIcon}>
+        <Ionicons name={icon} size={18} color={danger ? "#dc2626" : BRAND_ORANGE} />
       </View>
-      <View style={styles.profileRowText}>
-        <Text style={styles.addressTitle}>{label}</Text>
-        <Text style={styles.mutedSmall}>{value}</Text>
+      <View style={currentStyles.profileRowText}>
+        <Text style={[currentStyles.addressTitle, danger && { color: "#dc2626" }]}>{label}</Text>
+        <Text style={currentStyles.mutedSmall}>{value}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+      <Ionicons name="chevron-forward" size={18} color={danger ? "#dc2626" : "#6b7890"} />
     </Pressable>
   );
 }
@@ -3187,6 +3208,29 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
         <InfoRow label="Version" value="0.1.0" />
         <InfoRow label="Build" value="Development" />
         <InfoRow label="API" value="Connected to local backend" />
+      </View>
+    </ProfileSubPage>
+  );
+}
+
+function AboutDarjiScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
+  const profileStyles = createStyles(true);
+  return (
+    <ProfileSubPage title="About Darji" setScreen={setScreen}>
+      <View style={profileStyles.whiteCard}>
+        <Text style={profileStyles.cardLabel}>OUR MISSION</Text>
+        <Text style={profileStyles.infoCopy}>
+          Darji is a modern tailoring ecosystem designed to bring custom clothing to your doorstep. We connect you with expert local tailors, facilitate live fabric and measurements collection, and ensure perfect-fit garments are delivered directly back to you.
+        </Text>
+      </View>
+      <View style={profileStyles.whiteCard}>
+        <Text style={profileStyles.cardLabel}>HOW IT WORKS</Text>
+        <Text style={profileStyles.infoCopy}>
+          • Request a Quote: Share pictures and measurements.{"\n"}
+          • Receive Quotes: Local tailors offer prices and timelines.{"\n"}
+          • Pickup & Stitching: Delivery partners collect fabric, and tailors craft your garment.{"\n"}
+          • Handoff: Receive your custom garment at your door.
+        </Text>
       </View>
     </ProfileSubPage>
   );
@@ -4578,19 +4622,20 @@ export default function App() {
   if (screen === "privacyPolicy") return withAppChrome(<PolicyScreen title="Privacy Policy" setScreen={setScreen} />);
   if (screen === "termsService") return withAppChrome(<PolicyScreen title="Terms of Service" setScreen={setScreen} />);
   if (screen === "appInfo") return withAppChrome(<AppInfoScreen setScreen={setScreen} />);
+  if (screen === "aboutDarji") return withAppChrome(<AboutDarjiScreen setScreen={setScreen} />);
   if (screen === "orders") return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
   return withAppChrome(<SearchScreen setScreen={setScreen} />);
 }
 
 function createStyles(isDark = false) {
-  const pageBg = isDark ? "#070d18" : SCREEN_BG;
-  const surface = isDark ? "#101827" : "#ffffff";
-  const surfaceAlt = isDark ? "#151f2f" : "#fffaf0";
-  const inputSurface = isDark ? "#0f1724" : "#ffffff";
-  const text = isDark ? "#f8fafc" : BRAND_DEEP;
-  const muted = isDark ? "#9aa8bd" : "#65748a";
-  const subtle = isDark ? "#7d8ca3" : "#637086";
-  const border = isDark ? "#263348" : "#dce2ea";
+  const pageBg = isDark ? "#000000" : SCREEN_BG;
+  const surface = isDark ? "#121212" : "#ffffff";
+  const surfaceAlt = isDark ? "#1a1a1a" : "#fffaf0";
+  const inputSurface = isDark ? "#0d0d0d" : "#ffffff";
+  const text = isDark ? "#ffffff" : BRAND_DEEP;
+  const muted = isDark ? "#94a3b8" : "#65748a";
+  const subtle = isDark ? "#64748b" : "#637086";
+  const border = isDark ? "#222222" : "#dce2ea";
   const iconBg = isDark ? "#2a1d0a" : "#fff4dc";
   const tabBg = isDark ? "#0b1320" : "#ffffff";
   const darkCard = isDark ? "#0d1421" : "#2b1503";

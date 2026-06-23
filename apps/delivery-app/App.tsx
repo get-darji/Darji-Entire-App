@@ -1362,20 +1362,16 @@ function BatchDetailsView({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
-      <View style={styles.header}>
-        <Pressable style={styles.roundIcon} onPress={onBack}>
-          <Ionicons name="arrow-back" size={24} color={BRAND_DEEP} />
-        </Pressable>
-        <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>Batch Route</Text>
-          <Text style={styles.headerSubtitle}>{roundLabel} • {dateStr}</Text>
-        </View>
-      </View>
+      <Header
+        title="Batch Route"
+        subtitle={`${roundLabel} • ${dateStr}`}
+        onBack={onBack}
+      />
 
       <View style={styles.heroCard}>
         <View style={styles.flexOne}>
           <Text style={styles.heroLabel}>BATCH ID: {batch.batchId.slice(0, 8).toUpperCase()}</Text>
-          <Text style={styles.heroTitle}>{batch.requests.length} Orders</Text>
+          <Text style={styles.heroTitle}>{batch.requests.length} {batch.requests.length === 1 ? "Order" : "Orders"}</Text>
           <Text style={styles.heroCopy}>Route in {batch.area} ({batch.deliveryType === "PICKUP" ? "Pickup round" : "Drop round"})</Text>
         </View>
         <View style={styles.heroIcon}>
@@ -1686,11 +1682,11 @@ function ActiveOrderScreenView({
           <Card accent>
             <Text style={styles.cardTitle}>Best route</Text>
             <Text style={styles.helperText}>Use Google Maps for live navigation. The in-app OpenStreetMap preview has been removed to avoid broken route loading.</Text>
-            <StatusRow label="Pickup" value={order.pickupAddress} />
-            <StatusRow label="Drop" value={order.dropAddress} />
+            <StatusRow label="Customer Address" value={order.type === "customer_to_tailor" ? order.pickupAddress : order.dropAddress} />
+            <StatusRow label="Tailor Address" value={order.type === "customer_to_tailor" ? order.dropAddress : order.pickupAddress} />
             <View style={styles.navRow}>
-              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Open Pickup Route" onPress={() => openDirections(order.pickupAddress)} variant="secondary" /></View>
-              <View style={styles.flexOne}><PrimaryButton icon="flag-outline" label="Open Delivery Route" onPress={() => openDirections(order.dropAddress, order.pickupAddress)} /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Go to Customer" onPress={() => openDirections(order.type === "customer_to_tailor" ? order.pickupAddress : order.dropAddress)} variant="secondary" /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="flag-outline" label="Go to Tailor" onPress={() => openDirections(order.type === "customer_to_tailor" ? order.dropAddress : order.pickupAddress)} /></View>
             </View>
           </Card>
         ) : null}
@@ -2009,6 +2005,34 @@ function MainApp({
     const rating = Number(me?.deliveryProfile?.rating ?? 0);
     return rating > 0 ? rating.toFixed(1) : "0.0";
   }, [me?.deliveryProfile?.rating]);
+
+  const notificationsFromRequests = useMemo(() => {
+    const items: DeliveryNotification[] = requests.map((req) => {
+      let title = "New delivery request";
+      if (req.taskStatus === "accepted") title = "Delivery assigned";
+      else if (req.taskStatus === "picked_up") title = "Package picked up";
+      else if (req.taskStatus === "delivered") title = "Delivery completed";
+      else if (req.taskStatus === "cancelled") title = "Delivery cancelled";
+
+      const direction = req.type === "customer_to_tailor" ? "Customer to Tailor" : "Tailor to Customer";
+      return {
+        id: `req-notif-${req.id}-${req.taskStatus}`,
+        title,
+        body: `Order REQ-${req.orderId.slice(0, 8).toUpperCase()} (${direction}) - ${req.clothType || "Clothes"} - ${req.workType || "Tailoring"}`,
+        createdAt: req.createdAt || new Date().toISOString(),
+        taskId: req.id,
+        orderId: req.orderId
+      };
+    });
+
+    const combined: DeliveryNotification[] = [...items];
+    for (const item of notificationCenterItems) {
+      if (!combined.some((c) => c.orderId === item.orderId && c.title === item.title)) {
+        combined.push(item);
+      }
+    }
+    return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [requests, notificationCenterItems]);
 
   function setTab(nextTab: Tab, options?: { resetStack?: boolean; replace?: boolean }) {
     if (nextTab === tab) return;
@@ -2402,14 +2426,16 @@ function MainApp({
   if (selectedBatch) {
     return (
       <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
-        <BatchDetailsView
-          batch={selectedBatch}
-          onBack={() => setActiveBatchId(undefined)}
-          onOpenOrder={(order) => {
-            setActiveOrder(order);
-            setActiveOrderScreen("summary");
-          }}
-        />
+        <Screen>
+          <BatchDetailsView
+            batch={selectedBatch}
+            onBack={() => setActiveBatchId(undefined)}
+            onOpenOrder={(order) => {
+              setActiveOrder(order);
+              setActiveOrderScreen("summary");
+            }}
+          />
+        </Screen>
       </NotificationProvider>
     );
   }
@@ -2447,7 +2473,7 @@ function MainApp({
         /> : null}
         {tab === "earnings" ? <EarningsScreen me={me} requests={requests} /> : null}
         {tab === "transactions" ? <TransactionHistoryScreen requests={requests} /> : null}
-        {tab === "notifications" ? <NotificationsScreen notifications={notificationCenterItems} onOpen={openNotification} /> : null}
+        {tab === "notifications" ? <NotificationsScreen notifications={notificationsFromRequests} onOpen={openNotification} /> : null}
         {tab === "profile" ? (
           <DeliveryProfileScreen
             me={me}

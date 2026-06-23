@@ -47,7 +47,7 @@ type MeResponse = {
   tailorProfile?: TailorProfile;
 };
 type Order = { id: string; status: string; totalAmount: number | string; createdAt?: string; tailorRating?: number; rating?: number; review?: { rating?: number } };
-type SupportScreen = "faqs" | "chat" | "call" | "email" | "complaint" | "bug" | "feature" | "privacy" | "terms" | "cancellation" | "version";
+type SupportScreen = "faqs" | "chat" | "call" | "email" | "complaint" | "bug" | "feature" | "privacy" | "terms" | "cancellation" | "version" | "about";
 
 type Props = {
   me?: MeResponse;
@@ -204,13 +204,16 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
           <Text style={styles.meta}>{email || "Email not added"}</Text>
           <Text style={styles.completedText}>{completedOrders} completed orders</Text>
         </View>
-        <Pressable style={styles.editButton} onPress={() => setEditing((value) => !value)}>
-          <Text style={styles.editButtonText}>{editing ? "Close" : "Edit"}</Text>
-        </Pressable>
       </View>
 
+      <Section title="Account" icon="person-outline" styles={styles}>
+        <InfoRow icon="create-outline" title="Edit Profile" value={editing ? "Close Edit Mode" : "Update name, shop details, and hours"} styles={styles} onPress={() => setEditing((v) => !v)} />
+        <InfoRow icon="storefront-outline" title="Shop Details" value={`${shopName} (Open: ${workingFrom} - ${workingTo})`} styles={styles} onPress={() => showDialog({ title: "Shop Details", message: `Shop Name: ${shopName}\nOpen Hours: ${workingFrom} to ${workingTo}\nSpecialization: Custom Tailoring & Alterations`, icon: "storefront-outline" })} />
+        <InfoRow icon="card-outline" title="Bank Account Details" value="Configure payment payouts" styles={styles} onPress={() => showDialog({ title: "Bank Account Details", message: "Banking integration is under development. Payouts are currently processed via registration bank details.", icon: "card-outline" })} />
+      </Section>
+
       {editing ? (
-        <Section title="Edit Profile" icon="create-outline" styles={styles}>
+        <Section title="Edit Profile Form" icon="create-outline" styles={styles}>
           <Input label="Tailor Name" value={name} onChangeText={setName} styles={styles} />
           <Input label="Shop Name" value={shopName} onChangeText={setShopName} styles={styles} />
           <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
@@ -224,63 +227,43 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         </Section>
       ) : null}
 
-      <Section title="Availability" icon="toggle-outline" styles={styles}>
-        <SwitchRow title="Open / Closed" copy={savingAvailability ? "Updating..." : "Controls your live availability."} value={available} onValueChange={updateAvailability} styles={styles} />
-        <SwitchRow title="Vacation Mode" copy="Pause alerts while you are away." value={vacationMode} onValueChange={setVacationMode} styles={styles} />
-        <SwitchRow title="Accepting New Orders" copy={maxReached ? "Limit reached for today." : "Allow new quote requests."} value={acceptingOrders && !maxReached} onValueChange={setAcceptingOrders} styles={styles} disabled={maxReached} />
-        <ReadonlyMetric title="Maximum Orders Per Day" value={`${activeOrders}/${maxOrdersPerDay}`} copy="Set by admin. Tailors cannot edit this limit." danger={maxReached} styles={styles} />
-        <SwitchRow title="Emergency Pause" copy="Temporarily stop new request alerts." value={emergencyPause} onValueChange={setEmergencyPause} styles={styles} danger />
+      <Section title="Performance" icon="bar-chart-outline" styles={styles}>
+        <InfoRow icon="wallet-outline" title="Earnings" value="Transaction history & payouts" styles={styles} onPress={onOpenTransactions} />
+        <InfoRow icon="cube-outline" title="Order History" value={`${completedOrders} completed, ${activeOrders} in progress`} styles={styles} onPress={() => showDialog({ title: "Order History", message: `You have completed ${completedOrders} orders. There are currently ${activeOrders} active orders in progress.`, icon: "cube-outline" })} />
+        <InfoRow icon="star-outline" title="Average Rating & Reviews" value={`${averageRating ? averageRating.toFixed(1) : "0.0"} rating (${ratingCount} reviews)`} styles={styles} onPress={() => showDialog({ title: "Average Rating & Reviews", message: `Your average customer rating is ${averageRating ? averageRating.toFixed(1) : "0.0"} based on ${ratingCount} customer reviews.`, icon: "star-outline" })} />
       </Section>
 
-      <Section title="Notifications" icon="notifications-outline" styles={styles}>
+      <Section title="Preferences" icon="options-outline" styles={styles}>
         <SwitchRow title="New Order Alerts" copy="Show request popups." value={notifications.newOrderAlerts} onValueChange={(value) => setNotifications((s) => ({ ...s, newOrderAlerts: value }))} styles={styles} />
         <SwitchRow title="Sound Notifications" copy="Play sound for important alerts." value={notifications.sound} onValueChange={(value) => setNotifications((s) => ({ ...s, sound: value }))} styles={styles} />
         <SwitchRow title="Vibration" copy="Vibrate on urgent alerts." value={notifications.vibration} onValueChange={(value) => setNotifications((s) => ({ ...s, vibration: value }))} styles={styles} />
       </Section>
 
-      <Section title="Reviews" icon="star-outline" styles={styles}>
-        <View style={styles.reviewSummary}>
-          <Text style={styles.rating}>{averageRating ? averageRating.toFixed(1) : "0.0"}</Text>
-          <View style={styles.headerMain}>
-            <Text style={styles.rowTitle}>Average rating</Text>
-            <Text style={styles.rowCopy}>{ratingCount ? `Based on ${ratingCount} customer ratings.` : "No customer ratings yet."}</Text>
+      <Section title="Support" icon="help-circle-outline" styles={styles}>
+        <InfoRow icon="help-buoy-outline" title="Help Center" value="Faqs and app guides" styles={styles} onPress={() => setSupportScreen("faqs")} />
+        <InfoRow icon="chatbubble-outline" title="Contact Support" value="Chat or email the support team" styles={styles} onPress={() => setSupportScreen("chat")} />
+      </Section>
+
+      <Section title="Policies & Information" icon="document-text-outline" styles={styles}>
+        <InfoRow icon="information-circle-outline" title="About Darji" value="Learn about Darji Tailor Partner app" styles={styles} onPress={() => setSupportScreen("about")} />
+        <InfoRow icon="shield-checkmark-outline" title="Privacy Policy" value="How your personal data is handled" styles={styles} onPress={() => setSupportScreen("privacy")} />
+        <InfoRow icon="reader-outline" title="Terms of Use" value="Terms of service agreements" styles={styles} onPress={() => setSupportScreen("terms")} />
+      </Section>
+
+      <Section title="App" icon="phone-portrait-outline" styles={styles}>
+        <View style={styles.row}>
+          <View style={styles.smallIcon}><Ionicons name="phone-portrait-outline" size={16} color={BRAND_ORANGE} /></View>
+          <View style={styles.rowMain}>
+            <Text style={styles.rowTitle}>App Version</Text>
+            <Text style={styles.rowCopy}>0.1.0 (Development)</Text>
           </View>
         </View>
       </Section>
 
-      <Section title="Payments" icon="receipt-outline" styles={styles}>
-        <InfoRow icon="receipt-outline" title="Transaction History" value="Completed tailoring payouts" styles={styles} onPress={onOpenTransactions} />
+      <Section title="Account Settings" icon="settings-outline" styles={styles}>
+        <InfoRow icon="trash-outline" title="Delete Account" value="Permanently remove your account" styles={styles} danger onPress={() => showDialog({ title: "Delete account", message: "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} />
+        <InfoRow icon="log-out-outline" title="Logout" value="Sign out of your account" styles={styles} onPress={signOut} />
       </Section>
-
-      <Section title="General Settings" icon="settings-outline" styles={styles}>
-        <SwitchRow title="Dark Mode" copy="Use a darker app appearance." value={general.darkMode} onValueChange={(value) => setGeneral((s) => ({ ...s, darkMode: value }))} styles={styles} />
-        <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
-          {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Settings</Text>}
-        </Pressable>
-      </Section>
-
-      <Section title="Help & Legal" icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title="FAQs" value="Common tailor questions" styles={styles} onPress={() => setSupportScreen("faqs")} />
-        <InfoRow icon="chatbubble-outline" title="Chat Support" value="Contact Darzi support" styles={styles} onPress={() => setSupportScreen("chat")} />
-        <InfoRow icon="call-outline" title="Call Support" value="Support hours and callback help" styles={styles} onPress={() => setSupportScreen("call")} />
-        <InfoRow icon="mail-outline" title="Email Support" value="Write to the Darzi team" styles={styles} onPress={() => setSupportScreen("email")} />
-        <InfoRow icon="alert-circle-outline" title="Raise Complaint" value="Report an order problem" styles={styles} onPress={() => setSupportScreen("complaint")} />
-        <InfoRow icon="bug-outline" title="Report Bug" value="Share app issues" styles={styles} onPress={() => setSupportScreen("bug")} />
-        <InfoRow icon="bulb-outline" title="Suggest Feature" value="Send product ideas" styles={styles} onPress={() => setSupportScreen("feature")} />
-        <InfoRow icon="document-text-outline" title="Privacy Policy" value="View" styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title="Terms of Service" value="View" styles={styles} onPress={() => setSupportScreen("terms")} />
-        <InfoRow icon="close-circle-outline" title="Cancellation Policy" value="View" styles={styles} onPress={() => setSupportScreen("cancellation")} />
-        <InfoRow icon="information-circle-outline" title="App Version" value="0.1.0" styles={styles} onPress={() => setSupportScreen("version")} />
-      </Section>
-
-      <Pressable style={styles.logoutButton} onPress={signOut}>
-        <Ionicons name="log-out-outline" size={18} color={palette.text} />
-        <Text style={styles.logoutText}>Logout</Text>
-      </Pressable>
-      <Pressable style={styles.deleteButton} onPress={() => showDialog({ title: "Delete account", message: "Account deletion can be connected later.", icon: "trash-outline" })}>
-        <Ionicons name="trash-outline" size={18} color="#ffffff" />
-        <Text style={styles.deleteText}>Delete Account</Text>
-      </Pressable>
     </ScrollView>
   );
 }
@@ -330,15 +313,15 @@ function ReadonlyMetric({ title, value, copy, styles, danger }: { title: string;
   );
 }
 
-function InfoRow({ icon, title, value, styles, onPress }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void }) {
+function InfoRow({ icon, title, value, styles, onPress, danger }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void; danger?: boolean }) {
   return (
     <Pressable style={styles.row} onPress={onPress} disabled={!onPress}>
-      <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={BRAND_ORANGE} /></View>
+      <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : BRAND_ORANGE} /></View>
       <View style={styles.rowMain}>
-        <Text style={styles.rowTitle}>{title}</Text>
+        <Text style={[styles.rowTitle, danger && { color: DANGER }]}>{title}</Text>
         <Text style={styles.rowCopy}>{value}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={MUTED} />
+      <Ionicons name="chevron-forward" size={18} color={danger ? DANGER : MUTED} />
     </Pressable>
   );
 }
@@ -349,7 +332,7 @@ function SupportDetailScreen({ screen, styles, onBack, showDialog }: { screen: S
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.detailHeader}>
         <Pressable style={styles.backButton} onPress={onBack}>
-          <Ionicons name="chevron-back" size={22} color={BRAND_DEEP} />
+          <Ionicons name="chevron-back" size={22} color="#ffffff" />
         </Pressable>
         <View style={styles.rowMain}>
           <Text style={styles.title}>{detail.title}</Text>
@@ -464,11 +447,23 @@ const supportDetails: Record<SupportScreen, { title: string; subtitle: string; i
     icon: "information-circle-outline",
     copy: "Version 0.1.0",
     points: ["Development build for local testing.", "Restart Metro after native or dependency changes.", "Keep backend running while testing customer and tailor flows."]
+  },
+  about: {
+    title: "About Darji",
+    subtitle: "Darji Tailor Partner ecosystem",
+    icon: "information-circle-outline",
+    copy: "Darji is a modern custom tailoring ecosystem connecting expert tailors with design-conscious customers.",
+    points: [
+      "Expand your local customer reach.",
+      "Accept orders and provide price quotes digitally.",
+      "Track materials collection and finished garment delivery via our delivery partners.",
+      "Receive guaranteed, secure payouts for completed stitching jobs."
+    ]
   }
 };
 
-const lightPalette = { bg: SCREEN_BG, surface: SURFACE, surfaceAlt: "#fffaf0", text: BRAND_DEEP, muted: MUTED, border: BORDER };
-const darkPalette = { bg: "#07111f", surface: "#111827", surfaceAlt: "#1f2937", text: "#f8fafc", muted: "#aab7c8", border: "#263244" };
+const lightPalette = { bg: "#000000", surface: "#121212", surfaceAlt: "#1a1a1a", text: "#ffffff", muted: "#94a3b8", border: "#222222" };
+const darkPalette = { bg: "#000000", surface: "#121212", surfaceAlt: "#1a1a1a", text: "#ffffff", muted: "#94a3b8", border: "#222222" };
 
 function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({

@@ -114,6 +114,15 @@ export async function seedDatabase() {
     { upsert: true }
   );
 
+  await SettingModel.findOneAndUpdate(
+    { key: "enable_area_filtering" },
+    {
+      key: "enable_area_filtering",
+      value: false
+    },
+    { upsert: true }
+  );
+
   console.log({ admin: admin.phone, customer: customer.phone, tailor: tailorUser.phone, delivery: deliveryUser.phone });
 }
 

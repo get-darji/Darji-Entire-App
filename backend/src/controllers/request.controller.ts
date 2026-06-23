@@ -69,28 +69,41 @@ export function matchAddressToArea(address: string, areas: string[]): string {
 }
 
 export async function assignPendingTasksToPartner(partner: any) {
-  if (!partner.isAvailable || partner.verificationStatus !== "VERIFIED" || partner.assignedArea === "unassigned") {
+  if (!partner.isAvailable || partner.verificationStatus !== "VERIFIED") {
     return;
   }
 
-  const pendingTasks = await DeliveryRequestModel.find({
+  const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
+  const enableAreaFiltering = areaFilteringSetting?.value === true;
+
+  if (enableAreaFiltering && partner.assignedArea === "unassigned") {
+    return;
+  }
+
+  const pendingTasksQuery: Record<string, any> = {
     deliveryType: partner.deliveryType,
-    assignedArea: partner.assignedArea,
     taskStatus: "pending"
-  });
+  };
+  if (enableAreaFiltering) {
+    pendingTasksQuery.assignedArea = partner.assignedArea;
+  }
+  const pendingTasks = await DeliveryRequestModel.find(pendingTasksQuery);
 
   if (!pendingTasks.length) return;
 
   for (const task of pendingTasks) {
     let batchId: string = randomUUID();
-    let batch = await DeliveryBatchModel.findOne({
+    const batchQuery: Record<string, any> = {
       deliveryPartnerId: partner._id,
       deliveryType: partner.deliveryType,
       deliveryRound: task.deliveryRound,
       roundAt: task.roundAt,
-      area: partner.assignedArea,
       status: "active"
-    });
+    };
+    if (enableAreaFiltering) {
+      batchQuery.area = partner.assignedArea;
+    }
+    let batch = await DeliveryBatchModel.findOne(batchQuery);
 
     if (batch) {
       batchId = batch.batchId;
@@ -106,7 +119,7 @@ export async function assignPendingTasksToPartner(partner: any) {
         deliveryRound: task.deliveryRound,
         roundAt: task.roundAt,
         shift: task.deliveryRound === "ONE_PM" ? "morning" : "evening",
-        area: partner.assignedArea,
+        area: enableAreaFiltering ? partner.assignedArea : "All Areas",
         tasks: [task._id],
         estimatedEarnings: task.estimatedEarnings || 0,
         status: "active"
@@ -434,27 +447,36 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const areas = activePartners.map((p) => p.assignedArea).filter((a): a is string => typeof a === "string");
   const assignedArea = matchAddressToArea(customerAddress, areas);
 
+  const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
+  const enableAreaFiltering = areaFilteringSetting?.value === true;
+
   const deliveryType: DeliveryType = type === "customer_to_tailor" ? DeliveryType.PICKUP : DeliveryType.DROP;
 
-  const assignedBoy = await DeliveryPartnerModel.findOne({
+  const boyQuery: Record<string, any> = {
     deliveryType,
-    assignedArea,
     isAvailable: true,
     verificationStatus: "VERIFIED"
-  });
+  };
+  if (enableAreaFiltering) {
+    boyQuery.assignedArea = assignedArea;
+  }
+  const assignedBoy = await DeliveryPartnerModel.findOne(boyQuery);
 
   const taskStatus = assignedBoy ? "accepted" : "pending";
   let batchId: string = randomUUID();
 
   if (assignedBoy) {
-    const batch = await DeliveryBatchModel.findOne({
+    const batchQuery: Record<string, any> = {
       deliveryPartnerId: assignedBoy._id,
       deliveryType,
       deliveryRound,
       roundAt,
-      area: assignedArea,
       status: "active"
-    });
+    };
+    if (enableAreaFiltering) {
+      batchQuery.area = assignedArea;
+    }
+    const batch = await DeliveryBatchModel.findOne(batchQuery);
     if (batch) {
       batchId = batch.batchId;
     }
@@ -530,14 +552,17 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   if (!deliveryRequest) return null;
 
   if (assignedBoy) {
-    const batch = await DeliveryBatchModel.findOne({
+    const batchQuery: Record<string, any> = {
       deliveryPartnerId: assignedBoy._id,
       deliveryType,
       deliveryRound,
       roundAt,
-      area: assignedArea,
       status: "active"
-    });
+    };
+    if (enableAreaFiltering) {
+      batchQuery.area = assignedArea;
+    }
+    const batch = await DeliveryBatchModel.findOne(batchQuery);
     if (batch) {
       await DeliveryBatchModel.findByIdAndUpdate(batch._id, {
         $addToSet: { tasks: deliveryRequest._id },
@@ -551,7 +576,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         deliveryRound,
         roundAt,
         shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
-        area: assignedArea,
+        area: enableAreaFiltering ? assignedArea : "All Areas",
         tasks: [deliveryRequest._id],
         estimatedEarnings,
         status: "active"
@@ -618,12 +643,15 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
       }
     } else {
       emitToDeliveryPartners("delivery:task_created", deliveryPayload);
-      const availablePartners = await DeliveryPartnerModel.find({
+      const availablePartnersQuery: Record<string, any> = {
         isAvailable: true,
         verificationStatus: "VERIFIED",
-        deliveryType,
-        assignedArea
-      }).select("userId");
+        deliveryType
+      };
+      if (enableAreaFiltering) {
+        availablePartnersQuery.assignedArea = assignedArea;
+      }
+      const availablePartners = await DeliveryPartnerModel.find(availablePartnersQuery).select("userId");
       await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
         userId: partner.userId,
         title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
@@ -806,8 +834,13 @@ export async function listDeliveryRequestsController(req: Request, res: Response
   const where: Record<string, unknown> = {};
 
   if (req.user!.role === "DELIVERY_PARTNER" && partner) {
+    const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
+    const enableAreaFiltering = areaFilteringSetting?.value === true;
+
     where.deliveryType = partner.deliveryType;
-    where.assignedArea = partner.assignedArea;
+    if (enableAreaFiltering) {
+      where.assignedArea = partner.assignedArea;
+    }
     where.$or = [
       { taskStatus: "pending" },
       { assignedDeliveryPartnerId: partner._id }
