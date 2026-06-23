@@ -85,6 +85,8 @@ export type DeliveryPartnerProfile = {
   userId: string;
   vehicleNumber?: string;
   isAvailable: boolean;
+  deliveryType?: "PICKUP" | "DROP";
+  assignedArea?: string;
   rating?: number;
   dailyEarnings?: number;
   weeklyEarnings?: number;

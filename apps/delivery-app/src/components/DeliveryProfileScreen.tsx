@@ -37,6 +37,8 @@ type DeliveryProfile = {
   workingHours?: string;
   settings?: DeliverySettings;
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
+  deliveryType?: "PICKUP" | "DROP";
+  assignedArea?: string;
 };
 type MeResponse = {
   id: string;
@@ -205,6 +207,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
           <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}</Text>
           <Text style={styles.meta}>{email || "Email not added"}</Text>
           <Text style={styles.meta}>Vehicle: {vehicleNumber || "Pending update"}</Text>
+          <Text style={styles.meta}>Role: {profile?.deliveryType || "PICKUP"} ({profile?.assignedArea || "unassigned"})</Text>
           <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
         </View>
         <Pressable style={styles.editButton} onPress={() => setEditing((value) => !value)}>
@@ -227,6 +230,11 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       <Section title="Verification" icon="shield-checkmark-outline" styles={styles}>
         <ReadonlyMetric title="Status" value={profile?.verificationStatus ?? "NOT_SUBMITTED"} copy="Only verified partners receive live jobs." styles={styles} />
         <ReadonlyMetric title="Vehicle Number" value={vehicleNumber || "Pending"} copy="Vehicle details come from your registration profile." styles={styles} />
+      </Section>
+
+      <Section title="Logistics Assignment" icon="compass-outline" styles={styles}>
+        <ReadonlyMetric title="Role Type" value={profile?.deliveryType || "PICKUP"} copy="Assigned logistics role (PICKUP or DROP)." styles={styles} />
+        <ReadonlyMetric title="Assigned Area" value={profile?.assignedArea || "unassigned"} copy="Your logistics operations area." styles={styles} />
       </Section>
 
       <Section title="Availability" icon="toggle-outline" styles={styles}>

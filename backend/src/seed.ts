@@ -102,6 +102,18 @@ export async function seedDatabase() {
 
   await SettingModel.findOneAndUpdate({ key: "platform" }, { key: "platform", value: { supportPhone: "1800-000-000", pickupFee: 49 } }, { upsert: true });
 
+  await SettingModel.findOneAndUpdate(
+    { key: "delivery_rounds" },
+    {
+      key: "delivery_rounds",
+      value: [
+        { name: "ONE_PM", time: "13:00" },
+        { name: "SIX_PM", time: "18:00" }
+      ]
+    },
+    { upsert: true }
+  );
+
   console.log({ admin: admin.phone, customer: customer.phone, tailor: tailorUser.phone, delivery: deliveryUser.phone });
 }
 

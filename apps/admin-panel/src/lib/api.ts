@@ -169,6 +169,8 @@ export async function reviewDeliveryVerification(payload: {
   partnerId: string;
   status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   reason?: string;
+  deliveryType?: "PICKUP" | "DROP";
+  assignedArea?: string;
 }) {
   const { partnerId, ...body } = payload;
   return unwrap<DeliveryPartnerProfile>(api.patch(`/delivery-partners/${partnerId}/verification-review`, body));

@@ -20,6 +20,20 @@ const stringId = {
   default: () => randomUUID()
 };
 
+export enum DeliveryType {
+  PICKUP = "PICKUP",
+  DROP = "DROP"
+}
+
+export enum DeliveryRound {
+  ONE_PM = "ONE_PM",
+  SIX_PM = "SIX_PM"
+}
+
+export const deliveryTypes = [DeliveryType.PICKUP, DeliveryType.DROP] as const;
+export const deliveryRounds = [DeliveryRound.ONE_PM, DeliveryRound.SIX_PM] as const;
+
+
 const userSchema = new Schema(
   {
     _id: stringId,
@@ -138,6 +152,10 @@ const orderSchema = new Schema(
     tailorId: { type: String, index: true },
     pickupPartnerId: { type: String, index: true },
     deliveryPartnerId: { type: String, index: true },
+    deliveryType: { type: String, enum: deliveryTypes, index: true },
+    deliveryRound: { type: String, index: true },
+    batchId: { type: String, index: true },
+    assignedDeliveryBoyId: { type: String, index: true },
     status: { type: String, enum: orderStatuses, default: "ORDER_PLACED", index: true },
     paymentMethod: { type: String, enum: paymentMethods, required: true },
     paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING" },
@@ -181,6 +199,8 @@ const deliveryPartnerSchema = new Schema(
     _id: stringId,
     userId: { type: String, required: true, unique: true },
     vehicleNumber: String,
+    deliveryType: { type: String, enum: deliveryTypes, default: "PICKUP", index: true },
+    assignedArea: { type: String, default: "unassigned", index: true },
     isAvailable: { type: Boolean, default: true, index: true },
     rating: { type: Number, default: 0 },
     dailyEarnings: { type: Number, default: 0 },
@@ -331,6 +351,10 @@ const tailoringRequestSchema = new Schema(
     platformFee: Number,
     homeMeasurementFee: Number,
     totalAmount: Number,
+    deliveryType: { type: String, enum: deliveryTypes, index: true },
+    deliveryRound: { type: String, index: true },
+    batchId: { type: String, index: true },
+    assignedDeliveryBoyId: { type: String, index: true },
     confirmedAt: Date,
     cancelledAt: Date,
     cancellationFee: Number,
@@ -370,7 +394,13 @@ const deliveryRequestSchema = new Schema(
     tailorId: { type: String, required: true, index: true },
     customerId: { type: String, required: true, index: true },
     type: { type: String, enum: ["customer_to_tailor", "tailor_to_customer"], required: true, index: true },
+    deliveryType: { type: String, enum: deliveryTypes, required: true, index: true },
+    deliveryRound: { type: String, required: true, index: true },
+    roundAt: { type: Date, required: true, index: true },
+    assignedArea: { type: String, default: "unassigned", index: true },
+    batchId: { type: String, index: true },
     assignedDeliveryPartnerId: { type: String, index: true },
+    assignedDeliveryBoyId: { type: String, index: true },
     taskStatus: { type: String, enum: ["pending", "accepted", "picked_up", "delivered", "cancelled"], default: "pending", index: true },
     shift: { type: String, enum: ["morning", "evening"], required: true, index: true },
     estimatedDistanceKm: Number,
@@ -414,14 +444,18 @@ const deliveryBatchSchema = new Schema(
     _id: stringId,
     batchId: { ...stringId, unique: true, index: true },
     deliveryPartnerId: { type: String, required: true, index: true },
+    deliveryType: { type: String, enum: deliveryTypes, required: true, index: true },
+    deliveryRound: { type: String, required: true, index: true },
+    roundAt: { type: Date, required: true, index: true },
     shift: { type: String, enum: ["morning", "evening"], required: true, index: true },
     area: { type: String, required: true, default: "unassigned" },
     tasks: [{ type: String, required: true }],
-    status: { type: String, enum: ["active", "completed"], default: "active", index: true }
+    estimatedEarnings: { type: Number, default: 0 },
+    status: { type: String, enum: ["active", "completed", "cancelled"], default: "active", index: true }
   },
   baseOptions
 );
-deliveryBatchSchema.index({ deliveryPartnerId: 1, shift: 1, status: 1 });
+deliveryBatchSchema.index({ deliveryPartnerId: 1, deliveryType: 1, deliveryRound: 1, roundAt: 1, area: 1 }, { unique: true });
 
 const settingSchema = new Schema(
   {

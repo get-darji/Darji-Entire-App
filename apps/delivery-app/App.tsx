@@ -102,6 +102,11 @@ type DeliveryRequest = {
   deadlineAt?: string;
   deliveredAt?: string;
   createdAt?: string;
+  batchId?: string;
+  deliveryType?: "PICKUP" | "DROP";
+  deliveryRound?: string;
+  roundAt?: string;
+  assignedArea?: string;
 };
 
 type DeliveryTaskPayload = Omit<DeliveryRequest, "tailoringRequestId" | "leg" | "status"> & {
@@ -135,6 +140,8 @@ type DeliveryProfile = {
   verificationRejectionReason?: string;
   verification?: Record<string, unknown>;
   verificationDraft?: Record<string, unknown>;
+  deliveryType?: "PICKUP" | "DROP";
+  assignedArea?: string;
 };
 
 type MeResponse = {
@@ -1171,27 +1178,32 @@ function DocumentBox({ label, media, onGallery, onCamera, loading = false }: { l
 }
 
 function HomeScreen({
-  activeOrder,
-  pendingCount,
+  activeBatch,
   completedJobs,
   todayEarnings,
   totalEarnings,
   rating,
   online,
   onToggleOnline,
-  onOpenOrder,
-  onShowLatestRequest
+  onOpenBatch
 }: {
-  activeOrder?: DeliveryRequest;
-  pendingCount: number;
+  activeBatch?: {
+    batchId: string;
+    deliveryRound: string;
+    roundAt: string;
+    deliveryType: string;
+    area: string;
+    estimatedEarnings: number;
+    status: string;
+    requests: DeliveryRequest[];
+  };
   completedJobs: number;
   todayEarnings: number;
   totalEarnings: number;
   rating: string;
   online: boolean;
   onToggleOnline: (value: boolean) => void;
-  onOpenOrder: () => void;
-  onShowLatestRequest: () => void;
+  onOpenBatch: (batchId: string) => void;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
@@ -1202,14 +1214,14 @@ function HomeScreen({
             <Text style={[styles.onlineText, online && styles.greenText]}>{online ? "Online" : "Offline"}</Text>
           </View>
         }
-        subtitle="Nearest jobs appear as popups when you are online"
+        subtitle="Automatic batch routes assigned to your operational area"
         title="Delivery Hub"
       />
       <View style={styles.heroCard}>
         <View style={styles.flexOne}>
           <Text style={styles.heroLabel}>LIVE ROUTING</Text>
-          <Text style={styles.heroTitle}>{pendingCount} open requests</Text>
-          <Text style={styles.heroCopy}>Accept a job to start the 12 hour delivery deadline.</Text>
+          <Text style={styles.heroTitle}>{activeBatch ? "Batch route active" : "Waiting for batch"}</Text>
+          <Text style={styles.heroCopy}>Batches are assigned automatically based on scheduling rounds.</Text>
         </View>
         <View style={styles.heroIcon}>
           <Ionicons name="navigate-outline" size={32} color="#111111" />
@@ -1223,28 +1235,27 @@ function HomeScreen({
         <Stat label="Rating" value={rating} tone="blue" />
         <Stat label="Wallet" value={`Rs ${totalEarnings.toFixed(0)}`} />
       </View>
-      {activeOrder ? (
+      {activeBatch ? (
         <Card>
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
               <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.cardTitle}>{requestTitle(activeOrder)}</Text>
-              <Text style={styles.cardMeta}>{shortId(activeOrder.id)} - deadline {deadlineLabel(activeOrder.deadlineAt)}</Text>
+              <Text style={styles.cardTitle}>BATCH-{activeBatch.batchId.slice(0, 8).toUpperCase()}</Text>
+              <Text style={styles.cardMeta}>{activeBatch.requests.length} Orders • {activeBatch.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round"}</Text>
             </View>
-            <StatusPill status={activeOrder.status} />
+            <StatusPill status="ACCEPTED" />
           </View>
           <View style={styles.cardDivider} />
-          <StatusRow label="Pickup" value={activeOrder.pickupAddress} />
-          <StatusRow label="Drop" value={activeOrder.dropAddress} />
-          <PrimaryButton icon="navigate-outline" label="Open active job" onPress={onOpenOrder} />
+          <StatusRow label="Logistics Type" value={activeBatch.deliveryType} />
+          <StatusRow label="Operational Area" value={activeBatch.area} />
+          <PrimaryButton icon="navigate-outline" label="Open active batch" onPress={() => onOpenBatch(activeBatch.batchId)} />
         </Card>
       ) : (
         <Card>
-          <Text style={styles.cardTitle}>No active delivery</Text>
-          <Text style={styles.helperText}>Stay online to receive nearby customer-to-tailor or tailor-to-customer jobs from the backend dispatch queue.</Text>
-          <PrimaryButton disabled={!pendingCount} icon="flash-outline" label="Open latest request" onPress={onShowLatestRequest} variant="secondary" />
+          <Text style={styles.cardTitle}>No active batch</Text>
+          <Text style={styles.helperText}>Any rounds assigned to you will automatically appear here as active batches for your area.</Text>
         </Card>
       )}
       <Card>
@@ -1325,49 +1336,154 @@ function OrderRequestModal({
   );
 }
 
-function OrdersScreen({ requests, onOpenOrder }: { requests: DeliveryRequest[]; onOpenOrder: (request: DeliveryRequest) => void }) {
-  const [queue, setQueue] = useState<"new" | "pickup" | "drop" | "history" | "cancelled">("new");
-  const visibleRequests = requests.filter((request) => {
-    if (queue === "new") return request.taskStatus === "pending";
-    if (queue === "pickup") return request.taskStatus === "accepted";
-    if (queue === "drop") return request.taskStatus === "picked_up";
-    if (queue === "history") return request.taskStatus === "delivered";
-    return request.taskStatus === "cancelled";
+function BatchDetailsView({
+  batch,
+  onBack,
+  onOpenOrder
+}: {
+  batch: {
+    batchId: string;
+    deliveryRound: string;
+    roundAt: string;
+    deliveryType: string;
+    area: string;
+    estimatedEarnings: number;
+    status: string;
+    requests: DeliveryRequest[];
+  };
+  onBack: () => void;
+  onOpenOrder: (order: DeliveryRequest) => void;
+}) {
+  const roundLabel = batch.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round";
+  const dateStr = new Date(batch.roundAt).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short"
   });
+
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent}>
+      <View style={styles.header}>
+        <Pressable style={styles.roundIcon} onPress={onBack}>
+          <Ionicons name="arrow-back" size={24} color={BRAND_DEEP} />
+        </Pressable>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>Batch Route</Text>
+          <Text style={styles.headerSubtitle}>{roundLabel} • {dateStr}</Text>
+        </View>
+      </View>
+
+      <View style={styles.heroCard}>
+        <View style={styles.flexOne}>
+          <Text style={styles.heroLabel}>BATCH ID: {batch.batchId.slice(0, 8).toUpperCase()}</Text>
+          <Text style={styles.heroTitle}>{batch.requests.length} Orders</Text>
+          <Text style={styles.heroCopy}>Route in {batch.area} ({batch.deliveryType === "PICKUP" ? "Pickup round" : "Drop round"})</Text>
+        </View>
+        <View style={styles.heroIcon}>
+          <Ionicons name="map-outline" size={32} color="#111111" />
+        </View>
+      </View>
+
+      <View style={styles.statsRow}>
+        <Stat label="Estimated Earnings" value={`Rs ${batch.estimatedEarnings.toFixed(0)}`} tone="green" />
+        <Stat label="Type" value={batch.deliveryType} tone="blue" />
+      </View>
+
+      <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Stops on Route</Text>
+      {batch.requests.map((request, index) => (
+        <Pressable key={request.id} style={styles.orderCard} onPress={() => onOpenOrder(request)}>
+          <View style={styles.cardTopRow}>
+            <View style={styles.roundIcon}>
+              <Text style={styles.stopNumber}>{index + 1}</Text>
+            </View>
+            <View style={styles.cardMain}>
+              <Text style={styles.prominentOrderId}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
+              <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
+              <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
+            </View>
+            <StatusPill status={request.status} />
+          </View>
+          <View style={styles.cardDivider} />
+          <Text style={styles.cardCopy} numberOfLines={2}>
+            {batch.deliveryType === "PICKUP" 
+              ? `Pickup: ${request.pickupAddress}` 
+              : `Delivery: ${request.dropAddress}`}
+          </Text>
+          <View style={styles.rowBetween}>
+            <Text style={styles.priceText}>Rs {requestEarning(request)}</Text>
+            <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
+          </View>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+function OrdersScreen({
+  batches,
+  onOpenBatch,
+  deliveryType
+}: {
+  batches: Array<{
+    batchId: string;
+    deliveryRound: string;
+    roundAt: string;
+    deliveryType: string;
+    area: string;
+    estimatedEarnings: number;
+    status: string;
+    requests: DeliveryRequest[];
+  }>;
+  onOpenBatch: (batchId: string) => void;
+  deliveryType?: string;
+}) {
+  const [queue, setQueue] = useState<"active" | "history" | "cancelled">("active");
+
+  const visibleBatches = useMemo(() => {
+    return batches.filter((b) => {
+      if (queue === "active") return b.status === "active";
+      if (queue === "history") return b.status === "completed";
+      return b.status === "cancelled";
+    });
+  }, [batches, queue]);
+
   return (
     <FlatList
       contentContainerStyle={styles.pageContent}
-      data={visibleRequests}
-      keyExtractor={(item) => item.id}
+      data={visibleBatches}
+      keyExtractor={(item) => item.batchId}
       ListHeaderComponent={<>
-        <Header subtitle="Batch pickup and delivery workflow" title="Delivery Queues" />
+        <Header subtitle={`${deliveryType || "PICKUP"} batch pickup and delivery workflow`} title="Delivery Batches" />
         <View style={styles.segmentRow}>
-          {(["new", "pickup", "drop", "history", "cancelled"] as const).map((item) => (
+          {(["active", "history", "cancelled"] as const).map((item) => (
             <Pressable key={item} style={[styles.segment, queue === item && styles.segmentActive, item === "cancelled" && queue === item && styles.cancelledSegmentActive]} onPress={() => setQueue(item)}>
-              <Text style={[styles.segmentText, queue === item && styles.segmentTextActive, item === "cancelled" && queue === item && styles.cancelledSegmentText]}>{item === "new" ? "New Requests" : item === "pickup" ? "Pickup Queue" : item === "drop" ? "Drop Queue" : item === "history" ? "History" : "Cancelled"}</Text>
+              <Text style={[styles.segmentText, queue === item && styles.segmentTextActive, item === "cancelled" && queue === item && styles.cancelledSegmentText]}>
+                {item === "active" ? "Active Batches" : item === "history" ? "History" : "Cancelled"}
+              </Text>
             </Pressable>
           ))}
         </View>
       </>}
-      ListEmptyComponent={<EmptyState title={`No ${queue} tasks`} copy="Tasks move between queues automatically as handoffs are completed." />}
+      ListEmptyComponent={<EmptyState title={`No ${queue} batches`} copy="Batches are automatically assigned to your area during scheduling rounds." />}
       renderItem={({ item }) => (
-        <Pressable style={styles.orderCard} onPress={() => onOpenOrder(item)}>
+        <Pressable style={styles.orderCard} onPress={() => onOpenBatch(item.batchId)}>
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
-              <Ionicons name={item.leg === "CUSTOMER_TO_TAILOR" ? "person-outline" : "storefront-outline"} size={22} color={BRAND_ORANGE} />
+              <Ionicons name={item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.prominentOrderId}>REQ-{item.orderId.slice(0, 8).toUpperCase()}</Text>
-              <Text style={styles.cardTitle}>{requestTitle(item)}</Text>
-              <Text style={styles.cardMeta}>{shortId(item.orderId)} - {item.shift} shift - {item.clothType ?? "Clothes"}</Text>
+              <Text style={styles.prominentOrderId}>BATCH-{item.batchId.slice(0, 8).toUpperCase()}</Text>
+              <Text style={styles.cardTitle}>{item.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round"}</Text>
+              <Text style={styles.cardMeta}>{item.requests.length} Orders • Area: {item.area}</Text>
             </View>
-            <StatusPill status={item.status} />
+            <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : "CANCELLED"} />
           </View>
           <View style={styles.cardDivider} />
-          <Text style={styles.cardCopy} numberOfLines={2}>{item.pickupAddress} to {item.dropAddress}</Text>
+          <Text style={styles.cardCopy} numberOfLines={2}>
+            Route contains {item.requests.length} stop{item.requests.length !== 1 ? "s" : ""}.
+          </Text>
           <View style={styles.rowBetween}>
-            <Text style={styles.priceText}>Rs {requestEarning(item)}</Text>
-            <Text style={[styles.paymentPill, paymentTone(item)]}>{paymentLabel(item)}</Text>
+            <Text style={styles.priceText}>Rs {item.estimatedEarnings.toFixed(0)}</Text>
+            <Text style={styles.paymentPill}>Earnings</Text>
           </View>
         </Pressable>
       )}
@@ -1824,6 +1940,7 @@ function MainApp({
   const [tabStack, setTabStack] = useState<Tab[]>([]);
   const [online, setOnline] = useState(Boolean(me?.deliveryProfile?.isAvailable ?? false));
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
+  const [activeBatchId, setActiveBatchId] = useState<string | undefined>();
   const [requestVisible, setRequestVisible] = useState(false);
   const [popupRequest, setPopupRequest] = useState<DeliveryRequest>();
   const [activeOrder, setActiveOrder] = useState<DeliveryRequest | undefined>();
@@ -1836,18 +1953,58 @@ function MainApp({
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const presentedRequestIdsRef = useRef<Set<string>>(new Set());
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
-  const openRequests = useMemo(() => requests.filter((request) => request.taskStatus === "pending"), [requests]);
-  const acceptedRequests = useMemo(() => requests.filter((request) => request.taskStatus === "accepted" || request.taskStatus === "picked_up"), [requests]);
+
+  const filteredRequests = useMemo(() => {
+    if (!me?.deliveryProfile) return requests;
+    const dt = me.deliveryProfile.deliveryType;
+    if (dt === "PICKUP") {
+      return requests.filter((r) => r.type === "customer_to_tailor");
+    } else if (dt === "DROP") {
+      return requests.filter((r) => r.type === "tailor_to_customer");
+    }
+    return requests;
+  }, [requests, me?.deliveryProfile]);
+
+  const batches = useMemo(() => {
+    const groups: Record<string, DeliveryRequest[]> = {};
+    for (const req of filteredRequests) {
+      const bid = req.batchId || "unbatched";
+      if (!groups[bid]) groups[bid] = [];
+      groups[bid].push(req);
+    }
+    return Object.entries(groups).map(([batchId, list]) => {
+      const first = list[0];
+      const estimatedEarnings = list.reduce((sum, r) => sum + (r.estimatedEarnings ?? 0), 0);
+      const isCompleted = list.every((r) => r.taskStatus === "delivered");
+      const isCancelled = list.every((r) => r.taskStatus === "cancelled");
+      const status = isCompleted ? "completed" : isCancelled ? "cancelled" : "active";
+      return {
+        batchId,
+        deliveryRound: first.deliveryRound || "ONE_PM",
+        roundAt: first.roundAt || first.createdAt || new Date().toISOString(),
+        deliveryType: first.type === "customer_to_tailor" ? "PICKUP" : "DROP",
+        area: first.assignedArea || "unassigned",
+        estimatedEarnings,
+        status,
+        requests: list
+      };
+    });
+  }, [filteredRequests]);
+
+  const activeBatch = useMemo(() => batches.find((b) => b.status === "active"), [batches]);
+
+  const openRequests = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "pending"), [filteredRequests]);
+  const acceptedRequests = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "accepted" || request.taskStatus === "picked_up"), [filteredRequests]);
   const currentActiveOrder = activeOrder ?? acceptedRequests[0];
-  const completedJobs = useMemo(() => requests.filter((request) => request.taskStatus === "delivered").length, [requests]);
-  const totalEarnings = useMemo(() => requests.filter((request) => request.taskStatus === "delivered").reduce((sum, request) => sum + requestEarning(request), 0), [requests]);
+  const completedJobs = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "delivered").length, [filteredRequests]);
+  const totalEarnings = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "delivered").reduce((sum, request) => sum + requestEarning(request), 0), [filteredRequests]);
   const todayEarnings = useMemo(() => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    return requests
+    return filteredRequests
       .filter((request) => request.taskStatus === "delivered")
       .reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), start) ? requestEarning(request) : 0), 0);
-  }, [requests]);
+  }, [filteredRequests]);
   const deliveryRating = useMemo(() => {
     const rating = Number(me?.deliveryProfile?.rating ?? 0);
     return rating > 0 ? rating.toFixed(1) : "0.0";
@@ -1877,6 +2034,10 @@ function MainApp({
       setActiveOrderScreen("summary");
       return true;
     }
+    if (activeBatchId) {
+      setActiveBatchId(undefined);
+      return true;
+    }
     if (tabStack.length > 0) {
       setTabState(tabStack[tabStack.length - 1]);
       setTabStack((currentStack) => currentStack.slice(0, -1));
@@ -1888,7 +2049,7 @@ function MainApp({
       return true;
     }
     return false;
-  }, [activeOrder, activeOrderScreen, requestVisible, tab, tabStack]);
+  }, [activeOrder, activeOrderScreen, activeBatchId, requestVisible, tab, tabStack]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", goBack);
@@ -2196,7 +2357,9 @@ function MainApp({
     }
   }, [requests, token]);
 
-  if (currentActiveOrder && activeOrder) {
+  const selectedBatch = useMemo(() => batches.find((b) => b.batchId === activeBatchId), [batches, activeBatchId]);
+
+  if (activeOrder) {
     return (
       <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
         <>
@@ -2215,14 +2378,13 @@ function MainApp({
               setActiveOrder(undefined);
               setActiveOrderScreen("summary");
             }}
-            order={currentActiveOrder}
+            order={activeOrder}
             screen={activeOrderScreen}
             setScreen={setActiveOrderScreen}
             currentLocation={currentLocation}
             token={token!}
-            showDialog={showDialog}
             onTaskUpdated={(updated) => {
-              setRequests((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+              setRequests((current) => current.map((item) => item.id === updated.id ? updated : item));
               if (updated.taskStatus === "delivered") {
                 setActiveOrder(undefined);
                 setActiveOrderScreen("summary");
@@ -2230,8 +2392,24 @@ function MainApp({
                 setActiveOrder(updated);
               }
             }}
+            showDialog={showDialog}
           />
         </>
+      </NotificationProvider>
+    );
+  }
+
+  if (selectedBatch) {
+    return (
+      <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
+        <BatchDetailsView
+          batch={selectedBatch}
+          onBack={() => setActiveBatchId(undefined)}
+          onOpenOrder={(order) => {
+            setActiveOrder(order);
+            setActiveOrderScreen("summary");
+          }}
+        />
       </NotificationProvider>
     );
   }
@@ -2252,38 +2430,21 @@ function MainApp({
         <View style={styles.mainArea}>
         {tab === "home" ? (
           <HomeScreen
-            activeOrder={currentActiveOrder}
+            activeBatch={activeBatch}
             completedJobs={completedJobs}
-            onOpenOrder={() => {
-              if (currentActiveOrder) {
-                setActiveOrder(currentActiveOrder);
-                setActiveOrderScreen("summary");
-              }
-            }}
-            onShowLatestRequest={() => {
-              const latest = openRequests[0];
-              if (latest) {
-                setPopupRequest(latest);
-                setRequestVisible(true);
-              }
-            }}
+            onOpenBatch={(batchId) => setActiveBatchId(batchId)}
             onToggleOnline={toggleOnline}
             online={online}
-            pendingCount={openRequests.length}
             rating={deliveryRating}
             todayEarnings={todayEarnings}
             totalEarnings={Number(me?.deliveryProfile?.totalEarnings ?? totalEarnings)}
           />
         ) : null}
-        {tab === "orders" ? <OrdersScreen onOpenOrder={(request) => {
-          if (request.taskStatus === "pending") {
-            setPopupRequest(request);
-            setRequestVisible(true);
-          } else {
-            setActiveOrder(request);
-            setActiveOrderScreen("summary");
-          }
-        }} requests={requests} /> : null}
+        {tab === "orders" ? <OrdersScreen
+          batches={batches}
+          onOpenBatch={(batchId) => setActiveBatchId(batchId)}
+          deliveryType={me?.deliveryProfile?.deliveryType}
+        /> : null}
         {tab === "earnings" ? <EarningsScreen me={me} requests={requests} /> : null}
         {tab === "transactions" ? <TransactionHistoryScreen requests={requests} /> : null}
         {tab === "notifications" ? <NotificationsScreen notifications={notificationCenterItems} onOpen={openNotification} /> : null}
@@ -2642,5 +2803,6 @@ const styles = StyleSheet.create({
   tabs: { height: 74, borderTopWidth: 1, borderTopColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 6 },
   tabItem: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabText: { color: "#111827", fontSize: 10, fontWeight: "800", marginTop: 4 },
-  activeTabText: { color: BRAND_ORANGE }
+  activeTabText: { color: BRAND_ORANGE },
+  stopNumber: { fontSize: 14, fontWeight: "900", color: BRAND_DEEP }
 });

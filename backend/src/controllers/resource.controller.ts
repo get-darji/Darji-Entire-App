@@ -16,7 +16,8 @@ import {
   TailorModel,
   TransactionModel,
   UserModel,
-  WalletModel
+  WalletModel,
+  deliveryTypes
 } from "../models.js";
 import multer from "multer";
 import { z } from "zod";
@@ -25,6 +26,7 @@ import { AppError } from "../middleware/error.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
 import { saveFcmToken } from "../services/push.service.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
+import { assignPendingTasksToPartner } from "./request.controller.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -120,6 +122,8 @@ const deliveryProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   email: z.string().trim().email().optional().or(z.literal("")),
   workingHours: z.string().trim().max(80).optional(),
+  deliveryType: z.enum(deliveryTypes).optional(),
+  assignedArea: z.string().trim().min(1).max(100).optional(),
   settings: z
     .object({
       notifications: z.boolean().optional(),
@@ -189,7 +193,9 @@ const deliveryVerificationDraftSchema = z.object({
 
 const verificationReviewSchema = z.object({
   status: z.enum(["VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"]),
-  reason: z.string().trim().max(500).optional().or(z.literal(""))
+  reason: z.string().trim().max(500).optional().or(z.literal("")),
+  deliveryType: z.enum(deliveryTypes).optional(),
+  assignedArea: z.string().trim().min(1).max(100).optional()
 });
 
 const userModerationSchema = z
@@ -499,12 +505,17 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
     {
       verificationStatus: input.status,
       verificationReviewedAt: new Date(),
-      verificationRejectionReason: input.reason || undefined
+      verificationRejectionReason: input.reason || undefined,
+      ...(input.deliveryType ? { deliveryType: input.deliveryType } : {}),
+      ...(input.assignedArea ? { assignedArea: input.assignedArea } : {})
     },
     { returnDocument: "after" }
   );
 
   if (!partner) throw new AppError(404, "Delivery partner profile not found");
+  if (partner.isAvailable && partner.verificationStatus === "VERIFIED") {
+    await assignPendingTasksToPartner(partner);
+  }
   res.json({ data: await withUser(partner) });
 }
 
@@ -552,6 +563,9 @@ export async function updateDeliveryAvailabilityController(req: Request, res: Re
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery profile not found");
   const updated = await DeliveryPartnerModel.findByIdAndUpdate(partner.id, { isAvailable: Boolean(req.body.isAvailable) }, { returnDocument: "after" });
+  if (updated && updated.isAvailable && updated.verificationStatus === "VERIFIED") {
+    await assignPendingTasksToPartner(updated);
+  }
   res.json({ data: updated });
 }
 
@@ -572,11 +586,17 @@ export async function updateDeliveryProfileController(req: Request, res: Respons
       { userId: req.user!.id },
       {
         ...(input.workingHours ? { workingHours: input.workingHours } : {}),
+        ...(input.deliveryType ? { deliveryType: input.deliveryType } : {}),
+        ...(input.assignedArea ? { assignedArea: input.assignedArea } : {}),
         ...(input.settings ? { settings: input.settings } : {})
       },
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     )
   ]);
+
+  if (partner && partner.isAvailable && partner.verificationStatus === "VERIFIED") {
+    await assignPendingTasksToPartner(partner);
+  }
 
   res.json({ data: { ...user?.toJSON(), deliveryProfile: partner } });
 }

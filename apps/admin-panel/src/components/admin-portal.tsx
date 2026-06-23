@@ -1275,7 +1275,7 @@ export function AdminPortal() {
         open={Boolean(partnerDetail)}
         profile={partnerDetail}
         pending={partnerReviewMutation.isPending}
-        onReview={(status) => partnerDetail && partnerReviewMutation.mutate({ partnerId: partnerDetail.id, status })}
+        onReview={(status, deliveryType, assignedArea) => partnerDetail && partnerReviewMutation.mutate({ partnerId: partnerDetail.id, status, deliveryType, assignedArea })}
         subtitle="Delivery partner profile"
         setOpen={(next) => {
           if (!next) setPartnerDetail(null);
@@ -3014,13 +3014,24 @@ function ProfileDialog({
   setOpen,
   subtitle
 }: {
-  onReview?: (status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED") => void;
+  onReview?: (status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED", deliveryType?: "PICKUP" | "DROP", assignedArea?: string) => void;
   open: boolean;
   pending?: boolean;
   profile: TailorProfile | DeliveryPartnerProfile | null;
   setOpen: (open: boolean) => void;
   subtitle: string;
 }) {
+  const [deliveryType, setDeliveryType] = useState<"PICKUP" | "DROP">("PICKUP");
+  const [assignedArea, setAssignedArea] = useState<string>("unassigned");
+
+  useEffect(() => {
+    if (profile && !("specialization" in profile)) {
+      setDeliveryType((profile as DeliveryPartnerProfile).deliveryType ?? "PICKUP");
+      setAssignedArea((profile as DeliveryPartnerProfile).assignedArea ?? "unassigned");
+    }
+  }, [profile]);
+
+  const isDelivery = profile ? !isTailorProfile(profile) : false;
   const submittedMedia = collectVerificationMedia(profile?.verification);
   const draftMedia = collectVerificationMedia(profile?.verificationDraft);
 
@@ -3038,7 +3049,7 @@ function ProfileDialog({
               <div className="mt-6 space-y-5">
                 {onReview ? (
                   <div className="flex flex-wrap gap-3">
-                    <ActionButton disabled={pending} onClick={() => onReview("VERIFIED")}>
+                    <ActionButton disabled={pending} onClick={() => onReview("VERIFIED", deliveryType, assignedArea)}>
                       {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                       Approve
                     </ActionButton>
@@ -3050,12 +3061,44 @@ function ProfileDialog({
                     </ActionButton>
                   </div>
                 ) : null}
+                {isDelivery ? (
+                  <Panel>
+                    <h4 className="text-lg font-semibold text-[var(--foreground)]">Delivery Boy Role Assignment</h4>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 dark:bg-white/5">
+                        <label className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Delivery Type</label>
+                        <select
+                          className="mt-2 block w-full rounded-lg border border-[var(--panel-border)] bg-transparent py-1 text-sm outline-none text-[var(--foreground)] dark:bg-[var(--panel-strong)]"
+                          value={deliveryType}
+                          onChange={(e) => setDeliveryType(e.target.value as "PICKUP" | "DROP")}
+                        >
+                          <option value="PICKUP" className="bg-[var(--panel-strong)] text-[var(--foreground)]">PICKUP</option>
+                          <option value="DROP" className="bg-[var(--panel-strong)] text-[var(--foreground)]">DROP</option>
+                        </select>
+                      </div>
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 dark:bg-white/5">
+                        <label className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Assigned Area</label>
+                        <input
+                          type="text"
+                          className="mt-2 block w-full rounded-lg border border-[var(--panel-border)] bg-transparent py-1 text-sm outline-none px-2 text-[var(--foreground)]"
+                          value={assignedArea}
+                          onChange={(e) => setAssignedArea(e.target.value)}
+                          placeholder="e.g. Laxmi Nagar"
+                        />
+                      </div>
+                    </div>
+                  </Panel>
+                ) : null}
                 <InspectGrid
                   items={[
                     { label: "Phone", value: profile.user?.phone ?? "—" },
                     { label: "Availability", value: profile.isAvailable ? "Available" : "Offline" },
                     { label: "Verification", value: <StatusBadge value={profile.verificationStatus} /> },
                     { label: "Rating", value: typeof profile.rating === "number" ? profile.rating.toFixed(1) : "—" },
+                    ...(isDelivery ? [
+                      { label: "Delivery Type", value: (profile as DeliveryPartnerProfile).deliveryType || "PICKUP" },
+                      { label: "Assigned Area", value: (profile as DeliveryPartnerProfile).assignedArea || "unassigned" }
+                    ] : []),
                     { label: "Working hours", value: stringifyUnknown(profile.workingHours) },
                     { label: "Settings", value: stringifyUnknown(profile.settings) },
                     { label: "Verification reviewed", value: formatDate(profile.verificationReviewedAt, true) },

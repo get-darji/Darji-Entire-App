@@ -1,11 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import type { Request, Response } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel } from "../models.js";
+import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, DeliveryType, DeliveryRound } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -28,6 +28,137 @@ cloudinary.config({
   api_key: env.CLOUDINARY_API_KEY,
   api_secret: env.CLOUDINARY_API_SECRET
 });
+
+export function getDeliveryRoundForTime(date: Date, rounds: Array<{ name: string; time: string }>) {
+  const sortedRounds = [...rounds].sort((a, b) => {
+    const [aH, aM] = a.time.split(":").map(Number);
+    const [bH, bM] = b.time.split(":").map(Number);
+    return aH * 60 + aM - (bH * 60 + bM);
+  });
+
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const minutesOfDay = hours * 60 + minutes;
+
+  for (const round of sortedRounds) {
+    const [rH, rM] = round.time.split(":").map(Number);
+    const roundMinutes = rH * 60 + rM;
+    if (minutesOfDay < roundMinutes) {
+      const roundAt = new Date(date);
+      roundAt.setHours(rH, rM, 0, 0);
+      return { deliveryRound: round.name, roundAt };
+    }
+  }
+
+  const firstRound = sortedRounds[0];
+  const [rH, rM] = firstRound.time.split(":").map(Number);
+  const roundAt = new Date(date);
+  roundAt.setDate(roundAt.getDate() + 1);
+  roundAt.setHours(rH, rM, 0, 0);
+  return { deliveryRound: firstRound.name, roundAt };
+}
+
+export function matchAddressToArea(address: string, areas: string[]): string {
+  const normalizedAddress = address.toLowerCase();
+  for (const area of areas) {
+    if (normalizedAddress.includes(area.toLowerCase())) {
+      return area;
+    }
+  }
+  return "unassigned";
+}
+
+export async function assignPendingTasksToPartner(partner: any) {
+  if (!partner.isAvailable || partner.verificationStatus !== "VERIFIED" || partner.assignedArea === "unassigned") {
+    return;
+  }
+
+  const pendingTasks = await DeliveryRequestModel.find({
+    deliveryType: partner.deliveryType,
+    assignedArea: partner.assignedArea,
+    taskStatus: "pending"
+  });
+
+  if (!pendingTasks.length) return;
+
+  for (const task of pendingTasks) {
+    let batchId: string = randomUUID();
+    let batch = await DeliveryBatchModel.findOne({
+      deliveryPartnerId: partner._id,
+      deliveryType: partner.deliveryType,
+      deliveryRound: task.deliveryRound,
+      roundAt: task.roundAt,
+      area: partner.assignedArea,
+      status: "active"
+    });
+
+    if (batch) {
+      batchId = batch.batchId;
+      await DeliveryBatchModel.findByIdAndUpdate(batch._id, {
+        $addToSet: { tasks: task._id },
+        $inc: { estimatedEarnings: task.estimatedEarnings || 0 }
+      });
+    } else {
+      await DeliveryBatchModel.create({
+        batchId,
+        deliveryPartnerId: partner._id,
+        deliveryType: partner.deliveryType,
+        deliveryRound: task.deliveryRound,
+        roundAt: task.roundAt,
+        shift: task.deliveryRound === "ONE_PM" ? "morning" : "evening",
+        area: partner.assignedArea,
+        tasks: [task._id],
+        estimatedEarnings: task.estimatedEarnings || 0,
+        status: "active"
+      });
+    }
+
+    const updatedTask = await DeliveryRequestModel.findByIdAndUpdate(
+      task._id,
+      {
+        assignedDeliveryPartnerId: partner._id,
+        assignedDeliveryBoyId: partner._id,
+        batchId,
+        taskStatus: "accepted",
+        acceptedAt: new Date(),
+        deadlineAt: new Date(Date.now() + 12 * 60 * 60 * 1000)
+      },
+      { returnDocument: "after" }
+    );
+
+    if (updatedTask) {
+      await TailoringRequestModel.findByIdAndUpdate(task.orderId, {
+        orderStatus: task.type === "customer_to_tailor" ? "pickup_started" : "out_for_delivery",
+        deliveryType: partner.deliveryType,
+        deliveryRound: task.deliveryRound,
+        batchId,
+        assignedDeliveryBoyId: partner._id
+      });
+
+      emitToDeliveryPartner(partner._id, "delivery:task_assigned", updatedTask.toJSON());
+      emitToCustomer(updatedTask.customerId, "customer:delivery_status_updated", {
+        requestId: updatedTask.id,
+        tailoringRequestId: updatedTask.orderId,
+        status: updatedTask.type === "customer_to_tailor" ? "PICKUP_STARTED" : "OUT_FOR_DELIVERY",
+        deliveryRequest: updatedTask.toJSON()
+      });
+      await sendPushToUsers([updatedTask.customerId], {
+        title: updatedTask.type === "customer_to_tailor" ? "Pickup started" : "Out for delivery",
+        body: updatedTask.type === "customer_to_tailor" ? "A delivery partner is heading to pick up your clothes." : "Your stitched clothes are on the way.",
+        data: {
+          type: "DELIVERY_REQUEST_ACCEPTED",
+          requestId: updatedTask.id,
+          tailoringRequestId: updatedTask.orderId,
+          screen: "trackOrder"
+        },
+        channelId: "customer-orders-v2",
+        categoryId: "DARJI_ORDER",
+        sound: "ding.mp3",
+        actions: ["View Order"]
+      });
+    }
+  }
+}
 
 export const uploadTailoringMedia = multer({
   storage: multer.memoryStorage(),
@@ -292,16 +423,60 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const estimatedEarnings = deliveryTaskEstimatedEarnings(request, type);
   const cashCollectionRequired = type === "tailor_to_customer" && request.paymentMethod === "COD";
 
-  let deliveryRequest = await DeliveryRequestModel.findOne({ orderId: request.id, type });
+  const roundsSetting = await SettingModel.findOne({ key: "delivery_rounds" });
+  const rounds = roundsSetting?.value || [
+    { name: "ONE_PM", time: "13:00" },
+    { name: "SIX_PM", time: "18:00" }
+  ];
+  const { deliveryRound, roundAt } = getDeliveryRoundForTime(new Date(), rounds);
+
+  const activePartners = await DeliveryPartnerModel.find({ assignedArea: { $ne: "unassigned" } }).select("assignedArea");
+  const areas = activePartners.map((p) => p.assignedArea).filter((a): a is string => typeof a === "string");
+  const assignedArea = matchAddressToArea(customerAddress, areas);
+
+  const deliveryType: DeliveryType = type === "customer_to_tailor" ? DeliveryType.PICKUP : DeliveryType.DROP;
+
+  const assignedBoy = await DeliveryPartnerModel.findOne({
+    deliveryType,
+    assignedArea,
+    isAvailable: true,
+    verificationStatus: "VERIFIED"
+  });
+
+  const taskStatus = assignedBoy ? "accepted" : "pending";
+  let batchId: string = randomUUID();
+
+  if (assignedBoy) {
+    const batch = await DeliveryBatchModel.findOne({
+      deliveryPartnerId: assignedBoy._id,
+      deliveryType,
+      deliveryRound,
+      roundAt,
+      area: assignedArea,
+      status: "active"
+    });
+    if (batch) {
+      batchId = batch.batchId;
+    }
+  }
+
+  let deliveryRequest = await DeliveryRequestModel.findOne({ orderId: request._id, type });
   try {
     if (!deliveryRequest) {
       deliveryRequest = await DeliveryRequestModel.create({
-        orderId: request.id,
-        tailorId: tailor.id,
+        orderId: request._id,
+        tailorId: tailor._id,
         customerId: request.customerId,
         type,
-        taskStatus: "pending",
-        shift: type === "customer_to_tailor" ? "morning" : "evening",
+        deliveryType,
+        deliveryRound,
+        roundAt,
+        assignedArea,
+        batchId,
+        assignedDeliveryPartnerId: assignedBoy?._id || undefined,
+        assignedDeliveryBoyId: assignedBoy?._id || undefined,
+        taskStatus,
+        shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
         estimatedEarnings,
         pickupAddress,
         dropAddress,
@@ -317,53 +492,152 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         cashCollectionRequired,
         cashCollected: false,
         sampleProvided: request.sampleProvided === true,
-        sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : []
+        sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : [],
+        acceptedAt: assignedBoy ? new Date() : undefined,
+        deadlineAt: assignedBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
       });
     } else {
       deliveryRequest = await DeliveryRequestModel.findByIdAndUpdate(
-        deliveryRequest.id,
+        deliveryRequest._id,
         {
+          deliveryType,
+          deliveryRound,
+          roundAt,
+          assignedArea,
+          batchId,
+          assignedDeliveryPartnerId: assignedBoy?._id || undefined,
+          assignedDeliveryBoyId: assignedBoy?._id || undefined,
+          taskStatus,
+          shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
           estimatedEarnings,
           paymentMethod: request.paymentMethod,
           paymentStatus: request.paymentStatus,
           totalAmount: request.totalAmount,
           cashCollectionRequired,
           sampleProvided: request.sampleProvided === true,
-          sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : []
+          sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : [],
+          acceptedAt: assignedBoy ? new Date() : undefined,
+          deadlineAt: assignedBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
         },
         { returnDocument: "after" }
       );
     }
   } catch (error) {
-    const raced = await DeliveryRequestModel.findOne({ orderId: request.id, type });
+    const raced = await DeliveryRequestModel.findOne({ orderId: request._id, type });
     if (raced) deliveryRequest = raced;
     else throw error;
   }
   if (!deliveryRequest) return null;
 
+  if (assignedBoy) {
+    const batch = await DeliveryBatchModel.findOne({
+      deliveryPartnerId: assignedBoy._id,
+      deliveryType,
+      deliveryRound,
+      roundAt,
+      area: assignedArea,
+      status: "active"
+    });
+    if (batch) {
+      await DeliveryBatchModel.findByIdAndUpdate(batch._id, {
+        $addToSet: { tasks: deliveryRequest._id },
+        $inc: { estimatedEarnings }
+      });
+    } else {
+      await DeliveryBatchModel.create({
+        batchId,
+        deliveryPartnerId: assignedBoy._id,
+        deliveryType,
+        deliveryRound,
+        roundAt,
+        shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
+        area: assignedArea,
+        tasks: [deliveryRequest._id],
+        estimatedEarnings,
+        status: "active"
+      });
+    }
+    await TailoringRequestModel.findByIdAndUpdate(request._id, {
+      orderStatus: type === "customer_to_tailor" ? "pickup_started" : "out_for_delivery",
+      deliveryType,
+      deliveryRound,
+      batchId,
+      assignedDeliveryBoyId: assignedBoy._id
+    });
+  } else {
+    await TailoringRequestModel.findByIdAndUpdate(request._id, {
+      deliveryType,
+      deliveryRound,
+      batchId
+    });
+  }
+
   const notificationClaim = await DeliveryRequestModel.findOneAndUpdate(
-    { _id: deliveryRequest.id, notificationSentAt: { $exists: false } },
+    { _id: deliveryRequest._id, notificationSentAt: { $exists: false } },
     { notificationSentAt: new Date() },
     { returnDocument: "after" }
   );
   if (notificationClaim) {
     const deliveryPayload = notificationClaim.toJSON();
-    emitDeliveryEvent({ type: "DELIVERY_REQUEST_CREATED", requestId: notificationClaim.id });
-    emitToDeliveryPartners("delivery:task_created", deliveryPayload);
-    const availablePartners = await DeliveryPartnerModel.find({ isAvailable: true, verificationStatus: "VERIFIED" }).select("userId");
-    await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
-      userId: partner.userId,
-      title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
-      body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
-      data: {
-        type: "PICKUP_ASSIGNED",
-        taskType: type,
-        taskId: notificationClaim.id,
-        pickupId: notificationClaim.id,
-        orderId: request.id,
-        screen: "pickupDetails"
+    emitDeliveryEvent({ type: "DELIVERY_REQUEST_CREATED", requestId: notificationClaim._id });
+
+    if (assignedBoy) {
+      emitToDeliveryPartner(assignedBoy._id, "delivery:task_assigned", deliveryPayload);
+      emitToCustomer(deliveryRequest.customerId, "customer:delivery_status_updated", {
+        requestId: deliveryRequest._id,
+        tailoringRequestId: deliveryRequest.orderId,
+        status: type === "customer_to_tailor" ? "PICKUP_STARTED" : "OUT_FOR_DELIVERY",
+        deliveryRequest: deliveryPayload
+      });
+      await sendPushToUsers([deliveryRequest.customerId], {
+        title: type === "customer_to_tailor" ? "Pickup started" : "Out for delivery",
+        body: type === "customer_to_tailor" ? "A delivery partner is heading to pick up your clothes." : "Your stitched clothes are on the way.",
+        data: {
+          type: "DELIVERY_REQUEST_ACCEPTED",
+          requestId: deliveryRequest._id,
+          tailoringRequestId: deliveryRequest.orderId,
+          screen: "trackOrder"
+        },
+        channelId: "customer-orders-v2",
+        categoryId: "DARJI_ORDER",
+        sound: "ding.mp3",
+        actions: ["View Order"]
+      });
+
+      const assignedTailor = await TailorModel.findById(deliveryRequest.tailorId).select("userId");
+      if (type === "customer_to_tailor" && assignedTailor?.userId) {
+        await sendPushToUsers([assignedTailor.userId], {
+          title: "Pickup partner assigned",
+          body: "A delivery partner has accepted the customer pickup task.",
+          data: { type: "PICKUP_PARTNER_ASSIGNED", taskId: deliveryRequest._id, orderId: deliveryRequest.orderId, screen: "orderDetails" },
+          channelId: "tailor-pickup-updates-v2",
+          categoryId: "DARJI_ORDER",
+          sound: "ding.mp3",
+          actions: ["View Order"]
+        });
       }
-    })));
+    } else {
+      emitToDeliveryPartners("delivery:task_created", deliveryPayload);
+      const availablePartners = await DeliveryPartnerModel.find({
+        isAvailable: true,
+        verificationStatus: "VERIFIED",
+        deliveryType,
+        assignedArea
+      }).select("userId");
+      await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
+        userId: partner.userId,
+        title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
+        body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
+        data: {
+          type: "PICKUP_ASSIGNED",
+          taskType: type,
+          taskId: notificationClaim._id,
+          pickupId: notificationClaim._id,
+          orderId: request._id,
+          screen: "pickupDetails"
+        }
+      })));
+    }
   }
 
   return deliveryRequest;
@@ -531,10 +805,15 @@ export async function listDeliveryRequestsController(req: Request, res: Response
   }
   const where: Record<string, unknown> = {};
 
-  if (status === "pending" || status === "OPEN") {
+  if (req.user!.role === "DELIVERY_PARTNER" && partner) {
+    where.deliveryType = partner.deliveryType;
+    where.assignedArea = partner.assignedArea;
+    where.$or = [
+      { taskStatus: "pending" },
+      { assignedDeliveryPartnerId: partner._id }
+    ];
+  } else if (status === "pending" || status === "OPEN") {
     where.taskStatus = "pending";
-  } else if (req.user!.role === "DELIVERY_PARTNER") {
-    where.$or = [{ taskStatus: "pending" }, { assignedDeliveryPartnerId: partner?.id ?? "__none__" }];
   } else if (status) {
     where.taskStatus = status.toLowerCase();
   }
