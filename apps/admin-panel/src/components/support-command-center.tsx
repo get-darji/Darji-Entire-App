@@ -569,6 +569,22 @@ export default function SupportCommandCenter({
       toast.error(`Failed to send message: ${err.message}`);
     }
   });
+ 
+  const initiateBugChat = async () => {
+    if (!activeId) return;
+    try {
+      await addBugReportMessage({
+        bugId: activeId,
+        text: "Thank you for submitting the bug. We want to talk if we can.",
+        type: "text",
+        isInternal: false
+      });
+      onRefresh();
+      toast.success("Bug report chat initiated!");
+    } catch (e: any) {
+      toast.error(`Failed to initiate chat: ${e.message || e}`);
+    }
+  };
 
   // Handle composer typing to broadcast typing event
   const handleComposerChange = (val: string) => {
@@ -1234,6 +1250,22 @@ export default function SupportCommandCenter({
                       />
                     </div>
                   )}
+                </div>
+              )}
+
+              {activeType === "bug" && activeBug && (!activeBug.messages || activeBug.messages.length === 0) && (
+                <div className="flex flex-col items-center justify-center p-8 bg-[#1c202a] border border-[#2d3440] rounded-[18px] text-center my-4">
+                  <AlertCircle className="w-12 h-12 text-[#f98a04] mb-3 opacity-80 animate-pulse" />
+                  <h4 className="font-bold text-white text-base mb-1">Start Chat on Bug Report</h4>
+                  <p className="text-xs text-[#7c8595] max-w-sm mb-4">
+                    Send an initial message to the customer to start investigating this bug report.
+                  </p>
+                  <button
+                    onClick={initiateBugChat}
+                    className="px-5 py-2.5 bg-[#f98a04] hover:bg-[#ffaa33] text-white rounded-[12px] text-xs font-bold transition shadow-md"
+                  >
+                    Initiate Chat with User
+                  </button>
                 </div>
               )}
 

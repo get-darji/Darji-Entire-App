@@ -635,6 +635,7 @@ function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: Excl
 function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
   const [view, setView] = useState<"center" | "chat" | "new_chat">("center");
   const [tickets, setTickets] = useState<any[]>([]);
+  const [bugReports, setBugReports] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -668,6 +669,18 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
     }
   }, [token]);
 
+  const loadBugReports = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await api<{ data?: any[] }>("/support/bug-reports", { method: "GET" }, token);
+      const list = Array.isArray(res) ? res : (res as any)?.data || [];
+      const sorted = [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      setBugReports(sorted);
+    } catch (e) {
+      console.log("Failed to load bug reports", e);
+    }
+  }, [token]);
+
   const loadOrders = useCallback(async () => {
     if (!token) return;
     try {
@@ -681,8 +694,9 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
 
   useEffect(() => {
     loadTickets();
+    loadBugReports();
     loadOrders();
-  }, [loadTickets, loadOrders]);
+  }, [loadTickets, loadBugReports, loadOrders]);
 
   useEffect(() => {
     if (view === "chat") {
@@ -770,8 +784,13 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
         const createdTicket = res.data || res;
         setActiveTicket(createdTicket);
       } else {
+        const isBug = !!activeTicket.deviceInfo;
+        const endpoint = isBug 
+          ? `/support/bug-reports/${activeTicket._id || activeTicket.id}/messages`
+          : `/support/${activeTicket._id || activeTicket.id}/messages`;
+
         // Append message to the current ticket
-        await api<any>(`/support/${activeTicket._id || activeTicket.id}/messages`, {
+        await api<any>(endpoint, {
           method: "POST",
           body: JSON.stringify({
             text: chatMessage.trim(),
@@ -781,14 +800,26 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
 
         setChatMessage("");
         setAttachments([]);
-        await loadTickets();
-        const ticketId = activeTicket._id || activeTicket.id;
-        // Fetch updated ticket to get latest messages array
-        const listRes = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
-        const list = Array.isArray(listRes) ? listRes : (listRes as any)?.data || [];
-        const updated = list.find((t: any) => (t._id || t.id) === ticketId);
-        if (updated) {
-          setActiveTicket(updated);
+        
+        if (isBug) {
+          await loadBugReports();
+          const bugId = activeTicket._id || activeTicket.id;
+          const listRes = await api<{ data?: any[] }>("/support/bug-reports", { method: "GET" }, token);
+          const list = Array.isArray(listRes) ? listRes : (listRes as any)?.data || [];
+          const updated = list.find((t: any) => (t._id || t.id) === bugId);
+          if (updated) {
+            setActiveTicket(updated);
+          }
+        } else {
+          await loadTickets();
+          const ticketId = activeTicket._id || activeTicket.id;
+          // Fetch updated ticket to get latest messages array
+          const listRes = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
+          const list = Array.isArray(listRes) ? listRes : (listRes as any)?.data || [];
+          const updated = list.find((t: any) => (t._id || t.id) === ticketId);
+          if (updated) {
+            setActiveTicket(updated);
+          }
         }
       }
     } catch (e) {
@@ -928,6 +959,44 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                   </View>
                 )}
               </View>
+
+              <View style={{ marginTop: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
+                  <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>Bug Reports</Text>
+                </View>
+
+                {bugReports.length === 0 ? (
+                  <View style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 24, alignItems: "center" }}>
+                    <Text style={{ color: palette.subtext, fontSize: 13, fontWeight: "600" }}>No bug reports found</Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {[...bugReports].reverse().map((b) => (
+                      <Pressable 
+                        key={b._id || b.id}
+                        style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                        onPress={() => {
+                          setActiveTicket(b);
+                          setView("chat");
+                        }}
+                      >
+                        <View style={{ flex: 1, marginRight: 12 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800" }}>Bug: {b.title}</Text>
+                            <View style={{ backgroundColor: b.status === "CLOSED" || b.status === "FIXED" ? "#e2e8f0" : "#fee2e2", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ color: b.status === "CLOSED" || b.status === "FIXED" ? "#64748b" : "#dc2626", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{b.status}</Text>
+                            </View>
+                          </View>
+                          <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Device: {b.deviceInfo}</Text>
+                          <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{b.messages && b.messages.length > 0 ? b.messages[b.messages.length - 1].text : b.description}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={palette.subtext} />
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
             </ScrollView>
           </View>
         )}
@@ -1031,12 +1100,14 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                 </Pressable>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: palette.text, fontSize: 15, fontWeight: "800" }}>
-                    {activeTicket.isDraft ? "Draft Conversation" : `#${(activeTicket._id || activeTicket.id || "").slice(-6).toUpperCase()}`}
+                    {activeTicket.isDraft ? "Draft Conversation" : (activeTicket.deviceInfo ? `Bug: ${activeTicket.title}` : `#${(activeTicket._id || activeTicket.id || "").slice(-6).toUpperCase()}`)}
                   </Text>
-                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700" }}>{activeTicket.subject}</Text>
+                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700" }}>
+                    {activeTicket.deviceInfo ? `Status: ${activeTicket.status}` : activeTicket.subject}
+                  </Text>
                 </View>
               </View>
-              {!activeTicket.isDraft && activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && (
+              {!activeTicket.isDraft && !activeTicket.deviceInfo && activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && (
                 <Pressable 
                   style={{ backgroundColor: "#fee2e2", borderColor: "#fecaca", paddingHorizontal: 12, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
                   onPress={() => handleCloseChat(activeTicket._id || activeTicket.id)}
@@ -1127,7 +1198,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
             </ScrollView>
 
             {/* Composer/Input bar */}
-            {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" ? (
+            {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && activeTicket.status !== "FIXED" ? (
               <View style={{ borderTopWidth: 1, borderTopColor: palette.cardBorder, paddingTop: 12, paddingBottom: 16 }}>
                 {attachments.length > 0 && (
                   <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>

@@ -884,7 +884,7 @@ export async function listSupportTicketsController(req: Request, res: Response) 
       }
       return {
         ...ticketJson,
-        user: ticket.userId ? (await UserModel.findById(ticket.userId).select("phone name"))?.toJSON() : undefined,
+        user: ticket.userId ? (await UserModel.findById(ticket.userId).select("phone name role"))?.toJSON() : undefined,
         order: ticket.orderId ? (await OrderModel.findById(ticket.orderId).select("orderNumber status"))?.toJSON() : undefined
       };
     })
@@ -1085,7 +1085,7 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
   const data = await Promise.all(
     requests.map(async (request) => ({
       ...request.toJSON(),
-      user: request.userId ? (await UserModel.findById(request.userId).select("phone name"))?.toJSON() : undefined
+      user: request.userId ? (await UserModel.findById(request.userId).select("phone name role"))?.toJSON() : undefined
     }))
   );
   res.json({ data });
@@ -1426,6 +1426,26 @@ export async function addBugReportMessageController(req: Request, res: Response)
     emitToAdmins("support:bug_updated", { bug: updatedBug });
     if (senderRole !== "internal") {
       emitToCustomer(bug.userId, "support:bug_updated", { bug: updatedBug });
+    }
+  }
+
+  // Push notification if admin sending a public message
+  if (senderRole === "admin") {
+    try {
+      const pushUser = await UserModel.findById(bug.userId);
+      if (pushUser) {
+        let channelId = "customer-orders-v2";
+        if (pushUser.role === "TAILOR") channelId = "tailor-pickup-updates-v2";
+        else if (pushUser.role === "DELIVERY_PARTNER") channelId = "delivery-updates-v2";
+        await sendPushToUsers([bug.userId], {
+          title: "New Message from Support",
+          body: input.text,
+          channelId,
+          targetApps: [pushUser.role.toLowerCase()]
+        });
+      }
+    } catch (e) {
+      console.error("Push error:", e);
     }
   }
 
