@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View, Alert, Modal } from "react-native";
 import { api, uploadDeliveryAvatar } from "../api";
 import { useAppStore } from "../store";
 
@@ -61,6 +61,7 @@ type Props = {
   onSignOut: () => void;
   showDialog: (dialog: { title: string; message: string; icon?: IconName }) => void;
   onOpenTransactions: () => void;
+  onOpenOrders?: () => void;
 };
 
 function isSessionError(error: unknown) {
@@ -68,11 +69,18 @@ function isSessionError(error: unknown) {
   return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
 }
 
-export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions }: Props) {
+export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions, onOpenOrders }: Props) {
   const signOut = useAppStore((state) => state.signOut);
   const profile = me?.deliveryProfile;
   const settings = profile?.settings ?? {};
   const [editing, setEditing] = useState(false);
+  const [showVehicleDetails, setShowVehicleDetails] = useState(false);
+  const [showBankDetails, setShowBankDetails] = useState(false);
+  const [vehicleChangeRequest, setVehicleChangeRequest] = useState("");
+  const [submittingVehicleChange, setSubmittingVehicleChange] = useState(false);
+  const [bankChangeRequest, setBankChangeRequest] = useState("");
+  const [submittingBankChange, setSubmittingBankChange] = useState(false);
+
   const [supportScreen, setSupportScreen] = useState<SupportScreen>();
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
@@ -191,12 +199,59 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     onSignOut();
   }
 
-  if (supportScreen) {
-    return <SupportDetailScreen screen={supportScreen} styles={styles} onBack={() => setSupportScreen(undefined)} />;
+  async function submitVehicleChangeRequest() {
+    if (vehicleChangeRequest.trim().length < 10) {
+      Alert.alert("Request too short", "Please explain your vehicle details change request in at least 10 characters.");
+      return;
+    }
+    if (!token) return;
+    try {
+      setSubmittingVehicleChange(true);
+      await api("/support", {
+        method: "POST",
+        body: JSON.stringify({
+          subject: "Vehicle Details Change Request",
+          message: `[Vehicle: ${vehicleNumber}] Request: ${vehicleChangeRequest.trim()}`
+        })
+      }, token);
+      setVehicleChangeRequest("");
+      showDialog({ title: "Request Submitted", message: "Your vehicle details change request has been sent for admin approval.", icon: "checkmark-circle-outline" });
+      setShowVehicleDetails(false);
+    } catch (e) {
+      showDialog({ title: "Failed", message: "Could not submit request. Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setSubmittingVehicleChange(false);
+    }
+  }
+
+  async function submitBankChangeRequest() {
+    if (bankChangeRequest.trim().length < 10) {
+      Alert.alert("Request too short", "Please explain your bank details change request in at least 10 characters.");
+      return;
+    }
+    if (!token) return;
+    try {
+      setSubmittingBankChange(true);
+      await api("/support", {
+        method: "POST",
+        body: JSON.stringify({
+          subject: "Bank Details Change Request",
+          message: `Request: ${bankChangeRequest.trim()}`
+        })
+      }, token);
+      setBankChangeRequest("");
+      showDialog({ title: "Request Submitted", message: "Your bank account details change request has been sent for admin approval.", icon: "checkmark-circle-outline" });
+      setShowBankDetails(false);
+    } catch (e) {
+      showDialog({ title: "Failed", message: "Could not submit request. Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setSubmittingBankChange(false);
+    }
   }
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <View style={styles.root}>
+      <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
         <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar}>
           {me?.avatarUrl ? <Image source={{ uri: me.avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{(name || "DD").slice(0, 2).toUpperCase()}</Text>}
@@ -212,47 +267,156 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </View>
 
       <Section title="Account" icon="person-outline" styles={styles}>
-        <InfoRow icon="create-outline" title="Edit Profile" value={editing ? "Close Edit Mode" : "Update name, email, and hours"} styles={styles} onPress={() => setEditing((v) => !v)} />
-        <InfoRow icon="car-outline" title="Vehicle Details" value={vehicleNumber || "No vehicle details registered"} styles={styles} onPress={() => showDialog({ title: "Vehicle Details", message: vehicleNumber ? `Your registered vehicle number: ${vehicleNumber}` : "Vehicle details not registered. Please contact administration.", icon: "car-outline" })} />
-        <InfoRow icon="card-outline" title="Bank Account Details" value="Configure payment payouts" styles={styles} onPress={() => showDialog({ title: "Bank Account Details", message: "Payout bank account configuration is processed during onboarding. Contact admin to update bank details.", icon: "card-outline" })} />
+        <InfoRow icon="create-outline" title="Edit Profile" value="Update name, email, and hours" styles={styles} onPress={() => setEditing(true)} noBorder />
+        <InfoRow icon="car-outline" title="Vehicle Details" value={vehicleNumber || "No vehicle details registered"} styles={styles} onPress={() => setShowVehicleDetails(true)} />
+        <InfoRow icon="card-outline" title="Bank Account Details" value="Configure payment payouts" styles={styles} onPress={() => setShowBankDetails(true)} />
       </Section>
 
-      {editing ? (
-        <Section title="Edit Profile Form" icon="create-outline" styles={styles}>
-          <Input label="Full Name" value={name} onChangeText={setName} styles={styles} />
-          <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
-          <Input label="Working Hours" value={workingHours} onChangeText={setWorkingHours} styles={styles} />
-          <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
-            {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
-          </Pressable>
-        </Section>
-      ) : null}
+      <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: palette.background }}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.detailHeader}>
+              <Pressable style={styles.backButton} onPress={() => setEditing(false)}>
+                <Ionicons name="chevron-back" size={22} color={palette.text} />
+              </Pressable>
+              <View style={styles.rowMain}>
+                <Text style={styles.title}>Edit Profile</Text>
+                <Text style={styles.meta}>Update name, email and working hours</Text>
+              </View>
+            </View>
+            <View style={styles.section}>
+              <Input label="Full Name" value={name} onChangeText={setName} styles={styles} />
+              <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
+              <Input label="Working Hours" value={workingHours} onChangeText={setWorkingHours} styles={styles} />
+              <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
+                {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal visible={showVehicleDetails} onRequestClose={() => setShowVehicleDetails(false)} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: palette.background }}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.detailHeader}>
+              <Pressable style={styles.backButton} onPress={() => setShowVehicleDetails(false)}>
+                <Ionicons name="chevron-back" size={22} color={palette.text} />
+              </Pressable>
+              <View style={styles.rowMain}>
+                <Text style={styles.title}>Vehicle Details</Text>
+                <Text style={styles.meta}>Registered delivery vehicle details</Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>CURRENT CONFIGURATION</Text>
+              </View>
+              <InfoRow icon="car-outline" title="Vehicle Number" value={vehicleNumber || "Not registered"} styles={styles} />
+              <InfoRow icon="shield-checkmark-outline" title="Verification Status" value={profile?.verificationStatus || "NOT_SUBMITTED"} styles={styles} />
+              <InfoRow icon="location-outline" title="Assigned Area" value={profile?.assignedArea || "Not assigned"} styles={styles} />
+              <InfoRow icon="options-outline" title="Delivery Type" value={profile?.deliveryType || "PICKUP"} styles={styles} />
+            </View>
+
+            <View style={styles.section}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>REQUEST VEHICLE CHANGE</Text>
+              </View>
+              <Text style={styles.rowCopy}>To change your registered vehicle number or update registration papers, please describe your changes below to submit a request for admin approval.</Text>
+              <View style={styles.inputBlock}>
+                <TextInput
+                  style={styles.input}
+                  value={vehicleChangeRequest}
+                  onChangeText={setVehicleChangeRequest}
+                  placeholder="New vehicle details, registration request..."
+                  placeholderTextColor="#9aa6b8"
+                  multiline
+                />
+              </View>
+              <Pressable style={styles.primaryButton} onPress={submitVehicleChangeRequest} disabled={submittingVehicleChange}>
+                {submittingVehicleChange ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Request</Text>}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal visible={showBankDetails} onRequestClose={() => setShowBankDetails(false)} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: palette.background }}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.detailHeader}>
+              <Pressable style={styles.backButton} onPress={() => setShowBankDetails(false)}>
+                <Ionicons name="chevron-back" size={22} color={palette.text} />
+              </Pressable>
+              <View style={styles.rowMain}>
+                <Text style={styles.title}>Bank Account</Text>
+                <Text style={styles.meta}>Payout banking configuration</Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>CURRENT BANKING</Text>
+              </View>
+              <InfoRow icon="card-outline" title="Payout Option" value="Bank Transfer (Weekly Payout)" styles={styles} />
+              <InfoRow icon="business-outline" title="Bank Name" value="Registered Partner Bank" styles={styles} />
+              <InfoRow icon="person-circle-outline" title="Account Holder" value={name || "Delivery Partner"} styles={styles} />
+              <InfoRow icon="wallet-outline" title="Payout Status" value="Active" styles={styles} />
+            </View>
+
+            <View style={styles.section}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>REQUEST BANK DETAILS CHANGE</Text>
+              </View>
+              <Text style={styles.rowCopy}>Submit your new bank account holder name, account number, and bank IFSC code. Our verification team will validate and apply updates.</Text>
+              <View style={styles.inputBlock}>
+                <TextInput
+                  style={styles.input}
+                  value={bankChangeRequest}
+                  onChangeText={setBankChangeRequest}
+                  placeholder="New bank name, IFSC, account number..."
+                  placeholderTextColor="#9aa6b8"
+                  multiline
+                />
+              </View>
+              <Pressable style={styles.primaryButton} onPress={submitBankChangeRequest} disabled={submittingBankChange}>
+                {submittingBankChange ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Request</Text>}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
 
       <Section title="Performance" icon="bar-chart-outline" styles={styles}>
-        <InfoRow icon="wallet-outline" title="Earnings" value="Transaction history & payouts" styles={styles} onPress={onOpenTransactions} />
-        <InfoRow icon="cube-outline" title="Delivery History" value={`${completedJobs} completed deliveries`} styles={styles} onPress={() => showDialog({ title: "Delivery History", message: `You have successfully completed ${completedJobs} deliveries. Thank you for your service!`, icon: "cube-outline" })} />
+        <InfoRow icon="wallet-outline" title="Earnings" value="Transaction history & payouts" styles={styles} onPress={onOpenTransactions} noBorder />
+        <InfoRow icon="cube-outline" title="Delivery History" value={`${completedJobs} completed deliveries`} styles={styles} onPress={onOpenOrders} />
       </Section>
 
       <Section title="Preferences" icon="options-outline" styles={styles}>
-        <SwitchRow title="Go Online" copy={savingAvailability ? "Updating..." : "Receive pickup and delivery requests."} value={available} onValueChange={updateAvailability} styles={styles} />
+        <SwitchRow title="Go Online" copy={savingAvailability ? "Updating..." : "Receive pickup and delivery requests."} value={available} onValueChange={updateAvailability} styles={styles} noBorder />
         <SwitchRow title="Push Notifications" copy="Heads-up alerts for new jobs." value={preferences.notifications} onValueChange={(value) => setPreferences((current) => ({ ...current, notifications: value }))} styles={styles} />
         <SwitchRow title="Sound Alerts" copy="Play the Darji delivery sounds." value={preferences.sound} onValueChange={(value) => setPreferences((current) => ({ ...current, sound: value }))} styles={styles} />
         <SwitchRow title="Vibration Alerts" copy="Vibrate on urgent tasks." value={preferences.vibration} onValueChange={(value) => setPreferences((current) => ({ ...current, vibration: value }))} styles={styles} />
       </Section>
 
       <Section title="Support" icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title="Help Center" value="Delivery workflows and details" styles={styles} onPress={() => setSupportScreen("help")} />
+        <InfoRow icon="help-buoy-outline" title="Help Center" value="Delivery workflows and details" styles={styles} onPress={() => setSupportScreen("help")} noBorder />
         <InfoRow icon="chatbubble-outline" title="Contact Support" value="Get help from our support team" styles={styles} onPress={() => setSupportScreen("chat")} />
       </Section>
 
       <Section title="Policies & Information" icon="document-text-outline" styles={styles}>
-        <InfoRow icon="information-circle-outline" title="About Darji" value="Learn about Darji Delivery Partner network" styles={styles} onPress={() => setSupportScreen("about")} />
+        <InfoRow icon="information-circle-outline" title="About Darji" value="Learn about Darji Delivery Partner network" styles={styles} onPress={() => setSupportScreen("about")} noBorder />
         <InfoRow icon="shield-checkmark-outline" title="Privacy Policy" value="How your personal data is handled" styles={styles} onPress={() => setSupportScreen("privacy")} />
         <InfoRow icon="reader-outline" title="Terms of Use" value="Terms of service agreements" styles={styles} onPress={() => setSupportScreen("terms")} />
       </Section>
 
       <Section title="App" icon="phone-portrait-outline" styles={styles}>
-        <View style={styles.row}>
+        <View style={[styles.row, { borderTopWidth: 0 }]}>
           <View style={styles.smallIcon}><Ionicons name="phone-portrait-outline" size={16} color={BRAND_ORANGE} /></View>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>App Version</Text>
@@ -262,21 +426,29 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Section>
 
       <Section title="Account Settings" icon="settings-outline" styles={styles}>
-        <InfoRow icon="trash-outline" title="Delete Account" value="Permanently remove your account" styles={styles} danger onPress={() => showDialog({ title: "Delete account", message: "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} />
+        <InfoRow icon="trash-outline" title="Delete Account" value="Permanently remove your account" styles={styles} danger onPress={() => showDialog({ title: "Delete account", message: "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} noBorder />
         <InfoRow icon="log-out-outline" title="Logout" value="Sign out of your account" styles={styles} onPress={logout} />
       </Section>
     </ScrollView>
+    <Modal visible={Boolean(supportScreen)} onRequestClose={() => setSupportScreen(undefined)} animationType="slide">
+      {supportScreen ? (
+        <SupportDetailScreen screen={supportScreen} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
+      ) : null}
+    </Modal>
+  </View>
   );
 }
 
 function Section({ title, icon, styles, children }: { title: string; icon: IconName; styles: ReturnType<typeof createStyles>; children: ReactNode }) {
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.sectionIcon}><Ionicons name={icon} size={18} color={BRAND_ORANGE} /></View>
-        <Text style={styles.sectionTitle}>{title}</Text>
+    <View style={{ marginBottom: 16 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginLeft: 4 }}>
+        <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+        <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{title}</Text>
       </View>
-      {children}
+      <View style={styles.section}>
+        {children}
+      </View>
     </View>
   );
 }
@@ -290,9 +462,9 @@ function Input({ label, value, onChangeText, styles, editable = true }: { label:
   );
 }
 
-function SwitchRow({ title, copy, value, onValueChange, styles, danger }: { title: string; copy: string; value: boolean; onValueChange: (value: boolean) => void; styles: ReturnType<typeof createStyles>; danger?: boolean }) {
+function SwitchRow({ title, copy, value, onValueChange, styles, danger, noBorder }: { title: string; copy: string; value: boolean; onValueChange: (value: boolean) => void; styles: ReturnType<typeof createStyles>; danger?: boolean; noBorder?: boolean }) {
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, noBorder && { borderTopWidth: 0 }]}>
       <View style={styles.rowMain}>
         <Text style={[styles.rowTitle, danger && styles.dangerText]}>{title}</Text>
         <Text style={styles.rowCopy}>{copy}</Text>
@@ -329,9 +501,9 @@ function ReadonlyMetric({ title, value, copy, styles }: { title: string; value: 
   );
 }
 
-function InfoRow({ icon, title, value, styles, onPress, danger }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress: () => void; danger?: boolean }) {
+function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void; danger?: boolean; noBorder?: boolean }) {
   return (
-    <Pressable style={styles.row} onPress={onPress}>
+    <Pressable style={[styles.row, noBorder && { borderTopWidth: 0 }]} onPress={onPress} disabled={!onPress}>
       <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : BRAND_ORANGE} /></View>
       <View style={styles.rowMain}>
         <Text style={[styles.rowTitle, danger && { color: DANGER }]}>{title}</Text>
@@ -422,13 +594,13 @@ const supportDetails: Record<SupportScreen, { title: string; subtitle: string; i
   }
 };
 
-function SupportDetailScreen({ screen, styles, onBack }: { screen: SupportScreen; styles: ReturnType<typeof createStyles>; onBack: () => void }) {
+function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: SupportScreen; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
   const detail = supportDetails[screen];
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.detailHeader}>
         <Pressable style={styles.backButton} onPress={onBack}>
-          <Ionicons name="chevron-back" size={22} color="#ffffff" />
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
         </Pressable>
         <View style={styles.rowMain}>
           <Text style={styles.title}>{detail.title}</Text>
@@ -455,25 +627,25 @@ function SupportDetailScreen({ screen, styles, onBack }: { screen: SupportScreen
 }
 
 const lightPalette = {
-  background: "#000000",
-  card: "#121212",
-  cardBorder: "#222222",
-  text: "#ffffff",
-  subtext: "#94a3b8",
-  accentSurface: "#1a1a1a",
-  accentBorder: "#222222",
-  iconSurface: "#0d0d0d"
+  background: SCREEN_BG,
+  card: SURFACE,
+  cardBorder: BORDER,
+  text: BRAND_DEEP,
+  subtext: MUTED,
+  accentSurface: "#fff9ee",
+  accentBorder: BORDER,
+  iconSurface: "#fff4dc"
 };
 
 const darkPalette = {
-  background: "#000000",
-  card: "#121212",
-  cardBorder: "#222222",
+  background: "#050c18",
+  card: "#0a1322",
+  cardBorder: "#182a44",
   text: "#ffffff",
-  subtext: "#94a3b8",
-  accentSurface: "#1a1a1a",
-  accentBorder: "#222222",
-  iconSurface: "#0d0d0d"
+  subtext: "#8ca2c0",
+  accentSurface: "#0d1b30",
+  accentBorder: "#182a44",
+  iconSurface: "#142033"
 };
 
 function createStyles(palette: typeof lightPalette) {
@@ -491,7 +663,7 @@ function createStyles(palette: typeof lightPalette) {
     completedText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", marginTop: 8 },
     editButton: { alignSelf: "flex-start", minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.iconSurface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
     editButtonText: { color: palette.text, fontSize: 12, fontWeight: "900" },
-    section: { borderRadius: 22, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, padding: 16, marginBottom: 14 },
+    section: { borderRadius: 22, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, padding: 16 },
     sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
     sectionIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: palette.accentSurface, alignItems: "center", justifyContent: "center" },
     sectionTitle: { color: palette.text, fontSize: 17, fontWeight: "900" },

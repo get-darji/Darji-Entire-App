@@ -98,7 +98,8 @@ export const couponSchema = z.object({
 export const supportTicketSchema = z.object({
   subject: z.string().min(3),
   message: z.string().min(10),
-  orderId: z.string().optional().nullable()
+  orderId: z.string().optional().nullable(),
+  adminResponse: z.string().optional().nullable()
 });
 
 export const serviceCatalog = [

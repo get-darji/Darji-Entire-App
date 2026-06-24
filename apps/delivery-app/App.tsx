@@ -2485,6 +2485,7 @@ function MainApp({
             onSignOut={onSignOut}
             showDialog={showDialog}
             onOpenTransactions={() => setTab("transactions")}
+            onOpenOrders={() => setTab("orders")}
           />
         ) : null}
         </View>

@@ -161,6 +161,7 @@ export type SupportTicket = {
   subject: string;
   message?: string;
   status: string;
+  adminResponse?: string;
   createdAt?: string;
   updatedAt?: string;
   user?: BasicUser | null;

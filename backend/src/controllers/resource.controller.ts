@@ -730,6 +730,21 @@ export async function createSupportTicketController(req: Request, res: Response)
   res.status(201).json({ data: ticket });
 }
 
+export async function updateSupportTicketController(req: Request, res: Response) {
+  const { id } = req.params;
+  const update = z.object({
+    status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
+    adminResponse: z.string().optional().nullable()
+  }).parse(req.body);
+
+  const ticket = await SupportTicketModel.findByIdAndUpdate(id, update, { new: true });
+  if (!ticket) {
+    res.status(404).json({ message: "Ticket not found" });
+    return;
+  }
+  res.json({ data: ticket });
+}
+
 export async function listSupportTicketsController(req: Request, res: Response) {
   const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
   const tickets = await SupportTicketModel.find(where).sort({ createdAt: -1 });

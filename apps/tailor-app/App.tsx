@@ -2765,6 +2765,7 @@ export default function App() {
         onSessionExpired={handleSessionExpired}
         refresh={() => void refreshWorkspace()}
         onOpenTransactions={() => setScreen("transactions")}
+        onOpenOrders={() => setScreen("orders")}
       />
     );
   }

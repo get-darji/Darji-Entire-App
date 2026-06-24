@@ -57,6 +57,7 @@ type Screen =
   | "coupons"
   | "helpCenter"
   | "contactSupport"
+  | "reportBug"
   | "cancellationPolicy"
   | "rateApp"
   | "privacyPolicy"
@@ -2566,16 +2567,18 @@ function ProfileScreen({
   orders,
   profile,
   addresses,
-  onDeleteAccount
+  onDeleteAccount,
+  settings
 }: {
   setScreen: (screen: Screen) => void;
   orders: CustomerOrder[];
   profile: ProfileData;
   addresses: SavedAddress[];
   onDeleteAccount: () => void;
+  settings: AppSettings;
 }) {
   const { user, signOut } = useAppStore();
-  const profileStyles = createStyles(true); // Enforce dark/black theme for the profile screen
+  const profileStyles = createStyles(settings.darkMode);
 
   return (
     <SafeAreaView style={profileStyles.safe}>
@@ -2595,40 +2598,58 @@ function ProfileScreen({
           </View>
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ACCOUNT</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>ACCOUNT</Text>
-          <ProfileRow icon="person-outline" label="Edit Profile" value="Name, Date of Birth" onPress={() => setScreen("editProfile")} styles={profileStyles} />
+          <ProfileRow icon="person-outline" label="Edit Profile" value="Name, Date of Birth" onPress={() => setScreen("editProfile")} styles={profileStyles} noBorder />
           <ProfileRow icon="location-outline" label="Saved Addresses" value={`${addresses.length} saved`} onPress={() => setScreen("savedAddresses")} styles={profileStyles} />
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ORDERS</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>ORDERS</Text>
-          <ProfileRow icon="cube-outline" label="Order History" value="View active and past orders" onPress={() => setScreen("orders")} styles={profileStyles} />
+          <ProfileRow icon="cube-outline" label="Order History" value="View active and past orders" onPress={() => setScreen("orders")} styles={profileStyles} noBorder />
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>PREFERENCES</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>PREFERENCES</Text>
-          <ProfileRow icon="notifications-outline" label="Notifications" value="Configure order alerts & promos" onPress={() => setScreen("settings")} styles={profileStyles} />
+          <ProfileRow icon="notifications-outline" label="Notifications" value="Configure order alerts & promos" onPress={() => setScreen("settings")} styles={profileStyles} noBorder />
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>SUPPORT</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>SUPPORT</Text>
-          <ProfileRow icon="help-circle-outline" label="Help Center" value="FAQs & workflows" onPress={() => setScreen("helpCenter")} styles={profileStyles} />
-          <ProfileRow icon="call-outline" label="Contact Support" value="Contact customer support team" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
-          <ProfileRow icon="bug-outline" label="Report a Bug" value="Submit an application bug report" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+          <ProfileRow icon="help-circle-outline" label="Help Center" value="FAQs & workflows" onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
+          <ProfileRow icon="call-outline" label="Contact Support" value="Chat with support team" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+          <ProfileRow icon="bug-outline" label="Report a Bug" value="Submit an application bug report" onPress={() => setScreen("reportBug")} styles={profileStyles} />
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>POLICIES & INFORMATION</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>POLICIES & INFORMATION</Text>
-          <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value="Refund and cancellation rules" onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} />
+          <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value="Refund and cancellation rules" onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} noBorder />
           <ProfileRow icon="information-circle-outline" label="About Darji" value="Who we are & how it works" onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
           <ProfileRow icon="shield-checkmark-outline" label="Privacy Policy" value="Read privacy policy" onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
           <ProfileRow icon="document-text-outline" label="Terms of Use" value="Read terms of service" onPress={() => setScreen("termsService")} styles={profileStyles} />
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>APP</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>APP</Text>
-          <View style={profileStyles.profileRow}>
+          <View style={[profileStyles.profileRow, { borderTopWidth: 0 }]}>
             <View style={profileStyles.profileRowIcon}>
               <Ionicons name="phone-portrait-outline" size={18} color={BRAND_ORANGE} />
             </View>
@@ -2639,9 +2660,12 @@ function ProfileScreen({
           </View>
         </View>
 
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ACCOUNT SETTINGS</Text>
+        </View>
         <View style={profileStyles.whiteCard}>
-          <Text style={profileStyles.cardLabel}>ACCOUNT SETTINGS</Text>
-          <ProfileRow icon="trash-outline" label="Delete Account" value="Permanently remove account" onPress={onDeleteAccount} danger styles={profileStyles} />
+          <ProfileRow icon="trash-outline" label="Delete Account" value="Permanently remove account" onPress={onDeleteAccount} danger styles={profileStyles} noBorder />
           <ProfileRow icon="log-out-outline" label="Logout" value="Sign out of your account" onPress={signOut} styles={profileStyles} />
         </View>
       </ScrollView>
@@ -2655,7 +2679,8 @@ function ProfileRow({
   value,
   onPress,
   danger,
-  styles: propStyles
+  styles: propStyles,
+  noBorder
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -2663,10 +2688,11 @@ function ProfileRow({
   onPress?: () => void;
   danger?: boolean;
   styles?: any;
+  noBorder?: boolean;
 }) {
   const currentStyles = propStyles || styles;
   return (
-    <Pressable style={currentStyles.profileRow} onPress={onPress}>
+    <Pressable style={[currentStyles.profileRow, noBorder && { borderTopWidth: 0 }]} onPress={onPress}>
       <View style={currentStyles.profileRowIcon}>
         <Ionicons name={icon} size={18} color={danger ? "#dc2626" : BRAND_ORANGE} />
       </View>
@@ -2764,27 +2790,14 @@ function SettingsScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Settings" onBack={() => setScreen("profile")} />
+        <Header title="Notifications" onBack={() => setScreen("profile")} />
         <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>NOTIFICATIONS</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+            <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+            <Text style={[styles.cardLabel, { color: BRAND_ORANGE, marginBottom: 0, fontWeight: "900", letterSpacing: 0.5 }]}>NOTIFICATIONS</Text>
+          </View>
           <SettingRow icon="notifications-outline" label="Push notifications" value="Order alerts and offers" enabled={settings.notifications} onPress={() => toggle("notifications")} />
           <SettingRow icon="cube-outline" label="Order updates" value="Pickup, quote and delivery alerts" enabled={settings.orderUpdates} onPress={() => toggle("orderUpdates")} />
-        </View>
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>APPEARANCE</Text>
-          <SettingRow icon="moon-outline" label="Dark appearance" value="Use dark themed surfaces" enabled={settings.darkMode} onPress={() => toggle("darkMode")} />
-          <SettingRow icon="albums-outline" label="Compact cards" value="Show denser service and order cards" enabled={settings.compactCards} onPress={() => toggle("compactCards")} />
-        </View>
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>PRIVACY & DATA</Text>
-          <SettingRow icon="navigate-outline" label="Location access" value="Use GPS for pickup address" enabled={settings.locationAccess} onPress={() => toggle("locationAccess")} />
-          <SettingRow icon="image-outline" label="Save uploaded media" value="Keep request photos in your order history" enabled={settings.saveMedia} onPress={() => toggle("saveMedia")} />
-        </View>
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>APP</Text>
-          <ProfileRow icon="shield-checkmark-outline" label="Privacy Policy" value="How your data is handled" onPress={() => setScreen("privacyPolicy")} />
-          <ProfileRow icon="document-text-outline" label="Terms of Service" value="App usage terms" onPress={() => setScreen("termsService")} />
-          <ProfileRow icon="information-circle-outline" label="App Version" value="0.1.0" onPress={() => setScreen("appInfo")} />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -3124,32 +3137,164 @@ function CancellationPolicyScreen({
   );
 }
 
-function ContactSupportScreen({ onSave, setScreen }: { onSave: (message: string) => void; setScreen: (screen: Screen) => void }) {
+function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean }) {
+  const token = useAppStore((state) => state.token);
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  function submit() {
+  const loadTickets = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      const res = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
+      const list = Array.isArray(res) ? res : (res as any)?.data || [];
+      const sorted = [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      setTickets(sorted);
+    } catch (e) {
+      console.log("Failed to load tickets", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+  }, [tickets]);
+
+  async function handleSend() {
     if (message.trim().length < 10) {
-      Alert.alert("Describe issue", "Write at least 10 characters so support can understand the issue.");
+      Alert.alert("Message too short", "Please write at least 10 characters so we can help.");
       return;
     }
-    onSave(message.trim());
-    Alert.alert("Saved", "Your issue has been saved for support.");
-    setScreen("profile");
+    if (!token) return;
+    try {
+      setSending(true);
+      await api("/support", {
+        method: "POST",
+        body: JSON.stringify({
+          subject: isBugReport ? "Bug Report" : "Customer Support Request",
+          message: message.trim()
+        })
+      }, token);
+      setMessage("");
+      await loadTickets();
+    } catch (e) {
+      Alert.alert("Failed", "Could not send message. Please try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
-    <ProfileSubPage title="Contact Support" setScreen={setScreen}>
-      <View style={styles.whiteCard}>
-        <Text style={styles.cardLabel}>SUPPORT CHANNELS</Text>
-        <ProfileRow icon="call-outline" label="Phone" value="1800-000-000" />
-        <ProfileRow icon="mail-outline" label="Email" value="support@darji.local" />
-        <ProfileRow icon="chatbubble-outline" label="Chat" value="Usually replies in 5 minutes" />
+    <ProfileSubPage title={isBugReport ? "Report a Bug" : "Support Chat"} setScreen={setScreen}>
+      <View style={{ height: 420, justifyContent: "space-between" }}>
+        <ScrollView 
+          ref={scrollViewRef}
+          style={{ flex: 1, marginBottom: 10, paddingHorizontal: 4 }}
+          contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {tickets.length === 0 ? (
+            <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 60 }}>
+              <Ionicons name="chatbubbles-outline" size={48} color={BRAND_ORANGE} style={{ marginBottom: 12 }} />
+              <Text style={{ color: isDark ? "#ffffff" : BRAND_DEEP, fontWeight: "800", fontSize: 16, textAlign: "center" }}>
+                {isBugReport ? "No bug reports submitted yet." : "How can we help you today?"}
+              </Text>
+              <Text style={{ color: isDark ? "#94a3b8" : "#65748a", fontSize: 13, textAlign: "center", marginTop: 6, paddingHorizontal: 30 }}>
+                {isBugReport 
+                  ? "Describe any app issues or bugs, and they will be sent directly to our development team." 
+                  : "Send us a message below. Our support agents will respond right here."}
+              </Text>
+            </View>
+          ) : (
+            tickets.map((ticket) => {
+              const isBug = ticket.subject === "Bug Report";
+              return (
+                <View key={ticket._id || ticket.id} style={{ gap: 8 }}>
+                  <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 18, borderBottomRightRadius: 2, padding: 12 }}>
+                    <Text style={{ color: "#000000", fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>
+                      {isBug ? "Bug Report" : "You"}
+                    </Text>
+                    <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{ticket.message}</Text>
+                    <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
+                      {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+
+                  {ticket.adminResponse ? (
+                    <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: "#1e293b", borderWidth: 1, borderColor: "#334155", borderRadius: 18, borderBottomLeftRadius: 2, padding: 12 }}>
+                      <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>
+                        Darji Support ({ticket.status})
+                      </Text>
+                      <Text style={{ color: "#ffffff", fontSize: 14, fontWeight: "700" }}>{ticket.adminResponse}</Text>
+                      <Text style={{ color: isDark ? "#94a3b8" : "#a1b2c9", fontSize: 9, marginTop: 4, opacity: 0.7 }}>
+                        {ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ alignSelf: "flex-end", marginRight: 6 }}>
+                      <Text style={{ color: isDark ? "#94a3b8" : "#65748a", fontSize: 10, fontStyle: "italic" }}>
+                        Status: {ticket.status || "OPEN"}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: isDark ? "#222222" : "#dce2ea", paddingTop: 12, paddingBottom: 16 }}>
+          <TextInput
+            style={{
+              flex: 1,
+              minHeight: 46,
+              maxHeight: 100,
+              backgroundColor: isDark ? "#121212" : "#ffffff",
+              borderWidth: 1,
+              borderColor: isDark ? "#334155" : "#dce2ea",
+              borderRadius: 23,
+              paddingHorizontal: 16,
+              color: isDark ? "#ffffff" : BRAND_DEEP,
+              fontSize: 14,
+              fontWeight: "700"
+            }}
+            value={message}
+            onChangeText={setMessage}
+            placeholder={isBugReport ? "Report details (min 10 chars)..." : "Type your message (min 10 chars)..."}
+            placeholderTextColor={isDark ? "#64748b" : "#98a4b6"}
+            multiline
+          />
+          <Pressable 
+            style={{
+              width: 46,
+              height: 46,
+              borderRadius: 23,
+              backgroundColor: BRAND_ORANGE,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: message.trim().length >= 10 && !sending ? 1 : 0.6
+            }}
+            onPress={handleSend}
+            disabled={message.trim().length < 10 || sending}
+          >
+            {sending ? (
+              <ActivityIndicator size="small" color="#000000" />
+            ) : (
+              <Ionicons name="send" size={18} color="#000000" />
+            )}
+          </Pressable>
+        </View>
       </View>
-      <Text style={styles.formLabel}>Describe your issue</Text>
-      <TextInput style={styles.descriptionInput} value={message} onChangeText={setMessage} multiline placeholder="Tell us what happened..." placeholderTextColor="#98a4b6" />
-      <Pressable style={styles.primaryWideButton} onPress={submit}>
-        <Text style={styles.primaryWideButtonText}>Submit Ticket</Text>
-      </Pressable>
     </ProfileSubPage>
   );
 }
@@ -3213,18 +3358,24 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   );
 }
 
-function AboutDarjiScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
-  const profileStyles = createStyles(true);
+function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) => void; isDark: boolean }) {
+  const profileStyles = createStyles(isDark);
   return (
-    <ProfileSubPage title="About Darji" setScreen={setScreen}>
+    <ProfileSubPage title="About Darji" setScreen={setScreen} styles={profileStyles}>
       <View style={profileStyles.whiteCard}>
-        <Text style={profileStyles.cardLabel}>OUR MISSION</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={[profileStyles.cardLabel, { color: BRAND_ORANGE, marginBottom: 0, fontWeight: "900", letterSpacing: 0.5 }]}>OUR MISSION</Text>
+        </View>
         <Text style={profileStyles.infoCopy}>
           Darji is a modern tailoring ecosystem designed to bring custom clothing to your doorstep. We connect you with expert local tailors, facilitate live fabric and measurements collection, and ensure perfect-fit garments are delivered directly back to you.
         </Text>
       </View>
       <View style={profileStyles.whiteCard}>
-        <Text style={profileStyles.cardLabel}>HOW IT WORKS</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+          <Text style={[profileStyles.cardLabel, { color: BRAND_ORANGE, marginBottom: 0, fontWeight: "900", letterSpacing: 0.5 }]}>HOW IT WORKS</Text>
+        </View>
         <Text style={profileStyles.infoCopy}>
           • Request a Quote: Share pictures and measurements.{"\n"}
           • Receive Quotes: Local tailors offer prices and timelines.{"\n"}
@@ -3236,10 +3387,11 @@ function AboutDarjiScreen({ setScreen }: { setScreen: (screen: Screen) => void }
   );
 }
 
-function ProfileSubPage({ title, setScreen, children, backScreen = "profile" }: { title: string; setScreen: (screen: Screen) => void; children: React.ReactNode; backScreen?: Screen }) {
+function ProfileSubPage({ title, setScreen, children, backScreen = "profile", styles: propStyles }: { title: string; setScreen: (screen: Screen) => void; children: React.ReactNode; backScreen?: Screen; styles?: any }) {
+  const currentStyles = propStyles || styles;
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+    <SafeAreaView style={currentStyles.safe}>
+      <ScrollView contentContainerStyle={currentStyles.pageContent}>
         <Header title={title} onBack={() => setScreen(backScreen)} />
         {children}
       </ScrollView>
@@ -4600,29 +4752,94 @@ export default function App() {
     return withAppChrome(<TrackOrderScreenV2 deliveryLocation={deliveryLocations[locationKey]} order={activeOrderForCustomer} setScreen={setScreen} />);
   }
   if (screen === "orderDetails" || screen === "trackOrder") return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
-  if (screen === "profile") {
+  const PROFILE_SUBSCREENS = new Set([
+    "editProfile",
+    "settings",
+    "savedAddresses",
+    "addAddress",
+    "walletPayments",
+    "transactionHistory",
+    "coupons",
+    "helpCenter",
+    "cancellationPolicy",
+    "contactSupport",
+    "reportBug",
+    "rateApp",
+    "privacyPolicy",
+    "termsService",
+    "appInfo",
+    "aboutDarji"
+  ]);
+
+  if (screen === "profile" || PROFILE_SUBSCREENS.has(screen)) {
     return withAppChrome(
       <>
-        <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} />
+        <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} settings={settings} />
+        
+        <Modal visible={screen === "editProfile"} onRequestClose={goBack} animationType="slide">
+          <EditProfileScreen profile={profile} setProfile={setCustomerProfile} setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "settings"} onRequestClose={goBack} animationType="slide">
+          <SettingsScreen settings={settings} setSettings={setCustomerSettings} setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "savedAddresses"} onRequestClose={goBack} animationType="slide">
+          <SavedAddressesScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "addAddress"} onRequestClose={goBack} animationType="slide">
+          <AddAddressScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "walletPayments"} onRequestClose={goBack} animationType="slide">
+          <WalletPaymentsScreen setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "transactionHistory"} onRequestClose={goBack} animationType="slide">
+          <TransactionHistoryScreen setScreen={setScreen} orders={orders} />
+        </Modal>
+        
+        <Modal visible={screen === "coupons"} onRequestClose={goBack} animationType="slide">
+          <CouponsScreenV2 setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "helpCenter"} onRequestClose={goBack} animationType="slide">
+          <HelpCenterScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />
+        </Modal>
+        
+        <Modal visible={screen === "cancellationPolicy"} onRequestClose={goBack} animationType="slide">
+          <CancellationPolicyScreen order={pendingCancellationOrder} setScreen={setScreen} onConfirmCancel={confirmCancelOrder} isCancelling={Boolean(cancellingOrderId)} />
+        </Modal>
+        
+        <Modal visible={screen === "contactSupport" || screen === "reportBug"} onRequestClose={goBack} animationType="slide">
+          <ContactSupportScreen setScreen={setScreen} isBugReport={screen === "reportBug"} isDark={settings.darkMode} />
+        </Modal>
+        
+        <Modal visible={screen === "rateApp"} onRequestClose={goBack} animationType="slide">
+          <RateAppScreen onSave={saveAppReview} setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "privacyPolicy"} onRequestClose={goBack} animationType="slide">
+          <PolicyScreen title="Privacy Policy" setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "termsService"} onRequestClose={goBack} animationType="slide">
+          <PolicyScreen title="Terms of Service" setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "appInfo"} onRequestClose={goBack} animationType="slide">
+          <AppInfoScreen setScreen={setScreen} />
+        </Modal>
+        
+        <Modal visible={screen === "aboutDarji"} onRequestClose={goBack} animationType="slide">
+          <AboutDarjiScreen setScreen={setScreen} isDark={settings.darkMode} />
+        </Modal>
+        
         <BottomTabs active="profile" setScreen={setScreen} />
       </>
     );
   }
-  if (screen === "editProfile") return withAppChrome(<EditProfileScreen profile={profile} setProfile={setCustomerProfile} setScreen={setScreen} />);
-  if (screen === "settings") return withAppChrome(<SettingsScreen settings={settings} setSettings={setCustomerSettings} setScreen={setScreen} />);
-  if (screen === "savedAddresses") return withAppChrome(<SavedAddressesScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />);
-  if (screen === "addAddress") return withAppChrome(<AddAddressScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />);
-  if (screen === "walletPayments") return withAppChrome(<WalletPaymentsScreen setScreen={setScreen} />);
-  if (screen === "transactionHistory") return withAppChrome(<TransactionHistoryScreen setScreen={setScreen} orders={orders} />);
-  if (screen === "coupons") return withAppChrome(<CouponsScreenV2 setScreen={setScreen} />);
-  if (screen === "helpCenter") return withAppChrome(<HelpCenterScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />);
-  if (screen === "cancellationPolicy") return withAppChrome(<CancellationPolicyScreen order={pendingCancellationOrder} setScreen={setScreen} onConfirmCancel={confirmCancelOrder} isCancelling={Boolean(cancellingOrderId)} />);
-  if (screen === "contactSupport") return withAppChrome(<ContactSupportScreen onSave={saveSupportTicket} setScreen={setScreen} />);
-  if (screen === "rateApp") return withAppChrome(<RateAppScreen onSave={saveAppReview} setScreen={setScreen} />);
-  if (screen === "privacyPolicy") return withAppChrome(<PolicyScreen title="Privacy Policy" setScreen={setScreen} />);
-  if (screen === "termsService") return withAppChrome(<PolicyScreen title="Terms of Service" setScreen={setScreen} />);
-  if (screen === "appInfo") return withAppChrome(<AppInfoScreen setScreen={setScreen} />);
-  if (screen === "aboutDarji") return withAppChrome(<AboutDarjiScreen setScreen={setScreen} />);
   if (screen === "orders") return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
   return withAppChrome(<SearchScreen setScreen={setScreen} />);
 }

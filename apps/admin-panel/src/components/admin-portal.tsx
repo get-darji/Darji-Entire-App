@@ -85,7 +85,8 @@ import {
   reviewTailorVerification,
   updateOrderStatus,
   updateSetting,
-  verifyOtp
+  verifyOtp,
+  replyToSupportTicket
 } from "@/src/lib/api";
 import {
   cn,
@@ -1323,10 +1324,10 @@ export function AdminPortal() {
         }}
         user={userDetail}
       />
-      <TicketDialog
+      <InspectTicketDialog
         open={Boolean(ticketDetail)}
         ticket={ticketDetail}
-        setOpen={(next) => {
+        setOpen={(next: boolean) => {
           if (!next) setTicketDetail(null);
         }}
       />
@@ -3217,14 +3218,14 @@ function UserDialog({
                 />
               </div>
             </>
-          ) : null}
+) : null}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
 }
 
-function TicketDialog({
+function InspectTicketDialog({
   open,
   ticket,
   setOpen
@@ -3233,6 +3234,35 @@ function TicketDialog({
   ticket: SupportTicket | null;
   setOpen: (open: boolean) => void;
 }) {
+  const [reply, setReply] = useState("");
+  const [status, setStatus] = useState("RESOLVED");
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (open && ticket) {
+      setReply(ticket.adminResponse ?? "");
+      setStatus(ticket.status === "OPEN" ? "RESOLVED" : ticket.status);
+    }
+  }, [open, ticket]);
+
+  const mutation = useMutation({
+    mutationFn: replyToSupportTicket,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
+      setReply("");
+      setOpen(false);
+    }
+  });
+
+  function handleSubmit() {
+    if (!ticket) return;
+    mutation.mutate({
+      ticketId: ticket.id,
+      adminResponse: reply,
+      status
+    });
+  }
+
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
@@ -3241,7 +3271,7 @@ function TicketDialog({
           {ticket ? (
             <>
               <Dialog.Title className="text-2xl font-semibold">{ticket.subject}</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Support ticket detail view from the current support API.</Dialog.Description>
+              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Support ticket detail view and reply channel.</Dialog.Description>
               <div className="mt-6 space-y-5">
                 <InspectGrid
                   items={[
@@ -3254,6 +3284,38 @@ function TicketDialog({
                 <Panel>
                   <h4 className="text-lg font-semibold">Customer message</h4>
                   <p className="mt-3 text-sm text-[var(--muted)]">{ticket.message ?? "No additional message available."}</p>
+                </Panel>
+                
+                <Panel>
+                  <h4 className="text-lg font-semibold text-[var(--foreground)]">Admin Response</h4>
+                  <textarea
+                    className="mt-3 w-full min-h-[90px] rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-3 text-sm outline-none text-[var(--foreground)]"
+                    placeholder="Type your response to the customer..."
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                  />
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">Ticket status:</span>
+                      <select
+                        className="h-10 rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none"
+                        value={status}
+                        onChange={(e) => setStatus(e.target.value)}
+                      >
+                        <option value="OPEN">Open</option>
+                        <option value="IN_PROGRESS">In Progress</option>
+                        <option value="RESOLVED">Resolved</option>
+                        <option value="CLOSED">Closed</option>
+                      </select>
+                    </div>
+                    <ActionButton
+                      onClick={handleSubmit}
+                      disabled={mutation.isPending || reply.trim().length < 5}
+                    >
+                      {mutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                      Send Reply
+                    </ActionButton>
+                  </div>
                 </Panel>
               </div>
             </>

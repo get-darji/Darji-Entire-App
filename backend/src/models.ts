@@ -309,7 +309,8 @@ const supportTicketSchema = new Schema(
     orderId: String,
     subject: { type: String, required: true },
     message: { type: String, required: true },
-    status: { type: String, enum: supportStatuses, default: "OPEN", index: true }
+    status: { type: String, enum: supportStatuses, default: "OPEN", index: true },
+    adminResponse: String
   },
   baseOptions
 );

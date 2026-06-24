@@ -9,6 +9,7 @@ import {
   createOrderController,
   createReviewController,
   createSupportTicketController,
+  updateSupportTicketController,
   getOrderController,
   listAddressesController,
   listCouponsController,
@@ -154,6 +155,7 @@ router.get("/wallet", requireAuth, walletController);
 router.get("/transactions", requireAuth, transactionsController);
 router.get("/support", requireAuth, listSupportTicketsController);
 router.post("/support", requireAuth, createSupportTicketController);
+router.patch("/support/:id", requireAuth, updateSupportTicketController);
 
 router.get("/coupons", requireAuth, listCouponsController);
 router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponController);

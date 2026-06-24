@@ -175,3 +175,8 @@ export async function reviewDeliveryVerification(payload: {
   const { partnerId, ...body } = payload;
   return unwrap<DeliveryPartnerProfile>(api.patch(`/delivery-partners/${partnerId}/verification-review`, body));
 }
+
+export async function replyToSupportTicket(payload: { ticketId: string; adminResponse: string; status: string }) {
+  const { ticketId, ...body } = payload;
+  return unwrap<SupportTicket>(api.patch(`/support/${ticketId}`, body));
+}
