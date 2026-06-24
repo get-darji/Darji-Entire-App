@@ -3176,7 +3176,8 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
       const res = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
       const list = Array.isArray(res) ? res : (res as any)?.data || [];
       const sorted = [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      setTickets(sorted);
+      const filtered = sorted.filter((t) => t.subject !== "Bug Report");
+      setTickets(filtered);
     } catch (e) {
       console.log("Failed to load tickets", e);
     } finally {
@@ -3436,7 +3437,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 4 : 0 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 12 : 12 }}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
@@ -3631,7 +3632,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
               </View>
 
               <Pressable 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
+                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+                style={({ pressed }) => [
+                  { backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 },
+                  (!selectedCategory || sending) ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
+                ]}
                 disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
               >
@@ -3810,7 +3815,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
 
         {view === "bug" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
-            <Header title="Report a Bug" onBack={() => setView("center")} />
+            <Header title="Report a Bug" onBack={() => setScreen("profile")} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               <Text style={{ color: mutedText, fontSize: 13, fontWeight: "600" }}>Describe any glitches, slow load times, or layout bugs directly to our dev team.</Text>
               
@@ -3883,7 +3888,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
               </View>
 
               <Pressable 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && { opacity: 0.6 }]}
+                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+                style={({ pressed }) => [
+                  { backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 },
+                  (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
+                ]}
                 disabled={bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending}
                 onPress={handleSubmitBug}
               >

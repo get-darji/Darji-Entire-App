@@ -768,7 +768,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
           <View style={{ flex: 1, paddingHorizontal: 18 }}>
             {/* Header */}
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 }}>
-              <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
+              <Pressable style={styles.backButton} onPress={() => setScreen("support_center")}>
                 <Ionicons name="chevron-back" size={22} color={palette.text} />
               </Pressable>
               <View style={styles.rowMain}>
@@ -779,23 +779,19 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               <Pressable 
-                style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
-                onPress={() => {
-                  const active = tickets.find((t) => ["OPEN", "IN_PROGRESS"].includes(t.status));
-                  if (active) {
-                    setActiveTicket(active);
-                    setView("chat");
-                  } else {
-                    setView("new_chat");
-                  }
-                }}
+                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+                style={({ pressed }) => [
+                  { backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 },
+                  pressed && { opacity: 0.85 }
+                ]}
+                onPress={() => setView("new_chat")}
               >
                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
                   <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Start Support Chat</Text>
-                  <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Resolve active issues, payouts or quote disputes</Text>
+                  <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Start New Conversation</Text>
+                  <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Start a new conversation with our support team</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={palette.muted} />
               </Pressable>
@@ -904,7 +900,11 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
 
               {/* Start Conversation button */}
               <Pressable 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
+                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+                style={({ pressed }) => [
+                  { backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 },
+                  (!selectedCategory || sending) ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
+                ]}
                 disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
               >
