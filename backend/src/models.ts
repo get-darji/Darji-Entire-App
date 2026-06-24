@@ -310,7 +310,40 @@ const supportTicketSchema = new Schema(
     subject: { type: String, required: true },
     message: { type: String, required: true },
     status: { type: String, enum: supportStatuses, default: "OPEN", index: true },
-    adminResponse: String
+    adminResponse: String,
+    category: String,
+    priority: { type: String, enum: ["LOW", "MEDIUM", "HIGH"], default: "MEDIUM", index: true },
+    assignedTo: { type: String, index: true },
+    attachments: [String]
+  },
+  baseOptions
+);
+
+const bugReportSchema = new Schema(
+  {
+    _id: stringId,
+    userId: { type: String, required: true, index: true },
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    screenshot: String,
+    deviceInfo: { type: String, required: true },
+    appVersion: { type: String, default: "0.1.0" },
+    status: { type: String, enum: ["NEW", "INVESTIGATING", "IN_PROGRESS", "FIXED", "CLOSED"], default: "NEW", index: true },
+    assignedTo: { type: String, index: true }
+  },
+  baseOptions
+);
+
+const accountChangeRequestSchema = new Schema(
+  {
+    _id: stringId,
+    userId: { type: String, required: true, index: true },
+    userRole: { type: String, enum: ["TAILOR", "DELIVERY_PARTNER"], required: true, index: true },
+    type: { type: String, required: true, index: true },
+    requestedValues: { type: Schema.Types.Mixed, required: true },
+    documents: [String],
+    status: { type: String, enum: ["PENDING", "APPROVED", "REJECTED"], default: "PENDING", index: true },
+    adminNotes: String
   },
   baseOptions
 );
@@ -482,6 +515,8 @@ export const WalletModel = mongoose.model("Wallet", walletSchema);
 export const TransactionModel = mongoose.model("Transaction", transactionSchema);
 export const OtpRequestModel = mongoose.model("OtpRequest", otpRequestSchema);
 export const SupportTicketModel = mongoose.model("SupportTicket", supportTicketSchema);
+export const BugReportModel = mongoose.model("BugReport", bugReportSchema);
+export const AccountChangeRequestModel = mongoose.model("AccountChangeRequest", accountChangeRequestSchema);
 export const TailoringRequestModel = mongoose.model("TailoringRequest", tailoringRequestSchema);
 export const TailorQuoteModel = mongoose.model("TailorQuote", tailorQuoteSchema);
 export const DeliveryRequestModel = mongoose.model("DeliveryTask", deliveryRequestSchema, "delivery_tasks");

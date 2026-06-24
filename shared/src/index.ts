@@ -99,7 +99,36 @@ export const supportTicketSchema = z.object({
   subject: z.string().min(3),
   message: z.string().min(10),
   orderId: z.string().optional().nullable(),
-  adminResponse: z.string().optional().nullable()
+  adminResponse: z.string().optional().nullable(),
+  category: z.string().optional().nullable(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+  assignedTo: z.string().optional().nullable(),
+  attachments: z.array(z.string()).optional()
+});
+
+export const bugReportSchema = z.object({
+  title: z.string().min(3),
+  description: z.string().min(10),
+  screenshot: z.string().optional().nullable(),
+  deviceInfo: z.string(),
+  appVersion: z.string().default("0.1.0"),
+  status: z.enum(["NEW", "INVESTIGATING", "IN_PROGRESS", "FIXED", "CLOSED"]).default("NEW"),
+  assignedTo: z.string().optional().nullable()
+});
+
+export const accountChangeRequestSchema = z.object({
+  type: z.enum([
+    "ShopName",
+    "BankAccount",
+    "UPI",
+    "Address",
+    "ContactNumber",
+    "Vehicle",
+    "RC",
+    "DrivingLicense"
+  ]),
+  requestedValues: z.record(z.string(), z.any()),
+  documents: z.array(z.string()).optional()
 });
 
 export const serviceCatalog = [

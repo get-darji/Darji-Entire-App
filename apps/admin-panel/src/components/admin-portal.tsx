@@ -86,7 +86,13 @@ import {
   updateOrderStatus,
   updateSetting,
   verifyOtp,
-  replyToSupportTicket
+  replyToSupportTicket,
+  getSupportStats,
+  getBugReports,
+  updateBugReport,
+  getAccountChangeRequests,
+  approveAccountChangeRequest,
+  rejectAccountChangeRequest
 } from "@/src/lib/api";
 import {
   cn,
@@ -111,7 +117,10 @@ import type {
   SettingRecord,
   SupportTicket,
   TailorProfile,
-  TailoringRequest
+  TailoringRequest,
+  BugReport,
+  AccountChangeRequest,
+  SupportStats
 } from "@/src/types/admin";
 
 type TrendRange = "daily" | "weekly" | "monthly";
@@ -229,6 +238,17 @@ export function AdminPortal() {
   const [userDetail, setUserDetail] = useState<AdminUser | null>(null);
   const [ticketDetail, setTicketDetail] = useState<SupportTicket | null>(null);
   const [supportCategory, setSupportCategory] = useState("all");
+  const [supportSubTab, setSupportSubTab] = useState<"customer" | "tailor" | "delivery" | "bugs">("customer");
+  const [customerSupportSearch, setCustomerSupportSearch] = useState("");
+  const [customerSupportStatus, setCustomerSupportStatus] = useState("");
+  const [tailorSupportSearch, setTailorSupportSearch] = useState("");
+  const [tailorSupportStatus, setTailorSupportStatus] = useState("");
+  const [deliverySupportSearch, setDeliverySupportSearch] = useState("");
+  const [deliverySupportStatus, setDeliverySupportStatus] = useState("");
+  const [bugSearch, setBugSearch] = useState("");
+  const [bugStatus, setBugStatus] = useState("");
+  const [activeChangeRequest, setActiveChangeRequest] = useState<AccountChangeRequest | null>(null);
+  const [activeBugReport, setActiveBugReport] = useState<BugReport | null>(null);
   const [assignOrderTarget, setAssignOrderTarget] = useState<Order | null>(null);
   const [assignTailorId, setAssignTailorId] = useState("");
   const [assignPickupPartnerId, setAssignPickupPartnerId] = useState("");
@@ -307,6 +327,22 @@ export function AdminPortal() {
     queryFn: getSettings,
     enabled: isAuthed
   });
+  const supportStatsQuery = useQuery({
+    queryKey: ["admin", "support-stats"],
+    queryFn: getSupportStats,
+    enabled: isAuthed
+  });
+  const bugReportsQuery = useQuery({
+    queryKey: ["admin", "bug-reports"],
+    queryFn: getBugReports,
+    enabled: isAuthed
+  });
+  const changeRequestsQuery = useQuery({
+    queryKey: ["admin", "change-requests"],
+    queryFn: getAccountChangeRequests,
+    enabled: isAuthed
+  });
+
 
   const dashboardData = useMemo<QueryBundle | null>(() => {
     if (
@@ -403,7 +439,10 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "payments"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "coupons"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "support"] }),
-      queryClient.invalidateQueries({ queryKey: ["admin", "settings"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "settings"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "support-stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "bug-reports"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "change-requests"] })
     ]);
 
   const assignMutation = useMutation({
@@ -488,6 +527,37 @@ export function AdminPortal() {
     },
     onError: (error) => toast.error(extractError(error))
   });
+
+  const bugReportUpdateMutation = useMutation({
+    mutationFn: updateBugReport,
+    onSuccess: async () => {
+      toast.success("Bug report updated successfully");
+      setActiveBugReport(null);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const changeRequestApproveMutation = useMutation({
+    mutationFn: approveAccountChangeRequest,
+    onSuccess: async () => {
+      toast.success("Account change request approved");
+      setActiveChangeRequest(null);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const changeRequestRejectMutation = useMutation({
+    mutationFn: rejectAccountChangeRequest,
+    onSuccess: async () => {
+      toast.success("Account change request rejected");
+      setActiveChangeRequest(null);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
 
   if (!hydrated) {
     return (
@@ -885,6 +955,8 @@ export function AdminPortal() {
   });
   const couponColumns = getCouponColumns();
   const ticketColumns = getTicketColumns({ onOpen: setTicketDetail });
+  const changeRequestColumns = getChangeRequestColumns({ onOpen: setActiveChangeRequest });
+  const bugReportColumns = getBugReportColumns({ onOpen: setActiveBugReport, users });
 
   return (
     <>
@@ -1199,31 +1271,346 @@ export function AdminPortal() {
         {activeSection === "support" ? (
           <div className="space-y-6">
             <SectionIntro
-              title="Support tickets"
-              description="Current support queue from the existing support API."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-support.csv", filteredTickets.map(ticketToCsv))}>Export CSV</ActionButton>}
+              title="Support Center"
+              description="Manage customer, tailor, delivery fleet support operations, account request approvals, and track bugs."
+              action={
+                <ActionButton
+                  variant="secondary"
+                  onClick={() => downloadCsv("darzi-support.csv", tickets.map(ticketToCsv))}
+                >
+                  Export All CSV
+                </ActionButton>
+              }
             />
+
+            {/* Support Dashboard Overview */}
+            {supportStatsQuery.data ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                  <span className="text-xs uppercase font-semibold tracking-wider text-[var(--muted)]">Total Tickets</span>
+                  <span className="text-2xl font-bold mt-1 text-[var(--foreground)]">{supportStatsQuery.data.totalTickets}</span>
+                </Panel>
+                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                  <span className="text-xs uppercase font-semibold tracking-wider text-orange-500">Open Tickets</span>
+                  <span className="text-2xl font-bold mt-1 text-orange-500">{supportStatsQuery.data.openTickets}</span>
+                </Panel>
+                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                  <span className="text-xs uppercase font-semibold tracking-wider text-blue-500">In Progress</span>
+                  <span className="text-2xl font-bold mt-1 text-blue-500">{supportStatsQuery.data.pendingTickets}</span>
+                </Panel>
+                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                  <span className="text-xs uppercase font-semibold tracking-wider text-green-600">Resolved / Closed</span>
+                  <span className="text-2xl font-bold mt-1 text-green-600">{supportStatsQuery.data.resolvedTickets + supportStatsQuery.data.closedTickets}</span>
+                </Panel>
+                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                  <span className="text-xs uppercase font-semibold tracking-wider text-[var(--muted)]">Avg First Reply</span>
+                  <span className="text-xl font-bold mt-1 text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResponseTimeMs)}</span>
+                </Panel>
+                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+                  <span className="text-xs uppercase font-semibold tracking-wider text-[var(--muted)]">Avg Resolution</span>
+                  <span className="text-xl font-bold mt-1 text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResolutionTimeMs)}</span>
+                </Panel>
+              </div>
+            ) : (
+              <div className="h-16 flex items-center justify-center bg-gray-50 dark:bg-white/5 rounded-2xl border border-[var(--panel-border)]">
+                <LoaderCircle className="animate-spin text-orange-500 h-5 w-5 mr-2" />
+                <span className="text-xs text-[var(--muted)]">Fetching support metrics...</span>
+              </div>
+            )}
+
+            {/* Navigation Tabs */}
             <div className="flex border-b border-[var(--panel-border)] overflow-x-auto gap-2">
               {[
-                { id: "all", label: "All Tickets" },
-                { id: "customer", label: "Customer Chat & Bugs" },
-                { id: "tailor", label: "Tailor Shop & Bank requests" },
-                { id: "delivery", label: "Delivery Vehicle & Bank requests" }
-              ].map((cat) => (
+                { id: "customer", label: "Customer Support" },
+                { id: "tailor", label: "Tailor Support & Verification" },
+                { id: "delivery", label: "Delivery Support & Verification" },
+                { id: "bugs", label: "Bug Reports" }
+              ].map((tab) => (
                 <button
-                  key={cat.id}
-                  onClick={() => setSupportCategory(cat.id)}
-                  className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
-                    supportCategory === cat.id
+                  key={tab.id}
+                  onClick={() => setSupportSubTab(tab.id as any)}
+                  className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
+                    supportSubTab === tab.id
                       ? "border-orange-500 text-orange-500"
                       : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {cat.label}
+                  {tab.label}
                 </button>
               ))}
             </div>
-            <DataTable columns={ticketColumns} data={filteredTickets} emptyMessage="No support tickets match the current search." />
+
+            {/* Tab Contents */}
+            {supportSubTab === "customer" && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+                  <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
+                    <Search size={16} className="text-[var(--muted)]" />
+                    <input
+                      type="text"
+                      className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
+                      placeholder="Search tickets..."
+                      value={customerSupportSearch}
+                      onChange={(e) => setCustomerSupportSearch(e.target.value)}
+                    />
+                  </div>
+                  <FilterSelect
+                    value={customerSupportStatus}
+                    onChange={setCustomerSupportStatus}
+                    options={[
+                      { label: "All Statuses", value: "" },
+                      { label: "Open", value: "OPEN" },
+                      { label: "In Progress", value: "IN_PROGRESS" },
+                      { label: "Resolved", value: "RESOLVED" },
+                      { label: "Closed", value: "CLOSED" }
+                    ]}
+                  />
+                </div>
+                {/* DataTable filtering tickets for CUSTOMER role */}
+                {(() => {
+                  const filtered = tickets.filter((t) => {
+                    const isCust = t.user?.role === "CUSTOMER" || t.subject?.includes("Customer") || (!t.user?.role && t.subject?.toLowerCase().includes("customer"));
+                    if (!isCust) return false;
+                    const searchMatch = !customerSupportSearch ||
+                      [t.subject, t.status, t.user?.phone, t.order?.orderNumber, t.user?.name]
+                        .filter(Boolean)
+                        .join(" ")
+                        .toLowerCase()
+                        .includes(customerSupportSearch.toLowerCase());
+                    const statusMatch = !customerSupportStatus || t.status === customerSupportStatus;
+                    return searchMatch && statusMatch;
+                  });
+                  return (
+                    <DataTable
+                      columns={ticketColumns}
+                      data={filtered}
+                      emptyMessage="No customer support tickets found."
+                    />
+                  );
+                })()}
+              </div>
+            )}
+
+            {supportSubTab === "tailor" && (
+              <div className="space-y-4">
+                <div className="flex border-b border-[var(--panel-border)] gap-2 mb-2">
+                  <button
+                    onClick={() => setTailorSupportStatus("")} // Use tailorSupportStatus as sub-view toggler: "" means chat, "requests" means requests
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
+                      tailorSupportStatus !== "requests"
+                        ? "bg-orange-500 text-white"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    Chat Tickets
+                  </button>
+                  <button
+                    onClick={() => setTailorSupportStatus("requests")}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
+                      tailorSupportStatus === "requests"
+                        ? "bg-orange-500 text-white"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    Account Change Requests
+                  </button>
+                </div>
+
+                {tailorSupportStatus !== "requests" ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
+                      <Search size={16} className="text-[var(--muted)]" />
+                      <input
+                        type="text"
+                        className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
+                        placeholder="Search tickets..."
+                        value={tailorSupportSearch}
+                        onChange={(e) => setTailorSupportSearch(e.target.value)}
+                      />
+                    </div>
+                    {(() => {
+                      const filtered = tickets.filter((t) => {
+                        const isTailor = t.user?.role === "TAILOR" || t.subject?.includes("Tailor");
+                        if (!isTailor) return false;
+                        return !tailorSupportSearch ||
+                          [t.subject, t.status, t.user?.phone, t.order?.orderNumber, t.user?.name]
+                            .filter(Boolean)
+                            .join(" ")
+                            .toLowerCase()
+                            .includes(tailorSupportSearch.toLowerCase());
+                      });
+                      return (
+                        <DataTable
+                          columns={ticketColumns}
+                          data={filtered}
+                          emptyMessage="No tailor support tickets found."
+                        />
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {changeRequestsQuery.data ? (
+                      (() => {
+                        const filtered = changeRequestsQuery.data.filter((req) => {
+                          return req.user?.role === "TAILOR" || req.userRole === "TAILOR";
+                        });
+                        return (
+                          <DataTable
+                            columns={changeRequestColumns}
+                            data={filtered}
+                            emptyMessage="No tailor account change requests found."
+                          />
+                        );
+                      })()
+                    ) : (
+                      <div className="h-16 flex items-center justify-center">
+                        <LoaderCircle className="animate-spin text-orange-500 h-4 w-4 mr-2" />
+                        <span className="text-xs text-[var(--muted)]">Loading change requests...</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {supportSubTab === "delivery" && (
+              <div className="space-y-4">
+                <div className="flex border-b border-[var(--panel-border)] gap-2 mb-2">
+                  <button
+                    onClick={() => setDeliverySupportStatus("")} // Use deliverySupportStatus as sub-view toggler: "" means chat, "requests" means requests
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
+                      deliverySupportStatus !== "requests"
+                        ? "bg-orange-500 text-white"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    Chat Tickets
+                  </button>
+                  <button
+                    onClick={() => setDeliverySupportStatus("requests")}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
+                      deliverySupportStatus === "requests"
+                        ? "bg-orange-500 text-white"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    Account Change Requests
+                  </button>
+                </div>
+
+                {deliverySupportStatus !== "requests" ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
+                      <Search size={16} className="text-[var(--muted)]" />
+                      <input
+                        type="text"
+                        className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
+                        placeholder="Search tickets..."
+                        value={deliverySupportSearch}
+                        onChange={(e) => setDeliverySupportSearch(e.target.value)}
+                      />
+                    </div>
+                    {(() => {
+                      const filtered = tickets.filter((t) => {
+                        const isDelivery = t.user?.role === "DELIVERY_PARTNER" || t.subject?.includes("Delivery");
+                        if (!isDelivery) return false;
+                        return !deliverySupportSearch ||
+                          [t.subject, t.status, t.user?.phone, t.order?.orderNumber, t.user?.name]
+                            .filter(Boolean)
+                            .join(" ")
+                            .toLowerCase()
+                            .includes(deliverySupportSearch.toLowerCase());
+                      });
+                      return (
+                        <DataTable
+                          columns={ticketColumns}
+                          data={filtered}
+                          emptyMessage="No delivery partner support tickets found."
+                        />
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {changeRequestsQuery.data ? (
+                      (() => {
+                        const filtered = changeRequestsQuery.data.filter((req) => {
+                          return req.user?.role === "DELIVERY_PARTNER" || req.userRole === "DELIVERY_PARTNER";
+                        });
+                        return (
+                          <DataTable
+                            columns={changeRequestColumns}
+                            data={filtered}
+                            emptyMessage="No delivery partner account change requests found."
+                          />
+                        );
+                      })()
+                    ) : (
+                      <div className="h-16 flex items-center justify-center">
+                        <LoaderCircle className="animate-spin text-orange-500 h-4 w-4 mr-2" />
+                        <span className="text-xs text-[var(--muted)]">Loading change requests...</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {supportSubTab === "bugs" && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+                  <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
+                    <Search size={16} className="text-[var(--muted)]" />
+                    <input
+                      type="text"
+                      className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
+                      placeholder="Search bugs..."
+                      value={bugSearch}
+                      onChange={(e) => setBugSearch(e.target.value)}
+                    />
+                  </div>
+                  <FilterSelect
+                    value={bugStatus}
+                    onChange={setBugStatus}
+                    options={[
+                      { label: "All Statuses", value: "" },
+                      { label: "New", value: "NEW" },
+                      { label: "Investigating", value: "INVESTIGATING" },
+                      { label: "In Progress", value: "IN_PROGRESS" },
+                      { label: "Fixed", value: "FIXED" },
+                      { label: "Closed", value: "CLOSED" }
+                    ]}
+                  />
+                </div>
+                {bugReportsQuery.data ? (
+                  (() => {
+                    const filtered = bugReportsQuery.data.filter((bug) => {
+                      const searchMatch = !bugSearch ||
+                        [bug.title, bug.description, bug.user?.name, bug.user?.phone]
+                          .filter(Boolean)
+                          .join(" ")
+                          .toLowerCase()
+                          .includes(bugSearch.toLowerCase());
+                      const statusMatch = !bugStatus || bug.status === bugStatus;
+                      return searchMatch && statusMatch;
+                    });
+                    return (
+                      <DataTable
+                        columns={bugReportColumns}
+                        data={filtered}
+                        emptyMessage="No bug reports found."
+                      />
+                    );
+                  })()
+                ) : (
+                  <div className="h-16 flex items-center justify-center">
+                    <LoaderCircle className="animate-spin text-orange-500 h-4 w-4 mr-2" />
+                    <span className="text-xs text-[var(--muted)]">Loading bug reports...</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -1363,6 +1750,28 @@ export function AdminPortal() {
         setOpen={(next: boolean) => {
           if (!next) setTicketDetail(null);
         }}
+        users={users}
+        orders={orders}
+        onOpenOrder={setOrderDetail}
+      />
+      <InspectBugReportDialog
+        open={Boolean(activeBugReport)}
+        bug={activeBugReport}
+        setOpen={(next: boolean) => {
+          if (!next) setActiveBugReport(null);
+        }}
+        users={users}
+        onUpdate={(params) => bugReportUpdateMutation.mutate(params)}
+      />
+      <InspectChangeRequestDialog
+        open={Boolean(activeChangeRequest)}
+        request={activeChangeRequest}
+        setOpen={(next: boolean) => {
+          if (!next) setActiveChangeRequest(null);
+        }}
+        onApprove={(id) => changeRequestApproveMutation.mutate({ requestId: id })}
+        onReject={(id, notes) => changeRequestRejectMutation.mutate({ requestId: id, adminNotes: notes })}
+        pending={changeRequestApproveMutation.isPending || changeRequestRejectMutation.isPending}
       />
       <AssignOrderDialog
         open={Boolean(assignOrderTarget)}
@@ -3261,11 +3670,17 @@ function UserDialog({
 function InspectTicketDialog({
   open,
   ticket,
-  setOpen
+  setOpen,
+  users,
+  orders,
+  onOpenOrder
 }: {
   open: boolean;
   ticket: SupportTicket | null;
   setOpen: (open: boolean) => void;
+  users: AdminUser[];
+  orders: Order[];
+  onOpenOrder: (order: Order) => void;
 }) {
   const [reply, setReply] = useState("");
   const [status, setStatus] = useState("RESOLVED");
@@ -3273,8 +3688,8 @@ function InspectTicketDialog({
 
   useEffect(() => {
     if (open && ticket) {
-      setReply(ticket.adminResponse ?? "");
-      setStatus(ticket.status === "OPEN" ? "RESOLVED" : ticket.status);
+      setReply("");
+      setStatus(ticket.status === "OPEN" ? "IN_PROGRESS" : ticket.status);
     }
   }, [open, ticket]);
 
@@ -3282,17 +3697,66 @@ function InspectTicketDialog({
     mutationFn: replyToSupportTicket,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "support-stats"] });
       setReply("");
       setOpen(false);
+      toast.success("Ticket reply sent");
+    },
+    onError: (err) => {
+      toast.error(extractError(err));
     }
   });
 
-  function handleSubmit() {
+  const updateMutation = useMutation({
+    mutationFn: replyToSupportTicket,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "support-stats"] });
+      toast.success("Ticket updated successfully");
+    },
+    onError: (err) => {
+      toast.error(extractError(err));
+    }
+  });
+
+  if (!ticket) return null;
+
+  const admins = users.filter((u) => u.role === "ADMIN");
+  const linkedOrder = orders.find(
+    (o) => o.id === ticket.orderId || o.orderNumber === ticket.order?.orderNumber
+  );
+
+  function handleSendReply() {
     if (!ticket) return;
     mutation.mutate({
       ticketId: ticket.id,
-      adminResponse: reply,
+      adminResponse: reply.trim(),
       status
+    });
+  }
+
+  function handleStatusChange(newStatus: string) {
+    if (!ticket) return;
+    setStatus(newStatus);
+    updateMutation.mutate({
+      ticketId: ticket.id,
+      status: newStatus
+    });
+  }
+
+  function handlePriorityChange(newPriority: string) {
+    if (!ticket) return;
+    updateMutation.mutate({
+      ticketId: ticket.id,
+      priority: newPriority
+    });
+  }
+
+  function handleAssigneeChange(newAssignee: string | null) {
+    if (!ticket) return;
+    updateMutation.mutate({
+      ticketId: ticket.id,
+      assignedTo: newAssignee
     });
   }
 
@@ -3300,98 +3764,550 @@ function InspectTicketDialog({
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,760px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
-          {ticket ? (
-            <>
-              <Dialog.Title className="text-2xl font-semibold">{ticket.subject}</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Support ticket detail view and reply channel.</Dialog.Description>
-              <div className="mt-6 space-y-5">
-                <InspectGrid
-                  items={[
-                    { label: "Customer", value: ticket.user?.name ?? ticket.user?.phone ?? "Unknown" },
-                    { label: "Status", value: <StatusBadge value={ticket.status} /> },
-                    { label: "Order", value: ticket.order?.orderNumber ?? "—" },
-                    { label: "Opened", value: formatDate(ticket.createdAt, true) }
-                  ]}
-                />
-                <Panel>
-                  <h4 className="text-lg font-semibold mb-3">Support Conversation</h4>
-                  <div className="flex flex-col space-y-4 max-h-[300px] overflow-y-auto p-4 bg-[#f8fafc] dark:bg-[#0f172a] rounded-2xl border border-[var(--panel-border)]">
-                    {/* Customer message bubble */}
-                    <div className="flex items-start gap-2.5 max-w-[85%]">
-                      <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-orange-500 text-white text-xs font-semibold">
-                        {ticket.user?.name ? ticket.user.name.slice(0, 2).toUpperCase() : "CU"}
-                      </div>
-                      <div className="flex flex-col gap-1 w-full">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-semibold text-[var(--foreground)]">{ticket.user?.name ?? ticket.user?.phone ?? "Customer"}</span>
-                          <span className="text-[10px] text-[var(--muted)]">{formatDate(ticket.createdAt, true)}</span>
-                        </div>
-                        <div className="leading-1.5 flex flex-col p-3 border-gray-200 bg-white dark:bg-slate-800 rounded-e-xl rounded-es-xl rounded-2xl shadow-sm border dark:border-none">
-                          <p className="text-sm font-normal text-gray-900 dark:text-white whitespace-pre-wrap">{ticket.message}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Admin response message bubble */}
-                    {ticket.adminResponse && (
-                      <div className="flex items-start gap-2.5 max-w-[85%] self-end flex-row-reverse">
-                        <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-slate-500 text-white text-xs font-semibold">
-                          AD
-                        </div>
-                        <div className="flex flex-col gap-1 w-full items-end">
-                          <div className="flex items-center space-x-2 flex-row-reverse gap-2">
-                            <span className="text-xs font-semibold text-[var(--foreground)]">Darji Support</span>
-                            <span className="text-[10px] text-[var(--muted)]">{formatDate(ticket.updatedAt, true)}</span>
-                          </div>
-                          <div className="leading-1.5 flex flex-col p-3 bg-orange-500 text-white rounded-s-xl rounded-ee-xl rounded-2xl shadow-sm">
-                            <p className="text-sm font-normal whitespace-pre-wrap">{ticket.adminResponse}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </Panel>
-                
-                <Panel>
-                  <h4 className="text-lg font-semibold text-[var(--foreground)]">Admin Response</h4>
-                  <textarea
-                    className="mt-3 w-full min-h-[90px] rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-3 text-sm outline-none text-[var(--foreground)]"
-                    placeholder="Type your response to the customer..."
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                  />
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">Ticket status:</span>
-                      <select
-                        className="h-10 rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none"
-                        value={status}
-                        onChange={(e) => setStatus(e.target.value)}
-                      >
-                        <option value="OPEN">Open</option>
-                        <option value="IN_PROGRESS">In Progress</option>
-                        <option value="RESOLVED">Resolved</option>
-                        <option value="CLOSED">Closed</option>
-                      </select>
-                    </div>
-                    <ActionButton
-                      onClick={handleSubmit}
-                      disabled={mutation.isPending || reply.trim().length < 5}
-                    >
-                      {mutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-                      Send Reply
-                    </ActionButton>
-                  </div>
-                </Panel>
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[min(96vw,840px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+          <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4">
+            <div>
+              <Dialog.Title className="text-xl font-bold text-[var(--foreground)]">
+                {ticket.subject}
+              </Dialog.Title>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+                <span>Category: <strong className="text-[var(--foreground)]">{ticket.category ?? "General"}</strong></span>
+                <span>•</span>
+                <span>Opened: <strong>{formatDate(ticket.createdAt, true)}</strong></span>
               </div>
-            </>
-          ) : null}
+            </div>
+            <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+              <X size={20} className="text-[var(--muted)] hover:text-[var(--foreground)]" />
+            </Dialog.Close>
+          </div>
+
+          <div className="mt-6 grid gap-6 md:grid-cols-12">
+            {/* Left Column: Chat Conversation Thread */}
+            <div className="md:col-span-7 flex flex-col space-y-4">
+              <Panel className="flex-1 flex flex-col bg-white dark:bg-slate-900 border border-[var(--panel-border)] rounded-2xl overflow-hidden p-0 h-[400px]">
+                {/* Chat bubbles container */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-orange-50/10 dark:bg-slate-955/20">
+                  {/* Customer Message Bubble */}
+                  <div className="flex items-start gap-2.5 max-w-[85%]">
+                    <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-orange-500 text-white text-xs font-bold">
+                      {ticket.user?.name ? ticket.user.name.slice(0, 2).toUpperCase() : "CU"}
+                    </div>
+                    <div className="flex flex-col gap-1 w-full">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-semibold text-[var(--foreground)]">
+                          {ticket.user?.name ?? ticket.user?.phone ?? "Customer"}
+                        </span>
+                        <span className="text-[10px] text-[var(--muted)]">
+                          {formatDate(ticket.createdAt, true)}
+                        </span>
+                      </div>
+                      <div className="leading-1.5 flex flex-col p-3.5 bg-white dark:bg-slate-800 rounded-e-2xl rounded-es-2xl shadow-sm border border-gray-100 dark:border-none">
+                        <p className="text-sm font-normal text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+                          {ticket.message}
+                        </p>
+                        
+                        {/* Attachments */}
+                        {ticket.attachments && ticket.attachments.length > 0 && (
+                          <div className="mt-3 border-t border-gray-100 dark:border-slate-700 pt-2">
+                            <p className="text-[10px] uppercase font-bold tracking-wider text-[var(--muted)] mb-1.5">Attachments</p>
+                            <div className="flex flex-wrap gap-2">
+                              {ticket.attachments.map((url, idx) => (
+                                <a
+                                  key={idx}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="relative block h-14 w-14 overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700 hover:opacity-80 transition bg-gray-50"
+                                >
+                                  {url.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                                    <img src={url} alt={`Attachment ${idx + 1}`} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-[9px] text-gray-500 font-bold uppercase p-1 text-center">
+                                      File
+                                    </div>
+                                  )}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Admin Reply Message Bubble */}
+                  {ticket.adminResponse && (
+                    <div className="flex items-start gap-2.5 max-w-[85%] self-end flex-row-reverse">
+                      <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-slate-700 text-white text-xs font-bold">
+                        AD
+                      </div>
+                      <div className="flex flex-col gap-1 w-full items-end">
+                        <div className="flex items-center space-x-2 flex-row-reverse gap-2">
+                          <span className="text-xs font-semibold text-[var(--foreground)]">
+                            Darji Support
+                          </span>
+                          <span className="text-[10px] text-[var(--muted)]">
+                            {formatDate(ticket.updatedAt, true)}
+                          </span>
+                        </div>
+                        <div className="leading-1.5 flex flex-col p-3.5 bg-[#f6a313] text-white rounded-s-2xl rounded-ee-2xl shadow-sm">
+                          <p className="text-sm font-normal whitespace-pre-wrap">
+                            {ticket.adminResponse}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Panel>
+
+              {/* Reply Box */}
+              <div className="space-y-3">
+                <textarea
+                  className="w-full min-h-[80px] rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-3 text-sm outline-none text-[var(--foreground)] focus:border-orange-500 focus:ring-1 focus:ring-orange-500/50 transition resize-none"
+                  placeholder="Type your response..."
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-[var(--muted)]">Next status:</span>
+                    <select
+                      className="h-8 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-2 text-xs outline-none text-[var(--foreground)]"
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value)}
+                    >
+                      <option value="IN_PROGRESS">In Progress</option>
+                      <option value="RESOLVED">Resolved</option>
+                      <option value="CLOSED">Closed</option>
+                    </select>
+                  </div>
+                  <ActionButton
+                    onClick={handleSendReply}
+                    disabled={mutation.isPending || reply.trim().length < 2}
+                  >
+                    {mutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                    Send Reply
+                  </ActionButton>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Ticket Info & Actions */}
+            <div className="md:col-span-5 space-y-4">
+              {/* Customer Profile Card */}
+              <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] rounded-2xl p-4">
+                <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-3">
+                  User Profile
+                </h4>
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-700 uppercase">
+                    {ticket.user?.name ? ticket.user.name.slice(0, 2) : "CU"}
+                  </div>
+                  <div>
+                    <h5 className="font-semibold text-sm text-[var(--foreground)]">
+                      {ticket.user?.name ?? "Unnamed User"}
+                    </h5>
+                    <p className="text-xs text-[var(--muted)]">{ticket.user?.phone}</p>
+                    <p className="text-[11px] text-[var(--muted)]">{ticket.user?.email ?? "No email address"}</p>
+                  </div>
+                </div>
+              </Panel>
+
+              {/* Linked Order Card */}
+              {ticket.orderId || ticket.order ? (
+                <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] rounded-2xl p-4">
+                  <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-3">
+                    Linked Order
+                  </h4>
+                  {linkedOrder ? (
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-sm text-[var(--foreground)]">
+                          {linkedOrder.orderNumber}
+                        </span>
+                        <StatusBadge value={linkedOrder.status} />
+                      </div>
+                      <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
+                        <p>Total amount: <strong className="text-[var(--foreground)]">{formatCurrency(linkedOrder.totalAmount)}</strong></p>
+                        <p>Payment: <strong className="text-[var(--foreground)]">{linkedOrder.paymentMethod}</strong></p>
+                        <p>Items: <strong>{linkedOrder.items.map(it => it.service?.name ?? "Custom Stitch").join(", ")}</strong></p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setOpen(false);
+                          onOpenOrder(linkedOrder);
+                        }}
+                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl border border-orange-200 text-orange-600 font-medium text-xs hover:bg-orange-50 transition"
+                      >
+                        <Search size={12} />
+                        Inspect Order Details
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--foreground)]">
+                        Order #{ticket.order?.orderNumber || ticket.orderId}
+                      </p>
+                      <p className="text-[11px] text-[var(--muted)] mt-1">Order details not fully loaded.</p>
+                    </div>
+                  )}
+                </Panel>
+              ) : null}
+
+              {/* Ticket Controls Panel */}
+              <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] rounded-2xl p-4 space-y-4">
+                <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-1">
+                  Ticket Controls
+                </h4>
+
+                {/* Assignee */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[var(--muted)]">Assign To</label>
+                  <select
+                    className="w-full h-9 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 text-xs outline-none text-[var(--foreground)]"
+                    value={ticket.assignedTo ?? ""}
+                    onChange={(e) => handleAssigneeChange(e.target.value || null)}
+                    disabled={updateMutation.isPending}
+                  >
+                    <option value="">Unassigned</option>
+                    {admins.map((admin) => (
+                      <option key={admin.id} value={admin.id}>
+                        {admin.name ?? admin.phone}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Priority */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[var(--muted)]">Ticket Priority</label>
+                  <select
+                    className="w-full h-9 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 text-xs outline-none text-[var(--foreground)]"
+                    value={ticket.priority ?? "MEDIUM"}
+                    onChange={(e) => handlePriorityChange(e.target.value)}
+                    disabled={updateMutation.isPending}
+                  >
+                    <option value="LOW">Low Priority</option>
+                    <option value="MEDIUM">Medium Priority</option>
+                    <option value="HIGH">High Priority</option>
+                  </select>
+                </div>
+
+                {/* Status */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-[var(--muted)]">Support Status</label>
+                  <select
+                    className="w-full h-9 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 text-xs outline-none text-[var(--foreground)]"
+                    value={ticket.status}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    disabled={updateMutation.isPending}
+                  >
+                    <option value="OPEN">Open</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="RESOLVED">Resolved</option>
+                    <option value="CLOSED">Closed</option>
+                  </select>
+                </div>
+
+                {/* Instant Actions */}
+                <div className="border-t border-[var(--panel-border)] pt-3 flex gap-2">
+                  <button
+                    onClick={() => handleStatusChange("RESOLVED")}
+                    disabled={updateMutation.isPending || ticket.status === "RESOLVED"}
+                    className="flex-1 py-2 rounded-xl text-xs font-semibold bg-green-50 text-green-700 hover:bg-green-100 transition disabled:opacity-50"
+                  >
+                    Resolve Ticket
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange("CLOSED")}
+                    disabled={updateMutation.isPending || ticket.status === "CLOSED"}
+                    className="flex-1 py-2 rounded-xl text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition disabled:opacity-50"
+                  >
+                    Close Ticket
+                  </button>
+                </div>
+              </Panel>
+            </div>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
 }
+
+function InspectBugReportDialog({
+  open,
+  bug,
+  setOpen,
+  users,
+  onUpdate
+}: {
+  open: boolean;
+  bug: BugReport | null;
+  setOpen: (open: boolean) => void;
+  users: AdminUser[];
+  onUpdate: (params: { bugId: string; status?: string; assignedTo?: string | null }) => void;
+}) {
+  const [status, setStatus] = useState("NEW");
+  const [assignedTo, setAssignedTo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open && bug) {
+      setStatus(bug.status);
+      setAssignedTo(bug.assignedTo ?? null);
+    }
+  }, [open, bug]);
+
+  if (!bug) return null;
+
+  const admins = users.filter((u) => u.role === "ADMIN");
+
+  return (
+    <Dialog.Root onOpenChange={setOpen} open={open}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+          <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4">
+            <div>
+              <Dialog.Title className="text-xl font-bold text-[var(--foreground)]">
+                Bug Report: {bug.title}
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
+                Submitted by {bug.user?.name ?? "Unknown user"} ({bug.user?.phone})
+              </Dialog.Description>
+            </div>
+            <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+              <X size={20} className="text-[var(--muted)] hover:text-[var(--foreground)]" />
+            </Dialog.Close>
+          </div>
+
+          <div className="mt-6 space-y-6">
+            <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] p-4 rounded-2xl">
+              <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-2">Description</h4>
+              <p className="text-sm whitespace-pre-wrap text-[var(--foreground)]">{bug.description}</p>
+            </Panel>
+
+            <InspectGrid
+              items={[
+                { label: "App Version", value: bug.appVersion ?? "0.1.0" },
+                { label: "Device Info", value: bug.deviceInfo ?? "Unknown" },
+                { label: "Submitted At", value: formatDate(bug.createdAt, true) },
+                { label: "Current Status", value: <StatusBadge value={bug.status} /> }
+              ]}
+            />
+
+            {bug.screenshot && (
+              <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] p-4 rounded-2xl">
+                <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-3">Screenshot</h4>
+                <a href={bug.screenshot} target="_blank" rel="noreferrer" className="block max-w-[280px] hover:opacity-90 transition">
+                  <img src={bug.screenshot} alt="Bug screenshot" className="rounded-xl border border-[var(--panel-border)] max-h-60 object-contain bg-slate-50" />
+                </a>
+              </Panel>
+            )}
+
+            <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] p-4 rounded-2xl space-y-4">
+              <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Resolution Controls</h4>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs text-[var(--muted)]">Status</label>
+                  <select
+                    className="w-full h-10 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 text-sm outline-none text-[var(--foreground)]"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                  >
+                    <option value="NEW">New</option>
+                    <option value="INVESTIGATING">Investigating</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="FIXED">Fixed</option>
+                    <option value="CLOSED">Closed</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs text-[var(--muted)]">Assign To</label>
+                  <select
+                    className="w-full h-10 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 text-sm outline-none text-[var(--foreground)]"
+                    value={assignedTo ?? ""}
+                    onChange={(e) => setAssignedTo(e.target.value || null)}
+                  >
+                    <option value="">Unassigned</option>
+                    {admins.map((admin) => (
+                      <option key={admin.id} value={admin.id}>
+                        {admin.name ?? admin.phone}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <ActionButton onClick={() => onUpdate({ bugId: bug.id, status, assignedTo })}>
+                  Save Bug Details
+                </ActionButton>
+              </div>
+            </Panel>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function InspectChangeRequestDialog({
+  open,
+  request,
+  setOpen,
+  onApprove,
+  onReject,
+  pending
+}: {
+  open: boolean;
+  request: AccountChangeRequest | null;
+  setOpen: (open: boolean) => void;
+  onApprove: (requestId: string) => void;
+  onReject: (requestId: string, adminNotes: string) => void;
+  pending: boolean;
+}) {
+  const [adminNotes, setAdminNotes] = useState("");
+  const [showRejectForm, setShowRejectForm] = useState(false);
+
+  useEffect(() => {
+    if (open && request) {
+      setAdminNotes(request.adminNotes ?? "");
+      setShowRejectForm(false);
+    }
+  }, [open, request]);
+
+  if (!request) return null;
+
+  function renderRequestedValues() {
+    const vals = request?.requestedValues || {};
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 text-sm">
+        {Object.entries(vals).map(([key, val]) => (
+          <div key={key} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 dark:bg-white/5">
+            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">{key}</p>
+            <p className="mt-1 font-semibold text-[var(--foreground)]">{String(val ?? "—")}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <Dialog.Root onOpenChange={setOpen} open={open}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+          <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4">
+            <div>
+              <Dialog.Title className="text-xl font-bold text-[var(--foreground)]">
+                Account Update Request
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
+                From {request.user?.name ?? "Partner"} ({request.user?.phone}) • Role: <strong>{request.user?.role}</strong>
+              </Dialog.Description>
+            </div>
+            <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
+              <X size={20} className="text-[var(--muted)] hover:text-[var(--foreground)]" />
+            </Dialog.Close>
+          </div>
+
+          <div className="mt-6 space-y-6">
+            <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] p-4 rounded-2xl">
+              <div className="flex items-center justify-between mb-4 border-b border-[var(--panel-border)] pb-3">
+                <span className="text-sm font-semibold text-[var(--foreground)]">
+                  Requested Change: <strong className="text-orange-500">{request.type}</strong>
+                </span>
+                <StatusBadge value={request.status} />
+              </div>
+              {renderRequestedValues()}
+            </Panel>
+
+            {request.documents && request.documents.length > 0 && (
+              <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] p-4 rounded-2xl">
+                <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-3">Verification Documents</h4>
+                <div className="flex flex-wrap gap-3">
+                  {request.documents.map((url, idx) => (
+                    <a
+                      key={idx}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block max-w-[200px] hover:opacity-90 transition bg-slate-50 border border-[var(--panel-border)] rounded-xl overflow-hidden"
+                    >
+                      {url.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                        <img src={url} alt={`Document ${idx + 1}`} className="max-h-40 object-contain w-full" />
+                      ) : (
+                        <div className="flex h-24 w-32 items-center justify-center p-3 text-xs text-gray-500 font-bold uppercase text-center">
+                          View File
+                        </div>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              </Panel>
+            )}
+
+            {request.status === "PENDING" && (
+              <div className="space-y-4">
+                {showRejectForm ? (
+                  <Panel className="border border-red-200 bg-red-50/10 p-4 rounded-2xl space-y-3">
+                    <label className="text-xs font-semibold text-red-700">Reason for Rejection</label>
+                    <textarea
+                      className="w-full min-h-[80px] rounded-xl border border-red-200 bg-[var(--panel-strong)] p-3 text-sm outline-none text-[var(--foreground)] focus:border-red-500 focus:ring-1 focus:ring-red-500/50 transition resize-none"
+                      placeholder="Explain to the partner why this request is rejected..."
+                      value={adminNotes}
+                      onChange={(e) => setAdminNotes(e.target.value)}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => setShowRejectForm(false)}
+                        className="py-1.5 px-3 rounded-xl text-xs font-medium bg-gray-100 hover:bg-gray-200 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => onReject(request.id, adminNotes.trim())}
+                        disabled={pending || adminNotes.trim().length < 4}
+                        className="py-1.5 px-3 rounded-xl text-xs font-medium bg-red-600 hover:bg-red-700 text-white transition disabled:opacity-50"
+                      >
+                        {pending ? <LoaderCircle className="h-3 w-3 animate-spin mr-1.5" /> : null}
+                        Confirm Reject
+                      </button>
+                    </div>
+                  </Panel>
+                ) : (
+                  <div className="flex justify-end gap-3 border-t border-[var(--panel-border)] pt-4">
+                    <button
+                      onClick={() => setShowRejectForm(true)}
+                      className="py-2.5 px-5 rounded-xl text-sm font-semibold bg-red-50 text-red-600 hover:bg-red-100 transition"
+                    >
+                      Reject Request
+                    </button>
+                    <ActionButton onClick={() => onApprove(request.id)} disabled={pending}>
+                      {pending ? <LoaderCircle className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                      Approve & Write-back Profile
+                    </ActionButton>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {request.status !== "PENDING" && request.adminNotes && (
+              <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] p-4 rounded-2xl">
+                <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-2">Admin Notes</h4>
+                <p className="text-sm italic text-[var(--muted)]">{request.adminNotes}</p>
+              </Panel>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 
 function AssignOrderDialog({
   onSubmit,
@@ -4046,6 +4962,121 @@ function getTicketColumns({
       )
     }
   ];
+}
+
+function getChangeRequestColumns({ onOpen }: { onOpen: (req: AccountChangeRequest) => void }): Array<ColumnDef<AccountChangeRequest>> {
+  return [
+    {
+      accessorKey: "type",
+      header: "Type",
+      cell: ({ row }) => <span className="font-semibold text-orange-500">{row.original.type}</span>
+    },
+    {
+      id: "user",
+      header: "Partner/Tailor",
+      accessorFn: (row) => row.user?.name ?? row.user?.phone ?? "",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium text-sm text-[var(--foreground)]">{row.original.user?.name ?? "Unnamed"}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.user?.phone}</p>
+        </div>
+      )
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => <StatusBadge value={row.original.status} />
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Submitted",
+      cell: ({ row }) => formatDate(row.original.createdAt, true)
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row.original)}>
+          Review Request
+        </ActionButton>
+      )
+    }
+  ];
+}
+
+function getBugReportColumns({ onOpen, users }: { onOpen: (bug: BugReport) => void; users: AdminUser[] }): Array<ColumnDef<BugReport>> {
+  return [
+    {
+      accessorKey: "title",
+      header: "Title",
+      cell: ({ row }) => <span className="font-semibold text-[var(--foreground)]">{row.original.title}</span>
+    },
+    {
+      id: "user",
+      header: "Reporter",
+      accessorFn: (row) => row.user?.name ?? row.user?.phone ?? "",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium text-sm text-[var(--foreground)]">{row.original.user?.name ?? "Unnamed"}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.user?.phone}</p>
+        </div>
+      )
+    },
+    {
+      accessorKey: "appVersion",
+      header: "App Version"
+    },
+    {
+      accessorKey: "deviceInfo",
+      header: "Device Info",
+      cell: ({ row }) => <span className="text-xs text-[var(--muted)] max-w-[120px] truncate block">{row.original.deviceInfo}</span>
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => <StatusBadge value={row.original.status} />
+    },
+    {
+      id: "assignedTo",
+      header: "Assignee",
+      cell: ({ row }) => {
+        const assigneeId = row.original.assignedTo;
+        const assignee = users.find(u => u.id === assigneeId);
+        return <span>{assignee?.name ?? assignee?.phone ?? "Unassigned"}</span>;
+      }
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Reported At",
+      cell: ({ row }) => formatDate(row.original.createdAt, true)
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      enableSorting: false,
+      cell: ({ row }) => (
+        <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row.original)}>
+          Inspect Bug
+        </ActionButton>
+      )
+    }
+  ];
+}
+
+function formatDuration(ms?: number | null) {
+  if (ms === undefined || ms === null || isNaN(ms)) return "—";
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  if (hours > 0) {
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
 }
 
 function buildMetrics(

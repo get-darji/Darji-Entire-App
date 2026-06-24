@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { addressSchema, couponSchema, serviceCatalog, supportTicketSchema } from "@darzi/shared";
+import { addressSchema, couponSchema, serviceCatalog, supportTicketSchema, bugReportSchema, accountChangeRequestSchema } from "@darzi/shared";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import {
   AddressModel,
@@ -17,6 +17,8 @@ import {
   TransactionModel,
   UserModel,
   WalletModel,
+  BugReportModel,
+  AccountChangeRequestModel,
   deliveryTypes
 } from "../models.js";
 import multer from "multer";
@@ -726,6 +728,28 @@ export async function createReviewController(req: Request, res: Response) {
 
 export async function createSupportTicketController(req: Request, res: Response) {
   const input = supportTicketSchema.parse(req.body);
+
+  // Anti-Spam: 30 seconds cooldown between any ticket submissions
+  const lastTicket = await SupportTicketModel.findOne({ userId: req.user!.id }).sort({ createdAt: -1 });
+  if (lastTicket && (Date.now() - new Date(lastTicket.createdAt).getTime() < 30 * 1000)) {
+    res.status(429).json({ message: "Please wait 30 seconds before opening another support ticket." });
+    return;
+  }
+
+  // Anti-Spam: Redirect to existing active ticket if category/order is the same
+  const query: any = {
+    userId: req.user!.id,
+    status: { $in: ["OPEN", "IN_PROGRESS"] }
+  };
+  if (input.orderId) query.orderId = input.orderId;
+  if (input.category) query.category = input.category;
+
+  const existing = await SupportTicketModel.findOne(query);
+  if (existing) {
+    res.status(200).json({ data: existing, redirected: true });
+    return;
+  }
+
   const ticket = await SupportTicketModel.create({ ...input, userId: req.user!.id });
   res.status(201).json({ data: ticket });
 }
@@ -734,15 +758,24 @@ export async function updateSupportTicketController(req: Request, res: Response)
   const { id } = req.params;
   const update = z.object({
     status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
-    adminResponse: z.string().optional().nullable()
+    adminResponse: z.string().optional().nullable(),
+    priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+    assignedTo: z.string().optional().nullable()
   }).parse(req.body);
 
-  const ticket = await SupportTicketModel.findByIdAndUpdate(id, update, { new: true });
+  const ticket = await SupportTicketModel.findById(id);
   if (!ticket) {
     res.status(404).json({ message: "Ticket not found" });
     return;
   }
 
+  // Automatically transition status to IN_PROGRESS if admin is responding
+  if (update.adminResponse && ticket.status === "OPEN" && !update.status) {
+    update.status = "IN_PROGRESS";
+  }
+
+  const updatedTicket = await SupportTicketModel.findByIdAndUpdate(id, update, { new: true });
+  
   if (update.adminResponse) {
     try {
       const user = await UserModel.findById(ticket.userId);
@@ -766,7 +799,7 @@ export async function updateSupportTicketController(req: Request, res: Response)
     }
   }
 
-  res.json({ data: ticket });
+  res.json({ data: updatedTicket });
 }
 
 export async function listSupportTicketsController(req: Request, res: Response) {
@@ -858,4 +891,227 @@ export async function updateSettingController(req: Request, res: Response) {
   const key = String(req.params.key);
   const setting = await SettingModel.findOneAndUpdate({ key }, { key, value: req.body.value }, { upsert: true, returnDocument: "after" });
   res.json({ data: setting });
+}
+
+export async function createBugReportController(req: Request, res: Response) {
+  const input = bugReportSchema.parse(req.body);
+  const bug = await BugReportModel.create({ ...input, userId: req.user!.id });
+  res.status(201).json({ data: bug });
+}
+
+export async function listBugReportsController(req: Request, res: Response) {
+  const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
+  const bugs = await BugReportModel.find(where).sort({ createdAt: -1 });
+  const data = await Promise.all(
+    bugs.map(async (bug) => ({
+      ...bug.toJSON(),
+      user: bug.userId ? (await UserModel.findById(bug.userId).select("phone name role"))?.toJSON() : undefined
+    }))
+  );
+  res.json({ data });
+}
+
+export async function updateBugReportController(req: Request, res: Response) {
+  const { id } = req.params;
+  const update = z.object({
+    status: z.enum(["NEW", "INVESTIGATING", "IN_PROGRESS", "FIXED", "CLOSED"]).optional(),
+    assignedTo: z.string().optional().nullable()
+  }).parse(req.body);
+
+  const bug = await BugReportModel.findByIdAndUpdate(id, update, { new: true });
+  if (!bug) {
+    res.status(404).json({ message: "Bug report not found" });
+    return;
+  }
+  res.json({ data: bug });
+}
+
+export async function createAccountChangeRequestController(req: Request, res: Response) {
+  const input = accountChangeRequestSchema.parse(req.body);
+  const request = await AccountChangeRequestModel.create({
+    ...input,
+    userId: req.user!.id,
+    userRole: req.user!.role as "TAILOR" | "DELIVERY_PARTNER"
+  });
+  res.status(201).json({ data: request });
+}
+
+export async function listAccountChangeRequestsController(req: Request, res: Response) {
+  const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
+  const requests = await AccountChangeRequestModel.find(where).sort({ createdAt: -1 });
+  const data = await Promise.all(
+    requests.map(async (request) => ({
+      ...request.toJSON(),
+      user: request.userId ? (await UserModel.findById(request.userId).select("phone name"))?.toJSON() : undefined
+    }))
+  );
+  res.json({ data });
+}
+
+export async function approveAccountChangeRequestController(req: Request, res: Response) {
+  const { id } = req.params;
+  const { adminNotes } = req.body;
+  const request = await AccountChangeRequestModel.findById(id);
+  if (!request) {
+    res.status(404).json({ message: "Change request not found" });
+    return;
+  }
+
+  if (request.status !== "PENDING") {
+    res.status(400).json({ message: "Request is already processed" });
+    return;
+  }
+
+  const userId = request.userId;
+  const vals = request.requestedValues as Record<string, any>;
+
+  if (request.userRole === "TAILOR") {
+    const tailor = await TailorModel.findOne({ userId });
+    if (tailor) {
+      const verification = (tailor.verification || {}) as Record<string, any>;
+      if (request.type === "ShopName") {
+        tailor.shopName = vals.shopName;
+        if (!verification.shop) verification.shop = {};
+        verification.shop.shopName = vals.shopName;
+      } else if (request.type === "BankAccount") {
+        if (!verification.bank) verification.bank = {};
+        verification.bank.accountHolder = vals.accountHolder;
+        verification.bank.accountNumber = vals.accountNumber;
+        verification.bank.ifsc = vals.ifsc;
+      } else if (request.type === "UPI") {
+        if (!verification.bank) verification.bank = {};
+        verification.bank.upi = vals.upi;
+      } else if (request.type === "Address") {
+        if (!verification.shop) verification.shop = {};
+        verification.shop.shopAddress = vals.shopAddress;
+      } else if (request.type === "ContactNumber") {
+        await UserModel.findByIdAndUpdate(userId, { phone: vals.phone });
+      }
+      tailor.verification = verification;
+      tailor.markModified("verification");
+      await tailor.save();
+    }
+  } else if (request.userRole === "DELIVERY_PARTNER") {
+    const partner = await DeliveryPartnerModel.findOne({ userId });
+    if (partner) {
+      const verification = (partner.verification || {}) as Record<string, any>;
+      if (request.type === "Vehicle") {
+        partner.vehicleNumber = vals.vehicleNumber;
+        if (!verification.vehicle) verification.vehicle = {};
+        verification.vehicle.vehicleNumber = vals.vehicleNumber;
+        verification.vehicle.vehicleModel = vals.vehicleModel;
+      } else if (request.type === "RC") {
+        if (!verification.vehicle) verification.vehicle = {};
+        verification.vehicle.rcPhotoUrl = vals.rcPhotoUrl;
+      } else if (request.type === "DrivingLicense") {
+        if (!verification.personal) verification.personal = {};
+        verification.personal.licensePhotoUrl = vals.licensePhotoUrl;
+      } else if (request.type === "BankAccount") {
+        if (!verification.bank) verification.bank = {};
+        verification.bank.accountHolder = vals.accountHolder;
+        verification.bank.accountNumber = vals.accountNumber;
+        verification.bank.ifsc = vals.ifsc;
+      } else if (request.type === "UPI") {
+        if (!verification.bank) verification.bank = {};
+        verification.bank.upi = vals.upi;
+      } else if (request.type === "ContactNumber") {
+        await UserModel.findByIdAndUpdate(userId, { phone: vals.phone });
+      }
+      partner.verification = verification;
+      partner.markModified("verification");
+      await partner.save();
+    }
+  }
+
+  request.status = "APPROVED";
+  request.adminNotes = adminNotes;
+  await request.save();
+
+  res.json({ data: request });
+}
+
+export async function rejectAccountChangeRequestController(req: Request, res: Response) {
+  const { id } = req.params;
+  const { adminNotes } = req.body;
+  const request = await AccountChangeRequestModel.findById(id);
+  if (!request) {
+    res.status(404).json({ message: "Change request not found" });
+    return;
+  }
+
+  if (request.status !== "PENDING") {
+    res.status(400).json({ message: "Request is already processed" });
+    return;
+  }
+
+  request.status = "REJECTED";
+  request.adminNotes = adminNotes;
+  await request.save();
+
+  res.json({ data: request });
+}
+
+export async function getSupportStatsController(req: Request, res: Response) {
+  const openTickets = await SupportTicketModel.countDocuments({ status: "OPEN" });
+  const pendingTickets = await SupportTicketModel.countDocuments({ status: "IN_PROGRESS" });
+  const resolvedTickets = await SupportTicketModel.countDocuments({ status: "RESOLVED" });
+  const closedTickets = await SupportTicketModel.countDocuments({ status: "CLOSED" });
+  const newBugs = await BugReportModel.countDocuments({ status: "NEW" });
+
+  const repliedTickets = await SupportTicketModel.find({ adminResponse: { $exists: true, $ne: null } });
+  let totalResponseTimeMs = 0;
+  let responseCount = 0;
+  for (const t of repliedTickets) {
+    const diff = new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime();
+    if (diff > 0) {
+      totalResponseTimeMs += diff;
+      responseCount++;
+    }
+  }
+  const avgResponseTime = responseCount > 0 ? (totalResponseTimeMs / responseCount / 60000) : 0;
+
+  const resolvedList = await SupportTicketModel.find({ status: { $in: ["RESOLVED", "CLOSED"] } });
+  let totalResolutionTimeMs = 0;
+  let resolutionCount = 0;
+  for (const t of resolvedList) {
+    const diff = new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime();
+    if (diff > 0) {
+      totalResolutionTimeMs += diff;
+      resolutionCount++;
+    }
+  }
+  const avgResolutionTime = resolutionCount > 0 ? (totalResolutionTimeMs / resolutionCount / 60000) : 0;
+
+  const categoryVolume = await SupportTicketModel.aggregate([
+    { $group: { _id: "$category", count: { $sum: 1 } } }
+  ]);
+  const volumeByCategory = Object.fromEntries(
+    categoryVolume.map((item) => [item._id || "Other Issue", item.count])
+  );
+
+  const allTickets = await SupportTicketModel.find({});
+  const volumeByUserType = { CUSTOMER: 0, TAILOR: 0, DELIVERY_PARTNER: 0 };
+  for (const t of allTickets) {
+    const user = await UserModel.findById(t.userId);
+    if (user) {
+      const role = user.role as keyof typeof volumeByUserType;
+      if (volumeByUserType[role] !== undefined) {
+        volumeByUserType[role]++;
+      }
+    }
+  }
+
+  res.json({
+    data: {
+      totalOpen: openTickets,
+      pendingTickets,
+      resolvedTickets,
+      closedTickets,
+      newBugs,
+      avgResponseTime,
+      avgResolutionTime,
+      volumeByCategory,
+      volumeByUserType
+    }
+  });
 }

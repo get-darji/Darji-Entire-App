@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View, Alert, Modal } from "react-native";
-import { api, uploadDeliveryAvatar } from "../api";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView } from "react-native";
+import { api, uploadDeliveryAvatar, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
 
 const BRAND_ORANGE = "#f6a313";
@@ -49,7 +49,7 @@ type MeResponse = {
   role: string;
   deliveryProfile?: DeliveryProfile;
 };
-type SupportScreen = "help" | "chat" | "call" | "email" | "faq" | "privacy" | "terms" | "safety" | "version" | "about";
+type SupportScreen = "help" | "chat" | "call" | "email" | "faq" | "privacy" | "terms" | "safety" | "version" | "about" | "support_center" | "requests";
 
 type Props = {
   me?: MeResponse;
@@ -406,7 +406,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
 
       <Section title="Support" icon="help-circle-outline" styles={styles}>
         <InfoRow icon="help-buoy-outline" title="Help Center" value="Delivery workflows and details" styles={styles} onPress={() => setSupportScreen("help")} noBorder />
-        <InfoRow icon="chatbubble-outline" title="Contact Support" value="Get help from our support team" styles={styles} onPress={() => setSupportScreen("chat")} />
+        <InfoRow icon="chatbubble-outline" title="Support Center" value="Chat, call, or request account updates" styles={styles} onPress={() => setSupportScreen("support_center")} />
       </Section>
 
       <Section title="Policies & Information" icon="document-text-outline" styles={styles}>
@@ -431,10 +431,14 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Section>
     </ScrollView>
     <Modal visible={Boolean(supportScreen)} onRequestClose={() => setSupportScreen(undefined)} animationType="slide">
-      {supportScreen === "chat" ? (
+      {supportScreen === "support_center" ? (
+        <DeliverySupportCenterScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} />
+      ) : supportScreen === "chat" ? (
         <DeliverySupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} />
+      ) : supportScreen === "requests" ? (
+        <DeliveryAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen ? (
-        <SupportDetailScreen screen={supportScreen} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
+        <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
       ) : null}
     </Modal>
   </View>
@@ -516,7 +520,7 @@ function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { ic
   );
 }
 
-const supportDetails: Record<SupportScreen, { title: string; subtitle: string; icon: IconName; copy: string; action?: { label: string; run: () => void }; points: string[] }> = {
+const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests">, { title: string; subtitle: string; icon: IconName; copy: string; action?: { label: string; run: () => void }; points: string[] }> = {
   help: {
     title: "Help Center",
     subtitle: "Delivery workflow support",
@@ -596,7 +600,7 @@ const supportDetails: Record<SupportScreen, { title: string; subtitle: string; i
   }
 };
 
-function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: SupportScreen; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
+function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: Exclude<SupportScreen, "support_center" | "requests">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
   const detail = supportDetails[screen];
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -802,6 +806,381 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
           )}
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+
+function DeliverySupportCenterScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+      {/* Header */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
+        <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>Support Center</Text>
+          <Text style={styles.meta}>How can we help you today?</Text>
+        </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
+        {/* Chat Support Option */}
+        <Pressable 
+          style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+          onPress={() => setScreen("chat")}
+        >
+          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Chat Support</Text>
+            <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Chat with Darji support representatives</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+        </Pressable>
+
+        {/* Call Support Option */}
+        <Pressable 
+          style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+          onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
+        >
+          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Call Support</Text>
+            <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Dial support line directly (+91 98765 00000)</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+        </Pressable>
+
+        {/* Account requests Option */}
+        <Pressable 
+          style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+          onPress={() => setScreen("requests")}
+        >
+          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Account Requests</Text>
+            <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Change vehicle, documents, bank details</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+}
+
+function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: { title: string; message: string; icon?: IconName }) => void }) {
+  const [type, setType] = useState<"Vehicle" | "RC" | "DrivingLicense" | "BankAccount" | "UPI" | "ContactNumber" >("Vehicle");
+  
+  const [vehicleNumberField, setVehicleNumberField] = useState("");
+  const [vehicleModelField, setVehicleModelField] = useState("");
+  const [accountHolder, setAccountHolder] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [ifsc, setIfsc] = useState("");
+  const [upiId, setUpiId] = useState("");
+  const [phoneField, setPhoneField] = useState("");
+
+  const [documents, setDocuments] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function pickDocumentImage() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to upload documents.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      quality: 0.8
+    });
+    if (result.canceled || !result.assets.length) return;
+    try {
+      setUploading(true);
+      const asset = result.assets[0];
+      const uploaded = await uploadDeliveryVerificationDocs([{ uri: asset.uri, name: asset.fileName || "document.jpg" }], token);
+      if (uploaded.length) {
+        setDocuments((prev) => [...prev, uploaded[0].url]);
+      }
+    } catch (e) {
+      Alert.alert("Upload failed", "Could not upload document reference.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSubmitRequest() {
+    let requestedValues: Record<string, any> = {};
+    if (type === "Vehicle") {
+      if (vehicleNumberField.trim().length < 4 || vehicleModelField.trim().length < 2) {
+        Alert.alert("Invalid Input", "Please enter valid vehicle number and model.");
+        return;
+      }
+      requestedValues = { vehicleNumber: vehicleNumberField.trim(), vehicleModel: vehicleModelField.trim() };
+    } else if (type === "RC") {
+      if (documents.length === 0) {
+        Alert.alert("Document Needed", "Please upload a photo of your vehicle RC card.");
+        return;
+      }
+      requestedValues = { rcPhotoUrl: documents[0] };
+    } else if (type === "DrivingLicense") {
+      if (documents.length === 0) {
+        Alert.alert("Document Needed", "Please upload a photo of your Driving License.");
+        return;
+      }
+      requestedValues = { licensePhotoUrl: documents[0] };
+    } else if (type === "BankAccount") {
+      if (accountHolder.trim().length < 2 || accountNumber.trim().length < 6 || ifsc.trim().length < 4) {
+        Alert.alert("Invalid Input", "Please enter valid bank account details.");
+        return;
+      }
+      requestedValues = { accountHolder: accountHolder.trim(), accountNumber: accountNumber.trim(), ifsc: ifsc.trim() };
+    } else if (type === "UPI") {
+      if (upiId.trim().length < 3 || !upiId.includes("@")) {
+        Alert.alert("Invalid Input", "Please enter a valid UPI ID.");
+        return;
+      }
+      requestedValues = { upi: upiId.trim() };
+    } else if (type === "ContactNumber") {
+      if (!/^[6-9]\d{9}$/.test(phoneField.trim())) {
+        Alert.alert("Invalid Input", "Please enter a valid 10 digit contact number.");
+        return;
+      }
+      requestedValues = { phone: phoneField.trim() };
+    }
+
+    if (!token) return;
+    try {
+      setSubmitting(true);
+      await api("/support/change-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          type,
+          requestedValues,
+          documents
+        })
+      }, token);
+
+      Alert.alert("Request Submitted", "Your change request has been submitted for admin verification.");
+      setVehicleNumberField("");
+      setVehicleModelField("");
+      setAccountHolder("");
+      setAccountNumber("");
+      setIfsc("");
+      setUpiId("");
+      setPhoneField("");
+      setDocuments([]);
+      setScreen("support_center");
+    } catch (e) {
+      Alert.alert("Error", "Could not submit change request.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+      {/* Header */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
+        <Pressable style={styles.backButton} onPress={() => setScreen("support_center")}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>Account Requests</Text>
+          <Text style={styles.meta}>Submit updates for admin approval</Text>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
+          {/* Request Type Selector */}
+          <View>
+            <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 8 }}>Select Field to Update</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {[
+                { id: "Vehicle", label: "Vehicle Number" },
+                { id: "RC", label: "RC Update" },
+                { id: "DrivingLicense", label: "License Update" },
+                { id: "BankAccount", label: "Bank Account" },
+                { id: "UPI", label: "UPI ID" },
+                { id: "ContactNumber", label: "Contact Number" }
+              ].map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={{
+                    height: 40,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: type === item.id ? BRAND_ORANGE : palette.cardBorder,
+                    backgroundColor: type === item.id ? palette.accentSurface : palette.card,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 16
+                  }}
+                  onPress={() => setType(item.id as any)}
+                >
+                  <Text style={{ color: type === item.id ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "900" }}>{item.label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+
+          {/* Dynamic Forms */}
+          <View style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 16, gap: 12 }}>
+            {type === "Vehicle" && (
+              <View style={{ gap: 12 }}>
+                <View>
+                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>New Vehicle Number</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: palette.background }]}
+                    value={vehicleNumberField}
+                    onChangeText={setVehicleNumberField}
+                    placeholder="e.g. DL 1S AB 1234..."
+                    placeholderTextColor={palette.subtext}
+                    autoCapitalize="characters"
+                  />
+                </View>
+                <View>
+                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Vehicle Model</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: palette.background }]}
+                    value={vehicleModelField}
+                    onChangeText={setVehicleModelField}
+                    placeholder="e.g. Honda Activa..."
+                    placeholderTextColor={palette.subtext}
+                  />
+                </View>
+              </View>
+            )}
+
+            {type === "RC" && (
+              <View>
+                <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Vehicle Registration Card (RC) Upload</Text>
+                <Text style={{ color: palette.subtext, fontSize: 12, marginBottom: 12 }}>Please upload a clear photograph of your vehicle RC card below.</Text>
+              </View>
+            )}
+
+            {type === "DrivingLicense" && (
+              <View>
+                <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Driving License Card Upload</Text>
+                <Text style={{ color: palette.subtext, fontSize: 12, marginBottom: 12 }}>Please upload a clear photograph of your physical Driving License below.</Text>
+              </View>
+            )}
+
+            {type === "BankAccount" && (
+              <View style={{ gap: 12 }}>
+                <View>
+                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Account Holder Name</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: palette.background }]}
+                    value={accountHolder}
+                    onChangeText={setAccountHolder}
+                    placeholder="Holder name..."
+                    placeholderTextColor={palette.subtext}
+                  />
+                </View>
+                <View>
+                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Account Number</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: palette.background }]}
+                    value={accountNumber}
+                    onChangeText={setAccountNumber}
+                    placeholder="Account number..."
+                    placeholderTextColor={palette.subtext}
+                    keyboardType="number-pad"
+                  />
+                </View>
+                <View>
+                  <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>IFSC Code</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: palette.background }]}
+                    value={ifsc}
+                    onChangeText={setIfsc}
+                    placeholder="IFSC code..."
+                    placeholderTextColor={palette.subtext}
+                    autoCapitalize="characters"
+                  />
+                </View>
+              </View>
+            )}
+
+            {type === "UPI" && (
+              <View>
+                <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>New UPI ID</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: palette.background }]}
+                  value={upiId}
+                  onChangeText={setUpiId}
+                  placeholder="username@bank..."
+                  placeholderTextColor={palette.subtext}
+                  autoCapitalize="none"
+                />
+              </View>
+            )}
+
+            {type === "ContactNumber" && (
+              <View>
+                <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>New Contact Number</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: palette.background }]}
+                  value={phoneField}
+                  onChangeText={setPhoneField}
+                  placeholder="10 digit phone number..."
+                  placeholderTextColor={palette.subtext}
+                  keyboardType="phone-pad"
+                />
+              </View>
+            )}
+          </View>
+
+          {/* Document Uploads */}
+          <View>
+            <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 8 }}>Supporting Documents / Photo Reference</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+              <Pressable
+                style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.card }}
+                onPress={pickDocumentImage}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color={BRAND_ORANGE} />
+                ) : (
+                  <>
+                    <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
+                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Add Doc</Text>
+                  </>
+                )}
+              </Pressable>
+              {documents.map((url, index) => (
+                <View key={url} style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderColor: palette.cardBorder, overflow: "hidden" }}>
+                  <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
+                  <Pressable
+                    style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}
+                    onPress={() => setDocuments((prev) => prev.filter((_, idx) => idx !== index))}
+                  >
+                    <Ionicons name="close" size={14} color="#ffffff" />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <Pressable
+            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting && { opacity: 0.6 }]}
+            disabled={submitting}
+            onPress={handleSubmitRequest}
+          >
+            {submitting ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Submit Request</Text>}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

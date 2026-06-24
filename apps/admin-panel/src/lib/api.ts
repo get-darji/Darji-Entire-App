@@ -16,7 +16,10 @@ import type {
   SettingRecord,
   SupportTicket,
   TailorProfile,
-  TailoringRequest
+  TailoringRequest,
+  BugReport,
+  AccountChangeRequest,
+  SupportStats
 } from "@/src/types/admin";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
@@ -176,7 +179,34 @@ export async function reviewDeliveryVerification(payload: {
   return unwrap<DeliveryPartnerProfile>(api.patch(`/delivery-partners/${partnerId}/verification-review`, body));
 }
 
-export async function replyToSupportTicket(payload: { ticketId: string; adminResponse: string; status: string }) {
+export async function replyToSupportTicket(payload: { ticketId: string; adminResponse?: string; status?: string; priority?: string; assignedTo?: string | null }) {
   const { ticketId, ...body } = payload;
   return unwrap<SupportTicket>(api.patch(`/support/${ticketId}`, body));
 }
+
+export async function getSupportStats() {
+  return unwrap<SupportStats>(api.get("/support/stats"));
+}
+
+export async function getBugReports() {
+  return unwrap<BugReport[]>(api.get("/support/bug-reports"));
+}
+
+export async function updateBugReport(payload: { bugId: string; status?: string; assignedTo?: string | null }) {
+  const { bugId, ...body } = payload;
+  return unwrap<BugReport>(api.patch(`/support/bug-reports/${bugId}`, body));
+}
+
+export async function getAccountChangeRequests() {
+  return unwrap<AccountChangeRequest[]>(api.get("/support/change-requests"));
+}
+
+export async function approveAccountChangeRequest(payload: { requestId: string }) {
+  return unwrap<AccountChangeRequest>(api.patch(`/support/change-requests/${payload.requestId}/approve`));
+}
+
+export async function rejectAccountChangeRequest(payload: { requestId: string; adminNotes?: string }) {
+  const { requestId, ...body } = payload;
+  return unwrap<AccountChangeRequest>(api.patch(`/support/change-requests/${requestId}/reject`, body));
+}
+

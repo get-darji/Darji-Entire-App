@@ -170,7 +170,53 @@ export type SupportTicket = {
     orderNumber?: string;
     status?: string;
   } | null;
+  category?: string | null;
+  priority?: "LOW" | "MEDIUM" | "HIGH";
+  assignedTo?: string | null;
+  attachments?: string[];
 };
+
+export type BugReport = {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  screenshot?: string | null;
+  deviceInfo: string;
+  appVersion: string;
+  status: "NEW" | "INVESTIGATING" | "IN_PROGRESS" | "FIXED" | "CLOSED";
+  assignedTo?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  user?: BasicUser | null;
+};
+
+export type AccountChangeRequest = {
+  id: string;
+  userId: string;
+  userRole?: "TAILOR" | "DELIVERY_PARTNER";
+  type: "ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "Vehicle" | "RC" | "DrivingLicense";
+  requestedValues: Record<string, any>;
+  documents?: string[];
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  adminNotes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  user?: BasicUser | null;
+};
+
+export type SupportStats = {
+  totalTickets: number;
+  openTickets: number;
+  pendingTickets: number;
+  resolvedTickets: number;
+  closedTickets: number;
+  avgResponseTimeMs?: number | null;
+  avgResolutionTimeMs?: number | null;
+  volumeByCategory: Record<string, number>;
+  volumeByUserRole: Record<string, number>;
+};
+
 
 export type Coupon = {
   id: string;
