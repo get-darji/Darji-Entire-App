@@ -28,9 +28,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setHydrated(true);
   }, [setHydrated]);
 
+  const theme = useAdminStore((state) => state.theme);
+  const hydrated = useAdminStore((state) => state.hydrated);
+
   useEffect(() => {
-    document.documentElement.classList.remove("dark");
-  }, []);
+    if (hydrated) {
+      if (theme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    }
+  }, [theme, hydrated]);
 
   return (
     <QueryClientProvider client={queryClient}>

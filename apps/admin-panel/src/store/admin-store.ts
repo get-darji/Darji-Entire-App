@@ -23,12 +23,14 @@ type AdminStore = {
   sidebarOpen: boolean;
   theme: ThemeMode;
   token: string | null;
+  supportSubTab: "customer" | "tailor" | "delivery" | "bugs";
   logout: () => void;
   setActiveSection: (section: SectionId) => void;
   setHydrated: (value: boolean) => void;
   setSidebarOpen: (value: boolean) => void;
   setToken: (token: string | null) => void;
   toggleTheme: () => void;
+  setSupportSubTab: (tab: "customer" | "tailor" | "delivery" | "bugs") => void;
 };
 
 export const useAdminStore = create<AdminStore>()(
@@ -39,12 +41,14 @@ export const useAdminStore = create<AdminStore>()(
       sidebarOpen: false,
       theme: "light",
       token: null,
-      logout: () => set({ token: null, activeSection: "dashboard", sidebarOpen: false }),
+      supportSubTab: "customer",
+      logout: () => set({ token: null, activeSection: "dashboard", sidebarOpen: false, supportSubTab: "customer" }),
       setActiveSection: (activeSection) => set({ activeSection }),
       setHydrated: (hydrated) => set({ hydrated }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
       setToken: (token) => set({ token }),
-      toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" }))
+      toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
+      setSupportSubTab: (supportSubTab) => set({ supportSubTab })
     }),
     {
       name: "darzi-admin-store",
@@ -52,7 +56,8 @@ export const useAdminStore = create<AdminStore>()(
       partialize: (state) => ({
         activeSection: state.activeSection,
         theme: state.theme,
-        token: state.token
+        token: state.token,
+        supportSubTab: state.supportSubTab
       }),
       onRehydrateStorage: () => (state) => state?.setHydrated(true)
     }

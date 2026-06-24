@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler } from "react-native";
 import { api, uploadTailorAvatar, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 
@@ -264,7 +264,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       <Section title="Account" icon="person-outline" styles={styles}>
         <InfoRow icon="create-outline" title="Edit Profile" value="Update name, shop details, and hours" styles={styles} onPress={() => setEditing(true)} noBorder />
         <InfoRow icon="storefront-outline" title="Shop Details" value={`${shopName} (Open: ${workingFrom} - ${workingTo})`} styles={styles} onPress={() => setShowShopDetails(true)} />
-        <InfoRow icon="card-outline" title="Bank Account Details" value="Configure payment payouts" styles={styles} onPress={() => setShowBankDetails(true)} />
+
       </Section>
 
       <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
@@ -546,10 +546,23 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog }: { 
 }
 
 function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
+  const [view, setView] = useState<"center" | "chat" | "new_chat">("center");
   const [tickets, setTickets] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+
+  // New ticket form
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  // Active chat
+  const [activeTicket, setActiveTicket] = useState<any>(null);
+  const [chatMessage, setChatMessage] = useState("");
   const [sending, setSending] = useState(false);
+
   const scrollViewRef = useRef<ScrollView>(null);
 
   const loadTickets = useCallback(async () => {
@@ -568,33 +581,126 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
     }
   }, [token]);
 
+  const loadOrders = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await api<{ data?: any[] }>("/orders", { method: "GET" }, token);
+      const list = Array.isArray(res) ? res : (res as any)?.data || [];
+      setOrders(list);
+    } catch (e) {
+      console.log("Failed to load orders", e);
+    }
+  }, [token]);
+
   useEffect(() => {
     loadTickets();
-  }, [loadTickets]);
+    loadOrders();
+  }, [loadTickets, loadOrders]);
 
   useEffect(() => {
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 150);
-  }, [tickets]);
+    if (view === "chat") {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 150);
+    }
+  }, [view, tickets, activeTicket]);
 
-  async function handleSend() {
-    if (message.trim().length < 10) {
-      Alert.alert("Message too short", "Please write at least 10 characters so we can help.");
+  useEffect(() => {
+    const onBackPress = () => {
+      if (view !== "center") {
+        setView("center");
+        return true;
+      }
+      return false;
+    };
+    const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => subscription.remove();
+  }, [view]);
+
+  async function pickAttachmentImage() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to upload photos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      quality: 0.8
+    });
+    if (result.canceled || !result.assets.length) return;
+    try {
+      setUploading(true);
+      const asset = result.assets[0];
+      const uploaded = await uploadTailorVerificationMedia([{ uri: asset.uri, name: asset.fileName || "attachment.jpg" }], token);
+      if (uploaded.length) {
+        setAttachments((prev) => [...prev, uploaded[0].url]);
+      }
+    } catch (e) {
+      Alert.alert("Upload failed", "Could not upload the attachment.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleStartChat() {
+    if (!selectedCategory) {
+      Alert.alert("Select Category", "Please select the help category related to your issue.");
+      return;
+    }
+    if (description.trim().length < 10) {
+      Alert.alert("Description too short", "Please type a detailed message (min 10 characters).");
       return;
     }
     if (!token) return;
     try {
       setSending(true);
-      await api("/support", {
+      const res = await api<any>("/support", {
         method: "POST",
         body: JSON.stringify({
-          subject: "Tailor Support Request",
-          message: message.trim()
+          subject: selectedCategory,
+          message: description.trim(),
+          orderId: selectedOrder?._id || selectedOrder?.id || null,
+          category: selectedCategory,
+          attachments
         })
       }, token);
-      setMessage("");
+
+      setDescription("");
+      setAttachments([]);
+      setSelectedOrder(null);
+      setSelectedCategory("");
       await loadTickets();
+      const newActive = res.data || res;
+      setActiveTicket(newActive);
+      setView("chat");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to start conversation.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleSendReply() {
+    if (chatMessage.trim().length < 2) return;
+    if (!token || !activeTicket) return;
+    try {
+      setSending(true);
+      await api<any>(`/support/${activeTicket._id || activeTicket.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          message: chatMessage.trim(),
+          adminResponse: null
+        })
+      }, token);
+      setChatMessage("");
+      await loadTickets();
+      // Reload updated active ticket
+      const ticketId = activeTicket._id || activeTicket.id;
+      const updated = tickets.find((t) => (t._id || t.id) === ticketId);
+      if (updated) {
+        setActiveTicket(updated);
+      }
     } catch (e) {
       Alert.alert("Failed", "Could not send message. Please try again.");
     } finally {
@@ -602,115 +708,358 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
     }
   }
 
-  return (
-    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
-      {/* Header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
-        <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
-          <Ionicons name="chevron-back" size={22} color={palette.text} />
-        </Pressable>
-        <View style={styles.rowMain}>
-          <Text style={styles.title}>Support Chat</Text>
-          <Text style={styles.meta}>Get help from our support team</Text>
-        </View>
-      </View>
+  async function handleCloseChat(ticketId: string) {
+    if (!token) return;
+    Alert.alert(
+      "Close Conversation?",
+      "Are you sure you want to close this chat? This will mark your support request as resolved.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Close",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await api(`/support/${ticketId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "CLOSED" })
+              }, token);
+              Alert.alert("Chat Closed", "This conversation has been closed.");
+              await loadTickets();
+              setActiveTicket(null);
+              setView("center");
+            } catch (e) {
+              Alert.alert("Failed", "Could not close the chat.");
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  }
 
-      {/* Messages list */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={{ flex: 1, paddingHorizontal: 18 }}
-        contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {loading && tickets.length === 0 ? (
-          <ActivityIndicator size="large" color={BRAND_ORANGE} style={{ marginTop: 40 }} />
-        ) : tickets.length === 0 ? (
-          <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 60 }}>
-            <Ionicons name="chatbubbles-outline" size={48} color={BRAND_ORANGE} style={{ marginBottom: 12 }} />
-            <Text style={{ color: palette.text, fontWeight: "800", fontSize: 16, textAlign: "center" }}>
-              How can we help you today?
-            </Text>
-            <Text style={{ color: palette.muted, fontSize: 13, textAlign: "center", marginTop: 6, paddingHorizontal: 30 }}>
-              Send us a message below. Our support agents will respond right here.
-            </Text>
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 4 : SCREEN_TOP_PADDING }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        {view === "center" && (
+          <View style={{ flex: 1, paddingHorizontal: 18 }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
+                <Ionicons name="chevron-back" size={22} color={palette.text} />
+              </Pressable>
+              <View style={styles.rowMain}>
+                <Text style={styles.title}>Support Chat</Text>
+                <Text style={styles.meta}>Get help from our support team</Text>
+              </View>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+              <Pressable 
+                style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+                onPress={() => {
+                  const active = tickets.find((t) => ["OPEN", "IN_PROGRESS"].includes(t.status));
+                  if (active) {
+                    setActiveTicket(active);
+                    setView("chat");
+                  } else {
+                    setView("new_chat");
+                  }
+                }}
+              >
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Start Support Chat</Text>
+                  <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Resolve active issues, payouts or quote disputes</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+              </Pressable>
+
+              <View style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
+                  <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>Previous Chats</Text>
+                </View>
+
+                {tickets.length === 0 ? (
+                  <View style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 24, alignItems: "center" }}>
+                    <Text style={{ color: palette.muted, fontSize: 13, fontWeight: "600" }}>No support chats found</Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {[...tickets].reverse().map((t) => (
+                      <Pressable 
+                        key={t._id || t.id}
+                        style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+                        onPress={() => {
+                          setActiveTicket(t);
+                          setView("chat");
+                        }}
+                      >
+                        <View style={{ flex: 1, marginRight: 12 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800" }}>#{t._id?.slice(-6).toUpperCase() || t.id.slice(-6).toUpperCase()}</Text>
+                            <View style={{ backgroundColor: t.status === "CLOSED" ? "#e2e8f0" : t.status === "RESOLVED" ? "#dcfce7" : "#fff9db", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ color: t.status === "CLOSED" ? "#64748b" : t.status === "RESOLVED" ? "#166534" : "#b58700", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
+                            </View>
+                          </View>
+                          <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Issue: {t.subject}</Text>
+                          <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{t.message}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={palette.muted} />
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
           </View>
-        ) : (
-          tickets.map((ticket) => (
-            <View key={ticket._id || ticket.id} style={{ gap: 6 }}>
-              <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
-                <Text style={{ color: "#000000", fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>
-                  You
-                </Text>
-                <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{ticket.message}</Text>
-                <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
-                  {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
+        )}
+
+        {view === "new_chat" && (
+          <View style={{ flex: 1, paddingHorizontal: 18 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <Pressable style={styles.backButton} onPress={() => setView("center")}>
+                <Ionicons name="chevron-back" size={22} color={palette.text} />
+              </Pressable>
+              <View style={styles.rowMain}>
+                <Text style={styles.title}>Start Conversation</Text>
+                <Text style={styles.meta}>Fill out details for support</Text>
+              </View>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+              <View>
+                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Related Order (Optional)</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                  <Pressable 
+                    style={{ minWidth: 100, height: 64, borderRadius: 14, borderWidth: 1, borderColor: !selectedOrder ? BRAND_ORANGE : palette.border, backgroundColor: palette.surface, padding: 10, justifyContent: "center" }}
+                    onPress={() => setSelectedOrder(null)}
+                  >
+                    <Text style={{ color: !selectedOrder ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "800", textAlign: "center" }}>No Linked Order</Text>
+                  </Pressable>
+                  {orders.map((o) => (
+                    <Pressable 
+                      key={o._id || o.id}
+                      style={{ minWidth: 120, height: 64, borderRadius: 14, borderWidth: 1, borderColor: selectedOrder?._id === o._id ? BRAND_ORANGE : palette.border, backgroundColor: palette.surface, padding: 10, justifyContent: "center" }}
+                      onPress={() => setSelectedOrder(o)}
+                    >
+                      <Text style={{ color: selectedOrder?._id === o._id ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "800" }}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
+                      <Text style={{ color: palette.muted, fontSize: 10, fontWeight: "700", marginTop: 2 }}>{o.status.replace(/_/g, " ")}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
               </View>
 
-              {ticket.adminResponse ? (
-                <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
-                  <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>
-                    Darji Support
-                  </Text>
-                  <Text style={{ color: palette.text, fontSize: 14, fontWeight: "700" }}>{ticket.adminResponse}</Text>
-                  <Text style={{ color: palette.muted, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
-                    {ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
-                  </Text>
+              <View>
+                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  {[
+                    { label: "Quote Issue", icon: "create-outline" },
+                    { label: "Order Delay", icon: "time-outline" },
+                    { label: "Material Issue", icon: "shirt-outline" },
+                    { label: "Payment Issue", icon: "card-outline" },
+                    { label: "Customer Dispute", icon: "people-outline" },
+                    { label: "Other Issue", icon: "help-circle-outline" }
+                  ].map((cat) => {
+                    const isSel = selectedCategory === cat.label;
+                    return (
+                      <Pressable 
+                        key={cat.label}
+                        style={{ width: "47%", height: 72, borderRadius: 14, borderWidth: 1, borderColor: isSel ? BRAND_ORANGE : palette.border, backgroundColor: palette.surface, alignItems: "center", justifyContent: "center", gap: 6 }}
+                        onPress={() => setSelectedCategory(cat.label)}
+                      >
+                        <Ionicons name={cat.icon as any} size={20} color={isSel ? BRAND_ORANGE : palette.muted} />
+                        <Text style={{ color: isSel ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "800" }}>{cat.label}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-              ) : (
-                <View style={{ alignSelf: "flex-end", marginRight: 6 }}>
-                  <Text style={{ color: palette.muted, fontSize: 10, fontStyle: "italic" }}>
-                    Status: {ticket.status || "OPEN"}
-                  </Text>
+              </View>
+
+              <View>
+                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Describe your Issue</Text>
+                <TextInput
+                  style={{ minHeight: 90, backgroundColor: palette.surface, borderRadius: 14, borderWidth: 1, borderColor: palette.border, padding: 12, color: palette.text, fontSize: 14, fontWeight: "600" }}
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="Tell us what went wrong (min 10 characters)..."
+                  placeholderTextColor={palette.muted}
+                  multiline
+                />
+              </View>
+
+              <View>
+                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Attach Image Reference (Optional)</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                  <Pressable 
+                    style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface }}
+                    onPress={pickAttachmentImage}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <ActivityIndicator color={BRAND_ORANGE} />
+                    ) : (
+                      <>
+                        <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
+                        <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Add Photo</Text>
+                      </>
+                    )}
+                  </Pressable>
+                  {attachments.map((url, index) => (
+                    <View key={url} style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderColor: palette.border, overflow: "hidden" }}>
+                      <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
+                      <Pressable 
+                        style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}
+                        onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== index))}
+                      >
+                        <Ionicons name="close" size={14} color="#ffffff" />
+                      </Pressable>
+                    </View>
+                  ))}
                 </View>
+              </View>
+
+              <Pressable 
+                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (description.trim().length < 10 || sending) && { opacity: 0.6 }]}
+                disabled={description.trim().length < 10 || sending}
+                onPress={handleStartChat}
+              >
+                {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Start Conversation</Text>}
+              </Pressable>
+            </ScrollView>
+          </View>
+        )}
+
+        {view === "chat" && activeTicket && (
+          <View style={{ flex: 1, paddingHorizontal: 18 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: palette.border, paddingBottom: 12, marginBottom: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                <Pressable 
+                  style={styles.backButton}
+                  onPress={() => {
+                    setActiveTicket(null);
+                    setView("center");
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={20} color={palette.text} />
+                </Pressable>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: palette.text, fontSize: 15, fontWeight: "800" }}>#{activeTicket._id?.slice(-6).toUpperCase() || activeTicket.id?.slice(-6).toUpperCase()}</Text>
+                  <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700" }}>{activeTicket.subject}</Text>
+                </View>
+              </View>
+              {activeTicket.status !== "CLOSED" && (
+                <Pressable 
+                  style={{ backgroundColor: "#fee2e2", borderColor: "#fecaca", paddingHorizontal: 12, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
+                  onPress={() => handleCloseChat(activeTicket._id || activeTicket.id)}
+                >
+                  <Text style={{ color: "#dc2626", fontSize: 11, fontWeight: "900" }}>Close Chat</Text>
+                </Pressable>
               )}
             </View>
-          ))
-        )}
-      </ScrollView>
 
-      {/* Message input */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 12, paddingBottom: 16, paddingHorizontal: 18 }}>
-        <TextInput
-          style={{
-            flex: 1,
-            minHeight: 46,
-            maxHeight: 100,
-            backgroundColor: palette.surface,
-            borderWidth: 1,
-            borderColor: palette.border,
-            borderRadius: 23,
-            paddingHorizontal: 16,
-            color: palette.text,
-            fontSize: 14,
-            fontWeight: "700"
-          }}
-          value={message}
-          onChangeText={setMessage}
-          placeholder="Type your message (min 10 chars)..."
-          placeholderTextColor={palette.muted}
-          multiline
-        />
-        <Pressable 
-          style={{
-            width: 46,
-            height: 46,
-            borderRadius: 23,
-            backgroundColor: BRAND_ORANGE,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: message.trim().length >= 10 && !sending ? 1 : 0.6
-          }}
-          onPress={handleSend}
-          disabled={message.trim().length < 10 || sending}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color="#000000" />
-          ) : (
-            <Ionicons name="send" size={18} color="#000000" />
-          )}
-        </Pressable>
-      </View>
+            <ScrollView
+              ref={scrollViewRef}
+              style={{ flex: 1, marginBottom: 8 }}
+              contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={{ gap: 6 }}>
+                <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
+                  <Text style={{ color: "#000000", fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
+                  <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
+                  {activeTicket.attachments && activeTicket.attachments.length > 0 && (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                      {activeTicket.attachments.map((url: string) => (
+                        <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                      ))}
+                    </View>
+                  )}
+                  <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
+                    {new Date(activeTicket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+
+                {activeTicket.status === "CLOSED" && (
+                  <View style={{ alignSelf: "center", backgroundColor: palette.surface, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, marginVertical: 8 }}>
+                    <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "800" }}>This chat is closed.</Text>
+                  </View>
+                )}
+
+                {activeTicket.adminResponse ? (
+                  <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
+                    <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>Darji Support</Text>
+                    <Text style={{ color: palette.text, fontSize: 14, fontWeight: "700" }}>{activeTicket.adminResponse}</Text>
+                    <Text style={{ color: palette.muted, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
+                      {activeTicket.adminRespondedAt ? new Date(activeTicket.adminRespondedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date(activeTicket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                ) : (
+                  activeTicket.status !== "CLOSED" && (
+                    <View style={{ alignSelf: "flex-start", backgroundColor: palette.surface, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: palette.border }}>
+                      <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700" }}>Waiting for support reply...</Text>
+                    </View>
+                  )
+                )}
+              </View>
+            </ScrollView>
+
+            {activeTicket.status !== "CLOSED" && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 12, paddingBottom: 16 }}>
+                <TextInput
+                  style={{
+                    flex: 1,
+                    minHeight: 46,
+                    maxHeight: 100,
+                    backgroundColor: palette.surface,
+                    borderWidth: 1,
+                    borderColor: palette.border,
+                    borderRadius: 23,
+                    paddingHorizontal: 16,
+                    color: palette.text,
+                    fontSize: 14,
+                    fontWeight: "700"
+                  }}
+                  value={chatMessage}
+                  onChangeText={setChatMessage}
+                  placeholder="Type message (min 2 chars)..."
+                  placeholderTextColor={palette.muted}
+                  multiline
+                />
+                <Pressable 
+                  style={{
+                    width: 46,
+                    height: 46,
+                    borderRadius: 23,
+                    backgroundColor: BRAND_ORANGE,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: chatMessage.trim().length >= 2 && !sending ? 1 : 0.6
+                  }}
+                  onPress={handleSendReply}
+                  disabled={chatMessage.trim().length < 2 || sending}
+                >
+                  {sending ? (
+                    <ActivityIndicator size="small" color="#000000" />
+                  ) : (
+                    <Ionicons name="send" size={18} color="#000000" />
+                  )}
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
+        {loading && (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.3)", alignItems: "center", justifyContent: "center", zIndex: 9999 }]}>
+            <ActivityIndicator size="large" color={BRAND_ORANGE} />
+          </View>
+        )}
+      </KeyboardAvoidingView>
     </View>
   );
 }

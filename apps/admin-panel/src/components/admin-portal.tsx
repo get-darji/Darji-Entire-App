@@ -58,7 +58,14 @@ import {
   Truck,
   UserCircle2,
   Users,
-  X
+  X,
+  CheckCheck,
+  Paperclip,
+  Smile,
+  FileText,
+  Image as ImageIcon,
+  Send,
+  ArrowRight
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -247,6 +254,8 @@ export function AdminPortal() {
   const [deliverySupportStatus, setDeliverySupportStatus] = useState("");
   const [bugSearch, setBugSearch] = useState("");
   const [bugStatus, setBugStatus] = useState("");
+  const [supportStatusFilter, setSupportStatusFilter] = useState("");
+  const [adminNotes, setAdminNotes] = useState("");
   const [activeChangeRequest, setActiveChangeRequest] = useState<AccountChangeRequest | null>(null);
   const [activeBugReport, setActiveBugReport] = useState<BugReport | null>(null);
   const [assignOrderTarget, setAssignOrderTarget] = useState<Order | null>(null);
@@ -554,6 +563,59 @@ export function AdminPortal() {
       toast.success("Account change request rejected");
       setActiveChangeRequest(null);
       await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const inlineTicketReplyMutation = useMutation({
+    mutationFn: replyToSupportTicket,
+    onSuccess: async (updatedTicket) => {
+      toast.success("Reply sent successfully");
+      await refreshData();
+      if (updatedTicket) {
+        setTicketDetail(updatedTicket);
+      }
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const inlineTicketUpdateMutation = useMutation({
+    mutationFn: replyToSupportTicket,
+    onSuccess: async (updatedTicket) => {
+      toast.success("Ticket updated successfully");
+      await refreshData();
+      if (updatedTicket) {
+        setTicketDetail(updatedTicket);
+      }
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const inlineBugUpdateMutation = useMutation({
+    mutationFn: updateBugReport,
+    onSuccess: async () => {
+      toast.success("Bug report updated successfully");
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const inlineChangeRequestApproveMutation = useMutation({
+    mutationFn: approveAccountChangeRequest,
+    onSuccess: async (data, variables) => {
+      toast.success("Account change request approved");
+      await refreshData();
+      setActiveChangeRequest(null);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const inlineChangeRequestRejectMutation = useMutation({
+    mutationFn: rejectAccountChangeRequest,
+    onSuccess: async (data, variables) => {
+      toast.success("Account change request rejected");
+      await refreshData();
+      setActiveChangeRequest(null);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1269,348 +1331,907 @@ export function AdminPortal() {
         ) : null}
 
         {activeSection === "support" ? (
-          <div className="space-y-6">
-            <SectionIntro
-              title="Support Center"
-              description="Manage customer, tailor, delivery fleet support operations, account request approvals, and track bugs."
-              action={
+          <div className="flex gap-6 h-[calc(100vh-170px)] overflow-hidden text-[var(--foreground)]">
+            
+            {/* COLUMN 1: Collapsible list of tickets & metadata */}
+            <div className="w-[380px] flex flex-col bg-[var(--panel)] border border-[var(--panel-border)] rounded-[24px] overflow-hidden p-4 shadow-[var(--shadow)] gap-4">
+              <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-2">
+                <div>
+                  <h2 className="text-lg font-bold text-[var(--foreground)]">Support Queue</h2>
+                  <p className="text-xs text-[var(--muted)]">Manage tickets, requests & bugs</p>
+                </div>
                 <ActionButton
                   variant="secondary"
+                  className="px-2.5 py-1 text-xs"
                   onClick={() => downloadCsv("darzi-support.csv", tickets.map(ticketToCsv))}
                 >
-                  Export All CSV
+                  Export CSV
                 </ActionButton>
-              }
-            />
-
-            {/* Support Dashboard Overview */}
-            {supportStatsQuery.data ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-                  <span className="text-xs uppercase font-semibold tracking-wider text-[var(--muted)]">Total Tickets</span>
-                  <span className="text-2xl font-bold mt-1 text-[var(--foreground)]">{supportStatsQuery.data.totalTickets}</span>
-                </Panel>
-                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-                  <span className="text-xs uppercase font-semibold tracking-wider text-orange-500">Open Tickets</span>
-                  <span className="text-2xl font-bold mt-1 text-orange-500">{supportStatsQuery.data.openTickets}</span>
-                </Panel>
-                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-                  <span className="text-xs uppercase font-semibold tracking-wider text-blue-500">In Progress</span>
-                  <span className="text-2xl font-bold mt-1 text-blue-500">{supportStatsQuery.data.pendingTickets}</span>
-                </Panel>
-                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-                  <span className="text-xs uppercase font-semibold tracking-wider text-green-600">Resolved / Closed</span>
-                  <span className="text-2xl font-bold mt-1 text-green-600">{supportStatsQuery.data.resolvedTickets + supportStatsQuery.data.closedTickets}</span>
-                </Panel>
-                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-                  <span className="text-xs uppercase font-semibold tracking-wider text-[var(--muted)]">Avg First Reply</span>
-                  <span className="text-xl font-bold mt-1 text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResponseTimeMs)}</span>
-                </Panel>
-                <Panel className="p-4 bg-[var(--panel)] border border-[var(--panel-border)] rounded-2xl flex flex-col justify-between shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-                  <span className="text-xs uppercase font-semibold tracking-wider text-[var(--muted)]">Avg Resolution</span>
-                  <span className="text-xl font-bold mt-1 text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResolutionTimeMs)}</span>
-                </Panel>
               </div>
-            ) : (
-              <div className="h-16 flex items-center justify-center bg-gray-50 dark:bg-white/5 rounded-2xl border border-[var(--panel-border)]">
-                <LoaderCircle className="animate-spin text-orange-500 h-5 w-5 mr-2" />
-                <span className="text-xs text-[var(--muted)]">Fetching support metrics...</span>
-              </div>
-            )}
 
-            {/* Navigation Tabs */}
-            <div className="flex border-b border-[var(--panel-border)] overflow-x-auto gap-2">
-              {[
-                { id: "customer", label: "Customer Support" },
-                { id: "tailor", label: "Tailor Support & Verification" },
-                { id: "delivery", label: "Delivery Support & Verification" },
-                { id: "bugs", label: "Bug Reports" }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setSupportSubTab(tab.id as any)}
-                  className={`px-4 py-2.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
-                    supportSubTab === tab.id
-                      ? "border-orange-500 text-orange-500"
-                      : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+              {/* Toggle Subtabs for Tailor & Delivery */}
+              {(supportSubTab === "tailor" || supportSubTab === "delivery") && (
+                <div className="flex rounded-xl bg-[var(--panel-strong)] p-1 border border-[var(--panel-border)]">
+                  <button
+                    onClick={() => {
+                      if (supportSubTab === "tailor") setTailorSupportStatus("");
+                      if (supportSubTab === "delivery") setDeliverySupportStatus("");
+                    }}
+                    className={cn(
+                      "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                      ((supportSubTab === "tailor" && tailorSupportStatus !== "requests") ||
+                       (supportSubTab === "delivery" && deliverySupportStatus !== "requests"))
+                        ? "bg-orange-500 text-white shadow-sm"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    )}
+                  >
+                    Chat Tickets
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (supportSubTab === "tailor") setTailorSupportStatus("requests");
+                      if (supportSubTab === "delivery") setDeliverySupportStatus("requests");
+                    }}
+                    className={cn(
+                      "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                      ((supportSubTab === "tailor" && tailorSupportStatus === "requests") ||
+                       (supportSubTab === "delivery" && deliverySupportStatus === "requests"))
+                        ? "bg-orange-500 text-white shadow-sm"
+                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    )}
+                  >
+                    Verification Requests
+                  </button>
+                </div>
+              )}
+
+              {/* Status Tabs Chips Row */}
+              {(() => {
+                // Compute counters dynamically based on subtab
+                let allItems: any[] = [];
+                if (supportSubTab === "customer") {
+                  allItems = tickets.filter(t => t.user?.role === "CUSTOMER" || t.subject?.includes("Customer") || (!t.user?.role && t.subject?.toLowerCase().includes("customer")));
+                } else if (supportSubTab === "tailor") {
+                  if (tailorSupportStatus === "requests") {
+                    allItems = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "TAILOR" || r.userRole === "TAILOR") : [];
+                  } else {
+                    allItems = tickets.filter(t => t.user?.role === "TAILOR" || t.subject?.includes("Tailor"));
+                  }
+                } else if (supportSubTab === "delivery") {
+                  if (deliverySupportStatus === "requests") {
+                    allItems = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "DELIVERY_PARTNER" || r.userRole === "DELIVERY_PARTNER") : [];
+                  } else {
+                    allItems = tickets.filter(t => t.user?.role === "DELIVERY_PARTNER" || t.subject?.includes("Delivery"));
+                  }
+                } else if (supportSubTab === "bugs") {
+                  allItems = bugReportsQuery.data || [];
+                }
+
+                // Filter by search term
+                const searchVal = supportSubTab === "customer" ? customerSupportSearch
+                                : supportSubTab === "tailor" ? tailorSupportSearch
+                                : supportSubTab === "delivery" ? deliverySupportSearch
+                                : bugSearch;
+
+                const searchFiltered = allItems.filter(item => {
+                  if (!searchVal) return true;
+                  const text = (item.subject || item.title || item.type || "") + " " + (item.user?.name || "") + " " + (item.user?.phone || "") + " " + (item.order?.orderNumber || "");
+                  return text.toLowerCase().includes(searchVal.toLowerCase());
+                });
+
+                // Status chip labels & counts
+                const getStatusCount = (statusId: string) => {
+                  if (!statusId) return allItems.length;
+                  return allItems.filter(item => {
+                    // Check support tickets
+                    if ("subject" in item) {
+                      if (statusId === "OPEN") return item.status === "OPEN";
+                      if (statusId === "PENDING") return item.status === "IN_PROGRESS" || item.status === "PENDING";
+                      if (statusId === "RESOLVED") return item.status === "RESOLVED";
+                      if (statusId === "CLOSED") return item.status === "CLOSED";
+                    }
+                    // Check change requests
+                    if ("requestedValues" in item) {
+                      if (statusId === "OPEN" || statusId === "PENDING") return item.status === "PENDING";
+                      if (statusId === "RESOLVED") return item.status === "APPROVED";
+                      if (statusId === "CLOSED") return item.status === "REJECTED";
+                    }
+                    // Check bug reports
+                    if ("deviceInfo" in item) {
+                      if (statusId === "OPEN") return item.status === "NEW";
+                      if (statusId === "PENDING") return item.status === "INVESTIGATING" || item.status === "IN_PROGRESS";
+                      if (statusId === "RESOLVED") return item.status === "FIXED";
+                      if (statusId === "CLOSED") return item.status === "CLOSED";
+                    }
+                    return false;
+                  }).length;
+                };
+
+                const activeTicketsList = searchFiltered.filter(item => {
+                  if (!supportStatusFilter) return true;
+                  if ("subject" in item) {
+                    if (supportStatusFilter === "OPEN") return item.status === "OPEN";
+                    if (supportStatusFilter === "PENDING") return item.status === "IN_PROGRESS" || item.status === "PENDING";
+                    if (supportStatusFilter === "RESOLVED") return item.status === "RESOLVED";
+                    if (supportStatusFilter === "CLOSED") return item.status === "CLOSED";
+                  }
+                  if ("requestedValues" in item) {
+                    if (supportStatusFilter === "OPEN" || supportStatusFilter === "PENDING") return item.status === "PENDING";
+                    if (supportStatusFilter === "RESOLVED") return item.status === "APPROVED";
+                    if (supportStatusFilter === "CLOSED") return item.status === "REJECTED";
+                  }
+                  if ("deviceInfo" in item) {
+                    if (supportStatusFilter === "OPEN") return item.status === "NEW";
+                    if (supportStatusFilter === "PENDING") return item.status === "INVESTIGATING" || item.status === "IN_PROGRESS";
+                    if (supportStatusFilter === "RESOLVED") return item.status === "FIXED";
+                    if (supportStatusFilter === "CLOSED") return item.status === "CLOSED";
+                  }
+                  return false;
+                });
+
+                return (
+                  <>
+                    <div className="flex flex-wrap gap-1 border-b border-[var(--panel-border)] pb-3">
+                      {[
+                        { id: "", label: "All" },
+                        { id: "OPEN", label: "Open" },
+                        { id: "PENDING", label: "Pending" },
+                        { id: "RESOLVED", label: "Resolved" },
+                        { id: "CLOSED", label: "Closed" }
+                      ].map(chip => (
+                        <button
+                          key={chip.id}
+                          onClick={() => setSupportStatusFilter(chip.id)}
+                          className={cn(
+                            "px-2.5 py-1 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all border",
+                            supportStatusFilter === chip.id
+                              ? "bg-orange-500/10 text-orange-500 border-orange-500/30"
+                              : "border-transparent text-[var(--muted)] hover:bg-black/5 dark:hover:bg-white/5"
+                          )}
+                        >
+                          {chip.label}
+                          <span className={cn(
+                            "px-1.5 py-0.5 rounded-full text-[10px] font-bold",
+                            supportStatusFilter === chip.id
+                              ? "bg-orange-500 text-white"
+                              : "bg-black/5 dark:bg-white/5 text-[var(--muted)]"
+                          )}>
+                            {getStatusCount(chip.id)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search Field */}
+                    <div className="flex items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2">
+                      <Search size={16} className="text-[var(--muted)]" />
+                      <input
+                        type="text"
+                        className="bg-transparent text-xs outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
+                        placeholder="Search tickets, names, order ID..."
+                        value={
+                          supportSubTab === "customer" ? customerSupportSearch
+                          : supportSubTab === "tailor" ? tailorSupportSearch
+                          : supportSubTab === "delivery" ? deliverySupportSearch
+                          : bugSearch
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (supportSubTab === "customer") setCustomerSupportSearch(val);
+                          else if (supportSubTab === "tailor") setTailorSupportSearch(val);
+                          else if (supportSubTab === "delivery") setDeliverySupportSearch(val);
+                          else setBugSearch(val);
+                        }}
+                      />
+                    </div>
+
+                    {/* Scrollable list of cards */}
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                      {activeTicketsList.length === 0 ? (
+                        <div className="p-8 text-center border border-dashed border-[var(--panel-border)] rounded-2xl">
+                          <p className="text-xs text-[var(--muted)]">No active items in list</p>
+                        </div>
+                      ) : (
+                        activeTicketsList.map(item => {
+                          // Determine item type & unique ID
+                          const isTicket = "subject" in item;
+                          const isRequest = "requestedValues" in item;
+                          const isBug = "deviceInfo" in item;
+
+                          let title = "";
+                          let subtitle = "";
+                          let details = "";
+                          let isSelected = false;
+                          let statusVal = "";
+                          let itemId = "";
+
+                          if (isTicket) {
+                            itemId = item.id;
+                            title = item.user?.name ?? item.user?.phone ?? "Customer";
+                            subtitle = `#${item.id.slice(-6).toUpperCase()}`;
+                            details = item.message;
+                            statusVal = item.status;
+                            isSelected = ticketDetail?.id === item.id;
+                          } else if (isRequest) {
+                            itemId = item.id;
+                            title = item.user?.name ?? item.user?.phone ?? "Partner";
+                            subtitle = `Update: ${item.type}`;
+                            details = Object.keys(item.requestedValues || {}).join(", ");
+                            statusVal = item.status;
+                            isSelected = activeChangeRequest?.id === item.id;
+                          } else if (isBug) {
+                            itemId = item.id;
+                            title = item.title;
+                            subtitle = `Bug #${item.id.slice(-6).toUpperCase()}`;
+                            details = item.description;
+                            statusVal = item.status;
+                            isSelected = activeBugReport?.id === item.id;
+                          }
+
+                          return (
+                            <div
+                              key={itemId}
+                              onClick={() => {
+                                if (isTicket) {
+                                  setTicketDetail(item);
+                                  setActiveChangeRequest(null);
+                                  setActiveBugReport(null);
+                                } else if (isRequest) {
+                                  setActiveChangeRequest(item);
+                                  setTicketDetail(null);
+                                  setActiveBugReport(null);
+                                } else if (isBug) {
+                                  setActiveBugReport(item);
+                                  setTicketDetail(null);
+                                  setActiveChangeRequest(null);
+                                }
+                              }}
+                              className={cn(
+                                "p-3 rounded-2xl border transition-all cursor-pointer flex flex-col gap-1.5",
+                                isSelected
+                                  ? "bg-orange-500/10 border-orange-500/30 shadow-sm"
+                                  : "border-[var(--panel-border)] bg-[var(--panel-strong)]/30 hover:bg-black/5 dark:hover:bg-white/5"
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-xs">
+                                    {title.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <h4 className="text-xs font-bold text-[var(--foreground)] truncate max-w-[140px]">{title}</h4>
+                                    <p className="text-[10px] text-[var(--muted)] font-medium">{subtitle}</p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="text-[9px] text-[var(--muted)]">
+                                    {new Date(item.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                                  </span>
+                                  <StatusBadge value={statusVal} />
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-[var(--muted)] line-clamp-2 leading-relaxed pl-9">
+                                {details}
+                              </p>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Bottom statistics collapsible overview */}
+              {supportStatsQuery.data && (
+                <div className="border-t border-[var(--panel-border)] pt-3">
+                  <div className="rounded-2xl bg-[var(--panel-strong)] p-3 border border-[var(--panel-border)] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-[var(--foreground)]">Support Statistics</span>
+                      <span className="text-[10px] text-green-600 font-bold bg-green-100 dark:bg-green-600/10 px-1.5 py-0.5 rounded">Active</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <div className="p-1.5 rounded-xl bg-black/5 dark:bg-white/5">
+                        <p className="text-[10px] text-[var(--muted)]">Open Tickets</p>
+                        <p className="text-sm font-bold text-orange-500">{supportStatsQuery.data.openTickets}</p>
+                      </div>
+                      <div className="p-1.5 rounded-xl bg-black/5 dark:bg-white/5">
+                        <p className="text-[10px] text-[var(--muted)]">In Progress</p>
+                        <p className="text-sm font-bold text-blue-500">{supportStatsQuery.data.pendingTickets}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Tab Contents */}
-            {supportSubTab === "customer" && (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-                  <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
-                    <Search size={16} className="text-[var(--muted)]" />
-                    <input
-                      type="text"
-                      className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
-                      placeholder="Search tickets..."
-                      value={customerSupportSearch}
-                      onChange={(e) => setCustomerSupportSearch(e.target.value)}
-                    />
-                  </div>
-                  <FilterSelect
-                    value={customerSupportStatus}
-                    onChange={setCustomerSupportStatus}
-                    options={[
-                      { label: "All Statuses", value: "" },
-                      { label: "Open", value: "OPEN" },
-                      { label: "In Progress", value: "IN_PROGRESS" },
-                      { label: "Resolved", value: "RESOLVED" },
-                      { label: "Closed", value: "CLOSED" }
-                    ]}
-                  />
-                </div>
-                {/* DataTable filtering tickets for CUSTOMER role */}
-                {(() => {
-                  const filtered = tickets.filter((t) => {
-                    const isCust = t.user?.role === "CUSTOMER" || t.subject?.includes("Customer") || (!t.user?.role && t.subject?.toLowerCase().includes("customer"));
-                    if (!isCust) return false;
-                    const searchMatch = !customerSupportSearch ||
-                      [t.subject, t.status, t.user?.phone, t.order?.orderNumber, t.user?.name]
-                        .filter(Boolean)
-                        .join(" ")
-                        .toLowerCase()
-                        .includes(customerSupportSearch.toLowerCase());
-                    const statusMatch = !customerSupportStatus || t.status === customerSupportStatus;
-                    return searchMatch && statusMatch;
-                  });
+            {/* COLUMN 2: Selected Item inspector & WhatsApp bubbles */}
+            <div className="flex-1 flex flex-col bg-[var(--panel)] border border-[var(--panel-border)] rounded-[24px] overflow-hidden shadow-[var(--shadow)]">
+              {ticketDetail ? (
+                (() => {
+                  const ticket = ticketDetail;
+                  const messages = [
+                    { id: "init", sender: "client", text: ticket.message, attachments: ticket.attachments, date: ticket.createdAt },
+                    ...(ticket.adminResponse ? [{ id: "reply", sender: "admin", text: ticket.adminResponse, date: ticket.updatedAt }] : [])
+                  ];
+
+                  const admins = users.filter((u) => u.role === "ADMIN");
+                  const activeAssignee = admins.find(a => a.id === ticket.assignedTo);
+
                   return (
-                    <DataTable
-                      columns={ticketColumns}
-                      data={filtered}
-                      emptyMessage="No customer support tickets found."
-                    />
+                    <div className="flex-1 flex flex-col h-full overflow-hidden">
+                      {/* Header */}
+                      <div className="p-4 border-b border-[var(--panel-border)] bg-[var(--panel)] flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold">
+                            {ticket.user?.name?.charAt(0).toUpperCase() || "C"}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-bold text-[var(--foreground)]">{ticket.user?.name ?? "Customer"}</h3>
+                              <span className="text-[10px] bg-black/5 dark:bg-white/5 text-[var(--muted)] px-2 py-0.5 rounded-full font-semibold">
+                                #{ticket.id.slice(-6).toUpperCase()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-[var(--muted)] mt-0.5">Subject: {ticket.subject}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <StatusBadge value={ticket.status} />
+                          <Badge tone={ticket.priority === "HIGH" ? "rose" : ticket.priority === "MEDIUM" ? "amber" : "slate"}>
+                            {ticket.priority ?? "NORMAL"}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {/* Chat Bubbles Feed */}
+                      <div className="flex-1 p-4 overflow-y-auto bg-[var(--panel-strong)]/30 space-y-4 flex flex-col justify-end">
+                        <div className="space-y-4 overflow-y-auto pr-1">
+                          {messages.map(msg => {
+                            const isClient = msg.sender === "client";
+                            return (
+                              <div key={msg.id} className={cn("flex gap-2 max-w-[80%]", isClient ? "self-start" : "self-end flex-row-reverse ml-auto")}>
+                                <div className={cn(
+                                  "w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 select-none",
+                                  isClient ? "bg-orange-100 dark:bg-orange-500/20 text-orange-500" : "bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200"
+                                )}>
+                                  {isClient ? (ticket.user?.name?.charAt(0).toUpperCase() || "C") : "A"}
+                                </div>
+                                <div className={cn(
+                                  "p-3 rounded-2xl relative shadow-sm",
+                                  isClient
+                                    ? "bg-[var(--panel)] border border-[var(--panel-border)] rounded-tl-sm text-[var(--foreground)]"
+                                    : "bg-orange-500 text-white rounded-tr-sm"
+                                )}>
+                                  <p className="text-xs font-bold mb-1 opacity-70">
+                                    {isClient ? (ticket.user?.name ?? "Customer") : "Darji Support"}
+                                  </p>
+                                  <p className="text-sm font-medium whitespace-pre-wrap">{msg.text}</p>
+                                  
+                                  {msg.attachments && msg.attachments.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-2">
+                                      {msg.attachments.map((url, idx) => (
+                                        <a key={idx} href={url} target="_blank" rel="noreferrer" className="block max-w-[160px] rounded-lg overflow-hidden border border-black/10">
+                                          <img src={url} alt="Attachment" className="max-h-24 object-contain w-full" />
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center justify-end gap-1 mt-1 opacity-60">
+                                    <span className="text-[9px]">
+                                      {new Date(msg.date ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    {!isClient && <CheckCheck size={11} className="text-white" />}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Reply Input Box */}
+                      <div className="border-t border-[var(--panel-border)] p-4 bg-[var(--panel)] flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-4">
+                          {/* Status and priority controls */}
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="text-xs font-bold bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-lg px-2 py-1 outline-none"
+                              value={ticket.status}
+                              onChange={(e) => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, status: e.target.value })}
+                            >
+                              <option value="OPEN">Open</option>
+                              <option value="IN_PROGRESS">In Progress</option>
+                              <option value="RESOLVED">Resolved</option>
+                              <option value="CLOSED">Closed</option>
+                            </select>
+
+                            <select
+                              className="text-xs font-bold bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-lg px-2 py-1 outline-none"
+                              value={ticket.priority ?? "NORMAL"}
+                              onChange={(e) => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, priority: e.target.value })}
+                            >
+                              <option value="LOW">Low</option>
+                              <option value="NORMAL">Normal</option>
+                              <option value="MEDIUM">Medium</option>
+                              <option value="HIGH">High</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-[var(--muted)]">Assigned to:</span>
+                            <select
+                              className="text-xs font-semibold bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-lg px-2 py-1 outline-none"
+                              value={ticket.assignedTo ?? ""}
+                              onChange={(e) => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, assignedTo: e.target.value || null })}
+                            >
+                              <option value="">Unassigned</option>
+                              {admins.map(admin => (
+                                <option key={admin.id} value={admin.id}>{admin.name ?? admin.phone}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Input writing area */}
+                        {ticket.status === "CLOSED" ? (
+                          <div className="p-3 bg-black/5 dark:bg-white/5 rounded-xl text-center">
+                            <p className="text-xs text-[var(--muted)] font-semibold">This conversation is closed. Reopen ticket status to type a response.</p>
+                          </div>
+                        ) : (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              const form = e.currentTarget;
+                              const input = form.elements.namedItem("replyText") as HTMLInputElement;
+                              const val = input.value.trim();
+                              if (val.length < 2) return;
+                              inlineTicketReplyMutation.mutate({
+                                ticketId: ticket.id,
+                                adminResponse: val,
+                                status: ticket.status === "OPEN" ? "IN_PROGRESS" : ticket.status
+                              });
+                              form.reset();
+                            }}
+                            className="flex items-center gap-2"
+                          >
+                            <input
+                              name="replyText"
+                              type="text"
+                              autoComplete="off"
+                              placeholder="Type your response to customer..."
+                              className="flex-1 h-10 bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-full px-4 text-sm outline-none text-[var(--foreground)] placeholder:text-[var(--muted)]"
+                            />
+                            <button
+                              type="submit"
+                              className="w-10 h-10 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition-colors shadow"
+                            >
+                              <Send size={16} />
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    </div>
                   );
-                })()}
-              </div>
-            )}
+                })()
+              ) : activeChangeRequest ? (
+                (() => {
+                  const req = activeChangeRequest;
+                  const requestedValues = req.requestedValues || {};
 
-            {supportSubTab === "tailor" && (
-              <div className="space-y-4">
-                <div className="flex border-b border-[var(--panel-border)] gap-2 mb-2">
-                  <button
-                    onClick={() => setTailorSupportStatus("")} // Use tailorSupportStatus as sub-view toggler: "" means chat, "requests" means requests
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
-                      tailorSupportStatus !== "requests"
-                        ? "bg-orange-500 text-white"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                    }`}
-                  >
-                    Chat Tickets
-                  </button>
-                  <button
-                    onClick={() => setTailorSupportStatus("requests")}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
-                      tailorSupportStatus === "requests"
-                        ? "bg-orange-500 text-white"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                    }`}
-                  >
-                    Account Change Requests
-                  </button>
-                </div>
-
-                {tailorSupportStatus !== "requests" ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
-                      <Search size={16} className="text-[var(--muted)]" />
-                      <input
-                        type="text"
-                        className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
-                        placeholder="Search tickets..."
-                        value={tailorSupportSearch}
-                        onChange={(e) => setTailorSupportSearch(e.target.value)}
-                      />
-                    </div>
-                    {(() => {
-                      const filtered = tickets.filter((t) => {
-                        const isTailor = t.user?.role === "TAILOR" || t.subject?.includes("Tailor");
-                        if (!isTailor) return false;
-                        return !tailorSupportSearch ||
-                          [t.subject, t.status, t.user?.phone, t.order?.orderNumber, t.user?.name]
-                            .filter(Boolean)
-                            .join(" ")
-                            .toLowerCase()
-                            .includes(tailorSupportSearch.toLowerCase());
-                      });
-                      return (
-                        <DataTable
-                          columns={ticketColumns}
-                          data={filtered}
-                          emptyMessage="No tailor support tickets found."
-                        />
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {changeRequestsQuery.data ? (
-                      (() => {
-                        const filtered = changeRequestsQuery.data.filter((req) => {
-                          return req.user?.role === "TAILOR" || req.userRole === "TAILOR";
-                        });
-                        return (
-                          <DataTable
-                            columns={changeRequestColumns}
-                            data={filtered}
-                            emptyMessage="No tailor account change requests found."
-                          />
-                        );
-                      })()
-                    ) : (
-                      <div className="h-16 flex items-center justify-center">
-                        <LoaderCircle className="animate-spin text-orange-500 h-4 w-4 mr-2" />
-                        <span className="text-xs text-[var(--muted)]">Loading change requests...</span>
+                  return (
+                    <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
+                      {/* Header */}
+                      <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4 mb-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-bold">Verification & Change Request</h3>
+                            <StatusBadge value={req.status} />
+                          </div>
+                          <p className="text-xs text-[var(--muted)] mt-1">
+                            Submitted by {req.user?.name ?? "Partner"} ({req.user?.phone})
+                          </p>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
-            {supportSubTab === "delivery" && (
-              <div className="space-y-4">
-                <div className="flex border-b border-[var(--panel-border)] gap-2 mb-2">
-                  <button
-                    onClick={() => setDeliverySupportStatus("")} // Use deliverySupportStatus as sub-view toggler: "" means chat, "requests" means requests
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
-                      deliverySupportStatus !== "requests"
-                        ? "bg-orange-500 text-white"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                    }`}
-                  >
-                    Chat Tickets
-                  </button>
-                  <button
-                    onClick={() => setDeliverySupportStatus("requests")}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg transition-all ${
-                      deliverySupportStatus === "requests"
-                        ? "bg-orange-500 text-white"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                    }`}
-                  >
-                    Account Change Requests
-                  </button>
-                </div>
+                      {/* Content scroll area */}
+                      <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+                        {/* Old vs New Values */}
+                        <div className="space-y-3">
+                          <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Requested Updates</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {Object.entries(requestedValues).map(([key, val]) => (
+                              <div key={key} className="rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/40 p-3">
+                                <p className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">{key.replace(/([A-Z])/g, " $1")}</p>
+                                <p className="mt-1 font-semibold text-sm text-[var(--foreground)]">{String(val ?? "—")}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
 
-                {deliverySupportStatus !== "requests" ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
-                      <Search size={16} className="text-[var(--muted)]" />
-                      <input
-                        type="text"
-                        className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
-                        placeholder="Search tickets..."
-                        value={deliverySupportSearch}
-                        onChange={(e) => setDeliverySupportSearch(e.target.value)}
-                      />
-                    </div>
-                    {(() => {
-                      const filtered = tickets.filter((t) => {
-                        const isDelivery = t.user?.role === "DELIVERY_PARTNER" || t.subject?.includes("Delivery");
-                        if (!isDelivery) return false;
-                        return !deliverySupportSearch ||
-                          [t.subject, t.status, t.user?.phone, t.order?.orderNumber, t.user?.name]
-                            .filter(Boolean)
-                            .join(" ")
-                            .toLowerCase()
-                            .includes(deliverySupportSearch.toLowerCase());
-                      });
-                      return (
-                        <DataTable
-                          columns={ticketColumns}
-                          data={filtered}
-                          emptyMessage="No delivery partner support tickets found."
-                        />
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {changeRequestsQuery.data ? (
-                      (() => {
-                        const filtered = changeRequestsQuery.data.filter((req) => {
-                          return req.user?.role === "DELIVERY_PARTNER" || req.userRole === "DELIVERY_PARTNER";
-                        });
-                        return (
-                          <DataTable
-                            columns={changeRequestColumns}
-                            data={filtered}
-                            emptyMessage="No delivery partner account change requests found."
-                          />
-                        );
-                      })()
-                    ) : (
-                      <div className="h-16 flex items-center justify-center">
-                        <LoaderCircle className="animate-spin text-orange-500 h-4 w-4 mr-2" />
-                        <span className="text-xs text-[var(--muted)]">Loading change requests...</span>
+                        {/* Uploaded Verification Documents */}
+                        {req.documents && req.documents.length > 0 && (
+                          <div className="space-y-3">
+                            <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Uploaded Verification Files</h4>
+                            <div className="flex flex-wrap gap-3">
+                              {req.documents.map((url, idx) => (
+                                <a
+                                  key={idx}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block max-w-[240px] hover:opacity-90 transition border border-[var(--panel-border)] rounded-xl overflow-hidden shadow-sm"
+                                >
+                                  {url.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
+                                    <img src={url} alt={`Verification Doc ${idx + 1}`} className="max-h-48 object-contain w-full bg-slate-50 dark:bg-zinc-800" />
+                                  ) : (
+                                    <div className="flex h-32 w-44 items-center justify-center p-3 text-xs bg-black/5 dark:bg-white/5 text-[var(--muted)] font-bold uppercase text-center gap-2">
+                                      <FileText size={16} />
+                                      View Document
+                                    </div>
+                                  )}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Notes / Approve & Reject UI */}
+                        {req.status === "PENDING" && (
+                          <div className="pt-4 border-t border-[var(--panel-border)] space-y-4">
+                            <div className="space-y-1">
+                              <label className="text-xs text-[var(--muted)] font-semibold">Admin Notes / Rejection Reason</label>
+                              <textarea
+                                className="w-full min-h-[70px] rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] p-3 text-xs outline-none text-[var(--foreground)] focus:border-orange-500 transition resize-none"
+                                placeholder="Add optional details for approval, or reason for rejecting..."
+                                value={adminNotes}
+                                onChange={(e) => setAdminNotes(e.target.value)}
+                              />
+                            </div>
+
+                            <div className="flex justify-end gap-3">
+                              <button
+                                onClick={() => inlineChangeRequestRejectMutation.mutate({ requestId: req.id, adminNotes })}
+                                className="px-4 py-2 text-xs font-semibold text-rose-600 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl transition border border-rose-500/20"
+                                disabled={inlineChangeRequestRejectMutation.isPending || inlineChangeRequestApproveMutation.isPending}
+                              >
+                                Reject Update
+                              </button>
+                              <button
+                                onClick={() => inlineChangeRequestApproveMutation.mutate({ requestId: req.id })}
+                                className="px-4 py-2 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition shadow"
+                                disabled={inlineChangeRequestRejectMutation.isPending || inlineChangeRequestApproveMutation.isPending}
+                              >
+                                Approve Update
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                    </div>
+                  );
+                })()
+              ) : activeBugReport ? (
+                (() => {
+                  const bug = activeBugReport;
+                  const admins = users.filter((u) => u.role === "ADMIN");
 
-            {supportSubTab === "bugs" && (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-                  <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-1.5 w-full sm:w-72">
-                    <Search size={16} className="text-[var(--muted)]" />
-                    <input
-                      type="text"
-                      className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
-                      placeholder="Search bugs..."
-                      value={bugSearch}
-                      onChange={(e) => setBugSearch(e.target.value)}
-                    />
+                  return (
+                    <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
+                      {/* Header */}
+                      <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4 mb-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-bold">Bug Report: {bug.title}</h3>
+                            <StatusBadge value={bug.status} />
+                          </div>
+                          <p className="text-xs text-[var(--muted)] mt-1">
+                            Reported by {bug.user?.name ?? "Reporter"} ({bug.user?.phone})
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Content Scroll View */}
+                      <div className="flex-1 overflow-y-auto space-y-5 pr-1">
+                        <div className="bg-[var(--panel-strong)]/40 p-4 rounded-xl border border-[var(--panel-border)]">
+                          <h4 className="text-xs font-bold text-[var(--muted)] uppercase tracking-wider mb-2">Description</h4>
+                          <p className="text-sm whitespace-pre-wrap leading-relaxed text-[var(--foreground)]">{bug.description}</p>
+                        </div>
+
+                        {/* Metadata Details */}
+                        <div className="grid gap-3 sm:grid-cols-2 text-xs">
+                          <div className="p-3 bg-[var(--panel-strong)]/20 border border-[var(--panel-border)] rounded-xl">
+                            <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider block">App Version</span>
+                            <span className="font-semibold text-sm text-[var(--foreground)] mt-1 block">{bug.appVersion ?? "1.0.0"}</span>
+                          </div>
+                          <div className="p-3 bg-[var(--panel-strong)]/20 border border-[var(--panel-border)] rounded-xl">
+                            <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider block">Device Info</span>
+                            <span className="font-semibold text-sm text-[var(--foreground)] mt-1 block">{bug.deviceInfo ?? "Unknown"}</span>
+                          </div>
+                        </div>
+
+                        {/* Screenshot */}
+                        {bug.screenshot && (
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-bold text-[var(--muted)] uppercase tracking-wider">Screenshot</h4>
+                            <a href={bug.screenshot} target="_blank" rel="noreferrer" className="block max-w-[280px] hover:opacity-90 transition rounded-xl overflow-hidden border border-[var(--panel-border)]">
+                              <img src={bug.screenshot} alt="Bug screenshot" className="max-h-60 object-contain w-full bg-slate-50" />
+                            </a>
+                          </div>
+                        )}
+
+                        {/* Controls */}
+                        <div className="pt-4 border-t border-[var(--panel-border)] space-y-4">
+                          <h4 className="text-xs font-bold text-[var(--muted)] uppercase tracking-wider">Resolution controls</h4>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <label className="text-xs text-[var(--muted)] font-medium">Status</label>
+                              <select
+                                className="w-full h-9 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-2 text-xs outline-none text-[var(--foreground)]"
+                                value={bug.status}
+                                onChange={(e) => inlineBugUpdateMutation.mutate({ bugId: bug.id, status: e.target.value })}
+                              >
+                                <option value="NEW">New</option>
+                                <option value="INVESTIGATING">Investigating</option>
+                                <option value="IN_PROGRESS">In Progress</option>
+                                <option value="FIXED">Fixed</option>
+                                <option value="CLOSED">Closed</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs text-[var(--muted)] font-medium">Assign To</label>
+                              <select
+                                className="w-full h-9 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-2 text-xs outline-none text-[var(--foreground)]"
+                                value={bug.assignedTo ?? ""}
+                                onChange={(e) => inlineBugUpdateMutation.mutate({ bugId: bug.id, assignedTo: e.target.value || null })}
+                              >
+                                <option value="">Unassigned</option>
+                                {admins.map((admin) => (
+                                  <option key={admin.id} value={admin.id}>
+                                    {admin.name ?? admin.phone}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[var(--panel-strong)]/10">
+                  <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 mb-4">
+                    <MessageSquareText size={32} />
                   </div>
-                  <FilterSelect
-                    value={bugStatus}
-                    onChange={setBugStatus}
-                    options={[
-                      { label: "All Statuses", value: "" },
-                      { label: "New", value: "NEW" },
-                      { label: "Investigating", value: "INVESTIGATING" },
-                      { label: "In Progress", value: "IN_PROGRESS" },
-                      { label: "Fixed", value: "FIXED" },
-                      { label: "Closed", value: "CLOSED" }
-                    ]}
-                  />
+                  <h3 className="text-base font-bold text-[var(--foreground)]">Select support item</h3>
+                  <p className="text-xs text-[var(--muted)] max-w-sm mt-1">
+                    Select a support ticket, bug report, or verification change request from the left list to inspect details and chat history.
+                  </p>
                 </div>
-                {bugReportsQuery.data ? (
-                  (() => {
-                    const filtered = bugReportsQuery.data.filter((bug) => {
-                      const searchMatch = !bugSearch ||
-                        [bug.title, bug.description, bug.user?.name, bug.user?.phone]
-                          .filter(Boolean)
-                          .join(" ")
-                          .toLowerCase()
-                          .includes(bugSearch.toLowerCase());
-                      const statusMatch = !bugStatus || bug.status === bugStatus;
-                      return searchMatch && statusMatch;
-                    });
-                    return (
-                      <DataTable
-                        columns={bugReportColumns}
-                        data={filtered}
-                        emptyMessage="No bug reports found."
-                      />
-                    );
-                  })()
-                ) : (
-                  <div className="h-16 flex items-center justify-center">
-                    <LoaderCircle className="animate-spin text-orange-500 h-4 w-4 mr-2" />
-                    <span className="text-xs text-[var(--muted)]">Loading bug reports...</span>
+              )}
+            </div>
+
+            {/* COLUMN 3: Context Details metadata panel */}
+            <div className="w-[340px] flex flex-col bg-[var(--panel)] border border-[var(--panel-border)] rounded-[24px] overflow-y-auto p-4 shadow-[var(--shadow)] gap-4">
+              {ticketDetail ? (
+                (() => {
+                  const ticket = ticketDetail;
+                  const linkedOrder = orders.find(
+                    (o) => o.id === ticket.orderId || o.orderNumber === ticket.order?.orderNumber
+                  );
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Customer Card */}
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-3">
+                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">User Profile</h4>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold text-sm">
+                            {ticket.user?.name?.charAt(0).toUpperCase() || "C"}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-[var(--foreground)]">{ticket.user?.name ?? "Customer"}</p>
+                            <p className="text-xs text-[var(--muted)]">{ticket.user?.role ?? "CUSTOMER"}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 text-xs text-[var(--muted)] border-t border-[var(--panel-border)] pt-2.5">
+                          <p className="truncate">📞 Phone: <span className="font-semibold text-[var(--foreground)]">{ticket.user?.phone ?? "—"}</span></p>
+                          <p className="truncate">✉️ Email: <span className="font-semibold text-[var(--foreground)]">{ticket.user?.email ?? "—"}</span></p>
+                        </div>
+                      </div>
+
+                      {/* Linked Order Info */}
+                      {linkedOrder ? (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Linked Order</h4>
+                            <button
+                              onClick={() => setOrderDetail(linkedOrder)}
+                              className="text-[10px] font-bold text-orange-500 hover:underline"
+                            >
+                              Inspect Order
+                            </button>
+                          </div>
+                          <div className="space-y-1 text-xs">
+                            <p className="flex justify-between">
+                              <span className="text-[var(--muted)]">Order ID:</span>
+                              <span className="font-bold text-[var(--foreground)]">#{linkedOrder.orderNumber}</span>
+                            </p>
+                            <p className="flex justify-between">
+                              <span className="text-[var(--muted)]">Amount:</span>
+                              <span className="font-semibold text-[var(--foreground)]">{formatCurrency(linkedOrder.totalAmount)}</span>
+                            </p>
+                            <p className="flex justify-between">
+                              <span className="text-[var(--muted)]">Status:</span>
+                              <span className="font-semibold text-orange-500">{linkedOrder.status.replace(/_/g, " ")}</span>
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/10 p-3 text-center">
+                          <p className="text-xs text-[var(--muted)]">No linked order for this ticket</p>
+                        </div>
+                      )}
+
+                      {/* Ticket Metadata */}
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
+                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Ticket Metadata</h4>
+                        <div className="space-y-1.5 text-xs">
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Category:</span>
+                            <span className="font-semibold text-[var(--foreground)]">{ticket.category ?? "General"}</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Opened At:</span>
+                            <span className="font-semibold text-[var(--foreground)]">{formatDate(ticket.createdAt, false)}</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Last Activity:</span>
+                            <span className="font-semibold text-[var(--foreground)]">{formatDate(ticket.updatedAt, false)}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="space-y-2">
+                        {ticket.status !== "RESOLVED" && ticket.status !== "CLOSED" && (
+                          <button
+                            onClick={() => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, status: "RESOLVED" })}
+                            className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow"
+                          >
+                            Mark as Resolved
+                          </button>
+                        )}
+                        {ticket.status !== "CLOSED" && (
+                          <button
+                            onClick={() => {
+                              if (confirm("Are you sure you want to close this ticket?")) {
+                                inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, status: "CLOSED" });
+                              }
+                            }}
+                            className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow"
+                          >
+                            Close Ticket
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : activeChangeRequest ? (
+                (() => {
+                  const req = activeChangeRequest;
+                  return (
+                    <div className="space-y-4">
+                      {/* User Profile Card */}
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-3">
+                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Requester Details</h4>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-sm">
+                            {req.user?.name?.charAt(0).toUpperCase() || "P"}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-[var(--foreground)]">{req.user?.name ?? "Partner"}</p>
+                            <p className="text-xs text-[var(--muted)]">{req.user?.role ?? "TAILOR"}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 text-xs text-[var(--muted)] border-t border-[var(--panel-border)] pt-2.5">
+                          <p className="truncate">📞 Phone: <span className="font-semibold text-[var(--foreground)]">{req.user?.phone ?? "—"}</span></p>
+                        </div>
+                      </div>
+
+                      {/* Request Info Card */}
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
+                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Request Meta</h4>
+                        <div className="space-y-1.5 text-xs">
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Request Type:</span>
+                            <span className="font-semibold text-orange-500">{req.type}</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Submitted At:</span>
+                            <span className="font-semibold text-[var(--foreground)]">{formatDate(req.createdAt, false)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : activeBugReport ? (
+                (() => {
+                  const bug = activeBugReport;
+                  return (
+                    <div className="space-y-4">
+                      {/* Reporter Details */}
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-3">
+                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Reporter Details</h4>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-sm">
+                            {bug.user?.name?.charAt(0).toUpperCase() || "R"}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-[var(--foreground)]">{bug.user?.name ?? "Reporter"}</p>
+                            <p className="text-xs text-[var(--muted)]">{bug.user?.role ?? "CUSTOMER"}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 text-xs text-[var(--muted)] border-t border-[var(--panel-border)] pt-2.5">
+                          <p className="truncate">📞 Phone: <span className="font-semibold text-[var(--foreground)]">{bug.user?.phone ?? "—"}</span></p>
+                        </div>
+                      </div>
+
+                      {/* Bug Info Card */}
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
+                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Bug Details</h4>
+                        <div className="space-y-1.5 text-xs">
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">App Version:</span>
+                            <span className="font-semibold text-[var(--foreground)]">{bug.appVersion ?? "1.0.0"}</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Device Info:</span>
+                            <span className="font-semibold text-[var(--foreground)] truncate max-w-[120px]">{bug.deviceInfo ?? "Unknown"}</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span className="text-[var(--muted)]">Reported At:</span>
+                            <span className="font-semibold text-[var(--foreground)]">{formatDate(bug.createdAt, false)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                /* Standard Metrics view when nothing selected */
+                supportStatsQuery.data && (
+                  <div className="space-y-4">
+                    <h3 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Global Metrics</h3>
+                    
+                    <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-[var(--foreground)]">Performance Stats</p>
+                      <div className="space-y-1.5 text-xs">
+                        <p className="flex justify-between">
+                          <span className="text-[var(--muted)]">Avg Response Time:</span>
+                          <span className="font-bold text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResponseTimeMs)}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-[var(--muted)]">Avg Resolution Time:</span>
+                          <span className="font-bold text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResolutionTimeMs)}</span>
+                        </p>
+                        <p className="flex justify-between">
+                          <span className="text-[var(--muted)]">Total Active Users:</span>
+                          <span className="font-semibold text-[var(--foreground)]">{users.length}</span>
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
+                )
+              )}
+            </div>
+
           </div>
         ) : null}
 
@@ -2133,14 +2754,18 @@ function PortalFrame({
   supportCount: number;
 }) {
   const setSidebarOpen = useAdminStore((state) => state.setSidebarOpen);
+  const supportSubTab = useAdminStore((state) => state.supportSubTab);
+  const setSupportSubTab = useAdminStore((state) => state.setSupportSubTab);
+  const theme = useAdminStore((state) => state.theme);
+  const toggleTheme = useAdminStore((state) => state.toggleTheme);
 
   return (
     <main className="min-h-screen">
-      <div className="darji-dashboard-scale relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(246,163,19,0.08),transparent_18%),linear-gradient(180deg,#fffbf5_0%,#fffefb_100%)]">
+      <div className="darji-dashboard-scale relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(246,163,19,0.08),transparent_18%)] bg-[var(--background)]">
         <div className={cn("fixed inset-0 z-40 bg-black/55 backdrop-blur-sm transition lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")} onClick={() => setSidebarOpen(false)} />
         <aside
           className={cn(
-            "fixed inset-y-3 left-3 z-50 flex w-[252px] flex-col rounded-[30px] border border-[#e7ce9b] bg-[linear-gradient(180deg,rgba(255,253,248,0.99),rgba(255,248,238,0.99))] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:translate-x-0",
+            "fixed inset-y-3 left-3 z-50 flex w-[252px] flex-col rounded-[30px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:translate-x-0",
             sidebarOpen ? "translate-x-0" : "-translate-x-[120%]"
           )}
         >
@@ -2151,52 +2776,114 @@ function PortalFrame({
             </button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
             {sidebarSections.map((section) => {
               const Icon = section.icon;
               const isActive = section.id === activeSection;
+              
+              if (section.id === "support") {
+                return (
+                  <div key={section.id} className="space-y-1">
+                    <button
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-[18px] px-4 py-3.5 text-left transition",
+                        isActive
+                          ? "bg-[var(--accent-soft)] text-orange-500 shadow-[inset_0_0_0_1px_rgba(246,163,19,0.1)]"
+                          : "text-[var(--foreground)] hover:bg-[#fff6e7] dark:hover:bg-white/5"
+                      )}
+                      onClick={() => onSectionChange(section.id)}
+                    >
+                      <span className={cn("rounded-xl p-2.5", isActive ? "bg-[var(--accent-cream)]" : "bg-[#fff8ea] dark:bg-white/5 text-[var(--muted)]")}>
+                        <Icon size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold">{section.label}</span>
+                      </span>
+                      <ChevronDown size={16} className={cn(isActive ? "text-[#cb7d00] dark:text-[#ffb83d]" : "text-[#c8b79b]")} />
+                    </button>
+                    {isActive && (
+                      <div className="pl-12 space-y-1 pt-1 pb-2">
+                        {[
+                          { id: "customer", label: "Customer Support" },
+                          { id: "tailor", label: "Tailor Support" },
+                          { id: "delivery", label: "Delivery Support" },
+                          { id: "bugs", label: "Bug Reports" }
+                        ].map((sub) => {
+                          const isSubActive = supportSubTab === sub.id;
+                          return (
+                            <button
+                              key={sub.id}
+                              onClick={() => {
+                                setSupportSubTab(sub.id as any);
+                                onSectionChange("support");
+                              }}
+                              className={cn(
+                                "flex w-full items-center py-1.5 text-sm transition-colors text-left",
+                                isSubActive
+                                  ? "text-orange-500 font-bold"
+                                  : "text-[var(--muted)] hover:text-[var(--foreground)] font-medium"
+                              )}
+                            >
+                              <span className="mr-2 text-xs opacity-60">•</span>
+                              {sub.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <button
                   key={section.id}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-[18px] px-4 py-3.5 text-left transition",
                     isActive
-                      ? "bg-[linear-gradient(90deg,rgba(246,163,19,0.22),rgba(246,163,19,0.08))] text-[#c97b00] shadow-[inset_0_0_0_1px_rgba(246,163,19,0.1)]"
-                      : "text-[var(--foreground)] hover:bg-[#fff6e7]"
+                      ? "bg-[var(--accent-soft)] text-orange-500 shadow-[inset_0_0_0_1px_rgba(246,163,19,0.1)]"
+                      : "text-[var(--foreground)] hover:bg-[#fff6e7] dark:hover:bg-white/5"
                   )}
                   onClick={() => onSectionChange(section.id)}
                 >
-                  <span className={cn("rounded-xl p-2.5", isActive ? "bg-[#fff0ca]" : "bg-[#fff8ea] text-[var(--muted)]")}>
+                  <span className={cn("rounded-xl p-2.5", isActive ? "bg-[var(--accent-cream)]" : "bg-[#fff8ea] dark:bg-white/5 text-[var(--muted)]")}>
                     <Icon size={16} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium">{section.label}</span>
+                    <span className="block text-sm font-semibold">{section.label}</span>
                   </span>
-                  <ChevronRight size={16} className={cn(isActive ? "text-[#cb7d00]" : "text-[#c8b79b]")} />
+                  <ChevronRight size={16} className={cn(isActive ? "text-[#cb7d00] dark:text-[#ffb83d]" : "text-[#c8b79b]")} />
                 </button>
               );
             })}
           </div>
 
-          <div className="mt-auto space-y-4 pt-5">
-            <div className="rounded-[24px] border border-[#f3dfba] bg-[linear-gradient(180deg,#fffaf1,#fff3dc)] p-5">
-              <GrowthPromoGraphic />
-              <p className="mt-4 text-lg font-semibold text-[var(--deep)]">Grow Your Business</p>
-              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Use analytics and reports to grow your business faster.</p>
+          <div className="mt-auto space-y-3 pt-4">
+            {/* Dark Mode Toggle Switch */}
+            <div className="flex items-center justify-between rounded-[22px] border border-[var(--panel-border)] bg-[var(--panel-strong)] px-4 py-3 shadow-[var(--shadow)]">
+              <span className="text-sm font-semibold text-[var(--foreground)]">Dark Mode</span>
               <button
-                className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[#111111] transition hover:bg-[var(--accent-strong)]"
-                onClick={() => onSectionChange("payments")}
+                onClick={toggleTheme}
                 type="button"
+                className={cn(
+                  "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                  theme === "dark" ? "bg-orange-500" : "bg-gray-200 dark:bg-gray-800"
+                )}
               >
-                View Reports
+                <span
+                  className={cn(
+                    "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                    theme === "dark" ? "translate-x-5" : "translate-x-0"
+                  )}
+                />
               </button>
             </div>
 
-            <div className="rounded-[22px] border border-[var(--panel-border)] bg-white px-4 py-3">
+            <div className="rounded-[22px] border border-[var(--panel-border)] bg-[var(--panel-strong)] px-4 py-3">
               <div className="flex items-center gap-3">
                 <AvatarBadge me={me} size="md" />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[var(--deep)]">{me?.name ?? "Super Admin"}</p>
+                  <p className="truncate text-sm font-semibold text-[var(--foreground)]">{me?.name ?? "Super Admin"}</p>
                   <p className="truncate text-xs text-[var(--muted)]">{me?.phone ?? "admin@darzi.in"}</p>
                 </div>
                 <ChevronDown size={16} className="ml-auto text-[var(--muted)]" />

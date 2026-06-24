@@ -3208,6 +3208,18 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
     }
   }, [view, tickets, activeTicket]);
 
+  useEffect(() => {
+    const onBackPress = () => {
+      if (view !== "center") {
+        setView("center");
+        return true;
+      }
+      return false;
+    };
+    const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => subscription.remove();
+  }, [view]);
+
   function checkActiveTicketAndNavigate() {
     const active = tickets.find((t) => ["OPEN", "IN_PROGRESS"].includes(t.status));
     if (active) {
@@ -3337,21 +3349,34 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
 
   async function handleCloseChat(ticketId: string) {
     if (!token) return;
-    try {
-      setLoading(true);
-      await api(`/support/${ticketId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "CLOSED" })
-      }, token);
-      Alert.alert("Chat Closed", "This conversation has been closed.");
-      await loadTickets();
-      setActiveTicket(null);
-      setView("center");
-    } catch (e) {
-      Alert.alert("Failed", "Could not close the chat.");
-    } finally {
-      setLoading(false);
-    }
+    Alert.alert(
+      "Close Conversation?",
+      "Are you sure you want to close this chat? This will mark your support request as resolved.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Close",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await api(`/support/${ticketId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "CLOSED" })
+              }, token);
+              Alert.alert("Chat Closed", "This conversation has been closed.");
+              await loadTickets();
+              setActiveTicket(null);
+              setView("center");
+            } catch (e) {
+              Alert.alert("Failed", "Could not close the chat.");
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
   }
 
   async function handleSubmitBug() {
@@ -3390,8 +3415,8 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: bg }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 4 : 0 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
             <Header title="Support Center" onBack={() => setScreen("profile")} />
@@ -3415,20 +3440,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                 <Ionicons name="chevron-forward" size={18} color={mutedText} />
               </Pressable>
 
-              {/* Bug report card */}
-              <Pressable 
-                style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
-                onPress={() => setView("bug")}
-              >
-                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name="bug-outline" size={20} color={BRAND_ORANGE} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: text, fontSize: 16, fontWeight: "800" }}>Report a Bug</Text>
-                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Report glitchy behaviors or app crashes</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={mutedText} />
-              </Pressable>
+
 
               {/* Previous conversations list */}
               <View style={{ marginTop: 8 }}>
@@ -3771,6 +3783,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                 {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Submit Bug Report</Text>}
               </Pressable>
             </ScrollView>
+          </View>
+        )}
+        {loading && (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center", zIndex: 9999 }]}>
+            <ActivityIndicator size="large" color={BRAND_ORANGE} />
           </View>
         )}
       </KeyboardAvoidingView>
