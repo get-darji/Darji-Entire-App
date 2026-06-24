@@ -896,22 +896,17 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+              {/* Start New Conversation button */}
               <Pressable 
-                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+                android_ripple={{ color: "rgba(255, 255, 255, 0.2)" }}
                 style={({ pressed }) => [
-                  { backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 },
+                  { backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
                   pressed ? { opacity: 0.85 } : null
                 ]}
                 onPress={() => setView("new_chat")}
               >
-                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Start New Conversation</Text>
-                  <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Start a new conversation with our support team</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+                <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
+                <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
               </Pressable>
 
               <View style={{ marginTop: 8 }}>
@@ -1020,21 +1015,25 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                 <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Related Order (Optional)</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
                   <Pressable 
-                    style={{ minWidth: 100, height: 64, borderRadius: 14, borderWidth: 1, borderColor: !selectedOrder ? BRAND_ORANGE : palette.border, backgroundColor: palette.surface, padding: 10, justifyContent: "center" }}
+                    style={{ minWidth: 100, height: 64, borderRadius: 14, borderWidth: 1, borderColor: !selectedOrder ? BRAND_ORANGE : palette.border, backgroundColor: !selectedOrder ? ((palette.surface === "#0a1322") ? "#2c2010" : "#fff5df") : palette.surface, padding: 10, justifyContent: "center" }}
                     onPress={() => setSelectedOrder(null)}
                   >
                     <Text style={{ color: !selectedOrder ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "800", textAlign: "center" }}>No Linked Order</Text>
                   </Pressable>
-                  {orders.map((o) => (
-                    <Pressable 
-                      key={o._id || o.id}
-                      style={{ minWidth: 120, height: 64, borderRadius: 14, borderWidth: 1, borderColor: selectedOrder?._id === o._id ? BRAND_ORANGE : palette.border, backgroundColor: palette.surface, padding: 10, justifyContent: "center" }}
-                      onPress={() => setSelectedOrder(o)}
-                    >
-                      <Text style={{ color: selectedOrder?._id === o._id ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "800" }}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
-                      <Text style={{ color: palette.muted, fontSize: 10, fontWeight: "700", marginTop: 2 }}>{o.status.replace(/_/g, " ")}</Text>
-                    </Pressable>
-                  ))}
+                  {orders.map((o) => {
+                    const isDark = palette.surface === "#0a1322";
+                    const isSelected = selectedOrder && (selectedOrder._id || selectedOrder.id) === (o._id || o.id);
+                    return (
+                      <Pressable 
+                        key={o._id || o.id}
+                        style={{ minWidth: 120, height: 64, borderRadius: 14, borderWidth: 1, borderColor: isSelected ? BRAND_ORANGE : palette.border, backgroundColor: isSelected ? (isDark ? "#2c2010" : "#fff5df") : palette.surface, padding: 10, justifyContent: "center" }}
+                        onPress={() => setSelectedOrder(o)}
+                      >
+                        <Text style={{ color: isSelected ? BRAND_ORANGE : palette.text, fontSize: 12, fontWeight: "800" }}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
+                        <Text style={{ color: palette.muted, fontSize: 10, fontWeight: "700", marginTop: 2 }}>{o.status.replace(/_/g, " ")}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               </View>
 

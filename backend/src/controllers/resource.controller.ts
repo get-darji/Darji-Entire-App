@@ -1164,7 +1164,7 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
 
 export async function approveAccountChangeRequestController(req: Request, res: Response) {
   const { id } = req.params;
-  const { adminNotes } = req.body;
+  const { adminNotes } = req.body || {};
   const request = await AccountChangeRequestModel.findById(id);
   if (!request) {
     res.status(404).json({ message: "Change request not found" });
@@ -1258,7 +1258,7 @@ export async function approveAccountChangeRequestController(req: Request, res: R
 
 export async function rejectAccountChangeRequestController(req: Request, res: Response) {
   const { id } = req.params;
-  const { adminNotes } = req.body;
+  const { adminNotes } = req.body || {};
   const request = await AccountChangeRequestModel.findById(id);
   if (!request) {
     res.status(404).json({ message: "Change request not found" });

@@ -3300,7 +3300,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   }, [view]);
 
   function checkActiveTicketAndNavigate() {
-    const active = tickets.find((t) => ["OPEN", "IN_PROGRESS"].includes(t.status));
+    const active = tickets.find((t) => ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW"].includes(t.status));
     if (active) {
       setActiveTicket(active);
       setView("chat");
@@ -3539,18 +3539,17 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
             <Header title="Support Center" onBack={() => setScreen("profile")} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               
-              {/* Start New Conversation button card */}
+              {/* Start New Conversation button */}
               <Pressable 
-                style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: BRAND_ORANGE, padding: 20, alignItems: "center", justifyContent: "center", gap: 10 }}
+                android_ripple={{ color: "rgba(255, 255, 255, 0.2)" }}
+                style={({ pressed }) => [
+                  { backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+                  pressed ? { opacity: 0.85 } : null
+                ]}
                 onPress={() => setView("new_chat")}
               >
-                <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name="chatbubbles-outline" size={24} color={BRAND_ORANGE} />
-                </View>
-                <View style={{ alignItems: "center" }}>
-                  <Text style={{ color: text, fontSize: 16, fontWeight: "900" }}>Start New Conversation</Text>
-                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600", marginTop: 2, textAlign: "center" }}>Start chat instantly. The first message opens the ticket.</Text>
-                </View>
+                <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
+                <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
               </Pressable>
 
               {/* Open Tickets Section */}
@@ -3558,16 +3557,16 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
                   <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
                   <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>
-                    Open Tickets ({tickets.filter(t => ["OPEN", "IN_PROGRESS"].includes(t.status)).length})
+                    Open Tickets ({tickets.filter(t => ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW"].includes(t.status)).length})
                   </Text>
                 </View>
-                {tickets.filter(t => ["OPEN", "IN_PROGRESS"].includes(t.status)).length === 0 ? (
+                {tickets.filter(t => ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW"].includes(t.status)).length === 0 ? (
                   <View style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 18, alignItems: "center" }}>
                     <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600" }}>No active support requests</Text>
                   </View>
                 ) : (
                   <View style={{ gap: 10 }}>
-                    {tickets.filter(t => ["OPEN", "IN_PROGRESS"].includes(t.status)).reverse().map((t) => (
+                    {tickets.filter(t => ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW"].includes(t.status)).reverse().map((t) => (
                       <Pressable 
                         key={t._id || t.id}
                         style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
@@ -3702,24 +3701,27 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Related Order (Optional)</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
                   <Pressable 
-                    style={{ minWidth: 100, height: 64, borderRadius: 14, borderWidth: 1, borderColor: !selectedOrder ? BRAND_ORANGE : border, backgroundColor: cardBg, padding: 10, justifyContent: "center" }}
+                    style={{ minWidth: 100, height: 64, borderRadius: 14, borderWidth: 1, borderColor: !selectedOrder ? BRAND_ORANGE : border, backgroundColor: !selectedOrder ? (isDark ? "#2c2010" : "#fff5df") : cardBg, padding: 10, justifyContent: "center" }}
                     onPress={() => setSelectedOrder(null)}
                   >
                     <Text style={{ color: !selectedOrder ? BRAND_ORANGE : text, fontSize: 12, fontWeight: "800", textAlign: "center" }}>No Linked Order</Text>
                   </Pressable>
-                  {orders.map((o) => (
-                    <Pressable 
-                      key={o._id || o.id}
-                      style={{ minWidth: 120, height: 64, borderRadius: 14, borderWidth: 1, borderColor: selectedOrder?._id === o._id ? BRAND_ORANGE : border, backgroundColor: cardBg, padding: 10, justifyContent: "center" }}
-                      onPress={() => setSelectedOrder(o)}
-                    >
-                      <Text style={{ color: selectedOrder?._id === o._id ? BRAND_ORANGE : text, fontSize: 12, fontWeight: "800" }}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
-                      <Text style={{ color: mutedText, fontSize: 10, fontWeight: "700", marginTop: 2 }}>{o.status.replace(/_/g, " ")}</Text>
-                    </Pressable>
-                  ))}
+                  {orders.map((o) => {
+                    const isSelected = selectedOrder && (selectedOrder._id || selectedOrder.id) === (o._id || o.id);
+                    return (
+                      <Pressable 
+                        key={o._id || o.id}
+                        style={{ minWidth: 120, height: 64, borderRadius: 14, borderWidth: 1, borderColor: isSelected ? BRAND_ORANGE : border, backgroundColor: isSelected ? (isDark ? "#2c2010" : "#fff5df") : cardBg, padding: 10, justifyContent: "center" }}
+                        onPress={() => setSelectedOrder(o)}
+                      >
+                        <Text style={{ color: isSelected ? BRAND_ORANGE : text, fontSize: 12, fontWeight: "800" }}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
+                        <Text style={{ color: mutedText, fontSize: 10, fontWeight: "700", marginTop: 2 }}>{o.status.replace(/_/g, " ")}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               </View>
-                          {/* Category Grid */}
+              {/* Category Grid */}
               <View>
                 <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
