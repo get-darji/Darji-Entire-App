@@ -24,7 +24,7 @@ import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
-import { saveFcmToken } from "../services/push.service.js";
+import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
 
@@ -742,6 +742,30 @@ export async function updateSupportTicketController(req: Request, res: Response)
     res.status(404).json({ message: "Ticket not found" });
     return;
   }
+
+  if (update.adminResponse) {
+    try {
+      const user = await UserModel.findById(ticket.userId);
+      if (user) {
+        let channelId = "customer-orders-v2";
+        if (user.role === "TAILOR") {
+          channelId = "tailor-pickup-updates-v2";
+        } else if (user.role === "DELIVERY_PARTNER") {
+          channelId = "delivery-updates-v2";
+        }
+
+        await sendPushToUsers([ticket.userId], {
+          title: "New Support Reply",
+          body: update.adminResponse,
+          channelId,
+          targetApps: [user.role.toLowerCase()]
+        });
+      }
+    } catch (e) {
+      console.error("Failed to send push notification for support reply:", e);
+    }
+  }
+
   res.json({ data: ticket });
 }
 

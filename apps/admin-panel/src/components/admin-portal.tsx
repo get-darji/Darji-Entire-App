@@ -228,6 +228,7 @@ export function AdminPortal() {
   const [partnerDetail, setPartnerDetail] = useState<DeliveryPartnerProfile | null>(null);
   const [userDetail, setUserDetail] = useState<AdminUser | null>(null);
   const [ticketDetail, setTicketDetail] = useState<SupportTicket | null>(null);
+  const [supportCategory, setSupportCategory] = useState("all");
   const [assignOrderTarget, setAssignOrderTarget] = useState<Order | null>(null);
   const [assignTailorId, setAssignTailorId] = useState("");
   const [assignPickupPartnerId, setAssignPickupPartnerId] = useState("");
@@ -828,14 +829,26 @@ export function AdminPortal() {
       .includes(searchTerm)
   );
 
-  const filteredTickets = tickets.filter((ticket) =>
-    !searchTerm ||
-    [ticket.subject, ticket.status, ticket.user?.phone, ticket.order?.orderNumber]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(searchTerm)
-  );
+  const filteredTickets = tickets.filter((ticket) => {
+    const searchMatch = !searchTerm ||
+      [ticket.subject, ticket.status, ticket.user?.phone, ticket.order?.orderNumber, ticket.user?.name]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(searchTerm);
+
+    if (!searchMatch) return false;
+
+    const isCustomer = ticket.user?.role === "CUSTOMER" || ticket.subject === "Customer Support Request" || ticket.subject === "Bug Report";
+    const isTailor = ticket.user?.role === "TAILOR" || ticket.subject === "Tailor Support Request" || ticket.subject === "Shop Details Change Request" || (ticket.subject === "Bank Details Change Request" && ticket.user?.role === "TAILOR");
+    const isDelivery = ticket.user?.role === "DELIVERY_PARTNER" || ticket.subject === "Delivery Support Request" || ticket.subject === "Vehicle Details Change Request" || (ticket.subject === "Bank Details Change Request" && ticket.user?.role === "DELIVERY_PARTNER");
+
+    if (supportCategory === "customer") return isCustomer;
+    if (supportCategory === "tailor") return isTailor;
+    if (supportCategory === "delivery") return isDelivery;
+
+    return true;
+  });
 
   const orderColumns = getOrderColumns({
     onAssign: setAssignOrderTarget,
@@ -1190,6 +1203,26 @@ export function AdminPortal() {
               description="Current support queue from the existing support API."
               action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-support.csv", filteredTickets.map(ticketToCsv))}>Export CSV</ActionButton>}
             />
+            <div className="flex border-b border-[var(--panel-border)] overflow-x-auto gap-2">
+              {[
+                { id: "all", label: "All Tickets" },
+                { id: "customer", label: "Customer Chat & Bugs" },
+                { id: "tailor", label: "Tailor Shop & Bank requests" },
+                { id: "delivery", label: "Delivery Vehicle & Bank requests" }
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSupportCategory(cat.id)}
+                  className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap transition-all ${
+                    supportCategory === cat.id
+                      ? "border-orange-500 text-orange-500"
+                      : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
             <DataTable columns={ticketColumns} data={filteredTickets} emptyMessage="No support tickets match the current search." />
           </div>
         ) : null}
@@ -3282,8 +3315,42 @@ function InspectTicketDialog({
                   ]}
                 />
                 <Panel>
-                  <h4 className="text-lg font-semibold">Customer message</h4>
-                  <p className="mt-3 text-sm text-[var(--muted)]">{ticket.message ?? "No additional message available."}</p>
+                  <h4 className="text-lg font-semibold mb-3">Support Conversation</h4>
+                  <div className="flex flex-col space-y-4 max-h-[300px] overflow-y-auto p-4 bg-[#f8fafc] dark:bg-[#0f172a] rounded-2xl border border-[var(--panel-border)]">
+                    {/* Customer message bubble */}
+                    <div className="flex items-start gap-2.5 max-w-[85%]">
+                      <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-orange-500 text-white text-xs font-semibold">
+                        {ticket.user?.name ? ticket.user.name.slice(0, 2).toUpperCase() : "CU"}
+                      </div>
+                      <div className="flex flex-col gap-1 w-full">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-semibold text-[var(--foreground)]">{ticket.user?.name ?? ticket.user?.phone ?? "Customer"}</span>
+                          <span className="text-[10px] text-[var(--muted)]">{formatDate(ticket.createdAt, true)}</span>
+                        </div>
+                        <div className="leading-1.5 flex flex-col p-3 border-gray-200 bg-white dark:bg-slate-800 rounded-e-xl rounded-es-xl rounded-2xl shadow-sm border dark:border-none">
+                          <p className="text-sm font-normal text-gray-900 dark:text-white whitespace-pre-wrap">{ticket.message}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Admin response message bubble */}
+                    {ticket.adminResponse && (
+                      <div className="flex items-start gap-2.5 max-w-[85%] self-end flex-row-reverse">
+                        <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-slate-500 text-white text-xs font-semibold">
+                          AD
+                        </div>
+                        <div className="flex flex-col gap-1 w-full items-end">
+                          <div className="flex items-center space-x-2 flex-row-reverse gap-2">
+                            <span className="text-xs font-semibold text-[var(--foreground)]">Darji Support</span>
+                            <span className="text-[10px] text-[var(--muted)]">{formatDate(ticket.updatedAt, true)}</span>
+                          </div>
+                          <div className="leading-1.5 flex flex-col p-3 bg-orange-500 text-white rounded-s-xl rounded-ee-xl rounded-2xl shadow-sm">
+                            <p className="text-sm font-normal whitespace-pre-wrap">{ticket.adminResponse}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </Panel>
                 
                 <Panel>

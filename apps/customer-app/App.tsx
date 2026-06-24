@@ -3152,13 +3152,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
       const res = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
       const list = Array.isArray(res) ? res : (res as any)?.data || [];
       const sorted = [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      setTickets(sorted);
+      const filtered = sorted.filter((t) => isBugReport ? t.subject === "Bug Report" : t.subject !== "Bug Report");
+      setTickets(filtered);
     } catch (e) {
       console.log("Failed to load tickets", e);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, isBugReport]);
 
   useEffect(() => {
     loadTickets();
@@ -3195,8 +3196,10 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
   }
 
   return (
-    <ProfileSubPage title={isBugReport ? "Report a Bug" : "Support Chat"} setScreen={setScreen}>
-      <View style={{ height: 420, justifyContent: "space-between" }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? "#000000" : SCREEN_BG }}>
+      <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
+        <Header title={isBugReport ? "Report a Bug" : "Support Chat"} onBack={() => setScreen("profile")} />
+        
         <ScrollView 
           ref={scrollViewRef}
           style={{ flex: 1, marginBottom: 10, paddingHorizontal: 4 }}
@@ -3233,7 +3236,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                   {ticket.adminResponse ? (
                     <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: "#1e293b", borderWidth: 1, borderColor: "#334155", borderRadius: 18, borderBottomLeftRadius: 2, padding: 12 }}>
                       <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>
-                        Darji Support ({ticket.status})
+                        Darji Support
                       </Text>
                       <Text style={{ color: "#ffffff", fontSize: 14, fontWeight: "700" }}>{ticket.adminResponse}</Text>
                       <Text style={{ color: isDark ? "#94a3b8" : "#a1b2c9", fontSize: 9, marginTop: 4, opacity: 0.7 }}>
@@ -3295,7 +3298,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
           </Pressable>
         </View>
       </View>
-    </ProfileSubPage>
+    </SafeAreaView>
   );
 }
 

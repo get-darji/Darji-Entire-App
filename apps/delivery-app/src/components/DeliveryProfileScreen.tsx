@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View, Alert, Modal } from "react-native";
 import { api, uploadDeliveryAvatar } from "../api";
 import { useAppStore } from "../store";
@@ -431,7 +431,9 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Section>
     </ScrollView>
     <Modal visible={Boolean(supportScreen)} onRequestClose={() => setSupportScreen(undefined)} animationType="slide">
-      {supportScreen ? (
+      {supportScreen === "chat" ? (
+        <DeliverySupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} />
+      ) : supportScreen ? (
         <SupportDetailScreen screen={supportScreen} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
       ) : null}
     </Modal>
@@ -623,6 +625,184 @@ function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: Supp
         ) : null}
       </View>
     </ScrollView>
+  );
+}
+
+function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const loadTickets = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      const res = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
+      const list = Array.isArray(res) ? res : (res as any)?.data || [];
+      const sorted = [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const filtered = sorted.filter((t) => t.subject !== "Bug Report");
+      setTickets(filtered);
+    } catch (e) {
+      console.log("Failed to load tickets", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 150);
+  }, [tickets]);
+
+  async function handleSend() {
+    if (message.trim().length < 10) {
+      Alert.alert("Message too short", "Please write at least 10 characters so we can help.");
+      return;
+    }
+    if (!token) return;
+    try {
+      setSending(true);
+      await api("/support", {
+        method: "POST",
+        body: JSON.stringify({
+          subject: "Delivery Support Request",
+          message: message.trim()
+        })
+      }, token);
+      setMessage("");
+      await loadTickets();
+    } catch (e) {
+      Alert.alert("Failed", "Could not send message. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+      {/* Header */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, marginBottom: 14 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+          <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
+            <Ionicons name="chevron-back" size={22} color={palette.text} />
+          </Pressable>
+          <View style={styles.rowMain}>
+            <Text style={styles.title}>Support Chat</Text>
+            <Text style={styles.meta}>Get help from our support team</Text>
+          </View>
+        </View>
+        <Pressable 
+          style={styles.backButton} 
+          onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
+        >
+          <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
+        </Pressable>
+      </View>
+
+      {/* Messages list */}
+      <ScrollView
+        ref={scrollViewRef}
+        style={{ flex: 1, paddingHorizontal: 18 }}
+        contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {loading && tickets.length === 0 ? (
+          <ActivityIndicator size="large" color={BRAND_ORANGE} style={{ marginTop: 40 }} />
+        ) : tickets.length === 0 ? (
+          <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 60 }}>
+            <Ionicons name="chatbubbles-outline" size={48} color={BRAND_ORANGE} style={{ marginBottom: 12 }} />
+            <Text style={{ color: palette.text, fontWeight: "800", fontSize: 16, textAlign: "center" }}>
+              How can we help you today?
+            </Text>
+            <Text style={{ color: palette.subtext, fontSize: 13, textAlign: "center", marginTop: 6, paddingHorizontal: 30 }}>
+              Send us a message below. Our support agents will respond right here.
+            </Text>
+          </View>
+        ) : (
+          tickets.map((ticket) => (
+            <View key={ticket._id || ticket.id} style={{ gap: 6 }}>
+              <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
+                <Text style={{ color: "#000000", fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>
+                  You
+                </Text>
+                <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{ticket.message}</Text>
+                <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
+                  {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+
+              {ticket.adminResponse ? (
+                <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
+                  <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>
+                    Darji Support
+                  </Text>
+                  <Text style={{ color: palette.text, fontSize: 14, fontWeight: "700" }}>{ticket.adminResponse}</Text>
+                  <Text style={{ color: palette.subtext, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
+                    {ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ alignSelf: "flex-end", marginRight: 6 }}>
+                  <Text style={{ color: palette.subtext, fontSize: 10, fontStyle: "italic" }}>
+                    Status: {ticket.status || "OPEN"}
+                  </Text>
+                </View>
+              )}
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Message input */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: palette.cardBorder, paddingTop: 12, paddingBottom: 16, paddingHorizontal: 18 }}>
+        <TextInput
+          style={{
+            flex: 1,
+            minHeight: 46,
+            maxHeight: 100,
+            backgroundColor: palette.card,
+            borderWidth: 1,
+            borderColor: palette.cardBorder,
+            borderRadius: 23,
+            paddingHorizontal: 16,
+            color: palette.text,
+            fontSize: 14,
+            fontWeight: "700"
+          }}
+          value={message}
+          onChangeText={setMessage}
+          placeholder="Type your message (min 10 chars)..."
+          placeholderTextColor={palette.subtext}
+          multiline
+        />
+        <Pressable 
+          style={{
+            width: 46,
+            height: 46,
+            borderRadius: 23,
+            backgroundColor: BRAND_ORANGE,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: message.trim().length >= 10 && !sending ? 1 : 0.6
+          }}
+          onPress={handleSend}
+          disabled={message.trim().length < 10 || sending}
+        >
+          {sending ? (
+            <ActivityIndicator size="small" color="#000000" />
+          ) : (
+            <Ionicons name="send" size={18} color="#000000" />
+          )}
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
