@@ -154,13 +154,40 @@ export type Order = {
   payments?: Payment[];
 };
 
+export type SupportMessage = {
+  id?: string;
+  sender: "client" | "admin" | "system" | "internal";
+  senderId?: string;
+  senderName?: string;
+  text: string;
+  attachments?: string[];
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: number;
+  thumbnail?: string;
+  type?: "text" | "voice" | "audio" | "image" | "video" | "document" | "system" | "internal";
+  read?: boolean;
+  isInternal?: boolean;
+  createdAt?: string;
+};
+
+export type SupportStatus =
+  | "OPEN"
+  | "WAITING_FOR_CUSTOMER"
+  | "WAITING_FOR_ADMIN"
+  | "IN_REVIEW"
+  | "RESOLVED"
+  | "CLOSED";
+
+export type SupportPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+
 export type SupportTicket = {
   id: string;
   userId: string;
   orderId?: string;
   subject: string;
   message?: string;
-  status: string;
+  status: SupportStatus | string;
   adminResponse?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -171,9 +198,14 @@ export type SupportTicket = {
     status?: string;
   } | null;
   category?: string | null;
-  priority?: "LOW" | "MEDIUM" | "HIGH";
+  supportType?: string | null;
+  priority?: SupportPriority | string;
   assignedTo?: string | null;
+  assignedToName?: string | null;
+  ownedBy?: string | null;
+  ownedByName?: string | null;
   attachments?: string[];
+  messages?: SupportMessage[];
 };
 
 export type BugReport = {
@@ -185,10 +217,23 @@ export type BugReport = {
   deviceInfo: string;
   appVersion: string;
   status: "NEW" | "INVESTIGATING" | "IN_PROGRESS" | "FIXED" | "CLOSED";
+  priority?: SupportPriority | string;
   assignedTo?: string | null;
+  assignedToName?: string | null;
   createdAt?: string;
   updatedAt?: string;
   user?: BasicUser | null;
+  messages?: SupportMessage[];
+};
+
+export type AccountChangeRequestHistoryEntry = {
+  requestedValues: Record<string, any>;
+  status: "APPROVED" | "REJECTED";
+  processedBy?: string;
+  processedByName?: string;
+  processedAt?: string;
+  adminNotes?: string;
+  createdAt?: string;
 };
 
 export type AccountChangeRequest = {
@@ -196,14 +241,21 @@ export type AccountChangeRequest = {
   userId: string;
   userRole?: "TAILOR" | "DELIVERY_PARTNER";
   type: "ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "Vehicle" | "RC" | "DrivingLicense";
+  currentValues?: Record<string, any>;
   requestedValues: Record<string, any>;
   documents?: string[];
   status: "PENDING" | "APPROVED" | "REJECTED";
   adminNotes?: string | null;
+  processedBy?: string | null;
+  processedByName?: string | null;
+  processedAt?: string | null;
+  history?: AccountChangeRequestHistoryEntry[];
   createdAt?: string;
   updatedAt?: string;
   user?: BasicUser | null;
+  messages?: SupportMessage[];
 };
+
 
 export type SupportStats = {
   totalTickets: number;

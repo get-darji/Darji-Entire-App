@@ -29,6 +29,7 @@ import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } fro
 import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
+import { emitToCustomer, emitToAdmins } from "../services/socket.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -750,16 +751,34 @@ export async function createSupportTicketController(req: Request, res: Response)
     return;
   }
 
-  const ticket = await SupportTicketModel.create({ ...input, userId: req.user!.id });
+  const user = await UserModel.findById(req.user!.id);
+  const senderName = user?.name || "User";
+
+  // Initial message from the customer
+  const initialMessage = {
+    sender: "client",
+    senderId: req.user!.id,
+    senderName,
+    text: input.message,
+    attachments: input.attachments || [],
+    type: "text",
+    createdAt: new Date()
+  };
+
+  const ticket = await SupportTicketModel.create({
+    ...input,
+    userId: req.user!.id,
+    messages: [initialMessage]
+  });
   res.status(201).json({ data: ticket });
 }
 
 export async function updateSupportTicketController(req: Request, res: Response) {
   const { id } = req.params;
   const update = z.object({
-    status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
+    status: z.enum(["OPEN", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW", "RESOLVED", "CLOSED"]).optional(),
     adminResponse: z.string().optional().nullable(),
-    priority: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+    priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
     assignedTo: z.string().optional().nullable()
   }).parse(req.body);
 
@@ -769,13 +788,65 @@ export async function updateSupportTicketController(req: Request, res: Response)
     return;
   }
 
-  // Automatically transition status to IN_PROGRESS if admin is responding
-  if (update.adminResponse && ticket.status === "OPEN" && !update.status) {
-    update.status = "IN_PROGRESS";
+  // Build system messages for changed values
+  const systemMessages: any[] = [];
+  if (update.status && update.status !== ticket.status) {
+    let text = "";
+    if (update.status === "OPEN") text = "Ticket reopened";
+    else if (update.status === "RESOLVED") text = "Ticket resolved";
+    else if (update.status === "CLOSED") text = "Ticket closed";
+    else text = `Status changed to ${update.status.replace(/_/g, " ")}`;
+    
+    systemMessages.push({
+      sender: "system",
+      text,
+      type: "system",
+      createdAt: new Date()
+    });
+  }
+  if (update.assignedTo && update.assignedTo !== ticket.assignedTo) {
+    const agent = await UserModel.findById(update.assignedTo);
+    systemMessages.push({
+      sender: "system",
+      text: agent ? `Agent assigned to ${agent.name}` : "Agent unassigned",
+      type: "system",
+      createdAt: new Date()
+    });
   }
 
-  const updatedTicket = await SupportTicketModel.findByIdAndUpdate(id, update, { new: true });
-  
+  if (update.adminResponse) {
+    const adminUser = await UserModel.findById(req.user!.id);
+    const adminName = adminUser?.name || "Admin";
+
+    // Push the reply as an admin message
+    systemMessages.push({
+      sender: "admin",
+      senderId: req.user!.id,
+      senderName: adminName,
+      text: update.adminResponse,
+      type: "text",
+      createdAt: new Date()
+    });
+    if (ticket.status === "OPEN" && !update.status) {
+      update.status = "WAITING_FOR_CUSTOMER";
+    }
+  }
+
+  const updatedTicket = await SupportTicketModel.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        ...(update.status ? { status: update.status } : {}),
+        ...(update.adminResponse !== undefined ? { adminResponse: update.adminResponse } : {}),
+        ...(update.priority ? { priority: update.priority } : {}),
+        ...(update.assignedTo !== undefined ? { assignedTo: update.assignedTo } : {})
+      },
+      $push: { messages: { $each: systemMessages } }
+    },
+    { new: true }
+  );
+
+  // Send push notification
   if (update.adminResponse) {
     try {
       const user = await UserModel.findById(ticket.userId);
@@ -795,7 +866,7 @@ export async function updateSupportTicketController(req: Request, res: Response)
         });
       }
     } catch (e) {
-      console.error("Failed to send push notification for support reply:", e);
+      console.error("Failed to send push notification:", e);
     }
   }
 
@@ -806,11 +877,17 @@ export async function listSupportTicketsController(req: Request, res: Response) 
   const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
   const tickets = await SupportTicketModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
-    tickets.map(async (ticket) => ({
-      ...ticket.toJSON(),
-      user: ticket.userId ? (await UserModel.findById(ticket.userId).select("phone name"))?.toJSON() : undefined,
-      order: ticket.orderId ? (await OrderModel.findById(ticket.orderId).select("orderNumber status"))?.toJSON() : undefined
-    }))
+    tickets.map(async (ticket) => {
+      const ticketJson = ticket.toJSON() as any;
+      if (req.user!.role !== "ADMIN" && ticketJson.messages) {
+        ticketJson.messages = ticketJson.messages.filter((m: any) => m.sender !== "internal");
+      }
+      return {
+        ...ticketJson,
+        user: ticket.userId ? (await UserModel.findById(ticket.userId).select("phone name"))?.toJSON() : undefined,
+        order: ticket.orderId ? (await OrderModel.findById(ticket.orderId).select("orderNumber status"))?.toJSON() : undefined
+      };
+    })
   );
   res.json({ data });
 }
@@ -895,7 +972,24 @@ export async function updateSettingController(req: Request, res: Response) {
 
 export async function createBugReportController(req: Request, res: Response) {
   const input = bugReportSchema.parse(req.body);
-  const bug = await BugReportModel.create({ ...input, userId: req.user!.id });
+  const user = await UserModel.findById(req.user!.id);
+  const senderName = user?.name || "User";
+
+  const initialMessage = {
+    sender: "client",
+    senderId: req.user!.id,
+    senderName,
+    text: `Bug Report: ${input.title}\n\nDescription: ${input.description}\n\nDevice: ${input.deviceInfo}\nApp Version: ${input.appVersion}`,
+    attachments: input.screenshot ? [input.screenshot] : [],
+    type: "text",
+    createdAt: new Date()
+  };
+
+  const bug = await BugReportModel.create({
+    ...input,
+    userId: req.user!.id,
+    messages: [initialMessage]
+  });
   res.status(201).json({ data: bug });
 }
 
@@ -918,20 +1012,69 @@ export async function updateBugReportController(req: Request, res: Response) {
     assignedTo: z.string().optional().nullable()
   }).parse(req.body);
 
-  const bug = await BugReportModel.findByIdAndUpdate(id, update, { new: true });
+  const bug = await BugReportModel.findById(id);
   if (!bug) {
     res.status(404).json({ message: "Bug report not found" });
     return;
   }
-  res.json({ data: bug });
+
+  const systemMessages: any[] = [];
+  if (update.status && update.status !== bug.status) {
+    systemMessages.push({
+      sender: "system",
+      text: `Status changed to ${update.status}`,
+      type: "system",
+      createdAt: new Date()
+    });
+  }
+  if (update.assignedTo && update.assignedTo !== bug.assignedTo) {
+    const dev = await UserModel.findById(update.assignedTo);
+    systemMessages.push({
+      sender: "system",
+      text: dev ? `Assigned to developer ${dev.name}` : "Developer unassigned",
+      type: "system",
+      createdAt: new Date()
+    });
+  }
+
+  const updatedBug = await BugReportModel.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        ...(update.status ? { status: update.status } : {}),
+        ...(update.assignedTo !== undefined ? { assignedTo: update.assignedTo } : {})
+      },
+      $push: { messages: { $each: systemMessages } }
+    },
+    { new: true }
+  );
+
+  res.json({ data: updatedBug });
 }
 
 export async function createAccountChangeRequestController(req: Request, res: Response) {
   const input = accountChangeRequestSchema.parse(req.body);
+
+  // Parse type for visual neatness
+  const requestTypeNice = input.type.replace(/([A-Z])/g, ' $1').trim();
+  const user = await UserModel.findById(req.user!.id);
+  const senderName = user?.name || "User";
+
+  const initialMessage = {
+    sender: "client",
+    senderId: req.user!.id,
+    senderName,
+    text: `Request: Change ${requestTypeNice}\n\nDetails: ${Object.entries(input.requestedValues || {}).map(([k, v]) => `\n- ${k}: ${v}`).join('')}`,
+    attachments: input.documents || [],
+    type: "text",
+    createdAt: new Date()
+  };
+
   const request = await AccountChangeRequestModel.create({
     ...input,
     userId: req.user!.id,
-    userRole: req.user!.role as "TAILOR" | "DELIVERY_PARTNER"
+    userRole: req.user!.role as "TAILOR" | "DELIVERY_PARTNER",
+    messages: [initialMessage]
   });
   res.status(201).json({ data: request });
 }
@@ -1025,7 +1168,19 @@ export async function approveAccountChangeRequestController(req: Request, res: R
 
   request.status = "APPROVED";
   request.adminNotes = adminNotes;
+  request.processedBy = req.user!.id;
+  request.processedByName = (await UserModel.findById(req.user!.id))?.name || "Admin";
+  request.processedAt = new Date();
+  request.messages.push({
+    sender: "system",
+    text: `Change Request Approved by ${request.processedByName}.${adminNotes ? ` Notes: ${adminNotes}` : ""}`,
+    type: "system",
+    createdAt: new Date()
+  });
   await request.save();
+
+  emitToAdmins("support:change_request_updated", { request });
+  emitToCustomer(request.userId, "support:change_request_updated", { request });
 
   res.json({ data: request });
 }
@@ -1046,14 +1201,26 @@ export async function rejectAccountChangeRequestController(req: Request, res: Re
 
   request.status = "REJECTED";
   request.adminNotes = adminNotes;
+  request.processedBy = req.user!.id;
+  request.processedByName = (await UserModel.findById(req.user!.id))?.name || "Admin";
+  request.processedAt = new Date();
+  request.messages.push({
+    sender: "system",
+    text: `Change Request Rejected by ${request.processedByName}.${adminNotes ? ` Reason: ${adminNotes}` : ""}`,
+    type: "system",
+    createdAt: new Date()
+  });
   await request.save();
+
+  emitToAdmins("support:change_request_updated", { request });
+  emitToCustomer(request.userId, "support:change_request_updated", { request });
 
   res.json({ data: request });
 }
 
 export async function getSupportStatsController(req: Request, res: Response) {
   const openTickets = await SupportTicketModel.countDocuments({ status: "OPEN" });
-  const pendingTickets = await SupportTicketModel.countDocuments({ status: "IN_PROGRESS" });
+  const pendingTickets = await SupportTicketModel.countDocuments({ status: "WAITING_FOR_ADMIN" });
   const resolvedTickets = await SupportTicketModel.countDocuments({ status: "RESOLVED" });
   const closedTickets = await SupportTicketModel.countDocuments({ status: "CLOSED" });
   const newBugs = await BugReportModel.countDocuments({ status: "NEW" });
@@ -1114,4 +1281,208 @@ export async function getSupportStatsController(req: Request, res: Response) {
       volumeByUserType
     }
   });
+}
+
+export async function addSupportTicketMessageController(req: Request, res: Response) {
+  const { id } = req.params;
+  const input = z.object({
+    text: z.string(),
+    attachments: z.array(z.string()).optional(),
+    attachmentUrl: z.string().optional(),
+    attachmentName: z.string().optional(),
+    attachmentSize: z.number().optional(),
+    thumbnail: z.string().optional(),
+    type: z.enum(["text", "voice", "audio", "image", "video", "document", "system", "internal"]).default("text"),
+    isInternal: z.boolean().optional().default(false)
+  }).parse(req.body);
+
+  const ticket = await SupportTicketModel.findById(id);
+  if (!ticket) {
+    res.status(404).json({ message: "Ticket not found" });
+    return;
+  }
+
+  const isAdmin = req.user!.role === "ADMIN";
+  const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
+  const user = await UserModel.findById(req.user!.id);
+  const senderName = user?.name || (isAdmin ? "Admin" : "User");
+
+  // Reopen ticket if a closed/resolved ticket receives a client message
+  const systemMessages: any[] = [];
+  let autoStatus: string | undefined;
+
+  if (senderRole === "client" && ["RESOLVED", "CLOSED"].includes(ticket.status)) {
+    autoStatus = "OPEN";
+    systemMessages.push({ sender: "system", text: "Ticket reopened by customer reply", type: "system", createdAt: new Date() });
+  } else if (senderRole === "admin" && ticket.status === "OPEN") {
+    autoStatus = "WAITING_FOR_CUSTOMER";
+  } else if (senderRole === "client" && ticket.status === "WAITING_FOR_CUSTOMER") {
+    autoStatus = "WAITING_FOR_ADMIN";
+  }
+
+  const newMessage = {
+    sender: senderRole,
+    senderId: req.user!.id,
+    senderName,
+    text: input.text,
+    attachments: input.attachments || [],
+    attachmentUrl: input.attachmentUrl,
+    attachmentName: input.attachmentName,
+    attachmentSize: input.attachmentSize,
+    thumbnail: input.thumbnail,
+    type: input.isInternal ? "text" : input.type,
+    read: false,
+    createdAt: new Date()
+  };
+
+  const updatedTicket = await SupportTicketModel.findByIdAndUpdate(
+    id,
+    {
+      $set: { ...(autoStatus ? { status: autoStatus } : {}) },
+      $push: { messages: { $each: [...systemMessages, newMessage] } }
+    },
+    { new: true }
+  );
+
+  // Socket.IO real-time broadcast
+  if (updatedTicket) {
+    // Emit to the ticket owner (customer) — skip internal notes
+    if (senderRole !== "internal") {
+      emitToCustomer(ticket.userId, "support:ticket_updated", { ticket: updatedTicket });
+    }
+    // Broadcast to all admins so their queues update live
+    emitToAdmins("support:ticket_updated", { ticket: updatedTicket });
+  }
+
+  // Push notification if admin sending a public message
+  if (senderRole === "admin") {
+    try {
+      const pushUser = await UserModel.findById(ticket.userId);
+      if (pushUser) {
+        let channelId = "customer-orders-v2";
+        if (pushUser.role === "TAILOR") channelId = "tailor-pickup-updates-v2";
+        else if (pushUser.role === "DELIVERY_PARTNER") channelId = "delivery-updates-v2";
+        await sendPushToUsers([ticket.userId], {
+          title: "New Message from Support",
+          body: input.text,
+          channelId,
+          targetApps: [pushUser.role.toLowerCase()]
+        });
+      }
+    } catch (e) {
+      console.error("Push error:", e);
+    }
+  }
+
+  res.json({ data: updatedTicket });
+}
+
+export async function addBugReportMessageController(req: Request, res: Response) {
+  const { id } = req.params;
+  const input = z.object({
+    text: z.string(),
+    attachments: z.array(z.string()).optional(),
+    attachmentUrl: z.string().optional(),
+    attachmentName: z.string().optional(),
+    attachmentSize: z.number().optional(),
+    thumbnail: z.string().optional(),
+    type: z.enum(["text", "voice", "audio", "image", "video", "document", "system"]).default("text"),
+    isInternal: z.boolean().optional().default(false)
+  }).parse(req.body);
+
+  const bug = await BugReportModel.findById(id);
+  if (!bug) {
+    res.status(404).json({ message: "Bug report not found" });
+    return;
+  }
+
+  const isAdmin = req.user!.role === "ADMIN";
+  const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
+  const user = await UserModel.findById(req.user!.id);
+  const senderName = user?.name || (isAdmin ? "Admin" : "User");
+
+  const newMessage = {
+    sender: senderRole,
+    senderId: req.user!.id,
+    senderName,
+    text: input.text,
+    attachments: input.attachments || [],
+    attachmentUrl: input.attachmentUrl,
+    attachmentName: input.attachmentName,
+    attachmentSize: input.attachmentSize,
+    thumbnail: input.thumbnail,
+    type: input.type,
+    read: false,
+    createdAt: new Date()
+  };
+
+  const updatedBug = await BugReportModel.findByIdAndUpdate(
+    id,
+    { $push: { messages: newMessage } },
+    { new: true }
+  );
+
+  if (updatedBug) {
+    emitToAdmins("support:bug_updated", { bug: updatedBug });
+    if (senderRole !== "internal") {
+      emitToCustomer(bug.userId, "support:bug_updated", { bug: updatedBug });
+    }
+  }
+
+  res.json({ data: updatedBug });
+}
+
+export async function addChangeRequestMessageController(req: Request, res: Response) {
+  const { id } = req.params;
+  const input = z.object({
+    text: z.string(),
+    attachments: z.array(z.string()).optional(),
+    attachmentUrl: z.string().optional(),
+    attachmentName: z.string().optional(),
+    attachmentSize: z.number().optional(),
+    thumbnail: z.string().optional(),
+    type: z.enum(["text", "voice", "audio", "image", "video", "document", "system"]).default("text"),
+    isInternal: z.boolean().optional().default(false)
+  }).parse(req.body);
+
+  const request = await AccountChangeRequestModel.findById(id);
+  if (!request) {
+    res.status(404).json({ message: "Change request not found" });
+    return;
+  }
+
+  const isAdmin = req.user!.role === "ADMIN";
+  const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
+  const user = await UserModel.findById(req.user!.id);
+  const senderName = user?.name || (isAdmin ? "Admin" : "User");
+
+  const newMessage = {
+    sender: senderRole,
+    senderId: req.user!.id,
+    senderName,
+    text: input.text,
+    attachments: input.attachments || [],
+    attachmentUrl: input.attachmentUrl,
+    attachmentName: input.attachmentName,
+    attachmentSize: input.attachmentSize,
+    thumbnail: input.thumbnail,
+    type: input.type,
+    read: false,
+    createdAt: new Date()
+  };
+
+  const updatedRequest = await AccountChangeRequestModel.findByIdAndUpdate(
+    id,
+    { $push: { messages: newMessage } },
+    { new: true }
+  );
+
+  if (updatedRequest) {
+    emitToAdmins("support:change_request_updated", { request: updatedRequest });
+    if (senderRole !== "internal") {
+      emitToCustomer(request.userId, "support:change_request_updated", { request: updatedRequest });
+    }
+  }
+
+  res.json({ data: updatedRequest });
 }

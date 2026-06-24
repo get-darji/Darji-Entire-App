@@ -210,3 +210,49 @@ export async function rejectAccountChangeRequest(payload: { requestId: string; a
   return unwrap<AccountChangeRequest>(api.patch(`/support/change-requests/${requestId}/reject`, body));
 }
 
+export async function addSupportTicketMessage(payload: {
+  ticketId: string;
+  text: string;
+  type?: string;
+  isInternal?: boolean;
+  attachments?: string[];
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: number;
+  thumbnail?: string;
+}) {
+  const { ticketId, ...body } = payload;
+  return unwrap<SupportTicket>(api.post(`/support/${ticketId}/messages`, body));
+}
+
+export async function addBugReportMessage(payload: {
+  bugId: string;
+  text: string;
+  type?: string;
+  isInternal?: boolean;
+  attachments?: string[];
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: number;
+  thumbnail?: string;
+}) {
+  const { bugId, ...body } = payload;
+  return unwrap<BugReport>(api.post(`/support/bug-reports/${bugId}/messages`, body));
+}
+
+export async function addChangeRequestMessage(payload: {
+  requestId: string;
+  text: string;
+  type?: string;
+  isInternal?: boolean;
+  attachments?: string[];
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentSize?: number;
+  thumbnail?: string;
+}) {
+  const { requestId, ...body } = payload;
+  return unwrap<AccountChangeRequest>(api.post(`/support/change-requests/${requestId}/messages`, body));
+}
+
+

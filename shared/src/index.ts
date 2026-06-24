@@ -18,7 +18,7 @@ export const orderStatuses = [
 
 export const paymentMethods = ["UPI", "COD", "ONLINE"] as const;
 export const paymentStatuses = ["PENDING", "PAID", "FAILED", "REFUNDED"] as const;
-export const supportStatuses = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"] as const;
+export const supportStatuses = ["OPEN", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW", "RESOLVED", "CLOSED"] as const;
 
 export type Role = (typeof roles)[number];
 export type OrderStatus = (typeof orderStatuses)[number];
@@ -95,6 +95,18 @@ export const couponSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
+export const supportMessageSchema = z.object({
+  sender: z.enum(["client", "admin", "system"]),
+  senderId: z.string().optional().nullable(),
+  senderName: z.string().optional().nullable(),
+  text: z.string(),
+  attachments: z.array(z.string()).optional(),
+  type: z.enum(["text", "voice", "image", "video", "system"]).default("text"),
+  createdAt: z.string().optional().nullable()
+});
+
+export type SupportMessage = z.infer<typeof supportMessageSchema>;
+
 export const supportTicketSchema = z.object({
   subject: z.string().min(3),
   message: z.string().min(10),
@@ -103,7 +115,8 @@ export const supportTicketSchema = z.object({
   category: z.string().optional().nullable(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
   assignedTo: z.string().optional().nullable(),
-  attachments: z.array(z.string()).optional()
+  attachments: z.array(z.string()).optional(),
+  messages: z.array(supportMessageSchema).optional()
 });
 
 export const bugReportSchema = z.object({
@@ -113,7 +126,8 @@ export const bugReportSchema = z.object({
   deviceInfo: z.string(),
   appVersion: z.string().default("0.1.0"),
   status: z.enum(["NEW", "INVESTIGATING", "IN_PROGRESS", "FIXED", "CLOSED"]).default("NEW"),
-  assignedTo: z.string().optional().nullable()
+  assignedTo: z.string().optional().nullable(),
+  messages: z.array(supportMessageSchema).optional()
 });
 
 export const accountChangeRequestSchema = z.object({
@@ -128,7 +142,8 @@ export const accountChangeRequestSchema = z.object({
     "DrivingLicense"
   ]),
   requestedValues: z.record(z.string(), z.any()),
-  documents: z.array(z.string()).optional()
+  documents: z.array(z.string()).optional(),
+  messages: z.array(supportMessageSchema).optional()
 });
 
 export const serviceCatalog = [

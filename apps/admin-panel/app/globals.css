@@ -166,3 +166,48 @@ textarea {
 .animate-slide-up-fade {
   animation: slide-up-fade 0.55s ease both;
 }
+
+.darji-support-shell {
+  --background: #0f1115;
+  --foreground: #ffffff;
+  --panel: #171a21;
+  --panel-strong: #1d212b;
+  --panel-border: #262b36;
+  --divider: #2d3440;
+  --muted: #7c8595;
+  --text-secondary: #b5bbc7;
+  --accent: #f98a04;
+  --hover-accent: #ffaa33;
+  --accent-soft: rgba(249, 138, 4, 0.14);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.darji-support-shell input,
+.darji-support-shell select,
+.darji-support-shell textarea {
+  color: var(--foreground);
+}
+
+.darji-support-shell ::selection {
+  background: rgba(249, 138, 4, 0.24);
+}
+
+/* Slim, elegant dark-theme scrollbars for premium SaaS look */
+.darji-support-shell *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.darji-support-shell *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.darji-support-shell *::-webkit-scrollbar-thumb {
+  background: #2d3440;
+  border-radius: 9999px;
+  border: 1px solid #171a21;
+}
+
+.darji-support-shell *::-webkit-scrollbar-thumb:hover {
+  background: #3e4859;
+}

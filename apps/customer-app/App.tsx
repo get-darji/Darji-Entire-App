@@ -3282,42 +3282,20 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
     }
   }
 
-  async function handleStartChat() {
+  function handleStartChat() {
     if (!selectedCategory) {
       Alert.alert("Select Category", "Please select the help category related to your issue.");
       return;
     }
-    if (description.trim().length < 10) {
-      Alert.alert("Description too short", "Please type a detailed message (min 10 characters).");
-      return;
-    }
-    if (!token) return;
-    try {
-      setSending(true);
-      const res = await api<any>("/support", {
-        method: "POST",
-        body: JSON.stringify({
-          subject: selectedCategory,
-          message: description.trim(),
-          orderId: selectedOrder?._id || selectedOrder?.id || null,
-          category: selectedCategory,
-          attachments
-        })
-      }, token);
-
-      // If active ticket already exists, the backend returns it with status 200
-      setDescription("");
-      setAttachments([]);
-      setSelectedOrder(null);
-      setSelectedCategory("");
-      await loadTickets();
-      setActiveTicket(res.data || res);
-      setView("chat");
-    } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to start conversation.");
-    } finally {
-      setSending(false);
-    }
+    setActiveTicket({
+      isDraft: true,
+      subject: selectedCategory,
+      category: selectedCategory,
+      orderId: selectedOrder?._id || selectedOrder?.id || null,
+      status: "OPEN",
+      messages: []
+    });
+    setView("chat");
   }
 
   async function handleSendReply() {
@@ -3325,20 +3303,45 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
     if (!token || !activeTicket) return;
     try {
       setSending(true);
-      // Append reply to the current ticket
-      const res = await api<any>(`/support/${activeTicket._id || activeTicket.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          message: chatMessage.trim(),
-          adminResponse: null // resets admin response or just posts a message
-        })
-      }, token);
-      setChatMessage("");
-      await loadTickets();
-      // Update active ticket state
-      const updated = tickets.find((t) => (t._id || t.id) === (activeTicket._id || activeTicket.id));
-      if (updated) {
-        setActiveTicket(updated);
+      if (activeTicket.isDraft) {
+        // Create new ticket using the message typed as first message
+        const res = await api<any>("/support", {
+          method: "POST",
+          body: JSON.stringify({
+            subject: activeTicket.subject,
+            message: chatMessage.trim(),
+            orderId: activeTicket.orderId,
+            category: activeTicket.category,
+            attachments: attachments
+          })
+        }, token);
+
+        setChatMessage("");
+        setAttachments([]);
+        await loadTickets();
+        const createdTicket = res.data || res;
+        setActiveTicket(createdTicket);
+      } else {
+        // Append message to the current ticket
+        await api<any>(`/support/${activeTicket._id || activeTicket.id}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            text: chatMessage.trim(),
+            attachments: attachments
+          })
+        }, token);
+
+        setChatMessage("");
+        setAttachments([]);
+        await loadTickets();
+        const ticketId = activeTicket._id || activeTicket.id;
+        // Fetch updated ticket to get latest messages array
+        const listRes = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
+        const list = Array.isArray(listRes) ? listRes : (listRes as any)?.data || [];
+        const updated = list.find((t: any) => (t._id || t.id) === ticketId);
+        if (updated) {
+          setActiveTicket(updated);
+        }
       }
     } catch (e) {
       Alert.alert("Failed", "Could not send message. Please try again.");
@@ -3360,7 +3363,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
           onPress: async () => {
             try {
               setLoading(true);
-              await api(`/support/${ticketId}`, {
+              const res = await api<any>(`/support/${ticketId}`, {
                 method: "PATCH",
                 body: JSON.stringify({ status: "CLOSED" })
               }, token);
@@ -3377,6 +3380,24 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
         }
       ]
     );
+  }
+
+  async function handleReopenTicket() {
+    if (!token || !activeTicket) return;
+    try {
+      setLoading(true);
+      const res = await api<any>(`/support/${activeTicket._id || activeTicket.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "OPEN" })
+      }, token);
+      await loadTickets();
+      const updated = res.data || res;
+      setActiveTicket(updated);
+    } catch (e) {
+      Alert.alert("Failed", "Could not reopen ticket.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSubmitBug() {
@@ -3421,41 +3442,36 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
             <Header title="Support Center" onBack={() => setScreen("profile")} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
-              <Text style={{ color: mutedText, fontSize: 14, fontWeight: "700", marginTop: 4 }}>
-                We're here to help you stitch and manage orders seamlessly. Choose a helper path below.
-              </Text>
-
-              {/* Chat Support card */}
+              
+              {/* Start New Conversation button card */}
               <Pressable 
-                style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
-                onPress={checkActiveTicketAndNavigate}
+                style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: BRAND_ORANGE, padding: 20, alignItems: "center", justifyContent: "center", gap: 10 }}
+                onPress={() => setView("new_chat")}
               >
-                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
+                <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="chatbubbles-outline" size={24} color={BRAND_ORANGE} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: text, fontSize: 16, fontWeight: "800" }}>Chat Support</Text>
-                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Resolve delays, payment, or order issues</Text>
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ color: text, fontSize: 16, fontWeight: "900" }}>Start New Conversation</Text>
+                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600", marginTop: 2, textAlign: "center" }}>Start chat instantly. The first message opens the ticket.</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={mutedText} />
               </Pressable>
 
-
-
-              {/* Previous conversations list */}
+              {/* Open Tickets Section */}
               <View style={{ marginTop: 8 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
                   <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
-                  <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>Previous Conversations</Text>
+                  <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                    Open Tickets ({tickets.filter(t => ["OPEN", "IN_PROGRESS"].includes(t.status)).length})
+                  </Text>
                 </View>
-
-                {tickets.length === 0 ? (
-                  <View style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 24, alignItems: "center" }}>
-                    <Text style={{ color: mutedText, fontSize: 13, fontWeight: "600" }}>No conversations found</Text>
+                {tickets.filter(t => ["OPEN", "IN_PROGRESS"].includes(t.status)).length === 0 ? (
+                  <View style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 18, alignItems: "center" }}>
+                    <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600" }}>No active support requests</Text>
                   </View>
                 ) : (
-                  <View style={{ gap: 12 }}>
-                    {[...tickets].reverse().map((t) => (
+                  <View style={{ gap: 10 }}>
+                    {tickets.filter(t => ["OPEN", "IN_PROGRESS"].includes(t.status)).reverse().map((t) => (
                       <Pressable 
                         key={t._id || t.id}
                         style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
@@ -3467,12 +3483,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                         <View style={{ flex: 1, marginRight: 12 }}>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                             <Text style={{ color: text, fontSize: 14, fontWeight: "800" }}>#{t._id?.slice(-6).toUpperCase() || t.id.slice(-6).toUpperCase()}</Text>
-                            <View style={{ backgroundColor: t.status === "CLOSED" ? "#e2e8f0" : t.status === "RESOLVED" ? "#dcfce7" : "#fff9db", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                              <Text style={{ color: t.status === "CLOSED" ? "#64748b" : t.status === "RESOLVED" ? "#166534" : "#b58700", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
+                            <View style={{ backgroundColor: "#fff9db", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ color: "#b58700", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
                             </View>
                           </View>
-                          <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Subject: {t.subject}</Text>
-                          <Text style={{ color: text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{t.message}</Text>
+                          <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Category: {t.subject}</Text>
+                          <Text style={{ color: text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>
+                            {t.messages && t.messages.length > 0 ? t.messages[t.messages.length - 1].text : t.message}
+                          </Text>
                         </View>
                         <Ionicons name="chevron-forward" size={16} color={mutedText} />
                       </Pressable>
@@ -3480,6 +3498,49 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                   </View>
                 )}
               </View>
+
+              {/* Resolved Tickets Section */}
+              <View style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <View style={{ width: 4, height: 16, backgroundColor: mutedText, borderRadius: 2 }} />
+                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                    Resolved Tickets ({tickets.filter(t => ["RESOLVED", "CLOSED"].includes(t.status)).length})
+                  </Text>
+                </View>
+                {tickets.filter(t => ["RESOLVED", "CLOSED"].includes(t.status)).length === 0 ? (
+                  <View style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 18, alignItems: "center" }}>
+                    <Text style={{ color: mutedText, fontSize: 12, fontWeight: "600" }}>No resolved support requests</Text>
+                  </View>
+                ) : (
+                  <View style={{ gap: 10 }}>
+                    {tickets.filter(t => ["RESOLVED", "CLOSED"].includes(t.status)).reverse().map((t) => (
+                      <Pressable 
+                        key={t._id || t.id}
+                        style={{ backgroundColor: cardBg, borderRadius: 18, borderWidth: 1, borderColor: border, padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", opacity: 0.8 }}
+                        onPress={() => {
+                          setActiveTicket(t);
+                          setView("chat");
+                        }}
+                      >
+                        <View style={{ flex: 1, marginRight: 12 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <Text style={{ color: text, fontSize: 14, fontWeight: "800" }}>#{t._id?.slice(-6).toUpperCase() || t.id.slice(-6).toUpperCase()}</Text>
+                            <View style={{ backgroundColor: t.status === "CLOSED" ? "#e2e8f0" : "#dcfce7", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ color: t.status === "CLOSED" ? "#64748b" : "#166534", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
+                            </View>
+                          </View>
+                          <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Category: {t.subject}</Text>
+                          <Text style={{ color: text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>
+                            {t.messages && t.messages.length > 0 ? t.messages[t.messages.length - 1].text : t.message}
+                          </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={mutedText} />
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+
             </ScrollView>
           </View>
         )}
@@ -3510,8 +3571,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                   ))}
                 </ScrollView>
               </View>
-
-              {/* Category Grid */}
+                          {/* Category Grid */}
               <View>
                 <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -3536,19 +3596,6 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                     );
                   })}
                 </View>
-              </View>
-
-              {/* Message inputs & attachments */}
-              <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Describe your Issue</Text>
-                <TextInput
-                  style={{ minHeight: 90, backgroundColor: cardBg, borderRadius: 14, borderWidth: 1, borderColor: border, padding: 12, color: text, fontSize: 14, fontWeight: "600" }}
-                  value={description}
-                  onChangeText={setDescription}
-                  placeholder="Tell us what went wrong (min 10 characters)..."
-                  placeholderTextColor={mutedText}
-                  multiline
-                />
               </View>
 
               {/* Attachments */}
@@ -3584,8 +3631,8 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
               </View>
 
               <Pressable 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (description.trim().length < 10 || sending) && { opacity: 0.6 }]}
-                disabled={description.trim().length < 10 || sending}
+                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
+                disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Start Conversation</Text>}
@@ -3609,13 +3656,15 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                   <Ionicons name="chevron-back" size={20} color={text} />
                 </Pressable>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: text, fontSize: 15, fontWeight: "800" }}>#{activeTicket._id?.slice(-6).toUpperCase() || activeTicket.id?.slice(-6).toUpperCase()}</Text>
+                  <Text style={{ color: text, fontSize: 15, fontWeight: "800" }}>
+                    {activeTicket.isDraft ? "Draft Conversation" : `#${(activeTicket._id || activeTicket.id || "").slice(-6).toUpperCase()}`}
+                  </Text>
                   <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700" }}>{activeTicket.subject}</Text>
                 </View>
               </View>
               
               {/* Close Ticket action */}
-              {activeTicket.status !== "CLOSED" && (
+              {!activeTicket.isDraft && activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && (
                 <Pressable 
                   style={{ backgroundColor: "#fee2e2", borderColor: "#fecaca", paddingHorizontal: 12, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
                   onPress={() => handleCloseChat(activeTicket._id || activeTicket.id)}
@@ -3632,69 +3681,127 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
               contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
               showsVerticalScrollIndicator={false}
             >
-              {/* User original issue message */}
-              <View style={{ gap: 6 }}>
-                <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
-                  <Text style={{ color: "#000000", fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
-                  <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
-                  
-                  {/* Attachments preview */}
-                  {activeTicket.attachments && activeTicket.attachments.length > 0 && (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                      {activeTicket.attachments.map((url: string) => (
-                        <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
-                      ))}
-                    </View>
-                  )}
-
-                  <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
-                    {new Date(activeTicket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {activeTicket.isDraft && (
+                <View style={{ alignSelf: "center", backgroundColor: isDark ? "#222" : "#e2e8f0", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, marginVertical: 8 }}>
+                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "800", textAlign: "center" }}>
+                    No messages yet. Type your first message below to open this support ticket.
                   </Text>
                 </View>
+              )}
 
-                {/* Status indicator */}
-                {activeTicket.status === "CLOSED" && (
-                  <View style={{ alignSelf: "center", backgroundColor: isDark ? "#222" : "#e2e8f0", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, marginVertical: 8 }}>
-                    <Text style={{ color: mutedText, fontSize: 11, fontWeight: "800" }}>This chat is closed. Close chat cleared the session.</Text>
-                  </View>
-                )}
-
-                {/* Admin response */}
-                {activeTicket.adminResponse ? (
-                  <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: isDark ? "#1e293b" : "#f1f5f9", borderWidth: 1, borderColor: border, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
-                    <Text style={{ color: BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>Darji Support</Text>
-                    <Text style={{ color: text, fontSize: 14, fontWeight: "700" }}>{activeTicket.adminResponse}</Text>
-                    <Text style={{ color: mutedText, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
-                      {new Date(activeTicket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                ) : (
-                  activeTicket.status !== "CLOSED" && (
-                    <View style={{ alignSelf: "flex-end", marginRight: 4 }}>
-                      <Text style={{ color: mutedText, fontSize: 10, fontStyle: "italic" }}>Status: {activeTicket.status || "OPEN"}</Text>
+              {/* Render legacy single message if no messages array is present (compatibility) */}
+              {!activeTicket.messages || activeTicket.messages.length === 0 ? (
+                !activeTicket.isDraft && (
+                  <View style={{ gap: 6 }}>
+                    <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
+                      <Text style={{ color: "#000000", fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
+                      <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
+                      {activeTicket.attachments && activeTicket.attachments.length > 0 && (
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                          {activeTicket.attachments.map((url: string) => (
+                            <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                          ))}
+                        </View>
+                      )}
+                      <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
+                        {new Date(activeTicket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
                     </View>
-                  )
-                )}
-              </View>
+                    {activeTicket.adminResponse && (
+                      <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: isDark ? "#1e293b" : "#f1f5f9", borderWidth: 1, borderColor: border, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
+                        <Text style={{ color: BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>Darji Support</Text>
+                        <Text style={{ color: text, fontSize: 14, fontWeight: "700" }}>{activeTicket.adminResponse}</Text>
+                        <Text style={{ color: mutedText, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
+                          {new Date(activeTicket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )
+              ) : (
+                activeTicket.messages.map((msg: any, idx: number) => {
+                  const isClient = msg.sender === "client";
+                  const isSystem = msg.sender === "system";
+
+                  if (isSystem) {
+                    return (
+                      <View key={idx} style={{ alignSelf: "center", backgroundColor: isDark ? "#222" : "#e2e8f0", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, marginVertical: 4 }}>
+                        <Text style={{ color: mutedText, fontSize: 11, fontWeight: "800", textAlign: "center" }}>{msg.text}</Text>
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View key={idx} style={{ alignSelf: isClient ? "flex-end" : "flex-start", maxWidth: "80%", backgroundColor: isClient ? BRAND_ORANGE : (isDark ? "#1e293b" : "#f1f5f9"), borderWidth: isClient ? 0 : 1, borderColor: border, borderRadius: 16, borderBottomRightRadius: isClient ? 2 : 16, borderBottomLeftRadius: isClient ? 16 : 2, padding: 12, marginVertical: 2 }}>
+                      <Text style={{ color: isClient ? "#000000" : BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: isClient ? 0.6 : 1 }}>
+                        {isClient ? "You" : "Darji Support"}
+                      </Text>
+                      <Text style={{ color: isClient ? "#000000" : text, fontSize: 14, fontWeight: "700" }}>{msg.text}</Text>
+                      
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                          {msg.attachments.map((url: string) => (
+                            <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                          ))}
+                        </View>
+                      )}
+
+                      <Text style={{ color: isClient ? "rgba(0,0,0,0.5)" : mutedText, fontSize: 9, textAlign: "right", marginTop: 4 }}>
+                        {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
             </ScrollView>
 
-            {/* Input bar */}
-            {activeTicket.status !== "CLOSED" && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: border, paddingTop: 10, paddingBottom: 16 }}>
-                <TextInput
-                  style={{ flex: 1, minHeight: 46, maxHeight: 100, backgroundColor: cardBg, borderWidth: 1, borderColor: border, borderRadius: 23, paddingHorizontal: 16, color: text, fontSize: 14, fontWeight: "700" }}
-                  value={chatMessage}
-                  onChangeText={setChatMessage}
-                  placeholder="Type a message (min 2 chars)..."
-                  placeholderTextColor={mutedText}
-                  multiline
-                />
+            {/* Composer/Input bar */}
+            {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" ? (
+              <View style={{ borderTopWidth: 1, borderTopColor: border, paddingTop: 10, paddingBottom: 16 }}>
+                {attachments.length > 0 && (
+                  <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
+                    {attachments.map((url, idx) => (
+                      <View key={url} style={{ width: 50, height: 50, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: border }}>
+                        <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
+                        <Pressable 
+                          style={{ position: "absolute", top: 2, right: 2, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, padding: 2 }}
+                          onPress={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+                        >
+                          <Ionicons name="close" size={10} color="#fff" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Pressable onPress={pickAttachmentImage} style={{ padding: 8 }}>
+                    <Ionicons name="attach-outline" size={24} color={BRAND_ORANGE} />
+                  </Pressable>
+                  <TextInput
+                    style={{ flex: 1, minHeight: 46, maxHeight: 100, backgroundColor: cardBg, borderWidth: 1, borderColor: border, borderRadius: 23, paddingHorizontal: 16, color: text, fontSize: 14, fontWeight: "700" }}
+                    value={chatMessage}
+                    onChangeText={setChatMessage}
+                    placeholder="Type a message..."
+                    placeholderTextColor={mutedText}
+                    multiline
+                  />
+                  <Pressable 
+                    style={[{ width: 46, height: 46, borderRadius: 23, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" }, (chatMessage.trim().length < 2 || sending) && { opacity: 0.6 }]}
+                    disabled={chatMessage.trim().length < 2 || sending}
+                    onPress={handleSendReply}
+                  >
+                    {sending ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="send" size={18} color="#111111" />}
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={{ paddingVertical: 16, gap: 10 }}>
+                <Text style={{ color: mutedText, fontSize: 13, fontWeight: "800", textAlign: "center" }}>This ticket is resolved or closed.</Text>
                 <Pressable 
-                  style={[{ width: 46, height: 46, borderRadius: 23, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" }, (chatMessage.trim().length < 2 || sending) && { opacity: 0.6 }]}
-                  disabled={chatMessage.trim().length < 2 || sending}
-                  onPress={handleSendReply}
+                  style={{ backgroundColor: BRAND_ORANGE, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" }}
+                  onPress={handleReopenTicket}
                 >
-                  {sending ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="send" size={18} color="#111111" />}
+                  <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Reopen Ticket</Text>
                 </Pressable>
               </View>
             )}

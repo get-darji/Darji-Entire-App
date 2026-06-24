@@ -302,6 +302,24 @@ const otpRequestSchema = new Schema(
 );
 otpRequestSchema.index({ phone: 1, createdAt: -1 });
 
+const supportMessageSchema = new Schema(
+  {
+    sender: { type: String, enum: ["client", "admin", "system", "internal"], required: true },
+    senderId: String,
+    senderName: String,
+    text: { type: String, required: true },
+    attachments: [String],
+    attachmentUrl: String,
+    attachmentName: String,
+    attachmentSize: Number,
+    thumbnail: String,
+    read: { type: Boolean, default: false },
+    type: { type: String, enum: ["text", "voice", "audio", "image", "video", "document", "system"], default: "text" },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { _id: false, versionKey: false }
+);
+
 const supportTicketSchema = new Schema(
   {
     _id: stringId,
@@ -312,9 +330,10 @@ const supportTicketSchema = new Schema(
     status: { type: String, enum: supportStatuses, default: "OPEN", index: true },
     adminResponse: String,
     category: String,
-    priority: { type: String, enum: ["LOW", "MEDIUM", "HIGH"], default: "MEDIUM", index: true },
+    priority: { type: String, enum: ["LOW", "MEDIUM", "HIGH", "URGENT"], default: "MEDIUM", index: true },
     assignedTo: { type: String, index: true },
-    attachments: [String]
+    attachments: [String],
+    messages: { type: [supportMessageSchema], default: [] }
   },
   baseOptions
 );
@@ -329,7 +348,8 @@ const bugReportSchema = new Schema(
     deviceInfo: { type: String, required: true },
     appVersion: { type: String, default: "0.1.0" },
     status: { type: String, enum: ["NEW", "INVESTIGATING", "IN_PROGRESS", "FIXED", "CLOSED"], default: "NEW", index: true },
-    assignedTo: { type: String, index: true }
+    assignedTo: { type: String, index: true },
+    messages: { type: [supportMessageSchema], default: [] }
   },
   baseOptions
 );
@@ -343,7 +363,11 @@ const accountChangeRequestSchema = new Schema(
     requestedValues: { type: Schema.Types.Mixed, required: true },
     documents: [String],
     status: { type: String, enum: ["PENDING", "APPROVED", "REJECTED"], default: "PENDING", index: true },
-    adminNotes: String
+    adminNotes: String,
+    processedBy: String,
+    processedByName: String,
+    processedAt: Date,
+    messages: { type: [supportMessageSchema], default: [] }
   },
   baseOptions
 );

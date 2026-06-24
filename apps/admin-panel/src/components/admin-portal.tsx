@@ -47,7 +47,10 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
+  MapPin,
+  Mail,
   PackageCheck,
+  Phone,
   ReceiptIndianRupee,
   Scissors,
   Search,
@@ -67,7 +70,7 @@ import {
   Send,
   ArrowRight
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import {
   assignOrder,
@@ -99,7 +102,10 @@ import {
   updateBugReport,
   getAccountChangeRequests,
   approveAccountChangeRequest,
-  rejectAccountChangeRequest
+  rejectAccountChangeRequest,
+  addSupportTicketMessage,
+  addBugReportMessage,
+  addChangeRequestMessage
 } from "@/src/lib/api";
 import {
   cn,
@@ -107,11 +113,13 @@ import {
   formatDate,
   formatList,
   formatStatus,
+  getInitials,
   isToday,
   percentage,
   stringifyUnknown
 } from "@/src/lib/utils";
 import { type SectionId, useAdminStore } from "@/src/store/admin-store";
+import SupportCommandCenter from "./support-command-center";
 import type {
   AdminUser,
   AnalyticsSummary,
@@ -193,6 +201,15 @@ type PiePoint = {
   value: number;
 };
 
+type SupportStreamTab = "customer" | "tailor" | "delivery" | "bugs";
+
+type SupportQueueItem =
+  | { kind: "ticket"; entity: SupportTicket }
+  | { kind: "request"; entity: AccountChangeRequest }
+  | { kind: "bug"; entity: BugReport };
+
+type SupportStatusTabId = "all" | "open" | "pending" | "resolved" | "closed";
+
 const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?: number }>; label: string; description: string }> = [
   { id: "dashboard", icon: BarChart3, label: "Dashboard", description: "Platform health and trends" },
   { id: "orders", icon: PackageCheck, label: "Orders", description: "Assignment and status control" },
@@ -230,9 +247,12 @@ export function AdminPortal() {
   const logout = useAdminStore((state) => state.logout);
   const setActiveSection = useAdminStore((state) => state.setActiveSection);
   const setSidebarOpen = useAdminStore((state) => state.setSidebarOpen);
+  const persistedSupportSubTab = useAdminStore((state) => state.supportSubTab);
+  const persistSupportSubTab = useAdminStore((state) => state.setSupportSubTab);
   const setToken = useAdminStore((state) => state.setToken);
   const sidebarOpen = useAdminStore((state) => state.sidebarOpen);
   const token = useAdminStore((state) => state.token);
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const [globalSearch, setGlobalSearch] = useState("");
   const [range] = useState<TrendRange>("monthly");
   const [orderFilter, setOrderFilter] = useState("");
@@ -245,7 +265,6 @@ export function AdminPortal() {
   const [userDetail, setUserDetail] = useState<AdminUser | null>(null);
   const [ticketDetail, setTicketDetail] = useState<SupportTicket | null>(null);
   const [supportCategory, setSupportCategory] = useState("all");
-  const [supportSubTab, setSupportSubTab] = useState<"customer" | "tailor" | "delivery" | "bugs">("customer");
   const [customerSupportSearch, setCustomerSupportSearch] = useState("");
   const [customerSupportStatus, setCustomerSupportStatus] = useState("");
   const [tailorSupportSearch, setTailorSupportSearch] = useState("");
@@ -255,9 +274,18 @@ export function AdminPortal() {
   const [bugSearch, setBugSearch] = useState("");
   const [bugStatus, setBugStatus] = useState("");
   const [supportStatusFilter, setSupportStatusFilter] = useState("");
+  const [supportPriorityFilter, setSupportPriorityFilter] = useState("");
+  const [supportAgentFilter, setSupportAgentFilter] = useState("");
+  const [supportStatusTab, setSupportStatusTab] = useState<SupportStatusTabId>("all");
+  const [contextTab, setContextTab] = useState<"customer" | "order" | "ticket" | "activity">("customer");
   const [adminNotes, setAdminNotes] = useState("");
+
+
   const [activeChangeRequest, setActiveChangeRequest] = useState<AccountChangeRequest | null>(null);
   const [activeBugReport, setActiveBugReport] = useState<BugReport | null>(null);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [ticketDetail?.messages, activeBugReport?.messages, activeChangeRequest?.messages]);
   const [assignOrderTarget, setAssignOrderTarget] = useState<Order | null>(null);
   const [assignTailorId, setAssignTailorId] = useState("");
   const [assignPickupPartnerId, setAssignPickupPartnerId] = useState("");
@@ -275,6 +303,7 @@ export function AdminPortal() {
   const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
   const isAuthed = Boolean(token);
+  const supportSubTab = persistedSupportSubTab;
 
   const meQuery = useQuery({
     queryKey: ["admin", "me"],
@@ -619,6 +648,40 @@ export function AdminPortal() {
     },
     onError: (error) => toast.error(extractError(error))
   });
+
+  const addTicketMessageMutation = useMutation({
+    mutationFn: addSupportTicketMessage,
+    onSuccess: async (updatedTicket) => {
+      await refreshData();
+      if (updatedTicket) {
+        setTicketDetail(updatedTicket);
+      }
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const addBugMessageMutation = useMutation({
+    mutationFn: addBugReportMessage,
+    onSuccess: async (updatedBug) => {
+      await refreshData();
+      if (updatedBug) {
+        setActiveBugReport(updatedBug);
+      }
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const addChangeRequestMessageMutation = useMutation({
+    mutationFn: addChangeRequestMessage,
+    onSuccess: async (updatedRequest) => {
+      await refreshData();
+      if (updatedRequest) {
+        setActiveChangeRequest(updatedRequest);
+      }
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
 
 
   if (!hydrated) {
@@ -979,8 +1042,95 @@ export function AdminPortal() {
     if (supportCategory === "tailor") return isTailor;
     if (supportCategory === "delivery") return isDelivery;
 
-    return true;
   });
+
+  const clearSupportSelection = () => {
+    setTicketDetail(null);
+    setActiveChangeRequest(null);
+    setActiveBugReport(null);
+    setContextTab("customer");
+  };
+
+  const setSupportTab = (tab: SupportStreamTab) => {
+    persistSupportSubTab(tab);
+    clearSupportSelection();
+  };
+
+  const customerOpenCount = tickets.filter(t => 
+    (t.user?.role === "CUSTOMER" || t.subject?.includes("Customer") || (!t.user?.role && t.subject?.toLowerCase().includes("customer"))) && 
+    (t.status === "OPEN" || t.status === "IN_PROGRESS" || t.status === "PENDING")
+  ).length;
+
+  const tailorTickets = tickets.filter(t => t.user?.role === "TAILOR" || t.subject?.includes("Tailor"));
+  const tailorRequests = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "TAILOR" || r.userRole === "TAILOR") : [];
+  const tailorOpenCount = tailorTickets.filter(t => t.status === "OPEN" || t.status === "IN_PROGRESS" || t.status === "PENDING").length +
+    tailorRequests.filter(r => r.status === "PENDING").length;
+
+  const deliveryTickets = tickets.filter(t => t.user?.role === "DELIVERY_PARTNER" || t.subject?.includes("Delivery"));
+  const deliveryChangeRequests = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "DELIVERY_PARTNER" || r.userRole === "DELIVERY_PARTNER") : [];
+  const deliveryOpenCount = deliveryTickets.filter(t => t.status === "OPEN" || t.status === "IN_PROGRESS" || t.status === "PENDING").length +
+    deliveryChangeRequests.filter(r => r.status === "PENDING").length;
+
+  const bugReportsList = bugReportsQuery.data || [];
+  const bugOpenCount = bugReportsList.filter(b => b.status === "NEW" || b.status === "INVESTIGATING" || b.status === "IN_PROGRESS").length;
+
+  const admins = users.filter((u) => u.role === "ADMIN");
+  const customerTickets = tickets.filter(isCustomerSupportTicket);
+  const tailorChatTickets = tickets.filter(isTailorSupportTicket);
+  const deliveryChatTickets = tickets.filter(isDeliverySupportTicket);
+  const selectedSupportItem = ticketDetail || activeBugReport || activeChangeRequest;
+
+  let rawSupportQueueItems: SupportQueueItem[] = [];
+  if (supportSubTab === "customer") {
+    rawSupportQueueItems = customerTickets.map((entity) => ({ kind: "ticket", entity }));
+  } else if (supportSubTab === "tailor") {
+    rawSupportQueueItems =
+      tailorSupportStatus === "requests"
+        ? tailorRequests.map((entity) => ({ kind: "request", entity }))
+        : tailorChatTickets.map((entity) => ({ kind: "ticket", entity }));
+  } else if (supportSubTab === "delivery") {
+    rawSupportQueueItems =
+      deliverySupportStatus === "requests"
+        ? deliveryChangeRequests.map((entity) => ({ kind: "request", entity }))
+        : deliveryChatTickets.map((entity) => ({ kind: "ticket", entity }));
+  } else {
+    rawSupportQueueItems = bugReportsList.map((entity) => ({ kind: "bug", entity }));
+  }
+
+  const currentSupportSearch =
+    supportSubTab === "customer"
+      ? customerSupportSearch
+      : supportSubTab === "tailor"
+        ? tailorSupportSearch
+        : supportSubTab === "delivery"
+          ? deliverySupportSearch
+          : bugSearch;
+
+  const filteredSupportQueueItems = rawSupportQueueItems
+    .filter((item) => matchesSupportQueueSearch(item, currentSupportSearch))
+    .filter((item) => matchesSupportQueueFilters(item, supportStatusFilter, supportPriorityFilter, supportAgentFilter))
+    .sort((left, right) => {
+      const leftTime = new Date(getSupportQueueTimestamp(left) ?? 0).getTime();
+      const rightTime = new Date(getSupportQueueTimestamp(right) ?? 0).getTime();
+      return rightTime - leftTime;
+    });
+
+  const supportQueueStatusCounts = {
+    all: filteredSupportQueueItems.length,
+    open: filteredSupportQueueItems.filter((item) => getSupportQueueStatusGroup(item) === "OPEN").length,
+    pending: filteredSupportQueueItems.filter((item) => getSupportQueueStatusGroup(item) === "PENDING").length,
+    resolved: filteredSupportQueueItems.filter((item) => getSupportQueueStatusGroup(item) === "RESOLVED").length,
+    closed: filteredSupportQueueItems.filter((item) => getSupportQueueStatusGroup(item) === "CLOSED").length
+  };
+  const statusTabToFilter: Record<SupportStatusTabId, string> = {
+    all: "",
+    open: "OPEN",
+    pending: "PENDING",
+    resolved: "RESOLVED",
+    closed: "CLOSED"
+  };
+
+
 
   const orderColumns = getOrderColumns({
     onAssign: setAssignOrderTarget,
@@ -1103,7 +1253,7 @@ export function AdminPortal() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(201, 175, 131, 0.26)" vertical={false} />
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
-                    <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => `₹${value}`} />
+                    <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => `â‚¹${value}`} />
                     <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Area dataKey="revenue" fill="url(#revenueFill)" stroke={darziChartPalette.orange} strokeWidth={3} type="monotone" />
                   </AreaChart>
@@ -1329,910 +1479,21 @@ export function AdminPortal() {
             <DataTable columns={couponColumns} data={filteredCoupons} emptyMessage="No coupons match the current search." />
           </div>
         ) : null}
-
         {activeSection === "support" ? (
-          <div className="flex gap-6 h-[calc(100vh-170px)] overflow-hidden text-[var(--foreground)]">
-            
-            {/* COLUMN 1: Collapsible list of tickets & metadata */}
-            <div className="w-[380px] flex flex-col bg-[var(--panel)] border border-[var(--panel-border)] rounded-[24px] overflow-hidden p-4 shadow-[var(--shadow)] gap-4">
-              <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-2">
-                <div>
-                  <h2 className="text-lg font-bold text-[var(--foreground)]">Support Queue</h2>
-                  <p className="text-xs text-[var(--muted)]">Manage tickets, requests & bugs</p>
-                </div>
-                <ActionButton
-                  variant="secondary"
-                  className="px-2.5 py-1 text-xs"
-                  onClick={() => downloadCsv("darzi-support.csv", tickets.map(ticketToCsv))}
-                >
-                  Export CSV
-                </ActionButton>
-              </div>
-
-              {/* Toggle Subtabs for Tailor & Delivery */}
-              {(supportSubTab === "tailor" || supportSubTab === "delivery") && (
-                <div className="flex rounded-xl bg-[var(--panel-strong)] p-1 border border-[var(--panel-border)]">
-                  <button
-                    onClick={() => {
-                      if (supportSubTab === "tailor") setTailorSupportStatus("");
-                      if (supportSubTab === "delivery") setDeliverySupportStatus("");
-                    }}
-                    className={cn(
-                      "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
-                      ((supportSubTab === "tailor" && tailorSupportStatus !== "requests") ||
-                       (supportSubTab === "delivery" && deliverySupportStatus !== "requests"))
-                        ? "bg-orange-500 text-white shadow-sm"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                    )}
-                  >
-                    Chat Tickets
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (supportSubTab === "tailor") setTailorSupportStatus("requests");
-                      if (supportSubTab === "delivery") setDeliverySupportStatus("requests");
-                    }}
-                    className={cn(
-                      "flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all",
-                      ((supportSubTab === "tailor" && tailorSupportStatus === "requests") ||
-                       (supportSubTab === "delivery" && deliverySupportStatus === "requests"))
-                        ? "bg-orange-500 text-white shadow-sm"
-                        : "text-[var(--muted)] hover:text-[var(--foreground)]"
-                    )}
-                  >
-                    Verification Requests
-                  </button>
-                </div>
-              )}
-
-              {/* Status Tabs Chips Row */}
-              {(() => {
-                // Compute counters dynamically based on subtab
-                let allItems: any[] = [];
-                if (supportSubTab === "customer") {
-                  allItems = tickets.filter(t => t.user?.role === "CUSTOMER" || t.subject?.includes("Customer") || (!t.user?.role && t.subject?.toLowerCase().includes("customer")));
-                } else if (supportSubTab === "tailor") {
-                  if (tailorSupportStatus === "requests") {
-                    allItems = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "TAILOR" || r.userRole === "TAILOR") : [];
-                  } else {
-                    allItems = tickets.filter(t => t.user?.role === "TAILOR" || t.subject?.includes("Tailor"));
-                  }
-                } else if (supportSubTab === "delivery") {
-                  if (deliverySupportStatus === "requests") {
-                    allItems = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "DELIVERY_PARTNER" || r.userRole === "DELIVERY_PARTNER") : [];
-                  } else {
-                    allItems = tickets.filter(t => t.user?.role === "DELIVERY_PARTNER" || t.subject?.includes("Delivery"));
-                  }
-                } else if (supportSubTab === "bugs") {
-                  allItems = bugReportsQuery.data || [];
-                }
-
-                // Filter by search term
-                const searchVal = supportSubTab === "customer" ? customerSupportSearch
-                                : supportSubTab === "tailor" ? tailorSupportSearch
-                                : supportSubTab === "delivery" ? deliverySupportSearch
-                                : bugSearch;
-
-                const searchFiltered = allItems.filter(item => {
-                  if (!searchVal) return true;
-                  const text = (item.subject || item.title || item.type || "") + " " + (item.user?.name || "") + " " + (item.user?.phone || "") + " " + (item.order?.orderNumber || "");
-                  return text.toLowerCase().includes(searchVal.toLowerCase());
-                });
-
-                // Status chip labels & counts
-                const getStatusCount = (statusId: string) => {
-                  if (!statusId) return allItems.length;
-                  return allItems.filter(item => {
-                    // Check support tickets
-                    if ("subject" in item) {
-                      if (statusId === "OPEN") return item.status === "OPEN";
-                      if (statusId === "PENDING") return item.status === "IN_PROGRESS" || item.status === "PENDING";
-                      if (statusId === "RESOLVED") return item.status === "RESOLVED";
-                      if (statusId === "CLOSED") return item.status === "CLOSED";
-                    }
-                    // Check change requests
-                    if ("requestedValues" in item) {
-                      if (statusId === "OPEN" || statusId === "PENDING") return item.status === "PENDING";
-                      if (statusId === "RESOLVED") return item.status === "APPROVED";
-                      if (statusId === "CLOSED") return item.status === "REJECTED";
-                    }
-                    // Check bug reports
-                    if ("deviceInfo" in item) {
-                      if (statusId === "OPEN") return item.status === "NEW";
-                      if (statusId === "PENDING") return item.status === "INVESTIGATING" || item.status === "IN_PROGRESS";
-                      if (statusId === "RESOLVED") return item.status === "FIXED";
-                      if (statusId === "CLOSED") return item.status === "CLOSED";
-                    }
-                    return false;
-                  }).length;
-                };
-
-                const activeTicketsList = searchFiltered.filter(item => {
-                  if (!supportStatusFilter) return true;
-                  if ("subject" in item) {
-                    if (supportStatusFilter === "OPEN") return item.status === "OPEN";
-                    if (supportStatusFilter === "PENDING") return item.status === "IN_PROGRESS" || item.status === "PENDING";
-                    if (supportStatusFilter === "RESOLVED") return item.status === "RESOLVED";
-                    if (supportStatusFilter === "CLOSED") return item.status === "CLOSED";
-                  }
-                  if ("requestedValues" in item) {
-                    if (supportStatusFilter === "OPEN" || supportStatusFilter === "PENDING") return item.status === "PENDING";
-                    if (supportStatusFilter === "RESOLVED") return item.status === "APPROVED";
-                    if (supportStatusFilter === "CLOSED") return item.status === "REJECTED";
-                  }
-                  if ("deviceInfo" in item) {
-                    if (supportStatusFilter === "OPEN") return item.status === "NEW";
-                    if (supportStatusFilter === "PENDING") return item.status === "INVESTIGATING" || item.status === "IN_PROGRESS";
-                    if (supportStatusFilter === "RESOLVED") return item.status === "FIXED";
-                    if (supportStatusFilter === "CLOSED") return item.status === "CLOSED";
-                  }
-                  return false;
-                });
-
-                return (
-                  <>
-                    <div className="flex flex-wrap gap-1 border-b border-[var(--panel-border)] pb-3">
-                      {[
-                        { id: "", label: "All" },
-                        { id: "OPEN", label: "Open" },
-                        { id: "PENDING", label: "Pending" },
-                        { id: "RESOLVED", label: "Resolved" },
-                        { id: "CLOSED", label: "Closed" }
-                      ].map(chip => (
-                        <button
-                          key={chip.id}
-                          onClick={() => setSupportStatusFilter(chip.id)}
-                          className={cn(
-                            "px-2.5 py-1 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all border",
-                            supportStatusFilter === chip.id
-                              ? "bg-orange-500/10 text-orange-500 border-orange-500/30"
-                              : "border-transparent text-[var(--muted)] hover:bg-black/5 dark:hover:bg-white/5"
-                          )}
-                        >
-                          {chip.label}
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded-full text-[10px] font-bold",
-                            supportStatusFilter === chip.id
-                              ? "bg-orange-500 text-white"
-                              : "bg-black/5 dark:bg-white/5 text-[var(--muted)]"
-                          )}>
-                            {getStatusCount(chip.id)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Search Field */}
-                    <div className="flex items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2">
-                      <Search size={16} className="text-[var(--muted)]" />
-                      <input
-                        type="text"
-                        className="bg-transparent text-xs outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
-                        placeholder="Search tickets, names, order ID..."
-                        value={
-                          supportSubTab === "customer" ? customerSupportSearch
-                          : supportSubTab === "tailor" ? tailorSupportSearch
-                          : supportSubTab === "delivery" ? deliverySupportSearch
-                          : bugSearch
-                        }
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (supportSubTab === "customer") setCustomerSupportSearch(val);
-                          else if (supportSubTab === "tailor") setTailorSupportSearch(val);
-                          else if (supportSubTab === "delivery") setDeliverySupportSearch(val);
-                          else setBugSearch(val);
-                        }}
-                      />
-                    </div>
-
-                    {/* Scrollable list of cards */}
-                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                      {activeTicketsList.length === 0 ? (
-                        <div className="p-8 text-center border border-dashed border-[var(--panel-border)] rounded-2xl">
-                          <p className="text-xs text-[var(--muted)]">No active items in list</p>
-                        </div>
-                      ) : (
-                        activeTicketsList.map(item => {
-                          // Determine item type & unique ID
-                          const isTicket = "subject" in item;
-                          const isRequest = "requestedValues" in item;
-                          const isBug = "deviceInfo" in item;
-
-                          let title = "";
-                          let subtitle = "";
-                          let details = "";
-                          let isSelected = false;
-                          let statusVal = "";
-                          let itemId = "";
-
-                          if (isTicket) {
-                            itemId = item.id;
-                            title = item.user?.name ?? item.user?.phone ?? "Customer";
-                            subtitle = `#${item.id.slice(-6).toUpperCase()}`;
-                            details = item.message;
-                            statusVal = item.status;
-                            isSelected = ticketDetail?.id === item.id;
-                          } else if (isRequest) {
-                            itemId = item.id;
-                            title = item.user?.name ?? item.user?.phone ?? "Partner";
-                            subtitle = `Update: ${item.type}`;
-                            details = Object.keys(item.requestedValues || {}).join(", ");
-                            statusVal = item.status;
-                            isSelected = activeChangeRequest?.id === item.id;
-                          } else if (isBug) {
-                            itemId = item.id;
-                            title = item.title;
-                            subtitle = `Bug #${item.id.slice(-6).toUpperCase()}`;
-                            details = item.description;
-                            statusVal = item.status;
-                            isSelected = activeBugReport?.id === item.id;
-                          }
-
-                          return (
-                            <div
-                              key={itemId}
-                              onClick={() => {
-                                if (isTicket) {
-                                  setTicketDetail(item);
-                                  setActiveChangeRequest(null);
-                                  setActiveBugReport(null);
-                                } else if (isRequest) {
-                                  setActiveChangeRequest(item);
-                                  setTicketDetail(null);
-                                  setActiveBugReport(null);
-                                } else if (isBug) {
-                                  setActiveBugReport(item);
-                                  setTicketDetail(null);
-                                  setActiveChangeRequest(null);
-                                }
-                              }}
-                              className={cn(
-                                "p-3 rounded-2xl border transition-all cursor-pointer flex flex-col gap-1.5",
-                                isSelected
-                                  ? "bg-orange-500/10 border-orange-500/30 shadow-sm"
-                                  : "border-[var(--panel-border)] bg-[var(--panel-strong)]/30 hover:bg-black/5 dark:hover:bg-white/5"
-                              )}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-7 h-7 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-xs">
-                                    {title.charAt(0).toUpperCase()}
-                                  </div>
-                                  <div>
-                                    <h4 className="text-xs font-bold text-[var(--foreground)] truncate max-w-[140px]">{title}</h4>
-                                    <p className="text-[10px] text-[var(--muted)] font-medium">{subtitle}</p>
-                                  </div>
-                                </div>
-                                <div className="flex flex-col items-end gap-1">
-                                  <span className="text-[9px] text-[var(--muted)]">
-                                    {new Date(item.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
-                                  </span>
-                                  <StatusBadge value={statusVal} />
-                                </div>
-                              </div>
-                              <p className="text-[11px] text-[var(--muted)] line-clamp-2 leading-relaxed pl-9">
-                                {details}
-                              </p>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-
-              {/* Bottom statistics collapsible overview */}
-              {supportStatsQuery.data && (
-                <div className="border-t border-[var(--panel-border)] pt-3">
-                  <div className="rounded-2xl bg-[var(--panel-strong)] p-3 border border-[var(--panel-border)] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-[var(--foreground)]">Support Statistics</span>
-                      <span className="text-[10px] text-green-600 font-bold bg-green-100 dark:bg-green-600/10 px-1.5 py-0.5 rounded">Active</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-center">
-                      <div className="p-1.5 rounded-xl bg-black/5 dark:bg-white/5">
-                        <p className="text-[10px] text-[var(--muted)]">Open Tickets</p>
-                        <p className="text-sm font-bold text-orange-500">{supportStatsQuery.data.openTickets}</p>
-                      </div>
-                      <div className="p-1.5 rounded-xl bg-black/5 dark:bg-white/5">
-                        <p className="text-[10px] text-[var(--muted)]">In Progress</p>
-                        <p className="text-sm font-bold text-blue-500">{supportStatsQuery.data.pendingTickets}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* COLUMN 2: Selected Item inspector & WhatsApp bubbles */}
-            <div className="flex-1 flex flex-col bg-[var(--panel)] border border-[var(--panel-border)] rounded-[24px] overflow-hidden shadow-[var(--shadow)]">
-              {ticketDetail ? (
-                (() => {
-                  const ticket = ticketDetail;
-                  const messages = [
-                    { id: "init", sender: "client", text: ticket.message, attachments: ticket.attachments, date: ticket.createdAt },
-                    ...(ticket.adminResponse ? [{ id: "reply", sender: "admin", text: ticket.adminResponse, date: ticket.updatedAt }] : [])
-                  ];
-
-                  const admins = users.filter((u) => u.role === "ADMIN");
-                  const activeAssignee = admins.find(a => a.id === ticket.assignedTo);
-
-                  return (
-                    <div className="flex-1 flex flex-col h-full overflow-hidden">
-                      {/* Header */}
-                      <div className="p-4 border-b border-[var(--panel-border)] bg-[var(--panel)] flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold">
-                            {ticket.user?.name?.charAt(0).toUpperCase() || "C"}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-bold text-[var(--foreground)]">{ticket.user?.name ?? "Customer"}</h3>
-                              <span className="text-[10px] bg-black/5 dark:bg-white/5 text-[var(--muted)] px-2 py-0.5 rounded-full font-semibold">
-                                #{ticket.id.slice(-6).toUpperCase()}
-                              </span>
-                            </div>
-                            <p className="text-xs text-[var(--muted)] mt-0.5">Subject: {ticket.subject}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <StatusBadge value={ticket.status} />
-                          <Badge tone={ticket.priority === "HIGH" ? "rose" : ticket.priority === "MEDIUM" ? "amber" : "slate"}>
-                            {ticket.priority ?? "NORMAL"}
-                          </Badge>
-                        </div>
-                      </div>
-
-                      {/* Chat Bubbles Feed */}
-                      <div className="flex-1 p-4 overflow-y-auto bg-[var(--panel-strong)]/30 space-y-4 flex flex-col justify-end">
-                        <div className="space-y-4 overflow-y-auto pr-1">
-                          {messages.map(msg => {
-                            const isClient = msg.sender === "client";
-                            return (
-                              <div key={msg.id} className={cn("flex gap-2 max-w-[80%]", isClient ? "self-start" : "self-end flex-row-reverse ml-auto")}>
-                                <div className={cn(
-                                  "w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 select-none",
-                                  isClient ? "bg-orange-100 dark:bg-orange-500/20 text-orange-500" : "bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200"
-                                )}>
-                                  {isClient ? (ticket.user?.name?.charAt(0).toUpperCase() || "C") : "A"}
-                                </div>
-                                <div className={cn(
-                                  "p-3 rounded-2xl relative shadow-sm",
-                                  isClient
-                                    ? "bg-[var(--panel)] border border-[var(--panel-border)] rounded-tl-sm text-[var(--foreground)]"
-                                    : "bg-orange-500 text-white rounded-tr-sm"
-                                )}>
-                                  <p className="text-xs font-bold mb-1 opacity-70">
-                                    {isClient ? (ticket.user?.name ?? "Customer") : "Darji Support"}
-                                  </p>
-                                  <p className="text-sm font-medium whitespace-pre-wrap">{msg.text}</p>
-                                  
-                                  {msg.attachments && msg.attachments.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                      {msg.attachments.map((url, idx) => (
-                                        <a key={idx} href={url} target="_blank" rel="noreferrer" className="block max-w-[160px] rounded-lg overflow-hidden border border-black/10">
-                                          <img src={url} alt="Attachment" className="max-h-24 object-contain w-full" />
-                                        </a>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-center justify-end gap-1 mt-1 opacity-60">
-                                    <span className="text-[9px]">
-                                      {new Date(msg.date ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                    {!isClient && <CheckCheck size={11} className="text-white" />}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Reply Input Box */}
-                      <div className="border-t border-[var(--panel-border)] p-4 bg-[var(--panel)] flex flex-col gap-3">
-                        <div className="flex items-center justify-between gap-4">
-                          {/* Status and priority controls */}
-                          <div className="flex items-center gap-2">
-                            <select
-                              className="text-xs font-bold bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-lg px-2 py-1 outline-none"
-                              value={ticket.status}
-                              onChange={(e) => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, status: e.target.value })}
-                            >
-                              <option value="OPEN">Open</option>
-                              <option value="IN_PROGRESS">In Progress</option>
-                              <option value="RESOLVED">Resolved</option>
-                              <option value="CLOSED">Closed</option>
-                            </select>
-
-                            <select
-                              className="text-xs font-bold bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-lg px-2 py-1 outline-none"
-                              value={ticket.priority ?? "NORMAL"}
-                              onChange={(e) => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, priority: e.target.value })}
-                            >
-                              <option value="LOW">Low</option>
-                              <option value="NORMAL">Normal</option>
-                              <option value="MEDIUM">Medium</option>
-                              <option value="HIGH">High</option>
-                            </select>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-[var(--muted)]">Assigned to:</span>
-                            <select
-                              className="text-xs font-semibold bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-lg px-2 py-1 outline-none"
-                              value={ticket.assignedTo ?? ""}
-                              onChange={(e) => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, assignedTo: e.target.value || null })}
-                            >
-                              <option value="">Unassigned</option>
-                              {admins.map(admin => (
-                                <option key={admin.id} value={admin.id}>{admin.name ?? admin.phone}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Input writing area */}
-                        {ticket.status === "CLOSED" ? (
-                          <div className="p-3 bg-black/5 dark:bg-white/5 rounded-xl text-center">
-                            <p className="text-xs text-[var(--muted)] font-semibold">This conversation is closed. Reopen ticket status to type a response.</p>
-                          </div>
-                        ) : (
-                          <form
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              const form = e.currentTarget;
-                              const input = form.elements.namedItem("replyText") as HTMLInputElement;
-                              const val = input.value.trim();
-                              if (val.length < 2) return;
-                              inlineTicketReplyMutation.mutate({
-                                ticketId: ticket.id,
-                                adminResponse: val,
-                                status: ticket.status === "OPEN" ? "IN_PROGRESS" : ticket.status
-                              });
-                              form.reset();
-                            }}
-                            className="flex items-center gap-2"
-                          >
-                            <input
-                              name="replyText"
-                              type="text"
-                              autoComplete="off"
-                              placeholder="Type your response to customer..."
-                              className="flex-1 h-10 bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-full px-4 text-sm outline-none text-[var(--foreground)] placeholder:text-[var(--muted)]"
-                            />
-                            <button
-                              type="submit"
-                              className="w-10 h-10 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition-colors shadow"
-                            >
-                              <Send size={16} />
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : activeChangeRequest ? (
-                (() => {
-                  const req = activeChangeRequest;
-                  const requestedValues = req.requestedValues || {};
-
-                  return (
-                    <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
-                      {/* Header */}
-                      <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4 mb-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold">Verification & Change Request</h3>
-                            <StatusBadge value={req.status} />
-                          </div>
-                          <p className="text-xs text-[var(--muted)] mt-1">
-                            Submitted by {req.user?.name ?? "Partner"} ({req.user?.phone})
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Content scroll area */}
-                      <div className="flex-1 overflow-y-auto space-y-6 pr-1">
-                        {/* Old vs New Values */}
-                        <div className="space-y-3">
-                          <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Requested Updates</h4>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            {Object.entries(requestedValues).map(([key, val]) => (
-                              <div key={key} className="rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/40 p-3">
-                                <p className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">{key.replace(/([A-Z])/g, " $1")}</p>
-                                <p className="mt-1 font-semibold text-sm text-[var(--foreground)]">{String(val ?? "—")}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Uploaded Verification Documents */}
-                        {req.documents && req.documents.length > 0 && (
-                          <div className="space-y-3">
-                            <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Uploaded Verification Files</h4>
-                            <div className="flex flex-wrap gap-3">
-                              {req.documents.map((url, idx) => (
-                                <a
-                                  key={idx}
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="block max-w-[240px] hover:opacity-90 transition border border-[var(--panel-border)] rounded-xl overflow-hidden shadow-sm"
-                                >
-                                  {url.match(/\.(jpeg|jpg|gif|png|webp)/i) ? (
-                                    <img src={url} alt={`Verification Doc ${idx + 1}`} className="max-h-48 object-contain w-full bg-slate-50 dark:bg-zinc-800" />
-                                  ) : (
-                                    <div className="flex h-32 w-44 items-center justify-center p-3 text-xs bg-black/5 dark:bg-white/5 text-[var(--muted)] font-bold uppercase text-center gap-2">
-                                      <FileText size={16} />
-                                      View Document
-                                    </div>
-                                  )}
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Notes / Approve & Reject UI */}
-                        {req.status === "PENDING" && (
-                          <div className="pt-4 border-t border-[var(--panel-border)] space-y-4">
-                            <div className="space-y-1">
-                              <label className="text-xs text-[var(--muted)] font-semibold">Admin Notes / Rejection Reason</label>
-                              <textarea
-                                className="w-full min-h-[70px] rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] p-3 text-xs outline-none text-[var(--foreground)] focus:border-orange-500 transition resize-none"
-                                placeholder="Add optional details for approval, or reason for rejecting..."
-                                value={adminNotes}
-                                onChange={(e) => setAdminNotes(e.target.value)}
-                              />
-                            </div>
-
-                            <div className="flex justify-end gap-3">
-                              <button
-                                onClick={() => inlineChangeRequestRejectMutation.mutate({ requestId: req.id, adminNotes })}
-                                className="px-4 py-2 text-xs font-semibold text-rose-600 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl transition border border-rose-500/20"
-                                disabled={inlineChangeRequestRejectMutation.isPending || inlineChangeRequestApproveMutation.isPending}
-                              >
-                                Reject Update
-                              </button>
-                              <button
-                                onClick={() => inlineChangeRequestApproveMutation.mutate({ requestId: req.id })}
-                                className="px-4 py-2 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition shadow"
-                                disabled={inlineChangeRequestRejectMutation.isPending || inlineChangeRequestApproveMutation.isPending}
-                              >
-                                Approve Update
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : activeBugReport ? (
-                (() => {
-                  const bug = activeBugReport;
-                  const admins = users.filter((u) => u.role === "ADMIN");
-
-                  return (
-                    <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
-                      {/* Header */}
-                      <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4 mb-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold">Bug Report: {bug.title}</h3>
-                            <StatusBadge value={bug.status} />
-                          </div>
-                          <p className="text-xs text-[var(--muted)] mt-1">
-                            Reported by {bug.user?.name ?? "Reporter"} ({bug.user?.phone})
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Content Scroll View */}
-                      <div className="flex-1 overflow-y-auto space-y-5 pr-1">
-                        <div className="bg-[var(--panel-strong)]/40 p-4 rounded-xl border border-[var(--panel-border)]">
-                          <h4 className="text-xs font-bold text-[var(--muted)] uppercase tracking-wider mb-2">Description</h4>
-                          <p className="text-sm whitespace-pre-wrap leading-relaxed text-[var(--foreground)]">{bug.description}</p>
-                        </div>
-
-                        {/* Metadata Details */}
-                        <div className="grid gap-3 sm:grid-cols-2 text-xs">
-                          <div className="p-3 bg-[var(--panel-strong)]/20 border border-[var(--panel-border)] rounded-xl">
-                            <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider block">App Version</span>
-                            <span className="font-semibold text-sm text-[var(--foreground)] mt-1 block">{bug.appVersion ?? "1.0.0"}</span>
-                          </div>
-                          <div className="p-3 bg-[var(--panel-strong)]/20 border border-[var(--panel-border)] rounded-xl">
-                            <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider block">Device Info</span>
-                            <span className="font-semibold text-sm text-[var(--foreground)] mt-1 block">{bug.deviceInfo ?? "Unknown"}</span>
-                          </div>
-                        </div>
-
-                        {/* Screenshot */}
-                        {bug.screenshot && (
-                          <div className="space-y-2">
-                            <h4 className="text-xs font-bold text-[var(--muted)] uppercase tracking-wider">Screenshot</h4>
-                            <a href={bug.screenshot} target="_blank" rel="noreferrer" className="block max-w-[280px] hover:opacity-90 transition rounded-xl overflow-hidden border border-[var(--panel-border)]">
-                              <img src={bug.screenshot} alt="Bug screenshot" className="max-h-60 object-contain w-full bg-slate-50" />
-                            </a>
-                          </div>
-                        )}
-
-                        {/* Controls */}
-                        <div className="pt-4 border-t border-[var(--panel-border)] space-y-4">
-                          <h4 className="text-xs font-bold text-[var(--muted)] uppercase tracking-wider">Resolution controls</h4>
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <label className="text-xs text-[var(--muted)] font-medium">Status</label>
-                              <select
-                                className="w-full h-9 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-2 text-xs outline-none text-[var(--foreground)]"
-                                value={bug.status}
-                                onChange={(e) => inlineBugUpdateMutation.mutate({ bugId: bug.id, status: e.target.value })}
-                              >
-                                <option value="NEW">New</option>
-                                <option value="INVESTIGATING">Investigating</option>
-                                <option value="IN_PROGRESS">In Progress</option>
-                                <option value="FIXED">Fixed</option>
-                                <option value="CLOSED">Closed</option>
-                              </select>
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-xs text-[var(--muted)] font-medium">Assign To</label>
-                              <select
-                                className="w-full h-9 rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-2 text-xs outline-none text-[var(--foreground)]"
-                                value={bug.assignedTo ?? ""}
-                                onChange={(e) => inlineBugUpdateMutation.mutate({ bugId: bug.id, assignedTo: e.target.value || null })}
-                              >
-                                <option value="">Unassigned</option>
-                                {admins.map((admin) => (
-                                  <option key={admin.id} value={admin.id}>
-                                    {admin.name ?? admin.phone}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[var(--panel-strong)]/10">
-                  <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 mb-4">
-                    <MessageSquareText size={32} />
-                  </div>
-                  <h3 className="text-base font-bold text-[var(--foreground)]">Select support item</h3>
-                  <p className="text-xs text-[var(--muted)] max-w-sm mt-1">
-                    Select a support ticket, bug report, or verification change request from the left list to inspect details and chat history.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* COLUMN 3: Context Details metadata panel */}
-            <div className="w-[340px] flex flex-col bg-[var(--panel)] border border-[var(--panel-border)] rounded-[24px] overflow-y-auto p-4 shadow-[var(--shadow)] gap-4">
-              {ticketDetail ? (
-                (() => {
-                  const ticket = ticketDetail;
-                  const linkedOrder = orders.find(
-                    (o) => o.id === ticket.orderId || o.orderNumber === ticket.order?.orderNumber
-                  );
-
-                  return (
-                    <div className="space-y-4">
-                      {/* Customer Card */}
-                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-3">
-                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">User Profile</h4>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold text-sm">
-                            {ticket.user?.name?.charAt(0).toUpperCase() || "C"}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-[var(--foreground)]">{ticket.user?.name ?? "Customer"}</p>
-                            <p className="text-xs text-[var(--muted)]">{ticket.user?.role ?? "CUSTOMER"}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-1.5 text-xs text-[var(--muted)] border-t border-[var(--panel-border)] pt-2.5">
-                          <p className="truncate">📞 Phone: <span className="font-semibold text-[var(--foreground)]">{ticket.user?.phone ?? "—"}</span></p>
-                          <p className="truncate">✉️ Email: <span className="font-semibold text-[var(--foreground)]">{ticket.user?.email ?? "—"}</span></p>
-                        </div>
-                      </div>
-
-                      {/* Linked Order Info */}
-                      {linkedOrder ? (
-                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Linked Order</h4>
-                            <button
-                              onClick={() => setOrderDetail(linkedOrder)}
-                              className="text-[10px] font-bold text-orange-500 hover:underline"
-                            >
-                              Inspect Order
-                            </button>
-                          </div>
-                          <div className="space-y-1 text-xs">
-                            <p className="flex justify-between">
-                              <span className="text-[var(--muted)]">Order ID:</span>
-                              <span className="font-bold text-[var(--foreground)]">#{linkedOrder.orderNumber}</span>
-                            </p>
-                            <p className="flex justify-between">
-                              <span className="text-[var(--muted)]">Amount:</span>
-                              <span className="font-semibold text-[var(--foreground)]">{formatCurrency(linkedOrder.totalAmount)}</span>
-                            </p>
-                            <p className="flex justify-between">
-                              <span className="text-[var(--muted)]">Status:</span>
-                              <span className="font-semibold text-orange-500">{linkedOrder.status.replace(/_/g, " ")}</span>
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/10 p-3 text-center">
-                          <p className="text-xs text-[var(--muted)]">No linked order for this ticket</p>
-                        </div>
-                      )}
-
-                      {/* Ticket Metadata */}
-                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
-                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Ticket Metadata</h4>
-                        <div className="space-y-1.5 text-xs">
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Category:</span>
-                            <span className="font-semibold text-[var(--foreground)]">{ticket.category ?? "General"}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Opened At:</span>
-                            <span className="font-semibold text-[var(--foreground)]">{formatDate(ticket.createdAt, false)}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Last Activity:</span>
-                            <span className="font-semibold text-[var(--foreground)]">{formatDate(ticket.updatedAt, false)}</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="space-y-2">
-                        {ticket.status !== "RESOLVED" && ticket.status !== "CLOSED" && (
-                          <button
-                            onClick={() => inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, status: "RESOLVED" })}
-                            className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow"
-                          >
-                            Mark as Resolved
-                          </button>
-                        )}
-                        {ticket.status !== "CLOSED" && (
-                          <button
-                            onClick={() => {
-                              if (confirm("Are you sure you want to close this ticket?")) {
-                                inlineTicketUpdateMutation.mutate({ ticketId: ticket.id, status: "CLOSED" });
-                              }
-                            }}
-                            className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow"
-                          >
-                            Close Ticket
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : activeChangeRequest ? (
-                (() => {
-                  const req = activeChangeRequest;
-                  return (
-                    <div className="space-y-4">
-                      {/* User Profile Card */}
-                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-3">
-                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Requester Details</h4>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-sm">
-                            {req.user?.name?.charAt(0).toUpperCase() || "P"}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-[var(--foreground)]">{req.user?.name ?? "Partner"}</p>
-                            <p className="text-xs text-[var(--muted)]">{req.user?.role ?? "TAILOR"}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-1.5 text-xs text-[var(--muted)] border-t border-[var(--panel-border)] pt-2.5">
-                          <p className="truncate">📞 Phone: <span className="font-semibold text-[var(--foreground)]">{req.user?.phone ?? "—"}</span></p>
-                        </div>
-                      </div>
-
-                      {/* Request Info Card */}
-                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
-                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Request Meta</h4>
-                        <div className="space-y-1.5 text-xs">
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Request Type:</span>
-                            <span className="font-semibold text-orange-500">{req.type}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Submitted At:</span>
-                            <span className="font-semibold text-[var(--foreground)]">{formatDate(req.createdAt, false)}</span>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : activeBugReport ? (
-                (() => {
-                  const bug = activeBugReport;
-                  return (
-                    <div className="space-y-4">
-                      {/* Reporter Details */}
-                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-3">
-                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Reporter Details</h4>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-500 flex items-center justify-center font-bold text-sm">
-                            {bug.user?.name?.charAt(0).toUpperCase() || "R"}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-[var(--foreground)]">{bug.user?.name ?? "Reporter"}</p>
-                            <p className="text-xs text-[var(--muted)]">{bug.user?.role ?? "CUSTOMER"}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-1.5 text-xs text-[var(--muted)] border-t border-[var(--panel-border)] pt-2.5">
-                          <p className="truncate">📞 Phone: <span className="font-semibold text-[var(--foreground)]">{bug.user?.phone ?? "—"}</span></p>
-                        </div>
-                      </div>
-
-                      {/* Bug Info Card */}
-                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
-                        <h4 className="text-[10px] uppercase font-bold text-[var(--muted)] tracking-wider">Bug Details</h4>
-                        <div className="space-y-1.5 text-xs">
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">App Version:</span>
-                            <span className="font-semibold text-[var(--foreground)]">{bug.appVersion ?? "1.0.0"}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Device Info:</span>
-                            <span className="font-semibold text-[var(--foreground)] truncate max-w-[120px]">{bug.deviceInfo ?? "Unknown"}</span>
-                          </p>
-                          <p className="flex justify-between">
-                            <span className="text-[var(--muted)]">Reported At:</span>
-                            <span className="font-semibold text-[var(--foreground)]">{formatDate(bug.createdAt, false)}</span>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()
-              ) : (
-                /* Standard Metrics view when nothing selected */
-                supportStatsQuery.data && (
-                  <div className="space-y-4">
-                    <h3 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)]">Global Metrics</h3>
-                    
-                    <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/30 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-[var(--foreground)]">Performance Stats</p>
-                      <div className="space-y-1.5 text-xs">
-                        <p className="flex justify-between">
-                          <span className="text-[var(--muted)]">Avg Response Time:</span>
-                          <span className="font-bold text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResponseTimeMs)}</span>
-                        </p>
-                        <p className="flex justify-between">
-                          <span className="text-[var(--muted)]">Avg Resolution Time:</span>
-                          <span className="font-bold text-[var(--foreground)]">{formatDuration(supportStatsQuery.data.avgResolutionTimeMs)}</span>
-                        </p>
-                        <p className="flex justify-between">
-                          <span className="text-[var(--muted)]">Total Active Users:</span>
-                          <span className="font-semibold text-[var(--foreground)]">{users.length}</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-
-          </div>
+          <SupportCommandCenter
+            tickets={tickets}
+            bugReports={bugReportsQuery.data ?? []}
+            changeRequests={changeRequestsQuery.data ?? []}
+            me={me}
+            supportStats={supportStatsQuery.data}
+            onExit={() => setActiveSection("dashboard")}
+            onRefresh={() => {
+              queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
+              queryClient.invalidateQueries({ queryKey: ["admin", "support-stats"] });
+              queryClient.invalidateQueries({ queryKey: ["admin", "bug-reports"] });
+              queryClient.invalidateQueries({ queryKey: ["admin", "change-requests"] });
+            }}
+          />
         ) : null}
 
         {activeSection === "settings" ? (
@@ -2604,7 +1865,7 @@ function LoginPanel({
                 Contact Darji support for admin access assistance.
               </div>
 
-              <div className="mt-10 text-center text-sm text-[#8c8781]">© 2024 Darji. All rights reserved.</div>
+              <div className="mt-10 text-center text-sm text-[#8c8781]">Â© 2024 Darji. All rights reserved.</div>
             </div>
           </div>
         </div>
@@ -2824,7 +2085,7 @@ function PortalFrame({
                                   : "text-[var(--muted)] hover:text-[var(--foreground)] font-medium"
                               )}
                             >
-                              <span className="mr-2 text-xs opacity-60">•</span>
+                              <span className="mr-2 text-xs opacity-60">â€¢</span>
                               {sub.label}
                             </button>
                           );
@@ -3847,6 +3108,154 @@ function StatusBadge({ value }: { value?: string | null }) {
   return <Badge tone={tone}>{formatStatus(normalized)}</Badge>;
 }
 
+function SupportStatMini({
+  label,
+  value,
+  tone
+}: {
+  label: string;
+  value: number | string;
+  tone: "orange" | "amber" | "green" | "slate";
+}) {
+  const valueClass =
+    tone === "orange"
+      ? "text-[var(--accent)]"
+      : tone === "amber"
+        ? "text-[#f5b84c]"
+        : tone === "green"
+          ? "text-[#7ce6a1]"
+          : "text-[var(--foreground)]";
+
+  return (
+    <div className="rounded-[16px] border border-[var(--panel-border)] bg-[#202530] p-2 text-center">
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+      <p className={cn("mt-1 text-sm font-semibold", valueClass)}>{value}</p>
+    </div>
+  );
+}
+
+function isCustomerSupportTicket(ticket: SupportTicket) {
+  return ticket.user?.role === "CUSTOMER" || ticket.subject?.includes("Customer") || (!ticket.user?.role && ticket.subject?.toLowerCase().includes("customer"));
+}
+
+function isTailorSupportTicket(ticket: SupportTicket) {
+  return ticket.user?.role === "TAILOR" || ticket.subject?.includes("Tailor");
+}
+
+function isDeliverySupportTicket(ticket: SupportTicket) {
+  return ticket.user?.role === "DELIVERY_PARTNER" || ticket.subject?.includes("Delivery");
+}
+
+function getSupportQueueTimestamp(item: SupportQueueItem) {
+  return item.entity.updatedAt ?? item.entity.createdAt;
+}
+
+function getSupportQueueStatusGroup(item: SupportQueueItem) {
+  if (item.kind === "ticket") {
+    if (item.entity.status === "OPEN") return "OPEN";
+    if (item.entity.status === "IN_PROGRESS" || item.entity.status === "PENDING") return "PENDING";
+    if (item.entity.status === "RESOLVED") return "RESOLVED";
+    return "CLOSED";
+  }
+  if (item.kind === "request") {
+    if (item.entity.status === "PENDING") return "PENDING";
+    if (item.entity.status === "APPROVED") return "RESOLVED";
+    return "CLOSED";
+  }
+  if (item.entity.status === "NEW") return "OPEN";
+  if (item.entity.status === "INVESTIGATING" || item.entity.status === "IN_PROGRESS") return "PENDING";
+  if (item.entity.status === "FIXED") return "RESOLVED";
+  return "CLOSED";
+}
+
+function matchesSupportQueueSearch(item: SupportQueueItem, search: string) {
+  if (!search.trim()) return true;
+  const normalized = search.toLowerCase();
+  const text =
+    item.kind === "ticket"
+      ? [item.entity.subject, item.entity.message, item.entity.user?.name, item.entity.user?.phone, item.entity.order?.orderNumber]
+      : item.kind === "request"
+        ? [item.entity.type, item.entity.user?.name, item.entity.user?.phone, item.entity.adminNotes]
+        : [item.entity.title, item.entity.description, item.entity.user?.name, item.entity.user?.phone, item.entity.deviceInfo];
+
+  return text.filter(Boolean).join(" ").toLowerCase().includes(normalized);
+}
+
+function matchesSupportQueueFilters(item: SupportQueueItem, statusFilter: string, priorityFilter: string, agentFilter: string) {
+  if (statusFilter && getSupportQueueStatusGroup(item) !== statusFilter) return false;
+  if (priorityFilter && item.kind === "ticket" && (item.entity.priority ?? "NORMAL") !== priorityFilter) return false;
+  if (agentFilter) {
+    const assignedTo =
+      item.kind === "request"
+        ? ""
+        : item.entity.assignedTo ?? "";
+    if (agentFilter === "unassigned") return !assignedTo;
+    return assignedTo === agentFilter;
+  }
+  return true;
+}
+
+function getSupportQueueMeta(item: SupportQueueItem) {
+  if (item.kind === "ticket") {
+    const lastMessage = item.entity.messages?.[item.entity.messages.length - 1];
+    const unreadCount = item.entity.status === "OPEN" ? Math.min(item.entity.messages?.length ?? 0, 9) : 0;
+    return {
+      avatar: getInitials(item.entity.user?.name, "CU"),
+      title: item.entity.user?.name ?? item.entity.user?.phone ?? "Customer",
+      subtitle: `#${item.entity.id.slice(-6).toUpperCase()} | ${item.entity.order?.orderNumber ?? item.entity.subject}`,
+      ticketLabel: `#CUS-${item.entity.id.slice(-4).toUpperCase()}`,
+      preview: lastMessage?.text ?? item.entity.message ?? "No messages yet",
+      status: item.entity.status,
+      timeLabel: item.entity.updatedAt ? new Date(item.entity.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+      typeLabel: supportTicketTypeLabel(item.entity),
+      unreadCount
+    };
+  }
+
+  if (item.kind === "request") {
+    const lastMessage = item.entity.messages?.[item.entity.messages.length - 1];
+    return {
+      avatar: getInitials(item.entity.user?.name, item.entity.userRole === "TAILOR" ? "TA" : "DP"),
+      title: item.entity.user?.name ?? item.entity.user?.phone ?? "Partner",
+      subtitle: `#${item.entity.id.slice(-6).toUpperCase()} | ${formatStatus(item.entity.type)}`,
+      ticketLabel: `#REQ-${item.entity.id.slice(-4).toUpperCase()}`,
+      preview: lastMessage?.text ?? `${formatStatus(item.entity.type)} update request`,
+      status: item.entity.status,
+      timeLabel: item.entity.updatedAt ? new Date(item.entity.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+      typeLabel: accountRequestTypeLabel(item.entity),
+      unreadCount: item.entity.status === "PENDING" ? 1 : 0
+    };
+  }
+
+  const lastMessage = item.entity.messages?.[item.entity.messages.length - 1];
+  return {
+    avatar: "BG",
+    title: item.entity.title,
+    subtitle: `#${item.entity.id.slice(-6).toUpperCase()} | ${item.entity.appVersion}`,
+    ticketLabel: `#BUG-${item.entity.id.slice(-4).toUpperCase()}`,
+    preview: lastMessage?.text ?? item.entity.description,
+    status: item.entity.status,
+    timeLabel: item.entity.updatedAt ? new Date(item.entity.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+    typeLabel: "Bug Report",
+    unreadCount: item.entity.status === "NEW" ? 1 : 0
+  };
+}
+
+function supportTicketTypeLabel(ticket: SupportTicket) {
+  const subject = ticket.subject?.toLowerCase() ?? "";
+  if (subject.includes("payment")) return "Payment Change";
+  if (subject.includes("shop")) return "Shop Name Change";
+  if (subject.includes("vehicle")) return "Vehicle Update";
+  return "Chat Support";
+}
+
+function accountRequestTypeLabel(request: AccountChangeRequest) {
+  if (request.type === "Vehicle" || request.type === "RC" || request.type === "DrivingLicense") return "Vehicle Update";
+  if (request.type === "BankAccount" || request.type === "UPI") return "Payment Change";
+  if (request.type === "ShopName") return "Shop Name Change";
+  return formatStatus(request.type);
+}
+
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-[var(--panel-border)] px-4 py-8 text-center text-sm text-[var(--muted)]">
@@ -4244,10 +3653,10 @@ function ProfileDialog({
                 ) : null}
                 <InspectGrid
                   items={[
-                    { label: "Phone", value: profile.user?.phone ?? "—" },
+                    { label: "Phone", value: profile.user?.phone ?? "â€”" },
                     { label: "Availability", value: profile.isAvailable ? "Available" : "Offline" },
                     { label: "Verification", value: <StatusBadge value={profile.verificationStatus} /> },
-                    { label: "Rating", value: typeof profile.rating === "number" ? profile.rating.toFixed(1) : "—" },
+                    { label: "Rating", value: typeof profile.rating === "number" ? profile.rating.toFixed(1) : "â€”" },
                     ...(isDelivery ? [
                       { label: "Delivery Type", value: (profile as DeliveryPartnerProfile).deliveryType || "PICKUP" },
                       { label: "Assigned Area", value: (profile as DeliveryPartnerProfile).assignedArea || "unassigned" }
@@ -4255,7 +3664,7 @@ function ProfileDialog({
                     { label: "Working hours", value: stringifyUnknown(profile.workingHours) },
                     { label: "Settings", value: stringifyUnknown(profile.settings) },
                     { label: "Verification reviewed", value: formatDate(profile.verificationReviewedAt, true) },
-                    { label: "Rejection reason", value: profile.verificationRejectionReason ?? "—" }
+                    { label: "Rejection reason", value: profile.verificationRejectionReason ?? "â€”" }
                   ]}
                 />
                 {"specialization" in profile ? (
@@ -4264,7 +3673,7 @@ function ProfileDialog({
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                       <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
                         <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Shop name</p>
-                        <p className="mt-2 text-sm">{profile.shopName ?? "—"}</p>
+                        <p className="mt-2 text-sm">{profile.shopName ?? "â€”"}</p>
                       </div>
                       <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
                         <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Specialization</p>
@@ -4459,7 +3868,7 @@ function InspectTicketDialog({
               </Dialog.Title>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
                 <span>Category: <strong className="text-[var(--foreground)]">{ticket.category ?? "General"}</strong></span>
-                <span>•</span>
+                <span>â€¢</span>
                 <span>Opened: <strong>{formatDate(ticket.createdAt, true)}</strong></span>
               </div>
             </div>
@@ -4875,7 +4284,7 @@ function InspectChangeRequestDialog({
         {Object.entries(vals).map(([key, val]) => (
           <div key={key} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 dark:bg-white/5">
             <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">{key}</p>
-            <p className="mt-1 font-semibold text-[var(--foreground)]">{String(val ?? "—")}</p>
+            <p className="mt-1 font-semibold text-[var(--foreground)]">{String(val ?? "â€”")}</p>
           </div>
         ))}
       </div>
@@ -4893,7 +4302,7 @@ function InspectChangeRequestDialog({
                 Account Update Request
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
-                From {request.user?.name ?? "Partner"} ({request.user?.phone}) • Role: <strong>{request.user?.role}</strong>
+                From {request.user?.name ?? "Partner"} ({request.user?.phone}) â€¢ Role: <strong>{request.user?.role}</strong>
               </Dialog.Description>
             </div>
             <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
@@ -5320,7 +4729,7 @@ function getTailorColumns({
     {
       accessorKey: "rating",
       header: "Rating",
-      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "—")
+      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "â€”")
     },
     {
       accessorKey: "earnings",
@@ -5384,7 +4793,7 @@ function getPartnerColumns({
     {
       accessorKey: "rating",
       header: "Rating",
-      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "—")
+      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "â€”")
     },
     {
       accessorKey: "verificationStatus",
@@ -5525,7 +4934,7 @@ function getPaymentColumns({
       id: "order",
       header: "Order",
       accessorFn: (row) => row.order?.orderNumber ?? "",
-      cell: ({ row }) => <span>{row.original.order?.orderNumber ?? "—"}</span>
+      cell: ({ row }) => <span>{row.original.order?.orderNumber ?? "â€”"}</span>
     },
     {
       accessorKey: "method",
@@ -5545,7 +4954,7 @@ function getPaymentColumns({
     {
       accessorKey: "providerRef",
       header: "Provider ref",
-      cell: ({ row }) => row.original.providerRef ?? "—"
+      cell: ({ row }) => row.original.providerRef ?? "â€”"
     },
     {
       accessorKey: "createdAt",
@@ -5631,7 +5040,7 @@ function getTicketColumns({
       id: "order",
       header: "Order",
       accessorFn: (row) => row.order?.orderNumber ?? "",
-      cell: ({ row }) => row.original.order?.orderNumber ?? "—"
+      cell: ({ row }) => row.original.order?.orderNumber ?? "â€”"
     },
     {
       accessorKey: "createdAt",
@@ -5752,7 +5161,7 @@ function getBugReportColumns({ onOpen, users }: { onOpen: (bug: BugReport) => vo
 }
 
 function formatDuration(ms?: number | null) {
-  if (ms === undefined || ms === null || isNaN(ms)) return "—";
+  if (ms === undefined || ms === null || isNaN(ms)) return "â€”";
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);

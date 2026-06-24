@@ -18,6 +18,9 @@ import {
   approveAccountChangeRequestController,
   rejectAccountChangeRequestController,
   getSupportStatsController,
+  addSupportTicketMessageController,
+  addBugReportMessageController,
+  addChangeRequestMessageController,
   getOrderController,
   listAddressesController,
   listCouponsController,
@@ -165,15 +168,18 @@ router.get("/support/stats", requireAuth, requireRole("ADMIN"), getSupportStatsC
 router.get("/support", requireAuth, listSupportTicketsController);
 router.post("/support", requireAuth, createSupportTicketController);
 router.patch("/support/:id", requireAuth, updateSupportTicketController);
+router.post("/support/:id/messages", requireAuth, addSupportTicketMessageController);
 
 router.post("/support/bug-reports", requireAuth, createBugReportController);
 router.get("/support/bug-reports", requireAuth, listBugReportsController);
 router.patch("/support/bug-reports/:id", requireAuth, requireRole("ADMIN"), updateBugReportController);
+router.post("/support/bug-reports/:id/messages", requireAuth, addBugReportMessageController);
 
 router.post("/support/change-requests", requireAuth, createAccountChangeRequestController);
 router.get("/support/change-requests", requireAuth, listAccountChangeRequestsController);
 router.patch("/support/change-requests/:id/approve", requireAuth, requireRole("ADMIN"), approveAccountChangeRequestController);
 router.patch("/support/change-requests/:id/reject", requireAuth, requireRole("ADMIN"), rejectAccountChangeRequestController);
+router.post("/support/change-requests/:id/messages", requireAuth, addChangeRequestMessageController);
 
 router.get("/coupons", requireAuth, listCouponsController);
 router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponController);

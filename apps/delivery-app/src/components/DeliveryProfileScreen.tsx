@@ -730,42 +730,20 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
     }
   }
 
-  async function handleStartChat() {
+  function handleStartChat() {
     if (!selectedCategory) {
       Alert.alert("Select Category", "Please select the help category related to your issue.");
       return;
     }
-    if (description.trim().length < 10) {
-      Alert.alert("Description too short", "Please type a detailed message (min 10 characters).");
-      return;
-    }
-    if (!token) return;
-    try {
-      setSending(true);
-      const res = await api<any>("/support", {
-        method: "POST",
-        body: JSON.stringify({
-          subject: selectedCategory,
-          message: description.trim(),
-          orderId: selectedOrder?._id || selectedOrder?.id || null,
-          category: selectedCategory,
-          attachments
-        })
-      }, token);
-
-      setDescription("");
-      setAttachments([]);
-      setSelectedOrder(null);
-      setSelectedCategory("");
-      await loadTickets();
-      const newActive = res.data || res;
-      setActiveTicket(newActive);
-      setView("chat");
-    } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to start conversation.");
-    } finally {
-      setSending(false);
-    }
+    setActiveTicket({
+      isDraft: true,
+      subject: selectedCategory,
+      category: selectedCategory,
+      orderId: selectedOrder?._id || selectedOrder?.id || null,
+      status: "OPEN",
+      messages: []
+    });
+    setView("chat");
   }
 
   async function handleSendReply() {
@@ -773,20 +751,45 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
     if (!token || !activeTicket) return;
     try {
       setSending(true);
-      await api<any>(`/support/${activeTicket._id || activeTicket.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          message: chatMessage.trim(),
-          adminResponse: null
-        })
-      }, token);
-      setChatMessage("");
-      await loadTickets();
-      // Reload updated active ticket
-      const ticketId = activeTicket._id || activeTicket.id;
-      const updated = tickets.find((t) => (t._id || t.id) === ticketId);
-      if (updated) {
-        setActiveTicket(updated);
+      if (activeTicket.isDraft) {
+        // Create new ticket using the message typed as first message
+        const res = await api<any>("/support", {
+          method: "POST",
+          body: JSON.stringify({
+            subject: activeTicket.subject,
+            message: chatMessage.trim(),
+            orderId: activeTicket.orderId,
+            category: activeTicket.category,
+            attachments: attachments
+          })
+        }, token);
+
+        setChatMessage("");
+        setAttachments([]);
+        await loadTickets();
+        const createdTicket = res.data || res;
+        setActiveTicket(createdTicket);
+      } else {
+        // Append message to the current ticket
+        await api<any>(`/support/${activeTicket._id || activeTicket.id}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            text: chatMessage.trim(),
+            attachments: attachments
+          })
+        }, token);
+
+        setChatMessage("");
+        setAttachments([]);
+        await loadTickets();
+        const ticketId = activeTicket._id || activeTicket.id;
+        // Fetch updated ticket to get latest messages array
+        const listRes = await api<{ data?: any[] }>("/support", { method: "GET" }, token);
+        const list = Array.isArray(listRes) ? listRes : (listRes as any)?.data || [];
+        const updated = list.find((t: any) => (t._id || t.id) === ticketId);
+        if (updated) {
+          setActiveTicket(updated);
+        }
       }
     } catch (e) {
       Alert.alert("Failed", "Could not send message. Please try again.");
@@ -808,7 +811,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
           onPress: async () => {
             try {
               setLoading(true);
-              await api(`/support/${ticketId}`, {
+              const res = await api<any>(`/support/${ticketId}`, {
                 method: "PATCH",
                 body: JSON.stringify({ status: "CLOSED" })
               }, token);
@@ -825,6 +828,24 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
         }
       ]
     );
+  }
+
+  async function handleReopenTicket() {
+    if (!token || !activeTicket) return;
+    try {
+      setLoading(true);
+      const res = await api<any>(`/support/${activeTicket._id || activeTicket.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "OPEN" })
+      }, token);
+      await loadTickets();
+      const updated = res.data || res;
+      setActiveTicket(updated);
+    } catch (e) {
+      Alert.alert("Failed", "Could not reopen ticket.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -983,53 +1004,10 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                   })}
                 </View>
               </View>
-
-              <View>
-                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Describe your Issue</Text>
-                <TextInput
-                  style={{ minHeight: 90, backgroundColor: palette.card, borderRadius: 14, borderWidth: 1, borderColor: palette.cardBorder, padding: 12, color: palette.text, fontSize: 14, fontWeight: "600" }}
-                  value={description}
-                  onChangeText={setDescription}
-                  placeholder="Tell us what went wrong (min 10 characters)..."
-                  placeholderTextColor={palette.subtext}
-                  multiline
-                />
-              </View>
-
-              <View>
-                <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Attach Image Reference (Optional)</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-                  <Pressable 
-                    style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.card }}
-                    onPress={pickAttachmentImage}
-                    disabled={uploading}
-                  >
-                    {uploading ? (
-                      <ActivityIndicator color={BRAND_ORANGE} />
-                    ) : (
-                      <>
-                        <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
-                        <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Add Photo</Text>
-                      </>
-                    )}
-                  </Pressable>
-                  {attachments.map((url, index) => (
-                    <View key={url} style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderColor: palette.cardBorder, overflow: "hidden" }}>
-                      <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
-                      <Pressable 
-                        style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}
-                        onPress={() => setAttachments((prev) => prev.filter((_, idx) => idx !== index))}
-                      >
-                        <Ionicons name="close" size={14} color="#ffffff" />
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
+              {/* Start Conversation button */}
               <Pressable 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (description.trim().length < 10 || sending) && { opacity: 0.6 }]}
-                disabled={description.trim().length < 10 || sending}
+                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
+                disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Start Conversation</Text>}
@@ -1052,11 +1030,13 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                   <Ionicons name="chevron-back" size={20} color={palette.text} />
                 </Pressable>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: palette.text, fontSize: 15, fontWeight: "800" }}>#{activeTicket._id?.slice(-6).toUpperCase() || activeTicket.id?.slice(-6).toUpperCase()}</Text>
+                  <Text style={{ color: palette.text, fontSize: 15, fontWeight: "800" }}>
+                    {activeTicket.isDraft ? "Draft Conversation" : `#${(activeTicket._id || activeTicket.id || "").slice(-6).toUpperCase()}`}
+                  </Text>
                   <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700" }}>{activeTicket.subject}</Text>
                 </View>
               </View>
-              {activeTicket.status !== "CLOSED" && (
+              {!activeTicket.isDraft && activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && (
                 <Pressable 
                   style={{ backgroundColor: "#fee2e2", borderColor: "#fecaca", paddingHorizontal: 12, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
                   onPress={() => handleCloseChat(activeTicket._id || activeTicket.id)}
@@ -1072,86 +1052,151 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
               contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
               showsVerticalScrollIndicator={false}
             >
-              <View style={{ gap: 6 }}>
-                <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
-                  <Text style={{ color: "#000000", fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
-                  <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
-                  {activeTicket.attachments && activeTicket.attachments.length > 0 && (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                      {activeTicket.attachments.map((url: string) => (
-                        <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
-                      ))}
-                    </View>
-                  )}
-                  <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
-                    {new Date(activeTicket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {activeTicket.isDraft && (
+                <View style={{ alignSelf: "center", backgroundColor: palette.card, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, marginVertical: 8 }}>
+                  <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "800", textAlign: "center" }}>
+                    No messages yet. Type your first message below to open this support ticket.
                   </Text>
                 </View>
+              )}
 
-                {activeTicket.status === "CLOSED" && (
-                  <View style={{ alignSelf: "center", backgroundColor: palette.card, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, marginVertical: 8 }}>
-                    <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "800" }}>This chat is closed.</Text>
-                  </View>
-                )}
-
-                {activeTicket.adminResponse ? (
-                  <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
-                    <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>Darji Support</Text>
-                    <Text style={{ color: palette.text, fontSize: 14, fontWeight: "700" }}>{activeTicket.adminResponse}</Text>
-                    <Text style={{ color: palette.subtext, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
-                      {activeTicket.adminRespondedAt ? new Date(activeTicket.adminRespondedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date(activeTicket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                ) : (
-                  activeTicket.status !== "CLOSED" && (
-                    <View style={{ alignSelf: "flex-start", backgroundColor: palette.card, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: palette.cardBorder }}>
-                      <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700" }}>Waiting for support reply...</Text>
+              {/* Render legacy single message if no messages array is present (compatibility) */}
+              {!activeTicket.messages || activeTicket.messages.length === 0 ? (
+                !activeTicket.isDraft && (
+                  <View style={{ gap: 6 }}>
+                    <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
+                      <Text style={{ color: "#000000", fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
+                      <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
+                      {activeTicket.attachments && activeTicket.attachments.length > 0 && (
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                          {activeTicket.attachments.map((url: string) => (
+                            <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                          ))}
+                        </View>
+                      )}
+                      <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
+                        {new Date(activeTicket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
                     </View>
-                  )
-                )}
-              </View>
+                    {activeTicket.adminResponse && (
+                      <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
+                        <Text style={{ color: BRAND_ORANGE, fontWeight: "800", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>Darji Support</Text>
+                        <Text style={{ color: palette.text, fontSize: 14, fontWeight: "700" }}>{activeTicket.adminResponse}</Text>
+                        <Text style={{ color: palette.subtext, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
+                          {new Date(activeTicket.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )
+              ) : (
+                activeTicket.messages.map((msg: any, idx: number) => {
+                  const isClient = msg.sender === "client";
+                  const isSystem = msg.sender === "system";
+
+                  if (isSystem) {
+                    return (
+                      <View key={idx} style={{ alignSelf: "center", backgroundColor: palette.card, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, marginVertical: 4 }}>
+                        <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "800", textAlign: "center" }}>{msg.text}</Text>
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View key={idx} style={{ alignSelf: isClient ? "flex-end" : "flex-start", maxWidth: "80%", backgroundColor: isClient ? BRAND_ORANGE : palette.card, borderWidth: isClient ? 0 : 1, borderColor: palette.cardBorder, borderRadius: 16, borderBottomRightRadius: isClient ? 2 : 16, borderBottomLeftRadius: isClient ? 16 : 2, padding: 12, marginVertical: 2 }}>
+                      <Text style={{ color: isClient ? "#000000" : BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: isClient ? 0.6 : 1 }}>
+                        {isClient ? "You" : "Darji Support"}
+                      </Text>
+                      <Text style={{ color: isClient ? "#000000" : palette.text, fontSize: 14, fontWeight: "700" }}>{msg.text}</Text>
+                      
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                          {msg.attachments.map((url: string) => (
+                            <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                          ))}
+                        </View>
+                      )}
+
+                      <Text style={{ color: isClient ? "rgba(0,0,0,0.5)" : palette.subtext, fontSize: 9, textAlign: "right", marginTop: 4 }}>
+                        {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
             </ScrollView>
 
-            {activeTicket.status !== "CLOSED" && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: palette.cardBorder, paddingTop: 12, paddingBottom: 16 }}>
-                <TextInput
-                  style={{
-                    flex: 1,
-                    minHeight: 46,
-                    maxHeight: 100,
-                    backgroundColor: palette.card,
-                    borderWidth: 1,
-                    borderColor: palette.cardBorder,
-                    borderRadius: 23,
-                    paddingHorizontal: 16,
-                    color: palette.text,
-                    fontSize: 14,
-                    fontWeight: "700"
-                  }}
-                  value={chatMessage}
-                  onChangeText={setChatMessage}
-                  placeholder="Type message (min 2 chars)..."
-                  placeholderTextColor={palette.subtext}
-                  multiline
-                />
+            {/* Composer/Input bar */}
+            {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" ? (
+              <View style={{ borderTopWidth: 1, borderTopColor: palette.cardBorder, paddingTop: 12, paddingBottom: 16 }}>
+                {attachments.length > 0 && (
+                  <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
+                    {attachments.map((url, idx) => (
+                      <View key={url} style={{ width: 50, height: 50, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: palette.cardBorder }}>
+                        <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
+                        <Pressable 
+                          style={{ position: "absolute", top: 2, right: 2, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 10, padding: 2 }}
+                          onPress={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+                        >
+                          <Ionicons name="close" size={10} color="#fff" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Pressable onPress={pickAttachmentImage} style={{ padding: 8 }}>
+                    <Ionicons name="attach-outline" size={24} color={BRAND_ORANGE} />
+                  </Pressable>
+                  <TextInput
+                    style={{
+                      flex: 1,
+                      minHeight: 46,
+                      maxHeight: 100,
+                      backgroundColor: palette.card,
+                      borderWidth: 1,
+                      borderColor: palette.cardBorder,
+                      borderRadius: 23,
+                      paddingHorizontal: 16,
+                      color: palette.text,
+                      fontSize: 14,
+                      fontWeight: "700"
+                    }}
+                    value={chatMessage}
+                    onChangeText={setChatMessage}
+                    placeholder="Type message..."
+                    placeholderTextColor={palette.subtext}
+                    multiline
+                  />
+                  <Pressable 
+                    style={{
+                      width: 46,
+                      height: 46,
+                      borderRadius: 23,
+                      backgroundColor: BRAND_ORANGE,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: chatMessage.trim().length >= 2 && !sending ? 1 : 0.6
+                    }}
+                    onPress={handleSendReply}
+                    disabled={chatMessage.trim().length < 2 || sending}
+                  >
+                    {sending ? (
+                      <ActivityIndicator size="small" color="#000000" />
+                    ) : (
+                      <Ionicons name="send" size={18} color="#000000" />
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={{ paddingVertical: 16, gap: 10 }}>
+                <Text style={{ color: palette.subtext, fontSize: 13, fontWeight: "800", textAlign: "center" }}>This ticket is resolved or closed.</Text>
                 <Pressable 
-                  style={{
-                    width: 46,
-                    height: 46,
-                    borderRadius: 23,
-                    backgroundColor: BRAND_ORANGE,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: chatMessage.trim().length >= 2 && !sending ? 1 : 0.6
-                  }}
-                  onPress={handleSendReply}
-                  disabled={chatMessage.trim().length < 2 || sending}
+                  style={{ backgroundColor: BRAND_ORANGE, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" }}
+                  onPress={handleReopenTicket}
                 >
-                  {sending ? (
-                    <ActivityIndicator size="small" color="#000000" />
-                  ) : (
-                    <Ionicons name="send" size={18} color="#000000" />
-                  )}
+                  <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Reopen Ticket</Text>
                 </Pressable>
               </View>
             )}
