@@ -39,6 +39,10 @@ export function resolveNotificationDestination(
     return { screen: data.screen, entityId, actionIdentifier, data };
   }
 
+  if (["support", "bug"].includes(String(data.type))) {
+    return { screen: "support_center", entityId, actionIdentifier, data };
+  }
+
   if (app === "customer") {
     if (String(data.type) === "QUOTE_RECEIVED") {
       return { screen: "quotes", entityId, actionIdentifier, data };

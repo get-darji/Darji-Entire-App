@@ -2433,6 +2433,8 @@ export default function App() {
   const [acceptedQuoteRequest, setAcceptedQuoteRequest] = useState<TailoringRequest>();
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
+  const socketRef = useRef<any>(null);
+  const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
   const knownRequestIdsRef = useRef<Set<string>>(new Set());
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const alertedRequestIdsRef = useRef<Set<string>>(new Set());
@@ -2643,6 +2645,7 @@ export default function App() {
     if (!token) return undefined;
     void Notifications.setBadgeCountAsync(0).catch(() => undefined);
     const socket = createRealtimeSocket(token, setConnectionStatus, refreshAccessToken);
+    socketRef.current = socket;
 
     socket.on("tailoring:request_created", (request: TailoringRequest) => {
       if (!request?.id) return;
@@ -2681,6 +2684,7 @@ export default function App() {
     });
     return () => {
       socket.disconnect();
+      socketRef.current = null;
       setConnectionStatus("Offline");
     };
   }, [token, showRequestFromEvent, newRequestPopup?.id, me?.tailorProfile?.id]);
@@ -2766,6 +2770,9 @@ export default function App() {
         refresh={() => void refreshWorkspace()}
         onOpenTransactions={() => setScreen("transactions")}
         onOpenOrders={() => setScreen("orders")}
+        socket={socketRef.current}
+        initialSupportScreen={initialSupportScreen}
+        clearInitialSupportScreen={() => setInitialSupportScreen(null)}
       />
     );
   }
@@ -2775,6 +2782,11 @@ export default function App() {
     <NotificationProvider
       app="tailor"
       onNavigate={(destination) => {
+        if (destination.screen === "support_center" || destination.screen === "contactSupport") {
+          setInitialSupportScreen("support_center");
+          setScreen("profile");
+          return;
+        }
         if (destination.screen === "requestDetails") {
           const request = destination.entityId ? requests.find((item) => item.id === destination.entityId) : undefined;
           if (request) {

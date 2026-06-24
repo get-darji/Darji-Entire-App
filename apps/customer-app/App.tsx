@@ -2692,12 +2692,12 @@ function ProfileRow({
 }) {
   const currentStyles = propStyles || styles;
   return (
-    <Pressable style={[currentStyles.profileRow, noBorder && { borderTopWidth: 0 }]} onPress={onPress}>
+    <Pressable style={[currentStyles.profileRow, noBorder ? { borderTopWidth: 0 } : null]} onPress={onPress}>
       <View style={currentStyles.profileRowIcon}>
         <Ionicons name={icon} size={18} color={danger ? "#dc2626" : BRAND_ORANGE} />
       </View>
       <View style={currentStyles.profileRowText}>
-        <Text style={[currentStyles.addressTitle, danger && { color: "#dc2626" }]}>{label}</Text>
+        <Text style={[currentStyles.addressTitle, danger ? { color: "#dc2626" } : null]}>{label}</Text>
         <Text style={currentStyles.mutedSmall}>{value}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={danger ? "#dc2626" : "#6b7890"} />
@@ -3137,12 +3137,19 @@ function CancellationPolicyScreen({
   );
 }
 
-function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean }) {
+function hasUnreadMessages(ticketOrBug: any): boolean {
+  if (!ticketOrBug) return false;
+  if (ticketOrBug.messages && ticketOrBug.messages.length > 0) {
+    return ticketOrBug.messages.some((msg: any) => (msg.sender === "admin" || msg.sender === "system") && !msg.read);
+  }
+  return false;
+}
+
+function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean; orders: any[]; socket: any }) {
   const token = useAppStore((state) => state.token);
   const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "center");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   // New ticket form
@@ -3198,22 +3205,79 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
     }
   }, [token]);
 
-  const loadOrders = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await api<{ data?: any[] }>("/orders", { method: "GET" }, token);
-      const list = Array.isArray(res) ? res : (res as any)?.data || [];
-      setOrders(list);
-    } catch (e) {
-      console.log("Failed to load orders", e);
-    }
-  }, [token]);
-
   useEffect(() => {
     loadTickets();
     loadBugReports();
-    loadOrders();
-  }, [loadTickets, loadBugReports, loadOrders]);
+  }, [loadTickets, loadBugReports]);
+
+  // Socket event listener for real-time ticket/bug updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTicketUpdated = ({ ticket }: { ticket: any }) => {
+      setTickets((prev) => {
+        const idx = prev.findIndex((t) => (t._id || t.id) === (ticket._id || ticket.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = ticket;
+          return next;
+        }
+        return [...prev, ticket];
+      });
+      setActiveTicket((current: any) => {
+        if (current && (current._id || current.id) === (ticket._id || ticket.id)) {
+          return ticket;
+        }
+        return current;
+      });
+    };
+
+    const handleBugUpdated = ({ bug }: { bug: any }) => {
+      setBugReports((prev) => {
+        const idx = prev.findIndex((b) => (b._id || b.id) === (bug._id || bug.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = bug;
+          return next;
+        }
+        return [...prev, bug];
+      });
+      setActiveTicket((current: any) => {
+        if (current && (current._id || current.id) === (bug._id || bug.id)) {
+          return bug;
+        }
+        return current;
+      });
+    };
+
+    socket.on("support:ticket_updated", handleTicketUpdated);
+    socket.on("support:bug_updated", handleBugUpdated);
+
+    return () => {
+      socket.off("support:ticket_updated", handleTicketUpdated);
+      socket.off("support:bug_updated", handleBugUpdated);
+    };
+  }, [socket]);
+
+  // Mark open chat messages as read
+  useEffect(() => {
+    if (view === "chat" && activeTicket && !activeTicket.isDraft) {
+      if (activeTicket.messages) {
+        activeTicket.messages.forEach((msg: any) => {
+          if (msg.sender === "admin" || msg.sender === "system") {
+            msg.read = true;
+          }
+        });
+      }
+      if (socket) {
+        socket.emit("support:mark_read", {
+          type: activeTicket.deviceInfo ? "bug" : "ticket",
+          id: activeTicket._id || activeTicket.id,
+          recipientId: "admin"
+        });
+      }
+    }
+  }, [view, activeTicket?.id, activeTicket?.messages?.length, socket]);
 
   useEffect(() => {
     if (view === "chat") {
@@ -3518,6 +3582,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                             <View style={{ backgroundColor: "#fff9db", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: "#b58700", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
                             </View>
+                            {hasUnreadMessages(t) && (
+                              <View style={{ backgroundColor: "#ef4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", textTransform: "uppercase" }}>New</Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Category: {t.subject}</Text>
                           <Text style={{ color: text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>
@@ -3602,6 +3671,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                             <View style={{ backgroundColor: b.status === "CLOSED" || b.status === "FIXED" ? "#e2e8f0" : "#fee2e2", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: b.status === "CLOSED" || b.status === "FIXED" ? "#64748b" : "#dc2626", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{b.status}</Text>
                             </View>
+                            {hasUnreadMessages(b) && (
+                              <View style={{ backgroundColor: "#ef4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", textTransform: "uppercase" }}>New</Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Device: {b.deviceInfo}</Text>
                           <Text style={{ color: text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>
@@ -3866,7 +3940,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark }: { setScreen: (
                     multiline
                   />
                   <Pressable 
-                    style={[{ width: 46, height: 46, borderRadius: 23, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" }, (chatMessage.trim().length < 2 || sending) && { opacity: 0.6 }]}
+                    style={[{ width: 46, height: 46, borderRadius: 23, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" }, (chatMessage.trim().length < 2 || sending) ? { opacity: 0.6 } : null]}
                     disabled={chatMessage.trim().length < 2 || sending}
                     onPress={handleSendReply}
                   >
@@ -4668,6 +4742,18 @@ export default function App() {
     return () => subscription.remove();
   }, [goBack]);
 
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data && data.type === "bug") {
+        setScreen("reportBug");
+      } else {
+        setScreen("contactSupport");
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
   function openRequestResume(order: CustomerOrder) {
     setActiveOrder(order);
     setDraft(order.draft);
@@ -4961,6 +5047,10 @@ export default function App() {
       <NotificationProvider
         app="customer"
         onNavigate={(destination) => {
+          if (destination.screen === "support_center" || destination.screen === "contactSupport") {
+            setScreen("contactSupport");
+            return;
+          }
           const matchingOrder = destination.entityId
             ? orders.find((order) => order.id === destination.entityId || order.backendOrderId === destination.entityId || order.tailor.backendRequestId === destination.entityId)
             : undefined;
@@ -5500,7 +5590,7 @@ export default function App() {
         </Modal>
         
         <Modal visible={screen === "contactSupport" || screen === "reportBug"} onRequestClose={goBack} animationType="slide">
-          <ContactSupportScreen setScreen={setScreen} isBugReport={screen === "reportBug"} isDark={settings.darkMode} />
+          <ContactSupportScreen setScreen={setScreen} isBugReport={screen === "reportBug"} isDark={settings.darkMode} orders={orders} socket={socketRef.current} />
         </Modal>
         
         <Modal visible={screen === "rateApp"} onRequestClose={goBack} animationType="slide">

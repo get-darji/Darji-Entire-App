@@ -38,6 +38,9 @@ export function resolveNotificationDestination(
   if (typeof data.screen === "string") {
     return { screen: data.screen, entityId, actionIdentifier, data };
   }
+  if (["support", "bug"].includes(String(data.type))) {
+    return { screen: "support_center", entityId, actionIdentifier, data };
+  }
 
   if (app === "customer") {
     return { screen: customerOrderTypes.has(String(data.type)) ? "orderDetails" : "notifications", entityId, actionIdentifier, data };

@@ -58,6 +58,9 @@ type Props = {
   onSessionExpired: () => void;
   onOpenTransactions: () => void;
   onOpenOrders?: () => void;
+  socket?: any;
+  initialSupportScreen?: string | null;
+  clearInitialSupportScreen?: () => void;
 };
 
 function isSessionError(error: unknown) {
@@ -65,7 +68,7 @@ function isSessionError(error: unknown) {
   return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
 }
 
-export function TailorProfileScreen({ me, token, orders, refresh, showDialog, onSessionExpired, onOpenTransactions, onOpenOrders }: Props) {
+export function TailorProfileScreen({ me, token, orders, refresh, showDialog, onSessionExpired, onOpenTransactions, onOpenOrders, socket, initialSupportScreen, clearInitialSupportScreen }: Props) {
   const { signOut } = useAppStore();
   const profile = me?.tailorProfile;
   const settingsFromServer = profile?.settings ?? {};
@@ -111,6 +114,13 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   const palette = general.darkMode ? darkPalette : lightPalette;
   const styles = useMemo(() => createStyles(palette), [palette]);
+
+  useEffect(() => {
+    if (initialSupportScreen === "support_center") {
+      setSupportScreen("support_center");
+      clearInitialSupportScreen?.();
+    }
+  }, [initialSupportScreen]);
 
   useEffect(() => {
     setName(me?.name ?? "");
@@ -433,7 +443,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       {supportScreen === "support_center" ? (
         <TailorSupportCenterScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen === "chat" ? (
-        <TailorSupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} />
+        <TailorSupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} socket={socket} />
       ) : supportScreen === "requests" ? (
         <TailorAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen ? (
@@ -469,7 +479,7 @@ function Input({ label, value, onChangeText, styles }: { label: string; value: s
 
 function SwitchRow({ title, copy, value, onValueChange, styles, danger, disabled, noBorder }: { title: string; copy: string; value: boolean; onValueChange: (value: boolean) => void; styles: ReturnType<typeof createStyles>; danger?: boolean; disabled?: boolean; noBorder?: boolean }) {
   return (
-    <View style={[styles.row, disabled && styles.disabledRow, noBorder && { borderTopWidth: 0 }]}>
+    <View style={[styles.row, disabled ? styles.disabledRow : null, noBorder ? { borderTopWidth: 0 } : null]}>
       <View style={styles.rowMain}>
         <Text style={[styles.rowTitle, danger && styles.dangerText]}>{title}</Text>
         <Text style={styles.rowCopy}>{copy}</Text>
@@ -493,10 +503,10 @@ function ReadonlyMetric({ title, value, copy, styles, danger }: { title: string;
 
 function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void; danger?: boolean; noBorder?: boolean }) {
   return (
-    <Pressable style={[styles.row, noBorder && { borderTopWidth: 0 }]} onPress={onPress} disabled={!onPress}>
+    <Pressable style={[styles.row, noBorder ? { borderTopWidth: 0 } : null]} onPress={onPress} disabled={!onPress}>
       <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : BRAND_ORANGE} /></View>
       <View style={styles.rowMain}>
-        <Text style={[styles.rowTitle, danger && { color: DANGER }]}>{title}</Text>
+        <Text style={[styles.rowTitle, danger ? { color: DANGER } : null]}>{title}</Text>
         <Text style={styles.rowCopy}>{value}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={danger ? DANGER : MUTED} />
@@ -545,7 +555,15 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog }: { 
   );
 }
 
-function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
+function hasUnreadMessages(ticketOrBug: any): boolean {
+  if (!ticketOrBug) return false;
+  if (ticketOrBug.messages && ticketOrBug.messages.length > 0) {
+    return ticketOrBug.messages.some((msg: any) => (msg.sender === "admin" || msg.sender === "system") && !msg.read);
+  }
+  return false;
+}
+
+function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; socket?: any }) {
   const [view, setView] = useState<"center" | "chat" | "new_chat">("center");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
@@ -610,6 +628,75 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
     loadBugReports();
     loadOrders();
   }, [loadTickets, loadBugReports, loadOrders]);
+
+  // Socket event listener for real-time ticket/bug updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTicketUpdated = ({ ticket }: { ticket: any }) => {
+      setTickets((prev) => {
+        const idx = prev.findIndex((t) => (t._id || t.id) === (ticket._id || ticket.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = ticket;
+          return next;
+        }
+        return [...prev, ticket];
+      });
+      setActiveTicket((current: any) => {
+        if (current && (current._id || current.id) === (ticket._id || ticket.id)) {
+          return ticket;
+        }
+        return current;
+      });
+    };
+
+    const handleBugUpdated = ({ bug }: { bug: any }) => {
+      setBugReports((prev) => {
+        const idx = prev.findIndex((b) => (b._id || b.id) === (bug._id || bug.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = bug;
+          return next;
+        }
+        return [...prev, bug];
+      });
+      setActiveTicket((current: any) => {
+        if (current && (current._id || current.id) === (bug._id || bug.id)) {
+          return bug;
+        }
+        return current;
+      });
+    };
+
+    socket.on("support:ticket_updated", handleTicketUpdated);
+    socket.on("support:bug_updated", handleBugUpdated);
+
+    return () => {
+      socket.off("support:ticket_updated", handleTicketUpdated);
+      socket.off("support:bug_updated", handleBugUpdated);
+    };
+  }, [socket]);
+
+  // Mark open chat messages as read
+  useEffect(() => {
+    if (view === "chat" && activeTicket && !activeTicket.isDraft) {
+      if (activeTicket.messages) {
+        activeTicket.messages.forEach((msg: any) => {
+          if (msg.sender === "admin" || msg.sender === "system") {
+            msg.read = true;
+          }
+        });
+      }
+      if (socket) {
+        socket.emit("support:mark_read", {
+          type: activeTicket.deviceInfo ? "bug" : "ticket",
+          id: activeTicket._id || activeTicket.id,
+          recipientId: "admin"
+        });
+      }
+    }
+  }, [view, activeTicket?.id, activeTicket?.messages?.length, socket]);
 
   useEffect(() => {
     if (view === "chat") {
@@ -813,7 +900,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
                 style={({ pressed }) => [
                   { backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 },
-                  pressed && { opacity: 0.85 }
+                  pressed ? { opacity: 0.85 } : null
                 ]}
                 onPress={() => setView("new_chat")}
               >
@@ -854,6 +941,11 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
                             <View style={{ backgroundColor: t.status === "CLOSED" ? "#e2e8f0" : t.status === "RESOLVED" ? "#dcfce7" : "#fff9db", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: t.status === "CLOSED" ? "#64748b" : t.status === "RESOLVED" ? "#166534" : "#b58700", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
                             </View>
+                            {hasUnreadMessages(t) && (
+                              <View style={{ backgroundColor: "#ef4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", textTransform: "uppercase" }}>New</Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Issue: {t.subject}</Text>
                           <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{t.message}</Text>
@@ -866,10 +958,10 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
               </View>
 
               <View style={{ marginTop: 16 }}>
-                <div style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <div style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
                   <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>Bug Reports</Text>
-                </div>
+                </View>
 
                 {bugReports.length === 0 ? (
                   <View style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 24, alignItems: "center" }}>
@@ -892,6 +984,11 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token }: { setScr
                             <View style={{ backgroundColor: b.status === "CLOSED" || b.status === "FIXED" ? "#e2e8f0" : "#fee2e2", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: b.status === "CLOSED" || b.status === "FIXED" ? "#64748b" : "#dc2626", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{b.status}</Text>
                             </View>
+                            {hasUnreadMessages(b) && (
+                              <View style={{ backgroundColor: "#ef4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", textTransform: "uppercase" }}>New</Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Device: {b.deviceInfo}</Text>
                           <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{b.messages && b.messages.length > 0 ? b.messages[b.messages.length - 1].text : b.description}</Text>
@@ -1523,7 +1620,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
           </View>
 
           <Pressable
-            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting && { opacity: 0.6 }]}
+            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting ? { opacity: 0.6 } : null]}
             disabled={submitting}
             onPress={handleSubmitRequest}
           >

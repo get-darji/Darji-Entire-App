@@ -1949,6 +1949,7 @@ function MainApp({
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const presentedRequestIdsRef = useRef<Set<string>>(new Set());
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
+  const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
 
   const filteredRequests = useMemo(() => {
     if (!me?.deliveryProfile) return requests;
@@ -2323,6 +2324,11 @@ function MainApp({
   }
 
   const handleNotificationNavigation = useCallback((destination: NotificationDestination) => {
+    if (destination.screen === "support_center" || destination.screen === "contactSupport") {
+      setInitialSupportScreen("support_center");
+      setTab("profile");
+      return;
+    }
     const taskId = destination.entityId;
     const request = taskId ? requests.find((item) => item.id === taskId || item.orderId === taskId) : undefined;
 
@@ -2486,6 +2492,9 @@ function MainApp({
             showDialog={showDialog}
             onOpenTransactions={() => setTab("transactions")}
             onOpenOrders={() => setTab("orders")}
+            socket={socketRef.current}
+            initialSupportScreen={initialSupportScreen}
+            clearInitialSupportScreen={() => setInitialSupportScreen(null)}
           />
         ) : null}
         </View>

@@ -862,7 +862,8 @@ export async function updateSupportTicketController(req: Request, res: Response)
           title: "New Support Reply",
           body: update.adminResponse,
           channelId,
-          targetApps: [user.role.toLowerCase()]
+          targetApps: [user.role.toLowerCase()],
+          data: { type: "support" }
         });
       }
     } catch (e) {
@@ -1083,10 +1084,80 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
   const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
   const requests = await AccountChangeRequestModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
-    requests.map(async (request) => ({
-      ...request.toJSON(),
-      user: request.userId ? (await UserModel.findById(request.userId).select("phone name role"))?.toJSON() : undefined
-    }))
+    requests.map(async (request) => {
+      const requestJson = request.toJSON() as any;
+      let currentValues: any = {};
+      try {
+        if (request.userRole === "TAILOR") {
+          const tailor = await TailorModel.findOne({ userId: request.userId });
+          if (tailor) {
+            const verification = tailor.verification || {};
+            if (request.type === "ShopName") {
+              currentValues = { shopName: tailor.shopName || verification.shop?.shopName || "" };
+            } else if (request.type === "BankAccount") {
+              const bank = verification.bank || {};
+              currentValues = {
+                accountHolder: bank.accountHolder || "",
+                accountNumber: bank.accountNumber || "",
+                ifsc: bank.ifsc || ""
+              };
+            } else if (request.type === "UPI") {
+              currentValues = {
+                upi: verification.bank?.upi || ""
+              };
+            } else if (request.type === "Address") {
+              currentValues = {
+                shopAddress: verification.shop?.shopAddress || ""
+              };
+            } else if (request.type === "ContactNumber") {
+              const user = await UserModel.findById(request.userId);
+              currentValues = { phone: user?.phone || "" };
+            }
+          }
+        } else if (request.userRole === "DELIVERY_PARTNER") {
+          const partner = await DeliveryPartnerModel.findOne({ userId: request.userId });
+          if (partner) {
+            const verification = partner.verification || {};
+            if (request.type === "Vehicle") {
+              currentValues = {
+                vehicleNumber: partner.vehicleNumber || verification.vehicle?.vehicleNumber || "",
+                vehicleModel: verification.vehicle?.vehicleModel || ""
+              };
+            } else if (request.type === "RC") {
+              currentValues = {
+                rcPhotoUrl: verification.vehicle?.rcPhotoUrl || ""
+              };
+            } else if (request.type === "DrivingLicense") {
+              currentValues = {
+                licensePhotoUrl: verification.license?.licenseFrontUrl || verification.personal?.licensePhotoUrl || ""
+              };
+            } else if (request.type === "BankAccount") {
+              const bank = verification.bank || {};
+              currentValues = {
+                accountHolder: bank.accountHolder || "",
+                accountNumber: bank.accountNumber || "",
+                ifsc: bank.ifsc || ""
+              };
+            } else if (request.type === "UPI") {
+              currentValues = {
+                upi: verification.bank?.upi || ""
+              };
+            } else if (request.type === "ContactNumber") {
+              const user = await UserModel.findById(request.userId);
+              currentValues = { phone: user?.phone || "" };
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load current values for change request:", err);
+      }
+
+      return {
+        ...requestJson,
+        currentValues,
+        user: request.userId ? (await UserModel.findById(request.userId).select("phone name role"))?.toJSON() : undefined
+      };
+    })
   );
   res.json({ data });
 }
@@ -1366,7 +1437,8 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
           title: "New Message from Support",
           body: input.text,
           channelId,
-          targetApps: [pushUser.role.toLowerCase()]
+          targetApps: [pushUser.role.toLowerCase()],
+          data: { type: "support" }
         });
       }
     } catch (e) {
@@ -1441,7 +1513,8 @@ export async function addBugReportMessageController(req: Request, res: Response)
           title: "New Message from Support",
           body: input.text,
           channelId,
-          targetApps: [pushUser.role.toLowerCase()]
+          targetApps: [pushUser.role.toLowerCase()],
+          data: { type: "bug" }
         });
       }
     } catch (e) {

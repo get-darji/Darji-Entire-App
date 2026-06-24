@@ -62,6 +62,9 @@ type Props = {
   showDialog: (dialog: { title: string; message: string; icon?: IconName }) => void;
   onOpenTransactions: () => void;
   onOpenOrders?: () => void;
+  socket?: any;
+  initialSupportScreen?: string | null;
+  clearInitialSupportScreen?: () => void;
 };
 
 function isSessionError(error: unknown) {
@@ -69,7 +72,7 @@ function isSessionError(error: unknown) {
   return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
 }
 
-export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions, onOpenOrders }: Props) {
+export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions, onOpenOrders, socket, initialSupportScreen, clearInitialSupportScreen }: Props) {
   const signOut = useAppStore((state) => state.signOut);
   const profile = me?.deliveryProfile;
   const settings = profile?.settings ?? {};
@@ -119,6 +122,13 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       availability: settings.availability ?? "Full time"
     });
   }, [me?.name, me?.email, profile?.isAvailable, profile?.vehicleNumber, profile?.workingHours, settings]);
+
+  useEffect(() => {
+    if (initialSupportScreen === "support_center") {
+      setSupportScreen("support_center");
+      clearInitialSupportScreen?.();
+    }
+  }, [initialSupportScreen]);
 
   async function updateAvailability(value: boolean) {
     setAvailable(value);
@@ -434,7 +444,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       {supportScreen === "support_center" ? (
         <DeliverySupportCenterScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} />
       ) : supportScreen === "chat" ? (
-        <DeliverySupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} />
+        <DeliverySupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} socket={socket} />
       ) : supportScreen === "requests" ? (
         <DeliveryAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen ? (
@@ -470,7 +480,7 @@ function Input({ label, value, onChangeText, styles, editable = true }: { label:
 
 function SwitchRow({ title, copy, value, onValueChange, styles, danger, noBorder }: { title: string; copy: string; value: boolean; onValueChange: (value: boolean) => void; styles: ReturnType<typeof createStyles>; danger?: boolean; noBorder?: boolean }) {
   return (
-    <View style={[styles.row, noBorder && { borderTopWidth: 0 }]}>
+    <View style={[styles.row, noBorder ? { borderTopWidth: 0 } : null]}>
       <View style={styles.rowMain}>
         <Text style={[styles.rowTitle, danger && styles.dangerText]}>{title}</Text>
         <Text style={styles.rowCopy}>{copy}</Text>
@@ -509,10 +519,10 @@ function ReadonlyMetric({ title, value, copy, styles }: { title: string; value: 
 
 function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void; danger?: boolean; noBorder?: boolean }) {
   return (
-    <Pressable style={[styles.row, noBorder && { borderTopWidth: 0 }]} onPress={onPress} disabled={!onPress}>
+    <Pressable style={[styles.row, noBorder ? { borderTopWidth: 0 } : null]} onPress={onPress} disabled={!onPress}>
       <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : BRAND_ORANGE} /></View>
       <View style={styles.rowMain}>
-        <Text style={[styles.rowTitle, danger && { color: DANGER }]}>{title}</Text>
+        <Text style={[styles.rowTitle, danger ? { color: DANGER } : null]}>{title}</Text>
         <Text style={styles.rowCopy}>{value}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={danger ? DANGER : MUTED} />
@@ -632,7 +642,15 @@ function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: Excl
   );
 }
 
-function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
+function hasUnreadMessages(ticketOrBug: any): boolean {
+  if (!ticketOrBug) return false;
+  if (ticketOrBug.messages && ticketOrBug.messages.length > 0) {
+    return ticketOrBug.messages.some((msg: any) => (msg.sender === "admin" || msg.sender === "system") && !msg.read);
+  }
+  return false;
+}
+
+function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; socket?: any }) {
   const [view, setView] = useState<"center" | "chat" | "new_chat">("center");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
@@ -697,6 +715,75 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
     loadBugReports();
     loadOrders();
   }, [loadTickets, loadBugReports, loadOrders]);
+
+  // Socket event listener for real-time ticket/bug updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTicketUpdated = ({ ticket }: { ticket: any }) => {
+      setTickets((prev) => {
+        const idx = prev.findIndex((t) => (t._id || t.id) === (ticket._id || ticket.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = ticket;
+          return next;
+        }
+        return [...prev, ticket];
+      });
+      setActiveTicket((current: any) => {
+        if (current && (current._id || current.id) === (ticket._id || ticket.id)) {
+          return ticket;
+        }
+        return current;
+      });
+    };
+
+    const handleBugUpdated = ({ bug }: { bug: any }) => {
+      setBugReports((prev) => {
+        const idx = prev.findIndex((b) => (b._id || b.id) === (bug._id || bug.id));
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = bug;
+          return next;
+        }
+        return [...prev, bug];
+      });
+      setActiveTicket((current: any) => {
+        if (current && (current._id || current.id) === (bug._id || bug.id)) {
+          return bug;
+        }
+        return current;
+      });
+    };
+
+    socket.on("support:ticket_updated", handleTicketUpdated);
+    socket.on("support:bug_updated", handleBugUpdated);
+
+    return () => {
+      socket.off("support:ticket_updated", handleTicketUpdated);
+      socket.off("support:bug_updated", handleBugUpdated);
+    };
+  }, [socket]);
+
+  // Mark open chat messages as read
+  useEffect(() => {
+    if (view === "chat" && activeTicket && !activeTicket.isDraft) {
+      if (activeTicket.messages) {
+        activeTicket.messages.forEach((msg: any) => {
+          if (msg.sender === "admin" || msg.sender === "system") {
+            msg.read = true;
+          }
+        });
+      }
+      if (socket) {
+        socket.emit("support:mark_read", {
+          type: activeTicket.deviceInfo ? "bug" : "ticket",
+          id: activeTicket._id || activeTicket.id,
+          recipientId: "admin"
+        });
+      }
+    }
+  }, [view, activeTicket?.id, activeTicket?.messages?.length, socket]);
 
   useEffect(() => {
     if (view === "chat") {
@@ -908,7 +995,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
                 style={({ pressed }) => [
                   { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 },
-                  pressed && { opacity: 0.85 }
+                  pressed ? { opacity: 0.85 } : null
                 ]}
                 onPress={() => setView("new_chat")}
               >
@@ -949,6 +1036,11 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                             <View style={{ backgroundColor: t.status === "CLOSED" ? "#e2e8f0" : t.status === "RESOLVED" ? "#dcfce7" : "#fff9db", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: t.status === "CLOSED" ? "#64748b" : t.status === "RESOLVED" ? "#166534" : "#b58700", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{t.status}</Text>
                             </View>
+                            {hasUnreadMessages(t) && (
+                              <View style={{ backgroundColor: "#ef4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", textTransform: "uppercase" }}>New</Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Issue: {t.subject}</Text>
                           <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{t.message}</Text>
@@ -987,6 +1079,11 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token }: { setS
                             <View style={{ backgroundColor: b.status === "CLOSED" || b.status === "FIXED" ? "#e2e8f0" : "#fee2e2", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: b.status === "CLOSED" || b.status === "FIXED" ? "#64748b" : "#dc2626", fontSize: 10, fontWeight: "900", textTransform: "uppercase" }}>{b.status}</Text>
                             </View>
+                            {hasUnreadMessages(b) && (
+                              <View style={{ backgroundColor: "#ef4444", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", textTransform: "uppercase" }}>New</Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "700", marginTop: 4 }}>Device: {b.deviceInfo}</Text>
                           <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", marginTop: 6 }} numberOfLines={1}>{b.messages && b.messages.length > 0 ? b.messages[b.messages.length - 1].text : b.description}</Text>
@@ -1646,7 +1743,7 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
           </View>
 
           <Pressable
-            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting && { opacity: 0.6 }]}
+            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting ? { opacity: 0.6 } : null]}
             disabled={submitting}
             onPress={handleSubmitRequest}
           >
