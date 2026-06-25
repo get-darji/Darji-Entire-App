@@ -1005,64 +1005,24 @@ export function AdminPortal() {
   ];
 
   const filteredOrders = (() => {
-    const regularOrders = orders.filter((order) => {
-      const content = [
-        order.orderNumber,
-        order.customer?.name,
-        order.customer?.phone,
-        order.status,
-        order.tailor?.shopName,
-        order.deliveryPartner?.user?.name
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return (!searchTerm || content.includes(searchTerm)) && (!orderFilter || order.status === orderFilter);
-    });
-
-    const tailoringAsOrders = tailoringRequests
-      .filter((request) => {
+    return allOrders
+      .filter((order) => {
         const content = [
-          `TR-${request.id.slice(0, 6).toUpperCase()}`,
-          request.customer?.name,
-          request.customer?.phone,
-          request.status,
-          request.orderStatus,
-          request.workType,
-          request.clothType
+          order.orderNumber,
+          order.customer?.name,
+          order.customer?.phone,
+          order.status,
+          order.tailor?.shopName,
+          order.deliveryPartner?.user?.name
         ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
-        return (!searchTerm || content.includes(searchTerm)) && (!orderFilter || request.status === orderFilter || request.orderStatus === orderFilter);
+        return (!searchTerm || content.includes(searchTerm.toLowerCase())) && (!orderFilter || order.status === orderFilter);
       })
-      .map((request) => ({
-        id: request.id,
-        orderNumber: `TR-${request.id.slice(0, 6).toUpperCase()}`,
-        customerId: request.customerId,
-        customer: request.customer,
-        tailor: request.ownQuote?.tailor || null,
-        deliveryPartner: null, // Tailoring requests initially don't have delivery partner attached at this level usually, or fetch it separately
-        status: request.orderStatus || request.status,
-        paymentMethod: "UNKNOWN",
-        paymentStatus: "PENDING",
-        totalAmount: request.ownQuote?.price ?? 0,
-        createdAt: request.createdAt,
-        items: [{
-          serviceId: "tailoring",
-          quantity: 1,
-          service: {
-            id: "tailoring",
-            name: request.workType,
-            price: request.ownQuote?.price ?? 0,
-            category: { name: request.clothType }
-          }
-        }]
-      } as unknown as Order));
-
-    return [...regularOrders, ...tailoringAsOrders].sort((a, b) => {
-      return new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime();
-    });
+      .sort((a, b) => {
+        return new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime();
+      });
   })();
 
   const filteredTailoring = tailoringRequests.filter((request) =>

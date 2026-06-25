@@ -1435,7 +1435,7 @@ export async function listTailoringRequestsController(req: Request, res: Respons
     where.customerId = req.user!.id;
   } else if (status) {
     where.status = status;
-  } else {
+  } else if (req.user!.role === "TAILOR") {
     where.status = "QUOTE_REQUESTED";
   }
 
