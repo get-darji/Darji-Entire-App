@@ -995,7 +995,9 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
   await TailoringRequestModel.findByIdAndUpdate(task.orderId, { orderStatus });
   emitToDeliveryPartner(partner.id, "delivery:task_updated", task.toJSON());
   emitToCustomer(task.customerId, "customer:delivery_status_updated", { taskId: task.id, orderId: task.orderId, tailoringRequestId: task.orderId, status: orderStatus, deliveryTask: task.toJSON() });
-  emitToTailor(task.tailorId, "tailoring:delivery_status_updated", { taskId: task.id, orderId: task.orderId, status: orderStatus, deliveryTask: task.toJSON() });
+  if (task.tailorId) {
+    emitToTailor(task.tailorId, "tailoring:delivery_status_updated", { taskId: task.id, orderId: task.orderId, status: orderStatus, deliveryTask: task.toJSON() });
+  }
 
   if (input.status === "picked_up") {
     await sendPushToUsers([task.customerId], {
@@ -1084,12 +1086,14 @@ export async function verifyDeliveryTaskOtpController(req: Request, res: Respons
         status: realtimeStatus,
         deliveryTask: updated.toJSON()
       });
-      emitToTailor(updated.tailorId, "tailoring:delivery_status_updated", {
-        taskId: updated.id,
-        orderId: updated.orderId,
-        status: realtimeStatus,
-        deliveryTask: updated.toJSON()
-      });
+      if (updated.tailorId) {
+        emitToTailor(updated.tailorId, "tailoring:delivery_status_updated", {
+          taskId: updated.id,
+          orderId: updated.orderId,
+          status: realtimeStatus,
+          deliveryTask: updated.toJSON()
+        });
+      }
     }
     await sendOtpNotification({
       userId: updated.customerId,
