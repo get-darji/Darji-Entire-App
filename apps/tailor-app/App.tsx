@@ -58,6 +58,7 @@ type TailoringRequest = {
   measurementNotes?: string;
   pickupAddress: string;
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
+  orderStatus?: string;
   workStatus?: "ACCEPTED" | "WORKING" | "READY";
   media: MediaItem[];
   receivedMedia?: MediaItem[];
@@ -1017,6 +1018,9 @@ function OrderDetailsScreen({
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
   const [uploadingProof, setUploadingProof] = useState<{ stage: "RECEIVED" | "STITCHED"; source: "camera" | "library" }>();
   const acceptedRequest = order.request;
+  const hasReceivedPackage = acceptedRequest
+    ? ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
+    : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
 
   async function uploadProof(stage: "RECEIVED" | "STITCHED", source: "camera" | "library") {
     if (!acceptedRequest || !token) return;
@@ -1171,51 +1175,58 @@ function OrderDetailsScreen({
         </View>
       ) : null}
 
-      {acceptedRequest ? (
+      {hasReceivedPackage ? (
         <>
+          {acceptedRequest ? (
+            <View style={styles.whiteCard}>
+              <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
+              <Text style={styles.helperText}>Save proof photos for this order so any future complaint can be checked against received and stitched condition.</Text>
+              <ProofBlock
+                title="Received clothes"
+                copy="Take 2-3 photos when the delivery boy hands over the clothes."
+                media={acceptedRequest.receivedMedia ?? []}
+                limitText={`${acceptedRequest.receivedMedia?.length ?? 0}/3 photos`}
+                loadingCamera={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "camera"}
+                loadingLibrary={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "library"}
+                onCamera={() => uploadProof("RECEIVED", "camera")}
+                onLibrary={() => uploadProof("RECEIVED", "library")}
+                onOpen={setSelectedMedia}
+              />
+              <ProofBlock
+                title="After stitching"
+                copy="Upload up to 3 photos after stitching is complete."
+                media={acceptedRequest.stitchedMedia ?? []}
+                limitText={`${acceptedRequest.stitchedMedia?.length ?? 0}/3 photos`}
+                loadingCamera={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "camera"}
+                loadingLibrary={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "library"}
+                onCamera={() => uploadProof("STITCHED", "camera")}
+                onLibrary={() => uploadProof("STITCHED", "library")}
+                onOpen={setSelectedMedia}
+              />
+            </View>
+          ) : null}
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
-            <Text style={styles.helperText}>Save proof photos for this order so any future complaint can be checked against received and stitched condition.</Text>
-            <ProofBlock
-              title="Received clothes"
-              copy="Take 2-3 photos when the delivery boy hands over the clothes."
-              media={acceptedRequest.receivedMedia ?? []}
-              limitText={`${acceptedRequest.receivedMedia?.length ?? 0}/3 photos`}
-              loadingCamera={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "camera"}
-              loadingLibrary={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "library"}
-              onCamera={() => uploadProof("RECEIVED", "camera")}
-              onLibrary={() => uploadProof("RECEIVED", "library")}
-              onOpen={setSelectedMedia}
-            />
-            <ProofBlock
-              title="After stitching"
-              copy="Upload up to 3 photos after stitching is complete."
-              media={acceptedRequest.stitchedMedia ?? []}
-              limitText={`${acceptedRequest.stitchedMedia?.length ?? 0}/3 photos`}
-              loadingCamera={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "camera"}
-              loadingLibrary={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "library"}
-              onCamera={() => uploadProof("STITCHED", "camera")}
-              onLibrary={() => uploadProof("STITCHED", "library")}
-              onOpen={setSelectedMedia}
-            />
+            <Text style={styles.cardLabel}>UPDATE WORK STATUS</Text>
+            <View style={styles.statusGrid}>
+              {statusSteps.map((status) => (
+                <Pressable
+                  key={status}
+                  style={[styles.statusButton, order.status === status && styles.activeStatusButton, acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0)) && styles.disabledButton]}
+                  onPress={() => updateStatus(status)}
+                  disabled={Boolean(savingStatus) || Boolean(acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0)))}
+                >
+                  {savingStatus === status ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.statusButtonText, order.status === status && styles.activeStatusButtonText]}>{formatStatus(status)}</Text>}
+                </Pressable>
+              ))}
+            </View>
           </View>
         </>
-      ) : null}
-      <View style={styles.whiteCard}>
-        <Text style={styles.cardLabel}>UPDATE WORK STATUS</Text>
-        <View style={styles.statusGrid}>
-          {statusSteps.map((status) => (
-            <Pressable
-              key={status}
-              style={[styles.statusButton, order.status === status && styles.activeStatusButton, acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0)) && styles.disabledButton]}
-              onPress={() => updateStatus(status)}
-              disabled={Boolean(savingStatus) || Boolean(acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0)))}
-            >
-              {savingStatus === status ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.statusButtonText, order.status === status && styles.activeStatusButtonText]}>{formatStatus(status)}</Text>}
-            </Pressable>
-          ))}
+      ) : (
+        <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>WAITING FOR PACKAGE</Text>
+          <Text style={styles.helperText}>You can upload proof photos and update work status once the delivery partner hands over the package.</Text>
         </View>
-      </View>
+      )}
       <MediaViewer media={selectedMedia} onClose={() => setSelectedMedia(undefined)} showDialog={showDialog} />
     </ScrollView>
   );

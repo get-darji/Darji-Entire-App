@@ -8,6 +8,7 @@ import {
   ServiceCategoryModel,
   ServiceModel,
   TailorModel,
+  TailoringRequestModel,
   UserModel
 } from "../models.js";
 import { AppError } from "../middleware/error.js";
@@ -174,7 +175,15 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
   if (input.status === "READY" && input.imageUrl) data.finalImageUrl = input.imageUrl;
   if (input.status === "DELIVERED" && input.imageUrl) data.deliveryProofUrl = input.imageUrl;
 
-  const updated = await OrderModel.findByIdAndUpdate(orderId, data, { returnDocument: "after" });
+  const timelineEvent = {
+    status: input.status,
+    description: `Order status changed to ${input.status}`,
+    timestamp: new Date(),
+    userId: actor.id,
+    userName: actor.role // Assuming role is available, otherwise could fetch name
+  };
+
+  const updated = await OrderModel.findByIdAndUpdate(orderId, { ...data, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
   if (!updated) {
     throw new AppError(404, "Order not found");
   }
@@ -193,20 +202,52 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
   return hydrateOrder(updated);
 }
 
-export async function assignOrder(orderId: string, input: { tailorId?: string; deliveryPartnerId?: string; mode?: "pickup" | "delivery" }) {
+export async function assignOrder(orderId: string, input: { tailorId?: string; deliveryPartnerId?: string; pickupPartnerId?: string; mode?: "pickup" | "delivery" }) {
   const data: Record<string, string> = {};
   if (input.tailorId) data.tailorId = input.tailorId;
+  
   if (input.deliveryPartnerId && input.mode === "delivery") data.deliveryPartnerId = input.deliveryPartnerId;
-  if (input.deliveryPartnerId && input.mode !== "delivery") data.pickupPartnerId = input.deliveryPartnerId;
-  if (input.deliveryPartnerId && input.mode !== "delivery") data.status = "PICKUP_ASSIGNED";
+  else if (input.deliveryPartnerId && input.mode !== "delivery") data.pickupPartnerId = input.deliveryPartnerId;
+  else if (input.pickupPartnerId) data.pickupPartnerId = input.pickupPartnerId;
+  
+  if (input.deliveryPartnerId || input.pickupPartnerId) {
+    if (input.mode !== "delivery") data.status = "PICKUP_ASSIGNED";
+  }
 
   if (Object.keys(data).length === 0) {
     throw new AppError(400, "Nothing to assign");
   }
 
-  const order = await OrderModel.findByIdAndUpdate(orderId, data, { returnDocument: "after" });
+  const timelineEvent = {
+    status: data.status || "ASSIGNED",
+    description: input.tailorId ? "Tailor assigned" : "Delivery partner assigned",
+    timestamp: new Date(),
+    userId: "admin",
+    userName: "Admin"
+  };
+
+  let order = await OrderModel.findByIdAndUpdate(orderId, { ...data, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
+  
   if (!order) {
-    throw new AppError(404, "Order not found");
+    // Fallback to TailoringRequest
+    const trData: Record<string, string> = {};
+    if (input.tailorId) trData.assignedTailorId = input.tailorId;
+    if (data.pickupPartnerId) trData.pickupPartnerId = data.pickupPartnerId;
+    if (data.deliveryPartnerId) trData.deliveryPartnerId = data.deliveryPartnerId;
+    if (data.status) trData.orderStatus = data.status.toLowerCase();
+
+    const tr = await TailoringRequestModel.findByIdAndUpdate(orderId, { ...trData, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
+    if (!tr) {
+      throw new AppError(404, "Order or Request not found");
+    }
+    
+    await notifyUser({
+      userId: tr.customerId,
+      orderId,
+      title: "Request assigned",
+      body: input.tailorId ? "A tailor has been assigned to your request." : "A delivery partner has been assigned to your request."
+    });
+    return tr;
   }
 
   await notifyUser({

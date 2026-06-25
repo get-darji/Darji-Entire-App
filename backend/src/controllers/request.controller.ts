@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, DeliveryType, DeliveryRound } from "../models.js";
+import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -1149,6 +1149,18 @@ export async function confirmDeliveryCashCollectionController(req: Request, res:
   );
   await TailoringRequestModel.findByIdAndUpdate(task.orderId, { paymentStatus: "PAID" });
   await PaymentModel.findOneAndUpdate({ orderId: task.orderId, method: "COD" }, { status: "PAID" }, { sort: { createdAt: -1 } });
+  
+  // Log transaction
+  await TransactionModel.create({
+    userId: task.customerId,
+    entityType: "CUSTOMER",
+    type: "CREDIT",
+    category: "COD",
+    amount: task.totalAmount || 0, // Fallback if 0
+    orderId: task.orderId,
+    note: `Cash collected by delivery partner ${partner.userId}`
+  });
+
   if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
   res.json({ data: updated });
 }

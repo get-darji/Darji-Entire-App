@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const roles = ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER", "ADMIN"] as const;
+export const roles = ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER", "ADMIN", "SUPER_ADMIN"] as const;
 export const orderStatuses = [
   "ORDER_PLACED",
   "PICKUP_ASSIGNED",

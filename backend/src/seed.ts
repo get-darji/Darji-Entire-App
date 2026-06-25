@@ -100,8 +100,11 @@ export async function seedDatabase() {
     { upsert: true, returnDocument: "after" }
   );
 
-  await SettingModel.findOneAndUpdate({ key: "platform" }, { key: "platform", value: { supportPhone: "1800-000-000", pickupFee: 49 } }, { upsert: true });
-
+  await SettingModel.findOneAndUpdate(
+    { key: "platform" },
+    { key: "platform", value: { supportPhone: "1800-000-000", pickupFee: 49, deliveryFee: 49, commissionPercent: 15 } },
+    { upsert: true }
+  );
   await SettingModel.findOneAndUpdate(
     { key: "delivery_rounds" },
     {

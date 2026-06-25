@@ -30,7 +30,8 @@ import {
   TextInput,
   StatusBar,
   useWindowDimensions,
-  View
+  View,
+  TouchableOpacity
 } from "react-native";
 import { z } from "zod";
 import { api, refreshAccessToken, uploadMedia, type UploadedMedia } from "./src/api";
@@ -3540,14 +3541,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               
               {/* Start New Conversation button */}
-              <Pressable 
-                android_ripple={{ color: "rgba(255, 255, 255, 0.2)" }}
+              <TouchableOpacity 
                 style={{ backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                 onPress={() => setView("new_chat")}
+                activeOpacity={0.8}
               >
                 <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
                 <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
-              </Pressable>
+              </TouchableOpacity>
 
               {/* Open Tickets Section */}
               <View style={{ marginTop: 8 }}>
@@ -3777,14 +3778,15 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 </View>
               </View>
 
-              <Pressable 
-                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+              {/* Start Conversation button */}
+              <TouchableOpacity 
                 style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
                 disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
+                activeOpacity={0.8}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Start Conversation</Text>}
-              </Pressable>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         )}

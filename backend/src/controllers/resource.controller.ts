@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import mongoose from "mongoose";
 import { addressSchema, couponSchema, serviceCatalog, supportTicketSchema, bugReportSchema, accountChangeRequestSchema } from "@darzi/shared";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import {
@@ -537,7 +538,7 @@ export async function moderateUserController(req: Request, res: Response) {
 
   const existingUser = await UserModel.findById(userId).select("role");
   if (!existingUser) throw new AppError(404, "User not found");
-  if (existingUser.role === "ADMIN") {
+  if (existingUser.role === "ADMIN" || existingUser.role === "SUPER_ADMIN") {
     throw new AppError(403, "Admin accounts cannot be moderated here");
   }
 
@@ -560,6 +561,28 @@ export async function moderateUserController(req: Request, res: Response) {
   if (!updated) throw new AppError(404, "User not found");
   const [result] = await attachProfilesToUsers([updated.toJSON()]);
   res.json({ data: result });
+}
+
+export async function inviteAdminController(req: Request, res: Response) {
+  const phone = String(req.body.phone).trim();
+  if (!phone || phone.length < 10) throw new AppError(400, "Invalid phone number");
+  
+  let user = await UserModel.findOne({ phone });
+  if (user) {
+    if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
+      throw new AppError(400, "User is already an admin");
+    }
+    user.role = "ADMIN";
+    await user.save();
+  } else {
+    user = await UserModel.create({
+      phone,
+      role: "ADMIN"
+    });
+  }
+  
+  const [result] = await attachProfilesToUsers([user.toJSON()]);
+  res.status(201).json({ data: result });
 }
 
 export async function updateDeliveryAvailabilityController(req: Request, res: Response) {
@@ -928,6 +951,18 @@ export async function markPaymentPaidController(req: Request, res: Response) {
     payment.providerRef = typeof req.body.providerRef === "string" ? req.body.providerRef.trim().slice(0, 150) : payment.providerRef;
     await payment.save();
     await OrderModel.findByIdAndUpdate(order.id, { paymentStatus: "PAID" });
+    
+    // Log transaction
+    await mongoose.model("Transaction").create({
+      userId: order.customerId,
+      entityType: "CUSTOMER",
+      type: "CREDIT",
+      category: "PAYMENT",
+      amount: payment.amount,
+      orderId: order.id,
+      note: `Online payment via ${payment.method}`
+    });
+
     await sendPaymentSuccessNotification({
       userId: order.customerId,
       title: "Payment successful",
@@ -940,22 +975,54 @@ export async function markPaymentPaidController(req: Request, res: Response) {
 }
 
 export async function analyticsController(_req: Request, res: Response) {
-  const [paidPayments, customers, tailors, deliveryPartners, orders, openTickets] = await Promise.all([
-    PaymentModel.find({ status: "PAID" }).select("amount"),
-    UserModel.countDocuments({ role: "CUSTOMER" }),
-    TailorModel.countDocuments({ isAvailable: true }),
-    DeliveryPartnerModel.countDocuments({ isAvailable: true }),
+  const [
+    transactions,
+    totalOrders,
+    activeOrders,
+    completedOrders,
+    cancelledOrders,
+    pendingOrders,
+    tailors,
+    deliveryPartners
+  ] = await Promise.all([
+    TransactionModel.find(),
     OrderModel.countDocuments(),
-    SupportTicketModel.countDocuments({ status: "OPEN" })
+    OrderModel.countDocuments({ status: { $nin: ["DELIVERED", "CANCELLED", "ORDER_PLACED"] } }),
+    OrderModel.countDocuments({ status: "DELIVERED" }),
+    OrderModel.countDocuments({ status: "CANCELLED" }),
+    OrderModel.countDocuments({ status: "ORDER_PLACED" }),
+    TailorModel.find({ isAvailable: true }).select("earnings"),
+    DeliveryPartnerModel.find({ isAvailable: true }).select("dailyEarnings weeklyEarnings monthlyEarnings")
   ]);
+  
+  let revenue = 0;
+  let expenses = 0;
+
+  transactions.forEach((t: any) => {
+    if (t.category === "PAYMENT" || t.category === "COD" || t.category === "FEE") {
+      revenue += t.amount;
+    } else if (t.category === "PAYOUT" || t.category === "REFUND") {
+      expenses += t.amount;
+    }
+  });
+
+  const pendingPayouts = 
+    tailors.reduce((sum, t) => sum + (t.earnings || 0), 0) + 
+    deliveryPartners.reduce((sum, d) => sum + (d.monthlyEarnings || 0), 0);
+  
   res.json({
     data: {
-      revenue: paidPayments.reduce((sum, payment) => sum + Number(payment.amount), 0),
-      customers,
-      activeTailors: tailors,
-      activeDeliveryPartners: deliveryPartners,
-      orders,
-      openTickets
+      totalOrders,
+      activeOrders,
+      completedOrders,
+      cancelledOrders,
+      pendingOrders,
+      activeTailors: tailors.length,
+      activeDeliveryPartners: deliveryPartners.length,
+      revenue,
+      expenses,
+      netProfit: revenue - expenses,
+      pendingPayouts
     }
   });
 }

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet } from "react-native";
 import { api, uploadDeliveryAvatar, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
 
@@ -992,14 +992,14 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               {/* Start New Conversation button */}
-              <Pressable 
-                android_ripple={{ color: "rgba(255, 255, 255, 0.2)" }}
+              <TouchableOpacity 
                 style={{ backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                 onPress={() => setView("new_chat")}
+                activeOpacity={0.8}
               >
                 <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
                 <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
-              </Pressable>
+              </TouchableOpacity>
 
               <View style={{ marginTop: 8 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -1163,14 +1163,14 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
                 </View>
               </View>
               {/* Start Conversation button */}
-              <Pressable 
-                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
+              <TouchableOpacity 
                 style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
                 disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
+                activeOpacity={0.8}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Start Conversation</Text>}
-              </Pressable>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         )}

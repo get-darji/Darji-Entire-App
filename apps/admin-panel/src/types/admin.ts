@@ -22,12 +22,17 @@ export type BasicUser = {
 };
 
 export type AnalyticsSummary = {
-  revenue: number;
-  customers: number;
+  totalOrders: number;
+  activeOrders: number;
+  completedOrders: number;
+  cancelledOrders: number;
+  pendingOrders: number;
   activeTailors: number;
   activeDeliveryPartners: number;
-  orders: number;
-  openTickets: number;
+  revenue: number;
+  expenses: number;
+  netProfit: number;
+  pendingPayouts: number;
 };
 
 export type Address = {
@@ -152,6 +157,15 @@ export type Order = {
   deliveryPartner?: DeliveryPartnerProfile | null;
   items: OrderItem[];
   payments?: Payment[];
+  timelineEvents?: TimelineEvent[];
+};
+
+export type TimelineEvent = {
+  status: string;
+  description?: string;
+  timestamp: string;
+  userId?: string;
+  userName?: string;
 };
 
 export type SupportMessage = {

@@ -17,6 +17,7 @@ import {
   listAccountChangeRequestsController,
   approveAccountChangeRequestController,
   rejectAccountChangeRequestController,
+  inviteAdminController,
   getSupportStatsController,
   addSupportTicketMessageController,
   addBugReportMessageController,
@@ -185,7 +186,8 @@ router.get("/coupons", requireAuth, listCouponsController);
 router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponController);
 
 router.get("/analytics", requireAuth, requireRole("ADMIN"), analyticsController);
-router.get("/users", requireAuth, requireRole("ADMIN"), listUsersController);
-router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN"), moderateUserController);
-router.get("/settings", requireAuth, requireRole("ADMIN"), settingsController);
-router.put("/settings/:key", requireAuth, requireRole("ADMIN"), updateSettingController);
+router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
+router.post("/users/admin-invite", requireAuth, requireRole("SUPER_ADMIN"), inviteAdminController);
+router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
+router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);
+router.put("/settings/:key", requireAuth, requireRole("SUPER_ADMIN"), updateSettingController);

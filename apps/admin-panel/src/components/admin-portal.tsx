@@ -90,6 +90,7 @@ import {
   getUsers,
   markPaymentPaid,
   moderateUser,
+  inviteAdmin,
   requestOtp,
   reviewDeliveryVerification,
   reviewTailorVerification,
@@ -565,6 +566,14 @@ export function AdminPortal() {
     },
     onError: (error) => toast.error(extractError(error))
   });
+  const inviteAdminMutation = useMutation({
+    mutationFn: inviteAdmin,
+    onSuccess: async () => {
+      toast.success("Admin invited successfully");
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
 
   const bugReportUpdateMutation = useMutation({
     mutationFn: updateBugReport,
@@ -797,104 +806,114 @@ export function AdminPortal() {
     .slice(0, 5);
   const dashboardStats = [
     {
-      icon: PackageCheck,
-      label: "Orders Today",
-      note: "vs yesterday",
-      tone: "teal" as const,
-      value: metrics.ordersToday.toLocaleString("en-IN"),
-      change: orderDelta.label,
-      changeTone: orderDelta.tone,
-      target: "orders" as SectionId
-    },
-    {
       icon: LayoutGrid,
       label: "Total Orders",
-      note: "vs last 7 days",
+      note: "All time",
       tone: "sky" as const,
-      value: analytics.orders.toLocaleString("en-IN"),
-      change: orderDelta.label,
-      changeTone: orderDelta.tone,
+      value: (analytics?.totalOrders || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
       target: "orders" as SectionId
     },
     {
-      icon: ReceiptIndianRupee,
-      label: "Revenue Today",
-      note: "vs yesterday",
+      icon: PackageCheck,
+      label: "Active Orders",
+      note: "In progress",
+      tone: "teal" as const,
+      value: (analytics?.activeOrders || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "orders" as SectionId
+    },
+    {
+      icon: CheckCircle2,
+      label: "Completed Orders",
+      note: "Successfully delivered",
       tone: "emerald" as const,
-      value: formatCurrency(metrics.revenueToday),
-      change: revenueDelta.label,
-      changeTone: revenueDelta.tone,
-      target: "payments" as SectionId
+      value: (analytics?.completedOrders || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "orders" as SectionId
+    },
+    {
+      icon: AlertCircle,
+      label: "Cancelled Orders",
+      note: "Discarded",
+      tone: "rose" as const,
+      value: (analytics?.cancelledOrders || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "orders" as SectionId
     },
     {
       icon: BarChart3,
       label: "Total Revenue",
-      note: "vs last 30 days",
+      note: "Collected",
       tone: "sky" as const,
-      value: formatCurrency(metrics.totalRevenue),
-      change: revenueDelta.label,
-      changeTone: revenueDelta.tone,
+      value: formatCurrency(analytics?.revenue || 0),
+      change: "",
+      changeTone: "neutral" as const,
       target: "payments" as SectionId
     },
     {
-      icon: ShieldCheck,
-      label: "Active Tailors",
-      note: "vs last 7 days",
-      tone: "amber" as const,
-      value: analytics.activeTailors.toLocaleString("en-IN"),
-      change: tailorDelta.label,
-      changeTone: tailorDelta.tone,
-      target: "tailors" as SectionId
-    },
-    {
-      icon: Users,
-      label: "Active Customers",
-      note: "vs last 7 days",
-      tone: "violet" as const,
-      value: analytics.customers.toLocaleString("en-IN"),
-      change: customerDelta.label,
-      changeTone: customerDelta.tone,
-      target: "users" as SectionId
-    },
-    {
-      icon: Truck,
-      label: "Delivery Partners",
-      note: "vs last 7 days",
-      tone: "cyan" as const,
-      value: analytics.activeDeliveryPartners.toLocaleString("en-IN"),
-      change: partnerDelta.label,
-      changeTone: partnerDelta.tone,
-      target: "partners" as SectionId
-    },
-    {
-      icon: ShieldCheck,
-      label: "Pending Verifications",
-      note: "vs yesterday",
-      tone: "amber" as const,
-      value: metrics.pendingVerifications.toLocaleString("en-IN"),
-      change: verificationDelta.label,
-      changeTone: verificationDelta.tone,
-      target: "tailors" as SectionId
-    },
-    {
-      icon: CreditCard,
-      label: "Pending Payouts",
-      note: "View details",
-      tone: "amber" as const,
-      value: metrics.pendingCollections.toLocaleString("en-IN"),
-      change: collectionDelta.label,
-      changeTone: collectionDelta.tone,
+      icon: ReceiptIndianRupee,
+      label: "Net Profit",
+      note: "Revenue - Expenses",
+      tone: "emerald" as const,
+      value: formatCurrency(analytics?.netProfit || 0),
+      change: "",
+      changeTone: "neutral" as const,
       target: "payments" as SectionId
     },
     {
       icon: AlertCircle,
-      label: "Cancellation Rate",
-      note: "vs last 7 days",
+      label: "Expenses (Payouts)",
+      note: "Settled payouts",
       tone: "rose" as const,
-      value: percentage(metrics.cancellationRate),
-      change: cancellationDelta.label,
-      changeTone: cancellationDelta.tone,
+      value: formatCurrency(analytics?.expenses || 0),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "payments" as SectionId
+    },
+    {
+      icon: PackageCheck,
+      label: "Pending Payouts",
+      note: "Owed to partners",
+      tone: "amber" as const,
+      value: formatCurrency(analytics?.pendingPayouts || 0),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "payments" as SectionId
+    },
+    {
+      icon: ShieldCheck,
+      label: "Pending Orders",
+      note: "Awaiting action",
+      tone: "amber" as const,
+      value: (analytics?.pendingOrders || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
       target: "orders" as SectionId
+    },
+    {
+      icon: Truck,
+      label: "Delivery Partners",
+      note: "Active fleet",
+      tone: "cyan" as const,
+      value: (analytics?.activeDeliveryPartners || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "partners" as SectionId
+    },
+    {
+      icon: Scissors,
+      label: "Active Tailors",
+      note: "Available for work",
+      tone: "amber" as const,
+      value: (analytics?.activeTailors || 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "tailors" as SectionId
     }
   ];
   const miniTrendCards = [
@@ -943,20 +962,66 @@ export function AdminPortal() {
     }
   ];
 
-  const filteredOrders = orders.filter((order) => {
-    const content = [
-      order.orderNumber,
-      order.customer?.name,
-      order.customer?.phone,
-      order.status,
-      order.tailor?.shopName,
-      order.deliveryPartner?.user?.name
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return (!searchTerm || content.includes(searchTerm)) && (!orderFilter || order.status === orderFilter);
-  });
+  const filteredOrders = (() => {
+    const regularOrders = orders.filter((order) => {
+      const content = [
+        order.orderNumber,
+        order.customer?.name,
+        order.customer?.phone,
+        order.status,
+        order.tailor?.shopName,
+        order.deliveryPartner?.user?.name
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return (!searchTerm || content.includes(searchTerm)) && (!orderFilter || order.status === orderFilter);
+    });
+
+    const tailoringAsOrders = tailoringRequests
+      .filter((request) => {
+        const content = [
+          `TR-${request.id.slice(0, 6).toUpperCase()}`,
+          request.customer?.name,
+          request.customer?.phone,
+          request.status,
+          request.orderStatus,
+          request.workType,
+          request.clothType
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return (!searchTerm || content.includes(searchTerm)) && (!orderFilter || request.status === orderFilter || request.orderStatus === orderFilter);
+      })
+      .map((request) => ({
+        id: request.id,
+        orderNumber: `TR-${request.id.slice(0, 6).toUpperCase()}`,
+        customerId: request.customerId,
+        customer: request.customer,
+        tailor: request.tailor, // assuming populated similarly, might not be but tailorId is there
+        deliveryPartner: request.deliveryPartner, // usually empty initially
+        status: request.orderStatus || request.status,
+        paymentMethod: request.paymentMethod || "UNKNOWN",
+        paymentStatus: request.paymentStatus,
+        totalAmount: request.totalAmount ?? 0,
+        createdAt: request.createdAt,
+        items: [{
+          serviceId: "tailoring",
+          quantity: 1,
+          service: {
+            id: "tailoring",
+            name: request.workType,
+            price: request.totalAmount ?? 0,
+            category: { name: request.clothType }
+          }
+        }]
+      } as unknown as Order));
+
+    return [...regularOrders, ...tailoringAsOrders].sort((a, b) => {
+      return new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime();
+    });
+  })();
 
   const filteredTailoring = tailoringRequests.filter((request) =>
     !searchTerm ||
@@ -1426,7 +1491,20 @@ export function AdminPortal() {
             <SectionIntro
               title="User access control"
               description="Manage registration access across customers, tailors, and delivery partners with live account status and moderation actions."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-users.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>}
+              action={
+                <div className="flex items-center gap-2">
+                  <ActionButton 
+                    onClick={() => {
+                      const phone = window.prompt("Enter phone number to invite as ADMIN:");
+                      if (phone) inviteAdminMutation.mutate({ phone });
+                    }}
+                    disabled={inviteAdminMutation.isPending}
+                  >
+                    Invite Admin
+                  </ActionButton>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-users.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
+                </div>
+              }
             />
             <DataTable columns={userColumns} data={filteredUsers} emptyMessage="No users match the current search." />
           </div>
@@ -3461,6 +3539,29 @@ function OrderDetailDialog({
                   </div>
                 </Panel>
 
+                {order.timelineEvents && order.timelineEvents.length > 0 ? (
+                  <Panel>
+                    <h4 className="text-lg font-semibold">Order timeline</h4>
+                    <div className="mt-4 space-y-4">
+                      {order.timelineEvents.map((event, index) => (
+                        <div key={index} className="flex gap-4">
+                          <div className="flex flex-col items-center">
+                            <div className="h-2 w-2 rounded-full bg-[var(--accent)]" />
+                            {index !== order.timelineEvents!.length - 1 ? (
+                              <div className="h-full w-0.5 bg-[var(--panel-border)] mt-1" />
+                            ) : null}
+                          </div>
+                          <div className="pb-4 text-sm">
+                            <p className="font-semibold text-[var(--deep)]">{formatStatus(event.status)}</p>
+                            <p className="text-[var(--muted)]">{event.description}</p>
+                            <p className="mt-1 text-xs text-[#a39887]">{formatDate(event.timestamp, true)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                ) : null}
+
                 <div className="grid gap-4 md:grid-cols-3">
                   {order.pickupImageUrl ? <img alt="Pickup proof" className="aspect-video rounded-2xl border border-[var(--panel-border)] object-cover" src={order.pickupImageUrl} /> : null}
                   {order.finalImageUrl ? <img alt="Final proof" className="aspect-video rounded-2xl border border-[var(--panel-border)] object-cover" src={order.finalImageUrl} /> : null}
@@ -3664,24 +3765,53 @@ function ProfileDialog({
                     { label: "Working hours", value: stringifyUnknown(profile.workingHours) },
                     { label: "Settings", value: stringifyUnknown(profile.settings) },
                     { label: "Verification reviewed", value: formatDate(profile.verificationReviewedAt, true) },
-                    { label: "Rejection reason", value: profile.verificationRejectionReason ?? "â€”" }
+                    { label: "Rejection reason", value: profile.verificationRejectionReason ?? "—" }
                   ]}
                 />
                 {"specialization" in profile ? (
+                  <>
+                    <Panel>
+                      <h4 className="text-lg font-semibold">Tailor details</h4>
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Shop name</p>
+                          <p className="mt-2 text-sm">{profile.shopName ?? "—"}</p>
+                        </div>
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Specialization</p>
+                          <p className="mt-2 text-sm">{formatList(profile.specialization)}</p>
+                        </div>
+                      </div>
+                    </Panel>
+                    <Panel>
+                      <h4 className="text-lg font-semibold">Earnings</h4>
+                      <div className="mt-4">
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Total Earnings</p>
+                          <p className="mt-2 text-2xl font-bold">{formatCurrency(profile.earnings ?? 0)}</p>
+                        </div>
+                      </div>
+                    </Panel>
+                  </>
+                ) : (
                   <Panel>
-                    <h4 className="text-lg font-semibold">Tailor details</h4>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <h4 className="text-lg font-semibold">Earnings</h4>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-3">
                       <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Shop name</p>
-                        <p className="mt-2 text-sm">{profile.shopName ?? "â€”"}</p>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Daily</p>
+                        <p className="mt-2 text-xl font-bold">{formatCurrency((profile as DeliveryPartnerProfile).dailyEarnings ?? 0)}</p>
                       </div>
                       <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Specialization</p>
-                        <p className="mt-2 text-sm">{formatList(profile.specialization)}</p>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Weekly</p>
+                        <p className="mt-2 text-xl font-bold">{formatCurrency((profile as DeliveryPartnerProfile).weeklyEarnings ?? 0)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Monthly</p>
+                        <p className="mt-2 text-xl font-bold">{formatCurrency((profile as DeliveryPartnerProfile).monthlyEarnings ?? 0)}</p>
                       </div>
                     </div>
                   </Panel>
-                ) : null}
+                )}
                 <Panel>
                   <h4 className="text-lg font-semibold">Verification payload</h4>
                   <pre className="mt-4 overflow-x-auto rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-xs text-[var(--muted)]">

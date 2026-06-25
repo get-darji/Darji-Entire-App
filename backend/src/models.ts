@@ -143,6 +143,17 @@ const orderItemSchema = new Schema(
   }
 );
 
+const timelineEventSchema = new Schema(
+  {
+    status: { type: String, required: true },
+    description: String,
+    timestamp: { type: Date, default: Date.now },
+    userId: String,
+    userName: String
+  },
+  { _id: false, versionKey: false }
+);
+
 const orderSchema = new Schema(
   {
     _id: stringId,
@@ -167,7 +178,8 @@ const orderSchema = new Schema(
     pickupImageUrl: String,
     deliveryProofUrl: String,
     finalImageUrl: String,
-    items: [orderItemSchema]
+    items: [orderItemSchema],
+    timelineEvents: { type: [timelineEventSchema], default: [] }
   },
   baseOptions
 );
@@ -208,7 +220,7 @@ const deliveryPartnerSchema = new Schema(
     monthlyEarnings: { type: Number, default: 0 },
     workingHours: { type: Schema.Types.Mixed },
     settings: { type: Schema.Types.Mixed },
-    verificationStatus: { type: String, enum: ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"], default: "NOT_SUBMITTED", index: true },
+    verificationStatus: { type: String, enum: ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"], default: "VERIFIED", index: true },
     verificationSubmittedAt: Date,
     verificationReviewedAt: Date,
     verificationRejectionReason: String,
@@ -281,8 +293,11 @@ const transactionSchema = new Schema(
   {
     _id: stringId,
     userId: { type: String, required: true, index: true },
+    entityType: { type: String, enum: ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER", "ADMIN"], required: true, default: "CUSTOMER" },
     type: { type: String, enum: ["CREDIT", "DEBIT"], required: true },
+    category: { type: String, enum: ["PAYMENT", "COD", "PAYOUT", "FEE", "REFUND", "OTHER"], required: true, default: "PAYMENT" },
     amount: { type: Number, required: true },
+    orderId: { type: String, index: true },
     note: String
   },
   baseOptions
@@ -413,6 +428,9 @@ const tailoringRequestSchema = new Schema(
     deliveryRound: { type: String, index: true },
     batchId: { type: String, index: true },
     assignedDeliveryBoyId: { type: String, index: true },
+    assignedTailorId: { type: String, index: true },
+    pickupPartnerId: { type: String, index: true },
+    deliveryPartnerId: { type: String, index: true },
     confirmedAt: Date,
     cancelledAt: Date,
     cancellationFee: Number,
@@ -423,7 +441,8 @@ const tailoringRequestSchema = new Schema(
       index: true
     },
     workStatus: { type: String, enum: ["ACCEPTED", "WORKING", "READY"], default: "ACCEPTED", index: true },
-    status: { type: String, enum: ["QUOTE_REQUESTED", "PAYMENT_PENDING", "TAILOR_SELECTED", "CANCELLED"], default: "QUOTE_REQUESTED", index: true }
+    status: { type: String, enum: ["QUOTE_REQUESTED", "PAYMENT_PENDING", "TAILOR_SELECTED", "CANCELLED"], default: "QUOTE_REQUESTED", index: true },
+    timelineEvents: { type: [timelineEventSchema], default: [] }
   },
   baseOptions
 );
@@ -449,9 +468,9 @@ const deliveryRequestSchema = new Schema(
     _id: stringId,
     taskId: { ...stringId, unique: true, index: true },
     orderId: { type: String, required: true, index: true },
-    tailorId: { type: String, required: true, index: true },
+    tailorId: { type: String, index: true },
     customerId: { type: String, required: true, index: true },
-    type: { type: String, enum: ["customer_to_tailor", "tailor_to_customer"], required: true, index: true },
+    type: { type: String, enum: ["customer_to_tailor", "tailor_to_customer", "darji_to_customer"], required: true, index: true },
     deliveryType: { type: String, enum: deliveryTypes, required: true, index: true },
     deliveryRound: { type: String, required: true, index: true },
     roundAt: { type: Date, required: true, index: true },
@@ -491,7 +510,8 @@ const deliveryRequestSchema = new Schema(
     dropOtpVerifiedAt: Date,
     notificationSentAt: Date,
     clothPhotos: [requestMediaSchema],
-    samplePhotos: [requestMediaSchema]
+    samplePhotos: [requestMediaSchema],
+    timelineEvents: { type: [timelineEventSchema], default: [] }
   },
   baseOptions
 );
