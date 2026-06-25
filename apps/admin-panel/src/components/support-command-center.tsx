@@ -1,4 +1,4 @@
-Import-Module PSReadLine"use client";
+"use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1028,7 +1028,7 @@ export default function SupportCommandCenter({
               let subtitle = "";
               let tag = "";
               let timeStr = "";
-              let badgeColor = "bg-[#2d3440]";
+              let badgeColor = "bg-[var(--panel-border)] text-[var(--foreground)]";
               let statusLabel = "";
               let isUnread = false;
 
@@ -1145,7 +1145,7 @@ export default function SupportCommandCenter({
               <div className="flex items-center gap-3">
                 {/* Active Viewer marker */}
                 {otherViewer && (
-                  <span className="text-xs bg-[var(--accent)]/10 border border-[#f98a04]/30 text-[#f98a04] px-2 py-1 rounded-[12px] flex items-center gap-1.5 animate-pulse">
+                  <span className="text-xs bg-[var(--accent-soft)] border border-[var(--accent)]/30 text-[var(--accent)] px-2 py-1 rounded-[12px] flex items-center gap-1.5 animate-pulse">
                     <User size={13} />
                     {otherViewer.adminName} is viewing
                   </span>
@@ -1255,14 +1255,14 @@ export default function SupportCommandCenter({
 
               {activeType === "bug" && activeBug && (!activeBug.messages || activeBug.messages.length === 0) && (
                 <div className="flex flex-col items-center justify-center p-8 bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-[18px] text-center my-4">
-                  <AlertCircle className="w-12 h-12 text-[#f98a04] mb-3 opacity-80 animate-pulse" />
+                  <AlertCircle className="w-12 h-12 text-[var(--accent)] mb-3 opacity-80 animate-pulse" />
                   <h4 className="font-bold text-[var(--foreground)] text-base mb-1">Start Chat on Bug Report</h4>
                   <p className="text-xs text-[var(--muted)] max-w-sm mb-4">
                     Send an initial message to the customer to start investigating this bug report.
                   </p>
                   <button
                     onClick={initiateBugChat}
-                    className="px-5 py-2.5 bg-[var(--accent)] hover:bg-[#ffaa33] text-white rounded-[12px] text-xs font-bold transition shadow-md"
+                    className="px-5 py-2.5 bg-[var(--accent)] hover:bg-[var(--accent-strong)] text-white rounded-[12px] text-xs font-bold transition shadow-md"
                   >
                     Initiate Chat with User
                   </button>
@@ -1391,9 +1391,9 @@ export default function SupportCommandCenter({
                   </span>
                   <div className="p-3 bg-[var(--panel-strong)] border border-[var(--panel-border)] text-[var(--muted)] text-xs rounded-[16px] rounded-tl-none flex items-center gap-2">
                     <span className="flex gap-1">
-                      <span className="w-1.5 h-1.5 bg-[#7c8595] rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                      <span className="w-1.5 h-1.5 bg-[#7c8595] rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                      <span className="w-1.5 h-1.5 bg-[#7c8595] rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                      <span className="w-1.5 h-1.5 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                      <span className="w-1.5 h-1.5 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                      <span className="w-1.5 h-1.5 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
                     </span>
                     typing...
                   </div>
@@ -1414,7 +1414,7 @@ export default function SupportCommandCenter({
                     ) : attachment.type.startsWith("video/") ? (
                       <Video size={16} className="text-red-500" />
                     ) : (
-                      <FileText size={16} className="text-[#f98a04]" />
+                      <FileText size={16} className="text-[var(--accent)]" />
                     )}
                     <span className="truncate text-[var(--foreground)] font-medium">{attachment.name}</span>
                     <span className="text-[10px] text-[var(--muted)]">
@@ -1505,7 +1505,7 @@ export default function SupportCommandCenter({
                 <button
                   disabled={(!messageText.trim() && !attachment) || sendMessageMutation.isPending}
                   onClick={() => sendMessageMutation.mutate()}
-                  className="p-3 bg-[var(--accent)] hover:bg-[#ffaa33] disabled:opacity-40 disabled:hover:bg-[var(--accent)] text-white rounded-[18px] transition shrink-0 shadow-md"
+                  className="p-3 bg-[var(--accent)] hover:bg-[var(--accent-strong)] disabled:opacity-40 disabled:hover:bg-[var(--accent)] text-white rounded-[18px] transition shrink-0 shadow-md"
                 >
                   <Send size={18} />
                 </button>
@@ -1518,7 +1518,7 @@ export default function SupportCommandCenter({
               <div className="w-24 h-24 rounded-[36px] bg-[var(--panel)] border border-[var(--panel-border)] flex items-center justify-center shadow-md text-[var(--accent)] animate-float-gentle">
                 <Volume2 size={42} />
               </div>
-              <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[var(--accent)] border-4 border-[#0f1115] animate-pulse" />
+              <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[var(--accent)] border-4 border-[var(--background)] animate-pulse" />
             </div>
 
             <h3 className="text-xl font-bold tracking-tight text-[var(--foreground)] mb-2">Darji Support Command Center</h3>
@@ -1538,17 +1538,17 @@ export default function SupportCommandCenter({
 
             <div className="grid grid-cols-3 gap-6 max-w-xl w-full border-t border-[var(--panel-border)] pt-8">
               <div className="p-4 bg-[var(--panel)] rounded-[20px] border border-[var(--panel-border)]">
-                <p className="text-2xl font-bold text-[#f98a04]">{supportStats?.openTickets ?? 0}</p>
+                <p className="text-2xl font-bold text-[var(--accent)]">{supportStats?.openTickets ?? 0}</p>
                 <p className="text-[10px] text-[var(--muted)] font-bold uppercase tracking-wider mt-1">Open Tickets</p>
               </div>
               <div className="p-4 bg-[var(--panel)] rounded-[20px] border border-[var(--panel-border)]">
-                <p className="text-2xl font-bold text-[#f98a04]">
+                <p className="text-2xl font-bold text-[var(--accent)]">
                   {changeRequests.filter((r) => r.status === "PENDING").length}
                 </p>
                 <p className="text-[10px] text-[var(--muted)] font-bold uppercase tracking-wider mt-1">Pending Requests</p>
               </div>
               <div className="p-4 bg-[var(--panel)] rounded-[20px] border border-[var(--panel-border)]">
-                <p className="text-2xl font-bold text-[#f98a04]">
+                <p className="text-2xl font-bold text-[var(--accent)]">
                   {bugReports.filter((b) => b.status === "NEW").length}
                 </p>
                 <p className="text-[10px] text-[var(--muted)] font-bold uppercase tracking-wider mt-1">Unsolved Bugs</p>
@@ -1563,12 +1563,12 @@ export default function SupportCommandCenter({
         <div className="w-[320px] flex shrink-0 flex-col gap-4 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-xl overflow-y-auto">
           {/* User profile details */}
           {currentChatUser && (
-            <div className="flex flex-col items-center text-center pb-4 border-b border-[#2d3440]">
+            <div className="flex flex-col items-center text-center pb-4 border-b border-[var(--panel-border)]">
               <div className="w-16 h-16 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel-strong)] overflow-hidden flex items-center justify-center relative shadow-sm">
                 {currentChatUser.avatarUrl ? (
                   <img src={currentChatUser.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-lg font-bold text-[#f98a04]">
+                  <span className="text-lg font-bold text-[var(--accent)]">
                     {currentChatUser.name?.charAt(0) || "U"}
                   </span>
                 )}
@@ -1602,7 +1602,7 @@ export default function SupportCommandCenter({
                 )}
                 <div className="flex justify-between">
                   <span className="text-[var(--muted)]">Opened</span>
-                  <span className="text-white">
+                  <span className="text-[var(--foreground)]">
                     {activeTicket.createdAt ? new Date(activeTicket.createdAt).toLocaleDateString() : ""}
                   </span>
                 </div>
@@ -1656,7 +1656,7 @@ export default function SupportCommandCenter({
 
                 {/* Audit history list */}
                 {activeRequest.history && activeRequest.history.length > 0 && (
-                  <div className="border-t border-[#2d3440] pt-3.5">
+                  <div className="border-t border-[var(--panel-border)] pt-3.5">
                     <p className="text-[10px] text-[var(--muted)] uppercase font-bold tracking-wider mb-2 flex items-center gap-1.5">
                       <Clock size={12} />
                       Audit Trail History

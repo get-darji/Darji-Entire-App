@@ -3542,10 +3542,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               {/* Start New Conversation button */}
               <Pressable 
                 android_ripple={{ color: "rgba(255, 255, 255, 0.2)" }}
-                style={({ pressed }) => [
-                  { backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-                  pressed ? { opacity: 0.85 } : null
-                ]}
+                style={{ backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
                 onPress={() => setView("new_chat")}
               >
                 <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
@@ -3782,10 +3779,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
               <Pressable 
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
-                style={({ pressed }) => [
-                  { backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 },
-                  (!selectedCategory || sending) ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
-                ]}
+                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
                 disabled={!selectedCategory || sending}
                 onPress={handleStartChat}
               >

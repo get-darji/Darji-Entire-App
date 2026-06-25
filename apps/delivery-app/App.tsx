@@ -1242,8 +1242,8 @@ function HomeScreen({
               <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.cardTitle}>BATCH-{activeBatch.batchId.slice(0, 8).toUpperCase()}</Text>
-              <Text style={styles.cardMeta}>{activeBatch.requests.length} Orders • {activeBatch.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round"}</Text>
+              <Text style={styles.cardTitle}>{activeBatch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
+              <Text style={styles.cardMeta}>{activeBatch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{activeBatch.requests.length} orders completed • Area: {activeBatch.area}</Text>
             </View>
             <StatusPill status="ACCEPTED" />
           </View>
@@ -1371,8 +1371,8 @@ function BatchDetailsView({
       <View style={styles.heroCard}>
         <View style={styles.flexOne}>
           <Text style={styles.heroLabel}>BATCH ID: {batch.batchId.slice(0, 8).toUpperCase()}</Text>
-          <Text style={styles.heroTitle}>{batch.requests.length} {batch.requests.length === 1 ? "Order" : "Orders"}</Text>
-          <Text style={styles.heroCopy}>Route in {batch.area} ({batch.deliveryType === "PICKUP" ? "Pickup round" : "Drop round"})</Text>
+          <Text style={styles.heroTitle}>{batch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
+          <Text style={styles.heroCopy}>{batch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{batch.requests.length} orders completed • Route in {batch.area} ({batch.deliveryType === "PICKUP" ? "Pickup round" : "Drop round"})</Text>
         </View>
         <View style={styles.heroIcon}>
           <Ionicons name="map-outline" size={32} color="#111111" />
@@ -1468,8 +1468,8 @@ function OrdersScreen({
             </View>
             <View style={styles.cardMain}>
               <Text style={styles.prominentOrderId}>BATCH-{item.batchId.slice(0, 8).toUpperCase()}</Text>
-              <Text style={styles.cardTitle}>{item.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round"}</Text>
-              <Text style={styles.cardMeta}>{item.requests.length} Orders • Area: {item.area}</Text>
+              <Text style={styles.cardTitle}>{item.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
+              <Text style={styles.cardMeta}>{item.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{item.requests.length} orders completed • Area: {item.area}</Text>
             </View>
             <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : "CANCELLED"} />
           </View>

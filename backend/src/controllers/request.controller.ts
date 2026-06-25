@@ -896,8 +896,21 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
   if (!request) throw new AppError(409, "Delivery request is no longer available");
 
   await DeliveryBatchModel.findOneAndUpdate(
-    { deliveryPartnerId: partner.id, shift: request.shift, status: "active" },
-    { $setOnInsert: { deliveryPartnerId: partner.id, shift: request.shift, area: request.pickupAddress }, $addToSet: { tasks: request.id } },
+    { deliveryPartnerId: partner.id, deliveryType: partner.deliveryType, deliveryRound: request.deliveryRound, roundAt: request.roundAt, status: "active" },
+    { 
+      $setOnInsert: { 
+        batchId: randomUUID(),
+        deliveryPartnerId: partner.id, 
+        deliveryType: partner.deliveryType, 
+        deliveryRound: request.deliveryRound, 
+        roundAt: request.roundAt, 
+        shift: request.shift, 
+        area: request.assignedArea || "All Areas",
+        estimatedEarnings: 0
+      }, 
+      $addToSet: { tasks: request.id },
+      $inc: { estimatedEarnings: request.estimatedEarnings || 0 }
+    },
     { upsert: true, returnDocument: "after" }
   );
 
