@@ -757,6 +757,48 @@ export function AdminPortal() {
   }
 
   const { analytics, me, orders, tailoringRequests, deliveryRequests, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
+  
+  const confirmedTailoringRequests: Order[] = tailoringRequests
+    .filter((request) => request.status === "TAILOR_SELECTED" || !!request.orderStatus)
+    .map((request) => {
+      const orderStatusMap: Record<string, string> = {
+        completed: "DELIVERED",
+        cancelled: "CANCELLED",
+        ready_for_delivery: "READY",
+        received_by_tailor: "AT_TAILOR",
+        picked_up_from_customer: "CLOTH_PICKED",
+        pickup_started: "PICKUP_ASSIGNED",
+        tailor_accepted: "PICKUP_ASSIGNED",
+        payment_pending: "ORDER_PLACED"
+      };
+      const mappedStatus = request.orderStatus ? (orderStatusMap[request.orderStatus] || request.orderStatus) : request.status;
+      return {
+        id: request.id,
+        orderNumber: `TR-${request.id.slice(0, 6).toUpperCase()}`,
+        customerId: request.customerId,
+        customer: request.customer,
+        tailor: request.ownQuote?.tailor || null,
+        deliveryPartner: null,
+        status: mappedStatus.toUpperCase(),
+        paymentMethod: request.paymentMethod || "UNKNOWN",
+        paymentStatus: request.paymentStatus || "PENDING",
+        totalAmount: request.totalAmount || request.ownQuote?.price || 0,
+        createdAt: request.confirmedAt || request.createdAt,
+        items: [{
+          serviceId: "tailoring",
+          quantity: 1,
+          service: {
+            id: "tailoring",
+            name: request.workType,
+            price: request.ownQuote?.price ?? 0,
+            category: { name: request.clothType }
+          }
+        }]
+      } as unknown as Order;
+    });
+
+  const allOrders = [...orders, ...confirmedTailoringRequests];
+
   const searchTerm = globalSearch.trim().toLowerCase();
   const alertCount =
     tickets.filter((ticket) => ticket.status === "OPEN").length +
@@ -764,15 +806,15 @@ export function AdminPortal() {
     tailors.filter((tailor) => tailor.verificationStatus === "PENDING").length +
     partners.filter((partner) => partner.verificationStatus === "PENDING").length;
 
-  const metrics = buildMetrics(analytics, orders, tailors, partners, payments);
+  const metrics = buildMetrics(analytics, allOrders, tailors, partners, payments);
   const revenueSeries = buildRevenueSeries(payments, "monthly");
-  const orderSeries = buildWeekdayOrderSeries(orders);
-  const growthSeries = buildGrowthSeries(orders, tailors, partners, "monthly");
-  const serviceMix = buildServiceMix(orders);
-  const completedOrders = orders.filter((order) => order.status === "DELIVERED").length;
-  const cancelledOrders = orders.filter((order) => order.status === "CANCELLED").length;
-  const pendingOrders = orders.length - completedOrders - cancelledOrders;
-  const recentOrders = [...orders].slice(0, 5);
+  const orderSeries = buildWeekdayOrderSeries(allOrders);
+  const growthSeries = buildGrowthSeries(allOrders, tailors, partners, "monthly");
+  const serviceMix = buildServiceMix(allOrders);
+  const completedOrders = allOrders.filter((order) => order.status === "DELIVERED").length;
+  const cancelledOrders = allOrders.filter((order) => order.status === "CANCELLED").length;
+  const pendingOrders = allOrders.length - completedOrders - cancelledOrders;
+  const recentOrders = [...allOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const dateRangeLabel = buildDashboardDateRangeLabel(range);
   const latestGrowthPoint = growthSeries[growthSeries.length - 1] ?? { customers: 0, tailors: 0, partners: 0 };
@@ -784,7 +826,7 @@ export function AdminPortal() {
   const verificationDelta = buildCountMeta(metrics.pendingVerifications, true);
   const collectionDelta = buildCountMeta(metrics.pendingCollections, true);
   const cancellationDelta = buildCountMeta(Number(metrics.cancellationRate.toFixed(1)), true, "%");
-  const statusBreakdown = buildLiveOrderStatus(orders);
+  const statusBreakdown = buildLiveOrderStatus(allOrders);
   const categoryTotal = serviceMix.reduce((sum, item) => sum + item.value, 0);
   const categoryBreakdown = [...serviceMix]
     .sort((left, right) => right.value - left.value)

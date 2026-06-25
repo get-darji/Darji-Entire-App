@@ -340,6 +340,10 @@ export type TailoringRequest = {
   customer?: BasicUser | null;
   ownQuote?: TailorQuote | null;
   quoteCount?: number;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  totalAmount?: number;
+  confirmedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 };

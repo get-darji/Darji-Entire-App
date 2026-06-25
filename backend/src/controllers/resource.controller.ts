@@ -20,6 +20,7 @@ import {
   WalletModel,
   BugReportModel,
   AccountChangeRequestModel,
+  TailoringRequestModel,
   deliveryTypes
 } from "../models.js";
 import multer from "multer";
@@ -977,11 +978,16 @@ export async function markPaymentPaidController(req: Request, res: Response) {
 export async function analyticsController(_req: Request, res: Response) {
   const [
     transactions,
-    totalOrders,
-    activeOrders,
-    completedOrders,
-    cancelledOrders,
-    pendingOrders,
+    ordersCount,
+    activeOrdersCount,
+    completedOrdersCount,
+    cancelledOrdersCount,
+    pendingOrdersCount,
+    tailoringTotalCount,
+    tailoringActiveCount,
+    tailoringCompletedCount,
+    tailoringCancelledCount,
+    tailoringPendingCount,
     tailors,
     deliveryPartners
   ] = await Promise.all([
@@ -991,9 +997,28 @@ export async function analyticsController(_req: Request, res: Response) {
     OrderModel.countDocuments({ status: "DELIVERED" }),
     OrderModel.countDocuments({ status: "CANCELLED" }),
     OrderModel.countDocuments({ status: "ORDER_PLACED" }),
+    TailoringRequestModel.countDocuments({ $or: [{ status: "TAILOR_SELECTED" }, { orderStatus: { $exists: true, $ne: null } }] }),
+    TailoringRequestModel.countDocuments({
+      status: "TAILOR_SELECTED",
+      orderStatus: { $in: ["tailor_accepted", "pickup_started", "picked_up_from_customer", "received_by_tailor", "ready_for_delivery", "out_for_delivery"] }
+    }),
+    TailoringRequestModel.countDocuments({ orderStatus: "completed" }),
+    TailoringRequestModel.countDocuments({ $or: [{ status: "CANCELLED" }, { orderStatus: "cancelled" }] }),
+    TailoringRequestModel.countDocuments({
+      $or: [
+        { status: "PAYMENT_PENDING" },
+        { orderStatus: "payment_pending" }
+      ]
+    }),
     TailorModel.find({ isAvailable: true }).select("earnings"),
     DeliveryPartnerModel.find({ isAvailable: true }).select("dailyEarnings weeklyEarnings monthlyEarnings")
   ]);
+
+  const totalOrders = ordersCount + tailoringTotalCount;
+  const activeOrders = activeOrdersCount + tailoringActiveCount;
+  const completedOrders = completedOrdersCount + tailoringCompletedCount;
+  const cancelledOrders = cancelledOrdersCount + tailoringCancelledCount;
+  const pendingOrders = pendingOrdersCount + tailoringPendingCount;
   
   let revenue = 0;
   let expenses = 0;
