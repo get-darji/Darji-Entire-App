@@ -36,8 +36,10 @@ export function getDeliveryRoundForTime(date: Date, rounds: Array<{ name: string
     return aH * 60 + aM - (bH * 60 + bM);
   });
 
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
+  const istStr = date.toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+  const istDate = new Date(istStr);
+  const hours = istDate.getHours();
+  const minutes = istDate.getMinutes();
   const minutesOfDay = hours * 60 + minutes;
 
   for (const round of sortedRounds) {

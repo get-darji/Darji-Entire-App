@@ -1460,11 +1460,26 @@ function OrdersScreen({
         </View>
       </>}
       ListEmptyComponent={<EmptyState title={`No ${queue} batches`} copy="Batches are automatically assigned to your area during scheduling rounds." />}
-      renderItem={({ item }) => (
-        <Pressable style={styles.orderCard} onPress={() => onOpenBatch(item.batchId)}>
+      renderItem={({ item }) => {
+        const currentHour = new Date().getHours();
+        let expectedRound = "ONE_PM";
+        if (currentHour >= 13 && currentHour < 18) {
+          expectedRound = "SIX_PM";
+        }
+        
+        const isActiveTime = queue === "active" && item.deliveryRound === expectedRound;
+
+        return (
+        <Pressable 
+          style={[
+            styles.orderCard, 
+            isActiveTime && { borderColor: "#10b981", borderWidth: 2 }
+          ]} 
+          onPress={() => onOpenBatch(item.batchId)}
+        >
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
-              <Ionicons name={item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={BRAND_ORANGE} />
+              <Ionicons name={item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={isActiveTime ? "#10b981" : BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
               <Text style={styles.prominentOrderId}>BATCH-{item.batchId.slice(0, 8).toUpperCase()}</Text>
@@ -1482,7 +1497,8 @@ function OrdersScreen({
             <Text style={styles.paymentPill}>Earnings</Text>
           </View>
         </Pressable>
-      )}
+        );
+      }}
     />
   );
 }
@@ -1963,24 +1979,27 @@ function MainApp({
   }, [requests, me?.deliveryProfile]);
 
   const batches = useMemo(() => {
-    const groups: Record<string, DeliveryRequest[]> = {};
+    const groups: Record<string, DeliveryRequest[]> = {
+      ONE_PM: [],
+      SIX_PM: []
+    };
     for (const req of filteredRequests) {
-      const bid = req.batchId || "unbatched";
+      const bid = req.deliveryRound || "ONE_PM";
       if (!groups[bid]) groups[bid] = [];
       groups[bid].push(req);
     }
     return Object.entries(groups).map(([batchId, list]) => {
       const first = list[0];
       const estimatedEarnings = list.reduce((sum, r) => sum + (r.estimatedEarnings ?? 0), 0);
-      const isCompleted = list.every((r) => r.taskStatus === "delivered");
-      const isCancelled = list.every((r) => r.taskStatus === "cancelled");
+      const isCompleted = list.length > 0 && list.every((r) => r.taskStatus === "delivered");
+      const isCancelled = list.length > 0 && list.every((r) => r.taskStatus === "cancelled");
       const status = isCompleted ? "completed" : isCancelled ? "cancelled" : "active";
       return {
         batchId,
-        deliveryRound: first.deliveryRound || "ONE_PM",
-        roundAt: first.roundAt || first.createdAt || new Date().toISOString(),
-        deliveryType: first.type === "customer_to_tailor" ? "PICKUP" : "DROP",
-        area: first.assignedArea || "unassigned",
+        deliveryRound: first?.deliveryRound || batchId,
+        roundAt: first?.roundAt || first?.createdAt || new Date().toISOString(),
+        deliveryType: first ? (first.type === "customer_to_tailor" ? "PICKUP" : "DROP") : (me?.deliveryProfile?.deliveryType || "PICKUP"),
+        area: first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
         estimatedEarnings,
         status,
         requests: list
@@ -1988,7 +2007,20 @@ function MainApp({
     });
   }, [filteredRequests]);
 
-  const activeBatch = useMemo(() => batches.find((b) => b.status === "active"), [batches]);
+  const activeBatch = useMemo(() => {
+    const activeBatches = batches.filter((b) => b.status === "active");
+    if (activeBatches.length === 0) return undefined;
+    
+    const currentHour = new Date().getHours();
+    let expectedRound = "ONE_PM";
+    if (currentHour >= 13 && currentHour < 18) {
+      expectedRound = "SIX_PM";
+    } else {
+      expectedRound = "ONE_PM";
+    }
+    
+    return activeBatches.find((b) => b.deliveryRound === expectedRound) || activeBatches[0];
+  }, [batches]);
 
   const openRequests = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "pending"), [filteredRequests]);
   const acceptedRequests = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "accepted" || request.taskStatus === "picked_up"), [filteredRequests]);

@@ -999,12 +999,12 @@ export function AdminPortal() {
         orderNumber: `TR-${request.id.slice(0, 6).toUpperCase()}`,
         customerId: request.customerId,
         customer: request.customer,
-        tailor: request.tailor, // assuming populated similarly, might not be but tailorId is there
-        deliveryPartner: request.deliveryPartner, // usually empty initially
+        tailor: request.ownQuote?.tailor || null,
+        deliveryPartner: null, // Tailoring requests initially don't have delivery partner attached at this level usually, or fetch it separately
         status: request.orderStatus || request.status,
-        paymentMethod: request.paymentMethod || "UNKNOWN",
-        paymentStatus: request.paymentStatus,
-        totalAmount: request.totalAmount ?? 0,
+        paymentMethod: "UNKNOWN",
+        paymentStatus: "PENDING",
+        totalAmount: request.ownQuote?.price ?? 0,
         createdAt: request.createdAt,
         items: [{
           serviceId: "tailoring",
@@ -1012,7 +1012,7 @@ export function AdminPortal() {
           service: {
             id: "tailoring",
             name: request.workType,
-            price: request.totalAmount ?? 0,
+            price: request.ownQuote?.price ?? 0,
             category: { name: request.clothType }
           }
         }]
@@ -1358,7 +1358,7 @@ export function AdminPortal() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-2xl font-semibold text-[var(--deep)]">{analytics.orders.toLocaleString("en-IN")}</span>
+                      <span className="text-2xl font-semibold text-[var(--deep)]">{(analytics?.totalOrders || 0).toLocaleString("en-IN")}</span>
                       <span className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">Total orders</span>
                     </div>
                   </div>
