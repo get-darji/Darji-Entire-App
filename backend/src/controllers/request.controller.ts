@@ -36,27 +36,60 @@ export function getDeliveryRoundForTime(date: Date, rounds: Array<{ name: string
     return aH * 60 + aM - (bH * 60 + bM);
   });
 
-  const istStr = date.toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
-  const istDate = new Date(istStr);
-  const hours = istDate.getHours();
-  const minutes = istDate.getMinutes();
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    hour12: false,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric"
+  });
+  const parts = formatter.formatToParts(date);
+  const getVal = (type: string) => {
+    const part = parts.find((p) => p.type === type);
+    return part ? Number(part.value) : 0;
+  };
+
+  const year = getVal("year");
+  const month = getVal("month") - 1; // 0-indexed
+  const day = getVal("day");
+  let hours = getVal("hour");
+  if (hours === 24) hours = 0;
+  const minutes = getVal("minute");
   const minutesOfDay = hours * 60 + minutes;
+
+  const createIstDate = (y: number, m: number, d: number, h: number, min: number) => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const isoString = `${y}-${pad(m + 1)}-${pad(d)}T${pad(h)}:${pad(min)}:00+05:30`;
+    return new Date(isoString);
+  };
 
   for (const round of sortedRounds) {
     const [rH, rM] = round.time.split(":").map(Number);
     const roundMinutes = rH * 60 + rM;
     if (minutesOfDay < roundMinutes) {
-      const roundAt = new Date(date);
-      roundAt.setHours(rH, rM, 0, 0);
+      const roundAt = createIstDate(year, month, day, rH, rM);
       return { deliveryRound: round.name, roundAt };
     }
   }
 
   const firstRound = sortedRounds[0];
   const [rH, rM] = firstRound.time.split(":").map(Number);
-  const roundAt = new Date(date);
-  roundAt.setDate(roundAt.getDate() + 1);
-  roundAt.setHours(rH, rM, 0, 0);
+  
+  const todayIstMid = createIstDate(year, month, day, 12, 0);
+  const nextDayIst = new Date(todayIstMid.getTime() + 24 * 60 * 60 * 1000);
+  const nextParts = formatter.formatToParts(nextDayIst);
+  const getNextVal = (type: string) => {
+    const part = nextParts.find((p) => p.type === type);
+    return part ? Number(part.value) : 0;
+  };
+  const nYear = getNextVal("year");
+  const nMonth = getNextVal("month") - 1;
+  const nDay = getNextVal("day");
+
+  const roundAt = createIstDate(nYear, nMonth, nDay, rH, rM);
   return { deliveryRound: firstRound.name, roundAt };
 }
 

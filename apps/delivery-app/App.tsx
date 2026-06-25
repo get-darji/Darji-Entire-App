@@ -154,6 +154,25 @@ type MeResponse = {
   deliveryProfile?: DeliveryProfile;
 };
 
+function getKolkataHour(): number {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour12: false,
+      hour: "numeric"
+    });
+    const parts = formatter.formatToParts(new Date());
+    const hourPart = parts.find((p) => p.type === "hour");
+    if (hourPart) {
+      const h = Number(hourPart.value);
+      return h === 24 ? 0 : h;
+    }
+  } catch (e) {
+    // fallback
+  }
+  return new Date().getHours();
+}
+
 function normalizeDeliveryTask(task: DeliveryTaskPayload): DeliveryRequest {
   const taskStatus = task.taskStatus ?? (task.status === "OPEN" ? "pending" : task.status === "ACCEPTED" ? "accepted" : task.status === "COMPLETED" ? "delivered" : "cancelled");
   const type = task.type ?? (task.leg === "TAILOR_TO_CUSTOMER" ? "tailor_to_customer" : "customer_to_tailor");
@@ -425,8 +444,8 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   );
 }
 
-function Card({ children, accent = false }: { children: ReactNode; accent?: boolean }) {
-  return <View style={[styles.card, accent && styles.accentCard]}>{children}</View>;
+function Card({ children, accent = false, style }: { children: ReactNode; accent?: boolean; style?: any }) {
+  return <View style={[styles.card, accent && styles.accentCard, style]}>{children}</View>;
 }
 
 function PrimaryButton({
@@ -1236,13 +1255,31 @@ function HomeScreen({
         <Stat label="Wallet" value={`Rs ${totalEarnings.toFixed(0)}`} />
       </View>
       {activeBatch ? (
-        <Card>
+        <Card style={{ borderColor: "#10b981", borderWidth: 2 }}>
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
               <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.cardTitle}>{activeBatch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                <Text style={styles.cardTitle}>Active Batch</Text>
+                <View style={{
+                  backgroundColor: activeBatch.deliveryRound === "ONE_PM" ? "#ecfdf5" : "#fff7ed",
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: activeBatch.deliveryRound === "ONE_PM" ? "#a7f3d0" : "#ffedd5",
+                }}>
+                  <Text style={{
+                    color: activeBatch.deliveryRound === "ONE_PM" ? "#047857" : "#c2410c",
+                    fontSize: 11,
+                    fontWeight: "900",
+                  }}>
+                    {activeBatch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}
+                  </Text>
+                </View>
+              </View>
               <Text style={styles.cardMeta}>{activeBatch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{activeBatch.requests.length} orders completed • Area: {activeBatch.area}</Text>
             </View>
             <StatusPill status="ACCEPTED" />
@@ -1461,7 +1498,7 @@ function OrdersScreen({
       </>}
       ListEmptyComponent={<EmptyState title={`No ${queue} batches`} copy="Batches are automatically assigned to your area during scheduling rounds." />}
       renderItem={({ item }) => {
-        const currentHour = new Date().getHours();
+        const currentHour = getKolkataHour();
         let expectedRound = "ONE_PM";
         if (currentHour >= 13 && currentHour < 18) {
           expectedRound = "SIX_PM";
@@ -1482,8 +1519,25 @@ function OrdersScreen({
               <Ionicons name={item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={isActiveTime ? "#10b981" : BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.prominentOrderId}>BATCH-{item.batchId.slice(0, 8).toUpperCase()}</Text>
-              <Text style={styles.cardTitle}>{item.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                <Text style={styles.prominentOrderId}>BATCH-{item.batchId.slice(0, 8).toUpperCase()}</Text>
+                <View style={{
+                  backgroundColor: item.deliveryRound === "ONE_PM" ? "#ecfdf5" : "#fff7ed",
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: item.deliveryRound === "ONE_PM" ? "#a7f3d0" : "#ffedd5",
+                }}>
+                  <Text style={{
+                    color: item.deliveryRound === "ONE_PM" ? "#047857" : "#c2410c",
+                    fontSize: 11,
+                    fontWeight: "900",
+                  }}>
+                    {item.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}
+                  </Text>
+                </View>
+              </View>
               <Text style={styles.cardMeta}>{item.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{item.requests.length} orders completed • Area: {item.area}</Text>
             </View>
             <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : "CANCELLED"} />
@@ -2011,7 +2065,7 @@ function MainApp({
     const activeBatches = batches.filter((b) => b.status === "active");
     if (activeBatches.length === 0) return undefined;
     
-    const currentHour = new Date().getHours();
+    const currentHour = getKolkataHour();
     let expectedRound = "ONE_PM";
     if (currentHour >= 13 && currentHour < 18) {
       expectedRound = "SIX_PM";
