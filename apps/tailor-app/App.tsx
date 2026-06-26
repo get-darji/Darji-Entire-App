@@ -1236,23 +1236,58 @@ function EarningsScreen({ orders, me }: { orders: Order[]; me?: MeResponse }) {
   const completed = orders.filter((order) => ["READY", "DELIVERED", "STITCHING_COMPLETED"].includes(order.status));
   const earned = useMemo(() => completed.reduce((sum, order) => sum + tailorOrderEarning(order), 0), [completed]);
   const displayedEarnings = completed.length ? earned : Number(me?.tailorProfile?.earnings ?? 0);
+  const [wallet, setWallet] = useState<any>(null);
+  const [loadingWallet, setLoadingWallet] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoadingWallet(true);
+    api<any>("/wallet")
+      .then((data) => {
+        if (mounted) setWallet(data);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (mounted) setLoadingWallet(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header title="Earnings" subtitle="Completed tailoring payouts" />
       <View style={styles.earningsCard}>
-        <Text style={styles.heroLabel}>TOTAL EARNED</Text>
-        <Text style={styles.earningsValue}>{money(displayedEarnings)}</Text>
-        <Text style={styles.heroCopy}>Payouts are calculated from completed orders and accepted quote amounts.</Text>
+        <Text style={styles.heroLabel}>WALLET BALANCE</Text>
+        <Text style={styles.earningsValue}>{money(wallet?.balance ?? displayedEarnings)}</Text>
+        <Text style={styles.heroCopy}>Payments are settled weekly.</Text>
       </View>
-      {completed.length === 0 ? <EmptyState icon="wallet-outline" title="No completed work" copy="Completed and ready orders will appear in earnings." /> : null}
-      {completed.map((order) => (
-        <View key={order.id} style={styles.earningRow}>
+      <View style={styles.whiteCard}>
+        <DetailRow icon="calendar-outline" label="Current week earnings" value={money(wallet?.currentWeekEarnings ?? 0)} />
+        <DetailRow icon="wallet-outline" label="Pending amount" value={money(wallet?.pendingAmount ?? wallet?.balance ?? 0)} />
+        <DetailRow icon="time-outline" label="Last payment" value={wallet?.lastPayment?.paidAt ? new Date(wallet.lastPayment.paidAt).toLocaleString("en-IN") : "Not paid yet"} />
+      </View>
+      {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : null}
+      <Text style={styles.sectionTitle}>Wallet History</Text>
+      {(wallet?.transactions ?? []).length === 0 ? <EmptyState icon="wallet-outline" title="No wallet history" copy="Completed order earnings and weekly payouts will appear here." /> : null}
+      {(wallet?.transactions ?? []).map((transaction: any) => (
+        <View key={transaction.id} style={styles.earningRow}>
           <View>
-            <Text style={styles.cardTitle}>{order.orderNumber}</Text>
-            <Text style={styles.cardMeta}>{formatStatus(order.status)}</Text>
+            <Text style={styles.cardTitle}>{formatStatus(transaction.category)}</Text>
+            <Text style={styles.cardMeta}>{transaction.remarks ?? transaction.orderId ?? "Wallet transaction"}</Text>
           </View>
-          <Text style={styles.priceText}>{money(tailorOrderEarning(order))}</Text>
+          <Text style={styles.priceText}>{transaction.transactionType === "DEBIT" ? "-" : "+"}{money(transaction.amount)}</Text>
+        </View>
+      ))}
+      <Text style={styles.sectionTitle}>Previous Payments</Text>
+      {(wallet?.payments ?? []).map((payment: any) => (
+        <View key={payment.id} style={styles.earningRow}>
+          <View>
+            <Text style={styles.cardTitle}>{money(payment.amount)}</Text>
+            <Text style={styles.cardMeta}>{payment.notes ?? payment.referenceNumber ?? "Weekly payout"}</Text>
+          </View>
+          <Text style={styles.cardMeta}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : ""}</Text>
         </View>
       ))}
     </ScrollView>

@@ -22,7 +22,11 @@ import {
   addSupportTicketMessageController,
   addBugReportMessageController,
   addChangeRequestMessageController,
+  adminCreatePayoutController,
+  adminWalletDetailController,
+  adminWalletPayoutsController,
   getOrderController,
+  getDeliveryFareSettingsController,
   listAddressesController,
   listCouponsController,
   listDeliveryPartnersController,
@@ -42,6 +46,7 @@ import {
   submitDeliveryVerificationController,
   transactionsController,
   updateDeliveryAvailabilityController,
+  updateDeliveryFareSettingsController,
   updateDeliveryProfileController,
   updateOrderStatusController,
   updateSettingController,
@@ -165,6 +170,11 @@ router.use("/notifications", notificationRoutes);
 router.post("/reviews", requireAuth, createReviewController);
 router.get("/wallet", requireAuth, walletController);
 router.get("/transactions", requireAuth, transactionsController);
+router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
+router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletDetailController);
+router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
+router.get("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getDeliveryFareSettingsController);
+router.put("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateDeliveryFareSettingsController);
 router.get("/support/stats", requireAuth, requireRole("ADMIN"), getSupportStatsController);
 router.get("/support", requireAuth, listSupportTicketsController);
 router.post("/support", requireAuth, createSupportTicketController);

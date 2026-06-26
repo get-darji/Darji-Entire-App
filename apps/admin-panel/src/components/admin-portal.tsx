@@ -83,6 +83,11 @@ import {
   getMe,
   getOrders,
   getPayments,
+  getWalletPayouts,
+  getWalletDetail,
+  createWalletPayout,
+  getDeliveryFareSettings,
+  updateDeliveryFareSettings,
   getSettings,
   getSupportTickets,
   getTailoringRequests,
@@ -136,7 +141,10 @@ import type {
   TailoringRequest,
   BugReport,
   AccountChangeRequest,
-  SupportStats
+  SupportStats,
+  WalletPayoutRow,
+  WalletDetail,
+  DeliveryFareSettings
 } from "@/src/types/admin";
 
 type TrendRange = "daily" | "weekly" | "monthly";
@@ -165,6 +173,29 @@ type DashboardMetrics = {
   pendingVerifications: number;
   revenueToday: number;
   totalRevenue: number;
+};
+
+type PaymentBreakdown = {
+  customerPaid: number;
+  tailorQuote: number;
+  deliveryEarnings: number;
+  netRevenue: number;
+};
+
+type FinanceSummary = {
+  averagePaidOrderValue: number;
+  deliveryEarnings: number;
+  failedCount: number;
+  grossPaid: number;
+  netRevenue: number;
+  paidCount: number;
+  pendingAmount: number;
+  pendingCount: number;
+  refundedCount: number;
+  revenueToday: number;
+  tailorQuotes: number;
+  totalPartnerCost: number;
+  byPaymentId: Map<string, PaymentBreakdown>;
 };
 
 type TableProps<T extends object> = {
@@ -258,6 +289,10 @@ export function AdminPortal() {
   const [range] = useState<TrendRange>("monthly");
   const [orderFilter, setOrderFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
+  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
+  const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
+  const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
+  const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
   const [orderDetail, setOrderDetail] = useState<Order | null>(null);
   const [tailoringDetail, setTailoringDetail] = useState<TailoringRequest | null>(null);
   const [deliveryDetail, setDeliveryDetail] = useState<DeliveryRequest | null>(null);
@@ -349,6 +384,26 @@ export function AdminPortal() {
   const paymentsQuery = useQuery({
     queryKey: ["admin", "payments"],
     queryFn: getPayments,
+    enabled: isAuthed
+  });
+  const tailorPayoutsQuery = useQuery({
+    queryKey: ["admin", "wallet-payouts", "tailors"],
+    queryFn: () => getWalletPayouts("TAILOR"),
+    enabled: isAuthed
+  });
+  const deliveryPayoutsQuery = useQuery({
+    queryKey: ["admin", "wallet-payouts", "delivery"],
+    queryFn: () => getWalletPayouts("DELIVERY_PARTNER"),
+    enabled: isAuthed
+  });
+  const walletDetailQuery = useQuery({
+    queryKey: ["admin", "wallet-detail", walletDetailTarget?.userId],
+    queryFn: () => getWalletDetail(walletDetailTarget!.userId),
+    enabled: isAuthed && Boolean(walletDetailTarget)
+  });
+  const deliveryFareSettingsQuery = useQuery({
+    queryKey: ["admin", "delivery-fare-settings"],
+    queryFn: getDeliveryFareSettings,
     enabled: isAuthed
   });
   const couponsQuery = useQuery({
@@ -476,6 +531,9 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "partners"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "payments"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallet-payouts"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "wallet-detail"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "delivery-fare-settings"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "coupons"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "support"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "settings"] }),
@@ -512,6 +570,17 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
+  const walletPayoutMutation = useMutation({
+    mutationFn: createWalletPayout,
+    onSuccess: async () => {
+      toast.success("Weekly payout recorded");
+      setPayoutTarget(null);
+      setPayoutDraft({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
   const couponMutation = useMutation({
     mutationFn: createCoupon,
     onSuccess: async () => {
@@ -536,6 +605,15 @@ export function AdminPortal() {
     onSuccess: async () => {
       toast.success("Setting saved");
       await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const deliveryFareMutation = useMutation({
+    mutationFn: updateDeliveryFareSettings,
+    onSuccess: async () => {
+      toast.success("Delivery fare settings saved");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "delivery-fare-settings"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -777,12 +855,12 @@ export function AdminPortal() {
         orderNumber: `TR-${request.id.slice(0, 6).toUpperCase()}`,
         customerId: request.customerId,
         customer: request.customer,
-        tailor: request.ownQuote?.tailor || null,
+        tailor: request.selectedQuote?.tailor || request.ownQuote?.tailor || null,
         deliveryPartner: null,
         status: mappedStatus.toUpperCase(),
         paymentMethod: request.paymentMethod || "UNKNOWN",
         paymentStatus: request.paymentStatus || "PENDING",
-        totalAmount: request.totalAmount || request.ownQuote?.price || 0,
+        totalAmount: request.totalAmount || request.quoteAmount || request.selectedQuote?.price || request.ownQuote?.price || 0,
         createdAt: request.confirmedAt || request.createdAt,
         items: [{
           serviceId: "tailoring",
@@ -790,7 +868,7 @@ export function AdminPortal() {
           service: {
             id: "tailoring",
             name: request.workType,
-            price: request.ownQuote?.price ?? 0,
+            price: request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0,
             category: { name: request.clothType }
           }
         }]
@@ -806,8 +884,9 @@ export function AdminPortal() {
     tailors.filter((tailor) => tailor.verificationStatus === "PENDING").length +
     partners.filter((partner) => partner.verificationStatus === "PENDING").length;
 
-  const metrics = buildMetrics(analytics, allOrders, tailors, partners, payments);
-  const revenueSeries = buildRevenueSeries(payments, "monthly");
+  const financeSummary = buildFinanceSummary(payments, tailoringRequests, deliveryRequests);
+  const metrics = buildMetrics(allOrders, tailors, partners, payments, financeSummary);
+  const revenueSeries = buildRevenueSeries(payments, "monthly", financeSummary.byPaymentId);
   const orderSeries = buildWeekdayOrderSeries(allOrders);
   const growthSeries = buildGrowthSeries(allOrders, tailors, partners, "monthly");
   const serviceMix = buildServiceMix(allOrders);
@@ -889,30 +968,30 @@ export function AdminPortal() {
     },
     {
       icon: BarChart3,
-      label: "Total Revenue",
-      note: "Collected",
+      label: "Net Revenue",
+      note: "Paid - tailor quote - delivery",
       tone: "sky" as const,
-      value: formatCurrency(analytics?.revenue || 0),
+      value: formatCurrency(financeSummary.netRevenue),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId
     },
     {
       icon: ReceiptIndianRupee,
-      label: "Net Profit",
-      note: "Revenue - Expenses",
+      label: "Gross Paid",
+      note: "Customer paid amount",
       tone: "emerald" as const,
-      value: formatCurrency(analytics?.netProfit || 0),
+      value: formatCurrency(financeSummary.grossPaid),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId
     },
     {
       icon: AlertCircle,
-      label: "Expenses (Payouts)",
-      note: "Settled payouts",
+      label: "Partner Cost",
+      note: "Tailor quotes + delivery",
       tone: "rose" as const,
-      value: formatCurrency(analytics?.expenses || 0),
+      value: formatCurrency(financeSummary.totalPartnerCost),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId
@@ -1079,9 +1158,23 @@ export function AdminPortal() {
   );
 
   const filteredPayments = payments.filter((payment) => {
-    const content = [payment.order?.orderNumber, payment.method, payment.status, payment.providerRef].filter(Boolean).join(" ").toLowerCase();
+    const content = [
+      payment.order?.orderNumber,
+      payment.order?.customerName,
+      payment.order?.customerPhone,
+      payment.method,
+      payment.status,
+      payment.providerRef,
+      payment.source
+    ].filter(Boolean).join(" ").toLowerCase();
     return (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || payment.status === paymentFilter);
   });
+  const tailorPayoutRows = tailorPayoutsQuery.data ?? [];
+  const deliveryPayoutRows = deliveryPayoutsQuery.data ?? [];
+  const activePayoutRows = paymentsSubTab === "delivery" ? deliveryPayoutRows : tailorPayoutRows;
+  const walletLiabilities = [...tailorPayoutRows, ...deliveryPayoutRows].reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
+  const totalPendingTailorPayments = tailorPayoutRows.reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
+  const totalPendingDeliveryPayments = deliveryPayoutRows.reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
 
   const filteredCoupons = coupons.filter((coupon) =>
     !searchTerm ||
@@ -1229,6 +1322,7 @@ export function AdminPortal() {
     pending: userModerationMutation.isPending
   });
   const paymentColumns = getPaymentColumns({
+    breakdowns: financeSummary.byPaymentId,
     onMarkPaid: (paymentId) => paymentMutation.mutate({ paymentId }),
     pending: paymentMutation.isPending
   });
@@ -1294,7 +1388,7 @@ export function AdminPortal() {
             <div className="grid gap-4 xl:grid-cols-12">
               <ChartCard
                 title="Revenue Overview"
-                description="Revenue tracked from paid payments."
+                description="Net revenue from paid payments after tailor quote and delivery earnings."
                 className="xl:col-span-5"
                 action={<SelectPill label="Monthly" />}
               >
@@ -1320,7 +1414,7 @@ export function AdminPortal() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(201, 175, 131, 0.26)" vertical={false} />
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
-                    <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => `â‚¹${value}`} />
+                    <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Area dataKey="revenue" fill="url(#revenueFill)" stroke={darziChartPalette.orange} strokeWidth={3} type="monotone" />
                   </AreaChart>
@@ -1516,7 +1610,7 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Payments and collections"
-              description="Current payment ledger from the backend, including manual paid reconciliation."
+              description="Payment ledger with net revenue calculated as customer paid minus tailor quote and delivery earnings."
               action={
                 <div className="flex items-center gap-2">
                   <FilterSelect
@@ -1536,7 +1630,49 @@ export function AdminPortal() {
                 </div>
               }
             />
-            <DataTable columns={paymentColumns} data={filteredPayments} emptyMessage="No payment records match the current filters." />
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "ledger", label: "Ledger" },
+                { id: "tailors", label: "Tailors" },
+                { id: "delivery", label: "Delivery Boys" }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  className={cn(
+                    "rounded-2xl border px-4 py-2 text-sm font-semibold transition",
+                    paymentsSubTab === tab.id
+                      ? "border-[var(--accent)] bg-[var(--accent)] text-black"
+                      : "border-[var(--panel-border)] bg-[var(--panel)] text-[var(--foreground)] hover:border-[var(--accent)]"
+                  )}
+                  onClick={() => setPaymentsSubTab(tab.id as typeof paymentsSubTab)}
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {paymentsSubTab === "ledger" ? (
+              <>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <FinanceStatCard label="Gross paid" value={formatCurrency(financeSummary.grossPaid)} note={`${financeSummary.paidCount} settled payments`} tone="emerald" />
+                  <FinanceStatCard label="Tailor due" value={formatCurrency(totalPendingTailorPayments)} note="Wallet balance due" tone="amber" />
+                  <FinanceStatCard label="Delivery due" value={formatCurrency(totalPendingDeliveryPayments)} note="Delivery wallet due" tone="sky" />
+                  <FinanceStatCard label="Net revenue" value={formatCurrency(financeSummary.netRevenue)} note="Gross paid - partner cost" tone="violet" />
+                  <FinanceStatCard label="Wallet liabilities" value={formatCurrency(walletLiabilities)} note="All unpaid wallets" tone="rose" />
+                </div>
+                <DataTable columns={paymentColumns} data={filteredPayments} emptyMessage="No payment records match the current filters." />
+              </>
+            ) : (
+              <PayoutWorkspace
+                rows={activePayoutRows}
+                loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading}
+                onDetails={setWalletDetailTarget}
+                onPay={(row) => {
+                  setPayoutTarget(row);
+                  setPayoutDraft({ amount: String(row.pendingAmount || ""), receiptUrl: "", notes: "", referenceNumber: "" });
+                }}
+              />
+            )}
           </div>
         ) : null}
 
@@ -1581,6 +1717,11 @@ export function AdminPortal() {
             <SectionIntro
               title="Platform settings"
               description="Editable operational settings already persisted through the backend settings endpoints."
+            />
+            <DeliveryFareSettingsCard
+              settings={deliveryFareSettingsQuery.data}
+              pending={deliveryFareMutation.isPending}
+              onSave={(value) => deliveryFareMutation.mutate(value)}
             />
             <div className="grid gap-4 xl:grid-cols-2">
               {settings.map((setting) => (
@@ -1705,6 +1846,36 @@ export function AdminPortal() {
           if (!next) setUserDetail(null);
         }}
         user={userDetail}
+      />
+      <WalletDetailDialog
+        detail={walletDetailQuery.data}
+        loading={walletDetailQuery.isLoading}
+        open={Boolean(walletDetailTarget)}
+        row={walletDetailTarget}
+        setOpen={(next) => {
+          if (!next) setWalletDetailTarget(null);
+        }}
+      />
+      <PayoutDialog
+        draft={payoutDraft}
+        onChange={setPayoutDraft}
+        onSubmit={() => {
+          if (!payoutTarget) return;
+          walletPayoutMutation.mutate({
+            userId: payoutTarget.userId,
+            userType: payoutTarget.userType,
+            amount: Number(payoutDraft.amount),
+            receiptUrl: payoutDraft.receiptUrl.trim(),
+            notes: payoutDraft.notes.trim() || undefined,
+            referenceNumber: payoutDraft.referenceNumber.trim() || undefined
+          });
+        }}
+        open={Boolean(payoutTarget)}
+        pending={walletPayoutMutation.isPending}
+        row={payoutTarget}
+        setOpen={(next) => {
+          if (!next) setPayoutTarget(null);
+        }}
       />
       <InspectTicketDialog
         open={Boolean(ticketDetail)}
@@ -2165,7 +2336,7 @@ function PortalFrame({
                                   : "text-[var(--muted)] hover:text-[var(--foreground)] font-medium"
                               )}
                             >
-                              <span className="mr-2 text-xs opacity-60">â€¢</span>
+                              <span className="mr-2 text-xs opacity-60">-</span>
                               {sub.label}
                             </button>
                           );
@@ -2601,6 +2772,289 @@ function StatCard({
       ) : (
         content
       )}
+    </Panel>
+  );
+}
+
+function FinanceStatCard({
+  label,
+  note,
+  tone,
+  value
+}: {
+  label: string;
+  note: string;
+  tone: "amber" | "emerald" | "rose" | "sky" | "violet";
+  value: string;
+}) {
+  const toneMap: Record<string, string> = {
+    amber: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    emerald: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    rose: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    sky: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    violet: "border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+  };
+
+  return (
+    <Panel className="p-4">
+      <div className={cn("mb-4 inline-flex rounded-full border px-3 py-1 text-xs font-semibold", toneMap[tone])}>{label}</div>
+      <p className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">{note}</p>
+    </Panel>
+  );
+}
+
+function PayoutWorkspace({
+  loading,
+  onDetails,
+  onPay,
+  rows
+}: {
+  loading: boolean;
+  onDetails: (row: WalletPayoutRow) => void;
+  onPay: (row: WalletPayoutRow) => void;
+  rows: WalletPayoutRow[];
+}) {
+  if (loading) return <LoadingDashboard />;
+
+  return (
+    <Panel className="p-0">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+            <tr>
+              <th className="px-4 py-4 font-semibold">Name</th>
+              <th className="px-4 py-4 font-semibold">Phone</th>
+              <th className="px-4 py-4 font-semibold">Wallet Balance</th>
+              <th className="px-4 py-4 font-semibold">Current Week</th>
+              <th className="px-4 py-4 font-semibold">Last Payment</th>
+              <th className="px-4 py-4 font-semibold">Status</th>
+              <th className="px-4 py-4 font-semibold">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>
+                  No wallet payout records found.
+                </td>
+              </tr>
+            ) : null}
+            {rows.map((row) => (
+              <tr key={row.userId} className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]">
+                <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
+                <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
+                <td className="px-4 py-4 font-semibold">{formatCurrency(row.walletBalance)}</td>
+                <td className="px-4 py-4">{formatCurrency(row.currentWeekEarnings)}</td>
+                <td className="px-4 py-4 text-[var(--muted)]">{row.lastPayment ? formatDate(row.lastPayment.paidAt, true) : "-"}</td>
+                <td className="px-4 py-4"><StatusBadge value={row.status} /></td>
+                <td className="px-4 py-4">
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onDetails(row)}>Details</ActionButton>
+                    <ActionButton className="px-3 py-2" disabled={row.pendingAmount <= 0} onClick={() => onPay(row)}>Pay</ActionButton>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function WalletDetailDialog({
+  detail,
+  loading,
+  open,
+  row,
+  setOpen
+}: {
+  detail?: WalletDetail;
+  loading: boolean;
+  open: boolean;
+  row: WalletPayoutRow | null;
+  setOpen: (open: boolean) => void;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content className="fixed right-4 top-4 bottom-4 z-50 w-[min(720px,calc(100vw-2rem))] overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-5 shadow-2xl">
+          <Dialog.Title className="text-xl font-semibold">{row?.name ?? "Wallet details"}</Dialog.Title>
+          <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Ledger transactions, order earnings, and payment history.</Dialog.Description>
+          {loading ? (
+            <div className="py-10 text-center text-[var(--muted)]">Loading wallet...</div>
+          ) : (
+            <div className="mt-5 space-y-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <FinanceStatCard label="Wallet Balance" value={formatCurrency(detail?.balance ?? 0)} note="Pending payout" tone="amber" />
+                <FinanceStatCard label="Current Week" value={formatCurrency(detail?.currentWeekEarnings ?? 0)} note="Order credits this week" tone="emerald" />
+                <FinanceStatCard label="Last Payment" value={detail?.lastPayment ? formatCurrency(detail.lastPayment.amount) : "-"} note={detail?.lastPayment ? formatDate(detail.lastPayment.paidAt, true) : "No payout yet"} tone="sky" />
+              </div>
+              <Panel>
+                <h4 className="mb-3 font-semibold">Wallet Transactions</h4>
+                <div className="space-y-2">
+                  {(detail?.transactions ?? []).map((transaction) => (
+                    <div key={transaction.id} className="rounded-2xl border border-[var(--panel-border)] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{formatStatus(transaction.category)}</p>
+                          <p className="text-xs text-[var(--muted)]">{transaction.remarks ?? transaction.orderId ?? "Wallet transaction"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className={cn("font-semibold", transaction.transactionType === "CREDIT" ? "text-emerald-600" : "text-rose-600")}>
+                            {transaction.transactionType === "CREDIT" ? "+" : "-"}{formatCurrency(transaction.amount)}
+                          </p>
+                          <p className="text-xs text-[var(--muted)]">Balance {formatCurrency(transaction.balanceAfterTransaction)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {!(detail?.transactions?.length) ? <EmptyState message="No wallet transactions yet." /> : null}
+                </div>
+              </Panel>
+              <Panel>
+                <h4 className="mb-3 font-semibold">Payment History</h4>
+                <div className="space-y-2">
+                  {(detail?.payments ?? []).map((payment) => (
+                    <a key={payment.id} className="block rounded-2xl border border-[var(--panel-border)] p-3 hover:border-[var(--accent)]" href={payment.receiptUrl} target="_blank" rel="noreferrer">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{formatCurrency(payment.amount)}</p>
+                          <p className="text-xs text-[var(--muted)]">{payment.notes ?? payment.referenceNumber ?? "Weekly payout"}</p>
+                        </div>
+                        <p className="text-xs text-[var(--muted)]">{formatDate(payment.paidAt, true)}</p>
+                      </div>
+                    </a>
+                  ))}
+                  {!(detail?.payments?.length) ? <EmptyState message="No payments have been recorded." /> : null}
+                </div>
+              </Panel>
+            </div>
+          )}
+          <Dialog.Close className="absolute right-4 top-4 rounded-full p-2 hover:bg-[var(--accent-soft)]"><X size={18} /></Dialog.Close>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function PayoutDialog({
+  draft,
+  onChange,
+  onSubmit,
+  open,
+  pending,
+  row,
+  setOpen
+}: {
+  draft: { amount: string; receiptUrl: string; notes: string; referenceNumber: string };
+  onChange: (draft: { amount: string; receiptUrl: string; notes: string; referenceNumber: string }) => void;
+  onSubmit: () => void;
+  open: boolean;
+  pending: boolean;
+  row: WalletPayoutRow | null;
+  setOpen: (open: boolean) => void;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-2xl">
+          <Dialog.Title className="text-xl font-semibold">Record weekly payout</Dialog.Title>
+          <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">
+            Debit the wallet only after transfer proof is available.
+          </Dialog.Description>
+          <div className="mt-5 space-y-4">
+            <InspectGrid items={[
+              { label: "User", value: row?.name ?? "-" },
+              { label: "Wallet Balance", value: formatCurrency(row?.walletBalance ?? 0) },
+              { label: "Current Week", value: formatCurrency(row?.currentWeekEarnings ?? 0) }
+            ]} />
+            <Field label="Amount to pay">
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.amount} onChange={(event) => onChange({ ...draft, amount: event.target.value })} />
+            </Field>
+            <Field label="Payment proof URL (PNG, JPG, JPEG, PDF)">
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.receiptUrl} onChange={(event) => onChange({ ...draft, receiptUrl: event.target.value })} placeholder="https://..." />
+            </Field>
+            <Field label="Upload payment proof">
+              <input
+                accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+                className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+                type="file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  if (!["image/png", "image/jpeg", "application/pdf"].includes(file.type)) {
+                    toast.error("Upload PNG, JPG, JPEG, or PDF proof only");
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onload = () => onChange({ ...draft, receiptUrl: String(reader.result ?? ""), notes: draft.notes || file.name });
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </Field>
+            <Field label="Reference number">
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.referenceNumber} onChange={(event) => onChange({ ...draft, referenceNumber: event.target.value })} />
+            </Field>
+            <Field label="Notes">
+              <textarea className="h-24 w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.notes} onChange={(event) => onChange({ ...draft, notes: event.target.value })} />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Dialog.Close asChild><ActionButton variant="secondary">Cancel</ActionButton></Dialog.Close>
+              <ActionButton disabled={pending || !draft.receiptUrl.trim() || Number(draft.amount) <= 0} onClick={onSubmit}>Save payout</ActionButton>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function DeliveryFareSettingsCard({
+  onSave,
+  pending,
+  settings
+}: {
+  onSave: (settings: DeliveryFareSettings) => void;
+  pending: boolean;
+  settings?: DeliveryFareSettings;
+}) {
+  const [draft, setDraft] = useState<DeliveryFareSettings>({ normal: 8, express: 8, sameDay: 10, instant: 15 });
+
+  useEffect(() => {
+    if (settings) setDraft(settings);
+  }, [settings]);
+
+  return (
+    <Panel>
+      <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Delivery Fare Settings</h3>
+          <p className="text-sm text-[var(--muted)]">Used dynamically whenever delivery earnings are created.</p>
+        </div>
+        <ActionButton disabled={pending} onClick={() => onSave(draft)}>Save fares</ActionButton>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        {[
+          ["normal", "Normal"],
+          ["express", "Express"],
+          ["sameDay", "Same Day"],
+          ["instant", "Instant"]
+        ].map(([key, label]) => (
+          <Field key={key} label={label}>
+            <input
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+              type="number"
+              min="1"
+              value={draft[key as keyof DeliveryFareSettings]}
+              onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))}
+            />
+          </Field>
+        ))}
+      </div>
     </Panel>
   );
 }
@@ -3756,10 +4210,10 @@ function ProfileDialog({
                 ) : null}
                 <InspectGrid
                   items={[
-                    { label: "Phone", value: profile.user?.phone ?? "â€”" },
+                    { label: "Phone", value: profile.user?.phone ?? "-" },
                     { label: "Availability", value: profile.isAvailable ? "Available" : "Offline" },
                     { label: "Verification", value: <StatusBadge value={profile.verificationStatus} /> },
-                    { label: "Rating", value: typeof profile.rating === "number" ? profile.rating.toFixed(1) : "â€”" },
+                    { label: "Rating", value: typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-" },
                     ...(isDelivery ? [
                       { label: "Delivery Type", value: (profile as DeliveryPartnerProfile).deliveryType || "PICKUP" },
                       { label: "Assigned Area", value: (profile as DeliveryPartnerProfile).assignedArea || "unassigned" }
@@ -4000,7 +4454,7 @@ function InspectTicketDialog({
               </Dialog.Title>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
                 <span>Category: <strong className="text-[var(--foreground)]">{ticket.category ?? "General"}</strong></span>
-                <span>â€¢</span>
+                <span>-</span>
                 <span>Opened: <strong>{formatDate(ticket.createdAt, true)}</strong></span>
               </div>
             </div>
@@ -4416,7 +4870,7 @@ function InspectChangeRequestDialog({
         {Object.entries(vals).map(([key, val]) => (
           <div key={key} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 dark:bg-white/5">
             <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">{key}</p>
-            <p className="mt-1 font-semibold text-[var(--foreground)]">{String(val ?? "â€”")}</p>
+            <p className="mt-1 font-semibold text-[var(--foreground)]">{String(val ?? "-")}</p>
           </div>
         ))}
       </div>
@@ -4434,7 +4888,7 @@ function InspectChangeRequestDialog({
                 Account Update Request
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
-                From {request.user?.name ?? "Partner"} ({request.user?.phone}) â€¢ Role: <strong>{request.user?.role}</strong>
+                From {request.user?.name ?? "Partner"} ({request.user?.phone}) - Role: <strong>{request.user?.role}</strong>
               </Dialog.Description>
             </div>
             <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
@@ -4861,7 +5315,7 @@ function getTailorColumns({
     {
       accessorKey: "rating",
       header: "Rating",
-      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "â€”")
+      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "-")
     },
     {
       accessorKey: "earnings",
@@ -4925,7 +5379,7 @@ function getPartnerColumns({
     {
       accessorKey: "rating",
       header: "Rating",
-      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "â€”")
+      cell: ({ row }) => (typeof row.original.rating === "number" ? row.original.rating.toFixed(1) : "-")
     },
     {
       accessorKey: "verificationStatus",
@@ -5055,9 +5509,11 @@ function getUserColumns({
 }
 
 function getPaymentColumns({
+  breakdowns,
   onMarkPaid,
   pending
 }: {
+  breakdowns: Map<string, PaymentBreakdown>;
   onMarkPaid: (paymentId: string) => void;
   pending: boolean;
 }): Array<ColumnDef<Payment>> {
@@ -5066,7 +5522,18 @@ function getPaymentColumns({
       id: "order",
       header: "Order",
       accessorFn: (row) => row.order?.orderNumber ?? "",
-      cell: ({ row }) => <span>{row.original.order?.orderNumber ?? "â€”"}</span>
+      cell: ({ row }) => <span>{row.original.order?.orderNumber ?? "-"}</span>
+    },
+    {
+      id: "customer",
+      header: "Customer",
+      accessorFn: (row) => row.order?.customerName ?? row.order?.customerPhone ?? "",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium text-[var(--foreground)]">{row.original.order?.customerName ?? "Customer"}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">{row.original.order?.customerPhone ?? row.original.order?.customerId ?? "-"}</p>
+        </div>
+      )
     },
     {
       accessorKey: "method",
@@ -5080,13 +5547,40 @@ function getPaymentColumns({
     },
     {
       accessorKey: "amount",
-      header: "Amount",
+      header: "Customer paid",
       cell: ({ row }) => formatCurrency(row.original.amount)
+    },
+    {
+      id: "partnerCost",
+      header: "Partner cost",
+      cell: ({ row }) => {
+        const breakdown = breakdowns.get(row.original.id) ?? getPaymentBreakdown(row.original, new Map(), new Map());
+        return (
+          <div>
+            <p className="font-medium text-[var(--foreground)]">{formatCurrency(breakdown.tailorQuote + breakdown.deliveryEarnings)}</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Tailor {formatCurrency(breakdown.tailorQuote)} + Delivery {formatCurrency(breakdown.deliveryEarnings)}
+            </p>
+          </div>
+        );
+      }
+    },
+    {
+      id: "netRevenue",
+      header: "Net revenue",
+      cell: ({ row }) => {
+        const breakdown = breakdowns.get(row.original.id) ?? getPaymentBreakdown(row.original, new Map(), new Map());
+        return (
+          <span className={cn("font-semibold", breakdown.netRevenue >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+            {formatCurrency(breakdown.netRevenue)}
+          </span>
+        );
+      }
     },
     {
       accessorKey: "providerRef",
       header: "Provider ref",
-      cell: ({ row }) => row.original.providerRef ?? "â€”"
+      cell: ({ row }) => row.original.providerRef ?? "-"
     },
     {
       accessorKey: "createdAt",
@@ -5172,7 +5666,7 @@ function getTicketColumns({
       id: "order",
       header: "Order",
       accessorFn: (row) => row.order?.orderNumber ?? "",
-      cell: ({ row }) => row.original.order?.orderNumber ?? "â€”"
+      cell: ({ row }) => row.original.order?.orderNumber ?? "-"
     },
     {
       accessorKey: "createdAt",
@@ -5293,7 +5787,7 @@ function getBugReportColumns({ onOpen, users }: { onOpen: (bug: BugReport) => vo
 }
 
 function formatDuration(ms?: number | null) {
-  if (ms === undefined || ms === null || isNaN(ms)) return "â€”";
+  if (ms === undefined || ms === null || isNaN(ms)) return "-";
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -5308,14 +5802,13 @@ function formatDuration(ms?: number | null) {
 }
 
 function buildMetrics(
-  analytics: AnalyticsSummary,
   orders: Order[],
   tailors: TailorProfile[],
   partners: DeliveryPartnerProfile[],
-  payments: Payment[]
+  payments: Payment[],
+  finance: FinanceSummary
 ): DashboardMetrics {
   const paidPayments = payments.filter((payment) => payment.status === "PAID");
-  const revenueToday = paidPayments.filter((payment) => isToday(payment.createdAt)).reduce((sum, payment) => sum + Number(payment.amount), 0);
   const ordersToday = orders.filter((order) => isToday(order.createdAt)).length;
   const pendingVerifications =
     tailors.filter((tailor) => tailor.verificationStatus === "PENDING").length +
@@ -5325,14 +5818,14 @@ function buildMetrics(
   const cancellationRate = orders.length ? (orders.filter((order) => order.status === "CANCELLED").length / orders.length) * 100 : 0;
 
   return {
-    averageOrderValue: paidPayments.length ? analytics.revenue / paidPayments.length : 0,
+    averageOrderValue: finance.averagePaidOrderValue,
     cancellationRate,
     completionRate,
     ordersToday,
     pendingCollections,
     pendingVerifications,
-    revenueToday,
-    totalRevenue: analytics.revenue
+    revenueToday: finance.revenueToday,
+    totalRevenue: finance.netRevenue
   };
 }
 
@@ -5340,7 +5833,82 @@ function isTailorProfile(profile: TailorProfile | DeliveryPartnerProfile): profi
   return "shopName" in profile;
 }
 
-function buildRevenueSeries(payments: Payment[], range: TrendRange): RevenuePoint[] {
+function buildFinanceSummary(payments: Payment[], tailoringRequests: TailoringRequest[], deliveryRequests: DeliveryRequest[]): FinanceSummary {
+  const tailoringCosts = new Map<string, number>();
+  tailoringRequests.forEach((request) => {
+    tailoringCosts.set(request.id, Number(request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0));
+  });
+
+  const deliveryCosts = new Map<string, number>();
+  deliveryRequests.forEach((request) => {
+    deliveryCosts.set(request.orderId, (deliveryCosts.get(request.orderId) ?? 0) + Number(request.estimatedEarnings ?? 0));
+  });
+
+  const byPaymentId = new Map<string, PaymentBreakdown>();
+  let grossPaid = 0;
+  let tailorQuotes = 0;
+  let deliveryEarnings = 0;
+  let netRevenue = 0;
+  let revenueToday = 0;
+  let pendingAmount = 0;
+  let paidCount = 0;
+  let pendingCount = 0;
+  let failedCount = 0;
+  let refundedCount = 0;
+
+  payments.forEach((payment) => {
+    const breakdown = getPaymentBreakdown(payment, tailoringCosts, deliveryCosts);
+    byPaymentId.set(payment.id, breakdown);
+
+    if (payment.status === "PAID") {
+      paidCount += 1;
+      grossPaid += breakdown.customerPaid;
+      tailorQuotes += breakdown.tailorQuote;
+      deliveryEarnings += breakdown.deliveryEarnings;
+      netRevenue += breakdown.netRevenue;
+      if (isToday(payment.createdAt)) revenueToday += breakdown.netRevenue;
+    } else if (payment.status === "PENDING") {
+      pendingCount += 1;
+      pendingAmount += Number(payment.amount ?? 0);
+    } else if (payment.status === "FAILED") {
+      failedCount += 1;
+    } else if (payment.status === "REFUNDED") {
+      refundedCount += 1;
+    }
+  });
+
+  return {
+    averagePaidOrderValue: paidCount ? grossPaid / paidCount : 0,
+    deliveryEarnings,
+    failedCount,
+    grossPaid,
+    netRevenue,
+    paidCount,
+    pendingAmount,
+    pendingCount,
+    refundedCount,
+    revenueToday,
+    tailorQuotes,
+    totalPartnerCost: tailorQuotes + deliveryEarnings,
+    byPaymentId
+  };
+}
+
+function getPaymentBreakdown(payment: Payment, tailoringCosts: Map<string, number>, deliveryCosts: Map<string, number>): PaymentBreakdown {
+  const customerPaid = Number(payment.customerPaid ?? payment.amount ?? 0);
+  const tailorQuote = Number(payment.tailorQuote ?? tailoringCosts.get(payment.orderId) ?? 0);
+  const deliveryEarnings = Number(payment.deliveryEarnings ?? deliveryCosts.get(payment.orderId) ?? 0);
+  const netRevenue = Number(payment.netRevenue ?? customerPaid - tailorQuote - deliveryEarnings);
+
+  return {
+    customerPaid,
+    tailorQuote,
+    deliveryEarnings,
+    netRevenue
+  };
+}
+
+function buildRevenueSeries(payments: Payment[], range: TrendRange, breakdowns: Map<string, PaymentBreakdown>): RevenuePoint[] {
   const slots = buildSlots(range);
   const totals = new Map(slots.map((slot) => [slot.key, 0]));
   payments
@@ -5348,7 +5916,7 @@ function buildRevenueSeries(payments: Payment[], range: TrendRange): RevenuePoin
     .forEach((payment) => {
       const key = bucketKey(new Date(payment.createdAt as string), range);
       if (totals.has(key)) {
-        totals.set(key, (totals.get(key) ?? 0) + Number(payment.amount));
+        totals.set(key, (totals.get(key) ?? 0) + (breakdowns.get(payment.id)?.netRevenue ?? Number(payment.amount)));
       }
     });
   return slots.map((slot) => ({ label: slot.label, revenue: totals.get(slot.key) ?? 0 }));

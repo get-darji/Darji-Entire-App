@@ -13,6 +13,7 @@ import {
 } from "../models.js";
 import { AppError } from "../middleware/error.js";
 import { notifyUser, orderStatusMessage } from "./notification.service.js";
+import { creditOrderEarning } from "./wallet.service.js";
 
 type JsonDoc = { toJSON: () => Record<string, unknown> };
 
@@ -196,7 +197,19 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
   });
 
   if (actor.role === "TAILOR" && input.status === "READY" && updated.tailorId) {
-    await TailorModel.findByIdAndUpdate(updated.tailorId, { $inc: { earnings: Number(updated.totalAmount) * 0.45 } });
+    const tailor = await TailorModel.findById(updated.tailorId).select("userId");
+    const amount = Number(updated.totalAmount) * 0.45;
+    if (tailor?.userId && amount > 0) {
+      await creditOrderEarning({
+        userId: tailor.userId,
+        userType: "TAILOR",
+        orderId: updated.id,
+        amount,
+        remarks: `Tailor earning for order ${updated.orderNumber}`,
+        createdBy: "system"
+      });
+      await TailorModel.findByIdAndUpdate(updated.tailorId, { earnings: Number(updated.totalAmount) * 0.45 });
+    }
   }
 
   return hydrateOrder(updated);

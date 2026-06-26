@@ -54,12 +54,20 @@ export type Payment = {
   status: string;
   amount: number;
   providerRef?: string;
+  customerPaid?: number;
+  tailorQuote?: number;
+  deliveryEarnings?: number;
+  netRevenue?: number;
+  source?: "ORDER" | "TAILORING_REQUEST";
   createdAt?: string;
   updatedAt?: string;
   order?: {
     id?: string;
     orderNumber?: string;
     customerId?: string;
+    customerName?: string;
+    customerPhone?: string;
+    status?: string;
   };
 };
 
@@ -306,6 +314,70 @@ export type SettingRecord = {
   updatedAt?: string;
 };
 
+export type WalletTransaction = {
+  id: string;
+  walletId: string;
+  userId: string;
+  userType: "TAILOR" | "DELIVERY_PARTNER";
+  orderId?: string;
+  transactionType: "CREDIT" | "DEBIT";
+  category: "ORDER_EARNING" | "WEEKLY_PAYOUT" | "BONUS" | "PENALTY" | "ADJUSTMENT";
+  amount: number;
+  balanceAfterTransaction: number;
+  remarks?: string;
+  receiptUrl?: string;
+  referenceNumber?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  createdBy?: string;
+  createdAt?: string;
+};
+
+export type PaymentHistory = {
+  id: string;
+  userId: string;
+  userType: "TAILOR" | "DELIVERY_PARTNER";
+  amount: number;
+  receiptUrl: string;
+  notes?: string;
+  paidBy: string;
+  paidAt?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  referenceNumber?: string;
+  status: "PAID" | "VOID";
+};
+
+export type WalletPayoutRow = {
+  userId: string;
+  profileId: string;
+  userType: "TAILOR" | "DELIVERY_PARTNER";
+  name: string;
+  phone: string;
+  walletBalance: number;
+  currentWeekEarnings: number;
+  pendingAmount: number;
+  lastPayment?: PaymentHistory | null;
+  status: "DUE" | "SETTLED";
+};
+
+export type WalletDetail = {
+  user: BasicUser;
+  balance: number;
+  currentWeekEarnings: number;
+  pendingAmount: number;
+  lastPayment?: PaymentHistory | null;
+  transactions: WalletTransaction[];
+  payments: PaymentHistory[];
+};
+
+export type DeliveryFareSettings = {
+  normal: number;
+  express: number;
+  sameDay: number;
+  instant: number;
+};
+
 export type TailorQuote = {
   id: string;
   requestId: string;
@@ -339,9 +411,15 @@ export type TailoringRequest = {
   status: string;
   customer?: BasicUser | null;
   ownQuote?: TailorQuote | null;
+  selectedQuote?: TailorQuote | null;
+  selectedQuoteId?: string;
   quoteCount?: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  quoteAmount?: number;
+  deliveryFee?: number;
+  platformFee?: number;
+  homeMeasurementFee?: number;
   totalAmount?: number;
   confirmedAt?: string;
   createdAt?: string;

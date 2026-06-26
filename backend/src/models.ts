@@ -284,7 +284,52 @@ const walletSchema = new Schema(
   {
     _id: stringId,
     userId: { type: String, required: true, unique: true },
+    userType: { type: String, enum: ["TAILOR", "DELIVERY_PARTNER", "ADMIN"], default: "TAILOR", index: true },
     balance: { type: Number, default: 0 }
+  },
+  baseOptions
+);
+
+const walletTransactionSchema = new Schema(
+  {
+    _id: stringId,
+    walletId: { type: String, required: true, index: true },
+    userId: { type: String, required: true, index: true },
+    userType: { type: String, enum: ["TAILOR", "DELIVERY_PARTNER"], required: true, index: true },
+    orderId: { type: String, index: true },
+    transactionType: { type: String, enum: ["CREDIT", "DEBIT"], required: true, index: true },
+    category: { type: String, enum: ["ORDER_EARNING", "WEEKLY_PAYOUT", "BONUS", "PENALTY", "ADJUSTMENT"], required: true, index: true },
+    amount: { type: Number, required: true },
+    balanceAfterTransaction: { type: Number, required: true },
+    remarks: String,
+    receiptUrl: String,
+    referenceNumber: String,
+    weekStart: Date,
+    weekEnd: Date,
+    createdBy: String
+  },
+  baseOptions
+);
+walletTransactionSchema.index(
+  { userId: 1, orderId: 1, category: 1, transactionType: 1 },
+  { unique: true, partialFilterExpression: { orderId: { $exists: true }, category: "ORDER_EARNING", transactionType: "CREDIT" } }
+);
+
+const paymentHistorySchema = new Schema(
+  {
+    _id: stringId,
+    userId: { type: String, required: true, index: true },
+    userType: { type: String, enum: ["TAILOR", "DELIVERY_PARTNER"], required: true, index: true },
+    walletTransactionId: { type: String, required: true, index: true },
+    amount: { type: Number, required: true },
+    receiptUrl: { type: String, required: true },
+    notes: String,
+    paidBy: { type: String, required: true },
+    weekStart: Date,
+    weekEnd: Date,
+    referenceNumber: String,
+    status: { type: String, enum: ["PAID", "VOID"], default: "PAID", index: true },
+    paidAt: { type: Date, default: Date.now }
   },
   baseOptions
 );
@@ -556,6 +601,8 @@ export const CouponModel = mongoose.model("Coupon", couponSchema);
 export const NotificationModel = mongoose.model("Notification", notificationSchema);
 export const ReviewModel = mongoose.model("Review", reviewSchema);
 export const WalletModel = mongoose.model("Wallet", walletSchema);
+export const WalletTransactionModel = mongoose.model("WalletTransaction", walletTransactionSchema);
+export const PaymentHistoryModel = mongoose.model("PaymentHistory", paymentHistorySchema);
 export const TransactionModel = mongoose.model("Transaction", transactionSchema);
 export const OtpRequestModel = mongoose.model("OtpRequest", otpRequestSchema);
 export const SupportTicketModel = mongoose.model("SupportTicket", supportTicketSchema);

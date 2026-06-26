@@ -18,6 +18,7 @@ import {
   sendQuoteReceivedNotification
 } from "../services/notificationService.js";
 import { emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
+import { creditOrderEarning } from "../services/wallet.service.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
@@ -436,13 +437,17 @@ function tailorDropAddress(tailor: Record<string, unknown> | null | undefined) {
   return verification?.shop?.shopAddress || verification?.personal?.address || String(tailor?.shopName ?? "Tailor address pending");
 }
 
-function deliveryTaskEstimatedEarnings(
-  request: { deliveryFee?: number | null },
+async function deliveryTaskEstimatedEarnings(
+  request: { deliveryFee?: number | null; urgency?: string | null },
   _type: "customer_to_tailor" | "tailor_to_customer"
 ) {
-  const deliveryFee = Number(request.deliveryFee ?? 0);
-  if (deliveryFee <= 0) return 0;
-  return Number((deliveryFee / 2).toFixed(2));
+  const setting = await SettingModel.findOne({ key: "delivery_fare_settings" });
+  const value = typeof setting?.value === "object" && setting.value ? setting.value as Record<string, unknown> : {};
+  const normalized = normalizeUrgency(request.urgency ?? "");
+  const key = normalized === "same_day" ? "sameDay" : normalized;
+  const defaults: Record<string, number> = { normal: 8, express: 8, sameDay: 10, instant: 15 };
+  const fare = Number(value[key] ?? defaults[key] ?? defaults.normal);
+  return Number((Number.isFinite(fare) && fare > 0 ? fare : defaults.normal).toFixed(2));
 }
 
 async function createDeliveryRequestForTailoringRequest(requestId: string, type: "customer_to_tailor" | "tailor_to_customer", acceptedTailorId?: string) {
@@ -468,7 +473,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const tailorAddress = tailorDropAddress(tailorJson);
   const pickupAddress = type === "customer_to_tailor" ? customerAddress : tailorAddress;
   const dropAddress = type === "customer_to_tailor" ? tailorAddress : customerAddress;
-  const estimatedEarnings = deliveryTaskEstimatedEarnings(request, type);
+  const estimatedEarnings = await deliveryTaskEstimatedEarnings(request, type);
   const cashCollectionRequired = type === "tailor_to_customer" && request.paymentMethod === "COD";
 
   const roundsSetting = await SettingModel.findOne({ key: "delivery_rounds" });
@@ -1028,6 +1033,31 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
     ? (task.type === "customer_to_tailor" ? "picked_up_from_customer" : "out_for_delivery")
     : (task.type === "customer_to_tailor" ? "received_by_tailor" : "completed");
   await TailoringRequestModel.findByIdAndUpdate(task.orderId, { orderStatus });
+  if (input.status === "delivered") {
+    await creditOrderEarning({
+      userId: partner.userId,
+      userType: "DELIVERY_PARTNER",
+      orderId: task.id,
+      amount: Number(task.estimatedEarnings ?? 0),
+      remarks: `Delivery earning for ${task.taskId ?? task.id}`,
+      createdBy: "system"
+    });
+
+    if (task.type === "tailor_to_customer") {
+      const acceptedQuote = await findSelectedQuote(task.orderId);
+      const tailorProfile = acceptedQuote ? await TailorModel.findById(acceptedQuote.tailorId).select("userId") : null;
+      if (tailorProfile?.userId && acceptedQuote) {
+        await creditOrderEarning({
+          userId: tailorProfile.userId,
+          userType: "TAILOR",
+          orderId: task.orderId,
+          amount: Number(acceptedQuote.price ?? 0),
+          remarks: `Tailor earning for order ${task.orderId.slice(0, 8).toUpperCase()}`,
+          createdBy: "system"
+        });
+      }
+    }
+  }
   emitToDeliveryPartner(partner.id, "delivery:task_updated", task.toJSON());
   emitToCustomer(task.customerId, "customer:delivery_status_updated", { taskId: task.id, orderId: task.orderId, tailoringRequestId: task.orderId, status: orderStatus, deliveryTask: task.toJSON() });
   if (task.tailorId) {

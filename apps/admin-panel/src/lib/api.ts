@@ -20,6 +20,9 @@ import type {
   BugReport,
   AccountChangeRequest,
   SupportStats
+  , WalletPayoutRow,
+  WalletDetail,
+  DeliveryFareSettings
 } from "@/src/types/admin";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
@@ -103,6 +106,35 @@ export async function getUsers() {
 
 export async function getPayments() {
   return unwrap<Payment[]>(api.get("/payments"));
+}
+
+export async function getWalletPayouts(userType: "TAILOR" | "DELIVERY_PARTNER") {
+  return unwrap<WalletPayoutRow[]>(api.get("/admin/wallet-payouts", { params: { userType } }));
+}
+
+export async function getWalletDetail(userId: string) {
+  return unwrap<WalletDetail>(api.get(`/admin/wallets/${userId}`));
+}
+
+export async function createWalletPayout(payload: {
+  userId: string;
+  userType: "TAILOR" | "DELIVERY_PARTNER";
+  amount: number;
+  receiptUrl: string;
+  notes?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  referenceNumber?: string;
+}) {
+  return unwrap(api.post("/admin/wallet-payouts", payload));
+}
+
+export async function getDeliveryFareSettings() {
+  return unwrap<DeliveryFareSettings>(api.get("/settings/delivery-fares"));
+}
+
+export async function updateDeliveryFareSettings(payload: DeliveryFareSettings) {
+  return unwrap<DeliveryFareSettings>(api.put("/settings/delivery-fares", payload));
 }
 
 export async function getCoupons() {
@@ -258,5 +290,3 @@ export async function addChangeRequestMessage(payload: {
   const { requestId, ...body } = payload;
   return unwrap<AccountChangeRequest>(api.post(`/support/change-requests/${requestId}/messages`, body));
 }
-
-

@@ -1850,6 +1850,8 @@ function EmptyState({ title, copy }: { title: string; copy: string }) {
 }
 
 function EarningsScreen({ requests, me }: { requests: DeliveryRequest[]; me?: MeResponse }) {
+  const [wallet, setWallet] = useState<any>(null);
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const delivered = useMemo(() => requests.filter((request) => request.taskStatus === "delivered"), [requests]);
   const today = useMemo(() => {
     const now = new Date();
@@ -1884,15 +1886,33 @@ function EarningsScreen({ requests, me }: { requests: DeliveryRequest[]; me?: Me
   const averagePerJob = delivered.length ? totalEarnings / delivered.length : 0;
   const withdrawableBalance = Number(me?.deliveryProfile?.withdrawableBalance ?? totalEarnings);
 
+  useEffect(() => {
+    let mounted = true;
+    setLoadingWallet(true);
+    api<any>("/wallet")
+      .then((data) => {
+        if (mounted) setWallet(data);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (mounted) setLoadingWallet(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header subtitle="Completed delivery payouts" title="Earnings" />
       <View style={styles.statsRow}>
-        <Stat label="Today" value={`Rs ${todayEarnings.toFixed(0)}`} />
-        <Stat label="Weekly" value={`Rs ${weeklyEarnings.toFixed(0)}`} tone="green" />
+        <Stat label="Wallet" value={`Rs ${Number(wallet?.balance ?? withdrawableBalance).toFixed(0)}`} />
+        <Stat label="Weekly" value={`Rs ${Number(wallet?.currentWeekEarnings ?? weeklyEarnings).toFixed(0)}`} tone="green" />
       </View>
       <Card>
-        <Text style={styles.cardTitle}>Breakdown</Text>
+        <Text style={styles.cardTitle}>Weekly Settlement</Text>
+        <StatusRow label="Pending amount" value={`Rs ${Number(wallet?.pendingAmount ?? wallet?.balance ?? withdrawableBalance).toFixed(0)}`} />
+        <StatusRow label="Last payment" value={wallet?.lastPayment?.paidAt ? new Date(wallet.lastPayment.paidAt).toLocaleString("en-IN") : "Not paid yet"} />
         <StatusRow label="Monthly earned" value={`Rs ${monthlyEarnings.toFixed(0)}`} />
         <StatusRow label="Pickup jobs" value={String(pickupJobs.length)} />
         <StatusRow label="Drop jobs" value={String(dropJobs.length)} />
@@ -1900,9 +1920,32 @@ function EarningsScreen({ requests, me }: { requests: DeliveryRequest[]; me?: Me
         <StatusRow label="Completed jobs" value={String(delivered.length)} />
       </Card>
       <Card accent>
-        <Text style={styles.cardMeta}>Withdrawable balance</Text>
-        <Text style={styles.walletValue}>Rs {withdrawableBalance.toFixed(0)}</Text>
-        <PrimaryButton icon="wallet-outline" label="Withdraw" onPress={() => undefined} />
+        <Text style={styles.cardMeta}>Wallet balance</Text>
+        <Text style={styles.walletValue}>Rs {Number(wallet?.balance ?? withdrawableBalance).toFixed(0)}</Text>
+        <Text style={styles.cardMeta}>Payments are settled weekly.</Text>
+      </Card>
+      {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : null}
+      <Card>
+        <Text style={styles.cardTitle}>Wallet History</Text>
+        {(wallet?.transactions ?? []).length === 0 ? <Text style={styles.cardMeta}>No wallet transactions yet.</Text> : null}
+        {(wallet?.transactions ?? []).map((transaction: any) => (
+          <StatusRow
+            key={transaction.id}
+            label={`${transaction.transactionType === "DEBIT" ? "-" : "+"} Rs ${Number(transaction.amount ?? 0).toFixed(0)}`}
+            value={transaction.remarks ?? transaction.category}
+          />
+        ))}
+      </Card>
+      <Card>
+        <Text style={styles.cardTitle}>Previous Payments</Text>
+        {(wallet?.payments ?? []).length === 0 ? <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text> : null}
+        {(wallet?.payments ?? []).map((payment: any) => (
+          <StatusRow
+            key={payment.id}
+            label={`Rs ${Number(payment.amount ?? 0).toFixed(0)}`}
+            value={payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}
+          />
+        ))}
       </Card>
     </ScrollView>
   );

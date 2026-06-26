@@ -18,8 +18,12 @@ import {
   TransactionModel,
   UserModel,
   WalletModel,
+  WalletTransactionModel,
+  PaymentHistoryModel,
   BugReportModel,
   AccountChangeRequestModel,
+  DeliveryRequestModel,
+  TailorQuoteModel,
   TailoringRequestModel,
   deliveryTypes
 } from "../models.js";
@@ -32,6 +36,7 @@ import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
 import { emitToCustomer, emitToAdmins } from "../services/socket.service.js";
+import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -140,6 +145,24 @@ const deliveryProfileSchema = z.object({
       availability: z.string().trim().max(40).optional()
     })
     .optional()
+});
+
+const payoutSchema = z.object({
+  userId: z.string().trim().min(1),
+  userType: z.enum(["TAILOR", "DELIVERY_PARTNER"]),
+  amount: z.coerce.number().positive(),
+  receiptUrl: z.string().trim().min(1),
+  notes: z.string().trim().max(500).optional(),
+  weekStart: z.string().datetime().optional(),
+  weekEnd: z.string().datetime().optional(),
+  referenceNumber: z.string().trim().max(120).optional()
+});
+
+const deliveryFareSettingsSchema = z.object({
+  normal: z.coerce.number().positive().default(8),
+  express: z.coerce.number().positive().default(8),
+  sameDay: z.coerce.number().positive().default(10),
+  instant: z.coerce.number().positive().default(15)
 });
 
 const deliveryVerificationSchema = z.object({
@@ -712,13 +735,98 @@ export async function uploadDeliveryVerificationMediaController(req: Request, re
 }
 
 export async function walletController(req: Request, res: Response) {
-  const wallet = await WalletModel.findOneAndUpdate({ userId: req.user!.id }, { $setOnInsert: { userId: req.user!.id, balance: 0 } }, { upsert: true, returnDocument: "after" });
-  res.json({ data: wallet });
+  const userType = req.user!.role === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
+  res.json({ data: await walletSummary(req.user!.id, userType) });
 }
 
 export async function transactionsController(req: Request, res: Response) {
-  const transactions = await TransactionModel.find({ userId: req.user!.id }).sort({ createdAt: -1 });
+  const transactions = await WalletTransactionModel.find({ userId: req.user!.id }).sort({ createdAt: -1 });
   res.json({ data: transactions });
+}
+
+export async function adminWalletPayoutsController(req: Request, res: Response) {
+  const userType = req.query.userType === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
+  const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+  const weekStartValue = typeof req.query.weekStart === "string" ? new Date(req.query.weekStart) : startOfWeek();
+  const weekEndValue = typeof req.query.weekEnd === "string" ? new Date(req.query.weekEnd) : endOfWeek(weekStartValue);
+
+  const profiles = userType === "TAILOR"
+    ? await TailorModel.find().sort({ shopName: 1 })
+    : await DeliveryPartnerModel.find().sort({ createdAt: -1 });
+
+  const rows = await Promise.all(profiles.map(async (profile: any) => {
+    const user = await UserModel.findById(profile.userId).select("name phone");
+    const [wallet, transactions, lastPayment] = await Promise.all([
+      WalletModel.findOne({ userId: profile.userId }),
+      WalletTransactionModel.find({ userId: profile.userId }).sort({ createdAt: -1 }),
+      PaymentHistoryModel.findOne({ userId: profile.userId }).sort({ paidAt: -1, createdAt: -1 })
+    ]);
+    const currentWeekEarnings = transactions.reduce((sum: number, transaction: any) => {
+      const createdAt = new Date(transaction.createdAt ?? 0);
+      if (transaction.transactionType !== "CREDIT" || transaction.category !== "ORDER_EARNING") return sum;
+      return createdAt >= weekStartValue && createdAt <= weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
+    }, 0);
+    return {
+      userId: profile.userId,
+      profileId: profile.id,
+      userType,
+      name: user?.name ?? profile.shopName ?? "Unnamed",
+      phone: user?.phone ?? "",
+      walletBalance: Number(wallet?.balance ?? 0),
+      currentWeekEarnings,
+      pendingAmount: Number(wallet?.balance ?? 0),
+      lastPayment,
+      status: Number(wallet?.balance ?? 0) > 0 ? "DUE" : "SETTLED"
+    };
+  }));
+
+  const filtered = search
+    ? rows.filter((row) => `${row.name} ${row.phone}`.toLowerCase().includes(search))
+    : rows;
+  res.json({ data: filtered });
+}
+
+export async function adminWalletDetailController(req: Request, res: Response) {
+  const userId = String(req.params.userId);
+  const user = await UserModel.findById(userId).select("name phone role");
+  if (!user) throw new AppError(404, "User not found");
+  const userType = user.role === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
+  res.json({ data: { user, ...(await walletSummary(userId, userType as WalletUserType)) } });
+}
+
+export async function adminCreatePayoutController(req: Request, res: Response) {
+  const input = payoutSchema.parse(req.body);
+  const history = await createWeeklyPayout({
+    userId: input.userId,
+    userType: input.userType,
+    amount: input.amount,
+    receiptUrl: input.receiptUrl,
+    notes: input.notes,
+    paidBy: req.user!.id,
+    weekStart: input.weekStart ? new Date(input.weekStart) : undefined,
+    weekEnd: input.weekEnd ? new Date(input.weekEnd) : undefined,
+    referenceNumber: input.referenceNumber
+  });
+  res.status(201).json({ data: history });
+}
+
+export async function getDeliveryFareSettingsController(_req: Request, res: Response) {
+  const setting = await SettingModel.findOneAndUpdate(
+    { key: "delivery_fare_settings" },
+    { $setOnInsert: { key: "delivery_fare_settings", value: { normal: 8, express: 8, sameDay: 10, instant: 15 } } },
+    { upsert: true, returnDocument: "after" }
+  );
+  res.json({ data: setting.value });
+}
+
+export async function updateDeliveryFareSettingsController(req: Request, res: Response) {
+  const input = deliveryFareSettingsSchema.parse(req.body);
+  const setting = await SettingModel.findOneAndUpdate(
+    { key: "delivery_fare_settings" },
+    { value: input },
+    { upsert: true, returnDocument: "after" }
+  );
+  res.json({ data: setting.value });
 }
 
 export async function listNotificationsController(req: Request, res: Response) {
@@ -932,9 +1040,60 @@ export async function paymentsController(req: Request, res: Response) {
   const payments = await PaymentModel.find().sort({ createdAt: -1 });
   const data = await Promise.all(
     payments.map(async (payment) => {
-      const order = await OrderModel.findById(payment.orderId).select("orderNumber customerId");
-      if (req.user!.role !== "ADMIN" && order?.customerId !== req.user!.id) return null;
-      return { ...payment.toJSON(), order: order?.toJSON() };
+      const order = await OrderModel.findById(payment.orderId).select("orderNumber customerId status totalAmount");
+      if (order) {
+        if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN" && order.customerId !== req.user!.id) return null;
+        const [customer, deliveryTasks] = await Promise.all([
+          UserModel.findById(order.customerId).select("name phone"),
+          DeliveryRequestModel.find({ orderId: order.id }).select("estimatedEarnings")
+        ]);
+        const tailorQuote = Number(order.totalAmount ?? payment.amount ?? 0) * 0.45;
+        const deliveryEarnings = deliveryTasks.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
+        return {
+          ...payment.toJSON(),
+          source: "ORDER",
+          customerPaid: Number(payment.amount ?? 0),
+          tailorQuote,
+          deliveryEarnings,
+          netRevenue: Number(payment.amount ?? 0) - tailorQuote - deliveryEarnings,
+          order: {
+            ...order.toJSON(),
+            customerName: customer?.name,
+            customerPhone: customer?.phone
+          }
+        };
+      }
+
+      const tailoringRequest = await TailoringRequestModel.findById(payment.orderId).select(
+        "customerId clothType workType orderStatus status totalAmount quoteAmount selectedQuoteId"
+      );
+      if (!tailoringRequest) return req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN" ? { ...payment.toJSON(), source: "ORDER" } : null;
+      if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN" && tailoringRequest.customerId !== req.user!.id) return null;
+
+      const [customer, selectedQuote, deliveryTasks] = await Promise.all([
+        UserModel.findById(tailoringRequest.customerId).select("name phone"),
+        tailoringRequest.selectedQuoteId ? TailorQuoteModel.findById(tailoringRequest.selectedQuoteId).select("price") : null,
+        DeliveryRequestModel.find({ orderId: tailoringRequest.id }).select("estimatedEarnings")
+      ]);
+      const tailorQuote = Number(tailoringRequest.quoteAmount ?? selectedQuote?.price ?? 0);
+      const deliveryEarnings = deliveryTasks.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
+
+      return {
+        ...payment.toJSON(),
+        source: "TAILORING_REQUEST",
+        customerPaid: Number(payment.amount ?? tailoringRequest.totalAmount ?? 0),
+        tailorQuote,
+        deliveryEarnings,
+        netRevenue: Number(payment.amount ?? tailoringRequest.totalAmount ?? 0) - tailorQuote - deliveryEarnings,
+        order: {
+          id: tailoringRequest.id,
+          orderNumber: `TR-${tailoringRequest.id.slice(0, 6).toUpperCase()}`,
+          customerId: tailoringRequest.customerId,
+          customerName: customer?.name,
+          customerPhone: customer?.phone,
+          status: String(tailoringRequest.orderStatus ?? tailoringRequest.status ?? "")
+        }
+      };
     })
   );
   res.json({ data: data.filter(Boolean) });
