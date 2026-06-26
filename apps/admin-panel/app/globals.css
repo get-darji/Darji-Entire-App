@@ -23,9 +23,9 @@
 .dark {
   --background: #000000;
   --foreground: #f7f7f7;
-  --panel: rgba(5, 5, 5, 0.94);
-  --panel-strong: #090909;
-  --panel-border: rgba(255, 255, 255, 0.12);
+  --panel: rgba(4, 4, 4, 0.96);
+  --panel-strong: #070707;
+  --panel-border: rgba(246, 163, 19, 0.42);
   --muted: #a3a3a3;
   --accent: #f6a313;
   --accent-strong: #ffc44d;
@@ -34,7 +34,7 @@
   --deep: #f8f8f8;
   --deep-soft: #d6d6d6;
   --danger-soft: rgba(248, 113, 113, 0.14);
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.72);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(246, 163, 19, 0.08);
 }
 
 * {
@@ -68,6 +68,7 @@ body {
 }
 
 .dark .bg-white,
+.dark .bg-white\/90,
 .dark .bg-\[\#fffdf8\],
 .dark .bg-\[\#fffaf1\],
 .dark .bg-\[\#fff6e6\],
@@ -93,7 +94,7 @@ body {
 .dark .border-\[\#f2e4cd\],
 .dark .border-\[\#f1e3ca\],
 .dark .border-\[\#f5eada\] {
-  border-color: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(246, 163, 19, 0.42) !important;
 }
 
 .dark .text-\[\#433624\],
@@ -101,6 +102,63 @@ body {
 .dark .text-\[\#7d6d58\],
 .dark .text-\[\#9a8764\] {
   color: var(--muted) !important;
+}
+
+.dark .darji-shell {
+  background:
+    radial-gradient(circle at top left, rgba(246, 163, 19, 0.08), transparent 18%),
+    #000000;
+}
+
+.dark .darji-sidebar,
+.dark .darji-panel {
+  background: #050505;
+  border-color: rgba(246, 163, 19, 0.45);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.74), inset 0 0 0 1px rgba(246, 163, 19, 0.08);
+}
+
+.dark .darji-topbar {
+  background: linear-gradient(180deg, #080808 0%, #000000 100%);
+  border-color: rgba(246, 163, 19, 0.55);
+}
+
+.dark .darji-topbar-overlay {
+  background:
+    radial-gradient(circle at 78% 30%, rgba(246, 163, 19, 0.18), transparent 22%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.98) 0%, rgba(15, 9, 0, 0.92) 100%);
+}
+
+.dark .darji-header-control,
+.dark .darji-date-pill {
+  background: #000000;
+  border-color: rgba(246, 163, 19, 0.45);
+  color: #f4f4f5;
+}
+
+.dark .darji-keycap {
+  background: #050505;
+  border-color: rgba(246, 163, 19, 0.35);
+}
+
+.dark .darji-hero-wave {
+  background: linear-gradient(180deg, #080808 0%, #000000 100%);
+  border-color: rgba(246, 163, 19, 0.55);
+}
+
+.dark .darji-hero-overlay {
+  background:
+    radial-gradient(circle at 78% 24%, rgba(246, 163, 19, 0.24), transparent 22%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.94), rgba(0, 0, 0, 0.55));
+}
+
+.dark .darji-stat-icon {
+  background: rgba(246, 163, 19, 0.16);
+  color: #fbbf24;
+  box-shadow: inset 0 0 0 1px rgba(246, 163, 19, 0.3);
+}
+
+.dark .darji-stat-label {
+  color: #e4e4e7;
 }
 
 button,

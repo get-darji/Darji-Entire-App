@@ -17,7 +17,7 @@ import {
   sendPickupAssignedNotification,
   sendQuoteReceivedNotification
 } from "../services/notificationService.js";
-import { emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
+import { emitToAdmins, emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
 import { creditOrderEarning } from "../services/wallet.service.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -94,6 +94,63 @@ export function getDeliveryRoundForTime(date: Date, rounds: Array<{ name: string
   return { deliveryRound: firstRound.name, roundAt };
 }
 
+const defaultDeliveryRounds = [
+  { name: DeliveryRound.ONE_PM, time: "13:00" },
+  { name: DeliveryRound.SIX_PM, time: "18:00" }
+];
+
+function istDateAt(date: Date, addDays: number, hour: number, minute = 0) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  });
+  const parts = formatter.formatToParts(date);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const anchor = new Date(`${value("year")}-${String(value("month")).padStart(2, "0")}-${String(value("day")).padStart(2, "0")}T12:00:00+05:30`);
+  anchor.setUTCDate(anchor.getUTCDate() + addDays);
+  const nextParts = formatter.formatToParts(anchor);
+  const nextValue = (type: string) => Number(nextParts.find((part) => part.type === type)?.value ?? 0);
+  return new Date(`${nextValue("year")}-${String(nextValue("month")).padStart(2, "0")}-${String(nextValue("day")).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+05:30`);
+}
+
+function retryBatchForReason(reason: (typeof deliveryFailureReasons)[number], failedAt = new Date()) {
+  if (reason === "Customer requested tomorrow") {
+    return { action: "retry_scheduled", deliveryRound: DeliveryRound.ONE_PM, roundAt: istDateAt(failedAt, 1, 13) };
+  }
+  if (reason === "Customer requested later today") {
+    return { action: "retry_scheduled", ...getDeliveryRoundForTime(failedAt, defaultDeliveryRounds) };
+  }
+  if (reason === "Customer not available" || reason === "Phone unreachable") {
+    return { action: "retry_scheduled", ...getDeliveryRoundForTime(failedAt, defaultDeliveryRounds) };
+  }
+  if (reason === "Customer cancelled") {
+    return { action: "cancelled", deliveryRound: undefined, roundAt: undefined };
+  }
+  return { action: "admin_review", deliveryRound: undefined, roundAt: undefined };
+}
+
+function nextSpecificDeliveryRound(round: string, from = new Date()) {
+  const time = round === DeliveryRound.ONE_PM ? "13:00" : "18:00";
+  return getDeliveryRoundForTime(from, [{ name: round, time }]);
+}
+
+function etaWindowForRound(roundAt?: Date) {
+  if (!roundAt) return {};
+  return {
+    etaWindowStart: roundAt,
+    etaWindowEnd: new Date(roundAt.getTime() + 2 * 60 * 60 * 1000)
+  };
+}
+
+function routePositionFields(position = 1, total = 1) {
+  return {
+    routePosition: position,
+    routeTotal: total
+  };
+}
+
 export function matchAddressToArea(address: string, areas: string[]): string {
   const normalizedAddress = address.toLowerCase();
   for (const area of areas) {
@@ -118,12 +175,13 @@ export async function assignPendingTasksToPartner(partner: any) {
 
   const pendingTasksQuery: Record<string, any> = {
     deliveryType: partner.deliveryType,
-    taskStatus: "pending"
+    taskStatus: "pending",
+    retryStatus: { $ne: "ACTION_REQUIRED" }
   };
   if (enableAreaFiltering) {
     pendingTasksQuery.assignedArea = partner.assignedArea;
   }
-  const pendingTasks = await DeliveryRequestModel.find(pendingTasksQuery);
+  const pendingTasks = await DeliveryRequestModel.find(pendingTasksQuery).sort({ retryCount: -1, nextScheduledBatch: 1, createdAt: 1 });
 
   if (!pendingTasks.length) return;
 
@@ -301,6 +359,26 @@ const updateTailoringWorkStatusSchema = z.object({
 
 const updateDeliveryTaskSchema = z.object({
   status: z.enum(["picked_up", "delivered"])
+});
+
+const deliveryFailureReasons = [
+  "Customer not available",
+  "Customer requested later today",
+  "Customer requested tomorrow",
+  "Phone unreachable",
+  "Wrong address",
+  "Customer cancelled",
+  "Other"
+] as const;
+
+const failDeliveryTaskSchema = z.object({
+  reason: z.enum(deliveryFailureReasons),
+  note: z.string().trim().max(500).optional()
+});
+
+const adminRetryNowSchema = z.object({
+  roundAt: z.coerce.date().optional(),
+  deliveryRound: z.string().trim().optional()
 });
 
 const deliveryTaskOtpSchema = z.object({
@@ -878,6 +956,7 @@ export async function listDeliveryRequestsController(req: Request, res: Response
     const enableAreaFiltering = areaFilteringSetting?.value === true;
 
     where.deliveryType = partner.deliveryType;
+    where.retryStatus = { $ne: "ACTION_REQUIRED" };
     if (enableAreaFiltering) {
       where.assignedArea = partner.assignedArea;
     }
@@ -891,7 +970,7 @@ export async function listDeliveryRequestsController(req: Request, res: Response
     where.taskStatus = status.toLowerCase();
   }
 
-  const requests = await DeliveryRequestModel.find(where).sort({ createdAt: -1 }).limit(100);
+  const requests = await DeliveryRequestModel.find(where).sort({ retryCount: -1, nextScheduledBatch: 1, createdAt: -1 }).limit(100);
   res.json({ data: requests });
 }
 
@@ -929,8 +1008,8 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
 
   const deadlineAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
   const request = await DeliveryRequestModel.findOneAndUpdate(
-    { _id: String(req.params.id), taskStatus: "pending", assignedDeliveryPartnerId: { $exists: false } },
-    { taskStatus: "accepted", assignedDeliveryPartnerId: partner.id, acceptedAt: new Date(), deadlineAt },
+    { _id: String(req.params.id), taskStatus: "pending", assignedDeliveryPartnerId: { $exists: false }, retryStatus: { $ne: "ACTION_REQUIRED" } },
+    { taskStatus: "accepted", retryStatus: "ACTIVE", assignedDeliveryPartnerId: partner.id, acceptedAt: new Date(), deadlineAt },
     { returnDocument: "after" }
   );
   if (!request) throw new AppError(409, "Delivery request is no longer available");
@@ -991,6 +1070,202 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
     });
   }
   res.json({ data: request });
+}
+
+export async function failDeliveryTaskController(req: Request, res: Response) {
+  const input = failDeliveryTaskSchema.parse(req.body);
+  const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
+  if (!partner && req.user!.role !== "ADMIN") throw new AppError(404, "Delivery partner profile not found");
+  if (partner?.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+
+  const ownerFilter = req.user!.role === "ADMIN" ? {} : { assignedDeliveryPartnerId: partner!.id };
+  const task = await DeliveryRequestModel.findOne({
+    _id: String(req.params.id),
+    ...ownerFilter,
+    taskStatus: { $in: ["accepted", "picked_up"] }
+  });
+  if (!task) throw new AppError(409, "Only active delivery tasks can be marked failed");
+
+  const failedAt = new Date();
+  const retryPlan = retryBatchForReason(input.reason, failedAt);
+  const retryCount = Number(task.retryCount ?? 0) + 1;
+  const reachedMaxRetries = retryCount >= 3 && retryPlan.action === "retry_scheduled";
+  const action = reachedMaxRetries ? "admin_review" : retryPlan.action;
+  const isCancelled = action === "cancelled";
+  const needsAdmin = action === "admin_review";
+  const roundAt = action === "retry_scheduled" ? retryPlan.roundAt : undefined;
+  const deliveryRound = action === "retry_scheduled" ? retryPlan.deliveryRound : undefined;
+
+  if (task.batchId) {
+    await DeliveryBatchModel.updateOne({ batchId: task.batchId }, { $pull: { tasks: task.id } });
+  }
+
+  const updated = await DeliveryRequestModel.findByIdAndUpdate(
+    task.id,
+    {
+      $set: {
+        taskStatus: isCancelled ? "cancelled" : "pending",
+        retryStatus: isCancelled ? "CANCELLED" : needsAdmin ? "ACTION_REQUIRED" : "PENDING_RETRY",
+        retryCount,
+        lastFailureReason: input.reason,
+        lastFailureAt: failedAt,
+        nextScheduledBatch: roundAt,
+        nextDeliveryRound: deliveryRound,
+        ...(deliveryRound ? { deliveryRound, shift: deliveryRound === DeliveryRound.ONE_PM ? "morning" : "evening" } : {}),
+        ...(roundAt ? { roundAt, ...etaWindowForRound(roundAt), ...routePositionFields() } : {})
+      },
+      $unset: {
+        assignedDeliveryPartnerId: "",
+        assignedDeliveryBoyId: "",
+        batchId: "",
+        deadlineAt: "",
+        acceptedAt: "",
+        pickupOtpVerifiedAt: "",
+        dropOtpVerifiedAt: ""
+      },
+      $push: {
+        failureHistory: {
+          reason: input.reason,
+          note: input.note,
+          failedAt,
+          action,
+          nextScheduledBatch: roundAt,
+          deliveryRound,
+          actorId: req.user!.id
+        }
+      }
+    },
+    { returnDocument: "after" }
+  );
+  if (!updated) throw new AppError(404, "Delivery request not found");
+
+  const orderStatus = isCancelled ? "cancelled" : needsAdmin ? "delivery_issue" : "delivery_retry_scheduled";
+  await TailoringRequestModel.findByIdAndUpdate(updated.orderId, { orderStatus });
+  if (partner) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
+  emitToAdmins("delivery:retry_updated", { task: updated.toJSON(), action });
+  emitToCustomer(updated.customerId, "customer:delivery_status_updated", {
+    taskId: updated.id,
+    orderId: updated.orderId,
+    tailoringRequestId: updated.orderId,
+    status: orderStatus,
+    deliveryTask: updated.toJSON()
+  });
+
+  await sendPushToUsers([updated.customerId], {
+    title: isCancelled ? "Delivery cancelled" : needsAdmin ? "Delivery needs attention" : "Delivery rescheduled",
+    body: isCancelled
+      ? "Your delivery was cancelled as requested."
+      : needsAdmin
+        ? "We could not complete the delivery. Darji support will review it."
+        : `We will try again in the ${deliveryRound === DeliveryRound.ONE_PM ? "1 PM" : "6 PM"} delivery batch.`,
+    data: { type: "DELIVERY_RETRY_UPDATED", taskId: updated.id, orderId: updated.orderId, screen: "trackOrder" },
+    channelId: "customer-orders-v2",
+    categoryId: "DARJI_ORDER",
+    sound: "ding.mp3"
+  });
+
+  res.json({ data: updated });
+}
+
+export async function listDeliveryRetriesController(_req: Request, res: Response) {
+  const tasks = await DeliveryRequestModel.find({
+    retryStatus: { $in: ["PENDING_RETRY", "ACTION_REQUIRED"] },
+    taskStatus: { $ne: "delivered" }
+  }).sort({ retryStatus: 1, retryCount: -1, nextScheduledBatch: 1, lastFailureAt: -1 }).limit(100);
+  res.json({ data: tasks });
+}
+
+export async function retryDeliveryTaskNowController(req: Request, res: Response) {
+  const input = adminRetryNowSchema.parse(req.body);
+  const now = new Date();
+  const fallback = input.deliveryRound ? nextSpecificDeliveryRound(input.deliveryRound, now) : getDeliveryRoundForTime(now, defaultDeliveryRounds);
+  const roundAt = input.roundAt ?? fallback.roundAt;
+  const deliveryRound = input.deliveryRound ?? fallback.deliveryRound;
+  const task = await DeliveryRequestModel.findByIdAndUpdate(
+    String(req.params.id),
+    {
+      $set: {
+        taskStatus: "pending",
+        retryStatus: "PENDING_RETRY",
+        nextScheduledBatch: roundAt,
+        nextDeliveryRound: deliveryRound,
+        deliveryRound,
+        roundAt,
+        shift: deliveryRound === DeliveryRound.ONE_PM ? "morning" : "evening",
+        ...etaWindowForRound(roundAt),
+        ...routePositionFields()
+      },
+      $unset: {
+        assignedDeliveryPartnerId: "",
+        assignedDeliveryBoyId: "",
+        batchId: "",
+        deadlineAt: "",
+        acceptedAt: "",
+        pickupOtpVerifiedAt: "",
+        dropOtpVerifiedAt: ""
+      },
+      $push: {
+        failureHistory: {
+          reason: "Admin retry",
+          failedAt: now,
+          action: "retry_now",
+          nextScheduledBatch: roundAt,
+          deliveryRound,
+          actorId: req.user!.id
+        }
+      }
+    },
+    { returnDocument: "after" }
+  );
+  if (!task) throw new AppError(404, "Delivery request not found");
+  await TailoringRequestModel.findByIdAndUpdate(task.orderId, { orderStatus: "delivery_retry_scheduled" });
+  emitToAdmins("delivery:retry_updated", { task: task.toJSON(), action: "retry_now" });
+  emitToDeliveryPartners("delivery:retry_available", task.toJSON());
+  res.json({ data: task });
+}
+
+export async function resolveDeliveryRetryController(req: Request, res: Response) {
+  const task = await DeliveryRequestModel.findByIdAndUpdate(
+    String(req.params.id),
+    {
+      $set: { retryStatus: "RESOLVED", taskStatus: "pending" },
+      $push: {
+        failureHistory: {
+          reason: "Admin resolved",
+          failedAt: new Date(),
+          action: "resolved",
+          actorId: req.user!.id
+        }
+      }
+    },
+    { returnDocument: "after" }
+  );
+  if (!task) throw new AppError(404, "Delivery request not found");
+  emitToAdmins("delivery:retry_updated", { task: task.toJSON(), action: "resolved" });
+  res.json({ data: task });
+}
+
+export async function cancelDeliveryRetryController(req: Request, res: Response) {
+  const task = await DeliveryRequestModel.findByIdAndUpdate(
+    String(req.params.id),
+    {
+      $set: { retryStatus: "CANCELLED", taskStatus: "cancelled", lastFailureReason: "Customer cancelled", lastFailureAt: new Date() },
+      $push: {
+        failureHistory: {
+          reason: "Admin cancelled",
+          failedAt: new Date(),
+          action: "cancelled",
+          actorId: req.user!.id
+        }
+      }
+    },
+    { returnDocument: "after" }
+  );
+  if (!task) throw new AppError(404, "Delivery request not found");
+  await TailoringRequestModel.findByIdAndUpdate(task.orderId, { orderStatus: "cancelled" });
+  emitToAdmins("delivery:retry_updated", { task: task.toJSON(), action: "cancelled" });
+  emitToCustomer(task.customerId, "customer:delivery_status_updated", { taskId: task.id, orderId: task.orderId, tailoringRequestId: task.orderId, status: "cancelled", deliveryTask: task.toJSON() });
+  res.json({ data: task });
 }
 
 export async function updateDeliveryTaskStatusController(req: Request, res: Response) {

@@ -92,6 +92,22 @@ export async function getDeliveryRequests() {
   return unwrap<DeliveryRequest[]>(api.get("/delivery-requests"));
 }
 
+export async function getDeliveryRetries() {
+  return unwrap<DeliveryRequest[]>(api.get("/admin/delivery-retries"));
+}
+
+export async function retryDeliveryNow(taskId: string, payload?: { deliveryRound?: "ONE_PM" | "SIX_PM"; roundAt?: string }) {
+  return unwrap<DeliveryRequest>(api.patch(`/admin/delivery-retries/${taskId}/retry-now`, payload ?? {}));
+}
+
+export async function resolveDeliveryRetry(taskId: string) {
+  return unwrap<DeliveryRequest>(api.patch(`/admin/delivery-retries/${taskId}/resolve`, {}));
+}
+
+export async function cancelDeliveryRetry(taskId: string) {
+  return unwrap<DeliveryRequest>(api.patch(`/admin/delivery-retries/${taskId}/cancel`, {}));
+}
+
 export async function getTailors() {
   return unwrap<TailorProfile[]>(api.get("/tailors"));
 }

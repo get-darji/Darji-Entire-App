@@ -74,12 +74,14 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import {
   assignOrder,
+  cancelDeliveryRetry,
   createCoupon,
   extractError,
   getAnalytics,
   getCoupons,
   getDeliveryPartners,
   getDeliveryRequests,
+  getDeliveryRetries,
   getMe,
   getOrders,
   getPayments,
@@ -109,6 +111,8 @@ import {
   getAccountChangeRequests,
   approveAccountChangeRequest,
   rejectAccountChangeRequest,
+  resolveDeliveryRetry,
+  retryDeliveryNow,
   addSupportTicketMessage,
   addBugReportMessage,
   addChangeRequestMessage
@@ -366,6 +370,11 @@ export function AdminPortal() {
     queryFn: getDeliveryRequests,
     enabled: isAuthed
   });
+  const deliveryRetriesQuery = useQuery({
+    queryKey: ["admin", "delivery-retries"],
+    queryFn: getDeliveryRetries,
+    enabled: isAuthed
+  });
   const tailorsQuery = useQuery({
     queryKey: ["admin", "tailors"],
     queryFn: getTailors,
@@ -527,6 +536,7 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "orders"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "delivery-retries"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "partners"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
@@ -614,6 +624,25 @@ export function AdminPortal() {
     onSuccess: async () => {
       toast.success("Delivery fare settings saved");
       await queryClient.invalidateQueries({ queryKey: ["admin", "delivery-fare-settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const deliveryRetryMutation = useMutation({
+    mutationFn: ({ taskId, action }: { taskId: string; action: "retry" | "assign_1pm" | "assign_6pm" | "resolve" | "cancel" }) => {
+      if (action === "retry") return retryDeliveryNow(taskId);
+      if (action === "assign_1pm") return retryDeliveryNow(taskId, { deliveryRound: "ONE_PM" });
+      if (action === "assign_6pm") return retryDeliveryNow(taskId, { deliveryRound: "SIX_PM" });
+      if (action === "resolve") return resolveDeliveryRetry(taskId);
+      return cancelDeliveryRetry(taskId);
+    },
+    onSuccess: async (_, variables) => {
+      toast.success(variables.action === "retry" || variables.action.startsWith("assign") ? "Delivery retry scheduled" : variables.action === "resolve" ? "Retry order resolved" : "Delivery order cancelled");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-retries"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] })
+      ]);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1121,6 +1150,14 @@ export function AdminPortal() {
       .toLowerCase()
       .includes(searchTerm)
   );
+  const retryDeliveryRows = (deliveryRetriesQuery.data ?? []).filter((request) =>
+    !searchTerm ||
+    [request.taskId, request.customerName, request.tailorName, request.lastFailureReason, request.retryStatus]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(searchTerm)
+  );
 
   const filteredTailors = tailors.filter((tailor) =>
     !searchTerm ||
@@ -1351,7 +1388,7 @@ export function AdminPortal() {
         {activeSection === "dashboard" ? (
           <div className="space-y-4">
             <Panel className="darji-hero-wave relative overflow-hidden border-[#efdfc5] bg-[linear-gradient(180deg,#fffdf8_0%,#fff8ee_100%)] p-0">
-              <div className="absolute left-0 right-0 top-0 h-full bg-[radial-gradient(circle_at_78%_24%,rgba(246,163,19,0.12),transparent_20%),radial-gradient(circle_at_88%_26%,rgba(246,163,19,0.12),transparent_28%),linear-gradient(90deg,rgba(255,255,255,0.92),rgba(255,250,240,0.58))]" />
+              <div className="darji-hero-overlay absolute left-0 right-0 top-0 h-full bg-[radial-gradient(circle_at_78%_24%,rgba(246,163,19,0.12),transparent_20%),radial-gradient(circle_at_88%_26%,rgba(246,163,19,0.12),transparent_28%),linear-gradient(90deg,rgba(255,255,255,0.92),rgba(255,250,240,0.58))]" />
               <div className="absolute right-6 top-5 hidden h-28 w-40 opacity-60 lg:block">
                 <div className="absolute inset-0 bg-[radial-gradient(circle,#efc871_1px,transparent_1px)] [background-size:10px_10px]" />
               </div>
@@ -1362,7 +1399,7 @@ export function AdminPortal() {
                   </h2>
                   <p className="mt-1.5 text-sm text-[#6f614c]">Here&apos;s what&apos;s happening with Darji today.</p>
                 </div>
-                <div className="flex items-center gap-3 self-start rounded-2xl border border-[#ecd8b6] bg-white/90 px-4 py-2.5 text-sm font-medium text-[var(--deep)] shadow-[0_12px_30px_rgba(199,153,56,0.08)]">
+                <div className="darji-date-pill flex items-center gap-3 self-start rounded-2xl border border-[#ecd8b6] bg-white/90 px-4 py-2.5 text-sm font-medium text-[var(--deep)] shadow-[0_12px_30px_rgba(199,153,56,0.08)]">
                   <CalendarDays size={16} className="text-[#c1840f]" />
                   {dateRangeLabel}
                 </div>
@@ -1555,6 +1592,12 @@ export function AdminPortal() {
               title="Delivery operations"
               description="Pickup and drop tasks created from the tailoring workflow."
               action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-delivery-ops.csv", filteredDelivery.map(deliveryToCsv))}>Export CSV</ActionButton>}
+            />
+            <PendingRetryOrdersPanel
+              rows={retryDeliveryRows}
+              pending={deliveryRetryMutation.isPending}
+              onOpen={setDeliveryDetail}
+              onAction={(taskId, action) => deliveryRetryMutation.mutate({ taskId, action })}
             />
             <DataTable columns={deliveryColumns} data={filteredDelivery} emptyMessage="No delivery tasks available." />
           </div>
@@ -2273,11 +2316,11 @@ function PortalFrame({
 
   return (
     <main className="min-h-screen">
-      <div className="darji-dashboard-scale relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(246,163,19,0.08),transparent_18%)] bg-[var(--background)]">
+      <div className="darji-dashboard-scale darji-shell relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(246,163,19,0.08),transparent_18%)] bg-[var(--background)]">
         <div className={cn("fixed inset-0 z-40 bg-black/55 backdrop-blur-sm transition lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")} onClick={() => setSidebarOpen(false)} />
         <aside
           className={cn(
-            "fixed inset-y-3 left-3 z-50 flex w-[252px] flex-col rounded-[30px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:translate-x-0",
+            "darji-sidebar fixed inset-y-3 left-3 z-50 flex w-[252px] flex-col rounded-[30px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:translate-x-0",
             sidebarOpen ? "translate-x-0" : "-translate-x-[120%]"
           )}
         >
@@ -2406,8 +2449,8 @@ function PortalFrame({
 
         <div className="lg:pl-[278px]">
           <div className="sticky top-0 z-20 px-3 pt-3 lg:px-6 lg:pt-4">
-            <header className="relative overflow-hidden rounded-[28px] border border-[#e8d2a7] bg-[linear-gradient(180deg,rgba(255,253,248,0.98),rgba(255,249,241,0.98))] px-4 py-4 shadow-[var(--shadow)] backdrop-blur sm:px-5">
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_55%_120%,rgba(246,163,19,0.14),transparent_24%),radial-gradient(circle_at_78%_30%,rgba(246,163,19,0.12),transparent_20%),linear-gradient(90deg,transparent_0%,rgba(246,163,19,0.04)_34%,rgba(255,255,255,0)_70%)]" />
+            <header className="darji-topbar relative overflow-hidden rounded-[28px] border border-[#e8d2a7] bg-[linear-gradient(180deg,rgba(255,253,248,0.98),rgba(255,249,241,0.98))] px-4 py-4 shadow-[var(--shadow)] backdrop-blur sm:px-5">
+              <div className="darji-topbar-overlay pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_55%_120%,rgba(246,163,19,0.14),transparent_24%),radial-gradient(circle_at_78%_30%,rgba(246,163,19,0.12),transparent_20%),linear-gradient(90deg,transparent_0%,rgba(246,163,19,0.04)_34%,rgba(255,255,255,0)_70%)]" />
               <div className="pointer-events-none absolute right-10 top-0 hidden h-full w-80 opacity-60 xl:block">
                 <div className="absolute inset-0 bg-[radial-gradient(circle,#efc871_1px,transparent_1px)] [background-size:12px_12px]" />
                 <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(246,190,73,0.12)_28%,transparent_46%,rgba(246,190,73,0.08)_62%,transparent_84%)]" />
@@ -2417,10 +2460,10 @@ function PortalFrame({
                   <button className="rounded-2xl border border-[var(--panel-border)] p-3 text-[var(--foreground)] lg:hidden" onClick={onOpenSidebar}>
                     <Menu size={18} />
                   </button>
-                  <div className="hidden h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-[#fff6e3] text-[#c78309] lg:flex">
+                  <div className="darji-header-control hidden h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-[#fff6e3] text-[#c78309] lg:flex">
                     <Menu size={18} />
                   </div>
-                  <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#e8cf9d] bg-white px-4 py-3 shadow-[inset_0_0_0_1px_rgba(255,245,224,0.55)] sm:min-w-[340px]">
+                  <div className="darji-header-control flex min-w-0 items-center gap-3 rounded-2xl border border-[#e8cf9d] bg-white px-4 py-3 shadow-[inset_0_0_0_1px_rgba(255,245,224,0.55)] sm:min-w-[340px]">
                     <Search size={18} className="text-[var(--muted)]" />
                     <input
                       className="w-full bg-transparent outline-none"
@@ -2428,21 +2471,21 @@ function PortalFrame({
                       onChange={(event) => onGlobalSearchChange(event.target.value)}
                       placeholder="Search anything..."
                     />
-                    <span className="hidden rounded-lg border border-[#eedec0] bg-[#fff8ea] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] sm:inline-flex">
+                    <span className="darji-keycap hidden rounded-lg border border-[#eedec0] bg-[#fff8ea] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] sm:inline-flex">
                       K
                     </span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="hidden items-center gap-2 rounded-2xl border border-[#f0dcc0] bg-white px-4 py-3 text-sm font-medium text-[var(--deep)] lg:inline-flex">
+                  <div className="darji-header-control hidden items-center gap-2 rounded-2xl border border-[#f0dcc0] bg-white px-4 py-3 text-sm font-medium text-[var(--deep)] lg:inline-flex">
                     <CalendarDays size={17} className="text-[var(--accent)]" />
                     {buildDashboardDateRangeLabel("monthly")}
                   </div>
 
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger asChild>
-                      <button className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-white transition hover:border-[var(--accent)] hover:text-[var(--accent)]">
+                      <button className="darji-header-control relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-white transition hover:border-[var(--accent)] hover:text-[var(--accent)]">
                         <Bell size={18} />
                         {alertCount > 0 ? (
                           <span className="absolute right-2 top-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
@@ -2464,7 +2507,7 @@ function PortalFrame({
                   </DropdownMenu.Root>
 
                   <button
-                    className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-white text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                    className="darji-header-control relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-white text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
                     onClick={() => onSectionChange("support")}
                     type="button"
                   >
@@ -2478,7 +2521,7 @@ function PortalFrame({
 
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger asChild>
-                      <button className="flex items-center gap-3 rounded-2xl border border-[#f0dcc0] bg-white px-3 py-2.5 transition hover:border-[var(--accent)]">
+                      <button className="darji-header-control flex items-center gap-3 rounded-2xl border border-[#f0dcc0] bg-white px-3 py-2.5 transition hover:border-[var(--accent)]">
                         <AvatarBadge me={me} size="sm" />
                         <div className="hidden text-left sm:block">
                           <p className="text-sm font-semibold">{me?.name ?? "Super Admin"}</p>
@@ -2694,7 +2737,7 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: "teal" | "
 }
 
 function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-4 shadow-[var(--shadow)]", className)}>{children}</div>;
+  return <div className={cn("darji-panel rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-4 shadow-[var(--shadow)]", className)}>{children}</div>;
 }
 
 function SectionIntro({
@@ -2737,14 +2780,14 @@ function StatCard({
   value: string;
 }) {
   const toneMap: Record<string, string> = {
-    amber: "bg-[#fff3de] text-[#d48500]",
-    cyan: "bg-[#edf5ff] text-[#3a7cff]",
-    emerald: "bg-[#ecf9ea] text-[#47a232]",
-    rose: "bg-[#fff0f4] text-[#de4c72]",
-    sky: "bg-[#edf5ff] text-[#3a7cff]",
-    slate: "bg-slate-500/12 text-slate-700",
-    teal: "bg-[#fff3de] text-[#d48500]",
-    violet: "bg-[#f2edff] text-[#7b61ff]"
+    amber: "darji-stat-icon bg-[#fff3de] text-[#d48500]",
+    cyan: "darji-stat-icon bg-[#edf5ff] text-[#3a7cff]",
+    emerald: "darji-stat-icon bg-[#ecf9ea] text-[#47a232]",
+    rose: "darji-stat-icon bg-[#fff0f4] text-[#de4c72]",
+    sky: "darji-stat-icon bg-[#edf5ff] text-[#3a7cff]",
+    slate: "darji-stat-icon bg-slate-500/12 text-slate-700",
+    teal: "darji-stat-icon bg-[#fff3de] text-[#d48500]",
+    violet: "darji-stat-icon bg-[#f2edff] text-[#7b61ff]"
   };
 
   const content = (
@@ -2756,7 +2799,7 @@ function StatCard({
           {change ? <TrendPill tone={changeTone}>{change}</TrendPill> : null}
         </div>
         <div className="mt-5">
-          <p className="text-sm font-medium text-[#433624]">{label}</p>
+          <p className="darji-stat-label text-sm font-medium text-[#433624]">{label}</p>
           <p className="mt-1 text-[1.65rem] font-semibold tracking-tight text-[var(--deep)]">{value}</p>
           <p className="mt-1 text-sm text-[var(--muted)]">{note}</p>
         </div>
@@ -3010,6 +3053,68 @@ function PayoutDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function PendingRetryOrdersPanel({
+  rows,
+  pending,
+  onOpen,
+  onAction
+}: {
+  rows: DeliveryRequest[];
+  pending: boolean;
+  onOpen: (request: DeliveryRequest) => void;
+  onAction: (taskId: string, action: "retry" | "assign_1pm" | "assign_6pm" | "resolve" | "cancel") => void;
+}) {
+  return (
+    <Panel className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-[var(--foreground)]">Pending Retry Orders</h3>
+          <p className="text-sm text-[var(--muted)]">Failed deliveries waiting for the next batch or admin action.</p>
+        </div>
+        <StatusBadge value={`${rows.length} pending`} />
+      </div>
+      {rows.length ? (
+        <div className="grid gap-3">
+          {rows.map((row) => (
+            <div key={row.id} className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-[var(--foreground)]">{row.taskId ?? row.id}</p>
+                    <StatusBadge value={row.retryStatus ?? "PENDING_RETRY"} />
+                    <StatusBadge value={row.lastFailureReason ?? "Failed"} />
+                  </div>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{row.customerName ?? "Customer"} - {row.customerPhone ?? "No phone"}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Retry {row.retryCount ?? 0}/3
+                    {row.nextScheduledBatch ? ` - Next batch ${formatDate(row.nextScheduledBatch)}` : " - Admin action required"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <ActionButton className="px-3 py-2" disabled={pending} onClick={() => onAction(row.id, "retry")}>Retry Now</ActionButton>
+                  <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "assign_1pm")}>Assign 1 PM</ActionButton>
+                  <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "assign_6pm")}>Assign 6 PM</ActionButton>
+                  <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "resolve")}>Mark Resolved</ActionButton>
+                  <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "cancel")}>Cancel</ActionButton>
+                  <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row)}>View</ActionButton>
+                  {row.customerPhone ? (
+                    <ActionButton className="px-3 py-2" variant="secondary" onClick={() => window.open(`tel:${row.customerPhone}`)}>
+                      <Phone className="h-4 w-4" />
+                      Contact
+                    </ActionButton>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-[var(--panel-border)] p-5 text-sm text-[var(--muted)]">No retry orders need attention.</div>
+      )}
+    </Panel>
   );
 }
 

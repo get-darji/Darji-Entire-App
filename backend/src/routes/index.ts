@@ -71,10 +71,14 @@ import {
   createTailoringRequestController,
   acceptDeliveryRequestController,
   cancelTailoringRequestController,
+  cancelDeliveryRetryController,
   confirmDeliveryCashCollectionController,
+  failDeliveryTaskController,
   getDeliveryRequestController,
   getDeliveryTaskOtpsController,
+  listDeliveryRetriesController,
   listDeliveryRequestsController,
+  resolveDeliveryRetryController,
   createTailorQuoteController,
   getTailoringRequestController,
   listTailorQuotesController,
@@ -83,6 +87,7 @@ import {
   saveDeliveryTaskPhotosController,
   startTailoringCheckoutController,
   updateDeliveryTaskStatusController,
+  retryDeliveryTaskNowController,
   verifyDeliveryTaskOtpController,
   verifyTailoringCheckoutController,
   updateTailoringWorkStatusController,
@@ -134,6 +139,11 @@ router.post("/delivery-requests/:id/verify-otp", requireAuth, requireRole("DELIV
 router.patch("/delivery-requests/:id/photos", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), saveDeliveryTaskPhotosController);
 router.patch("/delivery-requests/:id/cash-collection", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), confirmDeliveryCashCollectionController);
 router.patch("/delivery-requests/:id/status", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), updateDeliveryTaskStatusController);
+router.post("/delivery-requests/:id/fail", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), failDeliveryTaskController);
+router.get("/admin/delivery-retries", requireAuth, requireRole("ADMIN"), listDeliveryRetriesController);
+router.patch("/admin/delivery-retries/:id/retry-now", requireAuth, requireRole("ADMIN"), retryDeliveryTaskNowController);
+router.patch("/admin/delivery-retries/:id/resolve", requireAuth, requireRole("ADMIN"), resolveDeliveryRetryController);
+router.patch("/admin/delivery-retries/:id/cancel", requireAuth, requireRole("ADMIN"), cancelDeliveryRetryController);
 
 router.get("/addresses", requireAuth, listAddressesController);
 router.post("/addresses", requireAuth, createAddressController);

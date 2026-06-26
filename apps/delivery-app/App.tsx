@@ -66,6 +66,16 @@ type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaDraft = { uri: string; name: string };
 type IdentityType = "Aadhaar" | "PAN";
 
+const DELIVERY_FAILURE_REASONS = [
+  "Customer not available",
+  "Customer requested later today",
+  "Customer requested tomorrow",
+  "Phone unreachable",
+  "Wrong address",
+  "Customer cancelled",
+  "Other"
+] as const;
+
 type DeliveryMedia = { url: string; publicId?: string; resourceType: "image" | "video"; bytes?: number; format?: string; originalName?: string };
 type DeliveryRequest = {
   id: string;
@@ -107,6 +117,14 @@ type DeliveryRequest = {
   deliveryRound?: string;
   roundAt?: string;
   assignedArea?: string;
+  retryStatus?: "ACTIVE" | "PENDING_RETRY" | "ACTION_REQUIRED" | "CANCELLED" | "RESOLVED";
+  retryCount?: number;
+  lastFailureReason?: string;
+  nextScheduledBatch?: string;
+  routePosition?: number;
+  routeTotal?: number;
+  etaWindowStart?: string;
+  etaWindowEnd?: string;
 };
 
 type DeliveryTaskPayload = Omit<DeliveryRequest, "tailoringRequestId" | "leg" | "status"> & {
@@ -1591,6 +1609,8 @@ function ActiveOrderScreenView({
   const [otp, setOtp] = useState("");
   const [updating, setUpdating] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [failureModalOpen, setFailureModalOpen] = useState(false);
+  const [failureReason, setFailureReason] = useState<(typeof DELIVERY_FAILURE_REASONS)[number] | "">("");
   const pickupOtpVerified = Boolean(order.pickupOtpVerifiedAt);
   const dropOtpVerified = Boolean(order.dropOtpVerifiedAt);
   const clothPhotosUploaded = Boolean(order.clothPhotos?.length);
@@ -1707,8 +1727,52 @@ function ActiveOrderScreenView({
     }
   }
 
+  async function markFailed() {
+    if (!failureReason || updating) return;
+    try {
+      setUpdating(true);
+      const updated = await api<DeliveryTaskPayload>(`/delivery-requests/${order.id}/fail`, {
+        method: "POST",
+        body: JSON.stringify({ reason: failureReason })
+      }, token);
+      setFailureModalOpen(false);
+      setFailureReason("");
+      onTaskUpdated(normalizeDeliveryTask(updated));
+      showDialog({ title: "Delivery failure saved", message: "The order has been moved to the correct retry or admin queue.", icon: "refresh-circle-outline" });
+    } catch (error) {
+      showDialog({ title: "Failure update failed", message: error instanceof Error ? error.message : "Could not mark delivery failed.", icon: "alert-circle-outline" });
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   return (
     <Screen>
+      <Modal animationType="slide" transparent visible={failureModalOpen} onRequestClose={() => setFailureModalOpen(false)}>
+        <View style={styles.popupBackdrop}>
+          <View style={styles.popupCard}>
+            <View style={styles.popupIcon}><Ionicons name="alert-circle-outline" size={28} color={BRAND_ORANGE} /></View>
+            <Text style={styles.popupTitle}>Why did this delivery fail?</Text>
+            <Text style={styles.popupCopy}>Select one reason. Darji will schedule the next attempt or send it to admin review.</Text>
+            <View style={styles.reasonList}>
+              {DELIVERY_FAILURE_REASONS.map((reason) => (
+                <Pressable key={reason} style={[styles.reasonOption, failureReason === reason && styles.reasonOptionActive]} onPress={() => setFailureReason(reason)}>
+                  <Ionicons name={failureReason === reason ? "radio-button-on" : "radio-button-off"} size={18} color={failureReason === reason ? BRAND_ORANGE : MUTED} />
+                  <Text style={styles.reasonText}>{reason}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.dialogActions}>
+              <Pressable style={[styles.dialogButton, styles.dialogSecondary]} onPress={() => setFailureModalOpen(false)}>
+                <Text style={[styles.dialogButtonText, styles.dialogSecondaryText]}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.dialogButton, !failureReason && styles.disabledButton]} disabled={!failureReason || updating} onPress={markFailed}>
+                <Text style={styles.dialogButtonText}>{updating ? "Saving..." : "Save Failure"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title="Active job" subtitle={`${shortId(order.id)} - ${order.status}`} onBack={onBack} />
         <Text style={styles.activeOrderId}>REQ-{order.orderId.slice(0, 8).toUpperCase()}</Text>
@@ -1741,10 +1805,15 @@ function ActiveOrderScreenView({
             <StatusRow label="Clothes" value={`${order.clothType ?? "Clothes"} - ${order.workType ?? "Tailoring"}`} />
             <StatusRow label="Payment" value={paymentLabel(order)} />
             <StatusRow label="Deadline" value={deadlineLabel(order.deadlineAt)} />
+            {order.etaWindowStart && order.etaWindowEnd ? <StatusRow label="ETA" value={`${deadlineLabel(order.etaWindowStart)} - ${deadlineLabel(order.etaWindowEnd)}`} /> : null}
+            {order.routePosition && order.routeTotal ? <StatusRow label="Queue" value={`${order.routePosition} of ${order.routeTotal}`} /> : null}
             <View style={styles.navRow}>
               <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call pickup" onPress={() => Linking.openURL(`tel:${order.leg === "CUSTOMER_TO_TAILOR" ? order.customerPhone ?? "" : order.tailorPhone ?? ""}`)} variant="secondary" /></View>
               <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Route" onPress={() => openDirections(order.pickupAddress)} /></View>
             </View>
+            {order.taskStatus === "accepted" || order.taskStatus === "picked_up" ? (
+              <PrimaryButton icon="alert-circle-outline" label="Mark Failed" variant="danger" loading={updating} onPress={() => setFailureModalOpen(true)} />
+            ) : null}
           </Card>
         ) : null}
 
@@ -2932,6 +3001,15 @@ const styles = StyleSheet.create({
   popupActionText: { color: "#111111", fontSize: 13, fontWeight: "900", textAlign: "center" },
   popupSecondaryButton: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER },
   popupSecondaryText: { color: BRAND_DEEP },
+  reasonList: { width: "100%", gap: 9, marginTop: 14 },
+  reasonOption: { minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12 },
+  reasonOptionActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff7e8" },
+  reasonText: { flex: 1, color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  dialogActions: { width: "100%", flexDirection: "row", gap: 10, marginTop: 16 },
+  dialogButton: { flex: 1, minHeight: 48, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  dialogSecondary: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER },
+  dialogButtonText: { color: "#111111", fontSize: 13, fontWeight: "900", textAlign: "center" },
+  dialogSecondaryText: { color: BRAND_DEEP },
   countCircle: { width: 48, height: 48, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   countText: { color: "#111111", fontSize: 16, fontWeight: "900" },
   countdownPanel: { minHeight: 68, borderRadius: 18, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginTop: 16 },

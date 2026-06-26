@@ -482,7 +482,7 @@ const tailoringRequestSchema = new Schema(
     cancellationReason: String,
     orderStatus: {
       type: String,
-      enum: ["payment_pending", "tailor_accepted", "pickup_started", "picked_up_from_customer", "received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed", "cancelled"],
+      enum: ["payment_pending", "tailor_accepted", "pickup_started", "picked_up_from_customer", "received_by_tailor", "ready_for_delivery", "out_for_delivery", "delivery_retry_scheduled", "delivery_issue", "completed", "cancelled"],
       index: true
     },
     workStatus: { type: String, enum: ["ACCEPTED", "WORKING", "READY"], default: "ACCEPTED", index: true },
@@ -548,6 +548,28 @@ const deliveryRequestSchema = new Schema(
     partnerLocation: { type: Schema.Types.Mixed },
     lastLocationAt: Date,
     deadlineAt: Date,
+    retryStatus: { type: String, enum: ["ACTIVE", "PENDING_RETRY", "ACTION_REQUIRED", "CANCELLED", "RESOLVED"], default: "ACTIVE", index: true },
+    retryCount: { type: Number, default: 0, index: true },
+    lastFailureReason: String,
+    lastFailureAt: Date,
+    nextScheduledBatch: { type: Date, index: true },
+    nextDeliveryRound: String,
+    routePosition: Number,
+    routeTotal: Number,
+    etaWindowStart: Date,
+    etaWindowEnd: Date,
+    failureHistory: {
+      type: [{
+        reason: String,
+        note: String,
+        failedAt: Date,
+        action: String,
+        nextScheduledBatch: Date,
+        deliveryRound: String,
+        actorId: String
+      }],
+      default: []
+    },
     acceptedAt: Date,
     pickedUpAt: Date,
     deliveredAt: Date,

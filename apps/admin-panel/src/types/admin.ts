@@ -447,6 +447,16 @@ export type DeliveryRequest = {
   clothType?: string;
   workType?: string;
   sampleProvided?: boolean;
+  retryStatus?: "ACTIVE" | "PENDING_RETRY" | "ACTION_REQUIRED" | "CANCELLED" | "RESOLVED";
+  retryCount?: number;
+  lastFailureReason?: string;
+  lastFailureAt?: string;
+  nextScheduledBatch?: string;
+  nextDeliveryRound?: string;
+  routePosition?: number;
+  routeTotal?: number;
+  etaWindowStart?: string;
+  etaWindowEnd?: string;
   deadlineAt?: string;
   acceptedAt?: string;
   pickedUpAt?: string;
