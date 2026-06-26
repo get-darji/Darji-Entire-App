@@ -132,6 +132,24 @@ type CustomerOrder = {
   deliveryFee?: number;
   platformFee?: number;
   homeMeasurementFee?: number;
+  couponCode?: string;
+  discountAmount?: number;
+};
+type CheckoutAdditionalItem = {
+  gender?: string;
+  clothType?: string;
+  workType?: string;
+  description?: string;
+};
+type Coupon = {
+  code: string;
+  description: string;
+  discountType: "FLAT" | "PERCENTAGE";
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscount?: number | null;
+  expiresAt?: string | null;
+  isActive: boolean;
 };
 type BackendRequestQuote = BackendTailorQuote & { estimatedHours?: number; tailor?: BackendTailorQuote["tailor"] };
 type BackendTailoringRequest = {
@@ -152,6 +170,10 @@ type BackendTailoringRequest = {
   deliveryFee?: number;
   platformFee?: number;
   homeMeasurementFee?: number;
+  couponCode?: string;
+  discountAmount?: number;
+  itemCount?: number;
+  additionalItems?: CheckoutAdditionalItem[];
   totalAmount?: number;
   cancellationFee?: number;
   cancelledAt?: string;
@@ -245,6 +267,7 @@ type RequestDraft = {
   pickup: string;
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
+  additionalItems?: CheckoutAdditionalItem[];
   backendRequestId?: string;
 };
 
@@ -490,7 +513,8 @@ function makeEmptyDraft(pickup = ""): RequestDraft {
     description: "",
     pickup,
     media: [],
-    uploadedMedia: []
+    uploadedMedia: [],
+    additionalItems: []
   };
 }
 
@@ -508,7 +532,8 @@ function hasRequestDraftData(draft: RequestDraft) {
       draft.measurementNotes?.trim() ||
       draft.sampleProvided ||
       draft.sampleMedia ||
-      draft.homeMeasurementBooked
+      draft.homeMeasurementBooked ||
+      Boolean(draft.additionalItems?.length)
   );
 }
 
@@ -593,8 +618,26 @@ function homeMeasurementFeeForDraft(draft: RequestDraft) {
   return draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0;
 }
 
-function totalForQuote(quote: Quote, draft: RequestDraft) {
-  return quote.price + deliveryFeeForUrgency(draft.urgency) + PLATFORM_FEE + homeMeasurementFeeForDraft(draft);
+function checkoutItemCount(draft: RequestDraft) {
+  return 1 + (draft.additionalItems?.length ?? 0);
+}
+
+function subtotalForQuote(quote: Quote, draft: RequestDraft) {
+  return quote.price * checkoutItemCount(draft) + deliveryFeeForUrgency(draft.urgency) + PLATFORM_FEE + homeMeasurementFeeForDraft(draft);
+}
+
+function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
+  if (!coupon || !coupon.isActive) return 0;
+  if (coupon.expiresAt && new Date(coupon.expiresAt) <= new Date()) return 0;
+  if (subtotal < Number(coupon.minOrderValue ?? 0)) return 0;
+  const raw = coupon.discountType === "PERCENTAGE" ? (subtotal * Number(coupon.discountValue ?? 0)) / 100 : Number(coupon.discountValue ?? 0);
+  const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
+  return Math.min(Math.max(0, Math.round(capped)), subtotal);
+}
+
+function totalForQuote(quote: Quote, draft: RequestDraft, coupon?: Coupon) {
+  const subtotal = subtotalForQuote(quote, draft);
+  return Math.max(subtotal - calculateCouponDiscount(coupon, subtotal), 0);
 }
 
 function notesForTailoringRequest(draft: RequestDraft) {
@@ -2029,6 +2072,8 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     deliveryFee: request.deliveryFee ?? existingOrder?.deliveryFee,
     platformFee: request.platformFee ?? existingOrder?.platformFee,
     homeMeasurementFee: request.homeMeasurementFee ?? existingOrder?.homeMeasurementFee,
+    couponCode: request.couponCode ?? existingOrder?.couponCode,
+    discountAmount: request.discountAmount ?? existingOrder?.discountAmount,
     tailorRating: existingOrder?.tailorRating,
     deliveryRating: existingOrder?.deliveryRating,
     tailorReview: existingOrder?.tailorReview,
@@ -2170,6 +2215,7 @@ function QuotesScreen({
 function ConfirmOrderScreen({
   quote,
   draft,
+  setDraft,
   setScreen,
   onPlaceOrder,
   isPlacingOrder,
@@ -2177,16 +2223,56 @@ function ConfirmOrderScreen({
 }: {
   quote: Quote;
   draft: RequestDraft;
+  setDraft: (draft: RequestDraft) => void;
   setScreen: (screen: Screen) => void;
-  onPlaceOrder: (paymentMethod: string) => void;
+  onPlaceOrder: (paymentMethod: string, checkout: { couponCode?: string; totalAmount: number }) => void;
   isPlacingOrder?: boolean;
   onDeleteRequest?: () => void;
 }) {
+  const token = useAppStore((state) => state.token);
   const [payment, setPayment] = useState("ONLINE");
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | undefined>();
+  const [newItem, setNewItem] = useState<CheckoutAdditionalItem>({});
   const deliveryFee = deliveryFeeForUrgency(draft.urgency);
   const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
-  const total = totalForQuote(quote, draft);
+  const itemCount = checkoutItemCount(draft);
+  const tailoringTotal = quote.price * itemCount;
+  const subtotal = subtotalForQuote(quote, draft);
+  const discount = calculateCouponDiscount(appliedCoupon, subtotal);
+  const total = totalForQuote(quote, draft, appliedCoupon);
   const buttonLabel = payment === "COD" ? `Confirm COD Rs${total}` : payment === "UPI" ? `Pay UPI Rs${total}` : `Pay Online Rs${total}`;
+
+  useEffect(() => {
+    if (!token) return;
+    void api<Coupon[]>("/coupons", {}, token).then((rows) => setCoupons(rows.filter((coupon) => coupon.isActive))).catch(() => setCoupons([]));
+  }, [token]);
+
+  function applyCoupon() {
+    const code = couponInput.trim().toUpperCase();
+    const coupon = coupons.find((item) => item.code.toUpperCase() === code);
+    if (!coupon) {
+      Alert.alert("Coupon not found", "Enter a valid coupon from Darji offers.");
+      return;
+    }
+    const nextDiscount = calculateCouponDiscount(coupon, subtotal);
+    if (nextDiscount <= 0) {
+      Alert.alert("Coupon not applicable", `Minimum cart value is Rs${Number(coupon.minOrderValue ?? 0).toFixed(0)}.`);
+      return;
+    }
+    setAppliedCoupon(coupon);
+    setCouponInput(code);
+  }
+
+  function addCheckoutItem() {
+    if (!newItem.clothType && !newItem.workType && !newItem.description) {
+      Alert.alert("Add item details", "Enter at least cloth type, work type, or issue details.");
+      return;
+    }
+    setDraft({ ...draft, additionalItems: [...(draft.additionalItems ?? []), newItem] });
+    setNewItem({});
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -2215,13 +2301,46 @@ function ConfirmOrderScreen({
           <SummaryRow label="Urgency" value={draft.urgency ?? "Normal"} />
           <SummaryRow label="Estimated Time" value={quote.eta} />
           <SummaryRow label="Pickup" value="Today, 2:00 - 4:00 PM" />
-          <SummaryRow label="Tailoring" value={`Rs${quote.price}`} />
-          <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} />
-          <SummaryRow label="Platform fee" value={`Rs${PLATFORM_FEE}`} />
+          <SummaryRow label={`Tailoring x ${itemCount}`} value={`Rs${tailoringTotal}`} tone="positive" />
+          <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${PLATFORM_FEE}`} tone="positive" />
           {draft.sampleProvided ? <SummaryRow label="Sample reference" value={draft.sampleMedia || draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
-          {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} /> : null}
+          {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
+          {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${total}`} strong />
+        </View>
+
+        <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>ADD MORE CLOTHES</Text>
+          <Text style={styles.mutedSmall}>Add another clothing request to this checkout. The tailor will see every item together.</Text>
+          {(draft.additionalItems ?? []).map((item, index) => (
+            <View key={`extra-${index}`} style={styles.checkoutItemCard}>
+              <Text style={styles.addressTitle}>Item {index + 2}: {item.clothType || item.workType || "Extra clothing"}</Text>
+              <Text style={styles.mutedSmall}>{[item.gender, item.workType, item.description].filter(Boolean).join(" • ")}</Text>
+            </View>
+          ))}
+          <View style={styles.checkoutGrid}>
+            <TextInput style={styles.checkoutMiniInput} value={newItem.gender ?? ""} onChangeText={(value) => setNewItem({ ...newItem, gender: value })} placeholder="Gender" />
+            <TextInput style={styles.checkoutMiniInput} value={newItem.clothType ?? ""} onChangeText={(value) => setNewItem({ ...newItem, clothType: value })} placeholder="Cloth type" />
+          </View>
+          <TextInput style={styles.checkoutInput} value={newItem.workType ?? ""} onChangeText={(value) => setNewItem({ ...newItem, workType: value })} placeholder="Work type" />
+          <TextInput style={[styles.checkoutInput, { minHeight: 76, textAlignVertical: "top" }]} value={newItem.description ?? ""} onChangeText={(value) => setNewItem({ ...newItem, description: value })} placeholder="Issue/details for this clothing item" multiline />
+          <Pressable style={styles.addMoreCheckoutButton} onPress={addCheckoutItem}>
+            <Ionicons name="add-circle-outline" size={24} color="#111111" />
+            <Text style={styles.primaryWideButtonText}>Add Another Clothing Request</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>COUPON</Text>
+          <View style={styles.couponApplyRow}>
+            <TextInput style={styles.couponInput} value={couponInput} autoCapitalize="characters" onChangeText={(value) => { setCouponInput(value); if (appliedCoupon) setAppliedCoupon(undefined); }} placeholder="Enter coupon code" />
+            <Pressable style={styles.couponApplyButton} onPress={applyCoupon}>
+              <Text style={styles.couponCopyText}>Apply</Text>
+            </Pressable>
+          </View>
+          {appliedCoupon ? <Text style={styles.discountText}>Saved Rs{discount} with {appliedCoupon.code}</Text> : null}
         </View>
 
         <View style={styles.whiteCard}>
@@ -2238,7 +2357,7 @@ function ConfirmOrderScreen({
           ))}
         </View>
 
-        <Pressable style={[styles.primaryWideButton, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment)} disabled={isPlacingOrder}>
+        <Pressable style={[styles.primaryWideButton, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total })} disabled={isPlacingOrder}>
           {isPlacingOrder ? (
             <ActivityIndicator color="#111111" />
           ) : (
@@ -2267,11 +2386,11 @@ function ConfirmOrderScreen({
   );
 }
 
-function SummaryRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function SummaryRow({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: "positive" | "negative" }) {
   return (
     <View style={styles.summaryRow}>
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={[styles.summaryValue, strong && styles.summaryStrong]}>{value}</Text>
+      <Text style={[styles.summaryValue, tone === "positive" && styles.summaryPositive, tone === "negative" && styles.summaryNegative, strong && styles.summaryStrong]}>{value}</Text>
     </View>
   );
 }
@@ -2384,11 +2503,12 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <SummaryRow label="Pickup" value={order.pickupWindow} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
-          <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} />
-          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} />
-          {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} /> : null}
+          <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} tone="positive" />
+          {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} tone="negative" /> : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
-          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
+          {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${order.total}`} strong />
         </View>
@@ -4502,10 +4622,11 @@ function OrderDetailsScreenV2({
           <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
           <SummaryRow label="Pickup" value={order.pickupWindow} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
-          <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} />
-          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} />
+          <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} tone="positive" />
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
-          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
+          {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${order.total}`} strong />
         </View>
@@ -4642,8 +4763,8 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
   if (!visibleTasks.length) return null;
 
   return (
-    <View style={styles.whiteCard}>
-      <Text style={styles.cardLabel}>EXPECTED DELIVERY TIME</Text>
+    <View style={[styles.whiteCard, styles.etaAlertCard]}>
+      <Text style={styles.etaAlertLabel}>EXPECTED DELIVERY TIME</Text>
       {visibleTasks.map((task) => {
         const start = formatDeliveryTime(task.etaWindowStart ?? task.nextScheduledBatch ?? task.roundAt);
         const end = formatDeliveryTime(task.etaWindowEnd);
@@ -4651,15 +4772,15 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
         return (
           <View key={`${task.taskId}-eta`} style={styles.handoffOtpRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.addressTitle}>{label}</Text>
-              <Text style={styles.mutedSmall}>
+              <Text style={styles.etaAlertTitle}>{label}</Text>
+              <Text style={styles.etaAlertTime}>
                 {start}{end ? ` - ${end}` : ""}
                 {task.retryStatus === "PENDING_RETRY" ? ` • Retry ${task.retryCount ?? 0}/3` : ""}
               </Text>
-              {task.lastFailureReason ? <Text style={styles.mutedSmall}>Last issue: {task.lastFailureReason}</Text> : null}
+              {task.lastFailureReason ? <Text style={styles.etaAlertIssue}>Last issue: {task.lastFailureReason}</Text> : null}
             </View>
             {task.routePosition && task.routeTotal ? (
-              <Text style={styles.handoffOtpCode}>{task.routePosition}/{task.routeTotal}</Text>
+              <Text style={styles.etaQueueBadge}>{task.routePosition}/{task.routeTotal}</Text>
             ) : null}
           </View>
         );
@@ -5265,7 +5386,7 @@ export default function App() {
         if (cancelled || !saved) return;
         const parsed = JSON.parse(saved) as { draft?: RequestDraft; selectedQuote?: Quote; progressScreen?: RequestFlowScreen };
         if (parsed.draft) {
-          setDraft({ ...makeEmptyDraft(), ...parsed.draft, media: parsed.draft.media ?? [], uploadedMedia: parsed.draft.uploadedMedia ?? [] });
+          setDraft({ ...makeEmptyDraft(), ...parsed.draft, media: parsed.draft.media ?? [], uploadedMedia: parsed.draft.uploadedMedia ?? [], additionalItems: parsed.draft.additionalItems ?? [] });
         }
         setSelectedQuote(parsed.selectedQuote);
         if (parsed.progressScreen && REQUEST_FLOW_SCREENS.has(parsed.progressScreen)) setRequestProgressScreen(parsed.progressScreen);
@@ -5402,7 +5523,9 @@ export default function App() {
             backendRequestStatus: request.status,
             deliveryFee: request.deliveryFee,
             platformFee: request.platformFee,
-            homeMeasurementFee: request.homeMeasurementFee
+            homeMeasurementFee: request.homeMeasurementFee,
+            couponCode: request.couponCode,
+            discountAmount: request.discountAmount
           } satisfies CustomerOrder
         : undefined);
     if (!nextOrder) return;
@@ -5426,13 +5549,13 @@ export default function App() {
     void playAppSound("confirmation");
   }
 
-  async function placeOrder(paymentMethod: string) {
+  async function placeOrder(paymentMethod: string, checkout?: { couponCode?: string; totalAmount?: number }) {
     if (!selectedQuote?.backendRequestId || !selectedQuote.backendQuoteId || !token) return;
     if (checkoutPaymentMethod) return;
     const orderDraft = { ...draft, pickup: defaultAddress?.address ?? draft.pickup };
     const deliveryFee = deliveryFeeForUrgency(orderDraft.urgency);
     const homeMeasurementFee = homeMeasurementFeeForDraft(orderDraft);
-    const totalAmount = totalForQuote(selectedQuote, orderDraft);
+    const totalAmount = checkout?.totalAmount ?? totalForQuote(selectedQuote, orderDraft);
 
     try {
       setCheckoutPaymentMethod(paymentMethod);
@@ -5446,6 +5569,8 @@ export default function App() {
             deliveryFee,
             platformFee: PLATFORM_FEE,
             homeMeasurementFee,
+            couponCode: checkout?.couponCode,
+            additionalItems: orderDraft.additionalItems ?? [],
             totalAmount
           })
         },
@@ -5584,7 +5709,7 @@ export default function App() {
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
   if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => void deleteIncompleteRequest(draft.backendRequestId)} />);
-  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => void deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
+  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => void deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
   if (screen === "trackOrder" && activeOrderForCustomer) {
     const locationKey = activeOrderForCustomer.backendOrderId ?? activeOrderForCustomer.tailor.backendRequestId ?? activeOrderForCustomer.id;
@@ -6051,12 +6176,29 @@ function createStyles(isDark = false) {
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },
+  etaAlertCard: { borderColor: "#ef4444", borderWidth: 2, backgroundColor: "#fff1f2" },
+  etaAlertLabel: { color: "#b91c1c", fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginBottom: 10 },
+  etaAlertTitle: { color: "#7f1d1d", fontSize: 16, fontWeight: "900" },
+  etaAlertTime: { color: "#dc2626", fontSize: 17, lineHeight: 23, fontWeight: "900", marginTop: 4 },
+  etaAlertIssue: { color: "#991b1b", fontSize: 12, lineHeight: 18, fontWeight: "800", marginTop: 4 },
+  etaQueueBadge: { overflow: "hidden", borderRadius: 16, backgroundColor: "#dc2626", color: "#ffffff", paddingHorizontal: 12, paddingVertical: 8, fontSize: 16, fontWeight: "900" },
   cardLabel: { color: muted, fontSize: 12, fontWeight: "900", marginBottom: 14 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 13 },
   summaryLabel: { color: muted, fontSize: 13 },
   summaryValue: { color: text, fontSize: 13, fontWeight: "800", maxWidth: "58%", textAlign: "right" },
+  summaryPositive: { color: "#059669" },
+  summaryNegative: { color: "#dc2626" },
   summaryDivider: { height: 1, backgroundColor: border, marginVertical: 4 },
   summaryStrong: { color: BRAND_ORANGE, fontSize: 18, fontWeight: "900" },
+  addMoreCheckoutButton: { minHeight: 62, borderRadius: 18, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 10, marginTop: 12, paddingHorizontal: 14 },
+  checkoutGrid: { flexDirection: "row", gap: 10, marginTop: 12 },
+  checkoutMiniInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "700" },
+  checkoutInput: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, paddingVertical: 10, fontWeight: "700", marginTop: 10 },
+  checkoutItemCard: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 10 },
+  couponApplyRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  couponInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "900" },
+  couponApplyButton: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fff7e8", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },
+  discountText: { color: "#dc2626", fontSize: 13, fontWeight: "900", marginTop: 10 },
   paymentRow: { flexDirection: "row", alignItems: "center", gap: 12, height: 34 },
   paymentText: { color: muted, fontSize: 13, fontWeight: "700" },
   orderIdCard: { height: 70, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 20 },

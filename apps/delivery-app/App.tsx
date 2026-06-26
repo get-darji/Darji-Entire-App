@@ -1274,6 +1274,10 @@ function HomeScreen({
       </View>
       {activeBatch ? (
         <Card style={{ borderColor: "#10b981", borderWidth: 2 }}>
+          <View style={styles.batchCountHero}>
+            <Text style={styles.batchCountNumber}>{activeBatch.requests.length}</Text>
+            <Text style={styles.batchCountLabel}>requests in this delivery</Text>
+          </View>
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
               <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
@@ -2971,6 +2975,9 @@ const styles = StyleSheet.create({
   heroCopy: { color: "#d6deea", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8 },
   heroIcon: { width: 66, height: 66, borderRadius: 33, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  batchCountHero: { minHeight: 92, borderRadius: 20, backgroundColor: "#fff7ed", borderWidth: 1, borderColor: "#fed7aa", alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  batchCountNumber: { color: "#dc2626", fontSize: 44, lineHeight: 50, fontWeight: "900" },
+  batchCountLabel: { color: "#9a3412", fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.4 },
   statCard: { flex: 1, minHeight: 88, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 13, justifyContent: "center" },
   statLabel: { color: MUTED, fontSize: 12, fontWeight: "800" },
   statValue: { color: BRAND_ORANGE, fontSize: 20, fontWeight: "900", marginTop: 6 },

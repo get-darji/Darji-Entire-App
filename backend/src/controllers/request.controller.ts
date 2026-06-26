@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -332,6 +332,13 @@ const checkoutTailoringRequestSchema = z.object({
   deliveryFee: z.number().nonnegative().default(0),
   platformFee: z.number().nonnegative().default(0),
   homeMeasurementFee: z.number().nonnegative().default(0),
+  couponCode: z.string().trim().max(40).optional(),
+  additionalItems: z.array(z.object({
+    gender: z.string().trim().max(80).optional(),
+    clothType: z.string().trim().max(120).optional(),
+    workType: z.string().trim().max(120).optional(),
+    description: z.string().trim().max(500).optional()
+  })).max(10).default([]),
   totalAmount: z.number().positive()
 });
 
@@ -794,7 +801,7 @@ async function finalizeTailoringRequestConfirmation(
   quoteId: string,
   paymentMethod: "ONLINE" | "COD" | "UPI",
   paymentStatus: "PENDING" | "PAID",
-  breakdown?: { deliveryFee: number; platformFee: number; homeMeasurementFee: number; totalAmount: number }
+  breakdown?: { deliveryFee: number; platformFee: number; homeMeasurementFee: number; totalAmount: number; additionalItems?: unknown[]; couponCode?: string; discountAmount?: number }
 ) {
   const request = await TailoringRequestModel.findById(requestId);
   if (!request) throw new AppError(404, "Tailoring request not found");
@@ -814,10 +821,14 @@ async function finalizeTailoringRequestConfirmation(
       selectedQuoteId: quote.id,
       paymentMethod,
       paymentStatus,
-      quoteAmount: quote.price,
+      quoteAmount: Number(quote.price) * (1 + (breakdown?.additionalItems?.length ?? Number(request.itemCount ?? 1) - 1)),
       deliveryFee: breakdown?.deliveryFee ?? request.deliveryFee ?? 0,
       platformFee: breakdown?.platformFee ?? request.platformFee ?? 0,
       homeMeasurementFee: breakdown?.homeMeasurementFee ?? request.homeMeasurementFee ?? 0,
+      couponCode: breakdown?.couponCode ?? request.couponCode,
+      discountAmount: breakdown?.discountAmount ?? request.discountAmount ?? 0,
+      itemCount: 1 + (breakdown?.additionalItems?.length ?? Number(request.itemCount ?? 1) - 1),
+      ...(breakdown?.additionalItems ? { additionalItems: breakdown.additionalItems } : {}),
       totalAmount: breakdown?.totalAmount ?? request.totalAmount ?? quote.price,
       orderStatus: "tailor_accepted",
       confirmedAt: new Date()
@@ -1839,7 +1850,28 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const quote = await TailorQuoteModel.findOne({ _id: input.quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
-  if (input.totalAmount < quote.price) throw new AppError(400, "Total amount cannot be lower than the quoted price");
+  const itemCount = 1 + input.additionalItems.length;
+  const tailoringSubtotal = Number(quote.price) * itemCount;
+  const subtotalBeforeDiscount = tailoringSubtotal + input.deliveryFee + input.platformFee + input.homeMeasurementFee;
+  let discountAmount = 0;
+  let couponCode: string | undefined;
+  if (input.couponCode) {
+    const coupon = await CouponModel.findOne({ code: input.couponCode.toUpperCase() });
+    if (!coupon || !coupon.isActive || (coupon.expiresAt && coupon.expiresAt <= new Date())) {
+      throw new AppError(400, "Coupon is invalid or expired");
+    }
+    if (subtotalBeforeDiscount < Number(coupon.minOrderValue ?? 0)) {
+      throw new AppError(400, `Coupon requires minimum cart value of ₹${Number(coupon.minOrderValue ?? 0).toFixed(0)}`);
+    }
+    discountAmount = coupon.discountType === "PERCENTAGE"
+      ? (subtotalBeforeDiscount * Number(coupon.discountValue ?? 0)) / 100
+      : Number(coupon.discountValue ?? 0);
+    if (coupon.maxDiscount != null) discountAmount = Math.min(discountAmount, Number(coupon.maxDiscount));
+    discountAmount = Math.min(Math.max(0, Number(discountAmount.toFixed(2))), subtotalBeforeDiscount);
+    couponCode = coupon.code;
+  }
+  const payableAmount = Number(Math.max(subtotalBeforeDiscount - discountAmount, 0).toFixed(2));
+  if (Math.abs(input.totalAmount - payableAmount) > 1) throw new AppError(400, "Checkout total changed. Refresh cart and try again.");
 
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: input.paymentMethod === "COD" ? "ACCEPTED" : "RESERVED" });
@@ -1849,22 +1881,34 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     selectedQuoteId: quote.id,
     paymentMethod: input.paymentMethod,
     paymentStatus: "PENDING",
-    quoteAmount: quote.price,
+    quoteAmount: tailoringSubtotal,
     deliveryFee: input.deliveryFee,
     platformFee: input.platformFee,
     homeMeasurementFee: input.homeMeasurementFee,
-    totalAmount: input.totalAmount,
+    couponCode,
+    discountAmount,
+    itemCount,
+    additionalItems: input.additionalItems,
+    totalAmount: payableAmount,
     orderStatus: input.paymentMethod === "COD" ? "tailor_accepted" : "payment_pending"
   });
 
   if (input.paymentMethod === "COD") {
-    await PaymentModel.create({ orderId: request.id, method: "COD", amount: input.totalAmount, status: "PENDING" });
-    res.json({ data: { mode: "cod", ...(await finalizeTailoringRequestConfirmation(request.id, quote.id, "COD", "PENDING", input)) } });
+    await PaymentModel.create({ orderId: request.id, method: "COD", amount: payableAmount, status: "PENDING" });
+    res.json({ data: { mode: "cod", ...(await finalizeTailoringRequestConfirmation(request.id, quote.id, "COD", "PENDING", {
+      deliveryFee: input.deliveryFee,
+      platformFee: input.platformFee,
+      homeMeasurementFee: input.homeMeasurementFee,
+      additionalItems: input.additionalItems,
+      couponCode,
+      discountAmount,
+      totalAmount: payableAmount
+    })) } });
     return;
   }
 
   const razorpayOrder = await createRazorpayOrder({
-    amount: input.totalAmount,
+    amount: payableAmount,
     receipt: `darzi-${request.id.slice(0, 12)}`,
     notes: {
       requestId: request.id,
@@ -1872,7 +1916,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
       paymentMethod: input.paymentMethod
     }
   });
-  await PaymentModel.create({ orderId: request.id, method: input.paymentMethod, amount: input.totalAmount, status: "PENDING", providerRef: razorpayOrder.id });
+  await PaymentModel.create({ orderId: request.id, method: input.paymentMethod, amount: payableAmount, status: "PENDING", providerRef: razorpayOrder.id });
 
   const customer = await UserModel.findById(request.customerId).select("name phone");
   res.json({
@@ -1929,6 +1973,9 @@ export async function verifyTailoringCheckoutController(req: Request, res: Respo
         deliveryFee: Number(request.deliveryFee ?? 0),
         platformFee: Number(request.platformFee ?? 0),
         homeMeasurementFee: Number(request.homeMeasurementFee ?? 0),
+        additionalItems: Array.isArray(request.additionalItems) ? request.additionalItems : [],
+        couponCode: request.couponCode ?? undefined,
+        discountAmount: Number(request.discountAmount ?? 0),
         totalAmount: Number(request.totalAmount ?? payment.amount)
       }
     )

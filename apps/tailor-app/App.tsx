@@ -63,6 +63,9 @@ type TailoringRequest = {
   media: MediaItem[];
   receivedMedia?: MediaItem[];
   stitchedMedia?: MediaItem[];
+  additionalItems?: Array<{ gender?: string; clothType?: string; workType?: string; description?: string }>;
+  itemCount?: number;
+  quoteAmount?: number;
   customer?: Customer;
   ownQuote?: TailorQuote | null;
   quoteCount?: number;
@@ -243,11 +246,16 @@ function firstItem(order: Order) {
 
 function orderFromAcceptedRequest(request: TailoringRequest): Order {
   const status = request.workStatus === "READY" ? "READY" : request.workStatus === "WORKING" ? "AT_TAILOR" : "QUOTE_ACCEPTED";
+  const extraItems = (request.additionalItems ?? []).map((item, index) => ({
+    service: { name: `${item.clothType || "Extra clothing"} - ${item.workType || "Tailoring"}` },
+    instructions: [item.gender, item.description].filter(Boolean).join(" • ") || `Additional checkout item ${index + 2}`,
+    price: request.ownQuote?.price
+  }));
   return {
     id: `accepted-${request.id}`,
     orderNumber: `REQ-${request.id.slice(0, 8).toUpperCase()}`,
     status,
-    totalAmount: request.ownQuote?.price ?? 0,
+    totalAmount: request.quoteAmount ?? (Number(request.ownQuote?.price ?? 0) * (request.itemCount ?? 1)),
     source: "accepted_request",
     request,
     items: [
@@ -256,7 +264,8 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
         measurement: request.measurement,
         instructions: request.measurementNotes,
         price: request.ownQuote?.price
-      }
+      },
+      ...extraItems
     ],
     createdAt: request.createdAt
   };
