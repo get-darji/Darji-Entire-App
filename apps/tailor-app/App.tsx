@@ -1286,6 +1286,12 @@ function EarningsScreen({ orders, me }: { orders: Order[]; me?: MeResponse }) {
           <View>
             <Text style={styles.cardTitle}>{money(payment.amount)}</Text>
             <Text style={styles.cardMeta}>{payment.notes ?? payment.referenceNumber ?? "Weekly payout"}</Text>
+            {payment.receiptUrl ? (
+              <Pressable style={[styles.proofButton, { marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 14 }]} onPress={() => Linking.openURL(payment.receiptUrl)}>
+                <Ionicons name="image-outline" size={15} color={BRAND_ORANGE} />
+                <Text style={styles.proofButtonText}>View Payment Proof</Text>
+              </Pressable>
+            ) : null}
           </View>
           <Text style={styles.cardMeta}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : ""}</Text>
         </View>

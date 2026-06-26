@@ -190,7 +190,24 @@ type ProfileData = { name: string; phone: string; dateOfBirth?: string; avatarUr
 type AppSettings = { notifications: boolean; orderUpdates: boolean; darkMode: boolean; compactCards: boolean; locationAccess: boolean; saveMedia: boolean };
 type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number };
 type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
-type HandoffOtp = { taskId: string; type: "customer_to_tailor" | "tailor_to_customer"; stage: "pickup" | "drop"; otp: string; verified: boolean };
+type HandoffOtp = {
+  taskId: string;
+  type: "customer_to_tailor" | "tailor_to_customer";
+  stage: "pickup" | "drop";
+  otp: string;
+  verified: boolean;
+  taskStatus?: string;
+  retryStatus?: string;
+  retryCount?: number;
+  lastFailureReason?: string;
+  deliveryRound?: string;
+  roundAt?: string;
+  nextScheduledBatch?: string;
+  etaWindowStart?: string;
+  etaWindowEnd?: string;
+  routePosition?: number;
+  routeTotal?: number;
+};
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean };
@@ -4605,6 +4622,52 @@ function CustomerHandoffOtpCard({ orderId, status }: { orderId?: string; status:
   );
 }
 
+function formatDeliveryTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string }) {
+  const token = useAppStore((state) => state.token);
+  const [tasks, setTasks] = useState<HandoffOtp[]>([]);
+
+  useEffect(() => {
+    if (!token || !orderId) return;
+    void api<HandoffOtp[]>(`/delivery-requests/order/${orderId}/otps`, {}, token).then(setTasks).catch(() => setTasks([]));
+  }, [orderId, status, token]);
+
+  const visibleTasks = tasks.filter((task) => task.etaWindowStart || task.nextScheduledBatch || task.roundAt);
+  if (!visibleTasks.length) return null;
+
+  return (
+    <View style={styles.whiteCard}>
+      <Text style={styles.cardLabel}>EXPECTED DELIVERY TIME</Text>
+      {visibleTasks.map((task) => {
+        const start = formatDeliveryTime(task.etaWindowStart ?? task.nextScheduledBatch ?? task.roundAt);
+        const end = formatDeliveryTime(task.etaWindowEnd);
+        const label = task.type === "customer_to_tailor" ? "Pickup window" : "Delivery window";
+        return (
+          <View key={`${task.taskId}-eta`} style={styles.handoffOtpRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.addressTitle}>{label}</Text>
+              <Text style={styles.mutedSmall}>
+                {start}{end ? ` - ${end}` : ""}
+                {task.retryStatus === "PENDING_RETRY" ? ` • Retry ${task.retryCount ?? 0}/3` : ""}
+              </Text>
+              {task.lastFailureReason ? <Text style={styles.mutedSmall}>Last issue: {task.lastFailureReason}</Text> : null}
+            </View>
+            {task.routePosition && task.routeTotal ? (
+              <Text style={styles.handoffOtpCode}>{task.routePosition}/{task.routeTotal}</Text>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function TrackOrderScreenV2({
   order,
   setScreen,
@@ -4628,6 +4691,7 @@ function TrackOrderScreenV2({
           <StatusPill status={order.status} />
         </View>
         <CustomerHandoffOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+        <CustomerEtaCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <View style={styles.timeline}>
           {steps.map(([label, time, done], index) => (
             <View key={label} style={styles.timelineRow}>

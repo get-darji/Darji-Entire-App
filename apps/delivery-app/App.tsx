@@ -2009,11 +2009,15 @@ function EarningsScreen({ requests, me }: { requests: DeliveryRequest[]; me?: Me
         <Text style={styles.cardTitle}>Previous Payments</Text>
         {(wallet?.payments ?? []).length === 0 ? <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text> : null}
         {(wallet?.payments ?? []).map((payment: any) => (
-          <StatusRow
-            key={payment.id}
-            label={`Rs ${Number(payment.amount ?? 0).toFixed(0)}`}
-            value={payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}
-          />
+          <View key={payment.id} style={styles.paymentProofRow}>
+            <StatusRow
+              label={`Rs ${Number(payment.amount ?? 0).toFixed(0)}`}
+              value={payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}
+            />
+            {payment.receiptUrl ? (
+              <PrimaryButton icon="image-outline" label="View Payment Proof" variant="secondary" onPress={() => Linking.openURL(payment.receiptUrl)} />
+            ) : null}
+          </View>
         ))}
       </Card>
     </ScrollView>
@@ -2988,6 +2992,7 @@ const styles = StyleSheet.create({
   statusAccepted: { color: "#2563eb", backgroundColor: "#dbeafe" },
   statusCompleted: { color: SUCCESS, backgroundColor: "#dcfce7" },
   paymentPill: { overflow: "hidden", borderRadius: 13, paddingHorizontal: 9, paddingVertical: 7, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "center", maxWidth: 190, marginTop: 10 },
+  paymentProofRow: { borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 10, marginTop: 10 },
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center" },
   popupIcon: { width: 58, height: 58, borderRadius: 20, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },

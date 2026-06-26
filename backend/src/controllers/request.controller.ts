@@ -1528,7 +1528,18 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
       type: task.type,
       stage,
       otp: taskOtp(task.id, stage),
-      verified: stage === "pickup" ? Boolean(task.pickupOtpVerifiedAt) : Boolean(task.dropOtpVerifiedAt)
+      verified: stage === "pickup" ? Boolean(task.pickupOtpVerifiedAt) : Boolean(task.dropOtpVerifiedAt),
+      taskStatus: task.taskStatus,
+      retryStatus: task.retryStatus,
+      retryCount: task.retryCount,
+      lastFailureReason: task.lastFailureReason,
+      deliveryRound: task.deliveryRound,
+      roundAt: task.roundAt,
+      nextScheduledBatch: task.nextScheduledBatch,
+      etaWindowStart: task.etaWindowStart,
+      etaWindowEnd: task.etaWindowEnd,
+      routePosition: task.routePosition,
+      routeTotal: task.routeTotal
     }];
   });
   res.json({ data: visible });

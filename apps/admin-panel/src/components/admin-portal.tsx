@@ -2859,50 +2859,102 @@ function PayoutWorkspace({
   rows: WalletPayoutRow[];
 }) {
   if (loading) return <LoadingDashboard />;
+  const pendingRows = rows.filter((row) => Number(row.pendingAmount ?? 0) > 0);
+  const paidRows = rows.filter((row) => Number(row.pendingAmount ?? 0) <= 0 && row.lastPayment);
 
   return (
-    <Panel className="p-0">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-            <tr>
-              <th className="px-4 py-4 font-semibold">Name</th>
-              <th className="px-4 py-4 font-semibold">Phone</th>
-              <th className="px-4 py-4 font-semibold">Wallet Balance</th>
-              <th className="px-4 py-4 font-semibold">Current Week</th>
-              <th className="px-4 py-4 font-semibold">Last Payment</th>
-              <th className="px-4 py-4 font-semibold">Status</th>
-              <th className="px-4 py-4 font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+    <div className="space-y-5">
+      <Panel className="p-0">
+        <div className="border-b border-[var(--panel-border)] px-4 py-4">
+          <h3 className="font-semibold text-[var(--foreground)]">Pending Bills</h3>
+          <p className="text-sm text-[var(--muted)]">Only unpaid wallet balances appear here.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
               <tr>
-                <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>
-                  No wallet payout records found.
-                </td>
+                <th className="px-4 py-4 font-semibold">Name</th>
+                <th className="px-4 py-4 font-semibold">Phone</th>
+                <th className="px-4 py-4 font-semibold">Wallet Balance</th>
+                <th className="px-4 py-4 font-semibold">Current Week</th>
+                <th className="px-4 py-4 font-semibold">Last Payment</th>
+                <th className="px-4 py-4 font-semibold">Status</th>
+                <th className="px-4 py-4 font-semibold">Actions</th>
               </tr>
-            ) : null}
-            {rows.map((row) => (
-              <tr key={row.userId} className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]">
-                <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
-                <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
-                <td className="px-4 py-4 font-semibold">{formatCurrency(row.walletBalance)}</td>
-                <td className="px-4 py-4">{formatCurrency(row.currentWeekEarnings)}</td>
-                <td className="px-4 py-4 text-[var(--muted)]">{row.lastPayment ? formatDate(row.lastPayment.paidAt, true) : "-"}</td>
-                <td className="px-4 py-4"><StatusBadge value={row.status} /></td>
-                <td className="px-4 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onDetails(row)}>Details</ActionButton>
-                    <ActionButton className="px-3 py-2" disabled={row.pendingAmount <= 0} onClick={() => onPay(row)}>Pay</ActionButton>
-                  </div>
-                </td>
+            </thead>
+            <tbody>
+              {pendingRows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>
+                    No unpaid bills right now.
+                  </td>
+                </tr>
+              ) : null}
+              {pendingRows.map((row) => (
+                <tr key={row.userId} className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]">
+                  <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
+                  <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
+                  <td className="px-4 py-4 font-semibold">{formatCurrency(row.walletBalance)}</td>
+                  <td className="px-4 py-4">{formatCurrency(row.currentWeekEarnings)}</td>
+                  <td className="px-4 py-4 text-[var(--muted)]">{row.lastPayment ? formatDate(row.lastPayment.paidAt, true) : "-"}</td>
+                  <td className="px-4 py-4"><StatusBadge value="DUE" /></td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onDetails(row)}>Details</ActionButton>
+                      <ActionButton className="px-3 py-2" onClick={() => onPay(row)}>Pay</ActionButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel className="p-0">
+        <div className="border-b border-[var(--panel-border)] px-4 py-4">
+          <h3 className="font-semibold text-emerald-600">Paid Bills</h3>
+          <p className="text-sm text-[var(--muted)]">Settled payouts stay here with their uploaded proof.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-4 font-semibold">Name</th>
+                <th className="px-4 py-4 font-semibold">Paid Amount</th>
+                <th className="px-4 py-4 font-semibold">Paid At</th>
+                <th className="px-4 py-4 font-semibold">Reference</th>
+                <th className="px-4 py-4 font-semibold">Status</th>
+                <th className="px-4 py-4 font-semibold">Proof</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Panel>
+            </thead>
+            <tbody>
+              {paidRows.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>
+                    Paid bills will appear here after payout.
+                  </td>
+                </tr>
+              ) : null}
+              {paidRows.map((row) => (
+                <tr key={`${row.userId}-${row.lastPayment?.id}`} className="border-b border-emerald-500/20 bg-emerald-500/5">
+                  <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
+                  <td className="px-4 py-4 font-semibold text-emerald-600">{formatCurrency(row.lastPayment?.amount ?? 0)}</td>
+                  <td className="px-4 py-4 text-[var(--muted)]">{formatDate(row.lastPayment?.paidAt, true)}</td>
+                  <td className="px-4 py-4 text-[var(--muted)]">{row.lastPayment?.referenceNumber ?? row.lastPayment?.notes ?? "-"}</td>
+                  <td className="px-4 py-4"><StatusBadge value="PAID" /></td>
+                  <td className="px-4 py-4">
+                    {row.lastPayment?.receiptUrl ? (
+                      <a className="inline-flex rounded-2xl border border-emerald-500/40 px-3 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-500/10" href={row.lastPayment.receiptUrl} target="_blank" rel="noreferrer">View Proof</a>
+                    ) : "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -2969,6 +3021,11 @@ function WalletDetailDialog({
                         </div>
                         <p className="text-xs text-[var(--muted)]">{formatDate(payment.paidAt, true)}</p>
                       </div>
+                      {payment.receiptUrl?.startsWith("data:image") || /\.(png|jpe?g|webp)$/i.test(payment.receiptUrl) ? (
+                        <img alt="Payment proof" className="mt-3 max-h-48 rounded-2xl border border-[var(--panel-border)] object-contain" src={payment.receiptUrl} />
+                      ) : (
+                        <p className="mt-3 text-xs font-semibold text-[var(--accent)]">Open payment proof</p>
+                      )}
                     </a>
                   ))}
                   {!(detail?.payments?.length) ? <EmptyState message="No payments have been recorded." /> : null}
@@ -3740,9 +3797,9 @@ function DataTable<T extends object>({ columns, data, emptyMessage }: TableProps
 function StatusBadge({ value }: { value?: string | null }) {
   const normalized = value ?? "";
   let tone: "teal" | "amber" | "rose" | "sky" | "slate" | "emerald" | "violet" | "cyan" = "slate";
-  if (["ACTIVE", "DELIVERED", "PAID", "READY", "VERIFIED", "RESOLVED", "completed", "delivered", "accepted"].includes(normalized)) tone = "emerald";
+  if (["ACTIVE", "DELIVERED", "PAID", "SETTLED", "READY", "VERIFIED", "RESOLVED", "completed", "delivered", "accepted"].includes(normalized)) tone = "emerald";
   else if (["BANNED", "CANCELLED", "FAILED", "REJECTED", "cancelled"].includes(normalized)) tone = "rose";
-  else if (["PENDING", "QUOTE_REQUESTED", "OPEN", "REUPLOAD_REQUIRED", "SUSPENDED", "pending", "accepted", "picked_up"].includes(normalized)) tone = "amber";
+  else if (["DUE", "PENDING", "QUOTE_REQUESTED", "OPEN", "REUPLOAD_REQUIRED", "SUSPENDED", "pending", "accepted", "picked_up"].includes(normalized)) tone = "amber";
   else if (["STITCHING_STARTED", "AT_TAILOR", "IN_PROGRESS", "WORKING"].includes(normalized)) tone = "sky";
   return <Badge tone={tone}>{formatStatus(normalized)}</Badge>;
 }
