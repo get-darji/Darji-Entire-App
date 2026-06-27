@@ -769,6 +769,30 @@ function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
   return Math.min(Math.max(0, Math.round(capped)), subtotal);
 }
 
+function couponDiscountLabel(coupon: Coupon) {
+  const value = Number(coupon.discountValue ?? 0);
+  if (coupon.discountType === "PERCENTAGE") {
+    const cap = coupon.maxDiscount != null ? ` up to Rs${Number(coupon.maxDiscount).toFixed(0)}` : "";
+    return `${value.toFixed(0)}% off${cap}`;
+  }
+  return `Rs${value.toFixed(0)} off`;
+}
+
+function couponExpiryLabel(coupon: Coupon) {
+  if (!coupon.expiresAt) return "No expiry listed";
+  const date = new Date(coupon.expiresAt);
+  if (Number.isNaN(date.getTime())) return "No expiry listed";
+  return `Expires ${date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`;
+}
+
+function couponUnavailableReason(coupon: Coupon, subtotal: number) {
+  if (!coupon.isActive) return "Unavailable";
+  if (coupon.expiresAt && new Date(coupon.expiresAt) <= new Date()) return "Expired";
+  const minimum = Number(coupon.minOrderValue ?? 0);
+  if (subtotal < minimum) return `Min order Rs${minimum.toFixed(0)}`;
+  return "";
+}
+
 function totalForQuote(quote: Quote, draft: RequestDraft, coupon?: Coupon) {
   const subtotal = subtotalForQuote(quote, draft);
   return Math.max(subtotal - calculateCouponDiscount(coupon, subtotal), 0);
@@ -2621,19 +2645,19 @@ function ConfirmOrderScreen({
 
   useEffect(() => {
     if (!token) return;
-    void api<Coupon[]>("/coupons", {}, token).then((rows) => setCoupons(rows.filter((coupon) => coupon.isActive))).catch(() => setCoupons([]));
+    void api<Coupon[]>("/coupons", {}, token).then(setCoupons).catch(() => setCoupons([]));
   }, [token]);
 
-  function applyCoupon() {
-    const code = couponInput.trim().toUpperCase();
+  function applyCoupon(codeValue = couponInput) {
+    const code = codeValue.trim().toUpperCase();
     const coupon = coupons.find((item) => item.code.toUpperCase() === code);
     if (!coupon) {
       Alert.alert("Coupon not found", "Enter a valid coupon from Darji offers.");
       return;
     }
-    const nextDiscount = calculateCouponDiscount(coupon, subtotal);
-    if (nextDiscount <= 0) {
-      Alert.alert("Coupon not applicable", `Minimum cart value is Rs${Number(coupon.minOrderValue ?? 0).toFixed(0)}.`);
+    const unavailableReason = couponUnavailableReason(coupon, subtotal);
+    if (unavailableReason) {
+      Alert.alert("Coupon not applicable", unavailableReason);
       return;
     }
     setAppliedCoupon(coupon);
@@ -2687,10 +2711,38 @@ function ConfirmOrderScreen({
         </View>
 
         <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>COUPON</Text>
+          <Text style={styles.cardLabel}>COUPONS</Text>
+          {coupons.length ? (
+            coupons.map((coupon) => {
+              const unavailableReason = couponUnavailableReason(coupon, subtotal);
+              const isApplied = appliedCoupon?.code.toUpperCase() === coupon.code.toUpperCase();
+              return (
+                <Pressable
+                  key={coupon.code}
+                  style={[styles.couponCardV2, unavailableReason && styles.inactiveCoupon, isApplied && styles.couponCardApplied]}
+                  onPress={() => applyCoupon(coupon.code)}
+                  disabled={Boolean(unavailableReason)}
+                >
+                  <View style={styles.couponTopRow}>
+                    <View style={styles.couponTextBlock}>
+                      <Text style={styles.couponCode}>{coupon.code}</Text>
+                      <Text style={styles.couponValueText}>{couponDiscountLabel(coupon)}</Text>
+                      <Text style={styles.couponDescriptionText}>{coupon.description || "Darji tailoring offer"}</Text>
+                      <Text style={styles.infoCopy}>Minimum order Rs{Number(coupon.minOrderValue ?? 0).toFixed(0)} - {couponExpiryLabel(coupon)}</Text>
+                    </View>
+                    <Text style={[styles.couponActionPill, unavailableReason && styles.inactivePill, isApplied && styles.appliedCouponPill]}>
+                      {isApplied ? "Applied" : unavailableReason || "Apply"}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })
+          ) : (
+            <Text style={styles.mutedSmall}>No coupon offers are available right now.</Text>
+          )}
           <View style={styles.couponApplyRow}>
             <TextInput style={styles.couponInput} value={couponInput} autoCapitalize="characters" onChangeText={(value) => { setCouponInput(value); if (appliedCoupon) setAppliedCoupon(undefined); }} placeholder="Enter coupon code" />
-            <Pressable style={styles.couponApplyButton} onPress={applyCoupon}>
+            <Pressable style={styles.couponApplyButton} onPress={() => applyCoupon()}>
               <Text style={styles.couponCopyText}>Apply</Text>
             </Pressable>
           </View>
@@ -4662,6 +4714,31 @@ function StatusPill({ status }: { status: CustomerOrder["status"] }) {
   return <Text style={[styles.statusPill, statusStyle(status)]}>{status}</Text>;
 }
 
+function formatOrderTimestamp(value?: string) {
+  if (!value) return "Not updated yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not updated yet";
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function pickupScheduleForOrder(order: CustomerOrder) {
+  const pickedUpStatuses: CustomerOrder["status"][] = ["Picked Up", "Package Handover to Tailor", "Tailor Started", "Tailor Completed", "On the Way", "Delivered"];
+  return {
+    date: formatInvoiceDate(new Date(order.placedAt)),
+    timeSlot: order.pickupWindow,
+    status: order.status === "Cancelled" ? "Cancelled" : pickedUpStatuses.includes(order.status) ? "Completed" : "Scheduled"
+  };
+}
+
+function estimatedTimeForOrder(order: CustomerOrder) {
+  return {
+    pickup: order.pickupWindow,
+    delivery: order.tailor.eta || "Awaiting tailor ETA",
+    status: order.status,
+    lastUpdated: formatOrderTimestamp(order.invoiceGeneratedAt ?? order.placedAt)
+  };
+}
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
 }
@@ -4894,6 +4971,8 @@ function OrderDetailsScreenV2({
 }) {
   const token = useAppStore((state) => state.token);
   const [savingRating, setSavingRating] = useState<"tailor" | "delivery" | undefined>();
+  const pickupSchedule = pickupScheduleForOrder(order);
+  const estimatedTime = estimatedTimeForOrder(order);
 
   async function submitRating(kind: "tailor" | "delivery") {
     const rating = kind === "tailor" ? order.tailorRating : order.deliveryRating;
@@ -4969,12 +5048,24 @@ function OrderDetailsScreenV2({
           </View>
         </View>
         <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>PICKUP SCHEDULE</Text>
+          <SummaryRow label="Date" value={pickupSchedule.date} />
+          <SummaryRow label="Time Slot" value={pickupSchedule.timeSlot} />
+          <SummaryRow label="Status" value={pickupSchedule.status} />
+        </View>
+        <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>ESTIMATED TIME</Text>
+          <SummaryRow label="Estimated Pickup Time" value={estimatedTime.pickup} />
+          <SummaryRow label="Estimated Delivery Time" value={estimatedTime.delivery} />
+          <SummaryRow label="Current Status" value={estimatedTime.status} />
+          <SummaryRow label="Last Updated" value={estimatedTime.lastUpdated} />
+        </View>
+        <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>REQUEST SUMMARY</Text>
           <SummaryRow label="Service" value={order.draft.workType ?? "Tailoring"} />
           <SummaryRow label="Gender" value={order.draft.gender ?? "Not selected"} />
           <SummaryRow label="Cloth Type" value={order.draft.clothType ?? "Cloth"} />
           <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
-          <SummaryRow label="Pickup" value={order.pickupWindow} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
           <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} tone="positive" />
@@ -5239,6 +5330,9 @@ export default function App() {
   const activeOrderForCustomer = activeOrder && orders.some((order) => order.id === activeOrder.id) ? activeOrder : undefined;
 
   const goBack = useCallback(() => {
+    if (cancellingOrderId) {
+      return true;
+    }
     if (paymentSheet && !verifyingPayment) {
       setPaymentSheet(undefined);
       return true;
@@ -5258,7 +5352,7 @@ export default function App() {
       return true;
     }
     return false;
-  }, [dialog, paymentSheet, screen, screenStack, verifyingPayment]);
+  }, [cancellingOrderId, dialog, paymentSheet, screen, screenStack, verifyingPayment]);
 
   function setScreen(nextScreen: Screen, options?: { replace?: boolean; resetStack?: boolean }) {
     let resolvedScreen = nextScreen;
@@ -5611,6 +5705,15 @@ export default function App() {
       >
         {node}
         <AppDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        <Modal visible={Boolean(cancellingOrderId)} transparent animationType="fade" onRequestClose={() => undefined}>
+          <View style={styles.checkoutBlockingOverlay}>
+            <View style={styles.checkoutBlockingCard}>
+              <ActivityIndicator color={BRAND_ORANGE} size="large" />
+              <Text style={styles.checkoutBlockingTitle}>Canceling your request...</Text>
+              <Text style={styles.checkoutBlockingCopy}>Please wait while we process your cancellation.</Text>
+            </View>
+          </View>
+        </Modal>
         <Modal visible={Boolean(paymentSheet)} animationType="slide" onRequestClose={() => !verifyingPayment && setPaymentSheet(undefined)}>
           <SafeAreaView style={styles.safe}>
             <View style={[styles.rowBetween, { paddingHorizontal: 20, paddingTop: 12 }]}>
@@ -6650,15 +6753,19 @@ function createStyles(isDark = false) {
   walletBalance: { color: BRAND_ORANGE, fontSize: 34, fontWeight: "900", marginTop: 8 },
   couponCard: { borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   couponCardV2: { borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 16, marginBottom: 14 },
+  couponCardApplied: { borderColor: "#16a34a", backgroundColor: "#f0fdf4" },
   couponTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   couponTextBlock: { flex: 1, minWidth: 0 },
   couponActionRow: { alignItems: "flex-end", gap: 8 },
   couponCopyButton: { minHeight: 32, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 10 },
   couponCopyText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
   couponActionPill: { minWidth: 74, color: BRAND_ORANGE, backgroundColor: "#fff2d8", overflow: "hidden", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, fontSize: 13, fontWeight: "900", textAlign: "center" },
+  appliedCouponPill: { color: "#15803d", backgroundColor: "#dcfce7" },
   couponDetails: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#efcf92" },
   inactiveCoupon: { opacity: 0.62, backgroundColor: "#ffffff" },
   couponCode: { color: text, fontSize: 17, fontWeight: "900" },
+  couponValueText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900", marginTop: 4 },
+  couponDescriptionText: { color: text, fontSize: 13, fontWeight: "800", lineHeight: 19, marginTop: 6 },
   inactivePill: { color: "#6b7280", backgroundColor: "#eef2f7" },
   policyHero: { borderRadius: 20, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 16, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 12 },
   policyHeroText: { flex: 1, minWidth: 0 },

@@ -186,7 +186,7 @@ const TAILOR_ONBOARDING_STORAGE_PREFIX = "darji.tailorOnboarding.v1";
 
 configureForegroundNotificationHandler();
 
-const statusSteps = ["READY"] as const;
+const statusSteps = ["WORKING", "READY"] as const;
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1124,6 +1124,11 @@ function OrderDetailsScreen({
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
   const [uploadingProof, setUploadingProof] = useState<{ stage: "RECEIVED" | "STITCHED"; source: "camera" | "library" }>();
   const acceptedRequest = order.request;
+  const requiredProofCount = acceptedRequest ? requestItemCount(acceptedRequest) : Math.max(1, order.items.length);
+  const receivedProofCount = acceptedRequest?.receivedMedia?.length ?? 0;
+  const stitchedProofCount = acceptedRequest?.stitchedMedia?.length ?? 0;
+  const receivedProofComplete = receivedProofCount >= requiredProofCount;
+  const stitchedProofComplete = stitchedProofCount >= requiredProofCount;
   const hasReceivedPackage = acceptedRequest
     ? ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
     : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
@@ -1131,12 +1136,12 @@ function OrderDetailsScreen({
   async function uploadProof(stage: "RECEIVED" | "STITCHED", source: "camera" | "library") {
     if (!acceptedRequest || !token) return;
     const existingCount = stage === "RECEIVED" ? acceptedRequest.receivedMedia?.length ?? 0 : acceptedRequest.stitchedMedia?.length ?? 0;
-    const maxCount = 3;
+    const maxCount = requiredProofCount;
     const remaining = maxCount - existingCount;
     if (remaining <= 0) {
       showDialog({
         title: "Photo limit reached",
-        message: stage === "RECEIVED" ? "Received-clothes proof can have up to 3 photos." : "Stitched proof can have up to 3 photos.",
+        message: stage === "RECEIVED" ? "Received-clothes proof already has one photo per item." : "Stitched proof already has one photo per item.",
         icon: "images-outline"
       });
       return;
@@ -1181,10 +1186,20 @@ function OrderDetailsScreen({
 
   async function updateStatus(status: string) {
     if (!token) return;
-    if (status === "READY" && acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0))) {
+    if (status === "WORKING" && acceptedRequest && !receivedProofComplete) {
+      showDialog({
+        title: "Received photos required",
+        message: `Upload received-clothes photo for item ${receivedProofCount + 1} of ${requiredProofCount} before starting work.`,
+        icon: "images-outline"
+      });
+      return;
+    }
+    if (status === "READY" && acceptedRequest && (!receivedProofComplete || !stitchedProofComplete)) {
       showDialog({
         title: "Photos required",
-        message: "Upload at least one before-stitching photo and one after-stitching photo before marking this order Ready to Deliver.",
+        message: !receivedProofComplete
+          ? `Upload received-clothes photo for item ${receivedProofCount + 1} of ${requiredProofCount} first.`
+          : `Upload stitched-clothes photo for item ${stitchedProofCount + 1} of ${requiredProofCount} before marking Ready.`,
         icon: "images-outline"
       });
       return;
@@ -1192,7 +1207,7 @@ function OrderDetailsScreen({
     try {
       setSavingStatus(status);
       if (acceptedRequest) {
-        await api(`/tailoring-requests/${acceptedRequest.id}/work-status`, { method: "PATCH", body: JSON.stringify({ status: "READY" }) }, token);
+        await api(`/tailoring-requests/${acceptedRequest.id}/work-status`, { method: "PATCH", body: JSON.stringify({ status }) }, token);
       } else {
         await api(`/orders/${order.id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }, token);
       }
@@ -1305,12 +1320,12 @@ function OrderDetailsScreen({
           {acceptedRequest ? (
             <View style={styles.whiteCard}>
               <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
-              <Text style={styles.helperText}>Save proof photos for this order so any future complaint can be checked against received and stitched condition.</Text>
+              <Text style={styles.helperText}>Upload one proof photo per clothing item before moving the order forward.</Text>
               <ProofBlock
                 title="Received clothes"
-                copy="Take 2-3 photos when the delivery boy hands over the clothes."
+                copy={`Required before Working: ${receivedProofCount}/${requiredProofCount} item photos.`}
                 media={acceptedRequest.receivedMedia ?? []}
-                limitText={`${acceptedRequest.receivedMedia?.length ?? 0}/3 photos`}
+                limitText={`${receivedProofCount}/${requiredProofCount} items`}
                 loadingCamera={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "camera"}
                 loadingLibrary={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "library"}
                 onCamera={() => uploadProof("RECEIVED", "camera")}
@@ -1319,9 +1334,9 @@ function OrderDetailsScreen({
               />
               <ProofBlock
                 title="After stitching"
-                copy="Upload up to 3 photos after stitching is complete."
+                copy={`Required before Ready: ${stitchedProofCount}/${requiredProofCount} item photos.`}
                 media={acceptedRequest.stitchedMedia ?? []}
-                limitText={`${acceptedRequest.stitchedMedia?.length ?? 0}/3 photos`}
+                limitText={`${stitchedProofCount}/${requiredProofCount} items`}
                 loadingCamera={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "camera"}
                 loadingLibrary={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "library"}
                 onCamera={() => uploadProof("STITCHED", "camera")}
@@ -1333,16 +1348,19 @@ function OrderDetailsScreen({
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>UPDATE WORK STATUS</Text>
             <View style={styles.statusGrid}>
-              {statusSteps.map((status) => (
+              {statusSteps.map((status) => {
+                const missingProof = acceptedRequest && (status === "WORKING" ? !receivedProofComplete : (!receivedProofComplete || !stitchedProofComplete));
+                return (
                 <Pressable
                   key={status}
-                  style={[styles.statusButton, order.status === status && styles.activeStatusButton, acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0)) && styles.disabledButton]}
+                  style={[styles.statusButton, order.status === status && styles.activeStatusButton, missingProof && styles.disabledButton]}
                   onPress={() => updateStatus(status)}
-                  disabled={Boolean(savingStatus) || Boolean(acceptedRequest && (!(acceptedRequest.receivedMedia?.length ?? 0) || !(acceptedRequest.stitchedMedia?.length ?? 0)))}
+                  disabled={Boolean(savingStatus) || Boolean(missingProof)}
                 >
                   {savingStatus === status ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.statusButtonText, order.status === status && styles.activeStatusButtonText]}>{formatStatus(status)}</Text>}
                 </Pressable>
-              ))}
+                );
+              })}
             </View>
           </View>
         </>

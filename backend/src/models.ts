@@ -570,6 +570,7 @@ const deliveryRequestSchema = new Schema(
     tailorPhone: String,
     clothType: String,
     workType: String,
+    itemCount: { type: Number, default: 1 },
     paymentMethod: { type: String, enum: paymentMethods },
     paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING" },
     totalAmount: Number,
@@ -611,6 +612,7 @@ const deliveryRequestSchema = new Schema(
     notificationSentAt: Date,
     clothPhotos: [requestMediaSchema],
     samplePhotos: [requestMediaSchema],
+    deliveryPhotos: [requestMediaSchema],
     timelineEvents: { type: [timelineEventSchema], default: [] }
   },
   baseOptions

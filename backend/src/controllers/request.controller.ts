@@ -22,7 +22,7 @@ import { creditOrderEarning } from "../services/wallet.service.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
-const MAX_FILES = 6;
+const MAX_FILES = 20;
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -151,6 +151,32 @@ function routePositionFields(position = 1, total = 1) {
   };
 }
 
+async function refreshBatchRoutePositions(batchId?: string) {
+  if (!batchId) return;
+  const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } }).sort({ roundAt: 1, acceptedAt: 1, createdAt: 1 });
+  await Promise.all(tasks.map((task, index) =>
+    DeliveryRequestModel.findByIdAndUpdate(task.id, routePositionFields(index + 1, tasks.length))
+  ));
+}
+
+async function sendNewOrderScheduledNotification(partner: any, task: any) {
+  if (!partner?.userId) return;
+  await sendPushToUsers([partner.userId], {
+    title: "New Order Scheduled",
+    body: `${task.clothType ?? "Clothes"} has been added to your ${task.deliveryType === "DROP" ? "delivery" : "pickup"} batch.`,
+    data: {
+      type: "NEW_ORDER_SCHEDULED",
+      taskId: task.id,
+      orderId: task.orderId,
+      screen: "activeOrder"
+    },
+    channelId: "delivery-orders-v2",
+    categoryId: "DARJI_ORDER",
+    sound: "ding.mp3",
+    actions: ["View Order"]
+  });
+}
+
 export function matchAddressToArea(address: string, areas: string[]): string {
   const normalizedAddress = address.toLowerCase();
   for (const area of areas) {
@@ -234,6 +260,8 @@ export async function assignPendingTasksToPartner(partner: any) {
     );
 
     if (updatedTask) {
+      await refreshBatchRoutePositions(batchId);
+      const routedTask = await DeliveryRequestModel.findById(updatedTask.id) ?? updatedTask;
       await TailoringRequestModel.findByIdAndUpdate(task.orderId, {
         orderStatus: task.type === "customer_to_tailor" ? "pickup_started" : "out_for_delivery",
         deliveryType: partner.deliveryType,
@@ -242,20 +270,21 @@ export async function assignPendingTasksToPartner(partner: any) {
         assignedDeliveryBoyId: partner._id
       });
 
-      emitToDeliveryPartner(partner._id, "delivery:task_assigned", updatedTask.toJSON());
-      emitToCustomer(updatedTask.customerId, "customer:delivery_status_updated", {
-        requestId: updatedTask.id,
-        tailoringRequestId: updatedTask.orderId,
+      emitToDeliveryPartner(partner._id, "delivery:task_assigned", routedTask.toJSON());
+      emitToCustomer(routedTask.customerId, "customer:delivery_status_updated", {
+        requestId: routedTask.id,
+        tailoringRequestId: routedTask.orderId,
         status: updatedTask.type === "customer_to_tailor" ? "PICKUP_STARTED" : "OUT_FOR_DELIVERY",
-        deliveryRequest: updatedTask.toJSON()
+        deliveryRequest: routedTask.toJSON()
       });
-      await sendPushToUsers([updatedTask.customerId], {
+      await sendNewOrderScheduledNotification(partner, routedTask);
+      await sendPushToUsers([routedTask.customerId], {
         title: updatedTask.type === "customer_to_tailor" ? "Pickup started" : "Out for delivery",
         body: updatedTask.type === "customer_to_tailor" ? "A delivery partner is heading to pick up your clothes." : "Your stitched clothes are on the way.",
         data: {
           type: "DELIVERY_REQUEST_ACCEPTED",
-          requestId: updatedTask.id,
-          tailoringRequestId: updatedTask.orderId,
+          requestId: routedTask.id,
+          tailoringRequestId: routedTask.orderId,
           screen: "trackOrder"
         },
         channelId: "customer-orders-v2",
@@ -384,7 +413,7 @@ const deliveryTaskOtpSchema = z.object({
 });
 
 const deliveryTaskPhotosSchema = z.object({
-  kind: z.enum(["cloth", "sample"]),
+  kind: z.enum(["cloth", "sample", "delivery"]),
   photos: z.array(z.object({
     url: z.string().url(),
     publicId: z.string().min(1),
@@ -657,6 +686,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         tailorPhone: tailorUser?.phone,
         clothType: deliveryClothType,
         workType: deliveryWorkType,
+        itemCount,
         paymentMethod: request.paymentMethod,
         paymentStatus: request.paymentStatus,
         totalAmount: request.totalAmount,
@@ -685,6 +715,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
           paymentStatus: request.paymentStatus,
           totalAmount: request.totalAmount,
           cashCollectionRequired,
+          itemCount,
           sampleProvided,
           sampleMedia,
           acceptedAt: assignedBoy ? new Date() : undefined,
@@ -738,6 +769,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
       batchId,
       assignedDeliveryBoyId: assignedBoy._id
     });
+    await refreshBatchRoutePositions(batchId);
   } else {
     await TailoringRequestModel.findByIdAndUpdate(request._id, {
       deliveryType,
@@ -777,6 +809,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         sound: "ding.mp3",
         actions: ["View Order"]
       });
+      await sendNewOrderScheduledNotification(assignedBoy, notificationClaim);
 
       const assignedTailor = await TailorModel.findById(deliveryRequest.tailorId).select("userId");
       if (type === "customer_to_tailor" && assignedTailor?.userId) {
@@ -1043,14 +1076,14 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
   if (!partner.isAvailable) throw new AppError(400, "Go online before accepting delivery jobs");
 
   const deadlineAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
-  const request = await DeliveryRequestModel.findOneAndUpdate(
+  let request = await DeliveryRequestModel.findOneAndUpdate(
     { _id: String(req.params.id), taskStatus: "pending", assignedDeliveryPartnerId: { $exists: false }, retryStatus: { $ne: "ACTION_REQUIRED" } },
-    { taskStatus: "accepted", retryStatus: "ACTIVE", assignedDeliveryPartnerId: partner.id, acceptedAt: new Date(), deadlineAt },
+    { taskStatus: "accepted", retryStatus: "ACTIVE", assignedDeliveryPartnerId: partner.id, assignedDeliveryBoyId: partner.id, acceptedAt: new Date(), deadlineAt },
     { returnDocument: "after" }
   );
   if (!request) throw new AppError(409, "Delivery request is no longer available");
 
-  await DeliveryBatchModel.findOneAndUpdate(
+  const batch = await DeliveryBatchModel.findOneAndUpdate(
     { deliveryPartnerId: partner.id, deliveryType: partner.deliveryType, deliveryRound: request.deliveryRound, roundAt: request.roundAt, status: "active" },
     { 
       $setOnInsert: { 
@@ -1068,6 +1101,11 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
     },
     { upsert: true, returnDocument: "after" }
   );
+  if (batch) {
+    request = await DeliveryRequestModel.findByIdAndUpdate(request.id, { batchId: batch.batchId }, { returnDocument: "after" }) ?? request;
+    await refreshBatchRoutePositions(batch.batchId);
+    request = await DeliveryRequestModel.findById(request.id) ?? request;
+  }
 
   emitDeliveryEvent({ type: "DELIVERY_REQUEST_ACCEPTED", requestId: request.id, deliveryPartnerId: partner.id });
   emitToDeliveryPartners("delivery:task_accepted", { taskId: request.id, deliveryPartnerId: partner.id });
@@ -1093,6 +1131,7 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
     sound: "ding.mp3",
     actions: ["View Order"]
   });
+  await sendNewOrderScheduledNotification(partner, request);
   const assignedTailor = await TailorModel.findById(request.tailorId).select("userId");
   if (request.type === "customer_to_tailor" && assignedTailor?.userId) {
     await sendPushToUsers([assignedTailor.userId], {
@@ -1320,11 +1359,22 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
   if (input.status === "picked_up") {
     if (!existingTask.pickupOtpVerifiedAt) throw new AppError(409, "Verify the pickup OTP first");
     if (existingTask.type === "customer_to_tailor") {
-      if (!(existingTask.clothPhotos?.length ?? 0)) throw new AppError(409, "Upload cloth photos first");
+      const requiredPhotos = Math.max(1, Number(existingTask.itemCount ?? 1));
+      const clothPhotoCount = existingTask.clothPhotos?.length ?? 0;
+      if (clothPhotoCount < requiredPhotos) {
+        throw new AppError(409, `Upload pickup photo for item ${clothPhotoCount + 1} of ${requiredPhotos} first`);
+      }
       if (existingTask.sampleProvided && !(existingTask.samplePhotos?.length ?? 0)) throw new AppError(409, "Upload sample photos first");
     }
   } else {
     if (!existingTask.dropOtpVerifiedAt) throw new AppError(409, "Verify the delivery OTP first");
+    if (existingTask.type === "tailor_to_customer") {
+      const requiredPhotos = Math.max(1, Number(existingTask.itemCount ?? 1));
+      const deliveryPhotoCount = existingTask.deliveryPhotos?.length ?? 0;
+      if (deliveryPhotoCount < requiredPhotos) {
+        throw new AppError(409, `Upload final delivery photo for item ${deliveryPhotoCount + 1} of ${requiredPhotos} first`);
+      }
+    }
     if (existingTask.type === "tailor_to_customer" && existingTask.paymentMethod === "COD" && existingTask.cashCollectionRequired && !existingTask.cashCollected) {
       throw new AppError(409, "Confirm COD cash collection before completing delivery");
     }
@@ -1488,18 +1538,24 @@ export async function saveDeliveryTaskPhotosController(req: Request, res: Respon
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
   const task = await DeliveryRequestModel.findOne({
     _id: String(req.params.id),
-    assignedDeliveryPartnerId: partner.id,
-    taskStatus: "accepted"
+    assignedDeliveryPartnerId: partner.id
   });
-  if (!task) throw new AppError(409, "Photos can only be added before pickup");
-  if (task.type !== "customer_to_tailor") throw new AppError(400, "Photos are not required for tailor collection");
-  if (!task.pickupOtpVerifiedAt) throw new AppError(409, "Verify the pickup OTP before uploading photos");
+  if (!task) throw new AppError(404, "Delivery request not found");
+  if (input.kind === "delivery") {
+    if (task.taskStatus !== "picked_up") throw new AppError(409, "Final delivery photos can only be added before marking delivered");
+    if (task.type !== "tailor_to_customer") throw new AppError(400, "Final delivery photos are only required for customer delivery");
+    if (!task.dropOtpVerifiedAt) throw new AppError(409, "Verify the delivery OTP before uploading photos");
+  } else {
+    if (task.taskStatus !== "accepted") throw new AppError(409, "Pickup photos can only be added before pickup");
+    if (task.type !== "customer_to_tailor") throw new AppError(400, "Pickup photos are not required for tailor collection");
+    if (!task.pickupOtpVerifiedAt) throw new AppError(409, "Verify the pickup OTP before uploading photos");
+  }
   if (input.kind === "sample") {
     if (!task.sampleProvided) throw new AppError(400, "Sample photos are not required for this order");
     if (!(task.clothPhotos?.length ?? 0)) throw new AppError(409, "Upload cloth photos before sample photos");
   }
 
-  const field = input.kind === "cloth" ? "clothPhotos" : "samplePhotos";
+  const field = input.kind === "cloth" ? "clothPhotos" : input.kind === "sample" ? "samplePhotos" : "deliveryPhotos";
   const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, { [field]: input.photos }, { returnDocument: "after" });
   if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
   res.json({ data: updated });
@@ -1666,11 +1722,11 @@ export async function uploadTailoringAuditMediaController(req: Request, res: Res
 
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) throw new AppError(400, "Attach at least one photo");
-  const maxFiles = 3;
+  const maxFiles = requestItemCount(request);
   const requestJson = request.toJSON() as { receivedMedia?: unknown[]; stitchedMedia?: unknown[] };
   const currentMedia = (input.stage === "RECEIVED" ? requestJson.receivedMedia : requestJson.stitchedMedia) ?? [];
   if (currentMedia.length + files.length > maxFiles) {
-    throw new AppError(400, input.stage === "RECEIVED" ? "Upload up to 3 received-clothes photos" : "Upload up to 3 stitched-clothes photos");
+    throw new AppError(400, input.stage === "RECEIVED" ? `Upload one received-clothes photo per item (${maxFiles} total)` : `Upload one stitched-clothes photo per item (${maxFiles} total)`);
   }
 
   const uploaded = await Promise.all(
@@ -1706,9 +1762,15 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
     if (!acceptedQuote) throw new AppError(403, "Only the accepted tailor can update this order");
   }
 
+  const requiredPhotos = requestItemCount(request);
+  const receivedPhotoCount = request.receivedMedia?.length ?? 0;
+  const stitchedPhotoCount = request.stitchedMedia?.length ?? 0;
+  if (input.status === "WORKING" && receivedPhotoCount < requiredPhotos) {
+    throw new AppError(409, `Upload received-clothes photo for item ${receivedPhotoCount + 1} of ${requiredPhotos} first`);
+  }
   if (input.status === "READY") {
-    if (!(request.receivedMedia?.length ?? 0)) throw new AppError(409, "Upload a before-stitching clothes photo first");
-    if (!(request.stitchedMedia?.length ?? 0)) throw new AppError(409, "Upload an after-stitching clothes photo first");
+    if (receivedPhotoCount < requiredPhotos) throw new AppError(409, `Upload received-clothes photo for item ${receivedPhotoCount + 1} of ${requiredPhotos} first`);
+    if (stitchedPhotoCount < requiredPhotos) throw new AppError(409, `Upload stitched-clothes photo for item ${stitchedPhotoCount + 1} of ${requiredPhotos} first`);
   }
 
   const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, { workStatus: input.status }, { returnDocument: "after" });

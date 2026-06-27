@@ -107,6 +107,8 @@ type DeliveryRequest = {
   sampleMedia?: DeliveryMedia[];
   clothPhotos?: DeliveryMedia[];
   samplePhotos?: DeliveryMedia[];
+  deliveryPhotos?: DeliveryMedia[];
+  itemCount?: number;
   pickupOtpVerifiedAt?: string;
   dropOtpVerifiedAt?: string;
   deadlineAt?: string;
@@ -204,6 +206,29 @@ function normalizeDeliveryTask(task: DeliveryTaskPayload): DeliveryRequest {
     status: taskStatus === "pending" ? "OPEN" : taskStatus === "accepted" || taskStatus === "picked_up" ? "ACCEPTED" : taskStatus === "delivered" ? "COMPLETED" : "CANCELLED",
     shift: task.shift ?? (type === "customer_to_tailor" ? "morning" : "evening")
   };
+}
+
+function deliveryItemCount(request: DeliveryRequest) {
+  const explicit = Number(request.itemCount ?? 0);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.max(1, Math.round(explicit));
+  const match = String(request.clothType ?? "").match(/^(\d+)\s+clothing items/i);
+  if (match) return Math.max(1, Number(match[1]));
+  return 1;
+}
+
+function routeSortTime(value?: string) {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function sortDeliveryTasksForRoute(list: DeliveryRequest[]) {
+  return [...list].sort((a, b) => {
+    const priorityA = a.routePosition ?? Number.MAX_SAFE_INTEGER;
+    const priorityB = b.routePosition ?? Number.MAX_SAFE_INTEGER;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    return routeSortTime(a.roundAt ?? a.createdAt) - routeSortTime(b.roundAt ?? b.createdAt);
+  });
 }
 
 type OnboardingData = {
@@ -1444,15 +1469,18 @@ function BatchDetailsView({
       </View>
 
       <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Stops on Route</Text>
-      {batch.requests.map((request, index) => (
+      {batch.requests.map((request, index) => {
+        const priority = request.routePosition ?? index + 1;
+        return (
         <Pressable key={request.id} style={styles.orderCard} onPress={() => onOpenOrder(request)}>
           <View style={styles.cardTopRow}>
             <View style={styles.roundIcon}>
-              <Text style={styles.stopNumber}>{index + 1}</Text>
+              <Text style={styles.stopNumber}>{priority}</Text>
             </View>
             <View style={styles.cardMain}>
               <Text style={styles.prominentOrderId}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
               <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
+              <Text style={styles.cardMeta}>Priority {priority}</Text>
               <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
             </View>
             <StatusPill status={request.status} />
@@ -1468,7 +1496,8 @@ function BatchDetailsView({
             <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
           </View>
         </Pressable>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -1610,6 +1639,7 @@ function ActiveOrderScreenView({
 }) {
   const [clothProofs, setClothProofs] = useState<MediaDraft[]>([]);
   const [sampleProofs, setSampleProofs] = useState<MediaDraft[]>([]);
+  const [deliveryProofs, setDeliveryProofs] = useState<MediaDraft[]>([]);
   const [otp, setOtp] = useState("");
   const [updating, setUpdating] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
@@ -1617,15 +1647,20 @@ function ActiveOrderScreenView({
   const [failureReason, setFailureReason] = useState<(typeof DELIVERY_FAILURE_REASONS)[number] | "">("");
   const pickupOtpVerified = Boolean(order.pickupOtpVerifiedAt);
   const dropOtpVerified = Boolean(order.dropOtpVerifiedAt);
-  const clothPhotosUploaded = Boolean(order.clothPhotos?.length);
+  const requiredPhotoCount = deliveryItemCount(order);
+  const clothPhotoCount = order.clothPhotos?.length ?? 0;
+  const deliveryPhotoCount = order.deliveryPhotos?.length ?? 0;
+  const clothPhotosUploaded = clothPhotoCount >= requiredPhotoCount;
+  const deliveryPhotosUploaded = order.type !== "tailor_to_customer" || deliveryPhotoCount >= requiredPhotoCount;
   const sampleRequired = order.sampleProvided === true;
   const samplePhotosUploaded = !sampleRequired || Boolean(order.samplePhotos?.length);
   const pickupChecklistComplete = pickupOtpVerified && (order.type === "tailor_to_customer" || (clothPhotosUploaded && samplePhotosUploaded));
   const needsCashCollection = order.type === "tailor_to_customer" && order.paymentMethod === "COD" && order.cashCollectionRequired === true && !order.cashCollected;
+  const deliveryChecklistComplete = dropOtpVerified && !needsCashCollection && deliveryPhotosUploaded;
 
-  async function addProof(kind: "cloth" | "sample", source: "camera" | "gallery") {
-    if (!pickupOtpVerified) {
-      showDialog({ title: "OTP required", message: "Verify the pickup OTP first.", icon: "shield-checkmark-outline" });
+  async function addProof(kind: "cloth" | "sample" | "delivery", source: "camera" | "gallery") {
+    if (kind === "delivery" ? !dropOtpVerified : !pickupOtpVerified) {
+      showDialog({ title: "OTP required", message: kind === "delivery" ? "Verify the delivery OTP first." : "Verify the pickup OTP first.", icon: "shield-checkmark-outline" });
       return;
     }
     const permission = source === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1643,8 +1678,9 @@ function ActiveOrderScreenView({
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
-    const update = kind === "cloth" ? setClothProofs : setSampleProofs;
-    update((current) => [...current, { uri: asset.uri, name: asset.fileName ?? `${kind}-${Date.now()}.jpg` }].slice(-6));
+    const update = kind === "cloth" ? setClothProofs : kind === "sample" ? setSampleProofs : setDeliveryProofs;
+    const maxPhotos = kind === "sample" ? 6 : requiredPhotoCount;
+    update((current) => [...current, { uri: asset.uri, name: asset.fileName ?? `${kind}-${Date.now()}.jpg` }].slice(-maxPhotos));
   }
 
   async function verifyOtp() {
@@ -1669,11 +1705,15 @@ function ActiveOrderScreenView({
     }
   }
 
-  async function savePhotos(kind: "cloth" | "sample") {
+  async function savePhotos(kind: "cloth" | "sample" | "delivery") {
     if (uploadingPhotos) return;
-    const drafts = kind === "cloth" ? clothProofs : sampleProofs;
+    const drafts = kind === "cloth" ? clothProofs : kind === "sample" ? sampleProofs : deliveryProofs;
     if (!drafts.length) {
       showDialog({ title: "Photos required", message: `Upload at least one ${kind} photo.`, icon: "images-outline" });
+      return;
+    }
+    if ((kind === "cloth" || kind === "delivery") && drafts.length < requiredPhotoCount) {
+      showDialog({ title: "More photos required", message: `Upload photo for item ${drafts.length + 1} of ${requiredPhotoCount}.`, icon: "images-outline" });
       return;
     }
     if (kind === "sample" && !clothPhotosUploaded) {
@@ -1689,7 +1729,8 @@ function ActiveOrderScreenView({
       }, token);
       onTaskUpdated(normalizeDeliveryTask(updated));
       if (kind === "cloth") setClothProofs([]);
-      else setSampleProofs([]);
+      else if (kind === "sample") setSampleProofs([]);
+      else setDeliveryProofs([]);
       if (kind === "sample" || !sampleRequired) setScreen("confirmations");
     } catch (error) {
       showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not save photos.", icon: "cloud-upload-outline" });
@@ -1807,10 +1848,11 @@ function ActiveOrderScreenView({
             <StatusRow label="Customer" value={order.customerName ?? "Customer"} />
             <StatusRow label="Tailor" value={order.tailorName ?? "Tailor"} />
             <StatusRow label="Clothes" value={`${order.clothType ?? "Clothes"} - ${order.workType ?? "Tailoring"}`} />
+            <StatusRow label="Clothing items" value={`${requiredPhotoCount}`} />
             <StatusRow label="Payment" value={paymentLabel(order)} />
             <StatusRow label="Deadline" value={deadlineLabel(order.deadlineAt)} />
             {order.etaWindowStart && order.etaWindowEnd ? <StatusRow label="ETA" value={`${deadlineLabel(order.etaWindowStart)} - ${deadlineLabel(order.etaWindowEnd)}`} /> : null}
-            {order.routePosition && order.routeTotal ? <StatusRow label="Queue" value={`${order.routePosition} of ${order.routeTotal}`} /> : null}
+            {order.routePosition && order.routeTotal ? <StatusRow label="Priority" value={`${order.routePosition} of ${order.routeTotal}`} /> : null}
             <View style={styles.navRow}>
               <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call pickup" onPress={() => Linking.openURL(`tel:${order.leg === "CUSTOMER_TO_TAILOR" ? order.customerPhone ?? "" : order.tailorPhone ?? ""}`)} variant="secondary" /></View>
               <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Route" onPress={() => openDirections(order.pickupAddress)} /></View>
@@ -1837,7 +1879,7 @@ function ActiveOrderScreenView({
         {screen === "confirmations" && order.taskStatus === "accepted" && order.type === "customer_to_tailor" && pickupOtpVerified && !pickupChecklistComplete ? (
           <Card>
             <Text style={styles.cardTitle}>Cloth photos</Text>
-            <Text style={styles.helperText}>Upload multiple clear photos before sealing the package.</Text>
+            <Text style={styles.helperText}>Upload one clear pickup photo per clothing item: {Math.min(clothProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
             <View style={styles.docActions}>
               <Pressable style={styles.docButton} onPress={() => addProof("cloth", "gallery")}>
                 <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
@@ -1851,7 +1893,7 @@ function ActiveOrderScreenView({
             <View style={styles.mediaGrid}>
               {clothProofs.map((proof) => <Image key={proof.uri} source={{ uri: proof.uri }} style={styles.proofImage} />)}
             </View>
-            {!clothPhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label="Complete Cloth Photo Upload" loading={uploadingPhotos} disabled={!clothProofs.length} onPress={() => savePhotos("cloth")} /> : <ChecklistRow label="Cloth photos uploaded" complete />}
+            {!clothPhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label={`Upload Pickup Photos (${clothProofs.length}/${requiredPhotoCount})`} loading={uploadingPhotos} disabled={clothProofs.length < requiredPhotoCount} onPress={() => savePhotos("cloth")} /> : <ChecklistRow label={`Pickup photos uploaded (${clothPhotoCount}/${requiredPhotoCount})`} complete />}
             {order.sampleMedia?.length && clothPhotosUploaded ? (
               <View style={styles.sampleBlock}>
                 <Text style={styles.cardTitle}>Sample photos required</Text>
@@ -1867,6 +1909,27 @@ function ActiveOrderScreenView({
           </Card>
         ) : null}
 
+        {screen === "confirmations" && order.taskStatus === "picked_up" && order.type === "tailor_to_customer" && dropOtpVerified && !deliveryPhotosUploaded ? (
+          <Card>
+            <Text style={styles.cardTitle}>Final delivery photos</Text>
+            <Text style={styles.helperText}>Upload one final handover photo per clothing item: {Math.min(deliveryProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
+            <View style={styles.docActions}>
+              <Pressable style={styles.docButton} onPress={() => addProof("delivery", "gallery")}>
+                <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
+                <Text style={styles.docButtonText}>Gallery</Text>
+              </Pressable>
+              <Pressable style={styles.docButton} onPress={() => addProof("delivery", "camera")}>
+                <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />
+                <Text style={styles.docButtonText}>Camera</Text>
+              </Pressable>
+            </View>
+            <View style={styles.mediaGrid}>
+              {deliveryProofs.map((proof) => <Image key={proof.uri} source={{ uri: proof.uri }} style={styles.proofImage} />)}
+            </View>
+            <PrimaryButton icon="cloud-upload-outline" label={`Upload Delivery Photos (${deliveryProofs.length}/${requiredPhotoCount})`} loading={uploadingPhotos} disabled={deliveryProofs.length < requiredPhotoCount} onPress={() => savePhotos("delivery")} />
+          </Card>
+        ) : null}
+
         {screen === "confirmations" ? (
           <Card>
             <Text style={styles.cardTitle}>Sequential checklist</Text>
@@ -1877,7 +1940,7 @@ function ActiveOrderScreenView({
                 {!pickupOtpVerified ? <><Field label="4 digit OTP" keyboardType="number-pad" onChange={(value) => setOtp(value.replace(/\D/g, "").slice(0, 4))} placeholder="Enter OTP" value={otp} /><PrimaryButton icon="shield-checkmark-outline" label="Verify OTP" loading={updating} disabled={otp.length !== 4} onPress={verifyOtp} /></> : null}
                 {order.type === "customer_to_tailor" ? (
                   <>
-                    <ChecklistRow label="Upload Cloth Photos" complete={clothPhotosUploaded} current={pickupOtpVerified && !clothPhotosUploaded} locked={!pickupOtpVerified} />
+                    <ChecklistRow label={`Upload Pickup Photos (${clothPhotoCount}/${requiredPhotoCount})`} complete={clothPhotosUploaded} current={pickupOtpVerified && !clothPhotosUploaded} locked={!pickupOtpVerified} />
                     {sampleRequired ? <ChecklistRow label="Upload Sample Photos" complete={samplePhotosUploaded} current={clothPhotosUploaded && !samplePhotosUploaded} locked={!clothPhotosUploaded} /> : null}
                   </>
                 ) : null}
@@ -1894,8 +1957,9 @@ function ActiveOrderScreenView({
                     {needsCashCollection ? <PrimaryButton icon="cash-outline" label={`Confirm Cash Collected Rs ${Number(order.totalAmount ?? 0).toFixed(0)}`} loading={updating} onPress={confirmCashCollection} disabled={!dropOtpVerified} /> : null}
                   </>
                 ) : null}
-                <ChecklistRow label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} complete={false} current={dropOtpVerified && !needsCashCollection} locked={!dropOtpVerified || needsCashCollection} />
-                <PrimaryButton icon="checkmark-done-outline" label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} loading={updating} onPress={advanceTask} disabled={!dropOtpVerified || needsCashCollection} />
+                {order.type === "tailor_to_customer" ? <ChecklistRow label={`Upload Delivery Photos (${deliveryPhotoCount}/${requiredPhotoCount})`} complete={deliveryPhotosUploaded} current={dropOtpVerified && !needsCashCollection && !deliveryPhotosUploaded} locked={!dropOtpVerified || needsCashCollection} /> : null}
+                <ChecklistRow label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} complete={false} current={deliveryChecklistComplete} locked={!deliveryChecklistComplete} />
+                <PrimaryButton icon="checkmark-done-outline" label={order.type === "customer_to_tailor" ? "Mark Delivered To Tailor" : "Mark Delivered"} loading={updating} onPress={advanceTask} disabled={!deliveryChecklistComplete} />
               </>
             ) : <ChecklistRow label="Delivery completed" complete />}
           </Card>
@@ -2163,8 +2227,9 @@ function MainApp({
       groups[bid].push(req);
     }
     return Object.entries(groups).map(([batchId, list]) => {
-      const first = list[0];
-      const estimatedEarnings = list.reduce((sum, r) => sum + (r.estimatedEarnings ?? 0), 0);
+      const sortedList = sortDeliveryTasksForRoute(list);
+      const first = sortedList[0];
+      const estimatedEarnings = sortedList.reduce((sum, r) => sum + (r.estimatedEarnings ?? 0), 0);
       const isCompleted = list.length > 0 && list.every((r) => r.taskStatus === "delivered");
       const isCancelled = list.length > 0 && list.every((r) => r.taskStatus === "cancelled");
       const status = isCompleted ? "completed" : isCancelled ? "cancelled" : "active";
@@ -2176,7 +2241,7 @@ function MainApp({
         area: first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
         estimatedEarnings,
         status,
-        requests: list
+        requests: sortedList
       };
     });
   }, [filteredRequests]);
