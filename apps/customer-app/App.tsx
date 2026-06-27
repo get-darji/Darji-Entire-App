@@ -70,10 +70,11 @@ type Screen =
   | "measurementGuide"
   | "newRequest"
   | "clothIssue"
+  | "orderSummary"
   | "quotes"
   | "confirmOrder"
   | "trackOrder";
-type RequestFlowScreen = "newRequest" | "clothIssue" | "quotes" | "confirmOrder";
+type RequestFlowScreen = "newRequest" | "clothIssue" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
@@ -95,6 +96,21 @@ type BackendTailorQuote = {
   } | null;
 };
 type LocalMedia = { uri: string; type: "image" | "video"; name: string; size?: number };
+type ClothingItemDraft = {
+  id: string;
+  description: string;
+  gender?: string;
+  clothType?: string;
+  workType?: string;
+  measurements?: Record<string, string>;
+  measurementNotes?: string;
+  sampleProvided?: boolean;
+  sampleMedia?: LocalMedia;
+  uploadedSampleMedia?: UploadedMedia;
+  homeMeasurementBooked?: boolean;
+  media: LocalMedia[];
+  uploadedMedia: UploadedMedia[];
+};
 type OrderStatus =
   | "Awaiting Payment"
   | "Pending"
@@ -152,6 +168,19 @@ type Coupon = {
   isActive: boolean;
 };
 type BackendRequestQuote = BackendTailorQuote & { estimatedHours?: number; tailor?: BackendTailorQuote["tailor"] };
+type BackendTailoringRequestItem = {
+  id?: string;
+  description: string;
+  gender?: string;
+  clothType: string;
+  workType: string;
+  measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+  measurementNotes?: string;
+  media?: UploadedMedia[];
+  sampleProvided?: boolean;
+  sampleMedia?: UploadedMedia[];
+  homeMeasurementBooked?: boolean;
+};
 type BackendTailoringRequest = {
   id: string;
   description: string;
@@ -160,8 +189,12 @@ type BackendTailoringRequest = {
   workType: string;
   urgency: string;
   pickupAddress: string;
+  media?: UploadedMedia[];
+  measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+  measurementNotes?: string;
   sampleProvided?: boolean;
   sampleMedia?: UploadedMedia[];
+  homeMeasurementBooked?: boolean;
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
   orderStatus?: string;
   paymentMethod?: string;
@@ -174,6 +207,7 @@ type BackendTailoringRequest = {
   discountAmount?: number;
   itemCount?: number;
   additionalItems?: CheckoutAdditionalItem[];
+  items?: BackendTailoringRequestItem[];
   totalAmount?: number;
   cancellationFee?: number;
   cancelledAt?: string;
@@ -268,6 +302,8 @@ type RequestDraft = {
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
   additionalItems?: CheckoutAdditionalItem[];
+  items?: ClothingItemDraft[];
+  editingItemId?: string;
   backendRequestId?: string;
 };
 
@@ -282,7 +318,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
-const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "quotes", "confirmOrder"]);
+const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "orderSummary", "quotes", "confirmOrder"]);
 const PLATFORM_FEE = 10;
 const HOME_MEASUREMENT_FEE = 30;
 
@@ -514,11 +550,15 @@ function makeEmptyDraft(pickup = ""): RequestDraft {
     pickup,
     media: [],
     uploadedMedia: [],
-    additionalItems: []
+    items: []
   };
 }
 
-function hasRequestDraftData(draft: RequestDraft) {
+function makeClothingItemId() {
+  return `cloth-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function hasActiveItemDraftData(draft: RequestDraft) {
   const hasMeasurements = Object.values(draft.measurements ?? {}).some((value) => value.trim());
   return Boolean(
     draft.description.trim() ||
@@ -532,9 +572,103 @@ function hasRequestDraftData(draft: RequestDraft) {
       draft.measurementNotes?.trim() ||
       draft.sampleProvided ||
       draft.sampleMedia ||
-      draft.homeMeasurementBooked ||
-      Boolean(draft.additionalItems?.length)
+      draft.homeMeasurementBooked
   );
+}
+
+function hasRequestDraftData(draft: RequestDraft) {
+  return Boolean(hasActiveItemDraftData(draft) || draft.items?.length || draft.urgency);
+}
+
+function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?? makeClothingItemId()): ClothingItemDraft {
+  return {
+    id: itemId,
+    description: draft.description.trim(),
+    gender: draft.gender,
+    clothType: draft.clothType,
+    workType: draft.workType,
+    measurements: draft.measurements,
+    measurementNotes: draft.measurementNotes,
+    sampleProvided: draft.sampleProvided,
+    sampleMedia: draft.sampleMedia,
+    uploadedSampleMedia: draft.uploadedSampleMedia,
+    homeMeasurementBooked: draft.homeMeasurementBooked,
+    media: draft.media,
+    uploadedMedia: draft.uploadedMedia
+  };
+}
+
+function clearActiveClothingItem(draft: RequestDraft): RequestDraft {
+  return {
+    ...makeEmptyDraft(draft.pickup),
+    urgency: draft.urgency,
+    items: draft.items ?? [],
+    backendRequestId: draft.backendRequestId
+  };
+}
+
+function loadClothingItemIntoDraft(draft: RequestDraft, item: ClothingItemDraft): RequestDraft {
+  return {
+    ...draft,
+    description: item.description,
+    gender: item.gender,
+    clothType: item.clothType,
+    workType: item.workType,
+    measurements: item.measurements,
+    measurementNotes: item.measurementNotes,
+    sampleProvided: item.sampleProvided,
+    sampleMedia: item.sampleMedia,
+    uploadedSampleMedia: item.uploadedSampleMedia,
+    homeMeasurementBooked: item.homeMeasurementBooked,
+    media: item.media ?? [],
+    uploadedMedia: item.uploadedMedia ?? [],
+    editingItemId: item.id
+  };
+}
+
+function upsertClothingItem(draft: RequestDraft, item: ClothingItemDraft): ClothingItemDraft[] {
+  const items = draft.items ?? [];
+  const matchId = draft.editingItemId ?? item.id;
+  if (matchId && items.some((entry) => entry.id === matchId)) {
+    return items.map((entry) => (entry.id === matchId ? { ...item, id: matchId } : entry));
+  }
+  return [...items, item];
+}
+
+function clothingItemsForDraft(draft: RequestDraft): ClothingItemDraft[] {
+  if (draft.items?.length) return draft.items;
+  if (!hasActiveItemDraftData(draft)) return [];
+  return [draftToClothingItem(draft, "active-item")];
+}
+
+function clothingItemTitle(item: Pick<ClothingItemDraft, "gender" | "clothType">) {
+  return [item.gender, item.clothType].filter(Boolean).join(" ") || "Clothing item";
+}
+
+function clothingItemSummary(item: Pick<ClothingItemDraft, "clothType" | "workType">) {
+  return [item.clothType, item.workType].filter(Boolean).join(" - ") || "Tailoring";
+}
+
+function clothingItemThumbnail(item: ClothingItemDraft) {
+  const firstLocalPhoto = item.media.find((media) => media.type === "image")?.uri;
+  return firstLocalPhoto ?? item.uploadedMedia.find((media) => media.resourceType === "image")?.url;
+}
+
+function measurementStatusForItem(item: Pick<ClothingItemDraft, "sampleProvided" | "homeMeasurementBooked" | "measurements">) {
+  if (item.sampleProvided) return "Sample";
+  if (item.homeMeasurementBooked) return "Home Visit";
+  if (Object.values(item.measurements ?? {}).some((value) => value.trim())) return "Custom";
+  return "Not added";
+}
+
+function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" | "sampleProvided" | "homeMeasurementBooked">) {
+  return [
+    item.measurementNotes?.trim(),
+    item.sampleProvided ? "Customer will provide a non-stretch sample garment as a reference." : undefined,
+    item.homeMeasurementBooked ? `Customer requested an at-home measurement visit. Fee: Rs${HOME_MEASUREMENT_FEE}.` : undefined
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function isSessionError(error: unknown) {
@@ -615,15 +749,15 @@ function deliveryFeeForUrgency(urgency?: string) {
 }
 
 function homeMeasurementFeeForDraft(draft: RequestDraft) {
-  return draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0;
+  return clothingItemsForDraft(draft).some((item) => item.homeMeasurementBooked) || draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0;
 }
 
 function checkoutItemCount(draft: RequestDraft) {
-  return 1 + (draft.additionalItems?.length ?? 0);
+  return Math.max(1, clothingItemsForDraft(draft).length);
 }
 
 function subtotalForQuote(quote: Quote, draft: RequestDraft) {
-  return quote.price * checkoutItemCount(draft) + deliveryFeeForUrgency(draft.urgency) + PLATFORM_FEE + homeMeasurementFeeForDraft(draft);
+  return quote.price + deliveryFeeForUrgency(draft.urgency) + PLATFORM_FEE + homeMeasurementFeeForDraft(draft);
 }
 
 function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
@@ -638,16 +772,6 @@ function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
 function totalForQuote(quote: Quote, draft: RequestDraft, coupon?: Coupon) {
   const subtotal = subtotalForQuote(quote, draft);
   return Math.max(subtotal - calculateCouponDiscount(coupon, subtotal), 0);
-}
-
-function notesForTailoringRequest(draft: RequestDraft) {
-  return [
-    draft.measurementNotes?.trim(),
-    draft.sampleProvided ? "Customer will provide a non-stretch sample garment as a reference." : undefined,
-    draft.homeMeasurementBooked ? `Customer requested an at-home measurement visit. Fee: Rs${HOME_MEASUREMENT_FEE}.` : undefined
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 function greetingForNow() {
@@ -1331,7 +1455,10 @@ function NewRequestScreen({
   const [uploading, setUploading] = useState(false);
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
-  const canContinueRequest = draft.media.length > 0 && draft.description.trim().length >= 10 && draft.pickup.trim().length >= 8;
+  const savedItemCount = draft.items?.length ?? 0;
+  const needsPickupAddress = savedItemCount === 0;
+  const currentItemNumber = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) + 1 || savedItemCount + 1 : savedItemCount + 1;
+  const canContinueRequest = draft.media.length > 0 && draft.description.trim().length >= 10 && (!needsPickupAddress || draft.pickup.trim().length >= 8);
 
   function toLocalMedia(asset: ImagePicker.ImagePickerAsset, fallbackIndex: number): LocalMedia {
     const type = asset.type === "video" ? "video" : "image";
@@ -1371,7 +1498,7 @@ function NewRequestScreen({
       Alert.alert("Description required", "Please describe the stitching, alteration, or issue before continuing.");
       return;
     }
-    if (draft.pickup.trim().length < 8) {
+    if (needsPickupAddress && draft.pickup.trim().length < 8) {
       Alert.alert("Pickup address required", "Please add a pickup address or choose a saved address.");
       return;
     }
@@ -1441,8 +1568,14 @@ function NewRequestScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="New Request" onBack={onExitRequest} />
+        <Header title={draft.editingItemId ? `Edit Item ${currentItemNumber}` : currentItemNumber > 1 ? `Cloth Item ${currentItemNumber}` : "New Request"} onBack={onExitRequest} />
         <Text style={styles.helperText}>Describe your tailoring needs clearly so tailors can give accurate quotes.</Text>
+        {savedItemCount > 0 ? (
+          <View style={styles.infoBanner}>
+            <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
+            <Text style={styles.infoBannerText}>{savedItemCount} {savedItemCount === 1 ? "Item" : "Items"} Added</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.formLabel}>Upload Photos / Video</Text>
         <View style={styles.uploadRow}>
@@ -1490,55 +1623,67 @@ function NewRequestScreen({
           onChangeText={(description) => setDraft({ ...draft, description })}
         />
 
-        <Text style={styles.formLabel}>Pickup Address</Text>
-        <View style={styles.addressCard}>
-          <Ionicons name="location-outline" size={20} color={BRAND_ORANGE} />
-          <View style={styles.addressTextWrap}>
-            {editingAddress ? (
-              <TextInput
-                multiline
-                style={styles.addressInput}
-                value={draft.pickup}
-                onChangeText={(pickup) => setDraft({ ...draft, pickup })}
-                placeholder="Enter pickup address"
-                placeholderTextColor="#98a4b6"
-              />
-            ) : (
-              <>
-                <Text style={styles.addressTitle}>{draft.pickup.split(",")[0]}</Text>
-                <Text style={styles.mutedSmall}>{draft.pickup.split(",").slice(1).join(",").trim() || "Tap edit to update address"}</Text>
-              </>
-            )}
-          </View>
-        </View>
-        <View style={styles.addressActions}>
-          <Pressable style={styles.addressActionButton} onPress={() => setEditingAddress((value) => !value)}>
-            <Ionicons name={editingAddress ? "checkmark-outline" : "create-outline"} size={15} color={BRAND_ORANGE} />
-            <Text style={styles.addPhotoText}>{editingAddress ? "Done" : "Edit address"}</Text>
-          </Pressable>
-          <Pressable style={styles.addressActionButton} onPress={useCurrentLocation} disabled={locating}>
-            {locating ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={15} color={BRAND_ORANGE} />}
-            <Text style={styles.addPhotoText}>Use current location</Text>
-          </Pressable>
-        </View>
-        {addresses.length ? (
+        {needsPickupAddress ? (
           <>
-            <Text style={styles.formLabel}>Use Saved Address</Text>
-            <View style={styles.savedAddressList}>
-              {addresses.map((address) => (
-                <Pressable key={address.id} style={[styles.savedAddressChoice, draft.pickup === address.address && styles.savedAddressChoiceSelected]} onPress={() => setDraft({ ...draft, pickup: address.address })}>
-                  <Ionicons name="home-outline" size={15} color={draft.pickup === address.address ? BRAND_ORANGE : "#6b7890"} />
-                  <View style={styles.savedAddressChoiceText}>
-                    <Text style={styles.savedAddressChoiceTitle}>{address.label}</Text>
-                    <Text style={styles.mutedSmall} numberOfLines={1}>{address.address}</Text>
-                  </View>
-                </Pressable>
-              ))}
+            <Text style={styles.formLabel}>Pickup Address</Text>
+            <View style={styles.addressCard}>
+              <Ionicons name="location-outline" size={20} color={BRAND_ORANGE} />
+              <View style={styles.addressTextWrap}>
+                {editingAddress ? (
+                  <TextInput
+                    multiline
+                    style={styles.addressInput}
+                    value={draft.pickup}
+                    onChangeText={(pickup) => setDraft({ ...draft, pickup })}
+                    placeholder="Enter pickup address"
+                    placeholderTextColor="#98a4b6"
+                  />
+                ) : (
+                  <>
+                    <Text style={styles.addressTitle}>{draft.pickup.split(",")[0]}</Text>
+                    <Text style={styles.mutedSmall}>{draft.pickup.split(",").slice(1).join(",").trim() || "Tap edit to update address"}</Text>
+                  </>
+                )}
+              </View>
             </View>
+            <View style={styles.addressActions}>
+              <Pressable style={styles.addressActionButton} onPress={() => setEditingAddress((value) => !value)}>
+                <Ionicons name={editingAddress ? "checkmark-outline" : "create-outline"} size={15} color={BRAND_ORANGE} />
+                <Text style={styles.addPhotoText}>{editingAddress ? "Done" : "Edit address"}</Text>
+              </Pressable>
+              <Pressable style={styles.addressActionButton} onPress={useCurrentLocation} disabled={locating}>
+                {locating ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={15} color={BRAND_ORANGE} />}
+                <Text style={styles.addPhotoText}>Use current location</Text>
+              </Pressable>
+            </View>
+            {addresses.length ? (
+              <>
+                <Text style={styles.formLabel}>Use Saved Address</Text>
+                <View style={styles.savedAddressList}>
+                  {addresses.map((address) => (
+                    <Pressable key={address.id} style={[styles.savedAddressChoice, draft.pickup === address.address && styles.savedAddressChoiceSelected]} onPress={() => setDraft({ ...draft, pickup: address.address })}>
+                      <Ionicons name="home-outline" size={15} color={draft.pickup === address.address ? BRAND_ORANGE : "#6b7890"} />
+                      <View style={styles.savedAddressChoiceText}>
+                        <Text style={styles.savedAddressChoiceTitle}>{address.label}</Text>
+                        <Text style={styles.mutedSmall} numberOfLines={1}>{address.address}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
           </>
-        ) : null}
+        ) : (
+          <View style={styles.addressCard}>
+            <Ionicons name="location-outline" size={20} color={BRAND_ORANGE} />
+            <View style={styles.addressTextWrap}>
+              <Text style={styles.addressTitle}>Pickup address saved</Text>
+              <Text style={styles.mutedSmall} numberOfLines={2}>{draft.pickup}</Text>
+            </View>
+          </View>
+        )}
 
-        <Text style={styles.fieldDisclaimer}>Photos, description, and pickup address are required before continuing.</Text>
+        <Text style={styles.fieldDisclaimer}>Photos and description are required before continuing{needsPickupAddress ? ", along with pickup address" : ""}.</Text>
         <Pressable style={[styles.primaryWideButton, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={uploading}>
           {uploading ? (
             <ActivityIndicator color="#111111" />
@@ -1703,12 +1848,14 @@ function MeasurementGuideScreen({ setScreen }: { setScreen: (screen: Screen) => 
 
 function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void }) {
   const canContinue = Boolean(draft.gender && draft.clothType && draft.workType && draft.urgency);
-  const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState<"summary" | "another" | undefined>();
   const [showSizeChart, setShowSizeChart] = useState(false);
   const [showHomeMeasurementModal, setShowHomeMeasurementModal] = useState(false);
   const token = useAppStore((state) => state.token);
   const measurementGuide = guideForClothType(draft.clothType);
   const measurements = draft.measurements ?? {};
+  const savedItemCount = draft.items?.length ?? 0;
+  const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
 
   function selectClothType(clothType: string) {
     setDraft({ ...draft, clothType, measurements: {}, measurementNotes: "", sampleMedia: undefined, uploadedSampleMedia: undefined });
@@ -1758,61 +1905,62 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
     });
   }
 
-  async function saveRequestAndGetQuotes() {
+  async function saveClothingItem() {
     if (!canContinue || !token) return;
     if (draft.description.trim().length < 10) {
       Alert.alert("Add details", "Describe the issue in at least 10 characters.");
       setScreen("newRequest");
-      return;
+      return undefined;
     }
     if (draft.sampleProvided && !draft.sampleMedia && !draft.uploadedSampleMedia) {
       Alert.alert("Sample photo needed", "Upload one photo of the sample garment or turn off the sample option.");
-      return;
+      return undefined;
     }
 
     try {
-      setSaving(true);
       const uploadedSampleMedia = draft.sampleProvided && draft.sampleMedia && !draft.uploadedSampleMedia ? (await uploadMedia([draft.sampleMedia], token))[0] : draft.uploadedSampleMedia;
-      const measurementNotes = notesForTailoringRequest(draft);
-      const request = await api<{ id: string }>(
-        "/tailoring-requests",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            description: draft.description,
-            gender: draft.gender,
-            clothType: draft.clothType,
-            workType: draft.workType,
-            urgency: draft.urgency,
-            measurement: draft.clothType
-              ? {
-                  label: draft.clothType,
-                  fields: Object.fromEntries(Object.entries(draft.measurements ?? {}).filter(([, value]) => value.trim())),
-                  imageUrl: uploadedSampleMedia?.url
-                }
-              : undefined,
-            measurementNotes: measurementNotes || undefined,
-            pickupAddress: draft.pickup,
-            sampleProvided: draft.sampleProvided === true,
-            media: draft.uploadedMedia,
-            sampleMedia: uploadedSampleMedia ? [uploadedSampleMedia] : []
-          })
-        },
-        token
-      );
-      setDraft({ ...draft, uploadedSampleMedia, backendRequestId: request.id });
-      setScreen("quotes");
+      const item = draftToClothingItem({ ...draft, uploadedSampleMedia });
+      return { item, uploadedSampleMedia, items: upsertClothingItem(draft, item) };
     } catch (error) {
-      Alert.alert("Request failed", error instanceof Error ? error.message : "Could not save your request.");
+      Alert.alert("Item failed", error instanceof Error ? error.message : "Could not save this clothing item.");
+      return undefined;
+    }
+  }
+
+  async function continueToSummary() {
+    try {
+      setSavingAction("summary");
+      const saved = await saveClothingItem();
+      if (!saved) return;
+      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, items: saved.items }));
+      setScreen("orderSummary");
     } finally {
-      setSaving(false);
+      setSavingAction(undefined);
+    }
+  }
+
+  async function addAnotherCloth() {
+    try {
+      setSavingAction("another");
+      const saved = await saveClothingItem();
+      if (!saved) return;
+      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, items: saved.items }));
+      setScreen("newRequest");
+    } finally {
+      setSavingAction(undefined);
     }
   }
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Cloth & Issue" onBack={() => setScreen("newRequest")} />
+        <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} />
+        {savedItemCount > 0 ? (
+          <View style={styles.infoBanner}>
+            <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
+            <Text style={styles.infoBannerText}>{savedItemCount} {savedItemCount === 1 ? "Item" : "Items"} Added</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.formLabel}>Gender / Fit Type</Text>
         <View style={styles.twoCol}>
@@ -1937,24 +2085,43 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           ))}
         </View>
 
-        <Text style={styles.formLabel}>Urgency</Text>
-        <View style={styles.urgencyRow}>
-          {urgencyOptions.map((option) => (
-            <Pressable key={option.label} style={[styles.urgencyButton, draft.urgency === option.label && styles.selectedUrgency]} onPress={() => setDraft({ ...draft, urgency: option.label })}>
-              <Ionicons name={option.icon} size={20} color={draft.urgency === option.label ? BRAND_ORANGE : "#7d8491"} />
-              <Text style={[styles.urgencyText, draft.urgency === option.label && styles.selectedUrgencyText]}>{option.label}</Text>
-              <Text style={[styles.urgencyHelper, draft.urgency === option.label && styles.selectedUrgencyText]}>{option.helper}</Text>
-            </Pressable>
-          ))}
-        </View>
+        {showUrgencyPicker ? (
+          <>
+            <Text style={styles.formLabel}>Urgency</Text>
+            <View style={styles.urgencyRow}>
+              {urgencyOptions.map((option) => (
+                <Pressable key={option.label} style={[styles.urgencyButton, draft.urgency === option.label && styles.selectedUrgency]} onPress={() => setDraft({ ...draft, urgency: option.label })}>
+                  <Ionicons name={option.icon} size={20} color={draft.urgency === option.label ? BRAND_ORANGE : "#7d8491"} />
+                  <Text style={[styles.urgencyText, draft.urgency === option.label && styles.selectedUrgencyText]}>{option.label}</Text>
+                  <Text style={[styles.urgencyHelper, draft.urgency === option.label && styles.selectedUrgencyText]}>{option.helper}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : (
+          <View style={styles.infoBanner}>
+            <Ionicons name="flash-outline" size={17} color={BRAND_ORANGE} />
+            <Text style={styles.infoBannerText}>Shared urgency: {draft.urgency}</Text>
+          </View>
+        )}
 
-        <Pressable disabled={!canContinue || saving} style={[styles.primaryWideButton, (!canContinue || saving) && styles.disabledDarkButton]} onPress={saveRequestAndGetQuotes}>
-          {saving ? (
+        <Pressable disabled={!canContinue || Boolean(savingAction)} style={[styles.primaryWideButton, (!canContinue || Boolean(savingAction)) && styles.disabledDarkButton]} onPress={continueToSummary}>
+          {savingAction === "summary" ? (
             <ActivityIndicator color="#777777" />
           ) : (
             <>
               <Text style={[styles.primaryWideButtonText, !canContinue && styles.disabledText]}>Get Quotes</Text>
               <Ionicons name="chevron-forward" size={18} color={canContinue ? "#111111" : "#777777"} />
+            </>
+          )}
+        </Pressable>
+        <Pressable disabled={!canContinue || Boolean(savingAction)} style={[styles.secondaryWideButton, (!canContinue || Boolean(savingAction)) && styles.buttonDisabled]} onPress={addAnotherCloth}>
+          {savingAction === "another" ? (
+            <ActivityIndicator color={BRAND_ORANGE} />
+          ) : (
+            <>
+              <Ionicons name="add-circle-outline" size={18} color={canContinue ? BRAND_ORANGE : "#777777"} />
+              <Text style={[styles.secondaryWideButtonText, !canContinue && styles.disabledText]}>Add Another Cloth</Text>
             </>
           )}
         </Pressable>
@@ -2029,6 +2196,42 @@ function statusFromBackendRequest(request: BackendTailoringRequest): OrderStatus
   return "Pending";
 }
 
+function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallbackDraft?: RequestDraft): ClothingItemDraft[] {
+  if (request.items?.length) {
+    return request.items.map((item, index) => ({
+      id: item.id ?? `${request.id}-item-${index + 1}`,
+      description: item.description,
+      gender: item.gender,
+      clothType: item.clothType,
+      workType: item.workType,
+      measurements: Object.fromEntries(Object.entries(item.measurement?.fields ?? {}).map(([key, value]) => [key, String(value)])),
+      measurementNotes: item.measurementNotes,
+      sampleProvided: item.sampleProvided,
+      uploadedSampleMedia: item.sampleMedia?.[0],
+      homeMeasurementBooked: item.homeMeasurementBooked,
+      media: [],
+      uploadedMedia: item.media ?? []
+    }));
+  }
+  if (fallbackDraft?.items?.length) return fallbackDraft.items;
+  return [
+    {
+      id: `${request.id}-item-1`,
+      description: request.description,
+      gender: request.gender,
+      clothType: request.clothType,
+      workType: request.workType,
+      measurements: Object.fromEntries(Object.entries(request.measurement?.fields ?? {}).map(([key, value]) => [key, String(value)])),
+      measurementNotes: request.measurementNotes,
+      sampleProvided: request.sampleProvided,
+      uploadedSampleMedia: request.sampleMedia?.[0],
+      homeMeasurementBooked: request.homeMeasurementBooked,
+      media: [],
+      uploadedMedia: request.media ?? []
+    }
+  ];
+}
+
 function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder?: CustomerOrder): CustomerOrder | undefined {
   const selectedQuote = request.selectedQuote ? quoteFromBackend(request.selectedQuote) : existingOrder?.tailor ?? {
     id: `pending-${request.id}`,
@@ -2042,15 +2245,24 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
   };
 
   const fallbackDraft = existingOrder?.draft ?? makeEmptyDraft(request.pickupAddress);
+  const items = clothingItemsFromBackendRequest(request, fallbackDraft);
+  const primaryItem = items[0];
   const draft: RequestDraft = {
     ...fallbackDraft,
-    description: request.description,
-    gender: request.gender,
-    clothType: request.clothType,
-    workType: request.workType,
+    description: primaryItem?.description ?? request.description,
+    gender: primaryItem?.gender ?? request.gender,
+    clothType: primaryItem?.clothType ?? request.clothType,
+    workType: primaryItem?.workType ?? request.workType,
     urgency: request.urgency,
     pickup: request.pickupAddress,
-    sampleProvided: request.sampleProvided,
+    measurements: primaryItem?.measurements,
+    measurementNotes: primaryItem?.measurementNotes,
+    sampleProvided: primaryItem?.sampleProvided ?? request.sampleProvided,
+    uploadedSampleMedia: primaryItem?.uploadedSampleMedia,
+    homeMeasurementBooked: primaryItem?.homeMeasurementBooked,
+    media: primaryItem?.media ?? [],
+    uploadedMedia: primaryItem?.uploadedMedia ?? [],
+    items,
     backendRequestId: request.id
   };
 
@@ -2084,6 +2296,168 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
   };
 }
 
+function payloadForClothingItem(item: ClothingItemDraft) {
+  const measurementFields = Object.fromEntries(Object.entries(item.measurements ?? {}).filter(([, value]) => value.trim()));
+  const measurementNotes = notesForClothingItem(item);
+  return {
+    description: item.description,
+    gender: item.gender,
+    clothType: item.clothType,
+    workType: item.workType,
+    measurement: item.clothType
+      ? {
+          label: item.clothType,
+          fields: measurementFields,
+          imageUrl: item.uploadedSampleMedia?.url
+        }
+      : undefined,
+    measurementNotes: measurementNotes || undefined,
+    homeMeasurementBooked: item.homeMeasurementBooked === true,
+    sampleProvided: item.sampleProvided === true,
+    media: item.uploadedMedia,
+    sampleMedia: item.uploadedSampleMedia ? [item.uploadedSampleMedia] : []
+  };
+}
+
+function OrderSummaryScreen({
+  draft,
+  setDraft,
+  setScreen,
+  showDialog
+}: {
+  draft: RequestDraft;
+  setDraft: (draft: RequestDraft) => void;
+  setScreen: (screen: Screen) => void;
+  showDialog: (dialog: AppDialogState) => void;
+}) {
+  const token = useAppStore((state) => state.token);
+  const signOut = useAppStore((state) => state.signOut);
+  const [submitting, setSubmitting] = useState(false);
+  const items = clothingItemsForDraft(draft);
+
+  function editItem(item: ClothingItemDraft) {
+    setDraft(loadClothingItemIntoDraft(draft, item));
+    setScreen("newRequest");
+  }
+
+  function deleteItem(itemId: string) {
+    const nextItems = items.filter((item) => item.id !== itemId);
+    setDraft({ ...clearActiveClothingItem({ ...draft, items: nextItems }), items: nextItems });
+    if (nextItems.length === 0) setScreen("newRequest");
+  }
+
+  async function requestQuotes() {
+    if (!token) return;
+    if (items.length === 0) {
+      showDialog({ title: "Add a cloth", message: "Add at least one clothing item before requesting quotes.", actions: [{ label: "OK" }] });
+      return;
+    }
+    if (!draft.urgency || draft.pickup.trim().length < 8) {
+      showDialog({ title: "Shared details missing", message: "Pickup address and urgency are required for the order.", actions: [{ label: "OK" }] });
+      return;
+    }
+    const incomplete = items.find((item) => !item.description.trim() || !item.clothType || !item.workType || !item.uploadedMedia.length);
+    if (incomplete) {
+      showDialog({ title: "Item incomplete", message: `${clothingItemTitle(incomplete)} needs photos, description, cloth type, and work type.`, actions: [{ label: "OK" }] });
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const itemPayloads = items.map(payloadForClothingItem);
+      const primary = itemPayloads[0];
+      const request = await api<BackendTailoringRequest>(
+        "/tailoring-requests",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...primary,
+            urgency: draft.urgency,
+            pickupAddress: draft.pickup,
+            items: itemPayloads
+          })
+        },
+        token
+      );
+      setDraft({
+        ...clearActiveClothingItem({ ...draft, items }),
+        description: items[0].description,
+        gender: items[0].gender,
+        clothType: items[0].clothType,
+        workType: items[0].workType,
+        measurements: items[0].measurements,
+        measurementNotes: items[0].measurementNotes,
+        sampleProvided: items[0].sampleProvided,
+        uploadedSampleMedia: items[0].uploadedSampleMedia,
+        homeMeasurementBooked: items[0].homeMeasurementBooked,
+        media: items[0].media,
+        uploadedMedia: items[0].uploadedMedia,
+        items,
+        backendRequestId: request.id
+      });
+      setScreen("quotes");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not request quotes.";
+      showDialog({ title: "Request failed", message, actions: [{ label: "OK" }] });
+      if (message.includes("Session expired")) signOut();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <Header title="Order Summary" onBack={() => setScreen("newRequest")} />
+        <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>ORDER CART</Text>
+          <SummaryRow label="Clothing items" value={`${items.length}`} strong />
+          <SummaryRow label="Urgency" value={draft.urgency ?? "Not selected"} />
+          <SummaryRow label="Pickup address" value={draft.pickup || "Not selected"} />
+        </View>
+
+        {items.map((item, index) => {
+          const thumbnail = clothingItemThumbnail(item);
+          return (
+            <View key={item.id} style={styles.orderSummaryItemCard}>
+              <View style={styles.orderSummaryItemTop}>
+                <View style={styles.orderSummaryThumb}>
+                  {thumbnail ? <Image source={{ uri: thumbnail }} style={styles.orderSummaryThumbImage} /> : <Ionicons name="shirt-outline" size={24} color={BRAND_ORANGE} />}
+                </View>
+                <View style={styles.orderSummaryItemText}>
+                  <Text style={styles.cardLabel}>ITEM {index + 1}</Text>
+                  <Text style={styles.addressTitle}>{clothingItemTitle(item)}</Text>
+                  <Text style={styles.mutedSmall}>{clothingItemSummary(item)}</Text>
+                  <Text style={styles.mutedSmall} numberOfLines={2}>{item.description}</Text>
+                  <Text style={styles.orderSummaryStatus}>{measurementStatusForItem(item)}</Text>
+                </View>
+              </View>
+              <View style={styles.orderSummaryActions}>
+                <Pressable style={styles.orderSummaryActionButton} onPress={() => editItem(item)}>
+                  <Ionicons name="create-outline" size={16} color={BRAND_DEEP} />
+                  <Text style={styles.orderSummaryActionText}>Edit</Text>
+                </Pressable>
+                <Pressable style={[styles.orderSummaryActionButton, styles.orderSummaryDeleteButton]} onPress={() => deleteItem(item.id)}>
+                  <Ionicons name="trash-outline" size={16} color="#c24141" />
+                  <Text style={[styles.orderSummaryActionText, styles.orderSummaryDeleteText]}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+
+        <Pressable style={styles.secondaryWideButton} onPress={() => { setDraft(clearActiveClothingItem({ ...draft, items })); setScreen("newRequest"); }} disabled={submitting}>
+          <Ionicons name="add-circle-outline" size={18} color={BRAND_ORANGE} />
+          <Text style={styles.secondaryWideButtonText}>Add Another Cloth</Text>
+        </Pressable>
+        <Pressable style={[styles.primaryWideButton, (items.length === 0 || submitting) && styles.disabledDarkButton]} onPress={requestQuotes} disabled={items.length === 0 || submitting}>
+          {submitting ? <ActivityIndicator color="#111111" /> : <Text style={[styles.primaryWideButtonText, items.length === 0 && styles.disabledText]}>Get Quotes</Text>}
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 function QuotesScreen({
   draft,
   selectedQuote,
@@ -2103,6 +2477,7 @@ function QuotesScreen({
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const itemCount = checkoutItemCount(draft);
 
   async function loadQuotes() {
     if (!token || !draft.backendRequestId) return;
@@ -2145,7 +2520,7 @@ function QuotesScreen({
         <Header title="Tailor Quotes" onBack={() => setScreen("clothIssue")} />
         <View style={styles.infoBanner}>
           <Ionicons name="time-outline" size={17} color={BRAND_ORANGE} />
-          <Text style={styles.infoBannerText}>{loading ? "Checking tailor quotes..." : `${visibleQuotes.length} tailors responded to your request`}</Text>
+          <Text style={styles.infoBannerText}>{loading ? "Checking tailor quotes..." : `${visibleQuotes.length} tailors responded - ${itemCount} ${itemCount === 1 ? "item" : "items"}`}</Text>
         </View>
 
         {visibleQuotes.length === 0 && !loading ? (
@@ -2186,7 +2561,7 @@ function QuotesScreen({
                 </View>
               </View>
               <View style={styles.chipRow}>
-                <Text style={styles.quoteChip}>Kurta Alteration</Text>
+                <Text style={styles.quoteChip}>{itemCount === 1 ? clothingItemSummary(clothingItemsForDraft(draft)[0] ?? draftToClothingItem(draft, "active-item")) : `${itemCount} clothing items`}</Text>
               </View>
               {quote.message ? (
                 <View style={styles.quoteMessageBox}>
@@ -2234,11 +2609,11 @@ function ConfirmOrderScreen({
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | undefined>();
-  const [newItem, setNewItem] = useState<CheckoutAdditionalItem>({});
+  const orderItems = clothingItemsForDraft(draft);
   const deliveryFee = deliveryFeeForUrgency(draft.urgency);
   const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
   const itemCount = checkoutItemCount(draft);
-  const tailoringTotal = quote.price * itemCount;
+  const tailoringTotal = quote.price;
   const subtotal = subtotalForQuote(quote, draft);
   const discount = calculateCouponDiscount(appliedCoupon, subtotal);
   const total = totalForQuote(quote, draft, appliedCoupon);
@@ -2265,15 +2640,6 @@ function ConfirmOrderScreen({
     setCouponInput(code);
   }
 
-  function addCheckoutItem() {
-    if (!newItem.clothType && !newItem.workType && !newItem.description) {
-      Alert.alert("Add item details", "Enter at least cloth type, work type, or issue details.");
-      return;
-    }
-    setDraft({ ...draft, additionalItems: [...(draft.additionalItems ?? []), newItem] });
-    setNewItem({});
-  }
-
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
@@ -2295,16 +2661,14 @@ function ConfirmOrderScreen({
 
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>ORDER SUMMARY</Text>
-          <SummaryRow label="Service" value={draft.workType ?? "Kurta Alteration"} />
-          <SummaryRow label="Gender" value={draft.gender ?? "Not selected"} />
-          <SummaryRow label="Cloth Type" value={draft.clothType ?? "Dress"} />
+          <SummaryRow label="Clothing items" value={`${itemCount}`} />
+          <SummaryRow label="Primary item" value={clothingItemSummary(orderItems[0] ?? draftToClothingItem(draft, "active-item"))} />
           <SummaryRow label="Urgency" value={draft.urgency ?? "Normal"} />
           <SummaryRow label="Estimated Time" value={quote.eta} />
           <SummaryRow label="Pickup" value="Today, 2:00 - 4:00 PM" />
-          <SummaryRow label={`Tailoring x ${itemCount}`} value={`Rs${tailoringTotal}`} tone="positive" />
+          <SummaryRow label="Tailor quote" value={`Rs${tailoringTotal}`} tone="positive" />
           <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
           <SummaryRow label="Platform fee" value={`Rs${PLATFORM_FEE}`} tone="positive" />
-          {draft.sampleProvided ? <SummaryRow label="Sample reference" value={draft.sampleMedia || draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
           {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
@@ -2312,24 +2676,14 @@ function ConfirmOrderScreen({
         </View>
 
         <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>ADD MORE CLOTHES</Text>
-          <Text style={styles.mutedSmall}>Add another clothing request to this checkout. The tailor will see every item together.</Text>
-          {(draft.additionalItems ?? []).map((item, index) => (
-            <View key={`extra-${index}`} style={styles.checkoutItemCard}>
-              <Text style={styles.addressTitle}>Item {index + 2}: {item.clothType || item.workType || "Extra clothing"}</Text>
+          <Text style={styles.cardLabel}>CLOTHING ITEMS</Text>
+          <Text style={styles.mutedSmall}>Review every garment included in this quote before accepting it.</Text>
+          {orderItems.map((item, index) => (
+            <View key={item.id} style={styles.checkoutItemCard}>
+              <Text style={styles.addressTitle}>Item {index + 1}: {clothingItemTitle(item)}</Text>
               <Text style={styles.mutedSmall}>{[item.gender, item.workType, item.description].filter(Boolean).join(" • ")}</Text>
             </View>
           ))}
-          <View style={styles.checkoutGrid}>
-            <TextInput style={styles.checkoutMiniInput} value={newItem.gender ?? ""} onChangeText={(value) => setNewItem({ ...newItem, gender: value })} placeholder="Gender" />
-            <TextInput style={styles.checkoutMiniInput} value={newItem.clothType ?? ""} onChangeText={(value) => setNewItem({ ...newItem, clothType: value })} placeholder="Cloth type" />
-          </View>
-          <TextInput style={styles.checkoutInput} value={newItem.workType ?? ""} onChangeText={(value) => setNewItem({ ...newItem, workType: value })} placeholder="Work type" />
-          <TextInput style={[styles.checkoutInput, { minHeight: 76, textAlignVertical: "top" }]} value={newItem.description ?? ""} onChangeText={(value) => setNewItem({ ...newItem, description: value })} placeholder="Issue/details for this clothing item" multiline />
-          <Pressable style={styles.addMoreCheckoutButton} onPress={addCheckoutItem}>
-            <Ionicons name="add-circle-outline" size={24} color="#111111" />
-            <Text style={styles.primaryWideButtonText}>Add Another Clothing Request</Text>
-          </Pressable>
         </View>
 
         <View style={styles.whiteCard}>
@@ -5386,7 +5740,7 @@ export default function App() {
         if (cancelled || !saved) return;
         const parsed = JSON.parse(saved) as { draft?: RequestDraft; selectedQuote?: Quote; progressScreen?: RequestFlowScreen };
         if (parsed.draft) {
-          setDraft({ ...makeEmptyDraft(), ...parsed.draft, media: parsed.draft.media ?? [], uploadedMedia: parsed.draft.uploadedMedia ?? [], additionalItems: parsed.draft.additionalItems ?? [] });
+          setDraft({ ...makeEmptyDraft(), ...parsed.draft, media: parsed.draft.media ?? [], uploadedMedia: parsed.draft.uploadedMedia ?? [], items: parsed.draft.items ?? [] });
         }
         setSelectedQuote(parsed.selectedQuote);
         if (parsed.progressScreen && REQUEST_FLOW_SCREENS.has(parsed.progressScreen)) setRequestProgressScreen(parsed.progressScreen);
@@ -5570,7 +5924,6 @@ export default function App() {
             platformFee: PLATFORM_FEE,
             homeMeasurementFee,
             couponCode: checkout?.couponCode,
-            additionalItems: orderDraft.additionalItems ?? [],
             totalAmount
           })
         },
@@ -5708,6 +6061,7 @@ export default function App() {
   if (screen === "measurementGuide") return withAppChrome(<MeasurementGuideScreen setScreen={setScreen} />);
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
+  if (screen === "orderSummary") return withAppChrome(<OrderSummaryScreen draft={draft} setDraft={setDraft} setScreen={setScreen} showDialog={setDialog} />);
   if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => void deleteIncompleteRequest(draft.backendRequestId)} />);
   if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => void deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
@@ -6195,6 +6549,17 @@ function createStyles(isDark = false) {
   checkoutMiniInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "700" },
   checkoutInput: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, paddingVertical: 10, fontWeight: "700", marginTop: 10 },
   checkoutItemCard: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 10 },
+  orderSummaryItemCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginBottom: 12 },
+  orderSummaryItemTop: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  orderSummaryThumb: { width: 74, height: 74, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
+  orderSummaryThumbImage: { width: "100%", height: "100%" },
+  orderSummaryItemText: { flex: 1, minWidth: 0 },
+  orderSummaryStatus: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 12, backgroundColor: "#fff2d8", color: BRAND_ORANGE, paddingHorizontal: 10, paddingVertical: 6, fontSize: 11, fontWeight: "900", marginTop: 8 },
+  orderSummaryActions: { flexDirection: "row", gap: 10, marginTop: 12 },
+  orderSummaryActionButton: { flex: 1, minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  orderSummaryActionText: { color: text, fontSize: 12, fontWeight: "900" },
+  orderSummaryDeleteButton: { borderColor: "#ffd1d1", backgroundColor: "#fff1f1" },
+  orderSummaryDeleteText: { color: "#c24141" },
   couponApplyRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   couponInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "900" },
   couponApplyButton: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fff7e8", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },

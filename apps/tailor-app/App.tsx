@@ -47,6 +47,19 @@ type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: 
 type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "ACCEPTED" | "REJECTED" };
 type HandoffOtp = { taskId: string; type: "customer_to_tailor" | "tailor_to_customer"; stage: "pickup" | "drop"; otp: string; verified: boolean };
 type Customer = { id: string; name?: string; phone: string };
+type TailoringRequestItem = {
+  id?: string;
+  description: string;
+  gender?: string;
+  clothType: string;
+  workType: string;
+  measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+  measurementNotes?: string;
+  media?: MediaItem[];
+  sampleProvided?: boolean;
+  sampleMedia?: MediaItem[];
+  homeMeasurementBooked?: boolean;
+};
 type TailoringRequest = {
   id: string;
   description: string;
@@ -63,6 +76,7 @@ type TailoringRequest = {
   media: MediaItem[];
   receivedMedia?: MediaItem[];
   stitchedMedia?: MediaItem[];
+  items?: TailoringRequestItem[];
   additionalItems?: Array<{ gender?: string; clothType?: string; workType?: string; description?: string }>;
   itemCount?: number;
   quoteAmount?: number;
@@ -76,6 +90,8 @@ type OrderItem = {
   service?: { name: string; estimatedDelivery?: string };
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   instructions?: string;
+  media?: MediaItem[];
+  sampleMedia?: MediaItem[];
   price?: number;
 };
 type Order = {
@@ -240,12 +256,52 @@ function isSessionError(error: unknown) {
 }
 
 function firstItem(order: Order) {
-  if (order.request) return `${order.request.clothType} - ${order.request.workType}`;
+  if (order.request) return requestSummary(order.request);
   return order.items[0]?.service?.name ?? "Tailoring";
+}
+
+function requestItems(request: TailoringRequest): TailoringRequestItem[] {
+  if (request.items?.length) return request.items;
+  return [
+    {
+      id: `${request.id}-item-1`,
+      description: request.description,
+      gender: request.gender,
+      clothType: request.clothType,
+      workType: request.workType,
+      measurement: request.measurement,
+      measurementNotes: request.measurementNotes,
+      media: request.media ?? []
+    }
+  ];
+}
+
+function requestItemCount(request: TailoringRequest) {
+  return Math.max(1, request.items?.length ?? request.itemCount ?? 1);
+}
+
+function requestSummary(request: TailoringRequest) {
+  const count = requestItemCount(request);
+  return count === 1 ? `${request.clothType} - ${request.workType}` : `${count} Clothing Items`;
+}
+
+function measurementStatus(item: TailoringRequestItem) {
+  if (item.sampleProvided || item.sampleMedia?.length || item.measurement?.imageUrl) return "Sample";
+  if (item.homeMeasurementBooked) return "Home Visit";
+  if (Object.keys(item.measurement?.fields ?? {}).length) return "Custom";
+  return "Not added";
 }
 
 function orderFromAcceptedRequest(request: TailoringRequest): Order {
   const status = request.workStatus === "READY" ? "READY" : request.workStatus === "WORKING" ? "AT_TAILOR" : "QUOTE_ACCEPTED";
+  const items = requestItems(request).map((item) => ({
+    service: { name: `${item.clothType || "Cloth"} - ${item.workType || "Tailoring"}` },
+    measurement: item.measurement,
+    instructions: [item.gender, item.description, item.measurementNotes].filter(Boolean).join(" - "),
+    media: item.media ?? [],
+    sampleMedia: item.sampleMedia ?? [],
+    price: request.ownQuote?.price
+  }));
   const extraItems = (request.additionalItems ?? []).map((item, index) => ({
     service: { name: `${item.clothType || "Extra clothing"} - ${item.workType || "Tailoring"}` },
     instructions: [item.gender, item.description].filter(Boolean).join(" • ") || `Additional checkout item ${index + 2}`,
@@ -255,18 +311,10 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
     id: `accepted-${request.id}`,
     orderNumber: `REQ-${request.id.slice(0, 8).toUpperCase()}`,
     status,
-    totalAmount: request.quoteAmount ?? (Number(request.ownQuote?.price ?? 0) * (request.itemCount ?? 1)),
+    totalAmount: request.quoteAmount ?? Number(request.ownQuote?.price ?? 0),
     source: "accepted_request",
     request,
-    items: [
-      {
-        service: { name: `${request.clothType} - ${request.workType}` },
-        measurement: request.measurement,
-        instructions: request.measurementNotes,
-        price: request.ownQuote?.price
-      },
-      ...extraItems
-    ],
+    items,
     createdAt: request.createdAt
   };
 }
@@ -413,6 +461,7 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function RequestCard({ request, onPress }: { request: TailoringRequest; onPress: () => void }) {
+  const itemCount = requestItemCount(request);
   return (
     <Pressable style={styles.requestCard} onPress={onPress}>
       <View style={styles.requestCardTopRow}>
@@ -421,12 +470,13 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
         </View>
         <View style={styles.cardMain}>
           <Text style={styles.prominentOrderId}>REQ-{request.id.slice(0, 8).toUpperCase()}</Text>
-          <Text style={styles.cardTitle}>{request.workType}</Text>
-          <Text style={styles.cardMeta}>{request.clothType}</Text>
+          <Text style={styles.cardTitle}>{itemCount === 1 ? request.workType : `New Order - ${itemCount} Clothing Items`}</Text>
+          <Text style={styles.cardMeta}>{itemCount === 1 ? request.clothType : requestSummary(request)}</Text>
         </View>
       </View>
       <View style={styles.requestChipRow}>
         <Text style={[styles.urgencyPill, urgencyTone(request.urgency)]}>{request.urgency}</Text>
+        {itemCount > 1 ? <Text style={styles.quotedPill}>{itemCount} items</Text> : null}
         {request.ownQuote ? <Text style={styles.quotedPill}>Quoted</Text> : <StatusPill status={request.status} />}
       </View>
       <Text style={styles.cardCopy} numberOfLines={2}>{request.description}</Text>
@@ -579,6 +629,8 @@ function RequestsScreen({ requests, setScreen, setActiveRequest }: { requests: T
 
 function RequestDetailsScreen({ request, setScreen, showDialog }: { request: TailoringRequest; setScreen: (screen: Screen) => void; showDialog: (dialog: DialogState) => void }) {
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
+  const items = requestItems(request);
+  const itemCount = requestItemCount(request);
 
   return (
     <>
@@ -589,12 +641,11 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
             <Text style={styles.cardLabel}>REQUEST</Text>
             <StatusPill status={request.status} />
           </View>
-          <Text style={styles.bigTitle}>{request.workType}</Text>
+          <Text style={styles.bigTitle}>{itemCount === 1 ? request.workType : `New Order - ${itemCount} Clothing Items`}</Text>
           <Text style={styles.cardLabel}>CUSTOMER DESCRIPTION</Text>
           <Text style={styles.customerDescriptionText}>{request.description}</Text>
           <DetailRow icon="receipt-outline" label="Request ID" value={shortId(request.id)} />
-          <DetailRow icon="person-outline" label="Gender / Fit Type" value={request.gender ?? "Not specified"} />
-          <DetailRow icon="shirt-outline" label="Cloth" value={request.clothType} />
+          <DetailRow icon="shirt-outline" label="Clothing Items" value={`${itemCount}`} />
           <View style={styles.detailRow}>
             <View style={styles.smallIcon}>
               <Ionicons name="time-outline" size={16} color={BRAND_ORANGE} />
@@ -607,6 +658,52 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
         </View>
 
         <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>CLOTHING ITEMS</Text>
+          {items.map((item, index) => (
+            <View key={item.id ?? `${request.id}-${index}`} style={styles.itemBlock}>
+              <Text style={styles.cardTitle}>Item {index + 1}: {item.clothType}</Text>
+              <Text style={styles.cardMeta}>{[item.gender, item.workType, measurementStatus(item)].filter(Boolean).join(" - ")}</Text>
+              <Text style={styles.cardCopy}>{item.description}</Text>
+              {item.measurement?.imageUrl ? (
+                <View style={styles.sampleReferenceBlock}>
+                  <Image source={{ uri: item.measurement.imageUrl }} style={styles.sampleReferenceImage} />
+                  <View style={styles.sampleReferenceText}>
+                    <Text style={styles.cardTitle}>Sample reference</Text>
+                    <Text style={styles.cardCopy}>Customer attached a sample garment photo for fit reference.</Text>
+                  </View>
+                </View>
+              ) : null}
+              {Object.entries(item.measurement?.fields ?? {}).map(([key, value]) => (
+                <View key={key} style={styles.measureRow}>
+                  <Text style={styles.detailLabel}>{key}</Text>
+                  <Text style={styles.detailValue}>{String(value)}</Text>
+                </View>
+              ))}
+              {item.measurementNotes ? <Text style={styles.cardCopy}>{item.measurementNotes}</Text> : null}
+              {item.media?.length ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
+                  {item.media.map((media, mediaIndex) => (
+                    <Pressable key={`${media.url}-${mediaIndex}`} style={styles.mediaBox} onPress={() => setSelectedMedia(media)}>
+                      {media.resourceType === "image" ? (
+                        <Image source={{ uri: media.url }} style={styles.mediaImage} />
+                      ) : (
+                        <>
+                          <Ionicons name="videocam-outline" size={26} color={BRAND_ORANGE} />
+                          <Text style={styles.mediaTypeText}>Video</Text>
+                        </>
+                      )}
+                      <View style={styles.mediaOpenBadge}>
+                        <Ionicons name="expand-outline" size={13} color="#ffffff" />
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+            </View>
+          ))}
+        </View>
+
+        {itemCount === 1 ? <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>MEASUREMENTS</Text>
           {request.measurement?.imageUrl ? (
             <View style={styles.sampleReferenceBlock}>
@@ -628,9 +725,9 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
             <Text style={styles.helperText}>No measurements added by the customer.</Text>
           )}
           {request.measurementNotes ? <Text style={styles.cardCopy}>{request.measurementNotes}</Text> : null}
-        </View>
+        </View> : null}
 
-        <View style={styles.whiteCard}>
+        {itemCount === 1 ? <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>MEDIA</Text>
           {request.media?.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
@@ -653,7 +750,7 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
           ) : (
             <Text style={styles.helperText}>No photos or videos attached.</Text>
           )}
-        </View>
+        </View> : null}
 
         {request.ownQuote ? (
           <View style={styles.whiteCard}>
@@ -828,7 +925,7 @@ function QuoteScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Send Quote" subtitle={request.workType} onBack={() => setScreen("requestDetails")} />
+      <Header title="Send Quote" subtitle={requestSummary(request)} onBack={() => setScreen("requestDetails")} />
       <View style={styles.whiteCard}>
         <Text style={styles.cardLabel}>QUOTE DETAILS</Text>
         <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
@@ -838,8 +935,8 @@ function QuoteScreen({
             Completion time must be within allowed range for selected urgency. {quoteWindow.label}: {quoteWindow.min}-{quoteWindow.max} {timeUnit}{quoteWindow.max === 1 ? "" : "s"}.
           </Text>
         </View>
-        <Text style={styles.formLabel}>Quote Amount</Text>
-        <TextInput style={styles.input} value={price} onChangeText={setPrice} placeholder="Example: Rs 350" placeholderTextColor="#9aa6b8" keyboardType="number-pad" />
+        <Text style={styles.formLabel}>Total Price</Text>
+        <TextInput style={styles.input} value={price} onChangeText={setPrice} placeholder="Example: Rs 1200" placeholderTextColor="#9aa6b8" keyboardType="number-pad" />
         <Text style={styles.formLabel}>{quoteWindow.mode === "hours" ? "Completion Time (Hours)" : "Completion Time (Days)"}</Text>
         <TextInput
           style={styles.input}
@@ -1157,11 +1254,30 @@ function OrderDetailsScreen({
                 <Text style={styles.detailValue}>{String(value)}</Text>
               </View>
             ))}
+            {item.media?.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
+                {item.media.map((media, mediaIndex) => (
+                  <Pressable key={`${media.url}-${mediaIndex}`} style={styles.mediaBox} onPress={() => setSelectedMedia(media)}>
+                    {media.resourceType === "image" ? (
+                      <Image source={{ uri: media.url }} style={styles.mediaImage} />
+                    ) : (
+                      <>
+                        <Ionicons name="videocam-outline" size={26} color={BRAND_ORANGE} />
+                        <Text style={styles.mediaTypeText}>Video</Text>
+                      </>
+                    )}
+                    <View style={styles.mediaOpenBadge}>
+                      <Ionicons name="expand-outline" size={13} color="#ffffff" />
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
         ))}
       </View>
 
-      {acceptedRequest?.media?.length ? (
+      {acceptedRequest?.media?.length && !order.items.some((item) => item.media?.length) ? (
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>MEDIA</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>

@@ -444,6 +444,33 @@ const requestMediaSchema = new Schema(
   { _id: false, versionKey: false }
 );
 
+const tailoringRequestItemSchema = new Schema(
+  {
+    _id: stringId,
+    description: { type: String, required: true },
+    gender: String,
+    clothType: { type: String, required: true },
+    workType: { type: String, required: true },
+    measurement: measurementSchema,
+    measurementNotes: String,
+    media: [requestMediaSchema],
+    sampleProvided: { type: Boolean, default: false },
+    sampleMedia: [requestMediaSchema],
+    homeMeasurementBooked: { type: Boolean, default: false }
+  },
+  {
+    versionKey: false,
+    toJSON: {
+      virtuals: true,
+      transform: (_doc: unknown, ret: Record<string, unknown>) => {
+        ret.id = ret._id;
+        delete ret._id;
+        return ret;
+      }
+    }
+  }
+);
+
 const tailoringRequestSchema = new Schema(
   {
     _id: stringId,
@@ -459,6 +486,8 @@ const tailoringRequestSchema = new Schema(
     media: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
+    homeMeasurementBooked: { type: Boolean, default: false },
+    items: { type: [tailoringRequestItemSchema], default: [] },
     receivedMedia: [requestMediaSchema],
     stitchedMedia: [requestMediaSchema],
     selectedQuoteId: { type: String, index: true },

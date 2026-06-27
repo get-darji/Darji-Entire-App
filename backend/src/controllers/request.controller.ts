@@ -275,48 +275,38 @@ export const uploadTailoringMedia = multer({
   }
 }).array("media", MAX_FILES);
 
-const createTailoringRequestSchema = z.object({
+const tailoringMediaSchema = z.object({
+  url: z.string().url(),
+  publicId: z.string().min(1),
+  resourceType: z.enum(["image", "video"]),
+  bytes: z.number().int().positive(),
+  format: z.string().optional(),
+  originalName: z.string().optional()
+});
+
+const tailoringMeasurementSchema = z.object({
+  label: z.string().trim().min(2).max(80),
+  fields: z.record(z.string(), z.union([z.string().trim().max(40), z.number()])).default({}),
+  imageUrl: z.string().url().optional().nullable()
+});
+
+const tailoringRequestItemInputSchema = z.object({
   description: z.string().trim().min(10).max(1000),
   gender: z.string().trim().min(2).max(40).optional(),
   clothType: z.string().trim().min(2).max(80),
   workType: z.string().trim().min(2).max(80),
-  urgency: z.string().trim().min(2).max(80),
-  measurement: z
-    .object({
-      label: z.string().trim().min(2).max(80),
-      fields: z.record(z.string(), z.union([z.string().trim().max(40), z.number()])).default({}),
-      imageUrl: z.string().url().optional().nullable()
-    })
-    .optional(),
+  measurement: tailoringMeasurementSchema.optional(),
   measurementNotes: z.string().trim().max(1000).optional(),
-  pickupAddress: z.string().trim().min(8).max(500),
+  homeMeasurementBooked: z.boolean().default(false),
   sampleProvided: z.boolean().default(false),
-  media: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        publicId: z.string().min(1),
-        resourceType: z.enum(["image", "video"]),
-        bytes: z.number().int().positive(),
-        format: z.string().optional(),
-        originalName: z.string().optional()
-      })
-    )
-    .max(MAX_FILES)
-    .default([]),
-  sampleMedia: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        publicId: z.string().min(1),
-        resourceType: z.enum(["image", "video"]),
-        bytes: z.number().int().positive(),
-        format: z.string().optional(),
-        originalName: z.string().optional()
-      })
-    )
-    .max(1)
-    .default([])
+  media: z.array(tailoringMediaSchema).max(MAX_FILES).default([]),
+  sampleMedia: z.array(tailoringMediaSchema).max(1).default([])
+});
+
+const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
+  urgency: z.string().trim().min(2).max(80),
+  pickupAddress: z.string().trim().min(8).max(500),
+  items: z.array(tailoringRequestItemInputSchema).min(1).max(20).optional()
 });
 
 const createTailorQuoteSchema = z.object({
@@ -426,6 +416,34 @@ function quoteEtaLabel(quote: { estimatedDays?: number | null; estimatedHours?: 
     return `${quote.estimatedHours} hour(s)`;
   }
   return `${quote.estimatedDays ?? 1} day(s)`;
+}
+
+function tailoringItemsForRequest(request: any) {
+  const items = Array.isArray(request.items) ? request.items : [];
+  if (items.length) return items;
+  return [
+    {
+      description: request.description,
+      gender: request.gender,
+      clothType: request.clothType,
+      workType: request.workType,
+      measurement: request.measurement,
+      measurementNotes: request.measurementNotes,
+      media: request.media ?? [],
+      sampleProvided: request.sampleProvided,
+      sampleMedia: request.sampleMedia ?? [],
+      homeMeasurementBooked: request.homeMeasurementBooked
+    }
+  ];
+}
+
+function requestItemCount(request: any) {
+  return Math.max(1, tailoringItemsForRequest(request).length);
+}
+
+function requestClothingLabel(request: any) {
+  const count = requestItemCount(request);
+  return count === 1 ? `${request.workType} requested for ${request.clothType}` : `New Order - ${count} Clothing Items`;
 }
 
 function taskOtp(taskId: string, stage: "pickup" | "drop"): string {
@@ -589,6 +607,12 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
 
   const taskStatus = assignedBoy ? "accepted" : "pending";
   let batchId: string = randomUUID();
+  const items = tailoringItemsForRequest(request);
+  const itemCount = requestItemCount(request);
+  const deliveryClothType = itemCount === 1 ? request.clothType : `${itemCount} clothing items`;
+  const deliveryWorkType = itemCount === 1 ? request.workType : "Multi-cloth order";
+  const sampleMedia = items.flatMap((item: any) => item.sampleProvided ? item.sampleMedia ?? [] : []);
+  const sampleProvided = sampleMedia.length > 0 || items.some((item: any) => item.sampleProvided);
 
   if (assignedBoy) {
     const batchQuery: Record<string, any> = {
@@ -631,15 +655,15 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         customerPhone: customer?.phone,
         tailorName: tailor.shopName,
         tailorPhone: tailorUser?.phone,
-        clothType: request.clothType,
-        workType: request.workType,
+        clothType: deliveryClothType,
+        workType: deliveryWorkType,
         paymentMethod: request.paymentMethod,
         paymentStatus: request.paymentStatus,
         totalAmount: request.totalAmount,
         cashCollectionRequired,
         cashCollected: false,
-        sampleProvided: request.sampleProvided === true,
-        sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : [],
+        sampleProvided,
+        sampleMedia,
         acceptedAt: assignedBoy ? new Date() : undefined,
         deadlineAt: assignedBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
       });
@@ -661,8 +685,8 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
           paymentStatus: request.paymentStatus,
           totalAmount: request.totalAmount,
           cashCollectionRequired,
-          sampleProvided: request.sampleProvided === true,
-          sampleMedia: request.sampleProvided ? request.sampleMedia ?? [] : [],
+          sampleProvided,
+          sampleMedia,
           acceptedAt: assignedBoy ? new Date() : undefined,
           deadlineAt: assignedBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
         },
@@ -780,7 +804,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
       await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
         userId: partner.userId,
         title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
-        body: `${request.clothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
+        body: `${deliveryClothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
         data: {
           type: "PICKUP_ASSIGNED",
           taskType: type,
@@ -809,6 +833,7 @@ async function finalizeTailoringRequestConfirmation(
 
   const quote = await TailorQuoteModel.findOne({ _id: quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
+  const itemCount = requestItemCount(request);
 
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id } }, { status: "REJECTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "ACCEPTED" });
@@ -821,13 +846,13 @@ async function finalizeTailoringRequestConfirmation(
       selectedQuoteId: quote.id,
       paymentMethod,
       paymentStatus,
-      quoteAmount: Number(quote.price) * (1 + (breakdown?.additionalItems?.length ?? Number(request.itemCount ?? 1) - 1)),
+      quoteAmount: Number(quote.price),
       deliveryFee: breakdown?.deliveryFee ?? request.deliveryFee ?? 0,
       platformFee: breakdown?.platformFee ?? request.platformFee ?? 0,
       homeMeasurementFee: breakdown?.homeMeasurementFee ?? request.homeMeasurementFee ?? 0,
       couponCode: breakdown?.couponCode ?? request.couponCode,
       discountAmount: breakdown?.discountAmount ?? request.discountAmount ?? 0,
-      itemCount: 1 + (breakdown?.additionalItems?.length ?? Number(request.itemCount ?? 1) - 1),
+      itemCount,
       ...(breakdown?.additionalItems ? { additionalItems: breakdown.additionalItems } : {}),
       totalAmount: breakdown?.totalAmount ?? request.totalAmount ?? quote.price,
       orderStatus: "tailor_accepted",
@@ -856,7 +881,7 @@ async function finalizeTailoringRequestConfirmation(
     await sendOrderConfirmedNotification({
       userId: acceptedTailorProfile.userId,
       title: "Quote accepted",
-      body: `The customer confirmed your quote for ${request.clothType}.`,
+      body: `The customer confirmed your quote for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
       data: {
         type: "ORDER_CONFIRMED",
         requestId: request.id,
@@ -924,7 +949,7 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
     if (tailor?.userId) {
       await sendPushToUsers([tailor.userId], {
         title: "Order cancelled",
-        body: `${request.clothType} order ${request.id.slice(0, 8).toUpperCase()} has been cancelled by the customer.`,
+        body: `${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`} order ${request.id.slice(0, 8).toUpperCase()} has been cancelled by the customer.`,
         data: { type: "ORDER_CANCELLED", requestId: request.id, orderId: request.id, screen: "orderDetails" },
         channelId: "tailor-new-requests-v2",
         categoryId: "TAILOR_QUOTE_ACCEPTED",
@@ -941,7 +966,7 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
     if (userIds.length) {
       await sendPushToUsers(userIds, {
         title: "Delivery cancelled",
-        body: `${request.clothType} pickup for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
+        body: `${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`} pickup for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
         data: { type: "DELIVERY_CANCELLED", requestId: request.id, orderId: request.id, screen: "pickupDetails" },
         channelId: "delivery-updates-v2",
         categoryId: "DELIVERY_PICKUP_REQUEST",
@@ -1720,8 +1745,33 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
 
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
+  const items = input.items?.length ? input.items : [{
+    description: input.description,
+    gender: input.gender,
+    clothType: input.clothType,
+    workType: input.workType,
+    measurement: input.measurement,
+    measurementNotes: input.measurementNotes,
+    homeMeasurementBooked: input.homeMeasurementBooked,
+    sampleProvided: input.sampleProvided,
+    media: input.media,
+    sampleMedia: input.sampleMedia
+  }];
+  const primary = items[0];
   const request = await TailoringRequestModel.create({
     ...input,
+    description: primary.description,
+    gender: primary.gender,
+    clothType: primary.clothType,
+    workType: primary.workType,
+    measurement: primary.measurement,
+    measurementNotes: primary.measurementNotes,
+    homeMeasurementBooked: primary.homeMeasurementBooked,
+    sampleProvided: primary.sampleProvided,
+    media: primary.media,
+    sampleMedia: primary.sampleMedia,
+    items,
+    itemCount: items.length,
     customerId: req.user!.id
   });
 
@@ -1732,7 +1782,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
     availableTailors.map((tailor) => sendNewRequestNotification({
       userId: tailor.userId,
       title: "New customer order",
-      body: `${request.workType} requested for ${request.clothType}. Open the request to send a quote.`,
+      body: `${requestClothingLabel(request)}. Open the request to send a quote.`,
       data: {
         type: "NEW_REQUEST",
         requestId: request.id,
@@ -1850,8 +1900,8 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const quote = await TailorQuoteModel.findOne({ _id: input.quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
-  const itemCount = 1 + input.additionalItems.length;
-  const tailoringSubtotal = Number(quote.price) * itemCount;
+  const itemCount = requestItemCount(request);
+  const tailoringSubtotal = Number(quote.price);
   const subtotalBeforeDiscount = tailoringSubtotal + input.deliveryFee + input.platformFee + input.homeMeasurementFee;
   let discountAmount = 0;
   let couponCode: string | undefined;
@@ -1930,7 +1980,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency,
         name: "Darzi",
-        description: `${request.workType} - ${request.clothType}`,
+        description: requestItemCount(request) === 1 ? `${request.workType} - ${request.clothType}` : `${requestItemCount(request)} clothing items`,
         prefill: {
           name: customer?.name ?? "Darzi Customer",
           contact: customer?.phone ?? ""
