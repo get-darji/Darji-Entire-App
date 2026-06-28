@@ -120,7 +120,11 @@ type TailorProfile = {
   settings?: { notifications?: boolean; soundAlerts?: boolean; compactCards?: boolean; autoOpenNewRequests?: boolean; maxOrdersPerDay?: number };
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verificationSubmittedAt?: string;
+  verificationReviewedAt?: string;
   verificationRejectionReason?: string;
+  verificationReuploadFields?: TailorReuploadField[];
+  verificationRejectedUntil?: string;
+  verificationLastRejectedAt?: string;
   verification?: TailorVerificationPayload;
   verificationDraft?: Partial<VerificationDraft>;
 };
@@ -136,13 +140,14 @@ type DialogAction = { label: string; onPress?: () => void; variant?: "primary" |
 type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[] };
 type CancellationAlert = { id: string; title: string; message: string };
 type VerificationMediaDraft = { uri: string; name: string; uploadedUrl?: string };
+type TailorReuploadField = "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto" | "shopPhotos";
 type SpecializationRow = { id: string; gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: string };
 type OcrDetails = { rawText?: string; name?: string; dob?: string; aadhaarLast4?: string; panNumber?: string; addressHint?: string };
 type FaceLivenessState = "idle" | "aligning" | "aligned" | "blink-detected" | "captured";
 type VerificationDraft = {
   step: number;
   personal: { name: string; address: string; dob: string; email: string; location?: { lat: number; lng: number } };
-  shop: { workFromHome: boolean; shopName: string; shopAddress: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery: string[] };
+  shop: { workFromHome: boolean; shopName: string; shopAddress: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery: string[]; shopPhotos: VerificationMediaDraft[] };
   category: "Men" | "Women" | "Both";
   rows: SpecializationRow[];
   confirmedRows: boolean;
@@ -155,10 +160,11 @@ type VerificationDraft = {
   ocrStatus: string;
   faceDetectionStatus: string;
   extractedDetails: OcrDetails;
+  tutorialWatched?: boolean;
 };
 type TailorVerificationPayload = {
   personal: { name: string; address: string; dob: string; email?: string; location?: { lat: number; lng: number } };
-  shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; machinery: string[] };
+  shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; machinery: string[]; shopPhotos: string[] };
   specializationRows: Array<{ gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: number }>;
   idVerification: {
     idType: "Aadhaar" | "PAN";
@@ -171,6 +177,14 @@ type TailorVerificationPayload = {
     extractedDetails?: Record<string, unknown>;
     faceDetectionStatus?: string;
   };
+};
+type TailorTutorialMedia = {
+  title: string;
+  description: string;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  durationSeconds?: number;
+  images?: string[];
 };
 
 const BRAND_ORANGE = "#f6a313";
@@ -1508,9 +1522,21 @@ const tutorialSlides = [
   ["Customer Ratings", "Good service improves trust and future requests.", "star-outline"],
   ["Support and Help", "Use support when documents, orders, or payments need help.", "help-circle-outline"]
 ] as const;
+const DEFAULT_TUTORIAL_THUMBNAIL = "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=1000&q=80";
+const reuploadFieldLabels: Record<TailorReuploadField, string> = {
+  aadhaarFront: "Aadhaar front photo",
+  aadhaarBack: "Aadhaar back photo",
+  panPhoto: "PAN card photo",
+  facePhoto: "Live face verification selfie",
+  shopPhotos: "Shop photos"
+};
 
 function newSpecializationRow(): SpecializationRow {
   return { id: `${Date.now()}-${Math.random()}`, gender: "Both", clothType: "Kurta", stitchingType: "New Stitching", price: "" };
+}
+
+function mediaDraftFromUrl(url?: string, name = "Uploaded document"): VerificationMediaDraft | undefined {
+  return url ? { uri: url, name, uploadedUrl: url } : undefined;
 }
 
 function clothOptionsForCategory(category: "Men" | "Women" | "Both") {
@@ -1523,7 +1549,7 @@ function makeVerificationDraft(me?: MeResponse): VerificationDraft {
   return {
     step: 1,
     personal: { name: me?.name ?? "", address: "", dob: "", email: "" },
-    shop: { workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [] },
+    shop: { workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [], shopPhotos: [] },
     category: "Both",
     rows: [newSpecializationRow()],
     confirmedRows: false,
@@ -1592,18 +1618,20 @@ function TailorVerificationFlow({
 }: {
   me?: MeResponse;
   token?: string;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
 }) {
   const status = me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
+  const { signOut } = useAppStore();
   const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? 6 : 1);
   const [saving, setSaving] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
   const [locating, setLocating] = useState(false);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [showDobPicker, setShowDobPicker] = useState(false);
   const [personal, setPersonal] = useState({ name: me?.name ?? "", address: "", dob: "", email: "", location: undefined as { lat: number; lng: number } | undefined });
-  const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [] as string[] });
+  const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [] as string[], shopPhotos: [] as VerificationMediaDraft[] });
   const [category, setCategory] = useState<"Men" | "Women" | "Both">("Both");
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
@@ -1619,6 +1647,10 @@ function TailorVerificationFlow({
   const [faceModeOpen, setFaceModeOpen] = useState(false);
   const [faceLiveness, setFaceLiveness] = useState<FaceLivenessState>("idle");
   const [tutorialIndex, setTutorialIndex] = useState(0);
+  const [tutorialMedia, setTutorialMedia] = useState<TailorTutorialMedia>();
+  const [tutorialWatched, setTutorialWatched] = useState(false);
+  const [tutorialWatching, setTutorialWatching] = useState(false);
+  const [tutorialSecondsLeft, setTutorialSecondsLeft] = useState(0);
   const [scanning, setScanning] = useState<"ocr" | "face" | undefined>();
   const [infoPage, setInfoPage] = useState<"tutorial" | "privacy" | "terms" | "about" | undefined>();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -1642,7 +1674,8 @@ function TailorVerificationFlow({
       facePhoto,
       ocrStatus,
       faceDetectionStatus,
-      extractedDetails
+      extractedDetails,
+      tutorialWatched
     };
   }
 
@@ -1650,7 +1683,7 @@ function TailorVerificationFlow({
     if (!draft) return;
     if (draft.step && status !== "PENDING" && status !== "REJECTED" && status !== "REUPLOAD_REQUIRED") setStep(Math.min(Math.max(draft.step, 1), 5));
     if (draft.personal) setPersonal((current) => ({ ...current, ...draft.personal, location: draft.personal?.location ?? current.location }));
-    if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, machinery: draft.shop?.machinery ?? current.machinery }));
+    if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, machinery: draft.shop?.machinery ?? current.machinery, shopPhotos: draft.shop?.shopPhotos ?? current.shopPhotos }));
     if (draft.category) setCategory(draft.category);
     if (draft.rows?.length) setRows(draft.rows);
     if (typeof draft.confirmedRows === "boolean") setConfirmedRows(draft.confirmedRows);
@@ -1663,6 +1696,50 @@ function TailorVerificationFlow({
     if (draft.ocrStatus) setOcrStatus(draft.ocrStatus);
     if (draft.faceDetectionStatus) setFaceDetectionStatus(draft.faceDetectionStatus);
     if (draft.extractedDetails) setExtractedDetails(draft.extractedDetails);
+    if (typeof draft.tutorialWatched === "boolean") setTutorialWatched(draft.tutorialWatched);
+  }
+
+  function applySubmittedVerification(verification?: TailorVerificationPayload) {
+    if (!verification) return;
+    setPersonal({
+      name: verification.personal.name ?? me?.name ?? "",
+      address: verification.personal.address ?? "",
+      dob: verification.personal.dob ?? "",
+      email: verification.personal.email ?? "",
+      location: verification.personal.location
+    });
+    setShop({
+      workFromHome: Boolean(verification.shop.workFromHome),
+      shopName: verification.shop.shopName ?? me?.tailorProfile?.shopName ?? "",
+      shopAddress: verification.shop.shopAddress ?? "",
+      gstNumber: verification.shop.gstNumber ?? "",
+      employeeCount: String(verification.shop.employeeCount ?? "1"),
+      yearsExperience: String(verification.shop.yearsExperience ?? ""),
+      machinery: verification.shop.machinery ?? [],
+      shopPhotos: (verification.shop.shopPhotos ?? []).map((url, index) => ({ uri: url, name: `Shop photo ${index + 1}`, uploadedUrl: url }))
+    });
+    if (verification.specializationRows?.length) {
+      setRows(
+        verification.specializationRows.map((row, index) => ({
+          id: `submitted-${index}`,
+          gender: row.gender,
+          clothType: row.clothType,
+          stitchingType: row.stitchingType,
+          price: String(row.price)
+        }))
+      );
+      setCategory(verification.specializationRows[0]?.gender ?? "Both");
+      setConfirmedRows(true);
+    }
+    setIdType(verification.idVerification.idType);
+    setIdNumber(verification.idVerification.idNumber ?? "");
+    setAadhaarFront(mediaDraftFromUrl(verification.idVerification.aadhaarFrontUrl, "Aadhaar front"));
+    setAadhaarBack(mediaDraftFromUrl(verification.idVerification.aadhaarBackUrl, "Aadhaar back"));
+    setPanPhoto(mediaDraftFromUrl(verification.idVerification.panUrl, "PAN card"));
+    setFacePhoto(mediaDraftFromUrl(verification.idVerification.facePhotoUrl, "Face verification"));
+    setOcrStatus(verification.idVerification.ocrStatus ?? "OCR extracted details");
+    setFaceDetectionStatus(verification.idVerification.faceDetectionStatus ?? "Face photo uploaded");
+    setExtractedDetails((verification.idVerification.extractedDetails ?? {}) as OcrDetails);
   }
 
   useEffect(() => {
@@ -1673,8 +1750,10 @@ function TailorVerificationFlow({
         if (cancelled) return;
         if (saved) applyDraft(JSON.parse(saved));
         else applyDraft(me?.tailorProfile?.verificationDraft);
+        if (!saved && !me?.tailorProfile?.verificationDraft) applySubmittedVerification(me?.tailorProfile?.verification);
       } catch {
-        applyDraft(me?.tailorProfile?.verificationDraft);
+        if (me?.tailorProfile?.verificationDraft) applyDraft(me.tailorProfile.verificationDraft);
+        else applySubmittedVerification(me?.tailorProfile?.verification);
       } finally {
         if (!cancelled) setHasLoadedDraft(true);
       }
@@ -1698,7 +1777,30 @@ function TailorVerificationFlow({
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [hasLoadedDraft, step, personal, shop, category, rows, confirmedRows, idType, idNumber, aadhaarFront, aadhaarBack, panPhoto, facePhoto, ocrStatus, faceDetectionStatus, extractedDetails, token, status]);
+  }, [hasLoadedDraft, step, personal, shop, category, rows, confirmedRows, idType, idNumber, aadhaarFront, aadhaarBack, panPhoto, facePhoto, ocrStatus, faceDetectionStatus, extractedDetails, tutorialWatched, token, status]);
+
+  useEffect(() => {
+    if (!token) return;
+    api<TailorTutorialMedia>("/tailors/tutorial-media", {}, token)
+      .then(setTutorialMedia)
+      .catch(() => undefined);
+  }, [token]);
+
+  useEffect(() => {
+    if (!tutorialWatching) return undefined;
+    const timer = setInterval(() => {
+      setTutorialSecondsLeft((current) => {
+        if (current <= 1) {
+          clearInterval(timer);
+          setTutorialWatching(false);
+          setTutorialWatched(true);
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [tutorialWatching]);
 
   async function useCurrentLocation(target: "personal" | "shop") {
     try {
@@ -1795,17 +1897,109 @@ function TailorVerificationFlow({
     if (scan === "face") void runFaceDetection(media);
   }
 
-  function validateCurrentStep() {
-    if (step === 1) {
+  async function pickShopPhoto() {
+    if (shop.shopPhotos.length >= 3) {
+      showDialog({ title: "Shop photos limit", message: "You can upload up to 3 shop photos.", icon: "images-outline" });
+      return;
+    }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      showDialog({ title: "Permission needed", message: "Allow photo access to upload shop photos.", icon: "images-outline" });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    if (result.canceled || !result.assets.length) return;
+    const asset = result.assets[0];
+    const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
+    setShop((current) => ({ ...current, shopPhotos: [...current.shopPhotos, media].slice(0, 3) }));
+  }
+
+  function removeShopPhoto(index: number) {
+    setShop((current) => ({ ...current, shopPhotos: current.shopPhotos.filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  function validationMessageForStep(targetStep = step) {
+    if (targetStep === 1) {
       const dob = new Date(personal.dob);
       const validDob = personal.dob.trim().length >= 6 && !Number.isNaN(dob.getTime()) && dob <= new Date();
       const validEmail = !personal.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personal.email.trim());
-      return personal.name.trim().length >= 2 && personal.address.trim().length >= 8 && validDob && validEmail;
+      if (personal.name.trim().length < 2) return "Enter your full name.";
+      if (!validDob) return "Enter a valid date of birth.";
+      if (personal.address.trim().length < 8) return "Enter your full address.";
+      if (!validEmail) return "Enter a valid email address or leave it blank.";
+      return "";
     }
-    if (step === 2) return shop.shopName.trim().length >= 2 && shop.shopAddress.trim().length >= 8 && Number.isFinite(Number(shop.employeeCount)) && Number.isFinite(Number(shop.yearsExperience));
-    if (step === 3) return rows.length > 0 && rows.every((row) => row.clothType.trim() && row.stitchingType.trim() && Number(row.price) >= 0) && confirmedRows;
-    if (step === 4) return idNumber.trim().length >= (idType === "Aadhaar" ? 12 : 10) && (idType === "Aadhaar" ? Boolean(aadhaarFront && aadhaarBack && facePhoto) : Boolean(panPhoto && facePhoto));
-    return true;
+    if (targetStep === 2) {
+      if (shop.shopName.trim().length < 2) return "Enter your shop or workshop name.";
+      if (shop.shopAddress.trim().length < 8) return "Enter your shop or home workshop address.";
+      if (!shop.employeeCount.trim() || !Number.isFinite(Number(shop.employeeCount))) return "Enter the number of employees.";
+      if (!shop.yearsExperience.trim() || !Number.isFinite(Number(shop.yearsExperience))) return "Enter your years of experience.";
+      if (shop.shopPhotos.length < 1) return "Upload at least 1 shop photo.";
+      if (shop.shopPhotos.length > 3) return "Upload no more than 3 shop photos.";
+      return "";
+    }
+    if (targetStep === 3) {
+      if (rows.length === 0) return "Add at least one specialization.";
+      if (rows.some((row) => !row.clothType.trim() || !row.stitchingType.trim() || !row.price.trim() || Number(row.price) < 0)) return "Complete every specialization row with cloth type, work type, and price.";
+      if (!confirmedRows) return "Confirm the specialization table preview.";
+      return "";
+    }
+    if (targetStep === 4) {
+      if (idType === "Aadhaar" && idNumber.trim().length !== 12) return "Enter a valid 12 digit Aadhaar number.";
+      if (idType === "PAN" && idNumber.trim().length !== 10) return "Enter a valid 10 character PAN number.";
+      if (idType === "Aadhaar" && !aadhaarFront) return "Upload Aadhaar front photo.";
+      if (idType === "Aadhaar" && !aadhaarBack) return "Upload Aadhaar back photo.";
+      if (idType === "PAN" && !panPhoto) return "Upload PAN card photo.";
+      if (!facePhoto) return "Complete face verification.";
+      return "";
+    }
+    if (targetStep === 5) {
+      if (!tutorialWatched) return "Watch the complete tutorial before submitting.";
+      return "";
+    }
+    return "";
+  }
+
+  function validateCurrentStep(targetStep = step) {
+    return !validationMessageForStep(targetStep);
+  }
+
+  function fullValidationMessage() {
+    for (const targetStep of [1, 2, 3, 4, 5]) {
+      const message = validationMessageForStep(targetStep);
+      if (message) return message;
+    }
+    return "";
+  }
+
+  function continueToNextStep() {
+    const message = validationMessageForStep(step);
+    if (message) {
+      showDialog({ title: "Complete this step", message, icon: "alert-circle-outline" });
+      return;
+    }
+    setStep((current) => current + 1);
+  }
+
+  function tutorialDurationSeconds() {
+    return Math.max(5, Math.round(Number(tutorialMedia?.durationSeconds ?? 15)));
+  }
+
+  function formatTutorialDuration(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes <= 0) return `${remainingSeconds}s`;
+    return `${minutes}:${String(remainingSeconds).padStart(2, "0")} min`;
+  }
+
+  async function startTutorialWatch() {
+    const duration = tutorialDurationSeconds();
+    setTutorialSecondsLeft(duration);
+    setTutorialWatching(true);
+    setTutorialWatched(false);
+    if (tutorialMedia?.videoUrl) {
+      Linking.openURL(tutorialMedia.videoUrl).catch(() => undefined);
+    }
   }
 
   function updateRow(id: string, patch: Partial<SpecializationRow>) {
@@ -1814,29 +2008,47 @@ function TailorVerificationFlow({
   }
 
   async function uploadMissingPhotos() {
+    type UploadMap = Partial<Record<"aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto", string>> & { shopPhotos: string[] };
     const entries = [
       ["aadhaarFront", aadhaarFront] as const,
       ["aadhaarBack", aadhaarBack] as const,
       ["panPhoto", panPhoto] as const,
-      ["facePhoto", facePhoto] as const
+      ["facePhoto", facePhoto] as const,
+      ...shop.shopPhotos.map((photo, index) => [`shopPhotos.${index}`, photo] as const)
     ].filter(([, media]) => media && !media.uploadedUrl) as Array<[string, VerificationMediaDraft]>;
-    if (!entries.length) return;
+    if (!entries.length) return { shopPhotos: shop.shopPhotos.map((photo) => photo.uploadedUrl).filter((url): url is string => Boolean(url)) } satisfies UploadMap;
     const uploaded = await uploadTailorVerificationMedia(entries.map(([, media]) => ({ uri: media.uri, name: media.name })), token);
+    const uploadedValues: UploadMap = { shopPhotos: [] };
+    const nextShopPhotos = [...shop.shopPhotos];
     entries.forEach(([key, media], index) => {
       const next = { ...media, uploadedUrl: uploaded[index]?.url };
       if (key === "aadhaarFront") setAadhaarFront(next);
       if (key === "aadhaarBack") setAadhaarBack(next);
       if (key === "panPhoto") setPanPhoto(next);
       if (key === "facePhoto") setFacePhoto(next);
+      if (key.startsWith("shopPhotos.")) {
+        const shopPhotoIndex = Number(key.split(".")[1]);
+        nextShopPhotos[shopPhotoIndex] = next;
+      } else {
+        uploadedValues[key as "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto"] = uploaded[index]?.url;
+      }
     });
-    return Object.fromEntries(entries.map(([key], index) => [key, uploaded[index]?.url]));
+    setShop((current) => ({ ...current, shopPhotos: nextShopPhotos }));
+    uploadedValues.shopPhotos = nextShopPhotos.map((photo) => photo.uploadedUrl).filter((url): url is string => Boolean(url));
+    return uploadedValues;
   }
 
   async function submitVerification() {
-    if (!token || !validateCurrentStep()) return;
+    const validationMessage = fullValidationMessage();
+    if (!token || validationMessage) {
+      if (validationMessage) showDialog({ title: "Verification incomplete", message: validationMessage, icon: "alert-circle-outline" });
+      return;
+    }
     try {
       setSaving(true);
       const uploaded = (await uploadMissingPhotos()) ?? {};
+      const uploadedShopPhotos = Array.isArray(uploaded.shopPhotos) ? uploaded.shopPhotos.filter((url): url is string => typeof url === "string") : [];
+      const existingShopPhotoUrls = shop.shopPhotos.map((photo) => photo.uploadedUrl).filter((url): url is string => Boolean(url));
       const payload: TailorVerificationPayload = {
         personal: {
           name: personal.name.trim(),
@@ -1852,7 +2064,8 @@ function TailorVerificationFlow({
           gstNumber: shop.gstNumber.trim() || undefined,
           employeeCount: Number(shop.employeeCount),
           yearsExperience: Number(shop.yearsExperience),
-          machinery: shop.machinery
+          machinery: shop.machinery,
+          shopPhotos: uploadedShopPhotos.length ? uploadedShopPhotos : existingShopPhotoUrls
         },
         specializationRows: rows.map((row) => ({ gender: row.gender, clothType: row.clothType.trim(), stitchingType: row.stitchingType.trim(), price: Number(row.price) })),
         idVerification: {
@@ -1902,65 +2115,99 @@ function TailorVerificationFlow({
   }
 
   if (step === 6) {
-    const needsUpdate = status === "REJECTED" || status === "REUPLOAD_REQUIRED";
+    const needsReupload = status === "REUPLOAD_REQUIRED";
+    const isRejected = status === "REJECTED";
+    const rejectedUntil = me?.tailorProfile?.verificationRejectedUntil ? new Date(me.tailorProfile.verificationRejectedUntil) : undefined;
+    const canApplyAgain = !rejectedUntil || rejectedUntil.getTime() <= Date.now();
+    const requestedFields = (
+      me?.tailorProfile?.verificationReuploadFields?.length
+        ? me.tailorProfile.verificationReuploadFields
+        : needsReupload
+          ? idType === "PAN"
+            ? (["panPhoto", "facePhoto"] as TailorReuploadField[])
+            : (["aadhaarFront", "aadhaarBack", "facePhoto"] as TailorReuploadField[])
+          : []
+    ).filter((field, index, list): field is TailorReuploadField => Boolean(field) && list.indexOf(field) === index);
+    const statusTitle = needsReupload ? "Re-upload Documents" : isRejected ? "Verification not approved" : "Verification under review";
+    const statusCopy = needsReupload
+      ? "Please upload only the documents requested by the Darji admin team."
+      : isRejected
+        ? "Unfortunately, we cannot verify your profile right now. You can apply again after the waiting period with clearer, original documents."
+        : "Your application has been submitted. The Darji team is reviewing your details and you will be notified soon.";
+
+    async function refreshVerificationStatus() {
+      if (refreshingStatus) return;
+      try {
+        setRefreshingStatus(true);
+        await onRefresh();
+      } finally {
+        setRefreshingStatus(false);
+      }
+    }
+
+    function openReuploadField(field: TailorReuploadField) {
+      setStep(field === "shopPhotos" ? 2 : 4);
+    }
+
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.pageContent}>
-          <View style={styles.verificationHero}>
-            <Ionicons name={needsUpdate ? "alert-circle-outline" : "hourglass-outline"} size={38} color={BRAND_ORANGE} />
-            <Text style={styles.verificationTitle}>{needsUpdate ? "Document reupload required" : "Verification under review"}</Text>
-            <Text style={styles.verificationCopy}>
-              {needsUpdate
-                ? me?.tailorProfile?.verificationRejectionReason ?? "Darji admin requested clearer documents. Update the required details and submit again."
-                : "Your application has been successfully submitted. The Darji team is reviewing your details. Verification usually takes 24-48 hours. Once approved, you will gain access to the app."}
-            </Text>
+          <Header title={statusTitle} subtitle={needsReupload ? "Please upload the requested documents again." : undefined} />
+          <View style={[styles.verificationHero, isRejected && styles.rejectedHero]}>
+            <Ionicons name={needsReupload || isRejected ? "alert-circle-outline" : "hourglass-outline"} size={38} color={isRejected ? "#dc2626" : BRAND_ORANGE} />
+            <Text style={styles.verificationTitle}>{statusTitle}</Text>
+            <Text style={styles.verificationCopy}>{statusCopy}</Text>
           </View>
-          <View style={styles.statusReviewCard}>
-            <Text style={styles.cardLabel}>STATUS</Text>
-            <Text style={styles.cardTitle}>Pending Verification</Text>
+          <View style={needsReupload ? styles.reuploadAlertCard : styles.statusReviewCard}>
+            <Text style={styles.cardLabel}>{needsReupload ? "ACTION REQUIRED" : "STATUS"}</Text>
+            <Text style={styles.cardTitle}>{needsReupload ? "Admin requested updated documents" : isRejected ? "Application rejected" : "Pending verification"}</Text>
             {me?.tailorProfile?.darjiTailorId ? <Text style={styles.cardMeta}>Tailor ID: {me.tailorProfile.darjiTailorId}</Text> : null}
-            {needsUpdate ? (
-              <View style={styles.reuploadChecklist}>
-                {[
-                  idType === "Aadhaar" ? "Aadhaar front photo" : "PAN card photo",
-                  idType === "Aadhaar" ? "Aadhaar back photo" : undefined,
-                  "Live face verification selfie"
-                ].filter(Boolean).map((item) => (
-                  <View key={item} style={styles.reuploadChecklistRow}>
-                    <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
-                    <Text style={styles.cardMeta}>{item}</Text>
-                  </View>
-                ))}
-              </View>
+            {me?.tailorProfile?.verificationRejectionReason ? (
+              <Text style={styles.reuploadReasonText}>Admin Feedback: {me.tailorProfile.verificationRejectionReason}</Text>
             ) : null}
+            {isRejected && rejectedUntil && !canApplyAgain ? <Text style={styles.cardMeta}>You can apply again after {rejectedUntil.toLocaleDateString()}.</Text> : null}
           </View>
+          {needsReupload ? (
+            <>
+              {requestedFields.map((field) => (
+                <View key={field} style={styles.reuploadDocumentCard}>
+                  <View style={styles.reuploadIconTile}>
+                    <Ionicons name={field === "shopPhotos" ? "storefront-outline" : field === "facePhoto" ? "person-circle-outline" : "id-card-outline"} size={22} color={BRAND_ORANGE} />
+                  </View>
+                  <View style={styles.cardMain}>
+                    <Text style={styles.cardTitle}>{reuploadFieldLabels[field]}</Text>
+                    <Text style={styles.cardMeta}>Upload a clear, uncropped, original image.</Text>
+                  </View>
+                  <Pressable style={styles.reuploadUploadButton} onPress={() => openReuploadField(field)}>
+                    <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
+                    <Text style={styles.docActionText}>Re-upload</Text>
+                  </Pressable>
+                </View>
+              ))}
+              <Text style={styles.verificationNotice}>Only the documents listed here need to be updated. Other saved details will remain attached to your application.</Text>
+              <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
+                {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit All Documents</Text>}
+              </Pressable>
+            </>
+          ) : null}
+          {isRejected ? (
+            <Pressable style={[styles.primaryButton, !canApplyAgain && styles.disabledButton]} disabled={!canApplyAgain} onPress={() => setStep(1)}>
+              <Text style={styles.primaryButtonText}>{canApplyAgain ? "Apply Again" : "Apply Again After 15 Days"}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable style={styles.secondaryButton} onPress={refreshVerificationStatus} disabled={refreshingStatus}>
+            {refreshingStatus ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh" size={18} color={BRAND_DEEP} />}
+            <Text style={styles.secondaryButtonText}>Refresh Status</Text>
+          </Pressable>
           <Pressable style={styles.primaryButton} onPress={() => setInfoPage("tutorial")}>
             <Ionicons name="play-circle-outline" size={18} color="#111111" />
             <Text style={styles.primaryButtonText}>Watch Tutorial</Text>
           </Pressable>
-          <View style={styles.verificationLinkGrid}>
-            {[
-              ["privacy", "Privacy Policy", "shield-outline"],
-              ["terms", "Terms of Use", "document-text-outline"],
-              ["about", "About Darji", "information-circle-outline"]
-            ].map(([key, label, icon]) => (
-              <Pressable key={key} style={styles.verificationLink} onPress={() => setInfoPage(key as "privacy" | "terms" | "about")}>
-                <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
-                <Text style={styles.cardTitle}>{label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          {needsUpdate ? (
-            <Pressable style={styles.secondaryButton} onPress={() => setStep(4)}>
-              <Text style={styles.secondaryButtonText}>Reupload Documents</Text>
-            </Pressable>
-          ) : null}
-          {needsUpdate ? (
-            <Pressable style={styles.secondaryButton} onPress={() => setStep(1)}>
-              <Text style={styles.secondaryButtonText}>Edit Full Details</Text>
-            </Pressable>
-          ) : null}
+          <Pressable style={styles.smallLogoutButton} onPress={signOut}>
+            <Text style={styles.smallLogoutText}>logout</Text>
+          </Pressable>
         </ScrollView>
+        <LoadingOverlay visible={refreshingStatus} />
       </SafeAreaView>
     );
   }
@@ -2050,6 +2297,27 @@ function TailorVerificationFlow({
                 );
               })}
             </View>
+            <View style={styles.rowBetween}>
+              <Text style={styles.formLabel}>Shop Photos</Text>
+              <Text style={styles.cardMeta}>{shop.shopPhotos.length}/3</Text>
+            </View>
+            <View style={styles.shopPhotoGrid}>
+              {shop.shopPhotos.map((photo, index) => (
+                <View key={`${photo.uri}-${index}`} style={styles.shopPhotoTile}>
+                  <Image source={{ uri: photo.uri }} style={styles.shopPhotoImage} />
+                  <Pressable style={styles.shopPhotoRemove} onPress={() => removeShopPhoto(index)}>
+                    <Ionicons name="close" size={14} color="#ffffff" />
+                  </Pressable>
+                </View>
+              ))}
+              {shop.shopPhotos.length < 3 ? (
+                <Pressable style={styles.shopPhotoUpload} onPress={pickShopPhoto}>
+                  <Ionicons name="camera-outline" size={22} color={BRAND_ORANGE} />
+                  <Text style={styles.verificationDocText}>Upload Photo</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Text style={styles.cardMeta}>Upload 1 to 3 clear photos of your shop, board, or home workshop.</Text>
           </View>
         ) : null}
 
@@ -2195,25 +2463,45 @@ function TailorVerificationFlow({
         {step === 5 ? (
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>TUTORIAL</Text>
-            <View style={styles.tutorialSlideCard}>
-              <View style={styles.tutorialIllustration}>
-                <Ionicons name={tutorialSlides[tutorialIndex][2]} size={44} color={BRAND_ORANGE} />
+            <Pressable style={styles.tutorialVideoCard} onPress={startTutorialWatch} disabled={tutorialWatching}>
+              <Image source={{ uri: tutorialMedia?.thumbnailUrl || DEFAULT_TUTORIAL_THUMBNAIL }} style={styles.tutorialThumbnail} />
+              <View style={styles.tutorialPlayButton}>
+                <Ionicons name={tutorialWatched ? "checkmark" : "play"} size={28} color="#111111" />
               </View>
-              <Text style={styles.verificationTitle}>{tutorialSlides[tutorialIndex][0]}</Text>
-              <Text style={styles.verificationCopy}>{tutorialSlides[tutorialIndex][1]}</Text>
-              <Text style={styles.cardMeta}>{tutorialIndex + 1} of {tutorialSlides.length}</Text>
+            </Pressable>
+            <Text style={styles.verificationTitle}>{tutorialMedia?.title ?? "How Darji Works for Tailors"}</Text>
+            <Text style={styles.verificationCopy}>{tutorialMedia?.description ?? "Watch the complete tutorial before submitting your verification."}</Text>
+            <View style={styles.tutorialProgressPanel}>
+              <Ionicons name={tutorialWatched ? "checkmark-circle-outline" : tutorialWatching ? "time-outline" : "play-circle-outline"} size={20} color={tutorialWatched ? SUCCESS : BRAND_ORANGE} />
+              <View style={styles.cardMain}>
+                <Text style={styles.cardTitle}>{tutorialWatched ? "Tutorial completed" : tutorialWatching ? "Watching tutorial..." : "Tutorial required"}</Text>
+                <Text style={styles.cardMeta}>
+                  {tutorialWatched
+                    ? "You can submit your verification now."
+                    : tutorialWatching
+                      ? `${formatTutorialDuration(tutorialSecondsLeft)} remaining`
+                      : `${formatTutorialDuration(tutorialDurationSeconds())} tutorial`}
+                </Text>
+                {tutorialWatching ? (
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.max(4, ((tutorialDurationSeconds() - tutorialSecondsLeft) / tutorialDurationSeconds()) * 100)}%` }]} />
+                  </View>
+                ) : null}
+              </View>
             </View>
             <View style={styles.tutorialControls}>
-              <Pressable style={styles.docActionButton} onPress={() => setTutorialIndex(tutorialSlides.length - 1)}>
-                <Text style={styles.docActionText}>Skip</Text>
-              </Pressable>
-              <Pressable style={styles.docActionButton} onPress={() => setTutorialIndex((current) => Math.max(0, current - 1))} disabled={tutorialIndex === 0}>
-                <Text style={styles.docActionText}>Previous</Text>
-              </Pressable>
-              <Pressable style={styles.docActionButton} onPress={() => setTutorialIndex((current) => Math.min(tutorialSlides.length - 1, current + 1))} disabled={tutorialIndex === tutorialSlides.length - 1}>
-                <Text style={styles.docActionText}>{tutorialIndex === tutorialSlides.length - 1 ? "Finish Tutorial" : "Next"}</Text>
+              <Pressable style={styles.docActionButton} onPress={startTutorialWatch} disabled={tutorialWatching}>
+                <Ionicons name={tutorialMedia?.videoUrl ? "open-outline" : "play-circle-outline"} size={16} color={BRAND_ORANGE} />
+                <Text style={styles.docActionText}>{tutorialWatching ? "Playing" : tutorialWatched ? "Watch Again" : "Start Tutorial"}</Text>
               </Pressable>
             </View>
+            {tutorialMedia?.images?.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tutorialImageRow}>
+                {tutorialMedia.images.map((url) => (
+                  <Image key={url} source={{ uri: url }} style={styles.tutorialImage} />
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
         ) : null}
 
@@ -2224,11 +2512,11 @@ function TailorVerificationFlow({
             </Pressable>
           ) : null}
           {step < 5 ? (
-            <Pressable style={[styles.primaryButton, !validateCurrentStep() && styles.disabledButton]} disabled={!validateCurrentStep()} onPress={() => setStep((current) => current + 1)}>
+            <Pressable style={[styles.primaryButton, !validateCurrentStep() && styles.disabledButton]} onPress={continueToNextStep}>
               <Text style={styles.primaryButtonText}>Continue</Text>
             </Pressable>
           ) : (
-            <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
+            <Pressable style={[styles.primaryButton, (saving || !validateCurrentStep()) && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
               {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Final Submit</Text>}
             </Pressable>
           )}
@@ -2608,6 +2896,50 @@ function LoadingOverlay({ visible }: { visible: boolean }) {
   );
 }
 
+function TailorVerifiedWelcome({ me, onContinue, onRefresh }: { me: MeResponse; onContinue: () => void; onRefresh: () => void | Promise<void> }) {
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refreshStatus() {
+    if (refreshing) return;
+    try {
+      setRefreshing(true);
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <View style={styles.verificationHero}>
+          <View style={styles.verifiedBadge}>
+            <Ionicons name="checkmark" size={42} color="#ffffff" />
+          </View>
+          <Text style={styles.verificationTitle}>You are verified!</Text>
+          <Text style={styles.verificationCopy}>
+            Congratulations{me.name ? `, ${me.name}` : ""}. We are happy to start working with you. You can now receive requests, send quotes, and grow with Darji.
+          </Text>
+        </View>
+        <View style={styles.statusReviewCard}>
+          <Text style={styles.cardLabel}>TAILOR PROFILE</Text>
+          <Text style={styles.cardTitle}>{me.tailorProfile?.shopName ?? "Darji Tailor"}</Text>
+          {me.tailorProfile?.darjiTailorId ? <Text style={styles.cardMeta}>Tailor ID: {me.tailorProfile.darjiTailorId}</Text> : null}
+        </View>
+        <Pressable style={styles.primaryButton} onPress={onContinue}>
+          <Text style={styles.primaryButtonText}>Go to Dashboard</Text>
+          <Ionicons name="arrow-forward" size={18} color="#111111" />
+        </Pressable>
+        <Pressable style={styles.secondaryButton} onPress={refreshStatus} disabled={refreshing}>
+          {refreshing ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh" size={18} color={BRAND_DEEP} />}
+          <Text style={styles.secondaryButtonText}>Refresh Status</Text>
+        </Pressable>
+      </ScrollView>
+      <LoadingOverlay visible={refreshing} />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
@@ -2615,6 +2947,7 @@ export default function App() {
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
+  const [verifiedWelcomeDismissed, setVerifiedWelcomeDismissed] = useState(false);
   const [requests, setRequests] = useState<TailoringRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeRequest, setActiveRequest] = useState<TailoringRequest>();
@@ -2703,6 +3036,7 @@ export default function App() {
     setMe(undefined);
     setActiveRequest(undefined);
     setActiveOrder(undefined);
+    setVerifiedWelcomeDismissed(false);
     resetWorkspaceTracking();
     signOut();
   }
@@ -2936,10 +3270,20 @@ export default function App() {
     );
   }
 
-  if ((me.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED") !== "VERIFIED") {
+  const verificationStatus = me.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
+  if (verificationStatus !== "VERIFIED") {
     return (
       <>
-        <TailorVerificationFlow me={me} token={token} onRefresh={() => void refreshWorkspace(true)} showDialog={setDialog} onSessionExpired={handleSessionExpired} />
+        <TailorVerificationFlow me={me} token={token} onRefresh={() => refreshWorkspace(true)} showDialog={setDialog} onSessionExpired={handleSessionExpired} />
+        <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+      </>
+    );
+  }
+
+  if (!verifiedWelcomeDismissed) {
+    return (
+      <>
+        <TailorVerifiedWelcome me={me} onContinue={() => setVerifiedWelcomeDismissed(true)} onRefresh={() => refreshWorkspace(true)} />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </>
     );
@@ -3192,9 +3536,18 @@ const styles = StyleSheet.create({
   verificationStepPillActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc", color: BRAND_ORANGE },
   verificationNotice: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 10 },
   verificationHero: { borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 22, alignItems: "center", marginTop: 24 },
+  rejectedHero: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
   verificationTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center", marginTop: 14 },
   verificationCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 10 },
   statusReviewCard: { borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: SURFACE, padding: 16, marginTop: 14 },
+  reuploadAlertCard: { borderRadius: 20, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff7f7", padding: 16, marginTop: 14 },
+  reuploadReasonText: { color: "#dc2626", fontSize: 13, lineHeight: 20, fontWeight: "800", marginTop: 10 },
+  reuploadDocumentCard: { minHeight: 94, borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, marginTop: 12 },
+  reuploadIconTile: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  reuploadUploadButton: { minWidth: 104, minHeight: 44, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 10 },
+  smallLogoutButton: { alignItems: "center", marginTop: 14, paddingVertical: 8 },
+  smallLogoutText: { color: MUTED, fontSize: 12, fontWeight: "800", textDecorationLine: "underline" },
+  verifiedBadge: { width: 86, height: 86, borderRadius: 43, backgroundColor: "#22c55e", alignItems: "center", justifyContent: "center" },
   verificationLinkGrid: { gap: 10, marginTop: 16 },
   verificationLink: { minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
   verificationNav: { gap: 10, marginBottom: 18 },
@@ -3220,6 +3573,11 @@ const styles = StyleSheet.create({
   verificationDocBox: { flex: 1, minHeight: 112, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 10, marginTop: 12, overflow: "hidden" },
   verificationDocImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   verificationDocText: { color: BRAND_ORANGE, backgroundColor: "rgba(255,255,255,0.88)", overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5, fontSize: 11, fontWeight: "900", textAlign: "center" },
+  shopPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+  shopPhotoTile: { width: 94, height: 86, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: BORDER, backgroundColor: "#fff4dc" },
+  shopPhotoImage: { width: "100%", height: "100%" },
+  shopPhotoRemove: { position: "absolute", right: 5, top: 5, width: 24, height: 24, borderRadius: 12, backgroundColor: "rgba(15, 23, 42, 0.72)", alignItems: "center", justifyContent: "center" },
+  shopPhotoUpload: { width: 94, height: 86, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 8 },
   reuploadChecklist: { gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: BORDER },
   reuploadChecklistRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   faceVerificationPanel: { minHeight: 112, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginTop: 14 },
@@ -3246,7 +3604,13 @@ const styles = StyleSheet.create({
   docActionText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
   tutorialSlideCard: { minHeight: 330, borderRadius: 22, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 20, marginTop: 14 },
   tutorialIllustration: { width: 104, height: 104, borderRadius: 28, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center" },
+  tutorialVideoCard: { minHeight: 208, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", overflow: "hidden", alignItems: "center", justifyContent: "center", marginTop: 14 },
+  tutorialThumbnail: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  tutorialPlayButton: { width: 62, height: 62, borderRadius: 31, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.18, shadowRadius: 14, elevation: 4 },
+  tutorialProgressPanel: { minHeight: 74, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 13, marginTop: 14 },
   tutorialControls: { flexDirection: "row", gap: 8, marginTop: 12 },
+  tutorialImageRow: { gap: 10, paddingTop: 12 },
+  tutorialImage: { width: 112, height: 82, borderRadius: 16, backgroundColor: "#fff4dc" },
   tutorialStep: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#eef2f7" },
   tutorialStepNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: BRAND_ORANGE, color: "#111111", textAlign: "center", lineHeight: 26, overflow: "hidden", fontSize: 12, fontWeight: "900" },
   tutorialText: { flex: 1, color: BRAND_DEEP, fontSize: 14, lineHeight: 22, fontWeight: "800", marginBottom: 8 },

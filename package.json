@@ -14,6 +14,7 @@
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
     "dev:admin": "npm --workspace @darzi/admin-panel run dev",
+    "dev:customer-web": "npm --workspace @darzi/customer-web run dev",
     "db:seed": "npm --workspace backend run seed",
     "seed": "npm --workspace backend run seed",
     "typecheck": "npm run typecheck --workspaces --if-present",

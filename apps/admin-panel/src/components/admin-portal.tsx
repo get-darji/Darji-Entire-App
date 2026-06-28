@@ -115,7 +115,8 @@ import {
   retryDeliveryNow,
   addSupportTicketMessage,
   addBugReportMessage,
-  addChangeRequestMessage
+  addChangeRequestMessage,
+  uploadAdminMedia
 } from "@/src/lib/api";
 import {
   cn,
@@ -166,6 +167,15 @@ type QueryBundle = {
   coupons: Coupon[];
   tickets: SupportTicket[];
   settings: SettingRecord[];
+};
+
+type TailorTutorialMediaDraft = {
+  title: string;
+  description: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  images: string[];
 };
 
 type DashboardMetrics = {
@@ -341,6 +351,8 @@ export function AdminPortal() {
     isActive: true
   });
   const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
+  const [tailorTutorialDraft, setTailorTutorialDraft] = useState<TailorTutorialMediaDraft>(() => defaultTailorTutorialMediaDraft());
+  const [uploadingTutorialMedia, setUploadingTutorialMedia] = useState<"video" | "thumbnail" | "image" | null>(null);
   const queryClient = useQueryClient();
   const isAuthed = Boolean(token);
   const supportSubTab = persistedSupportSubTab;
@@ -500,6 +512,8 @@ export function AdminPortal() {
         return acc;
       }, {});
       setSettingsDrafts(nextDrafts);
+      const tutorialSetting = settingsQuery.data.find((item) => item.key === "tailor_tutorial_media");
+      setTailorTutorialDraft(normalizeTailorTutorialDraft(tutorialSetting?.value));
     }
   }, [settingsQuery.data]);
 
@@ -618,6 +632,23 @@ export function AdminPortal() {
     },
     onError: (error) => toast.error(extractError(error))
   });
+
+  async function handleTutorialMediaUpload(kind: "video" | "thumbnail" | "image", file: File) {
+    try {
+      setUploadingTutorialMedia(kind);
+      const uploaded = await uploadAdminMedia(file);
+      setTailorTutorialDraft((current) => {
+        if (kind === "video") return { ...current, videoUrl: uploaded.url };
+        if (kind === "thumbnail") return { ...current, thumbnailUrl: uploaded.url };
+        return { ...current, images: [...current.images, uploaded.url].slice(0, 12) };
+      });
+      toast.success("Media uploaded");
+    } catch (error) {
+      toast.error(extractError(error));
+    } finally {
+      setUploadingTutorialMedia(null);
+    }
+  }
 
   const deliveryFareMutation = useMutation({
     mutationFn: updateDeliveryFareSettings,
@@ -1167,6 +1198,7 @@ export function AdminPortal() {
       .toLowerCase()
       .includes(searchTerm)
   );
+  const rejectedTailors = filteredTailors.filter((tailor) => tailor.verificationStatus === "REJECTED");
 
   const filteredPartners = partners.filter((partner) =>
     !searchTerm ||
@@ -1610,6 +1642,13 @@ export function AdminPortal() {
               description="Availability, ratings, earnings, and verification state for tailoring partners."
               action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>}
             />
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-xl font-semibold text-[var(--foreground)]">Rejected tailors</h3>
+                <p className="text-sm text-[var(--muted)]">Approve from here to immediately bypass and clear the 15 day reapply limit.</p>
+              </div>
+              <DataTable columns={tailorColumns} data={rejectedTailors} emptyMessage="No rejected tailors match the current search." />
+            </div>
             <DataTable columns={tailorColumns} data={filteredTailors} emptyMessage="No tailor profiles match the current search." />
           </div>
         ) : null}
@@ -1761,6 +1800,14 @@ export function AdminPortal() {
               title="Platform settings"
               description="Editable operational settings already persisted through the backend settings endpoints."
             />
+            <TailorTutorialMediaCard
+              draft={tailorTutorialDraft}
+              onChange={setTailorTutorialDraft}
+              onSave={() => settingMutation.mutate({ key: "tailor_tutorial_media", value: tailorTutorialDraft })}
+              onUpload={handleTutorialMediaUpload}
+              pending={settingMutation.isPending}
+              uploading={uploadingTutorialMedia}
+            />
             <DeliveryFareSettingsCard
               settings={deliveryFareSettingsQuery.data}
               pending={deliveryFareMutation.isPending}
@@ -1855,7 +1902,7 @@ export function AdminPortal() {
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
         pending={tailorReviewMutation.isPending}
-        onReview={(status) => tailorDetail && tailorReviewMutation.mutate({ tailorId: tailorDetail.id, status })}
+        onReview={(review) => tailorDetail && tailorReviewMutation.mutate({ tailorId: tailorDetail.id, status: review.status, reason: review.reason, reuploadFields: review.reuploadFields })}
         subtitle="Tailor profile"
         setOpen={(next) => {
           if (!next) setTailorDetail(null);
@@ -1865,7 +1912,7 @@ export function AdminPortal() {
         open={Boolean(partnerDetail)}
         profile={partnerDetail}
         pending={partnerReviewMutation.isPending}
-        onReview={(status, deliveryType, assignedArea) => partnerDetail && partnerReviewMutation.mutate({ partnerId: partnerDetail.id, status, deliveryType, assignedArea })}
+        onReview={(review) => partnerDetail && partnerReviewMutation.mutate({ partnerId: partnerDetail.id, status: review.status, reason: review.reason, deliveryType: review.deliveryType, assignedArea: review.assignedArea })}
         subtitle="Delivery partner profile"
         setOpen={(next) => {
           if (!next) setPartnerDetail(null);
@@ -3175,6 +3222,121 @@ function PendingRetryOrdersPanel({
   );
 }
 
+function defaultTailorTutorialMediaDraft(): TailorTutorialMediaDraft {
+  return {
+    title: "How Darji Works for Tailors",
+    description: "Watch the complete tutorial before submitting verification.",
+    videoUrl: "",
+    thumbnailUrl: "",
+    durationSeconds: 15,
+    images: []
+  };
+}
+
+function normalizeTailorTutorialDraft(value: unknown): TailorTutorialMediaDraft {
+  const base = defaultTailorTutorialMediaDraft();
+  if (!value || typeof value !== "object") return base;
+  const raw = value as Record<string, unknown>;
+  return {
+    title: typeof raw.title === "string" && raw.title.trim() ? raw.title : base.title,
+    description: typeof raw.description === "string" && raw.description.trim() ? raw.description : base.description,
+    videoUrl: typeof raw.videoUrl === "string" ? raw.videoUrl : "",
+    thumbnailUrl: typeof raw.thumbnailUrl === "string" ? raw.thumbnailUrl : "",
+    durationSeconds: Number.isFinite(Number(raw.durationSeconds)) ? Number(raw.durationSeconds) : base.durationSeconds,
+    images: Array.isArray(raw.images) ? raw.images.filter((item): item is string => typeof item === "string") : []
+  };
+}
+
+function TailorTutorialMediaCard({
+  draft,
+  onChange,
+  onSave,
+  onUpload,
+  pending,
+  uploading
+}: {
+  draft: TailorTutorialMediaDraft;
+  onChange: (draft: TailorTutorialMediaDraft) => void;
+  onSave: () => void;
+  onUpload: (kind: "video" | "thumbnail" | "image", file: File) => void;
+  pending: boolean;
+  uploading: "video" | "thumbnail" | "image" | null;
+}) {
+  const inputClass = "rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5";
+  const uploadControl = (kind: "video" | "thumbnail" | "image", label: string, accept: string) => (
+    <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--panel-border)] bg-[#fbfdff] px-4 text-sm font-semibold text-[var(--foreground)] transition hover:border-[var(--accent)] dark:bg-white/5">
+      {uploading === kind ? <LoaderCircle className="h-4 w-4 animate-spin" /> : kind === "video" ? <Paperclip className="h-4 w-4 text-[var(--accent)]" /> : <ImageIcon className="h-4 w-4 text-[var(--accent)]" />}
+      {label}
+      <input
+        accept={accept}
+        className="hidden"
+        disabled={Boolean(uploading)}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onUpload(kind, file);
+          event.currentTarget.value = "";
+        }}
+        type="file"
+      />
+    </label>
+  );
+
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">Tailor tutorial media</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">Upload the video, thumbnail, and optional images shown in the tailor verification tutorial step.</p>
+        </div>
+        <ActionButton disabled={pending} onClick={onSave}>
+          {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+          Save tutorial
+        </ActionButton>
+      </div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-3">
+          <input className={inputClass} value={draft.title} onChange={(event) => onChange({ ...draft, title: event.target.value })} placeholder="Tutorial title" />
+          <textarea className={`${inputClass} min-h-28 w-full`} value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} placeholder="Tutorial description" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <input className={inputClass} type="number" min={5} max={3600} value={draft.durationSeconds} onChange={(event) => onChange({ ...draft, durationSeconds: Number(event.target.value) })} />
+            {uploadControl("video", "Upload video", "video/*")}
+            {uploadControl("thumbnail", "Upload thumbnail", "image/*")}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <input className={inputClass} value={draft.videoUrl} onChange={(event) => onChange({ ...draft, videoUrl: event.target.value })} placeholder="Video URL" />
+            {uploadControl("image", "Add image", "image/*")}
+          </div>
+          <input className={inputClass} value={draft.thumbnailUrl} onChange={(event) => onChange({ ...draft, thumbnailUrl: event.target.value })} placeholder="Thumbnail URL" />
+        </div>
+        <div className="space-y-3">
+          <div className="overflow-hidden rounded-3xl border border-[var(--panel-border)] bg-[#fbfdff] dark:bg-white/5">
+            {draft.videoUrl ? (
+              <video className="aspect-video w-full object-cover" controls poster={draft.thumbnailUrl || undefined} src={draft.videoUrl} />
+            ) : draft.thumbnailUrl ? (
+              <img alt="Tailor tutorial thumbnail" className="aspect-video w-full object-cover" src={draft.thumbnailUrl} />
+            ) : (
+              <div className="flex aspect-video items-center justify-center text-sm text-[var(--muted)]">No tutorial media yet</div>
+            )}
+            <div className="px-4 py-3 text-sm font-semibold text-[var(--foreground)]">{draft.title}</div>
+          </div>
+          {draft.images.length ? (
+            <div className="grid grid-cols-3 gap-2">
+              {draft.images.map((url) => (
+                <div key={url} className="relative overflow-hidden rounded-2xl border border-[var(--panel-border)]">
+                  <img alt="Tutorial supporting media" className="aspect-square w-full object-cover" src={url} />
+                  <button className="absolute right-1 top-1 rounded-full bg-black/70 px-2 py-1 text-xs text-white" onClick={() => onChange({ ...draft, images: draft.images.filter((item) => item !== url) })} type="button">
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function DeliveryFareSettingsCard({
   onSave,
   pending,
@@ -4295,7 +4457,7 @@ function ProfileDialog({
   setOpen,
   subtitle
 }: {
-  onReview?: (status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED", deliveryType?: "PICKUP" | "DROP", assignedArea?: string) => void;
+  onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
   open: boolean;
   pending?: boolean;
   profile: TailorProfile | DeliveryPartnerProfile | null;
@@ -4304,12 +4466,19 @@ function ProfileDialog({
 }) {
   const [deliveryType, setDeliveryType] = useState<"PICKUP" | "DROP">("PICKUP");
   const [assignedArea, setAssignedArea] = useState<string>("unassigned");
+  const [reviewReason, setReviewReason] = useState("");
+  const [selectedReuploadFields, setSelectedReuploadFields] = useState<string[]>(["aadhaarFront", "aadhaarBack", "facePhoto"]);
 
   useEffect(() => {
     if (profile && !("specialization" in profile)) {
       setDeliveryType((profile as DeliveryPartnerProfile).deliveryType ?? "PICKUP");
       setAssignedArea((profile as DeliveryPartnerProfile).assignedArea ?? "unassigned");
     }
+    if (profile && "specialization" in profile) {
+      const idType = String((profile.verification?.idVerification as { idType?: string } | undefined)?.idType ?? "Aadhaar");
+      setSelectedReuploadFields(profile.verificationReuploadFields?.length ? profile.verificationReuploadFields : idType === "PAN" ? ["panPhoto", "facePhoto"] : ["aadhaarFront", "aadhaarBack", "facePhoto"]);
+    }
+    setReviewReason(profile?.verificationRejectionReason ?? "");
   }, [profile]);
 
   const isDelivery = profile ? !isTailorProfile(profile) : false;
@@ -4329,18 +4498,61 @@ function ProfileDialog({
               <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">{subtitle}</Dialog.Description>
               <div className="mt-6 space-y-5">
                 {onReview ? (
-                  <div className="flex flex-wrap gap-3">
-                    <ActionButton disabled={pending} onClick={() => onReview("VERIFIED", deliveryType, assignedArea)}>
-                      {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-                      Approve
-                    </ActionButton>
-                    <ActionButton disabled={pending} variant="secondary" onClick={() => onReview("REUPLOAD_REQUIRED")}>
-                      Request reupload
-                    </ActionButton>
-                    <ActionButton disabled={pending} variant="danger" onClick={() => onReview("REJECTED")}>
-                      Reject
-                    </ActionButton>
-                  </div>
+                  <Panel>
+                    <h4 className="text-lg font-semibold text-[var(--foreground)]">Review action</h4>
+                    <textarea
+                      className="mt-3 min-h-24 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
+                      value={reviewReason}
+                      onChange={(event) => setReviewReason(event.target.value)}
+                      placeholder="Admin feedback or rejection reason..."
+                    />
+                    {!isDelivery ? (
+                      <div className="mt-4">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">Requested reupload fields</p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {[
+                            ["aadhaarFront", "Aadhaar front"],
+                            ["aadhaarBack", "Aadhaar back"],
+                            ["panPhoto", "PAN card"],
+                            ["facePhoto", "Face selfie"],
+                            ["shopPhotos", "Shop photos"]
+                          ].map(([field, label]) => {
+                            const checked = selectedReuploadFields.includes(field);
+                            return (
+                              <label key={field} className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2 text-sm dark:bg-white/5">
+                                <input
+                                  checked={checked}
+                                  onChange={() =>
+                                    setSelectedReuploadFields((current) =>
+                                      checked ? current.filter((item) => item !== field) : [...current, field]
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>{label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <ActionButton disabled={pending} onClick={() => onReview({ status: "VERIFIED", deliveryType, assignedArea, reason: reviewReason.trim() || undefined })}>
+                        {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                        Approve
+                      </ActionButton>
+                      <ActionButton
+                        disabled={pending || (!isDelivery && selectedReuploadFields.length === 0)}
+                        variant="secondary"
+                        onClick={() => onReview({ status: "REUPLOAD_REQUIRED", reason: reviewReason.trim() || "Please upload clearer documents.", reuploadFields: selectedReuploadFields })}
+                      >
+                        Request reupload
+                      </ActionButton>
+                      <ActionButton disabled={pending} variant="danger" onClick={() => onReview({ status: "REJECTED", reason: reviewReason.trim() || "Verification documents were not approved." })}>
+                        Reject
+                      </ActionButton>
+                    </div>
+                  </Panel>
                 ) : null}
                 {isDelivery ? (
                   <Panel>
@@ -4383,6 +4595,8 @@ function ProfileDialog({
                     { label: "Working hours", value: stringifyUnknown(profile.workingHours) },
                     { label: "Settings", value: stringifyUnknown(profile.settings) },
                     { label: "Verification reviewed", value: formatDate(profile.verificationReviewedAt, true) },
+                    { label: "Requested reuploads", value: Array.isArray((profile as TailorProfile).verificationReuploadFields) ? formatList((profile as TailorProfile).verificationReuploadFields) : "-" },
+                    { label: "Can reapply after", value: formatDate((profile as TailorProfile).verificationRejectedUntil, true) },
                     { label: "Rejection reason", value: profile.verificationRejectionReason ?? "—" }
                   ]}
                 />
@@ -5504,7 +5718,7 @@ function getTailorColumns({
           <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row.original)}>
             View
           </ActionButton>
-          {row.original.verificationStatus === "PENDING" || row.original.verificationStatus === "REUPLOAD_REQUIRED" ? (
+          {row.original.verificationStatus === "PENDING" || row.original.verificationStatus === "REUPLOAD_REQUIRED" || row.original.verificationStatus === "REJECTED" ? (
             <ActionButton className="px-3 py-2" onClick={() => onReview(row.original.id, "VERIFIED")}>
               Approve
             </ActionButton>

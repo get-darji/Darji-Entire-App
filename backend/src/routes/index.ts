@@ -18,6 +18,7 @@ import {
   approveAccountChangeRequestController,
   rejectAccountChangeRequestController,
   inviteAdminController,
+  getTailorTutorialMediaController,
   getSupportStatsController,
   addSupportTicketMessageController,
   addBugReportMessageController,
@@ -52,6 +53,8 @@ import {
   updateSettingController,
   updateTailorAvailabilityController,
   updateTailorProfileController,
+  uploadAdminMedia,
+  uploadAdminMediaController,
   uploadDeliveryAvatar,
   uploadDeliveryAvatarController,
   uploadDeliveryVerificationMedia,
@@ -155,6 +158,7 @@ router.patch("/orders/:id/status", requireAuth, requireRole("TAILOR", "DELIVERY_
 router.patch("/orders/:id/assign", requireAuth, requireRole("ADMIN"), assignOrderController);
 
 router.get("/tailors", requireAuth, listTailorsController);
+router.get("/tailors/tutorial-media", requireAuth, requireRole("TAILOR", "ADMIN", "SUPER_ADMIN"), getTailorTutorialMediaController);
 router.patch("/tailors/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewTailorVerificationController);
 router.patch("/tailors/me/availability", requireAuth, requireRole("TAILOR"), updateTailorAvailabilityController);
 router.patch("/tailors/me/profile", requireAuth, requireRole("TAILOR"), updateTailorProfileController);
@@ -185,6 +189,7 @@ router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_AD
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
 router.get("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getDeliveryFareSettingsController);
 router.put("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateDeliveryFareSettingsController);
+router.post("/admin/media", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), uploadAdminMedia, uploadAdminMediaController);
 router.get("/support/stats", requireAuth, requireRole("ADMIN"), getSupportStatsController);
 router.get("/support", requireAuth, listSupportTicketsController);
 router.post("/support", requireAuth, createSupportTicketController);
@@ -210,4 +215,4 @@ router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsers
 router.post("/users/admin-invite", requireAuth, requireRole("SUPER_ADMIN"), inviteAdminController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
 router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);
-router.put("/settings/:key", requireAuth, requireRole("SUPER_ADMIN"), updateSettingController);
+router.put("/settings/:key", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateSettingController);

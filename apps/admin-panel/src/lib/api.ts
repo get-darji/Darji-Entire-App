@@ -215,9 +215,18 @@ export async function reviewTailorVerification(payload: {
   tailorId: string;
   status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   reason?: string;
+  reuploadFields?: string[];
 }) {
   const { tailorId, ...body } = payload;
   return unwrap<TailorProfile>(api.patch(`/tailors/${tailorId}/verification-review`, body));
+}
+
+export async function uploadAdminMedia(file: File) {
+  const form = new FormData();
+  form.append("media", file);
+  return unwrap<{ url: string; publicId: string; resourceType: "image" | "video"; bytes: number; format?: string; originalName?: string }>(
+    api.post("/admin/media", form, { headers: { "Content-Type": "multipart/form-data" } })
+  );
 }
 
 export async function reviewDeliveryVerification(payload: {

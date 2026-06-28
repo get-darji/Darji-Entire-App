@@ -61,6 +61,7 @@ type Screen =
   | "reportBug"
   | "cancellationPolicy"
   | "rateApp"
+  | "customerStories"
   | "privacyPolicy"
   | "termsService"
   | "appInfo"
@@ -266,6 +267,7 @@ type HandoffOtp = {
 };
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
+type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean };
 type AppDialogState = { title: string; message: string; actions: DialogAction[] };
 type RazorpayFailurePayload = {
@@ -716,6 +718,44 @@ function makeDefaultCustomerData(phone: string, name?: string): CustomerData {
   };
 }
 
+function shortLocationFromAddress(address?: SavedAddress) {
+  if (!address?.address) return "Darji customer";
+  const parts = address.address.split(",").map((part) => part.trim()).filter(Boolean);
+  return parts.slice(-2).join(", ") || address.label;
+}
+
+function storiesFromCustomerData(profile: ProfileData, orders: CustomerOrder[], appReviews: AppReviewDraft[], defaultAddress?: SavedAddress): CustomerStory[] {
+  const location = shortLocationFromAddress(defaultAddress);
+  const appStories = appReviews
+    .filter((item) => item.review.trim())
+    .map((item) => ({
+      id: `app-${item.id}`,
+      name: profile.name,
+      location,
+      rating: item.rating,
+      review: item.review.trim(),
+      createdAt: item.createdAt
+    }));
+
+  const orderStories = orders.flatMap((order) => {
+    const base = {
+      name: profile.name,
+      location: shortLocationFromAddress({ id: "order", label: "Pickup", address: order.draft.pickup, isDefault: false }),
+      createdAt: order.tailorRatingSubmittedAt ?? order.deliveryRatingSubmittedAt ?? order.placedAt
+    };
+    return [
+      order.tailorReview?.trim()
+        ? { ...base, id: `tailor-${order.id}`, rating: order.tailorRating ?? (Number(order.tailor.rating) || 5), review: order.tailorReview.trim() }
+        : undefined,
+      order.deliveryReview?.trim()
+        ? { ...base, id: `delivery-${order.id}`, rating: order.deliveryRating ?? 5, review: order.deliveryReview.trim() }
+        : undefined
+    ].filter((item): item is CustomerStory => Boolean(item));
+  });
+
+  return [...appStories, ...orderStories].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
+}
+
 function normalizeCustomerDataByPhone(input: unknown): Record<string, CustomerData> {
   if (!input || typeof input !== "object") return {};
   const normalized: Record<string, CustomerData> = {};
@@ -823,6 +863,12 @@ function parseDateInput(value?: string) {
   return Number.isNaN(parsed.getTime()) ? new Date(2000, 0, 1) : parsed;
 }
 
+function parseDateSafe(value?: string) {
+  if (!value) return new Date(0);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date(0) : parsed;
+}
+
 function statusStyle(status: OrderStatus) {
   if (status === "Delivered") return { color: "#15803d", backgroundColor: "#dcfce7" };
   if (status === "Cancelled") return { color: "#b91c1c", backgroundColor: "#fee2e2" };
@@ -894,7 +940,7 @@ function OtpField({ value, onChange }: { value?: string; onChange: (value: strin
       style={styles.otpField}
       keyboardType="number-pad"
       maxLength={6}
-      placeholder="Enter OTP"
+      placeholder="Enter 6 digit OTP"
       placeholderTextColor="#8fa0b8"
       value={value}
       onChangeText={(text) => onChange(text.replace(/\D/g, "").slice(0, 6))}
@@ -1026,7 +1072,7 @@ function AuthScreen() {
             ) : (
               <>
                 <Controller control={verifyForm.control} name="otp" render={({ field }) => <OtpField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label="Verify OTP" loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => Alert.alert("Enter the OTP"))} />
+                <AuthButton label="Verify OTP" loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => Alert.alert("Enter the 6 digit OTP"))} />
                 <Pressable style={styles.editPhoneButton} onPress={() => setOtpRequested(false)}>
                   <Text style={styles.orangeSmall}>Edit phone number</Text>
                 </Pressable>
@@ -1123,7 +1169,7 @@ function AnimatedSearchPrompt() {
   );
 }
 
-function HomeScreen({
+function LegacyHomeScreen({
   setScreen,
   profile,
   unreadCount,
@@ -1256,7 +1302,7 @@ function HomeScreen({
           <Pressable style={styles.homeInsightCard} onPress={() => setScreen("coupons")}>
             <Ionicons name="ticket-outline" size={22} color={BRAND_ORANGE} />
             <Text style={styles.homeInsightValue}>Offers</Text>
-            <Text style={styles.mutedSmall}>Use DARZI100 today</Text>
+            <Text style={styles.mutedSmall}>Check active coupons</Text>
           </Pressable>
         </View>
         <View style={styles.sectionHeader}>
@@ -1289,6 +1335,348 @@ function HomeScreen({
               <Text style={styles.workflowText}>{label}</Text>
             </View>
           ))}
+        </View>
+      </ScrollView>
+      <BottomTabs active="home" setScreen={setScreen} />
+    </SafeAreaView>
+  );
+}
+
+function HomeScreen({
+  setScreen,
+  profile,
+  unreadCount,
+  defaultAddress,
+  orders,
+  appReviews
+}: {
+  setScreen: (screen: Screen) => void;
+  profile: ProfileData;
+  unreadCount: number;
+  defaultAddress?: SavedAddress;
+  orders: CustomerOrder[];
+  appReviews: AppReviewDraft[];
+}) {
+  const token = useAppStore((state) => state.token);
+  const { width } = useWindowDimensions();
+  const popularCardWidth = Math.max(86, (width - 76) / 4);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
+  const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
+  const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
+  const stories = storiesFromCustomerData(profile, orders, appReviews, defaultAddress);
+
+  useEffect(() => {
+    if (!token) return;
+    void api<Coupon[]>("/coupons", {}, token).then(setCoupons).catch(() => setCoupons([]));
+  }, [token]);
+
+  const needs = [
+    { title: "Alteration", text: "Fit and size changes", icon: "cut-outline" },
+    { title: "Repair", text: "Tear, hole, zipper and more", icon: "construct-outline" },
+    { title: "Restyle", text: "Convert old clothes", icon: "sparkles-outline" },
+    { title: "Custom Stitching", text: "Stitch from scratch", icon: "shirt-outline" }
+  ] as const;
+  const popularServices = [
+    { label: "Alteration", icon: "cut-outline" },
+    { label: "Repair", icon: "construct-outline" },
+    { label: "Restyle", icon: "sparkles-outline" },
+    { label: "Custom", icon: "shirt-outline" }
+  ] as const;
+  const howItWorks = [
+    ["camera-outline", "Upload", "Add cloth photos"],
+    ["chatbubbles-outline", "Get Quotes", "Tailors respond"],
+    ["card-outline", "Choose & Pay", "Confirm quote"],
+    ["cube-outline", "Pickup & Stitch", "We handle pickup"],
+    ["checkmark-done-outline", "Delivered", "Get order delivered"]
+  ] as const;
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.homeTop}>
+          <View>
+            <Text style={styles.homeGreeting}>{greetingForNow()}</Text>
+            <Text style={styles.userName}>{profile.name}</Text>
+          </View>
+          <View style={styles.homeActions}>
+            <Pressable style={styles.notificationButton} onPress={() => setScreen("notifications")}>
+              <Ionicons name="notifications-outline" size={19} color={BRAND_DEEP} />
+              {unreadCount > 0 ? <View style={styles.notificationDot} /> : null}
+            </Pressable>
+            <Pressable onPress={() => setScreen("profile")}>
+              {profile.avatarUri ? (
+                <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{initialsFor(profile.name)}</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
+        </View>
+
+        <Pressable style={styles.searchBar} onPress={() => setScreen("search")}>
+          <Ionicons name="search-outline" size={18} color="#6a788d" />
+          <AnimatedSearchPrompt />
+        </Pressable>
+
+        <Pressable style={styles.homeAddressCard} onPress={() => setScreen("savedAddresses")}>
+          <View style={styles.profileRowIcon}>
+            <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.addressTitle}>{defaultAddress ? "Current Location" : "Pickup address"}</Text>
+            <Text style={styles.mutedSmall} numberOfLines={1}>{defaultAddress?.address ?? "Add or select your pickup address"}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+        </Pressable>
+
+        <View style={styles.featureCard}>
+          <View style={styles.featureOrb} />
+          <Text style={styles.featureLabel}>TAILORING REQUEST</Text>
+          <Text style={styles.featureTitle}>Get Tailor Quotes{"\n"}at Your Door</Text>
+          <Text style={styles.featureSub}>Upload photos and get quotes in minutes</Text>
+          <Pressable style={styles.featureButton} onPress={() => setScreen("newRequest")}>
+            <Ionicons name="cut-outline" size={16} color="#111111" />
+            <Text style={styles.featureButtonText}>Stitch It Now</Text>
+          </Pressable>
+        </View>
+
+        <Pressable style={styles.homeOrderPreview} onPress={() => setScreen(activeOrder ? "orders" : "newRequest")}>
+          <View>
+            <Text style={styles.cardLabel}>YOUR ORDERS</Text>
+            <Text style={styles.addressTitle}>{activeOrder ? activeOrder.orderNumber : "No active orders"}</Text>
+            <Text style={styles.mutedSmall}>{activeOrder ? `${activeOrder.status} - ${activeOrder.tailor.name}` : "Create a request and get tailor quotes."}</Text>
+          </View>
+          <Ionicons name={activeOrder ? "cube-outline" : "add-circle-outline"} size={25} color={BRAND_ORANGE} />
+        </Pressable>
+
+        {incompleteOrders.length ? (
+          <View style={styles.homeIncompleteBlock}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.listTitle}>Incomplete Requests</Text>
+              <Pressable onPress={() => setScreen("orders")}>
+                <Text style={styles.seeAll}>View all</Text>
+              </Pressable>
+            </View>
+            {incompleteOrders.slice(0, 2).map((order) => (
+              <Pressable key={order.id} style={styles.incompleteRequestCard} onPress={() => setScreen("orders")}>
+                <View style={styles.profileRowIcon}>
+                  <Ionicons name="time-outline" size={18} color="#b91c1c" />
+                </View>
+                <View style={styles.profileRowText}>
+                  <Text style={styles.addressTitle}>{order.orderNumber}</Text>
+                  <Text style={styles.mutedSmall}>{order.status === "Awaiting Payment" ? "Payment pending before confirmation" : "Waiting for tailor quotes"}</Text>
+                </View>
+                <StatusPill status={order.status} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Popular Services</Text>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularServiceRow}>
+          {popularServices.map((service) => (
+            <Pressable key={service.label} style={[styles.popularServiceCard, { width: popularCardWidth }]} onPress={() => setScreen("newRequest")}>
+              <Ionicons name={service.icon} size={28} color={BRAND_ORANGE} />
+              <Text style={styles.popularServiceText}>{service.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <View style={styles.launchBand}>
+          <View style={styles.launchTextBlock}>
+            <Text style={styles.launchBadge}>COMING SOON</Text>
+            <Text style={styles.launchBandTitle}>Press Clothes Service is Launching Soon!</Text>
+            <Text style={styles.launchBandCopy}>Get your clothes perfectly pressed and delivered to your doorstep.</Text>
+            <Pressable style={styles.launchNotifyButton} onPress={() => setScreen("featureSoon")}>
+              <Text style={styles.launchNotifyText}>Notify Me</Text>
+            </Pressable>
+          </View>
+          <View style={styles.launchIconStack}>
+            <Ionicons name="shirt-outline" size={46} color={BRAND_DEEP} />
+            <Ionicons name="flash-outline" size={20} color={BRAND_ORANGE} style={styles.launchSparkIcon} />
+          </View>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>What do you need?</Text>
+        </View>
+        <View style={styles.needList}>
+          {needs.map((item) => (
+            <Pressable key={item.title} style={styles.needCard} onPress={() => setScreen("newRequest")}>
+              <View style={styles.needIcon}>
+                <Ionicons name={item.icon} size={22} color={BRAND_ORANGE} />
+              </View>
+              <View style={styles.profileRowText}>
+                <Text style={styles.addressTitle}>{item.title}</Text>
+                <Text style={styles.mutedSmall}>{item.text}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Fabric & Care Tips</Text>
+          <Pressable onPress={() => setScreen("measurementGuide")}>
+            <Text style={styles.seeAll}>View all</Text>
+          </Pressable>
+        </View>
+        <Pressable style={styles.fabricTipCard} onPress={() => setScreen("measurementGuide")}>
+          <Image source={measurementsImage} style={styles.fabricTipImage} resizeMode="cover" />
+          <View style={styles.fabricTipText}>
+            <Text style={styles.fabricTipTitle}>Measurement Care 101</Text>
+            <Text style={styles.fabricTipCopy}>Use this guide before creating a request. Clear measurements help tailors quote faster.</Text>
+          </View>
+        </Pressable>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Offers & Benefits</Text>
+          <Pressable onPress={() => setScreen("coupons")}>
+            <Text style={styles.seeAll}>View all</Text>
+          </Pressable>
+        </View>
+        <View style={styles.offerRow}>
+          {activeCoupons.length ? activeCoupons.map((coupon) => (
+            <Pressable key={coupon.code} style={styles.offerCard} onPress={() => setScreen("coupons")}>
+              <Ionicons name="ticket-outline" size={24} color={BRAND_ORANGE} />
+              <Text style={styles.offerTitle}>{couponDiscountLabel(coupon)}</Text>
+              <Text style={styles.offerCopy} numberOfLines={2}>{coupon.description || coupon.code}</Text>
+              <Text style={styles.offerCode}>Use code: {coupon.code}</Text>
+            </Pressable>
+          )) : (
+            <Pressable style={styles.offerCardWide} onPress={() => setScreen("coupons")}>
+              <Ionicons name="ticket-outline" size={24} color={BRAND_ORANGE} />
+              <View style={styles.profileRowText}>
+                <Text style={styles.offerTitle}>No active coupons yet</Text>
+                <Text style={styles.offerCopy}>Check the coupons section for new Darji offers.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+            </Pressable>
+          )}
+          <Pressable style={styles.offerCard} onPress={() => setScreen("orders")}>
+            <Ionicons name="navigate-outline" size={24} color="#2563eb" />
+            <Text style={styles.offerTitle}>Live Tracking</Text>
+            <Text style={styles.offerCopy}>Track pickup, stitching and delivery updates.</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Why Choose Darji?</Text>
+        </View>
+        <View style={styles.whyGrid}>
+          {[
+            ["bicycle-outline", "Doorstep Service", "Pickup and delivery"],
+            ["shield-checkmark-outline", "Trusted Tailors", "Verified partners"],
+            ["pricetag-outline", "Best Prices", "Compare quotes"],
+            ["lock-closed-outline", "Secure & Safe", "Protected orders"]
+          ].map(([icon, title, copy]) => (
+            <View key={title} style={styles.whyCard}>
+              <View style={styles.whyIcon}>
+                <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={BRAND_ORANGE} />
+              </View>
+              <View style={styles.profileRowText}>
+                <Text style={styles.whyTitle}>{title}</Text>
+                <Text style={styles.whyCopy}>{copy}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>How It Works</Text>
+        </View>
+        <View style={styles.homeStepsRow}>
+          {howItWorks.map(([icon, title, copy], index) => (
+            <View key={title} style={styles.homeStepItem}>
+              <Text style={styles.stepNumber}>{index + 1}</Text>
+              <View style={styles.stepIconBox}>
+                <Ionicons name={icon} size={22} color={BRAND_DEEP} />
+              </View>
+              <Text style={styles.stepTitle}>{title}</Text>
+              <Text style={styles.stepCopy}>{copy}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Customer Stories</Text>
+          {stories.length > 0 ? (
+            <Pressable onPress={() => setScreen("customerStories")}>
+              <Text style={styles.seeAll}>More</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {stories.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
+            {stories.slice(0, 4).map((story) => (
+              <View key={story.id} style={styles.storyCard}>
+                <Ionicons name="chatbox-ellipses-outline" size={22} color={BRAND_ORANGE} />
+                <Text style={styles.storyText} numberOfLines={4}>{story.review}</Text>
+                <View style={styles.storyFooter}>
+                  <View style={styles.storyAvatar}>
+                    <Text style={styles.storyAvatarText}>{initialsFor(story.name)}</Text>
+                  </View>
+                  <View style={styles.profileRowText}>
+                    <Text style={styles.storyName}>{story.name}</Text>
+                    <Text style={styles.mutedSmall}>{story.location}</Text>
+                  </View>
+                  <View style={styles.storyRating}>
+                    <Ionicons name="star" size={13} color={BRAND_ORANGE} />
+                    <Text style={styles.storyRatingText}>{story.rating.toFixed(1)}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <Pressable style={styles.emptyStoryCard} onPress={() => setScreen("rateApp")}>
+            <Ionicons name="star-outline" size={22} color={BRAND_ORANGE} />
+            <View style={styles.profileRowText}>
+              <Text style={styles.addressTitle}>No customer stories yet</Text>
+              <Text style={styles.mutedSmall}>Rate Darji after your experience and it will appear here.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+          </Pressable>
+        )}
+
+        <View style={styles.safeDataBand}>
+          <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
+          <Text style={styles.safeDataText}>Your data and clothes are completely safe with Darji.</Text>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Need Help?</Text>
+        </View>
+        <View style={styles.supportList}>
+          <Pressable style={styles.supportRow} onPress={() => setScreen("contactSupport")}>
+            <Ionicons name="chatbubble-ellipses-outline" size={21} color={BRAND_DEEP} />
+            <View style={styles.profileRowText}>
+              <Text style={styles.addressTitle}>Chat with Support</Text>
+              <Text style={styles.mutedSmall}>We are online to help you</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+          </Pressable>
+          <Pressable style={styles.supportRow} onPress={() => setScreen("contactSupport")}>
+            <Ionicons name="call-outline" size={21} color={BRAND_DEEP} />
+            <View style={styles.profileRowText}>
+              <Text style={styles.addressTitle}>Call Us</Text>
+              <Text style={styles.mutedSmall}>+91 98765 43210</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+          </Pressable>
+          <Pressable style={styles.supportRow} onPress={() => setScreen("helpCenter")}>
+            <Ionicons name="help-circle-outline" size={21} color={BRAND_DEEP} />
+            <View style={styles.profileRowText}>
+              <Text style={styles.addressTitle}>FAQs</Text>
+              <Text style={styles.mutedSmall}>Find answers to common questions</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+          </Pressable>
         </View>
       </ScrollView>
       <BottomTabs active="home" setScreen={setScreen} />
@@ -1483,6 +1871,16 @@ function NewRequestScreen({
   const needsPickupAddress = savedItemCount === 0;
   const currentItemNumber = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) + 1 || savedItemCount + 1 : savedItemCount + 1;
   const canContinueRequest = draft.media.length > 0 && draft.description.trim().length >= 10 && (!needsPickupAddress || draft.pickup.trim().length >= 8);
+  const isAddingAnotherItem = savedItemCount > 0 && !draft.editingItemId;
+
+  function leaveCurrentItem() {
+    if (draft.editingItemId || isAddingAnotherItem) {
+      setDraft(clearActiveClothingItem(draft));
+      setScreen("orderSummary");
+      return;
+    }
+    onExitRequest();
+  }
 
   function toLocalMedia(asset: ImagePicker.ImagePickerAsset, fallbackIndex: number): LocalMedia {
     const type = asset.type === "video" ? "video" : "image";
@@ -1592,8 +1990,18 @@ function NewRequestScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title={draft.editingItemId ? `Edit Item ${currentItemNumber}` : currentItemNumber > 1 ? `Cloth Item ${currentItemNumber}` : "New Request"} onBack={onExitRequest} />
-        <Text style={styles.helperText}>Describe your tailoring needs clearly so tailors can give accurate quotes.</Text>
+        <Header
+          title={draft.editingItemId ? `Edit Item ${currentItemNumber}` : currentItemNumber > 1 ? `Cloth Item ${currentItemNumber}` : "New Request"}
+          onBack={leaveCurrentItem}
+          right={<Text style={styles.stepBadge}>1/2</Text>}
+        />
+        <View style={styles.requestHintCard}>
+          <Ionicons name="sparkles-outline" size={18} color={BRAND_ORANGE} />
+          <View style={styles.profileRowText}>
+            <Text style={styles.requestHintTitle}>Get accurate quotes</Text>
+            <Text style={styles.requestHintCopy}>Provide clear details and photos of the issue.</Text>
+          </View>
+        </View>
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
@@ -1708,6 +2116,12 @@ function NewRequestScreen({
         )}
 
         <Text style={styles.fieldDisclaimer}>Photos and description are required before continuing{needsPickupAddress ? ", along with pickup address" : ""}.</Text>
+        {isAddingAnotherItem ? (
+          <Pressable style={styles.secondaryWideButton} onPress={leaveCurrentItem} disabled={uploading}>
+            <Ionicons name="close-circle-outline" size={18} color={BRAND_DEEP} />
+            <Text style={styles.secondaryWideButtonText}>Cancel This Item</Text>
+          </Pressable>
+        ) : null}
         <Pressable style={[styles.primaryWideButton, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={uploading}>
           {uploading ? (
             <ActivityIndicator color="#111111" />
@@ -1878,10 +2292,13 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
   const token = useAppStore((state) => state.token);
   const measurementGuide = guideForClothType(draft.clothType);
   const measurements = draft.measurements ?? {};
+  const hasManualMeasurements = Object.values(measurements).some((value) => value.trim()) || Boolean(draft.measurementNotes?.trim());
+  const [showManualMeasurements, setShowManualMeasurements] = useState(hasManualMeasurements);
   const savedItemCount = draft.items?.length ?? 0;
   const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
 
   function selectClothType(clothType: string) {
+    setShowManualMeasurements(false);
     setDraft({ ...draft, clothType, measurements: {}, measurementNotes: "", sampleMedia: undefined, uploadedSampleMedia: undefined });
   }
 
@@ -1978,7 +2395,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} />
+        <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} right={<Text style={styles.stepBadge}>2/2</Text>} />
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
@@ -2000,17 +2417,29 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           ))}
         </View>
 
-        {draft.clothType ? (
+        {draft.clothType && !showManualMeasurements ? (
+          <Pressable style={styles.manualMeasureLink} onPress={() => setShowManualMeasurements(true)}>
+            <Text style={styles.manualMeasureText}>Enter measurement manually?</Text>
+            <Ionicons name="create-outline" size={16} color={BRAND_ORANGE} />
+          </Pressable>
+        ) : null}
+
+        {draft.clothType && showManualMeasurements ? (
           <View style={styles.measurementCard}>
             <View style={styles.rowBetween}>
               <View style={styles.measurementTitleBlock}>
                 <Text style={styles.cardLabel}>MEASUREMENTS</Text>
                 <Text style={styles.addressTitle}>{draft.clothType}</Text>
               </View>
-              <Pressable style={styles.sizeChartButton} onPress={() => setShowSizeChart(true)}>
-                <Ionicons name="resize-outline" size={15} color={BRAND_ORANGE} />
-                <Text style={styles.sizeChartButtonText}>Size chart</Text>
-              </Pressable>
+              <View style={styles.measurementHeaderActions}>
+                <Pressable style={styles.sizeChartButton} onPress={() => setShowSizeChart(true)}>
+                  <Ionicons name="resize-outline" size={15} color={BRAND_ORANGE} />
+                  <Text style={styles.sizeChartButtonText}>Size chart</Text>
+                </Pressable>
+                <Pressable style={styles.iconMiniButton} onPress={() => setShowManualMeasurements(false)}>
+                  <Ionicons name="chevron-up" size={16} color={BRAND_ORANGE} />
+                </Pressable>
+              </View>
             </View>
             <View style={styles.sampleReferenceCard}>
               <Pressable style={styles.sampleReferenceHeader} onPress={toggleSampleProvided}>
@@ -2495,12 +2924,14 @@ function QuotesScreen({
   setSelectedQuote: (quote: Quote) => void;
   setScreen: (screen: Screen) => void;
   showDialog: (dialog: AppDialogState) => void;
-  onDeleteRequest?: () => void;
+  onDeleteRequest?: () => Promise<void> | void;
 }) {
   const token = useAppStore((state) => state.token);
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const itemCount = checkoutItemCount(draft);
 
   async function loadQuotes() {
@@ -2538,24 +2969,75 @@ function QuotesScreen({
     setConfirming(false);
   }
 
+  async function performDeleteRequest() {
+    if (!onDeleteRequest || deleting) return;
+    try {
+      setDeleting(true);
+      await onDeleteRequest();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function requestDeleteRequest() {
+    showDialog({
+      title: "Delete request?",
+      message: "This request will be cancelled and moved to cancelled orders. Tailors will stop seeing it.",
+      actions: [
+        { label: "Keep Request" },
+        { label: "Delete Request", destructive: true, onPress: () => void performDeleteRequest() }
+      ]
+    });
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Tailor Quotes" onBack={() => setScreen("clothIssue")} />
-        <View style={styles.infoBanner}>
-          <Ionicons name="time-outline" size={17} color={BRAND_ORANGE} />
-          <Text style={styles.infoBannerText}>{loading ? "Checking tailor quotes..." : `${visibleQuotes.length} tailors responded - ${itemCount} ${itemCount === 1 ? "item" : "items"}`}</Text>
+        <Header
+          title="Tailor Quotes"
+          onBack={() => setScreen(draft.backendRequestId ? "orders" : "clothIssue")}
+          right={(
+            <Pressable style={styles.roundIconButton} onPress={() => setScreen("notifications")}>
+              <Ionicons name="notifications-outline" size={20} color={BRAND_DEEP} />
+            </Pressable>
+          )}
+        />
+        <View style={styles.quotesSummaryCard}>
+          <View style={styles.quoteClockIcon}>
+            <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.quotesSummaryTitle}>{loading ? "Checking quotes..." : `${visibleQuotes.length} tailors responded`}{` - ${itemCount} ${itemCount === 1 ? "item" : "items"}`}</Text>
+            <Text style={styles.mutedSmall}>Your request was sent just now</Text>
+          </View>
+          <Pressable style={styles.quoteDetailsButton} onPress={() => setDetailsOpen(true)}>
+            <Ionicons name="list-outline" size={18} color={BRAND_DEEP} />
+            <Text style={styles.quoteDetailsButtonText}>View Details</Text>
+            <Ionicons name="chevron-forward" size={16} color={BRAND_DEEP} />
+          </Pressable>
         </View>
 
         {visibleQuotes.length === 0 && !loading ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="time-outline" size={34} color={BRAND_ORANGE} />
+          <View style={styles.quotesWaitingState}>
+            <View style={styles.quotesIllustration}>
+              <Ionicons name="shirt-outline" size={88} color={BRAND_DEEP} />
+              <Ionicons name="paper-plane-outline" size={44} color={BRAND_ORANGE} style={styles.quotesPlaneIcon} />
+            </View>
             <Text style={styles.emptyTitle}>Waiting for tailor quotes</Text>
             <Text style={styles.helperText}>Your request is open. Tailors will see it in their app and send quote amount with completion time.</Text>
-            <Pressable style={styles.secondaryWideButton} onPress={loadQuotes}>
-              <Ionicons name="refresh-outline" size={18} color={BRAND_ORANGE} />
-              <Text style={styles.secondaryWideButtonText}>Refresh Quotes</Text>
-            </Pressable>
+            <View style={styles.quotesTrustCard}>
+              {[
+                ["eye-outline", "Verified Tailors", "Only trusted tailors"],
+                ["pricetag-outline", "Best Prices", "Compare quotes"],
+                ["shield-checkmark-outline", "Secure & Safe", "Protected orders"]
+              ].map(([icon, title, copy]) => (
+                <View key={title} style={styles.quotesTrustItem}>
+                  <View style={styles.quotesTrustIcon}><Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={BRAND_ORANGE} /></View>
+                  <Text style={styles.quotesTrustTitle}>{title}</Text>
+                  <Text style={styles.quotesTrustCopy}>{copy}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -2597,16 +3079,61 @@ function QuotesScreen({
           );
         })}
 
+        <Pressable style={styles.quoteActionRowButton} onPress={loadQuotes} disabled={loading || deleting}>
+          {loading ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh-outline" size={24} color={BRAND_ORANGE} />}
+          <View style={styles.profileRowText}>
+            <Text style={styles.quoteActionTitle}>Refresh Quotes</Text>
+            <Text style={styles.mutedSmall}>Pull the latest quotes from tailors</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#6b7890" />
+        </Pressable>
         <Pressable disabled={!selectedQuote || confirming} style={[styles.primaryWideButton, (!selectedQuote || confirming) && styles.disabledDarkButton]} onPress={confirmTailor}>
           {confirming ? <ActivityIndicator color="#777777" /> : <Text style={[styles.primaryWideButtonText, !selectedQuote && styles.disabledText]}>Confirm This Tailor</Text>}
         </Pressable>
         {draft.backendRequestId && onDeleteRequest ? (
-          <Pressable style={styles.cancelOrderButton} onPress={onDeleteRequest}>
+          <Pressable style={styles.cancelOrderButton} onPress={requestDeleteRequest} disabled={deleting}>
             <Ionicons name="trash-outline" size={18} color="#c24141" />
             <Text style={styles.cancelOrderText}>Delete Request</Text>
           </Pressable>
         ) : null}
+        <View style={styles.requestExpireRow}>
+          <Ionicons name="shield-checkmark-outline" size={17} color="#8a94a6" />
+          <Text style={styles.mutedSmall}>Your request will expire in 24 hours if no quotes are received.</Text>
+        </View>
       </ScrollView>
+      <Modal visible={detailsOpen} transparent animationType="fade" onRequestClose={() => setDetailsOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.requestDetailsModal}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.profileName}>Request Details</Text>
+              <Pressable style={styles.iconMiniButton} onPress={() => setDetailsOpen(false)}>
+                <Ionicons name="close" size={18} color={BRAND_DEEP} />
+              </Pressable>
+            </View>
+            <Text style={styles.infoCopy}>Request ID: {draft.backendRequestId ? `REQ-${draft.backendRequestId.slice(0, 8).toUpperCase()}` : "Draft request"}</Text>
+            <View style={styles.summaryDivider} />
+            {clothingItemsForDraft(draft).map((item, index) => (
+              <View key={item.id} style={styles.requestDetailItem}>
+                <Text style={styles.cardLabel}>ITEM {index + 1}</Text>
+                <Text style={styles.addressTitle}>{clothingItemTitle(item)}</Text>
+                <Text style={styles.mutedSmall}>{clothingItemSummary(item)}</Text>
+                <Text style={styles.infoCopy}>{item.description}</Text>
+              </View>
+            ))}
+            <SummaryRow label="Urgency" value={draft.urgency ?? "Not selected"} />
+            <SummaryRow label="Pickup" value={draft.pickup || "Not selected"} />
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={deleting} transparent animationType="fade" onRequestClose={() => undefined}>
+        <View style={styles.checkoutBlockingOverlay}>
+          <View style={styles.checkoutBlockingCard}>
+            <ActivityIndicator color={BRAND_ORANGE} size="large" />
+            <Text style={styles.checkoutBlockingTitle}>Deleting request...</Text>
+            <Text style={styles.checkoutBlockingCopy}>Please wait while we cancel this request.</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2626,7 +3153,7 @@ function ConfirmOrderScreen({
   setScreen: (screen: Screen) => void;
   onPlaceOrder: (paymentMethod: string, checkout: { couponCode?: string; totalAmount: number }) => void;
   isPlacingOrder?: boolean;
-  onDeleteRequest?: () => void;
+  onDeleteRequest?: () => Promise<void> | void;
 }) {
   const token = useAppStore((state) => state.token);
   const [payment, setPayment] = useState("ONLINE");
@@ -2683,20 +3210,53 @@ function ConfirmOrderScreen({
           </View>
         </View>
 
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>ORDER SUMMARY</Text>
-          <SummaryRow label="Clothing items" value={`${itemCount}`} />
-          <SummaryRow label="Primary item" value={clothingItemSummary(orderItems[0] ?? draftToClothingItem(draft, "active-item"))} />
-          <SummaryRow label="Urgency" value={draft.urgency ?? "Normal"} />
-          <SummaryRow label="Estimated Time" value={quote.eta} />
-          <SummaryRow label="Pickup" value="Today, 2:00 - 4:00 PM" />
-          <SummaryRow label="Tailor quote" value={`Rs${tailoringTotal}`} tone="positive" />
-          <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
-          <SummaryRow label="Platform fee" value={`Rs${PLATFORM_FEE}`} tone="positive" />
-          {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
-          {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
-          <View style={styles.summaryDivider} />
-          <SummaryRow label="Total" value={`Rs${total}`} strong />
+        <View style={[styles.whiteCard, styles.checkoutSummaryCard]}>
+          <View style={styles.checkoutSummaryHeader}>
+            <View style={styles.checkoutSummaryHeaderIcon}>
+              <Ionicons name="receipt-outline" size={19} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.checkoutSummaryTitleBlock}>
+              <Text style={styles.cardLabel}>ORDER SUMMARY</Text>
+              <Text style={styles.checkoutSummarySubtitle} numberOfLines={2}>{clothingItemSummary(orderItems[0] ?? draftToClothingItem(draft, "active-item"))}</Text>
+            </View>
+          </View>
+          <View style={styles.checkoutSummaryStats}>
+            <View style={[styles.checkoutSummaryStat, styles.checkoutSummaryStatWarm]}>
+              <Text style={styles.checkoutSummaryStatLabel}>Items</Text>
+              <Text style={styles.checkoutSummaryStatValue}>{itemCount}</Text>
+            </View>
+            <View style={[styles.checkoutSummaryStat, styles.checkoutSummaryStatCool]}>
+              <Text style={styles.checkoutSummaryStatLabel}>Urgency</Text>
+              <Text style={styles.checkoutSummaryStatValue} numberOfLines={1}>{draft.urgency ?? "Normal"}</Text>
+            </View>
+          </View>
+          <View style={[styles.checkoutInfoBand, styles.checkoutEtaBand]}>
+            <View style={styles.checkoutBandIcon}>
+              <Ionicons name="time-outline" size={18} color="#7c3aed" />
+            </View>
+            <View style={styles.checkoutBandText}>
+              <Text style={styles.checkoutBandLabel}>Estimated Time</Text>
+              <Text style={styles.checkoutEtaValue}>{quote.eta}</Text>
+            </View>
+          </View>
+          <View style={[styles.checkoutInfoBand, styles.checkoutPickupBand]}>
+            <View style={styles.checkoutBandIcon}>
+              <Ionicons name="calendar-outline" size={18} color="#047857" />
+            </View>
+            <View style={styles.checkoutBandText}>
+              <Text style={styles.checkoutBandLabel}>Pickup Slot</Text>
+              <Text style={styles.checkoutPickupValue}>Today, 2:00 - 4:00 PM</Text>
+            </View>
+          </View>
+          <View style={styles.checkoutPriceBox}>
+            <SummaryRow label="Tailor quote" value={`Rs${tailoringTotal}`} tone="positive" />
+            <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
+            <SummaryRow label="Platform fee" value={`Rs${PLATFORM_FEE}`} tone="positive" />
+            {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
+            {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
+            <View style={styles.summaryDivider} />
+            <SummaryRow label="Total" value={`Rs${total}`} strong />
+          </View>
         </View>
 
         <View style={styles.whiteCard}>
@@ -2741,7 +3301,7 @@ function ConfirmOrderScreen({
             <Text style={styles.mutedSmall}>No coupon offers are available right now.</Text>
           )}
           <View style={styles.couponApplyRow}>
-            <TextInput style={styles.couponInput} value={couponInput} autoCapitalize="characters" onChangeText={(value) => { setCouponInput(value); if (appliedCoupon) setAppliedCoupon(undefined); }} placeholder="Enter coupon code" />
+            <TextInput style={styles.couponInput} value={couponInput} autoCapitalize="characters" onChangeText={(value) => { setCouponInput(value); if (appliedCoupon) setAppliedCoupon(undefined); }} placeholder="Enter coupon code" placeholderTextColor="#667085" />
             <Pressable style={styles.couponApplyButton} onPress={() => applyCoupon()}>
               <Text style={styles.couponCopyText}>Apply</Text>
             </Pressable>
@@ -3563,9 +4123,7 @@ function TransactionHistoryScreen({ setScreen, orders }: { setScreen: (screen: S
 
 function CouponsScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   const coupons = [
-    { code: "DARZI100", text: "Rs100 off on your first tailoring order", active: true },
-    { code: "FAST50", text: "Rs50 off express pickup", active: true },
-    { code: "WELCOME", text: "Expired welcome offer", active: false }
+    { code: "ADMIN", text: "Open the active coupon section for current offers", active: true }
   ];
   return (
     <ProfileSubPage title="Coupons" setScreen={setScreen}>
@@ -4601,20 +5159,114 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   );
 }
 
-function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review: string) => void; setScreen: (screen: Screen) => void }) {
+function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Screen) => void; stories: CustomerStory[] }) {
+  return (
+    <ProfileSubPage title="Customer Stories" setScreen={setScreen} backScreen="home">
+      {stories.length ? stories.map((story) => (
+        <View key={story.id} style={styles.storyListCard}>
+          <View style={styles.storyFooter}>
+            <View style={styles.storyAvatar}>
+              <Text style={styles.storyAvatarText}>{initialsFor(story.name)}</Text>
+            </View>
+            <View style={styles.profileRowText}>
+              <Text style={styles.storyName}>{story.name}</Text>
+              <Text style={styles.mutedSmall}>{story.location}</Text>
+            </View>
+            <View style={styles.storyRating}>
+              <Ionicons name="star" size={13} color={BRAND_ORANGE} />
+              <Text style={styles.storyRatingText}>{story.rating.toFixed(1)}</Text>
+            </View>
+          </View>
+          <Text style={styles.storyListText}>{story.review}</Text>
+        </View>
+      )) : (
+        <View style={styles.emptyState}>
+          <Ionicons name="star-outline" size={34} color={BRAND_ORANGE} />
+          <Text style={styles.emptyTitle}>No reviews yet</Text>
+          <Text style={styles.helperText}>Customer stories will appear here after ratings are submitted.</Text>
+        </View>
+      )}
+    </ProfileSubPage>
+  );
+}
+
+function RateAppScreen({ onSave, setScreen, orders }: { onSave: (rating: number, review: string) => void; setScreen: (screen: Screen) => void; orders: CustomerOrder[] }) {
+  const token = useAppStore((state) => state.token);
   const [rating, setRating] = useState(5);
   const [review, setReview] = useState("");
+  const [photos, setPhotos] = useState<LocalMedia[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const latestOrder = [...orders]
+    .filter((order) => order.status === "Delivered")
+    .sort((a, b) => parseDateSafe(b.placedAt).getTime() - parseDateSafe(a.placedAt).getTime())[0] ?? orders[0];
 
-  function submit() {
-    onSave(rating, review.trim());
-    Alert.alert("Saved", "Thanks for rating Darji.");
-    setScreen("profile");
+  async function pickReviewPhotos() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to add review photos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.82,
+      allowsMultipleSelection: true
+    });
+    if (result.canceled) return;
+    const nextPhotos = result.assets.slice(0, 4).map((asset, index) => ({
+      uri: asset.uri,
+      type: "image" as const,
+      name: asset.fileName ?? `review-${Date.now()}-${index}.jpg`,
+      size: asset.fileSize
+    }));
+    setPhotos((current) => [...current, ...nextPhotos].slice(0, 4));
+  }
+
+  async function submit() {
+    if (!review.trim()) {
+      Alert.alert("Write a review", "Please share a short review so it can appear in customer stories.");
+      return;
+    }
+    try {
+      setSubmitting(true);
+      if (token && latestOrder?.backendOrderId) {
+        await api(
+          "/reviews",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              orderId: latestOrder.backendOrderId,
+              rating,
+              comment: review.trim()
+            })
+          },
+          token
+        ).catch(() => undefined);
+      }
+      onSave(rating, review.trim());
+      Alert.alert("Saved", "Thanks for rating Darji.");
+      setScreen("home");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <ProfileSubPage title="Rate Darji" setScreen={setScreen}>
-      <View style={styles.ratingCard}>
+    <ProfileSubPage title="Rate & Review" setScreen={setScreen} backScreen="home">
+      <View style={styles.rateHero}>
+        <Ionicons name="thumbs-up-outline" size={34} color={BRAND_ORANGE} />
         <Text style={styles.profileName}>How was your experience?</Text>
+        <Text style={styles.mutedSmall}>Your feedback helps us improve our service.</Text>
+      </View>
+      {latestOrder ? (
+        <View style={styles.ratingCard}>
+          <Text style={styles.cardLabel}>ORDER ID</Text>
+          <Text style={styles.orderId}>{latestOrder.orderNumber}</Text>
+          <Text style={styles.infoCopy}>{latestOrder.draft.workType ?? "Tailoring"} - {latestOrder.draft.clothType ?? "Cloth"}</Text>
+          <Text style={styles.mutedSmall}>{formatInvoiceDate(new Date(latestOrder.placedAt))}</Text>
+        </View>
+      ) : null}
+      <View style={styles.ratingCard}>
+        <Text style={styles.profileName}>Rate your experience</Text>
         <View style={styles.starPicker}>
           {[1, 2, 3, 4, 5].map((item) => (
             <Pressable key={item} onPress={() => setRating(item)}>
@@ -4622,10 +5274,36 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
             </Pressable>
           ))}
         </View>
-        <TextInput style={styles.descriptionInput} value={review} onChangeText={setReview} multiline placeholder="Share feedback..." placeholderTextColor="#98a4b6" />
+        <Text style={styles.mutedSmall}>{rating >= 4 ? "Excellent" : rating === 3 ? "Good" : "Needs improvement"}</Text>
+        <TextInput
+          style={[styles.descriptionInput, styles.rateReviewInput]}
+          value={review}
+          onChangeText={setReview}
+          multiline
+          maxLength={500}
+          placeholder="Share your experience with Darji..."
+          placeholderTextColor="#98a4b6"
+        />
+        <Text style={styles.reviewCounter}>{review.length}/500</Text>
+        <Text style={styles.formLabel}>Add Photos (Optional)</Text>
+        <View style={styles.reviewPhotoRow}>
+          {photos.map((photo, index) => (
+            <View key={`${photo.uri}-${index}`} style={styles.reviewPhotoBox}>
+              <Image source={{ uri: photo.uri }} style={styles.reviewPhoto} />
+              <Pressable style={styles.removePreview} onPress={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+                <Ionicons name="close" size={12} color="#ffffff" />
+              </Pressable>
+            </View>
+          ))}
+          {photos.length < 4 ? (
+            <Pressable style={styles.reviewPhotoAdd} onPress={pickReviewPhotos}>
+              <Ionicons name="add" size={24} color={BRAND_DEEP} />
+            </Pressable>
+          ) : null}
+        </View>
       </View>
-      <Pressable style={styles.primaryWideButton} onPress={submit}>
-        <Text style={styles.primaryWideButtonText}>Submit Rating</Text>
+      <Pressable style={[styles.primaryWideButton, submitting && styles.buttonDisabled]} onPress={submit} disabled={submitting}>
+        {submitting ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryWideButtonText}>Submit Review</Text>}
       </Pressable>
     </ProfileSubPage>
   );
@@ -4807,12 +5485,22 @@ function RatingButtons({ value, onRate }: { value?: number; onRate: (rating: num
 }
 
 function CouponsScreenV2({ setScreen }: { setScreen: (screen: Screen) => void }) {
+  const token = useAppStore((state) => state.token);
   const [expanded, setExpanded] = useState<string | undefined>();
-  const coupons = [
-    { code: "DARZI100", text: "Rs100 off on your first tailoring order", active: true, details: "Valid on orders above Rs499. Can be used once per customer. Not valid with other offers." },
-    { code: "FAST50", text: "Rs50 off express pickup", active: true, details: "Valid on express pickup orders. Discount applies to pickup/service fee only." },
-    { code: "WELCOME", text: "Expired welcome offer", active: false, details: "This welcome coupon has expired and cannot be applied to new orders." }
-  ];
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    void api<Coupon[]>("/coupons", {}, token)
+      .then(setCoupons)
+      .catch(() => setCoupons([]))
+      .finally(() => setLoading(false));
+  }, [token]);
 
   async function copyCoupon(code: string) {
     await Clipboard.setStringAsync(code);
@@ -4821,17 +5509,33 @@ function CouponsScreenV2({ setScreen }: { setScreen: (screen: Screen) => void })
 
   return (
     <ProfileSubPage title="Coupons" setScreen={setScreen}>
+      {loading ? (
+        <View style={styles.emptyState}>
+          <ActivityIndicator color={BRAND_ORANGE} />
+          <Text style={styles.helperText}>Loading active coupons...</Text>
+        </View>
+      ) : null}
+      {!loading && coupons.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="ticket-outline" size={34} color={BRAND_ORANGE} />
+          <Text style={styles.emptyTitle}>No coupons right now</Text>
+          <Text style={styles.helperText}>Active offers from admin will appear here.</Text>
+        </View>
+      ) : null}
       {coupons.map((coupon) => {
         const open = expanded === coupon.code;
+        const inactiveReason = couponUnavailableReason(coupon, 0);
+        const inactive = Boolean(inactiveReason);
         return (
-          <Pressable key={coupon.code} style={[styles.couponCardV2, !coupon.active && styles.inactiveCoupon]} onPress={() => setExpanded(open ? undefined : coupon.code)}>
+          <Pressable key={coupon.code} style={[styles.couponCardV2, inactive && styles.inactiveCoupon]} onPress={() => setExpanded(open ? undefined : coupon.code)}>
             <View style={styles.couponTopRow}>
               <View style={styles.couponTextBlock}>
                 <Text style={styles.couponCode}>{coupon.code}</Text>
-                <Text style={styles.infoCopy}>{coupon.text}</Text>
+                <Text style={styles.couponValueText}>{couponDiscountLabel(coupon)}</Text>
+                <Text style={styles.infoCopy}>{coupon.description || "Darji tailoring offer"}</Text>
               </View>
               <View style={styles.couponActionRow}>
-                {coupon.active ? (
+                {!inactive ? (
                   <Pressable
                     style={styles.couponCopyButton}
                     onPress={(event) => {
@@ -4843,13 +5547,13 @@ function CouponsScreenV2({ setScreen }: { setScreen: (screen: Screen) => void })
                     <Text style={styles.couponCopyText}>Copy</Text>
                   </Pressable>
                 ) : null}
-                <Text style={[styles.couponActionPill, !coupon.active && styles.inactivePill]}>{coupon.active ? "Apply" : "Expired"}</Text>
+                <Text style={[styles.couponActionPill, inactive && styles.inactivePill]}>{inactiveReason ?? "Active"}</Text>
               </View>
             </View>
             {open ? (
               <View style={styles.couponDetails}>
                 <Text style={styles.cardLabel}>DETAILS</Text>
-                <Text style={styles.infoCopy}>{coupon.details}</Text>
+                <Text style={styles.infoCopy}>Minimum order Rs{Number(coupon.minOrderValue ?? 0).toFixed(0)}. {couponExpiryLabel(coupon)}.</Text>
               </View>
             ) : null}
           </Pressable>
@@ -4958,7 +5662,7 @@ function OrdersScreenV2({
   );
 }
 
-function OrderDetailsScreenV2({
+function LegacyOrderDetailsScreenV2({
   order,
   onUpdateOrder,
   onRequestCancel,
@@ -5162,6 +5866,198 @@ function OrderDetailsScreenV2({
   );
 }
 
+function OrderProgressStrip({ status }: { status: OrderStatus }) {
+  const steps = [
+    { label: "Requested", icon: "checkmark" },
+    { label: "Tailor Accepted", icon: "receipt-outline" },
+    { label: "Picked Up", icon: "cube-outline" },
+    { label: "In Progress", icon: "shirt-outline" },
+    { label: "Delivered", icon: "checkmark-done-outline" }
+  ] as const;
+  const activeIndexMap: Record<OrderStatus, number> = {
+    "Awaiting Payment": 0,
+    Pending: 0,
+    Confirmed: 1,
+    "Pickup Started": 1,
+    "Order Placed": 1,
+    "Picked Up": 2,
+    "Package Handover to Tailor": 2,
+    "Tailor Started": 3,
+    "Tailor Completed": 3,
+    "On the Way": 3,
+    Delivered: 4,
+    Cancelled: 0
+  };
+  const activeIndex = activeIndexMap[status];
+
+  return (
+    <View style={styles.orderProgressWrap}>
+      {steps.map((step, index) => {
+        const done = status !== "Cancelled" && index <= activeIndex;
+        return (
+          <View key={step.label} style={styles.orderProgressStep}>
+            <View style={[styles.orderProgressDot, done && styles.orderProgressDotDone]}>
+              <Ionicons name={done ? "checkmark" : step.icon} size={16} color={done ? "#111111" : "#8a94a6"} />
+            </View>
+            {index < steps.length - 1 ? <View style={[styles.orderProgressLine, done && styles.orderProgressLineDone]} /> : null}
+            <Text style={[styles.orderProgressLabel, done && styles.orderProgressLabelDone]} numberOfLines={2}>{step.label}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function OrderDetailsScreenV2({
+  order,
+  onUpdateOrder,
+  onRequestCancel,
+  setScreen
+}: {
+  order: CustomerOrder;
+  onUpdateOrder: (order: CustomerOrder) => void;
+  onRequestCancel: (order: CustomerOrder) => void;
+  setScreen: (screen: Screen) => void;
+}) {
+  const pickupSchedule = pickupScheduleForOrder(order);
+  const estimatedTime = estimatedTimeForOrder(order);
+  const orderItems = clothingItemsForDraft(order.draft);
+  const itemTotal = Math.max(
+    order.total -
+      (order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)) -
+      (order.platformFee ?? PLATFORM_FEE) -
+      (order.homeMeasurementFee ?? (order.draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0)) +
+      (order.discountAmount ?? 0),
+    0
+  );
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <Header
+          title="Order Details"
+          onBack={() => setScreen("orders")}
+          right={(
+            <Pressable onPress={() => setScreen("contactSupport")}>
+              <Text style={styles.seeAll}>Help</Text>
+            </Pressable>
+          )}
+        />
+
+        <View style={styles.orderDetailHero}>
+          <View>
+            <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+            <Text style={styles.mutedSmall}>Placed on {formatInvoiceDate(new Date(order.placedAt))}</Text>
+          </View>
+          <StatusPill status={order.status} />
+        </View>
+
+        {order.status === "Cancelled" ? (
+          <View style={styles.cancelledNoticeCard}>
+            <Ionicons name="close-circle-outline" size={22} color="#b91c1c" />
+            <View style={styles.noticeTextBlock}>
+              <Text style={styles.cancelledNoticeTitle}>This order has been cancelled</Text>
+              <Text style={styles.cancelledNoticeCopy}>{order.cancellationFee ? `Cancellation fee: Rs${order.cancellationFee}.` : "No cancellation charge applies before pickup."}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        <Text style={styles.sectionTitle}>Order Progress</Text>
+        <OrderProgressStrip status={order.status} />
+        <CustomerHandoffOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+        <CustomerEtaCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+
+        <Text style={styles.sectionTitle}>Order Items</Text>
+        <View style={styles.orderDetailsCard}>
+          {orderItems.map((item, index) => {
+            const thumb = clothingItemThumbnail(item);
+            return (
+              <View key={item.id} style={[styles.orderItemLine, index > 0 && styles.orderItemLineBorder]}>
+                <View style={styles.orderLineThumb}>
+                  {thumb ? <Image source={{ uri: thumb }} style={styles.orderLineImage} /> : <Ionicons name="shirt-outline" size={24} color={BRAND_ORANGE} />}
+                </View>
+                <View style={styles.profileRowText}>
+                  <Text style={styles.addressTitle}>{clothingItemSummary(item)}</Text>
+                  <Text style={styles.mutedSmall}>{item.description || "Tailoring request"}</Text>
+                  <Text style={styles.mutedSmall}>Qty: 1</Text>
+                </View>
+                <Text style={styles.orderPrice}>Rs{Math.round(itemTotal / Math.max(orderItems.length, 1))}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <Text style={styles.sectionTitle}>Order Summary</Text>
+        <View style={styles.orderDetailsCard}>
+          <SummaryRow label="Item Total" value={`Rs${itemTotal}`} />
+          <SummaryRow label="Pickup Fee" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} />
+          <SummaryRow label="Convenience Fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} />
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
+          {order.discountAmount ? <SummaryRow label={`Discount ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
+          <View style={styles.summaryDivider} />
+          <SummaryRow label="Total Amount" value={`Rs${order.total}`} strong />
+        </View>
+
+        <Text style={styles.sectionTitle}>Order Details</Text>
+        <View style={styles.orderDetailsCard}>
+          <SummaryRow label="Pickup Address" value={order.draft.pickup || "Not selected"} />
+          <SummaryRow label="Pickup Time" value={`${pickupSchedule.date}, ${pickupSchedule.timeSlot}`} />
+          <SummaryRow label="Estimated Delivery" value={estimatedTime.delivery} />
+          <SummaryRow label="Payment Method" value={order.paymentMethod.toUpperCase()} />
+          <SummaryRow label="Tailor" value={order.tailor.name} />
+        </View>
+
+        {order.status === "Delivered" ? (
+          <View style={styles.orderDetailsCard}>
+            <View style={styles.orderIssueRow}>
+              <Ionicons name="star-outline" size={22} color={BRAND_ORANGE} />
+              <View style={styles.profileRowText}>
+                <Text style={styles.addressTitle}>Rate Darji</Text>
+                <Text style={styles.mutedSmall}>Share your experience and help other customers.</Text>
+              </View>
+              <Pressable style={styles.orderSmallAction} onPress={() => setScreen("rateApp")}>
+                <Text style={styles.couponCopyText}>Rate</Text>
+              </Pressable>
+            </View>
+            <Pressable
+              style={styles.secondaryWideButton}
+              onPress={() => {
+                onUpdateOrder({ ...order, invoiceGeneratedAt: order.invoiceGeneratedAt ?? new Date().toISOString() });
+                downloadInvoice({ ...order, invoiceGeneratedAt: order.invoiceGeneratedAt ?? new Date().toISOString() });
+              }}
+            >
+              <Ionicons name="download-outline" size={18} color={BRAND_DEEP} />
+              <Text style={styles.secondaryWideButtonText}>Download Invoice</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <Pressable style={styles.orderDetailsCard} onPress={() => setScreen("contactSupport")}>
+          <View style={styles.orderIssueRow}>
+            <Ionicons name="chatbox-ellipses-outline" size={22} color={BRAND_DEEP} />
+            <View style={styles.profileRowText}>
+              <Text style={styles.addressTitle}>Have an issue with your order?</Text>
+              <Text style={styles.mutedSmall}>Chat with our support team</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+          </View>
+        </Pressable>
+
+        {canCancelOrder(order.status) ? (
+          <Pressable style={styles.cancelOrderButton} onPress={() => onRequestCancel(order)}>
+            <Ionicons name="close-circle-outline" size={18} color="#c24141" />
+            <Text style={styles.cancelOrderText}>Cancel Order</Text>
+          </Pressable>
+        ) : null}
+        <Pressable style={styles.primaryWideButton} onPress={() => setScreen("trackOrder")}>
+          <Text style={styles.primaryWideButtonText}>Track Order</Text>
+          <Ionicons name="chevron-forward" size={18} color="#111111" />
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 function CustomerHandoffOtpCard({ orderId, status }: { orderId?: string; status: string }) {
   const token = useAppStore((state) => state.token);
   const [otps, setOtps] = useState<HandoffOtp[]>([]);
@@ -5324,7 +6220,7 @@ export default function App() {
 
   const customerPhone = user?.phone ?? "9876543210";
   const customerData = customerDataByPhone[customerPhone] ?? makeDefaultCustomerData(customerPhone, user?.name);
-  const { orders, profile, settings, addresses, notifications } = customerData;
+  const { orders, profile, settings, addresses, notifications, appReviews } = customerData;
   const defaultAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
   const unreadCount = notifications.filter((item) => !item.read).length;
   const activeOrderForCustomer = activeOrder && orders.some((order) => order.id === activeOrder.id) ? activeOrder : undefined;
@@ -6157,7 +7053,7 @@ export default function App() {
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} />);
 
-  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} />);
+  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} />);
   if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} />);
   if (screen === "featureSoon") return withAppChrome(<FeatureSoonScreen setScreen={setScreen} onNotify={notifyForPressLaunch} />);
   if (screen === "notifications") return withAppChrome(<NotificationsScreen notifications={notifications} onMarkAllRead={markNotificationsRead} setScreen={setScreen} />);
@@ -6165,8 +7061,8 @@ export default function App() {
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
   if (screen === "orderSummary") return withAppChrome(<OrderSummaryScreen draft={draft} setDraft={setDraft} setScreen={setScreen} showDialog={setDialog} />);
-  if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => void deleteIncompleteRequest(draft.backendRequestId)} />);
-  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => void deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
+  if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => deleteIncompleteRequest(draft.backendRequestId)} />);
+  if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
   if (screen === "trackOrder" && activeOrderForCustomer) {
     const locationKey = activeOrderForCustomer.backendOrderId ?? activeOrderForCustomer.tailor.backendRequestId ?? activeOrderForCustomer.id;
@@ -6186,6 +7082,7 @@ export default function App() {
     "contactSupport",
     "reportBug",
     "rateApp",
+    "customerStories",
     "privacyPolicy",
     "termsService",
     "appInfo",
@@ -6238,7 +7135,11 @@ export default function App() {
         </Modal>
         
         <Modal visible={screen === "rateApp"} onRequestClose={goBack} animationType="slide">
-          <RateAppScreen onSave={saveAppReview} setScreen={setScreen} />
+          <RateAppScreen onSave={saveAppReview} setScreen={setScreen} orders={orders} />
+        </Modal>
+
+        <Modal visible={screen === "customerStories"} onRequestClose={goBack} animationType="slide">
+          <CustomerStoriesScreen setScreen={setScreen} stories={storiesFromCustomerData(profile, orders, appReviews, defaultAddress)} />
         </Modal>
         
         <Modal visible={screen === "privacyPolicy"} onRequestClose={goBack} animationType="slide">
@@ -6360,6 +7261,8 @@ function createStyles(isDark = false) {
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
   pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
+  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 96 },
+  homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
   mutedSmall: { color: subtle, fontSize: 12 },
   userName: { color: text, fontSize: 20, fontWeight: "900", marginTop: 6 },
@@ -6395,6 +7298,59 @@ function createStyles(isDark = false) {
   serviceCard: { minHeight: 134, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 10 },
   serviceTitle: { color: text, fontSize: 15, fontWeight: "900", marginTop: 10, textAlign: "center" },
   serviceCount: { color: muted, fontSize: 13, fontWeight: "800", marginTop: 6 },
+  popularServiceRow: { gap: 12, paddingBottom: 14 },
+  popularServiceCard: { minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  popularServiceText: { color: text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 7 },
+  launchBand: { minHeight: 164, borderRadius: 18, borderWidth: 1, borderColor: "#d8c8ff", backgroundColor: isDark ? "#171326" : "#f5f0ff", flexDirection: "row", alignItems: "center", padding: 18, marginBottom: 22, overflow: "hidden" },
+  launchTextBlock: { flex: 1, minWidth: 0 },
+  launchBadge: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 12, backgroundColor: "#ede7ff", color: "#6d28d9", paddingHorizontal: 10, paddingVertical: 5, fontSize: 10, fontWeight: "900" },
+  launchBandTitle: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 24, marginTop: 12 },
+  launchBandCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 8 },
+  launchNotifyButton: { alignSelf: "flex-start", minHeight: 36, borderRadius: 18, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 17, marginTop: 12 },
+  launchNotifyText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
+  launchIconStack: { width: 96, height: 96, borderRadius: 24, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", marginLeft: 12 },
+  launchSparkIcon: { position: "absolute", right: 16, top: 14 },
+  needList: { gap: 10, marginBottom: 22 },
+  needCard: { minHeight: 70, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 12 },
+  needIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  fabricTipCard: { minHeight: 132, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", padding: 14, gap: 14, marginBottom: 22 },
+  fabricTipImage: { width: 116, height: 92, borderRadius: 15, backgroundColor: iconBg },
+  fabricTipText: { flex: 1, minWidth: 0 },
+  fabricTipTitle: { color: text, fontSize: 17, fontWeight: "900" },
+  fabricTipCopy: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 8 },
+  offerRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 22 },
+  offerCard: { flex: 1, minWidth: "30%", minHeight: 118, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, padding: 14 },
+  offerCardWide: { width: "100%", minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
+  offerTitle: { color: text, fontSize: 14, fontWeight: "900", marginTop: 10 },
+  offerCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 6 },
+  offerCode: { color: "#8a5600", fontSize: 11, fontWeight: "900", marginTop: 8 },
+  whyGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 22 },
+  whyCard: { width: "48.5%", minHeight: 88, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 12 },
+  whyIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  whyTitle: { color: text, fontSize: 12, fontWeight: "900" },
+  whyCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 15, marginTop: 4 },
+  homeStepsRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 22 },
+  homeStepItem: { flex: 1, alignItems: "center", minWidth: 0 },
+  stepNumber: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 10, backgroundColor: BRAND_ORANGE, color: "#111111", width: 20, height: 20, lineHeight: 20, textAlign: "center", fontSize: 10, fontWeight: "900", marginBottom: -8, zIndex: 1 },
+  stepIconBox: { width: 52, height: 52, borderRadius: 16, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  stepTitle: { color: text, fontSize: 10, fontWeight: "900", textAlign: "center", minHeight: 28 },
+  stepCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, textAlign: "center", marginTop: 3 },
+  storyRow: { gap: 12, paddingBottom: 14 },
+  storyCard: { width: 300, minHeight: 158, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 16 },
+  storyText: { color: text, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 10, minHeight: 78 },
+  storyFooter: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
+  storyAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  storyAvatarText: { color: "#111111", fontSize: 11, fontWeight: "900" },
+  storyName: { color: text, fontSize: 13, fontWeight: "900" },
+  storyRating: { flexDirection: "row", alignItems: "center", gap: 4 },
+  storyRatingText: { color: text, fontSize: 12, fontWeight: "900" },
+  emptyStoryCard: { minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginBottom: 18 },
+  storyListCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 12 },
+  storyListText: { color: text, fontSize: 14, fontWeight: "700", lineHeight: 21, marginTop: 12 },
+  safeDataBand: { minHeight: 58, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, marginBottom: 22 },
+  safeDataText: { flex: 1, minWidth: 0, color: text, fontSize: 12, fontWeight: "800", lineHeight: 18 },
+  supportList: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, marginBottom: 10, overflow: "hidden" },
+  supportRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: border },
   homeInsightGrid: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 12 },
   homeInsightCard: { flex: 1, minHeight: 104, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, justifyContent: "center" },
   homeInsightValue: { color: text, fontSize: 15, fontWeight: "900", marginTop: 10, marginBottom: 5 },
@@ -6433,6 +7389,10 @@ function createStyles(isDark = false) {
   darkText: { color: "#f6f7fa" },
   darkMuted: { color: "#7f8796" },
   smallDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: BRAND_ORANGE, marginTop: 10, marginLeft: 8 },
+  stepBadge: { overflow: "hidden", borderRadius: 15, backgroundColor: "#fff2d8", color: BRAND_ORANGE, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: "900" },
+  requestHintCard: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14 },
+  requestHintTitle: { color: text, fontSize: 13, fontWeight: "900" },
+  requestHintCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 2 },
   helperText: { color: muted, fontSize: 14, lineHeight: 22, marginBottom: 18 },
   formLabel: { color: muted, fontSize: 13, fontWeight: "900", marginTop: 20, marginBottom: 10 },
   fieldDisclaimer: { color: "#8a5600", fontSize: 12, fontWeight: "800", lineHeight: 18, marginTop: 8 },
@@ -6466,8 +7426,12 @@ function createStyles(isDark = false) {
   selectedOptionButton: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
   optionText: { color: muted, fontSize: 12, fontWeight: "900", textAlign: "center" },
   selectedOptionText: { color: text },
+  manualMeasureLink: { alignSelf: "flex-start", minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, marginTop: 12, marginBottom: 2 },
+  manualMeasureText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   measurementCard: { borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 16, marginTop: 16 },
   measurementTitleBlock: { flex: 1, minWidth: 0 },
+  measurementHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  iconMiniButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   sizeChartButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: "#efbd65", backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12 },
   sizeChartButtonText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
   sizeChartIntro: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 10, marginBottom: 12 },
@@ -6613,6 +7577,24 @@ function createStyles(isDark = false) {
   paymentVerificationOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(247, 250, 255, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   infoBanner: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8, marginBottom: 14 },
   infoBannerText: { color: muted, fontSize: 13, fontWeight: "700" },
+  quotesSummaryCard: { minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginBottom: 26 },
+  quoteClockIcon: { width: 62, height: 62, borderRadius: 31, backgroundColor: surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92" },
+  quotesSummaryTitle: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 24 },
+  quoteDetailsButton: { minHeight: 46, borderRadius: 23, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12 },
+  quoteDetailsButtonText: { color: text, fontSize: 13, fontWeight: "900" },
+  quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 12 },
+  quotesIllustration: { width: 220, height: 170, borderRadius: 85, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  quotesPlaneIcon: { position: "absolute", right: 34, top: 34 },
+  quotesTrustCard: { width: "100%", minHeight: 96, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "stretch", padding: 12, marginBottom: 16 },
+  quotesTrustItem: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: border },
+  quotesTrustIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  quotesTrustTitle: { color: text, fontSize: 11, fontWeight: "900", textAlign: "center" },
+  quotesTrustCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 14, textAlign: "center", marginTop: 4 },
+  quoteActionRowButton: { minHeight: 74, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginTop: 4 },
+  quoteActionTitle: { color: text, fontSize: 16, fontWeight: "900" },
+  requestExpireRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 18, marginBottom: 20 },
+  requestDetailsModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
+  requestDetailItem: { borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12, marginVertical: 8 },
   quoteCard: { width: "100%", minHeight: 162, borderRadius: 20, backgroundColor: surfaceAlt, padding: 18, marginBottom: 16, borderWidth: 1.2, borderColor: "#efcf92" },
   selectedQuoteCard: { borderColor: BRAND_ORANGE, backgroundColor: isDark ? "#2a1d0a" : "#fff5df" },
   quoteTopRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
@@ -6647,6 +7629,26 @@ function createStyles(isDark = false) {
   summaryNegative: { color: "#dc2626" },
   summaryDivider: { height: 1, backgroundColor: border, marginVertical: 4 },
   summaryStrong: { color: BRAND_ORANGE, fontSize: 18, fontWeight: "900" },
+  checkoutSummaryCard: { borderColor: "#efcf92", borderWidth: 1.5, backgroundColor: isDark ? "#1c2028" : "#fffdf8" },
+  checkoutSummaryHeader: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
+  checkoutSummaryHeaderIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: "#fff2d8", borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center" },
+  checkoutSummaryTitleBlock: { flex: 1, minWidth: 0 },
+  checkoutSummarySubtitle: { color: text, fontSize: 14, lineHeight: 20, fontWeight: "900" },
+  checkoutSummaryStats: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  checkoutSummaryStat: { flex: 1, minHeight: 70, borderRadius: 16, borderWidth: 1, padding: 12, justifyContent: "center" },
+  checkoutSummaryStatWarm: { borderColor: "#fed7aa", backgroundColor: "#fff7ed" },
+  checkoutSummaryStatCool: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
+  checkoutSummaryStatLabel: { color: muted, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  checkoutSummaryStatValue: { color: text, fontSize: 18, fontWeight: "900", marginTop: 4 },
+  checkoutInfoBand: { minHeight: 66, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 11, marginBottom: 10 },
+  checkoutEtaBand: { borderColor: "#c4b5fd", backgroundColor: "#f5f3ff" },
+  checkoutPickupBand: { borderColor: "#a7f3d0", backgroundColor: "#ecfdf5" },
+  checkoutBandIcon: { width: 36, height: 36, borderRadius: 13, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  checkoutBandText: { flex: 1, minWidth: 0 },
+  checkoutBandLabel: { color: muted, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  checkoutEtaValue: { color: "#6d28d9", fontSize: 17, fontWeight: "900", marginTop: 3 },
+  checkoutPickupValue: { color: "#047857", fontSize: 15, fontWeight: "900", marginTop: 3 },
+  checkoutPriceBox: { borderRadius: 16, borderWidth: 1, borderColor: "#e6edf5", backgroundColor: surface, padding: 14, marginTop: 4 },
   addMoreCheckoutButton: { minHeight: 62, borderRadius: 18, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 10, marginTop: 12, paddingHorizontal: 14 },
   checkoutGrid: { flexDirection: "row", gap: 10, marginTop: 12 },
   checkoutMiniInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "700" },
@@ -6664,11 +7666,27 @@ function createStyles(isDark = false) {
   orderSummaryDeleteButton: { borderColor: "#ffd1d1", backgroundColor: "#fff1f1" },
   orderSummaryDeleteText: { color: "#c24141" },
   couponApplyRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  couponInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "900" },
+  couponInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1.3, borderColor: "#d1d9e6", backgroundColor: surface, color: text, paddingHorizontal: 12, fontWeight: "900" },
   couponApplyButton: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fff7e8", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },
   discountText: { color: "#dc2626", fontSize: 13, fontWeight: "900", marginTop: 10 },
   paymentRow: { flexDirection: "row", alignItems: "center", gap: 12, height: 34 },
   paymentText: { color: muted, fontSize: 13, fontWeight: "700" },
+  orderDetailHero: { minHeight: 74, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 14, marginBottom: 18 },
+  orderProgressWrap: { minHeight: 86, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 8, paddingVertical: 14, marginBottom: 16 },
+  orderProgressStep: { flex: 1, alignItems: "center", minWidth: 0 },
+  orderProgressDot: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#eef2f7", alignItems: "center", justifyContent: "center", zIndex: 2 },
+  orderProgressDotDone: { backgroundColor: "#bbf7d0" },
+  orderProgressLine: { position: "absolute", top: 16, left: "50%", right: "-50%", height: 2, backgroundColor: "#d7dee9", zIndex: 0 },
+  orderProgressLineDone: { backgroundColor: BRAND_ORANGE },
+  orderProgressLabel: { color: muted, fontSize: 9, fontWeight: "900", lineHeight: 13, textAlign: "center", marginTop: 7, paddingHorizontal: 2 },
+  orderProgressLabelDone: { color: text },
+  orderDetailsCard: { borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginBottom: 14 },
+  orderItemLine: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
+  orderItemLineBorder: { borderTopWidth: 1, borderTopColor: border },
+  orderLineThumb: { width: 56, height: 56, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  orderLineImage: { width: "100%", height: "100%" },
+  orderIssueRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 12 },
+  orderSmallAction: { minHeight: 34, borderRadius: 17, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   orderIdCard: { height: 70, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 20 },
   orderId: { color: "#dc2626", fontSize: 22, fontWeight: "900", marginTop: 4, letterSpacing: 0.4 },
   orderCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
@@ -6775,8 +7793,15 @@ function createStyles(isDark = false) {
   policyBlocked: { color: "#b91c1c", backgroundColor: "#fee2e2" },
   policyCaseRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingTop: 12, marginTop: 12, borderTopWidth: 1, borderTopColor: border },
   policyCaseText: { flex: 1, minWidth: 0 },
+  rateHero: { alignItems: "center", justifyContent: "center", paddingVertical: 12, marginBottom: 12, gap: 8 },
   ratingCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   starPicker: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 18 },
+  rateReviewInput: { minHeight: 116, marginTop: 14 },
+  reviewCounter: { color: muted, fontSize: 11, fontWeight: "800", alignSelf: "flex-end", marginTop: 7 },
+  reviewPhotoRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
+  reviewPhotoBox: { width: 62, height: 62, borderRadius: 14, overflow: "hidden", backgroundColor: surfaceAlt, borderWidth: 1, borderColor: border },
+  reviewPhoto: { width: "100%", height: "100%" },
+  reviewPhotoAdd: { width: 62, height: 62, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: border, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   ratingActionRow: { minHeight: 54, alignItems: "stretch", gap: 12, borderBottomWidth: 1, borderBottomColor: "#edf1f5", paddingVertical: 14 },
   ratingActionText: { flex: 1, minWidth: 0 },
   feedbackTitleRow: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 5 },

@@ -51,8 +51,13 @@ export const uploadTailorAvatar = multer({
 
 export const uploadTailorVerificationMedia = multer({
   storage: multer.memoryStorage(),
-  limits: { files: 4, fileSize: 5 * 1024 * 1024 }
-}).array("media", 4);
+  limits: { files: 8, fileSize: 8 * 1024 * 1024 }
+}).array("media", 8);
+
+export const uploadAdminMedia = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: 100 * 1024 * 1024 }
+}).single("media");
 
 export const uploadDeliveryAvatar = multer({
   storage: multer.memoryStorage(),
@@ -63,6 +68,8 @@ export const uploadDeliveryVerificationMedia = multer({
   storage: multer.memoryStorage(),
   limits: { files: 4, fileSize: 5 * 1024 * 1024 }
 }).array("media", 4);
+
+const tailorVerificationReuploadFields = ["aadhaarFront", "aadhaarBack", "panPhoto", "facePhoto", "shopPhotos"] as const;
 
 const tailorProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
@@ -97,7 +104,8 @@ const tailorVerificationSchema = z.object({
     gstNumber: z.string().trim().max(30).optional().or(z.literal("")),
     employeeCount: z.number().int().min(0).max(500),
     yearsExperience: z.number().int().min(0).max(80),
-    machinery: z.array(z.string().trim().min(2).max(60)).max(20)
+    machinery: z.array(z.string().trim().min(2).max(60)).max(20),
+    shopPhotos: z.array(z.string().url()).min(1).max(3)
   }),
   specializationRows: z
     .array(
@@ -110,17 +118,32 @@ const tailorVerificationSchema = z.object({
     )
     .min(1)
     .max(50),
-  idVerification: z.object({
-    idType: z.enum(["Aadhaar", "PAN"]),
-    idNumber: z.string().trim().min(10).max(20),
-    aadhaarFrontUrl: z.string().url().optional(),
-    aadhaarBackUrl: z.string().url().optional(),
-    panUrl: z.string().url().optional(),
-    facePhotoUrl: z.string().url().optional(),
-    ocrStatus: z.string().trim().max(80).optional(),
-    extractedDetails: z.record(z.string(), z.unknown()).optional(),
-    faceDetectionStatus: z.string().trim().max(80).optional()
-  })
+  idVerification: z
+    .object({
+      idType: z.enum(["Aadhaar", "PAN"]),
+      idNumber: z.string().trim().min(10).max(20),
+      aadhaarFrontUrl: z.string().url().optional(),
+      aadhaarBackUrl: z.string().url().optional(),
+      panUrl: z.string().url().optional(),
+      facePhotoUrl: z.string().url().optional(),
+      ocrStatus: z.string().trim().max(80).optional(),
+      extractedDetails: z.record(z.string(), z.unknown()).optional(),
+      faceDetectionStatus: z.string().trim().max(80).optional()
+    })
+    .superRefine((value, ctx) => {
+      if (value.idType === "Aadhaar" && !value.aadhaarFrontUrl) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Aadhaar front photo is required", path: ["aadhaarFrontUrl"] });
+      }
+      if (value.idType === "Aadhaar" && !value.aadhaarBackUrl) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Aadhaar back photo is required", path: ["aadhaarBackUrl"] });
+      }
+      if (value.idType === "PAN" && !value.panUrl) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "PAN card photo is required", path: ["panUrl"] });
+      }
+      if (!value.facePhotoUrl) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Face verification photo is required", path: ["facePhotoUrl"] });
+      }
+    })
 });
 
 const tailorVerificationDraftSchema = z.object({
@@ -222,6 +245,7 @@ const deliveryVerificationDraftSchema = z.object({
 const verificationReviewSchema = z.object({
   status: z.enum(["VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"]),
   reason: z.string().trim().max(500).optional().or(z.literal("")),
+  reuploadFields: z.array(z.enum(tailorVerificationReuploadFields)).max(tailorVerificationReuploadFields.length).optional(),
   deliveryType: z.enum(deliveryTypes).optional(),
   assignedArea: z.string().trim().min(1).max(100).optional()
 });
@@ -296,6 +320,48 @@ async function uploadTailorImageBuffer(file: Express.Multer.File, folder = "darz
     );
     stream.end(file.buffer);
   });
+}
+
+async function uploadAdminMediaBuffer(file: Express.Multer.File, folder = "darzi/admin-media") {
+  if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
+    throw new AppError(400, "Only image or video uploads are allowed");
+  }
+  return new Promise<UploadApiResponse>((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: "auto",
+        use_filename: false,
+        unique_filename: true
+      },
+      (error, result) => {
+        if (error || !result) {
+          reject(error ?? new Error("Cloudinary upload failed"));
+          return;
+        }
+        resolve(result);
+      }
+    );
+    stream.end(file.buffer);
+  });
+}
+
+function defaultTailorReuploadFields(verification: unknown): Array<(typeof tailorVerificationReuploadFields)[number]> {
+  const idType = String((verification as { idVerification?: { idType?: string } } | undefined)?.idVerification?.idType ?? "Aadhaar");
+  return idType === "PAN" ? ["panPhoto", "facePhoto"] : ["aadhaarFront", "aadhaarBack", "facePhoto"];
+}
+
+function normalizeTailorTutorialMedia(value: unknown) {
+  const media = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const images = Array.isArray(media.images) ? media.images.filter((item): item is string => typeof item === "string" && /^https?:\/\//i.test(item)).slice(0, 12) : [];
+  return {
+    title: typeof media.title === "string" && media.title.trim() ? media.title.trim() : "How Darji Works for Tailors",
+    description: typeof media.description === "string" && media.description.trim() ? media.description.trim() : "Watch the complete tutorial before submitting your verification.",
+    videoUrl: typeof media.videoUrl === "string" ? media.videoUrl : "",
+    thumbnailUrl: typeof media.thumbnailUrl === "string" ? media.thumbnailUrl : "",
+    durationSeconds: Number.isFinite(Number(media.durationSeconds)) ? Math.max(5, Math.min(3600, Number(media.durationSeconds))) : 15,
+    images
+  };
 }
 
 async function withUser<T extends { toJSON: () => Record<string, unknown>; userId: string }>(profile: T) {
@@ -407,17 +473,29 @@ export async function listTailorsController(_req: Request, res: Response) {
 
 export async function reviewTailorVerificationController(req: Request, res: Response) {
   const input = verificationReviewSchema.parse(req.body);
-  const tailor = await TailorModel.findByIdAndUpdate(
-    String(req.params.id),
-    {
-      verificationStatus: input.status,
-      verificationReviewedAt: new Date(),
-      verificationRejectionReason: input.reason || undefined
-    },
-    { returnDocument: "after" }
-  );
-
+  const tailor = await TailorModel.findById(String(req.params.id));
   if (!tailor) throw new AppError(404, "Tailor profile not found");
+
+  const now = new Date();
+  tailor.verificationStatus = input.status;
+  tailor.verificationReviewedAt = now;
+  tailor.verificationRejectionReason = input.reason || undefined;
+
+  if (input.status === "REUPLOAD_REQUIRED") {
+    tailor.verificationReuploadFields = input.reuploadFields?.length ? input.reuploadFields : defaultTailorReuploadFields(tailor.verification);
+    tailor.verificationRejectedUntil = undefined;
+    tailor.verificationLastRejectedAt = undefined;
+  } else if (input.status === "REJECTED") {
+    tailor.verificationReuploadFields = [];
+    tailor.verificationLastRejectedAt = now;
+    tailor.verificationRejectedUntil = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
+  } else {
+    tailor.verificationReuploadFields = [];
+    tailor.verificationRejectedUntil = undefined;
+    tailor.verificationLastRejectedAt = undefined;
+  }
+
+  await tailor.save();
   res.json({ data: await withUser(tailor) });
 }
 
@@ -450,7 +528,14 @@ export async function updateTailorProfileController(req: Request, res: Response)
 export async function submitTailorVerificationController(req: Request, res: Response) {
   const input = tailorVerificationSchema.parse(req.body);
   const specialization = input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
-  const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("darjiTailorId");
+  const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("darjiTailorId verificationStatus verificationRejectedUntil");
+  if (
+    existingTailor?.verificationStatus === "REJECTED" &&
+    existingTailor.verificationRejectedUntil &&
+    existingTailor.verificationRejectedUntil.getTime() > Date.now()
+  ) {
+    throw new AppError(429, `You can apply again after ${existingTailor.verificationRejectedUntil.toISOString()}`);
+  }
 
   const [user, tailor] = await Promise.all([
     UserModel.findByIdAndUpdate(req.user!.id, { name: input.personal.name }, { returnDocument: "after" }),
@@ -464,6 +549,9 @@ export async function submitTailorVerificationController(req: Request, res: Resp
         verificationSubmittedAt: new Date(),
         verificationReviewedAt: undefined,
         verificationRejectionReason: undefined,
+        verificationReuploadFields: [],
+        verificationRejectedUntil: undefined,
+        verificationLastRejectedAt: undefined,
         verification: input,
         verificationDraft: undefined
       },
@@ -503,7 +591,7 @@ export async function uploadTailorVerificationMediaController(req: Request, res:
   assertCloudinaryConfigured();
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) throw new AppError(400, "Attach at least one verification photo");
-  if (files.length > 4) throw new AppError(400, "Upload up to 4 verification photos");
+  if (files.length > 8) throw new AppError(400, "Upload up to 8 verification photos");
 
   const uploaded = await Promise.all(
     files.map(async (file) => {
@@ -519,6 +607,28 @@ export async function uploadTailorVerificationMediaController(req: Request, res:
   );
 
   res.status(201).json({ data: uploaded });
+}
+
+export async function uploadAdminMediaController(req: Request, res: Response) {
+  assertCloudinaryConfigured();
+  const file = req.file;
+  if (!file) throw new AppError(400, "Attach an image or video");
+  const result = await uploadAdminMediaBuffer(file);
+  res.status(201).json({
+    data: {
+      url: result.secure_url,
+      publicId: result.public_id,
+      resourceType: result.resource_type,
+      bytes: result.bytes,
+      format: result.format,
+      originalName: file.originalname
+    }
+  });
+}
+
+export async function getTailorTutorialMediaController(_req: Request, res: Response) {
+  const setting = await SettingModel.findOne({ key: "tailor_tutorial_media" });
+  res.json({ data: normalizeTailorTutorialMedia(setting?.value) });
 }
 
 export async function listDeliveryPartnersController(_req: Request, res: Response) {

@@ -85,6 +85,9 @@ export type TailorProfile = {
   verificationSubmittedAt?: string;
   verificationReviewedAt?: string;
   verificationRejectionReason?: string;
+  verificationReuploadFields?: string[];
+  verificationRejectedUntil?: string;
+  verificationLastRejectedAt?: string;
   verification?: Record<string, unknown>;
   verificationDraft?: Record<string, unknown>;
   earnings?: number;

@@ -199,6 +199,9 @@ const tailorSchema = new Schema(
     verificationSubmittedAt: Date,
     verificationReviewedAt: Date,
     verificationRejectionReason: String,
+    verificationReuploadFields: [String],
+    verificationRejectedUntil: Date,
+    verificationLastRejectedAt: Date,
     verification: { type: Schema.Types.Mixed },
     verificationDraft: { type: Schema.Types.Mixed },
     earnings: { type: Number, default: 0 }
