@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 async function wipeOrders() {
-  try {
+  try { 
     console.log("Connecting to MongoDB...");
     const uri = process.env.MONGODB_URI;
     if (!uri) {
