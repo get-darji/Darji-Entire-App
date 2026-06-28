@@ -7,7 +7,39 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/
 import { AppError } from "../middleware/error.js";
 import { env } from "../env.js";
 
-const deliveryVerificationBypassPhones = new Set(["9999966666"]);
+async function resetAutoVerifiedDeliveryProfile(userId: string, phone?: string) {
+  const profile = await DeliveryPartnerModel.findOne({ userId });
+  if (
+    profile?.verificationStatus === "VERIFIED" &&
+    !profile.verificationReviewedAt &&
+    !profile.verificationSubmittedAt &&
+    !profile.verification
+  ) {
+    return DeliveryPartnerModel.findByIdAndUpdate(
+      profile.id,
+      { verificationStatus: "NOT_SUBMITTED", isAvailable: false },
+      { returnDocument: "after" }
+    );
+  }
+  return profile;
+}
+
+async function resetAutoVerifiedTailorProfile(userId: string) {
+  const profile = await TailorModel.findOne({ userId });
+  if (
+    profile?.verificationStatus === "VERIFIED" &&
+    !profile.verificationReviewedAt &&
+    !profile.verificationSubmittedAt &&
+    !profile.verification
+  ) {
+    return TailorModel.findByIdAndUpdate(
+      profile.id,
+      { verificationStatus: "NOT_SUBMITTED", isAvailable: false },
+      { returnDocument: "after" }
+    );
+  }
+  return profile;
+}
 
 function parsePhoneAllowlist(value: string) {
   return new Set(
@@ -119,22 +151,15 @@ export async function verifyOtpController(req: Request, res: Response) {
       { $setOnInsert: { userId: user.id, shopName: user.name ? `${user.name}'s Studio` : "Darji Tailor", specialization: ["Alteration", "Stitching"] } },
       { upsert: true }
     );
+    await resetAutoVerifiedTailorProfile(user.id);
   }
   if (input.role === "DELIVERY_PARTNER") {
     await DeliveryPartnerModel.updateOne(
       { userId: user.id },
-      deliveryVerificationBypassPhones.has(input.phone)
-        ? {
-            $setOnInsert: { userId: user.id },
-            $set: {
-              verificationStatus: "VERIFIED",
-              verificationReviewedAt: new Date(),
-              verificationRejectionReason: undefined
-            }
-          }
-        : { $setOnInsert: { userId: user.id } },
+      { $setOnInsert: { userId: user.id, verificationStatus: "NOT_SUBMITTED", isAvailable: false } },
       { upsert: true }
     );
+    await resetAutoVerifiedDeliveryProfile(user.id, input.phone);
   }
 
   const accessToken = signAccessToken({ sub: user.id, role: user.role });
@@ -167,11 +192,13 @@ export async function refreshController(req: Request, res: Response) {
 }
 
 export async function meController(req: Request, res: Response) {
-  const [user, wallet, tailorProfile, deliveryProfile] = await Promise.all([
+  const [user, wallet] = await Promise.all([
     UserModel.findById(req.user!.id),
-    WalletModel.findOne({ userId: req.user!.id }),
-    TailorModel.findOne({ userId: req.user!.id }),
-    DeliveryPartnerModel.findOne({ userId: req.user!.id })
+    WalletModel.findOne({ userId: req.user!.id })
+  ]);
+  const [tailorProfile, deliveryProfile] = await Promise.all([
+    resetAutoVerifiedTailorProfile(req.user!.id),
+    resetAutoVerifiedDeliveryProfile(req.user!.id, user?.phone)
   ]);
 
   let hydratedTailorProfile: Record<string, unknown> | undefined = tailorProfile?.toJSON();

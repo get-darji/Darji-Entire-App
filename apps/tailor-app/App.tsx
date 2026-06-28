@@ -1631,11 +1631,11 @@ function PickSuggestions({ options, value, onChange }: { options: string[]; valu
   );
 }
 
-function VerificationDocBox({ label, media, onPick }: { label: string; media?: VerificationMediaDraft; onPick: () => void }) {
+function VerificationDocBox({ label, media, onPick, disabled = false }: { label: string; media?: VerificationMediaDraft; onPick: () => void; disabled?: boolean }) {
   return (
-    <Pressable style={styles.verificationDocBox} onPress={onPick}>
-      {media ? <Image source={{ uri: media.uri }} style={styles.verificationDocImage} /> : <Ionicons name="cloud-upload-outline" size={24} color={BRAND_ORANGE} />}
-      <Text style={styles.verificationDocText}>{media ? label : `Upload ${label}`}</Text>
+    <Pressable style={[styles.verificationDocBox, disabled && styles.inputReadOnly]} onPress={onPick} disabled={disabled}>
+      {media ? <Image source={{ uri: media.uri }} style={styles.verificationDocImage} /> : <Ionicons name="cloud-upload-outline" size={24} color={disabled ? "#9aa6b8" : BRAND_ORANGE} />}
+      <Text style={styles.verificationDocText}>{media ? label : disabled ? label : `Upload ${label}`}</Text>
     </Pressable>
   );
 }
@@ -1654,6 +1654,7 @@ function TailorVerificationFlow({
   onSessionExpired: () => void;
 }) {
   const status = me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
+  const isLocked = status === "PENDING" || status === "VERIFIED";
   const { signOut } = useAppStore();
   const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? VERIFICATION_STATUS_STEP : 1);
   const [saving, setSaving] = useState(false);
@@ -2285,19 +2286,25 @@ function TailorVerificationFlow({
         <View style={styles.verificationProgressTrack}>
           <View style={[styles.verificationProgressFill, { width: `${(Math.min(step, VERIFICATION_TOTAL_STEPS) / VERIFICATION_TOTAL_STEPS) * 100}%` }]} />
         </View>
+        {isLocked ? (
+          <View style={styles.lockedNoticeBanner}>
+            <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
+            <Text style={styles.lockedNoticeText}>Submitted – awaiting admin review. Details are read-only.</Text>
+          </View>
+        ) : null}
 
         {step === 1 ? (
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>PERSONAL DETAILS</Text>
             <Text style={styles.verificationNotice}>Name and DOB should match Aadhaar or PAN.</Text>
             <Text style={styles.formLabel}>Name</Text>
-            <TextInput style={styles.input} value={personal.name} onChangeText={(name) => setPersonal((current) => ({ ...current, name }))} placeholder="Full name" placeholderTextColor="#9aa6b8" />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.name} onChangeText={(name) => !isLocked && setPersonal((current) => ({ ...current, name }))} placeholder="Full name" placeholderTextColor="#9aa6b8" editable={!isLocked} />
             <Text style={styles.formLabel}>Date of Birth</Text>
-            <Pressable style={styles.inputButton} onPress={() => setShowDobPicker(true)}>
+            <Pressable style={[styles.inputButton, isLocked && styles.inputReadOnly]} onPress={() => !isLocked && setShowDobPicker(true)}>
               <Text style={[styles.inputButtonText, !personal.dob && styles.placeholderText]}>{personal.dob || "Select date of birth"}</Text>
-              <Ionicons name="calendar-outline" size={18} color={BRAND_ORANGE} />
+              <Ionicons name="calendar-outline" size={18} color={isLocked ? "#9aa6b8" : BRAND_ORANGE} />
             </Pressable>
-            {showDobPicker ? (
+            {showDobPicker && !isLocked ? (
               <DateTimePicker
                 value={personal.dob ? new Date(personal.dob) : new Date(1995, 0, 1)}
                 mode="date"
@@ -2310,44 +2317,48 @@ function TailorVerificationFlow({
               />
             ) : null}
             <Text style={styles.formLabel}>Email (optional)</Text>
-            <TextInput style={styles.input} value={personal.email} onChangeText={(email) => setPersonal((current) => ({ ...current, email }))} placeholder="name@example.com" placeholderTextColor="#9aa6b8" keyboardType="email-address" />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.email} onChangeText={(email) => !isLocked && setPersonal((current) => ({ ...current, email }))} placeholder="name@example.com" placeholderTextColor="#9aa6b8" keyboardType="email-address" editable={!isLocked} />
             <Text style={styles.formLabel}>Address</Text>
-            <TextInput multiline style={styles.textArea} value={personal.address} onChangeText={(address) => setPersonal((current) => ({ ...current, address }))} placeholder="Home address" placeholderTextColor="#9aa6b8" />
-            <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("personal")} disabled={locating}>
-              {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
-              <Text style={styles.secondaryButtonText}>Fetch Current Location</Text>
-            </Pressable>
+            <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={personal.address} onChangeText={(address) => !isLocked && setPersonal((current) => ({ ...current, address }))} placeholder="Home address" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            {!isLocked ? (
+              <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("personal")} disabled={locating}>
+                {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
+                <Text style={styles.secondaryButtonText}>Fetch Current Location</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
         {step === 2 ? (
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>SHOP DETAILS</Text>
-            <Pressable style={styles.toggleChoiceRow} onPress={() => setShop((current) => ({ ...current, workFromHome: !current.workFromHome, shopName: !current.workFromHome && !current.shopName ? "Home" : current.shopName }))}>
-              <Ionicons name={shop.workFromHome ? "checkbox" : "square-outline"} size={21} color={BRAND_ORANGE} />
+            <Pressable style={styles.toggleChoiceRow} onPress={() => !isLocked && setShop((current) => ({ ...current, workFromHome: !current.workFromHome, shopName: !current.workFromHome && !current.shopName ? "Home" : current.shopName }))} disabled={isLocked}>
+              <Ionicons name={shop.workFromHome ? "checkbox" : "square-outline"} size={21} color={isLocked ? "#9aa6b8" : BRAND_ORANGE} />
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>I work from home</Text>
                 <Text style={styles.cardMeta}>Use this if you do not have a separate shop.</Text>
               </View>
             </Pressable>
             <Text style={styles.formLabel}>{shop.workFromHome ? "Home Workshop Name" : "Shop Name"}</Text>
-            <TextInput style={styles.input} value={shop.shopName} onChangeText={(shopName) => setShop((current) => ({ ...current, shopName }))} placeholder={shop.workFromHome ? "Home" : "Shop or studio name"} placeholderTextColor="#9aa6b8" />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.shopName} onChangeText={(shopName) => !isLocked && setShop((current) => ({ ...current, shopName }))} placeholder={shop.workFromHome ? "Home" : "Shop or studio name"} placeholderTextColor="#9aa6b8" editable={!isLocked} />
             <Text style={styles.formLabel}>{shop.workFromHome ? "Home Address" : "Shop/Home Address"}</Text>
-            <TextInput multiline style={styles.textArea} value={shop.shopAddress} onChangeText={(shopAddress) => setShop((current) => ({ ...current, shopAddress }))} placeholder="Home address if no shop" placeholderTextColor="#9aa6b8" />
-            <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("shop")} disabled={locating}>
-              {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
-              <Text style={styles.secondaryButtonText}>Use Current Location</Text>
-            </Pressable>
+            <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={shop.shopAddress} onChangeText={(shopAddress) => !isLocked && setShop((current) => ({ ...current, shopAddress }))} placeholder="Home address if no shop" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            {!isLocked ? (
+              <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("shop")} disabled={locating}>
+                {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
+                <Text style={styles.secondaryButtonText}>Use Current Location</Text>
+              </Pressable>
+            ) : null}
             <Text style={styles.formLabel}>GST No. (optional)</Text>
-            <TextInput style={styles.input} value={shop.gstNumber} onChangeText={(gstNumber) => setShop((current) => ({ ...current, gstNumber }))} placeholder="GSTIN" placeholderTextColor="#9aa6b8" />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.gstNumber} onChangeText={(gstNumber) => !isLocked && setShop((current) => ({ ...current, gstNumber }))} placeholder="GSTIN" placeholderTextColor="#9aa6b8" editable={!isLocked} />
             <View style={styles.twoFieldRow}>
               <View style={styles.twoFieldItem}>
                 <Text style={styles.formLabel}>No. of Employees</Text>
-                <TextInput style={styles.input} value={shop.employeeCount} onChangeText={(employeeCount) => setShop((current) => ({ ...current, employeeCount }))} keyboardType="number-pad" placeholder="1" placeholderTextColor="#9aa6b8" />
+                <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.employeeCount} onChangeText={(employeeCount) => !isLocked && setShop((current) => ({ ...current, employeeCount }))} keyboardType="number-pad" placeholder="1" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               </View>
               <View style={styles.twoFieldItem}>
                 <Text style={styles.formLabel}>Years Experience</Text>
-                <TextInput style={styles.input} value={shop.yearsExperience} onChangeText={(yearsExperience) => setShop((current) => ({ ...current, yearsExperience }))} keyboardType="number-pad" placeholder="5" placeholderTextColor="#9aa6b8" />
+                <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.yearsExperience} onChangeText={(yearsExperience) => !isLocked && setShop((current) => ({ ...current, yearsExperience }))} keyboardType="number-pad" placeholder="5" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               </View>
             </View>
             <Text style={styles.formLabel}>Machinery</Text>
@@ -2355,7 +2366,7 @@ function TailorVerificationFlow({
               {machineryOptions.map((item) => {
                 const selected = shop.machinery.includes(item);
                 return (
-                  <Pressable key={item} style={[styles.suggestionChip, selected && styles.suggestionChipActive]} onPress={() => setShop((current) => ({ ...current, machinery: selected ? current.machinery.filter((value) => value !== item) : [...current.machinery, item] }))}>
+                  <Pressable key={item} style={[styles.suggestionChip, selected && styles.suggestionChipActive, isLocked && styles.inputReadOnly]} onPress={() => !isLocked && setShop((current) => ({ ...current, machinery: selected ? current.machinery.filter((value) => value !== item) : [...current.machinery, item] }))} disabled={isLocked}>
                     <Text style={[styles.suggestionChipText, selected && styles.suggestionChipTextActive]}>{item}</Text>
                   </Pressable>
                 );
@@ -2369,12 +2380,14 @@ function TailorVerificationFlow({
               {shop.shopPhotos.map((photo, index) => (
                 <View key={`${photo.uri}-${index}`} style={styles.shopPhotoTile}>
                   <Image source={{ uri: photo.uri }} style={styles.shopPhotoImage} />
-                  <Pressable style={styles.shopPhotoRemove} onPress={() => removeShopPhoto(index)}>
-                    <Ionicons name="close" size={14} color="#ffffff" />
-                  </Pressable>
+                  {!isLocked ? (
+                    <Pressable style={styles.shopPhotoRemove} onPress={() => removeShopPhoto(index)}>
+                      <Ionicons name="close" size={14} color="#ffffff" />
+                    </Pressable>
+                  ) : null}
                 </View>
               ))}
-              {shop.shopPhotos.length < 3 ? (
+              {!isLocked && shop.shopPhotos.length < 3 ? (
                 <Pressable style={styles.shopPhotoUpload} onPress={pickShopPhoto}>
                   <Ionicons name="camera-outline" size={22} color={BRAND_ORANGE} />
                   <Text style={styles.verificationDocText}>Upload Photo</Text>
@@ -2393,11 +2406,13 @@ function TailorVerificationFlow({
               {(["Aadhaar", "PAN", "License"] as const).map((item) => (
                 <Pressable
                   key={item}
-                  style={[styles.genderChip, idType === item && styles.genderChipActive]}
+                  style={[styles.genderChip, idType === item && styles.genderChipActive, isLocked && styles.inputReadOnly]}
                   onPress={() => {
+                    if (isLocked) return;
                     setIdType(item);
                     setIdNumber((current) => normalizeTailorIdNumber(item, current));
                   }}
+                  disabled={isLocked}
                 >
                   <Text style={[styles.genderChipText, idType === item && styles.genderChipTextActive]}>{item}</Text>
                 </Pressable>
@@ -2405,20 +2420,21 @@ function TailorVerificationFlow({
             </View>
             <Text style={styles.formLabel}>{tailorIdNumberLabel(idType)}</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, isLocked && styles.inputReadOnly]}
               value={idNumber}
-              onChangeText={(value) => setIdNumber(normalizeTailorIdNumber(idType, value))}
+              onChangeText={(value) => !isLocked && setIdNumber(normalizeTailorIdNumber(idType, value))}
               placeholder={tailorIdPlaceholder(idType)}
               placeholderTextColor="#9aa6b8"
               keyboardType={idType === "Aadhaar" ? "number-pad" : "default"}
+              editable={!isLocked}
             />
             {idType === "Aadhaar" ? (
               <View style={styles.docGrid}>
-                <VerificationDocBox label="Aadhaar Front" media={aadhaarFront} onPick={() => pickDoc(setAadhaarFront, false, "ocr")} />
-                <VerificationDocBox label="Aadhaar Back" media={aadhaarBack} onPick={() => pickDoc(setAadhaarBack, false, "ocr")} />
+                <VerificationDocBox label="Aadhaar Front" media={aadhaarFront} onPick={() => !isLocked && pickDoc(setAadhaarFront, false, "ocr")} disabled={isLocked} />
+                <VerificationDocBox label="Aadhaar Back" media={aadhaarBack} onPick={() => !isLocked && pickDoc(setAadhaarBack, false, "ocr")} disabled={isLocked} />
               </View>
             ) : (
-              <VerificationDocBox label={idType === "PAN" ? "PAN Card" : "Driving Licence"} media={panPhoto} onPick={() => pickDoc(setPanPhoto, false, "ocr")} />
+              <VerificationDocBox label={idType === "PAN" ? "PAN Card" : "Driving Licence"} media={panPhoto} onPick={() => !isLocked && pickDoc(setPanPhoto, false, "ocr")} disabled={isLocked} />
             )}
             <View style={styles.faceVerificationPanel}>
               <View style={[styles.faceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" || faceLiveness === "captured" ? styles.faceCircleReady : styles.faceCircleWaiting]}>
@@ -2522,15 +2538,15 @@ function TailorVerificationFlow({
               <Text style={styles.secondaryButtonText}>Back</Text>
             </Pressable>
           ) : null}
-          {step < VERIFICATION_FORM_STEPS ? (
+          {!isLocked && step < VERIFICATION_FORM_STEPS ? (
             <Pressable style={[styles.primaryButton, !validateCurrentStep() && styles.disabledButton]} onPress={continueToNextStep}>
               <Text style={styles.primaryButtonText}>Continue</Text>
             </Pressable>
-          ) : (
+          ) : !isLocked && step >= VERIFICATION_FORM_STEPS ? (
             <Pressable style={[styles.primaryButton, (saving || !validateCurrentStep()) && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
               {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Final Submit</Text>}
             </Pressable>
-          )}
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -3408,6 +3424,9 @@ const styles = StyleSheet.create({
   phoneDivider: { width: 1, height: 26, backgroundColor: BORDER, marginHorizontal: 14 },
   phoneInput: { flex: 1, color: BRAND_DEEP, fontSize: 15 },
   input: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, color: BRAND_DEEP, paddingHorizontal: 15, fontSize: 15 },
+  inputReadOnly: { backgroundColor: "#f1f5f9", opacity: 0.75 },
+  lockedNoticeBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fef3c7", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8, borderWidth: 1, borderColor: "#fcd34d" },
+  lockedNoticeText: { color: "#92400e", fontSize: 12, fontWeight: "900" as const, flex: 1 },
   inputButton: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   inputButtonText: { flex: 1, color: BRAND_DEEP, fontSize: 15, fontWeight: "800" },
   placeholderText: { color: "#9aa6b8", fontWeight: "700" },

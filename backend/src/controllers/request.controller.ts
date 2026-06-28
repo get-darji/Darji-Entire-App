@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -554,13 +554,23 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
   const ownQuote = tailor ? await TailorQuoteModel.findOne({ requestId: String(request.id ?? request._id), tailorId: tailor.id }) : null;
   const selectedQuoteDoc = await findSelectedQuote(String(request.id ?? request._id), typeof request.selectedQuoteId === "string" ? request.selectedQuoteId : undefined);
   const quoteCount = await TailorQuoteModel.countDocuments({ requestId: String(request.id ?? request._id) });
+  const reviews = await ReviewModel.find({ orderId: String(request.id ?? request._id) }).sort({ createdAt: -1 });
+  const reviewByKind = new Map(reviews.map((review) => [String(review.kind), review]));
+  const tailorReview = reviewByKind.get("tailor");
+  const deliveryReview = reviewByKind.get("delivery");
 
   return {
     ...request,
     customer: customer?.toJSON(),
     ownQuote: ownQuote?.toJSON() ?? null,
     selectedQuote: selectedQuoteDoc ? await hydrateTailorQuote(selectedQuoteDoc) : null,
-    quoteCount
+    quoteCount,
+    tailorRating: tailorReview?.rating,
+    tailorReview: tailorReview?.comment,
+    tailorRatingSubmittedAt: tailorReview?.createdAt,
+    deliveryRating: deliveryReview?.rating,
+    deliveryReview: deliveryReview?.comment,
+    deliveryRatingSubmittedAt: deliveryReview?.createdAt
   };
 }
 

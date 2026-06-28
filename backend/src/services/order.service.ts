@@ -7,6 +7,7 @@ import {
   DeliveryPartnerModel,
   OrderModel,
   PaymentModel,
+  ReviewModel,
   ServiceCategoryModel,
   ServiceModel,
   TailorModel,
@@ -94,14 +95,19 @@ export async function hydrateOrder(orderInput: unknown) {
   if (!order) return null;
 
   const orderId = String(order.id ?? order._id);
-  const [address, customer, tailor, pickupPartner, deliveryPartner, payments] = await Promise.all([
+  const [address, customer, tailor, pickupPartner, deliveryPartner, payments, reviews] = await Promise.all([
     AddressModel.findById(order.addressId),
     UserModel.findById(order.customerId).select("name phone role"),
     partnerWithUser(TailorModel, order.tailorId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.pickupPartnerId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.deliveryPartnerId as string | undefined),
-    PaymentModel.find({ orderId }).sort({ createdAt: -1 })
+    PaymentModel.find({ orderId }).sort({ createdAt: -1 }),
+    ReviewModel.find({ orderId }).sort({ createdAt: -1 })
   ]);
+
+  const reviewByKind = new Map(reviews.map((review) => [String(review.kind), review]));
+  const tailorReview = reviewByKind.get("tailor");
+  const deliveryReview = reviewByKind.get("delivery");
 
   const items = await Promise.all(
     ((order.items as Array<Record<string, unknown>> | undefined) ?? []).map(async (item) => {
@@ -123,7 +129,13 @@ export async function hydrateOrder(orderInput: unknown) {
     pickupPartner,
     deliveryPartner,
     items,
-    payments: payments.map((payment) => json(payment))
+    payments: payments.map((payment) => json(payment)),
+    tailorRating: tailorReview?.rating,
+    tailorReview: tailorReview?.comment,
+    tailorRatingSubmittedAt: tailorReview?.createdAt,
+    deliveryRating: deliveryReview?.rating,
+    deliveryReview: deliveryReview?.comment,
+    deliveryRatingSubmittedAt: deliveryReview?.createdAt
   };
 }
 

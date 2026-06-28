@@ -524,7 +524,8 @@ function Field({
   onChange,
   placeholder,
   keyboardType = "default",
-  multiline = false
+  multiline = false,
+  readOnly = false
 }: {
   label: string;
   value?: string;
@@ -532,12 +533,13 @@ function Field({
   placeholder?: string;
   keyboardType?: "default" | "email-address" | "number-pad" | "phone-pad";
   multiline?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.formLabel}>{label}</Text>
       <TextInput
-        style={[styles.input, multiline && styles.textArea]}
+        style={[styles.input, multiline && styles.textArea, readOnly && styles.inputReadOnly]}
         keyboardType={keyboardType}
         multiline={multiline}
         onChangeText={onChange}
@@ -545,6 +547,7 @@ function Field({
         placeholderTextColor="#9aa6b8"
         textAlignVertical={multiline ? "top" : "center"}
         value={value}
+        editable={!readOnly}
       />
     </View>
   );
@@ -555,24 +558,26 @@ function DateField({
   value,
   onChange,
   maximumDate,
-  minimumDate
+  minimumDate,
+  disabled = false
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   maximumDate?: Date;
   minimumDate?: Date;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const fallback = maximumDate ? new Date(1995, 0, 1) : new Date();
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.formLabel}>{label}</Text>
-      <Pressable style={styles.inputButton} onPress={() => setOpen(true)}>
+      <Pressable style={[styles.inputButton, disabled && styles.inputReadOnly]} onPress={() => !disabled && setOpen(true)}>
         <Text style={[styles.inputButtonText, !value && styles.placeholderText]}>{value || "Select date"}</Text>
-        <Ionicons name="calendar-outline" size={18} color={BRAND_ORANGE} />
+        <Ionicons name="calendar-outline" size={18} color={disabled ? "#9aa6b8" : BRAND_ORANGE} />
       </Pressable>
-      {open ? (
+      {open && !disabled ? (
         <DateTimePicker
           value={value ? new Date(value) : fallback}
           mode="date"
@@ -585,7 +590,7 @@ function DateField({
           }}
         />
       ) : null}
-      {open && Platform.OS === "ios" ? (
+      {open && !disabled && Platform.OS === "ios" ? (
         <Pressable style={styles.dateDoneButton} onPress={() => setOpen(false)}>
           <Text style={styles.linkText}>Done</Text>
         </Pressable>
@@ -594,11 +599,11 @@ function DateField({
   );
 }
 
-function ChoiceGroup({ options, value, onChange }: { options: string[]; value: string; onChange: (value: string) => void }) {
+function ChoiceGroup({ options, value, onChange, disabled = false }: { options: string[]; value: string; onChange: (value: string) => void; disabled?: boolean }) {
   return (
     <View style={styles.choiceRow}>
       {options.map((option) => (
-        <Pressable style={[styles.choiceChip, value === option && styles.choiceChipActive]} key={option} onPress={() => onChange(option)}>
+        <Pressable style={[styles.choiceChip, value === option && styles.choiceChipActive, disabled && styles.choiceChipDisabled]} key={option} onPress={() => !disabled && onChange(option)} disabled={disabled}>
           <Text style={[styles.choiceText, value === option && styles.choiceTextActive]}>{option}</Text>
         </Pressable>
       ))}
@@ -777,6 +782,8 @@ function OnboardingScreen({
   onSessionExpired: () => void;
   showDialog: (dialog: DialogState) => void;
 }) {
+  const verificationStatus = me?.deliveryProfile?.verificationStatus;
+  const isLocked = verificationStatus === "PENDING" || verificationStatus === "VERIFIED";
   const profile = me?.deliveryProfile;
   const rejectionReason = profile?.verificationRejectionReason;
   const initialData = useMemo(() => onboardingFromProfile(profile), [profile]);
@@ -1076,31 +1083,37 @@ function OnboardingScreen({
     <Screen>
       <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
         <Header title={step.title} subtitle={`${step.subtitle} - ${progress}`} />
-        {profile?.verificationStatus === "REJECTED" || profile?.verificationStatus === "REUPLOAD_REQUIRED" ? (
+        {isLocked ? (
+          <View style={styles.lockedBanner}>
+            <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
+            <Text style={styles.lockedBannerText}>Submitted – awaiting admin review. Details are read-only.</Text>
+          </View>
+        ) : null}
+        {!isLocked && (profile?.verificationStatus === "REJECTED" || profile?.verificationStatus === "REUPLOAD_REQUIRED") ? (
           <Text style={styles.noticeText}>
             Document reupload required. {rejectionReason ?? "Darji admin requested clearer documents. Please review your details and submit again."}
           </Text>
         ) : null}
-        {currentStepError && step.key !== "review" ? <Text style={styles.helperWarning}>Complete this step to continue.</Text> : null}
+        {!isLocked && currentStepError && step.key !== "review" ? <Text style={styles.helperWarning}>Complete this step to continue.</Text> : null}
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${((stepIndex + 1) / onboardingSteps.length) * 100}%` }]} />
         </View>
 
         {step.key === "personal" ? (
           <Card>
-            <Field label="Full name" onChange={(value) => update("fullName", value)} value={data.fullName} />
-            <DateField label="Date of birth" maximumDate={new Date()} onChange={(value) => update("dob", value)} value={data.dob} />
+            <Field label="Full name" onChange={(value) => update("fullName", value)} value={data.fullName} readOnly={isLocked} />
+            <DateField label="Date of birth" maximumDate={new Date()} onChange={(value) => update("dob", value)} value={data.dob} disabled={isLocked} />
             <Text style={styles.formLabel}>Gender</Text>
-            <ChoiceGroup onChange={(value) => update("gender", value)} options={["Male", "Female", "Other"]} value={data.gender} />
-            <Field label="Email" keyboardType="email-address" onChange={(value) => update("email", value)} value={data.email} />
-            <Field label="Emergency contact" keyboardType="phone-pad" onChange={(value) => update("emergencyContact", value.replace(/\D/g, "").slice(0, 10))} value={data.emergencyContact} />
-            <Field label="Address" multiline onChange={(value) => update("address", value)} value={data.address} />
-            <PrimaryButton icon="location-outline" label="Use Current Location" loading={locatingAddress} disabled={locatingAddress} onPress={() => void fillCurrentLocation()} variant="secondary" />
+            <ChoiceGroup onChange={(value) => update("gender", value)} options={["Male", "Female", "Other"]} value={data.gender} disabled={isLocked} />
+            <Field label="Email" keyboardType="email-address" onChange={(value) => update("email", value)} value={data.email} readOnly={isLocked} />
+            <Field label="Emergency contact" keyboardType="phone-pad" onChange={(value) => update("emergencyContact", value.replace(/\D/g, "").slice(0, 10))} value={data.emergencyContact} readOnly={isLocked} />
+            <Field label="Address" multiline onChange={(value) => update("address", value)} value={data.address} readOnly={isLocked} />
+            {!isLocked ? <PrimaryButton icon="location-outline" label="Use Current Location" loading={locatingAddress} disabled={locatingAddress} onPress={() => void fillCurrentLocation()} variant="secondary" /> : null}
             <View style={styles.twoCol}>
-              <View style={styles.flexOne}><Field label="City" onChange={(value) => update("city", value)} value={data.city} /></View>
-              <View style={styles.flexOne}><Field label="State" onChange={(value) => update("state", value)} value={data.state} /></View>
+              <View style={styles.flexOne}><Field label="City" onChange={(value) => update("city", value)} value={data.city} readOnly={isLocked} /></View>
+              <View style={styles.flexOne}><Field label="State" onChange={(value) => update("state", value)} value={data.state} readOnly={isLocked} /></View>
             </View>
-            <Field label="Pincode" keyboardType="number-pad" onChange={(value) => update("pincode", value.replace(/\D/g, "").slice(0, 6))} value={data.pincode} />
+            <Field label="Pincode" keyboardType="number-pad" onChange={(value) => update("pincode", value.replace(/\D/g, "").slice(0, 6))} value={data.pincode} readOnly={isLocked} />
           </Card>
         ) : null}
 
@@ -1111,20 +1124,21 @@ function OnboardingScreen({
               onChange={(value) => setData((current) => ({ ...current, identityType: value as IdentityType, identityFront: undefined, identityBack: undefined, ocrStatus: "Waiting for document" }))}
               options={["Aadhaar", "PAN"]}
               value={data.identityType}
+              disabled={isLocked}
             />
             {data.identityType === "Aadhaar" ? (
               <>
-                <DocumentBox label="Aadhaar front" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "camera", "identity")} onGallery={() => void pickMedia("identityFront", "gallery", "identity")} />
-                <DocumentBox label="Aadhaar back" media={data.identityBack} loading={uploadingMediaKey === "identityBack"} onCamera={() => void pickMedia("identityBack", "camera", "identity")} onGallery={() => void pickMedia("identityBack", "gallery", "identity")} />
-                <Field label="Aadhaar number" keyboardType="number-pad" onChange={(value) => update("aadhaarNumber", value.replace(/\D/g, "").slice(0, 12))} value={data.aadhaarNumber} />
+                <DocumentBox label="Aadhaar front" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "camera", "identity")} onGallery={() => void pickMedia("identityFront", "gallery", "identity")} disabled={isLocked} />
+                <DocumentBox label="Aadhaar back" media={data.identityBack} loading={uploadingMediaKey === "identityBack"} onCamera={() => void pickMedia("identityBack", "camera", "identity")} onGallery={() => void pickMedia("identityBack", "gallery", "identity")} disabled={isLocked} />
+                <Field label="Aadhaar number" keyboardType="number-pad" onChange={(value) => update("aadhaarNumber", value.replace(/\D/g, "").slice(0, 12))} value={data.aadhaarNumber} readOnly={isLocked} />
               </>
             ) : (
               <>
-                <DocumentBox label="PAN card" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "camera", "identity")} onGallery={() => void pickMedia("identityFront", "gallery", "identity")} />
-                <Field label="PAN number" onChange={(value) => update("panNumber", value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))} value={data.panNumber} />
+                <DocumentBox label="PAN card" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "camera", "identity")} onGallery={() => void pickMedia("identityFront", "gallery", "identity")} disabled={isLocked} />
+                <Field label="PAN number" onChange={(value) => update("panNumber", value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))} value={data.panNumber} readOnly={isLocked} />
               </>
             )}
-            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => void pickMedia("facePhoto", "camera", "face")} onGallery={() => void pickMedia("facePhoto", "gallery", "face")} />
+            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => void pickMedia("facePhoto", "camera", "face")} onGallery={() => void pickMedia("facePhoto", "gallery", "face")} disabled={isLocked} />
             <View style={styles.mlKitPanel}>
               {scanning ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="scan-outline" size={18} color={BRAND_ORANGE} />}
               <View style={styles.flexOne}>
@@ -1137,43 +1151,43 @@ function OnboardingScreen({
 
         {step.key === "license" ? (
           <Card>
-            <DocumentBox label="License front" media={data.licenseFront} loading={uploadingMediaKey === "licenseFront"} onCamera={() => void pickMedia("licenseFront", "camera", "license")} onGallery={() => void pickMedia("licenseFront", "gallery", "license")} />
-            <DocumentBox label="License back" media={data.licenseBack} loading={uploadingMediaKey === "licenseBack"} onCamera={() => void pickMedia("licenseBack", "camera", "license")} onGallery={() => void pickMedia("licenseBack", "gallery", "license")} />
-            <Field label="License number" onChange={(value) => update("licenseNumber", value.toUpperCase())} value={data.licenseNumber} />
-            <DateField label="Expiry date" minimumDate={new Date()} onChange={(value) => update("licenseExpiry", value)} value={data.licenseExpiry} />
+            <DocumentBox label="License front" media={data.licenseFront} loading={uploadingMediaKey === "licenseFront"} onCamera={() => void pickMedia("licenseFront", "camera", "license")} onGallery={() => void pickMedia("licenseFront", "gallery", "license")} disabled={isLocked} />
+            <DocumentBox label="License back" media={data.licenseBack} loading={uploadingMediaKey === "licenseBack"} onCamera={() => void pickMedia("licenseBack", "camera", "license")} onGallery={() => void pickMedia("licenseBack", "gallery", "license")} disabled={isLocked} />
+            <Field label="License number" onChange={(value) => update("licenseNumber", value.toUpperCase())} value={data.licenseNumber} readOnly={isLocked} />
+            <DateField label="Expiry date" minimumDate={new Date()} onChange={(value) => update("licenseExpiry", value)} value={data.licenseExpiry} disabled={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "vehicle" ? (
           <Card>
             <Text style={styles.formLabel}>Vehicle type</Text>
-            <ChoiceGroup onChange={(value) => update("vehicleType", value)} options={["Bicycle", "Scooter", "Motorcycle", "Car"]} value={data.vehicleType} />
-            <Field label="Vehicle number" onChange={(value) => update("vehicleNumber", value.toUpperCase())} value={data.vehicleNumber} />
-            <Field label="Vehicle model" onChange={(value) => update("vehicleModel", value)} value={data.vehicleModel} />
-            <DocumentBox label="RC image" media={data.rcPhoto} loading={uploadingMediaKey === "rcPhoto"} onCamera={() => void pickMedia("rcPhoto", "camera")} onGallery={() => void pickMedia("rcPhoto", "gallery")} />
-            <DocumentBox label="Insurance image" media={data.insurancePhoto} loading={uploadingMediaKey === "insurancePhoto"} onCamera={() => void pickMedia("insurancePhoto", "camera")} onGallery={() => void pickMedia("insurancePhoto", "gallery")} />
+            <ChoiceGroup onChange={(value) => update("vehicleType", value)} options={["Bicycle", "Scooter", "Motorcycle", "Car"]} value={data.vehicleType} disabled={isLocked} />
+            <Field label="Vehicle number" onChange={(value) => update("vehicleNumber", value.toUpperCase())} value={data.vehicleNumber} readOnly={isLocked} />
+            <Field label="Vehicle model" onChange={(value) => update("vehicleModel", value)} value={data.vehicleModel} readOnly={isLocked} />
+            <DocumentBox label="RC image" media={data.rcPhoto} loading={uploadingMediaKey === "rcPhoto"} onCamera={() => void pickMedia("rcPhoto", "camera")} onGallery={() => void pickMedia("rcPhoto", "gallery")} disabled={isLocked} />
+            <DocumentBox label="Insurance image" media={data.insurancePhoto} loading={uploadingMediaKey === "insurancePhoto"} onCamera={() => void pickMedia("insurancePhoto", "camera")} onGallery={() => void pickMedia("insurancePhoto", "gallery")} disabled={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "bank" ? (
           <Card>
-            <Field label="Account holder name" onChange={(value) => update("accountHolder", value)} value={data.accountHolder} />
-            <Field label="Account number" keyboardType="number-pad" onChange={(value) => update("accountNumber", value.replace(/\D/g, ""))} value={data.accountNumber} />
-            <Field label="IFSC code" onChange={(value) => update("ifsc", value.toUpperCase())} value={data.ifsc} />
-            <Field label="UPI ID" onChange={(value) => update("upi", value)} value={data.upi} />
+            <Field label="Account holder name" onChange={(value) => update("accountHolder", value)} value={data.accountHolder} readOnly={isLocked} />
+            <Field label="Account number" keyboardType="number-pad" onChange={(value) => update("accountNumber", value.replace(/\D/g, ""))} value={data.accountNumber} readOnly={isLocked} />
+            <Field label="IFSC code" onChange={(value) => update("ifsc", value.toUpperCase())} value={data.ifsc} readOnly={isLocked} />
+            <Field label="UPI ID" onChange={(value) => update("upi", value)} value={data.upi} readOnly={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "preferences" ? (
           <Card>
             <Text style={styles.formLabel}>Availability</Text>
-            <ChoiceGroup onChange={(value) => update("availability", value)} options={["Full time", "Part time"]} value={data.availability} />
-            <Field label="Working hours" onChange={(value) => update("workingHours", value)} value={data.workingHours} />
+            <ChoiceGroup onChange={(value) => update("availability", value)} options={["Full time", "Part time"]} value={data.availability} disabled={isLocked} />
+            <Field label="Working hours" onChange={(value) => update("workingHours", value)} value={data.workingHours} readOnly={isLocked} />
             <Text style={styles.formLabel}>Preferred radius</Text>
-            <ChoiceGroup onChange={(value) => update("radius", value)} options={["2 km", "5 km", "10 km"]} value={data.radius} />
+            <ChoiceGroup onChange={(value) => update("radius", value)} options={["2 km", "5 km", "10 km"]} value={data.radius} disabled={isLocked} />
             <View style={styles.switchRow}>
               <Text style={styles.cardTitle}>Instant deliveries</Text>
-              <Switch value={data.instantDeliveries} onValueChange={(value) => update("instantDeliveries", value)} />
+              <Switch value={data.instantDeliveries} onValueChange={(value) => !isLocked && update("instantDeliveries", value)} disabled={isLocked} />
             </View>
           </Card>
         ) : null}
@@ -1206,16 +1220,18 @@ function OnboardingScreen({
           <View style={styles.flexOne}>
             <PrimaryButton disabled={stepIndex === 0 || submitting} label="Back" onPress={() => setStepIndex((value) => Math.max(0, value - 1))} variant="secondary" />
           </View>
-          <View style={styles.flexOne}>
-            <PrimaryButton label={step.key === "review" ? "Submit Verification" : "Next"} disabled={nextDisabled} loading={submitting} onPress={next} />
-          </View>
+          {!isLocked ? (
+            <View style={styles.flexOne}>
+              <PrimaryButton label={step.key === "review" ? "Submit Verification" : "Next"} disabled={nextDisabled} loading={submitting} onPress={next} />
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </Screen>
   );
 }
 
-function DocumentBox({ label, media, onGallery, onCamera, loading = false }: { label: string; media?: MediaDraft; onGallery: () => void; onCamera: () => void; loading?: boolean }) {
+function DocumentBox({ label, media, onGallery, onCamera, loading = false, disabled = false }: { label: string; media?: MediaDraft; onGallery: () => void; onCamera: () => void; loading?: boolean; disabled?: boolean }) {
   return (
     <View style={styles.documentBox}>
       <View style={styles.documentPreview}>
@@ -1224,16 +1240,20 @@ function DocumentBox({ label, media, onGallery, onCamera, loading = false }: { l
       <View style={styles.documentBody}>
         <Text style={styles.cardTitle}>{label}</Text>
         <Text numberOfLines={1} style={styles.cardMeta}>{loading ? "Uploading..." : media ? media.name : "No photo selected"}</Text>
-        <View style={styles.docActions}>
-          <Pressable style={styles.docButton} onPress={onGallery} disabled={loading}>
-            <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
-            <Text style={styles.docButtonText}>Gallery</Text>
-          </Pressable>
-          <Pressable style={styles.docButton} onPress={onCamera} disabled={loading}>
-            {loading ? <ActivityIndicator color={BRAND_ORANGE} size="small" /> : <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />}
-            <Text style={styles.docButtonText}>{loading ? "Uploading" : "Camera"}</Text>
-          </Pressable>
-        </View>
+        {!disabled ? (
+          <View style={styles.docActions}>
+            <Pressable style={styles.docButton} onPress={onGallery} disabled={loading}>
+              <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
+              <Text style={styles.docButtonText}>Gallery</Text>
+            </Pressable>
+            <Pressable style={styles.docButton} onPress={onCamera} disabled={loading}>
+              {loading ? <ActivityIndicator color={BRAND_ORANGE} size="small" /> : <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />}
+              <Text style={styles.docButtonText}>{loading ? "Uploading" : "Camera"}</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={styles.docLockedText}>Read-only</Text>
+        )}
       </View>
     </View>
   );
@@ -2217,10 +2237,7 @@ function MainApp({
   }, [requests, me?.deliveryProfile]);
 
   const batches = useMemo(() => {
-    const groups: Record<string, DeliveryRequest[]> = {
-      ONE_PM: [],
-      SIX_PM: []
-    };
+    const groups: Record<string, DeliveryRequest[]> = {};
     for (const req of filteredRequests) {
       const bid = req.batchId || req.deliveryRound || "ONE_PM";
       if (!groups[bid]) groups[bid] = [];
@@ -2247,7 +2264,7 @@ function MainApp({
   }, [filteredRequests]);
 
   const activeBatch = useMemo(() => {
-    const activeBatches = batches.filter((b) => b.status === "active");
+    const activeBatches = batches.filter((b) => b.status === "active" && b.requests.length > 0);
     if (activeBatches.length === 0) return undefined;
     
     const currentHour = getKolkataHour();
@@ -2257,8 +2274,16 @@ function MainApp({
     } else {
       expectedRound = "ONE_PM";
     }
-    
-    return activeBatches.find((b) => b.deliveryRound === expectedRound) || activeBatches[0];
+
+    const assignedBatches = activeBatches.filter((batch) =>
+      batch.requests.some((request) => request.taskStatus === "accepted" || request.taskStatus === "picked_up")
+    );
+    return (
+      assignedBatches.find((b) => b.deliveryRound === expectedRound) ||
+      assignedBatches[0] ||
+      activeBatches.find((b) => b.deliveryRound === expectedRound) ||
+      activeBatches[0]
+    );
   }, [batches]);
 
   const openRequests = useMemo(() => filteredRequests.filter((request) => request.taskStatus === "pending"), [filteredRequests]);
@@ -3007,6 +3032,7 @@ const styles = StyleSheet.create({
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
   choiceChip: { minHeight: 38, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   choiceChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
+  choiceChipDisabled: { opacity: 0.55 },
   choiceText: { color: MUTED, fontSize: 12, fontWeight: "900" },
   choiceTextActive: { color: BRAND_ORANGE },
   statusRow: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, borderBottomWidth: 1, borderBottomColor: "#eef2f7" },
@@ -3017,6 +3043,9 @@ const styles = StyleSheet.create({
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: "#111111", overflow: "hidden", marginTop: 14, marginBottom: 4 },
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 },
+  inputReadOnly: { backgroundColor: "#f1f5f9", opacity: 0.75 },
+  lockedBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fef3c7", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8, borderWidth: 1, borderColor: "#fcd34d" },
+  lockedBannerText: { color: "#92400e", fontSize: 12, fontWeight: "900", flex: 1 },
   noticeText: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 12 },
   cancelledNoticeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
@@ -3029,6 +3058,7 @@ const styles = StyleSheet.create({
   docActions: { flexDirection: "row", gap: 10, marginTop: 12 },
   docButton: { flex: 1, minHeight: 40, borderRadius: 14, borderWidth: 1, borderColor: "#efbd65", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
   docButtonText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  docLockedText: { color: "#9aa6b8", fontSize: 11, fontWeight: "700", marginTop: 8 },
   mlKitPanel: { minHeight: 62, borderRadius: 15, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, marginTop: 14 },
   mlKitText: { color: MUTED, fontSize: 11, lineHeight: 17, fontWeight: "800" },
   tutorialRow: { flexDirection: "row", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#f3dfb9" },

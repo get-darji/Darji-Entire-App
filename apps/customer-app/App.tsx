@@ -215,6 +215,12 @@ type BackendTailoringRequest = {
   confirmedAt?: string;
   createdAt: string;
   selectedQuote?: BackendRequestQuote | null;
+  tailorRating?: number;
+  deliveryRating?: number;
+  tailorReview?: string;
+  deliveryReview?: string;
+  tailorRatingSubmittedAt?: string;
+  deliveryRatingSubmittedAt?: string;
 };
 type CheckoutStartResponse = {
   mode: "cod" | "online";
@@ -2833,12 +2839,12 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     homeMeasurementFee: request.homeMeasurementFee ?? existingOrder?.homeMeasurementFee,
     couponCode: request.couponCode ?? existingOrder?.couponCode,
     discountAmount: request.discountAmount ?? existingOrder?.discountAmount,
-    tailorRating: existingOrder?.tailorRating,
-    deliveryRating: existingOrder?.deliveryRating,
-    tailorReview: existingOrder?.tailorReview,
-    deliveryReview: existingOrder?.deliveryReview,
-    tailorRatingSubmittedAt: existingOrder?.tailorRatingSubmittedAt,
-    deliveryRatingSubmittedAt: existingOrder?.deliveryRatingSubmittedAt,
+    tailorRating: request.tailorRating ?? existingOrder?.tailorRating,
+    deliveryRating: request.deliveryRating ?? existingOrder?.deliveryRating,
+    tailorReview: request.tailorReview ?? existingOrder?.tailorReview,
+    deliveryReview: request.deliveryReview ?? existingOrder?.deliveryReview,
+    tailorRatingSubmittedAt: request.tailorRatingSubmittedAt ?? existingOrder?.tailorRatingSubmittedAt,
+    deliveryRatingSubmittedAt: request.deliveryRatingSubmittedAt ?? existingOrder?.deliveryRatingSubmittedAt,
     invoiceGeneratedAt: existingOrder?.invoiceGeneratedAt
   };
 }
@@ -5562,11 +5568,11 @@ async function downloadInvoice(order: CustomerOrder) {
   }
 }
 
-function RatingButtons({ value, onRate }: { value?: number; onRate: (rating: number) => void }) {
+function RatingButtons({ disabled, value, onRate }: { disabled?: boolean; value?: number; onRate: (rating: number) => void }) {
   return (
     <View style={styles.inlineStars}>
       {[1, 2, 3, 4, 5].map((item) => (
-        <Pressable key={item} onPress={() => onRate(item)}>
+        <Pressable key={item} disabled={disabled} onPress={() => onRate(item)}>
           <Ionicons name={item <= (value ?? 0) ? "star" : "star-outline"} size={23} color={BRAND_ORANGE} />
         </Pressable>
       ))}
@@ -5885,10 +5891,11 @@ function LegacyOrderDetailsScreenV2({
                 </View>
                 <Text style={[styles.mutedSmall, styles.feedbackPrompt]}>How satisfied are you with the stitching, fitting, and overall craftsmanship?</Text>
               </View>
-              <RatingButtons value={order.tailorRating} onRate={(rating) => onUpdateOrder({ ...order, tailorRating: rating })} />
+              <RatingButtons disabled={Boolean(order.tailorRatingSubmittedAt)} value={order.tailorRating} onRate={(rating) => onUpdateOrder({ ...order, tailorRating: rating })} />
             </View>
             <TextInput
-              style={styles.reviewInput}
+              editable={!order.tailorRatingSubmittedAt}
+              style={[styles.reviewInput, order.tailorRatingSubmittedAt && styles.reviewInputLocked]}
               value={order.tailorReview ?? ""}
               onChangeText={(text) => onUpdateOrder({ ...order, tailorReview: text })}
               multiline
@@ -5910,10 +5917,11 @@ function LegacyOrderDetailsScreenV2({
                 </View>
                 <Text style={[styles.mutedSmall, styles.feedbackPrompt]}>How was your pickup and delivery experience? Your feedback helps us serve you better.</Text>
               </View>
-              <RatingButtons value={order.deliveryRating} onRate={(rating) => onUpdateOrder({ ...order, deliveryRating: rating })} />
+              <RatingButtons disabled={Boolean(order.deliveryRatingSubmittedAt)} value={order.deliveryRating} onRate={(rating) => onUpdateOrder({ ...order, deliveryRating: rating })} />
             </View>
             <TextInput
-              style={styles.reviewInput}
+              editable={!order.deliveryRatingSubmittedAt}
+              style={[styles.reviewInput, order.deliveryRatingSubmittedAt && styles.reviewInputLocked]}
               value={order.deliveryReview ?? ""}
               onChangeText={(text) => onUpdateOrder({ ...order, deliveryReview: text })}
               multiline
@@ -6152,10 +6160,11 @@ function OrderDetailsScreenV2({
                 </View>
                 <Text style={[styles.mutedSmall, styles.feedbackPrompt]}>How satisfied are you with the stitching, fitting, and overall craftsmanship?</Text>
               </View>
-              <RatingButtons value={order.tailorRating} onRate={(rating) => onUpdateOrder({ ...order, tailorRating: rating })} />
+              <RatingButtons disabled={Boolean(order.tailorRatingSubmittedAt)} value={order.tailorRating} onRate={(rating) => onUpdateOrder({ ...order, tailorRating: rating })} />
             </View>
             <TextInput
-              style={styles.reviewInput}
+              editable={!order.tailorRatingSubmittedAt}
+              style={[styles.reviewInput, order.tailorRatingSubmittedAt && styles.reviewInputLocked]}
               value={order.tailorReview ?? ""}
               onChangeText={(text) => onUpdateOrder({ ...order, tailorReview: text })}
               multiline
@@ -6177,10 +6186,11 @@ function OrderDetailsScreenV2({
                 </View>
                 <Text style={[styles.mutedSmall, styles.feedbackPrompt]}>How was your pickup and delivery experience? Your feedback helps us serve you better.</Text>
               </View>
-              <RatingButtons value={order.deliveryRating} onRate={(rating) => onUpdateOrder({ ...order, deliveryRating: rating })} />
+              <RatingButtons disabled={Boolean(order.deliveryRatingSubmittedAt)} value={order.deliveryRating} onRate={(rating) => onUpdateOrder({ ...order, deliveryRating: rating })} />
             </View>
             <TextInput
-              style={styles.reviewInput}
+              editable={!order.deliveryRatingSubmittedAt}
+              style={[styles.reviewInput, order.deliveryRatingSubmittedAt && styles.reviewInputLocked]}
               value={order.deliveryReview ?? ""}
               onChangeText={(text) => onUpdateOrder({ ...order, deliveryReview: text })}
               multiline

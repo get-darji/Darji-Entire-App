@@ -958,6 +958,9 @@ export async function createReviewController(req: Request, res: Response) {
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new AppError(400, "Rating must be 1-5");
   const kind = req.body.kind === "delivery" ? "delivery" : req.body.kind === "app" ? "app" : "tailor";
   const orderId = String(req.body.orderId);
+  if (!orderId || orderId === "undefined" || orderId === "null") throw new AppError(400, "orderId is required");
+  const existingReview = await ReviewModel.findOne({ userId: req.user!.id, orderId, kind });
+  if (existingReview) throw new AppError(409, "Review already submitted");
   const review = await ReviewModel.create({ userId: req.user!.id, orderId, kind, rating, comment: req.body.comment });
   if (kind === "delivery") {
     const task = await DeliveryRequestModel.findOne({ orderId, assignedDeliveryPartnerId: { $exists: true, $ne: "" } }).sort({ updatedAt: -1 });

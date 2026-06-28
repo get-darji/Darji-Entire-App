@@ -4650,11 +4650,231 @@ function ProfileDialog({
                     </div>
                   </Panel>
                 )}
+                {isDelivery ? (() => {
+                  const v = profile.verification as Record<string, unknown> | undefined;
+                  const vPersonal = v?.personal as Record<string, unknown> | undefined;
+                  const vIdentity = v?.identity as Record<string, unknown> | undefined;
+                  const vLicense = v?.license as Record<string, unknown> | undefined;
+                  const vVehicle = v?.vehicle as Record<string, unknown> | undefined;
+                  const vBank = v?.bank as Record<string, unknown> | undefined;
+                  const vPrefs = v?.preferences as Record<string, unknown> | undefined;
+                  return (
+                    <>
+                      {vPersonal && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Personal Details</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["Full Name", vPersonal.fullName],
+                              ["Date of Birth", vPersonal.dob],
+                              ["Gender", vPersonal.gender],
+                              ["Email", vPersonal.email],
+                              ["Emergency Contact", vPersonal.emergencyContact],
+                              ["Address", vPersonal.address],
+                              ["City", vPersonal.city],
+                              ["State", vPersonal.state],
+                              ["Pincode", vPersonal.pincode],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vIdentity && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Identity Verification</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["ID Type", vIdentity.identityType],
+                              ["Aadhaar No.", vIdentity.aadhaarNumber],
+                              ["PAN No.", vIdentity.panNumber],
+                              ["OCR Status", vIdentity.ocrStatus],
+                              ["Face Status", vIdentity.faceStatus],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vLicense && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Driving License</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["License No.", vLicense.licenseNumber],
+                              ["Expiry Date", vLicense.licenseExpiry],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vVehicle && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Vehicle Details</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["Vehicle Type", vVehicle.vehicleType],
+                              ["Vehicle No.", vVehicle.vehicleNumber],
+                              ["Vehicle Model", vVehicle.vehicleModel],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vBank && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Bank Account</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["Account Holder", vBank.accountHolder],
+                              ["Account No.", vBank.accountNumber],
+                              ["IFSC Code", vBank.ifsc],
+                              ["UPI ID", vBank.upi],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vPrefs && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Delivery Preferences</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["Availability", vPrefs.availability],
+                              ["Working Hours", vPrefs.workingHours],
+                              ["Preferred Radius", vPrefs.radius],
+                              ["Instant Deliveries", vPrefs.instantDeliveries !== undefined ? (vPrefs.instantDeliveries ? "Yes" : "No") : undefined],
+                            ] as [string, unknown][]).map(([lbl, val]) => val !== undefined && val !== null ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                    </>
+                  );
+                })() : (() => {
+                  const v = profile.verification as Record<string, unknown> | undefined;
+                  const vPersonal = v?.personal as Record<string, unknown> | undefined;
+                  const vShop = v?.shop as Record<string, unknown> | undefined;
+                  const vId = v?.idVerification as Record<string, unknown> | undefined;
+                  const vRows = v?.specializationRows as Array<Record<string, unknown>> | undefined;
+                  return (
+                    <>
+                      {vPersonal && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Personal Details</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["Name", vPersonal.name],
+                              ["Date of Birth", vPersonal.dob],
+                              ["Email", vPersonal.email],
+                              ["Address", vPersonal.address],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vShop && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Shop Details</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["Shop Name", vShop.shopName],
+                              ["Shop Address", vShop.shopAddress],
+                              ["Work From Home", vShop.workFromHome !== undefined ? (vShop.workFromHome ? "Yes" : "No") : undefined],
+                              ["GST No.", vShop.gstNumber],
+                              ["Employee Count", vShop.employeeCount],
+                              ["Years Experience", vShop.yearsExperience],
+                              ["Machinery", Array.isArray(vShop.machinery) ? (vShop.machinery as string[]).join(", ") : undefined],
+                            ] as [string, unknown][]).map(([lbl, val]) => val !== undefined && val !== null && val !== "" ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                      {vRows && vRows.length > 0 && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">Specialization &amp; Pricing</h4>
+                          <div className="overflow-x-auto rounded-xl border border-[var(--panel-border)]">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b border-[var(--panel-border)] bg-[#f8fafc]">
+                                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Gender</th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Cloth Type</th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Stitching</th>
+                                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Price (₹)</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {vRows.map((row, i) => (
+                                  <tr key={i} className="border-b border-[var(--panel-border)] last:border-0">
+                                    <td className="px-3 py-2">{String(row.gender ?? "-")}</td>
+                                    <td className="px-3 py-2">{String(row.clothType ?? "-")}</td>
+                                    <td className="px-3 py-2">{String(row.stitchingType ?? "-")}</td>
+                                    <td className="px-3 py-2 text-right font-semibold">{row.price ? `₹${String(row.price)}` : "-"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </Panel>
+                      )}
+                      {vId && (
+                        <Panel>
+                          <h4 className="mb-4 text-base font-semibold">ID Verification</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {([
+                              ["ID Type", vId.idType],
+                              ["ID Number", vId.idNumber],
+                              ["OCR Status", vId.ocrStatus],
+                              ["Face Status", vId.faceDetectionStatus],
+                            ] as [string, unknown][]).map(([lbl, val]) => val ? (
+                              <div key={lbl} className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2">
+                                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">{lbl}</p>
+                                <p className="mt-1 text-sm font-semibold break-all">{String(val)}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </Panel>
+                      )}
+                    </>
+                  );
+                })()}
                 <Panel>
-                  <h4 className="text-lg font-semibold">Verification payload</h4>
-                  <pre className="mt-4 overflow-x-auto rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-xs text-[var(--muted)]">
-                    {stringifyUnknown(profile.verification)}
-                  </pre>
+                  <details>
+                    <summary className="cursor-pointer text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">Raw verification payload (debug)</summary>
+                    <pre className="mt-4 overflow-x-auto rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-xs text-[var(--muted)]">
+                      {stringifyUnknown(profile.verification)}
+                    </pre>
+                  </details>
                 </Panel>
                 <VerificationMediaGallery items={submittedMedia} title="Uploaded verification documents" />
                 <VerificationMediaGallery items={draftMedia} title="Draft verification documents" />

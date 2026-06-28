@@ -223,7 +223,7 @@ const deliveryPartnerSchema = new Schema(
     monthlyEarnings: { type: Number, default: 0 },
     workingHours: { type: Schema.Types.Mixed },
     settings: { type: Schema.Types.Mixed },
-    verificationStatus: { type: String, enum: ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"], default: "VERIFIED", index: true },
+    verificationStatus: { type: String, enum: ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"], default: "NOT_SUBMITTED", index: true },
     verificationSubmittedAt: Date,
     verificationReviewedAt: Date,
     verificationRejectionReason: String,
