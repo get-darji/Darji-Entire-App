@@ -2222,7 +2222,7 @@ function MainApp({
       SIX_PM: []
     };
     for (const req of filteredRequests) {
-      const bid = req.deliveryRound || "ONE_PM";
+      const bid = req.batchId || req.deliveryRound || "ONE_PM";
       if (!groups[bid]) groups[bid] = [];
       groups[bid].push(req);
     }

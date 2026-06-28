@@ -899,6 +899,8 @@ export function AdminPortal() {
   const confirmedTailoringRequests: Order[] = tailoringRequests
     .filter((request) => request.status === "TAILOR_SELECTED" || !!request.orderStatus)
     .map((request) => {
+      const pickupPartner = partners.find((partner) => partner.id === request.pickupPartnerId || partner.id === request.assignedDeliveryBoyId) ?? null;
+      const deliveryPartner = partners.find((partner) => partner.id === request.deliveryPartnerId) ?? null;
       const orderStatusMap: Record<string, string> = {
         completed: "DELIVERED",
         cancelled: "CANCELLED",
@@ -912,11 +914,15 @@ export function AdminPortal() {
       const mappedStatus = request.orderStatus ? (orderStatusMap[request.orderStatus] || request.orderStatus) : request.status;
       return {
         id: request.id,
-        orderNumber: `TR-${request.id.slice(0, 6).toUpperCase()}`,
+        orderNumber: `TR-${request.id.toUpperCase()}`,
         customerId: request.customerId,
         customer: request.customer,
+        tailorId: request.selectedQuote?.tailor?.id ?? request.assignedTailorId,
+        pickupPartnerId: request.pickupPartnerId ?? request.assignedDeliveryBoyId,
+        deliveryPartnerId: request.deliveryPartnerId,
         tailor: request.selectedQuote?.tailor || request.ownQuote?.tailor || null,
-        deliveryPartner: null,
+        pickupPartner,
+        deliveryPartner,
         status: mappedStatus.toUpperCase(),
         paymentMethod: request.paymentMethod || "UNKNOWN",
         paymentStatus: request.paymentStatus || "PENDING",
@@ -4476,7 +4482,7 @@ function ProfileDialog({
     }
     if (profile && "specialization" in profile) {
       const idType = String((profile.verification?.idVerification as { idType?: string } | undefined)?.idType ?? "Aadhaar");
-      setSelectedReuploadFields(profile.verificationReuploadFields?.length ? profile.verificationReuploadFields : idType === "PAN" ? ["panPhoto", "facePhoto"] : ["aadhaarFront", "aadhaarBack", "facePhoto"]);
+      setSelectedReuploadFields(profile.verificationReuploadFields?.length ? profile.verificationReuploadFields : idType === "Aadhaar" ? ["aadhaarFront", "aadhaarBack", "facePhoto"] : ["panPhoto", "facePhoto"]);
     }
     setReviewReason(profile?.verificationRejectionReason ?? "");
   }, [profile]);
@@ -4513,7 +4519,7 @@ function ProfileDialog({
                           {[
                             ["aadhaarFront", "Aadhaar front"],
                             ["aadhaarBack", "Aadhaar back"],
-                            ["panPhoto", "PAN card"],
+                            ["panPhoto", "PAN / licence card"],
                             ["facePhoto", "Face selfie"],
                             ["shopPhotos", "Shop photos"]
                           ].map(([field, label]) => {
@@ -5477,7 +5483,7 @@ function getOrderColumns({
       header: "Order",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.orderNumber}</p>
+          <p className="break-all font-medium">{row.original.orderNumber}</p>
           <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
         </div>
       )

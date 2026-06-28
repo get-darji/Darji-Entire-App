@@ -205,7 +205,7 @@ export async function assignPendingTasksToPartner(partner: any) {
     retryStatus: { $ne: "ACTION_REQUIRED" }
   };
   if (enableAreaFiltering) {
-    pendingTasksQuery.assignedArea = partner.assignedArea;
+    pendingTasksQuery.$or = [{ assignedArea: partner.assignedArea }, { assignedArea: "unassigned" }];
   }
   const pendingTasks = await DeliveryRequestModel.find(pendingTasksQuery).sort({ retryCount: -1, nextScheduledBatch: 1, createdAt: 1 });
 
@@ -629,7 +629,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     isAvailable: true,
     verificationStatus: "VERIFIED"
   };
-  if (enableAreaFiltering) {
+  if (enableAreaFiltering && assignedArea !== "unassigned") {
     boyQuery.assignedArea = assignedArea;
   }
   const assignedBoy = await DeliveryPartnerModel.findOne(boyQuery);
@@ -830,7 +830,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         verificationStatus: "VERIFIED",
         deliveryType
       };
-      if (enableAreaFiltering) {
+      if (enableAreaFiltering && assignedArea !== "unassigned") {
         availablePartnersQuery.assignedArea = assignedArea;
       }
       const availablePartners = await DeliveryPartnerModel.find(availablePartnersQuery).select("userId");
@@ -1026,11 +1026,10 @@ export async function listDeliveryRequestsController(req: Request, res: Response
 
     where.deliveryType = partner.deliveryType;
     where.retryStatus = { $ne: "ACTION_REQUIRED" };
-    if (enableAreaFiltering) {
-      where.assignedArea = partner.assignedArea;
-    }
     where.$or = [
-      { taskStatus: "pending" },
+      enableAreaFiltering
+        ? { taskStatus: "pending", assignedArea: { $in: [partner.assignedArea, "unassigned"] } }
+        : { taskStatus: "pending" },
       { assignedDeliveryPartnerId: partner._id }
     ];
   } else if (status === "pending" || status === "OPEN") {

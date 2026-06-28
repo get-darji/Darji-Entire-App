@@ -1,6 +1,8 @@
 import { createOrderSchema, updateOrderStatusSchema } from "@darzi/shared";
 import {
   AddressModel,
+  DeliveryBatchModel,
+  DeliveryRequestModel,
   CouponModel,
   DeliveryPartnerModel,
   OrderModel,
@@ -14,6 +16,7 @@ import {
 import { AppError } from "../middleware/error.js";
 import { notifyUser, orderStatusMessage } from "./notification.service.js";
 import { creditOrderEarning } from "./wallet.service.js";
+import { randomUUID } from "crypto";
 
 type JsonDoc = { toJSON: () => Record<string, unknown> };
 
@@ -32,6 +35,58 @@ async function partnerWithUser(model: { findById: (id: string) => Promise<(JsonD
   if (!profile) return null;
   const user = await UserModel.findById(profile.userId).select("name phone role");
   return { ...profile.toJSON(), user: json(user) };
+}
+
+async function assignExistingDeliveryTask(orderId: string, partnerId: string | undefined, mode: "pickup" | "delivery" | undefined) {
+  if (!partnerId) return;
+  const type = mode === "delivery" ? "tailor_to_customer" : "customer_to_tailor";
+  const task = await DeliveryRequestModel.findOne({ orderId, type, taskStatus: { $in: ["pending", "accepted"] } });
+  if (!task) return;
+
+  const partner = await DeliveryPartnerModel.findById(partnerId);
+  const acceptedAt = new Date();
+  const batch = await DeliveryBatchModel.findOneAndUpdate(
+    {
+      deliveryPartnerId: partnerId,
+      deliveryType: task.deliveryType || partner?.deliveryType,
+      deliveryRound: task.deliveryRound,
+      roundAt: task.roundAt,
+      status: "active"
+    },
+    {
+      $setOnInsert: {
+        batchId: randomUUID(),
+        deliveryPartnerId: partnerId,
+        deliveryType: task.deliveryType || partner?.deliveryType,
+        deliveryRound: task.deliveryRound,
+        roundAt: task.roundAt,
+        shift: task.shift || (task.deliveryRound === "ONE_PM" ? "morning" : "evening"),
+        area: task.assignedArea || partner?.assignedArea || "All Areas",
+        estimatedEarnings: 0
+      },
+      $addToSet: { tasks: task.id },
+      $inc: { estimatedEarnings: task.estimatedEarnings || 0 }
+    },
+    { upsert: true, returnDocument: "after" }
+  );
+
+  if (task.batchId && batch?.batchId && task.batchId !== batch.batchId) {
+    await DeliveryBatchModel.updateOne({ batchId: task.batchId }, { $pull: { tasks: task.id } });
+  }
+
+  await DeliveryRequestModel.findByIdAndUpdate(
+    task.id,
+    {
+      assignedDeliveryPartnerId: partnerId,
+      assignedDeliveryBoyId: partnerId,
+      batchId: batch?.batchId || task.batchId,
+      taskStatus: "accepted",
+      retryStatus: "ACTIVE",
+      acceptedAt,
+      deadlineAt: new Date(acceptedAt.getTime() + 12 * 60 * 60 * 1000)
+    },
+    { returnDocument: "after" }
+  );
 }
 
 export async function hydrateOrder(orderInput: unknown) {
@@ -238,6 +293,7 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
     userId: "admin",
     userName: "Admin"
   };
+  const assignedPartnerId = data.deliveryPartnerId ?? data.pickupPartnerId;
 
   let order = await OrderModel.findByIdAndUpdate(orderId, { ...data, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
   
@@ -247,12 +303,16 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
     if (input.tailorId) trData.assignedTailorId = input.tailorId;
     if (data.pickupPartnerId) trData.pickupPartnerId = data.pickupPartnerId;
     if (data.deliveryPartnerId) trData.deliveryPartnerId = data.deliveryPartnerId;
-    if (data.status) trData.orderStatus = data.status.toLowerCase();
+    if (data.pickupPartnerId) trData.assignedDeliveryBoyId = data.pickupPartnerId;
+    if (data.deliveryPartnerId) trData.assignedDeliveryBoyId = data.deliveryPartnerId;
+    if (data.pickupPartnerId) trData.orderStatus = "pickup_started";
+    if (data.deliveryPartnerId) trData.orderStatus = "out_for_delivery";
 
     const tr = await TailoringRequestModel.findByIdAndUpdate(orderId, { ...trData, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
     if (!tr) {
       throw new AppError(404, "Order or Request not found");
     }
+    await assignExistingDeliveryTask(orderId, assignedPartnerId, input.mode);
     
     await notifyUser({
       userId: tr.customerId,
@@ -262,6 +322,8 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
     });
     return tr;
   }
+
+  await assignExistingDeliveryTask(orderId, assignedPartnerId, input.mode);
 
   await notifyUser({
     userId: order.customerId,

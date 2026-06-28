@@ -416,6 +416,10 @@ export type TailoringRequest = {
   ownQuote?: TailorQuote | null;
   selectedQuote?: TailorQuote | null;
   selectedQuoteId?: string;
+  assignedTailorId?: string;
+  assignedDeliveryBoyId?: string;
+  pickupPartnerId?: string;
+  deliveryPartnerId?: string;
   quoteCount?: number;
   paymentMethod?: string;
   paymentStatus?: string;

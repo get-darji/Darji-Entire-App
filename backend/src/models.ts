@@ -277,6 +277,7 @@ const reviewSchema = new Schema(
     _id: stringId,
     userId: { type: String, required: true, index: true },
     orderId: { type: String, required: true, index: true },
+    kind: { type: String, enum: ["tailor", "delivery", "app"], default: "tailor", index: true },
     rating: { type: Number, min: 1, max: 5, required: true },
     comment: String
   },

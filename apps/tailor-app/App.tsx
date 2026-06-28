@@ -141,6 +141,7 @@ type DialogState = { title: string; message: string; icon?: keyof typeof Ionicon
 type CancellationAlert = { id: string; title: string; message: string };
 type VerificationMediaDraft = { uri: string; name: string; uploadedUrl?: string };
 type TailorReuploadField = "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto" | "shopPhotos";
+type TailorIdType = "Aadhaar" | "PAN" | "License";
 type SpecializationRow = { id: string; gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: string };
 type OcrDetails = { rawText?: string; name?: string; dob?: string; aadhaarLast4?: string; panNumber?: string; addressHint?: string };
 type FaceLivenessState = "idle" | "aligning" | "aligned" | "blink-detected" | "captured";
@@ -151,7 +152,7 @@ type VerificationDraft = {
   category: "Men" | "Women" | "Both";
   rows: SpecializationRow[];
   confirmedRows: boolean;
-  idType: "Aadhaar" | "PAN";
+  idType: TailorIdType;
   idNumber: string;
   aadhaarFront?: VerificationMediaDraft;
   aadhaarBack?: VerificationMediaDraft;
@@ -167,7 +168,7 @@ type TailorVerificationPayload = {
   shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; machinery: string[]; shopPhotos: string[] };
   specializationRows: Array<{ gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: number }>;
   idVerification: {
-    idType: "Aadhaar" | "PAN";
+    idType: TailorIdType;
     idNumber: string;
     aadhaarFrontUrl?: string;
     aadhaarBackUrl?: string;
@@ -197,6 +198,10 @@ const SUCCESS = "#15803d";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
 const TAILOR_ONBOARDING_STORAGE_PREFIX = "darji.tailorOnboarding.v1";
+const VERIFICATION_TOTAL_STEPS = 5;
+const VERIFICATION_FORM_STEPS = 4;
+const VERIFICATION_STATUS_STEP = 5;
+const verificationStepLabels = ["Personal", "Shop", "ID", "Tutorial", "Submit"] as const;
 
 configureForegroundNotificationHandler();
 
@@ -1526,7 +1531,7 @@ const DEFAULT_TUTORIAL_THUMBNAIL = "https://images.unsplash.com/photo-1556905055
 const reuploadFieldLabels: Record<TailorReuploadField, string> = {
   aadhaarFront: "Aadhaar front photo",
   aadhaarBack: "Aadhaar back photo",
-  panPhoto: "PAN card photo",
+  panPhoto: "PAN / licence photo",
   facePhoto: "Live face verification selfie",
   shopPhotos: "Shop photos"
 };
@@ -1543,6 +1548,32 @@ function clothOptionsForCategory(category: "Men" | "Women" | "Both") {
   if (category === "Men") return menClothTypeOptions;
   if (category === "Women") return womenClothTypeOptions;
   return Array.from(new Set([...menClothTypeOptions, ...womenClothTypeOptions, ...clothTypeOptions]));
+}
+
+function tailorIdNumberLabel(idType: TailorIdType) {
+  if (idType === "Aadhaar") return "Aadhaar Number";
+  if (idType === "PAN") return "PAN Number";
+  return "Driving Licence Number";
+}
+
+function tailorIdPlaceholder(idType: TailorIdType) {
+  if (idType === "Aadhaar") return "12 digit Aadhaar number";
+  if (idType === "PAN") return "ABCDE1234F";
+  return "Driving licence number";
+}
+
+function normalizeTailorIdNumber(idType: TailorIdType, value: string) {
+  if (idType === "Aadhaar") return value.replace(/\D/g, "").slice(0, 12);
+  if (idType === "PAN") return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
+  return value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
+}
+
+function validateTailorIdNumber(idType: TailorIdType, value: string) {
+  const normalized = value.trim().toUpperCase();
+  if (idType === "Aadhaar" && !/^\d{12}$/.test(normalized)) return "Enter a valid 12 digit Aadhaar number.";
+  if (idType === "PAN" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(normalized)) return "Enter a valid PAN number, for example ABCDE1234F.";
+  if (idType === "License" && !/^[A-Z0-9-]{8,16}$/.test(normalized)) return "Enter a valid driving licence number.";
+  return "";
 }
 
 function makeVerificationDraft(me?: MeResponse): VerificationDraft {
@@ -1624,7 +1655,7 @@ function TailorVerificationFlow({
 }) {
   const status = me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
   const { signOut } = useAppStore();
-  const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? 6 : 1);
+  const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? VERIFICATION_STATUS_STEP : 1);
   const [saving, setSaving] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -1635,7 +1666,7 @@ function TailorVerificationFlow({
   const [category, setCategory] = useState<"Men" | "Women" | "Both">("Both");
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
-  const [idType, setIdType] = useState<"Aadhaar" | "PAN">("Aadhaar");
+  const [idType, setIdType] = useState<TailorIdType>("Aadhaar");
   const [idNumber, setIdNumber] = useState("");
   const [aadhaarFront, setAadhaarFront] = useState<VerificationMediaDraft>();
   const [aadhaarBack, setAadhaarBack] = useState<VerificationMediaDraft>();
@@ -1681,7 +1712,7 @@ function TailorVerificationFlow({
 
   function applyDraft(draft?: Partial<VerificationDraft>) {
     if (!draft) return;
-    if (draft.step && status !== "PENDING" && status !== "REJECTED" && status !== "REUPLOAD_REQUIRED") setStep(Math.min(Math.max(draft.step, 1), 5));
+    if (draft.step && status !== "PENDING" && status !== "REJECTED" && status !== "REUPLOAD_REQUIRED") setStep(Math.min(Math.max(draft.step, 1), VERIFICATION_FORM_STEPS));
     if (draft.personal) setPersonal((current) => ({ ...current, ...draft.personal, location: draft.personal?.location ?? current.location }));
     if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, machinery: draft.shop?.machinery ?? current.machinery, shopPhotos: draft.shop?.shopPhotos ?? current.shopPhotos }));
     if (draft.category) setCategory(draft.category);
@@ -1735,7 +1766,7 @@ function TailorVerificationFlow({
     setIdNumber(verification.idVerification.idNumber ?? "");
     setAadhaarFront(mediaDraftFromUrl(verification.idVerification.aadhaarFrontUrl, "Aadhaar front"));
     setAadhaarBack(mediaDraftFromUrl(verification.idVerification.aadhaarBackUrl, "Aadhaar back"));
-    setPanPhoto(mediaDraftFromUrl(verification.idVerification.panUrl, "PAN card"));
+    setPanPhoto(mediaDraftFromUrl(verification.idVerification.panUrl, verification.idVerification.idType === "License" ? "Driving licence" : "PAN card"));
     setFacePhoto(mediaDraftFromUrl(verification.idVerification.facePhotoUrl, "Face verification"));
     setOcrStatus(verification.idVerification.ocrStatus ?? "OCR extracted details");
     setFaceDetectionStatus(verification.idVerification.faceDetectionStatus ?? "Face photo uploaded");
@@ -1939,21 +1970,16 @@ function TailorVerificationFlow({
       return "";
     }
     if (targetStep === 3) {
-      if (rows.length === 0) return "Add at least one specialization.";
-      if (rows.some((row) => !row.clothType.trim() || !row.stitchingType.trim() || !row.price.trim() || Number(row.price) < 0)) return "Complete every specialization row with cloth type, work type, and price.";
-      if (!confirmedRows) return "Confirm the specialization table preview.";
-      return "";
-    }
-    if (targetStep === 4) {
-      if (idType === "Aadhaar" && idNumber.trim().length !== 12) return "Enter a valid 12 digit Aadhaar number.";
-      if (idType === "PAN" && idNumber.trim().length !== 10) return "Enter a valid 10 character PAN number.";
+      const idMessage = validateTailorIdNumber(idType, idNumber);
+      if (idMessage) return idMessage;
       if (idType === "Aadhaar" && !aadhaarFront) return "Upload Aadhaar front photo.";
       if (idType === "Aadhaar" && !aadhaarBack) return "Upload Aadhaar back photo.";
       if (idType === "PAN" && !panPhoto) return "Upload PAN card photo.";
+      if (idType === "License" && !panPhoto) return "Upload driving licence photo.";
       if (!facePhoto) return "Complete face verification.";
       return "";
     }
-    if (targetStep === 5) {
+    if (targetStep === 4) {
       if (!tutorialWatched) return "Watch the complete tutorial before submitting.";
       return "";
     }
@@ -1965,7 +1991,7 @@ function TailorVerificationFlow({
   }
 
   function fullValidationMessage() {
-    for (const targetStep of [1, 2, 3, 4, 5]) {
+    for (const targetStep of [1, 2, 3, 4]) {
       const message = validationMessageForStep(targetStep);
       if (message) return message;
     }
@@ -2067,7 +2093,7 @@ function TailorVerificationFlow({
           machinery: shop.machinery,
           shopPhotos: uploadedShopPhotos.length ? uploadedShopPhotos : existingShopPhotoUrls
         },
-        specializationRows: rows.map((row) => ({ gender: row.gender, clothType: row.clothType.trim(), stitchingType: row.stitchingType.trim(), price: Number(row.price) })),
+        specializationRows: rows.map((row) => ({ gender: row.gender, clothType: row.clothType.trim(), stitchingType: row.stitchingType.trim(), price: Number(row.price) || 0 })),
         idVerification: {
           idType,
           idNumber: idNumber.trim(),
@@ -2084,7 +2110,7 @@ function TailorVerificationFlow({
       await AsyncStorage.removeItem(storageKey).catch(() => undefined);
       showDialog({ title: "Verification submitted", message: "Your details reached the Darji team for review.", icon: "checkmark-circle-outline" });
       onRefresh();
-      setStep(6);
+      setStep(VERIFICATION_STATUS_STEP);
     } catch (error) {
       if (isSessionError(error)) return onSessionExpired();
       showDialog({ title: "Submit failed", message: error instanceof Error ? error.message : "Could not submit verification.", icon: "alert-circle-outline" });
@@ -2114,7 +2140,7 @@ function TailorVerificationFlow({
     );
   }
 
-  if (step === 6) {
+  if (step === VERIFICATION_STATUS_STEP) {
     const needsReupload = status === "REUPLOAD_REQUIRED";
     const isRejected = status === "REJECTED";
     const rejectedUntil = me?.tailorProfile?.verificationRejectedUntil ? new Date(me.tailorProfile.verificationRejectedUntil) : undefined;
@@ -2123,9 +2149,9 @@ function TailorVerificationFlow({
       me?.tailorProfile?.verificationReuploadFields?.length
         ? me.tailorProfile.verificationReuploadFields
         : needsReupload
-          ? idType === "PAN"
-            ? (["panPhoto", "facePhoto"] as TailorReuploadField[])
-            : (["aadhaarFront", "aadhaarBack", "facePhoto"] as TailorReuploadField[])
+          ? idType === "Aadhaar"
+            ? (["aadhaarFront", "aadhaarBack", "facePhoto"] as TailorReuploadField[])
+            : (["panPhoto", "facePhoto"] as TailorReuploadField[])
           : []
     ).filter((field, index, list): field is TailorReuploadField => Boolean(field) && list.indexOf(field) === index);
     const statusTitle = needsReupload ? "Re-upload Documents" : isRejected ? "Verification not approved" : "Verification under review";
@@ -2145,8 +2171,33 @@ function TailorVerificationFlow({
       }
     }
 
-    function openReuploadField(field: TailorReuploadField) {
-      setStep(field === "shopPhotos" ? 2 : 4);
+    function reuploadMediaForField(field: TailorReuploadField) {
+      if (field === "aadhaarFront") return aadhaarFront ? [aadhaarFront] : [];
+      if (field === "aadhaarBack") return aadhaarBack ? [aadhaarBack] : [];
+      if (field === "panPhoto") return panPhoto ? [panPhoto] : [];
+      if (field === "facePhoto") return facePhoto ? [facePhoto] : [];
+      return shop.shopPhotos;
+    }
+
+    async function pickReplacementShopPhoto() {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        showDialog({ title: "Permission needed", message: "Allow photo access to upload shop photos.", icon: "images-outline" });
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
+      setShop((current) => ({ ...current, shopPhotos: [media] }));
+    }
+
+    async function pickReuploadField(field: TailorReuploadField) {
+      if (field === "aadhaarFront") return pickDoc(setAadhaarFront, false, "ocr");
+      if (field === "aadhaarBack") return pickDoc(setAadhaarBack, false, "ocr");
+      if (field === "panPhoto") return pickDoc(setPanPhoto, false, "ocr");
+      if (field === "facePhoto") return pickDoc(setFacePhoto, true, "face");
+      return pickReplacementShopPhoto();
     }
 
     return (
@@ -2169,21 +2220,31 @@ function TailorVerificationFlow({
           </View>
           {needsReupload ? (
             <>
-              {requestedFields.map((field) => (
-                <View key={field} style={styles.reuploadDocumentCard}>
-                  <View style={styles.reuploadIconTile}>
-                    <Ionicons name={field === "shopPhotos" ? "storefront-outline" : field === "facePhoto" ? "person-circle-outline" : "id-card-outline"} size={22} color={BRAND_ORANGE} />
+              {requestedFields.map((field) => {
+                const previews = reuploadMediaForField(field);
+                return (
+                  <View key={field} style={styles.reuploadDocumentCard}>
+                    <View style={styles.reuploadIconTile}>
+                      <Ionicons name={field === "shopPhotos" ? "storefront-outline" : field === "facePhoto" ? "person-circle-outline" : "id-card-outline"} size={22} color={BRAND_ORANGE} />
+                    </View>
+                    <View style={styles.cardMain}>
+                      <Text style={styles.cardTitle}>{reuploadFieldLabels[field]}</Text>
+                      <Text style={styles.cardMeta}>Upload a clear, uncropped, original image.</Text>
+                      {previews.length ? (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reuploadPreviewRow}>
+                          {previews.map((media, index) => (
+                            <Image key={`${media.uri}-${index}`} source={{ uri: media.uri }} style={styles.reuploadPreviewImage} />
+                          ))}
+                        </ScrollView>
+                      ) : null}
+                    </View>
+                    <Pressable style={styles.reuploadUploadButton} onPress={() => pickReuploadField(field)}>
+                      <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
+                      <Text style={styles.docActionText}>{previews.length ? "Change" : "Upload"}</Text>
+                    </Pressable>
                   </View>
-                  <View style={styles.cardMain}>
-                    <Text style={styles.cardTitle}>{reuploadFieldLabels[field]}</Text>
-                    <Text style={styles.cardMeta}>Upload a clear, uncropped, original image.</Text>
-                  </View>
-                  <Pressable style={styles.reuploadUploadButton} onPress={() => openReuploadField(field)}>
-                    <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
-                    <Text style={styles.docActionText}>Re-upload</Text>
-                  </Pressable>
-                </View>
-              ))}
+                );
+              })}
               <Text style={styles.verificationNotice}>Only the documents listed here need to be updated. Other saved details will remain attached to your application.</Text>
               <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
                 {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit All Documents</Text>}
@@ -2215,11 +2276,14 @@ function TailorVerificationFlow({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Tailor Verification" subtitle={`Step ${step} of 6`} />
+        <Header title="Tailor Verification" subtitle={`Step ${Math.min(step, VERIFICATION_TOTAL_STEPS)} of ${VERIFICATION_TOTAL_STEPS}`} />
         <View style={styles.verificationSteps}>
-          {["Personal", "Shop", "Specialization", "ID", "Tutorial", "Submit"].map((label, index) => (
-            <Text key={label} style={[styles.verificationStepPill, step === index + 1 && styles.verificationStepPillActive]}>{label}</Text>
+          {verificationStepLabels.map((label, index) => (
+            <Text key={label} style={[styles.verificationStepPill, Math.min(step, VERIFICATION_TOTAL_STEPS) === index + 1 && styles.verificationStepPillActive]}>{label}</Text>
           ))}
+        </View>
+        <View style={styles.verificationProgressTrack}>
+          <View style={[styles.verificationProgressFill, { width: `${(Math.min(step, VERIFICATION_TOTAL_STEPS) / VERIFICATION_TOTAL_STEPS) * 100}%` }]} />
         </View>
 
         {step === 1 ? (
@@ -2323,81 +2387,28 @@ function TailorVerificationFlow({
 
         {step === 3 ? (
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>SPECIALIZATION</Text>
-            <Text style={styles.formLabel}>Which category do you work in?</Text>
-            <View style={styles.genderRow}>
-              {(["Men", "Women", "Both"] as const).map((item) => (
-                <Pressable
-                  key={item}
-                  style={[styles.genderChip, category === item && styles.genderChipActive]}
-                  onPress={() => {
-                    setCategory(item);
-                    setRows((current) => current.map((row) => ({ ...row, gender: item, clothType: clothOptionsForCategory(item)[0] ?? row.clothType })));
-                    setConfirmedRows(false);
-                  }}
-                >
-                  <Text style={[styles.genderChipText, category === item && styles.genderChipTextActive]}>{item}</Text>
-                </Pressable>
-              ))}
-            </View>
-            {rows.map((row, index) => (
-              <View key={row.id} style={styles.specializationEditor}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.cardTitle}>Specialization {index + 1}</Text>
-                  <Text style={styles.quotedPill}>{category}</Text>
-                </View>
-                <Text style={styles.formLabel}>Cloth Type</Text>
-                <PickSuggestions options={clothOptionsForCategory(category)} value={row.clothType} onChange={(clothType) => updateRow(row.id, { clothType, gender: category })} />
-                <Text style={styles.formLabel}>Stitching Type</Text>
-                <PickSuggestions options={detailedStitchingTypeOptions} value={row.stitchingType} onChange={(stitchingType) => updateRow(row.id, { stitchingType, gender: category })} />
-                <Text style={styles.formLabel}>Price</Text>
-                <TextInput style={styles.input} value={row.price} onChangeText={(price) => updateRow(row.id, { price })} keyboardType="number-pad" placeholder="Rs" placeholderTextColor="#9aa6b8" />
-                {rows.length > 1 ? (
-                  <Pressable style={styles.removeRowButton} onPress={() => setRows((current) => current.filter((item) => item.id !== row.id))}>
-                    <Text style={styles.removeRowText}>Remove service</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ))}
-            <Pressable style={styles.secondaryButton} onPress={() => setRows((current) => [...current, { ...newSpecializationRow(), gender: category, clothType: clothOptionsForCategory(category)[0] ?? "Other" }])}>
-              <Ionicons name="add-circle-outline" size={18} color={BRAND_DEEP} />
-              <Text style={styles.secondaryButtonText}>Add Specialization</Text>
-            </Pressable>
-            <Pressable style={styles.primaryButton} onPress={() => setConfirmedRows(true)}>
-              <Text style={styles.primaryButtonText}>Confirm Table Preview</Text>
-            </Pressable>
-            {confirmedRows ? (
-              <View style={styles.previewTable}>
-                {rows.map((row) => (
-                  <View key={`preview-${row.id}`} style={styles.previewRow}>
-                    <Text style={styles.previewCell}>{row.gender}</Text>
-                    <Text style={styles.previewCell}>{row.clothType}</Text>
-                    <Text style={styles.previewCell}>{row.stitchingType}</Text>
-                    <Text style={styles.previewPrice}>Rs{row.price}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        {step === 4 ? (
-          <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>ID VERIFICATION</Text>
             <Text style={styles.verificationNotice}>Upload clear photos. Blurry or cropped documents can be rejected.</Text>
             <View style={styles.genderRow}>
-              {(["Aadhaar", "PAN"] as const).map((item) => (
-                <Pressable key={item} style={[styles.genderChip, idType === item && styles.genderChipActive]} onPress={() => setIdType(item)}>
+              {(["Aadhaar", "PAN", "License"] as const).map((item) => (
+                <Pressable
+                  key={item}
+                  style={[styles.genderChip, idType === item && styles.genderChipActive]}
+                  onPress={() => {
+                    setIdType(item);
+                    setIdNumber((current) => normalizeTailorIdNumber(item, current));
+                  }}
+                >
                   <Text style={[styles.genderChipText, idType === item && styles.genderChipTextActive]}>{item}</Text>
                 </Pressable>
               ))}
             </View>
-            <Text style={styles.formLabel}>{idType === "Aadhaar" ? "Aadhaar Number" : "PAN Number"}</Text>
+            <Text style={styles.formLabel}>{tailorIdNumberLabel(idType)}</Text>
             <TextInput
               style={styles.input}
               value={idNumber}
-              onChangeText={(value) => setIdNumber(idType === "Aadhaar" ? value.replace(/\D/g, "").slice(0, 12) : value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
-              placeholder={idType === "Aadhaar" ? "12 digit Aadhaar number" : "PAN number"}
+              onChangeText={(value) => setIdNumber(normalizeTailorIdNumber(idType, value))}
+              placeholder={tailorIdPlaceholder(idType)}
               placeholderTextColor="#9aa6b8"
               keyboardType={idType === "Aadhaar" ? "number-pad" : "default"}
             />
@@ -2407,7 +2418,7 @@ function TailorVerificationFlow({
                 <VerificationDocBox label="Aadhaar Back" media={aadhaarBack} onPick={() => pickDoc(setAadhaarBack, false, "ocr")} />
               </View>
             ) : (
-              <VerificationDocBox label="PAN Card" media={panPhoto} onPick={() => pickDoc(setPanPhoto, false, "ocr")} />
+              <VerificationDocBox label={idType === "PAN" ? "PAN Card" : "Driving Licence"} media={panPhoto} onPick={() => pickDoc(setPanPhoto, false, "ocr")} />
             )}
             <View style={styles.faceVerificationPanel}>
               <View style={[styles.faceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" || faceLiveness === "captured" ? styles.faceCircleReady : styles.faceCircleWaiting]}>
@@ -2460,7 +2471,7 @@ function TailorVerificationFlow({
           </View>
         ) : null}
 
-        {step === 5 ? (
+        {step === 4 ? (
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>TUTORIAL</Text>
             <Pressable style={styles.tutorialVideoCard} onPress={startTutorialWatch} disabled={tutorialWatching}>
@@ -2506,12 +2517,12 @@ function TailorVerificationFlow({
         ) : null}
 
         <View style={styles.verificationNav}>
-          {step > 1 ? (
+          {step > 1 && step <= VERIFICATION_FORM_STEPS ? (
             <Pressable style={styles.secondaryButton} onPress={() => setStep((current) => Math.max(1, current - 1))}>
               <Text style={styles.secondaryButtonText}>Back</Text>
             </Pressable>
           ) : null}
-          {step < 5 ? (
+          {step < VERIFICATION_FORM_STEPS ? (
             <Pressable style={[styles.primaryButton, !validateCurrentStep() && styles.disabledButton]} onPress={continueToNextStep}>
               <Text style={styles.primaryButtonText}>Continue</Text>
             </Pressable>
@@ -3534,6 +3545,8 @@ const styles = StyleSheet.create({
   verificationSteps: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
   verificationStepPill: { overflow: "hidden", borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, color: MUTED, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
   verificationStepPillActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc", color: BRAND_ORANGE },
+  verificationProgressTrack: { height: 6, borderRadius: 4, backgroundColor: "#e7edf5", overflow: "hidden", marginBottom: 16 },
+  verificationProgressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
   verificationNotice: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 10 },
   verificationHero: { borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 22, alignItems: "center", marginTop: 24 },
   rejectedHero: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
@@ -3545,6 +3558,8 @@ const styles = StyleSheet.create({
   reuploadDocumentCard: { minHeight: 94, borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, marginTop: 12 },
   reuploadIconTile: { width: 54, height: 54, borderRadius: 16, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   reuploadUploadButton: { minWidth: 104, minHeight: 44, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 10 },
+  reuploadPreviewRow: { gap: 8, paddingTop: 10 },
+  reuploadPreviewImage: { width: 52, height: 52, borderRadius: 13, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fff4dc" },
   smallLogoutButton: { alignItems: "center", marginTop: 14, paddingVertical: 8 },
   smallLogoutText: { color: MUTED, fontSize: 12, fontWeight: "800", textDecorationLine: "underline" },
   verifiedBadge: { width: 86, height: 86, borderRadius: 43, backgroundColor: "#22c55e", alignItems: "center", justifyContent: "center" },

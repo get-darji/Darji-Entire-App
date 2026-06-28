@@ -318,6 +318,7 @@ const measurementsImage = require("./measurements.png");
 const MAX_MEDIA_FILES = 6;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const REQUEST_DESCRIPTION_MIN = 10;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "orderSummary", "quotes", "confirmOrder"]);
@@ -1104,6 +1105,17 @@ function Header({ title, onBack, right }: { title?: string; onBack?: () => void;
   );
 }
 
+function RequestProgressBar({ step, total = 2 }: { step: number; total?: number }) {
+  return (
+    <View style={styles.requestProgressWrap}>
+      {Array.from({ length: total }).map((_, index) => {
+        const active = index + 1 <= step;
+        return <View key={index} style={[styles.requestProgressSegment, active && styles.requestProgressSegmentActive]} />;
+      })}
+    </View>
+  );
+}
+
 function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   const color = status === "Connected" ? "#15803d" : status === "Reconnecting" ? BRAND_ORANGE : "#b91c1c";
   return (
@@ -1390,6 +1402,13 @@ function HomeScreen({
     ["cube-outline", "Pickup & Stitch", "We handle pickup"],
     ["checkmark-done-outline", "Delivered", "Get order delivered"]
   ] as const;
+  const fabricCareTips = [
+    { title: "Cotton Care", copy: "Wash inside-out in cold water and dry in shade to keep colors fresh.", icon: "shirt-outline" },
+    { title: "Silk & Delicates", copy: "Use gentle wash or dry clean. Never wring silk, chiffon, or georgette.", icon: "sparkles-outline" },
+    { title: "Denim Life", copy: "Wash jeans less often, turn them inside-out, and skip high heat drying.", icon: "water-outline" },
+    { title: "White Clothes", copy: "Separate whites, treat stains early, and avoid mixing with bright fabrics.", icon: "sunny-outline" },
+    { title: "Storage Tip", copy: "Hang structured garments and fold knits so shoulders do not stretch.", icon: "cube-outline" }
+  ] as const;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -1526,13 +1545,19 @@ function HomeScreen({
             <Text style={styles.seeAll}>View all</Text>
           </Pressable>
         </View>
-        <Pressable style={styles.fabricTipCard} onPress={() => setScreen("measurementGuide")}>
-          <Image source={measurementsImage} style={styles.fabricTipImage} resizeMode="cover" />
-          <View style={styles.fabricTipText}>
-            <Text style={styles.fabricTipTitle}>Measurement Care 101</Text>
-            <Text style={styles.fabricTipCopy}>Use this guide before creating a request. Clear measurements help tailors quote faster.</Text>
-          </View>
-        </Pressable>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.fabricTipRow}>
+          {fabricCareTips.map((tip) => (
+            <Pressable key={tip.title} style={styles.fabricTipCard} onPress={() => setScreen("measurementGuide")}>
+              <View style={styles.fabricTipIcon}>
+                <Ionicons name={tip.icon} size={22} color={BRAND_ORANGE} />
+              </View>
+              <View style={styles.fabricTipText}>
+                <Text style={styles.fabricTipTitle}>{tip.title}</Text>
+                <Text style={styles.fabricTipCopy}>{tip.copy}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.listTitle}>Offers & Benefits</Text>
@@ -1661,14 +1686,6 @@ function HomeScreen({
             </View>
             <Ionicons name="chevron-forward" size={18} color="#6b7890" />
           </Pressable>
-          <Pressable style={styles.supportRow} onPress={() => setScreen("contactSupport")}>
-            <Ionicons name="call-outline" size={21} color={BRAND_DEEP} />
-            <View style={styles.profileRowText}>
-              <Text style={styles.addressTitle}>Call Us</Text>
-              <Text style={styles.mutedSmall}>+91 98765 43210</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
-          </Pressable>
           <Pressable style={styles.supportRow} onPress={() => setScreen("helpCenter")}>
             <Ionicons name="help-circle-outline" size={21} color={BRAND_DEEP} />
             <View style={styles.profileRowText}>
@@ -1678,6 +1695,16 @@ function HomeScreen({
             <Ionicons name="chevron-forward" size={18} color="#6b7890" />
           </Pressable>
         </View>
+        <Pressable style={styles.rateHomeCard} onPress={() => setScreen("rateApp")}>
+          <View style={styles.rateHomeIcon}>
+            <Ionicons name="star-outline" size={22} color={BRAND_ORANGE} />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.addressTitle}>Rate Darji</Text>
+            <Text style={styles.mutedSmall}>Share your experience and help improve Darji.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+        </Pressable>
       </ScrollView>
       <BottomTabs active="home" setScreen={setScreen} />
     </SafeAreaView>
@@ -1822,26 +1849,34 @@ function NotificationsScreen({
             <Text style={styles.listTitle}>Notification Center</Text>
             <Text style={styles.mutedSmall}>{unreadCount} unread updates</Text>
           </View>
-          <Pressable style={styles.outlinePill} onPress={onMarkAllRead}>
+          <Pressable style={styles.outlinePill} onPress={onMarkAllRead} disabled={!notifications.length}>
             <Text style={styles.orangeSmall}>Mark all read</Text>
           </Pressable>
         </View>
         <View style={{ marginTop: 20 }}>
-          {notifications.map((item) => (
-            <View key={item.id} style={[styles.notificationCard, item.dark && styles.darkNotificationCard]}>
-              <View style={[styles.notificationIcon, item.dark && styles.darkNotificationIcon]}>
-                <Ionicons name={item.icon} size={18} color={item.dark ? "#8793ff" : BRAND_ORANGE} />
-              </View>
-              <View style={styles.notificationBody}>
-                <View style={styles.rowBetween}>
-                  <Text style={[styles.notificationTitle, item.dark && styles.darkText]}>{item.title}</Text>
-                  <Text style={[styles.notificationTime, item.dark && styles.darkMuted]}>{item.time}</Text>
+          {notifications.length ? (
+            notifications.map((item) => (
+              <View key={item.id} style={[styles.notificationCard, item.dark && styles.darkNotificationCard]}>
+                <View style={[styles.notificationIcon, item.dark && styles.darkNotificationIcon]}>
+                  <Ionicons name={item.icon} size={18} color={item.dark ? "#8793ff" : BRAND_ORANGE} />
                 </View>
-                <Text style={[styles.notificationCopy, item.dark && styles.darkMuted]}>{item.text}</Text>
+                <View style={styles.notificationBody}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.notificationTitle, item.dark && styles.darkText]}>{item.title}</Text>
+                    <Text style={[styles.notificationTime, item.dark && styles.darkMuted]}>{item.time}</Text>
+                  </View>
+                  <Text style={[styles.notificationCopy, item.dark && styles.darkMuted]}>{item.text}</Text>
+                </View>
+                {!item.read ? <View style={styles.smallDot} /> : null}
               </View>
-              {!item.read ? <View style={styles.smallDot} /> : null}
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="notifications-off-outline" size={36} color={BRAND_ORANGE} />
+              <Text style={styles.emptyTitle}>No notifications</Text>
+              <Text style={styles.mutedCenter}>You are all caught up.</Text>
             </View>
-          ))}
+          )}
         </View>
       </ScrollView>
       <BottomTabs active="home" setScreen={setScreen} />
@@ -1870,7 +1905,9 @@ function NewRequestScreen({
   const savedItemCount = draft.items?.length ?? 0;
   const needsPickupAddress = savedItemCount === 0;
   const currentItemNumber = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) + 1 || savedItemCount + 1 : savedItemCount + 1;
-  const canContinueRequest = draft.media.length > 0 && draft.description.trim().length >= 10 && (!needsPickupAddress || draft.pickup.trim().length >= 8);
+  const descriptionLength = draft.description.trim().length;
+  const descriptionRemaining = Math.max(REQUEST_DESCRIPTION_MIN - descriptionLength, 0);
+  const canContinueRequest = draft.media.length > 0 && descriptionLength >= REQUEST_DESCRIPTION_MIN && (!needsPickupAddress || draft.pickup.trim().length >= 8);
   const isAddingAnotherItem = savedItemCount > 0 && !draft.editingItemId;
 
   function leaveCurrentItem() {
@@ -1916,8 +1953,8 @@ function NewRequestScreen({
       Alert.alert("Photo required", "Please add at least one photo or video so the tailor can understand the cloth and work.");
       return;
     }
-    if (draft.description.trim().length < 10) {
-      Alert.alert("Description required", "Please describe the stitching, alteration, or issue before continuing.");
+    if (draft.description.trim().length < REQUEST_DESCRIPTION_MIN) {
+      Alert.alert("Description required", `Please describe the stitching, alteration, or issue in at least ${REQUEST_DESCRIPTION_MIN} characters.`);
       return;
     }
     if (needsPickupAddress && draft.pickup.trim().length < 8) {
@@ -1995,6 +2032,7 @@ function NewRequestScreen({
           onBack={leaveCurrentItem}
           right={<Text style={styles.stepBadge}>1/2</Text>}
         />
+        <RequestProgressBar step={1} />
         <View style={styles.requestHintCard}>
           <Ionicons name="sparkles-outline" size={18} color={BRAND_ORANGE} />
           <View style={styles.profileRowText}>
@@ -2045,7 +2083,9 @@ function NewRequestScreen({
         ) : null}
 
         <Text style={styles.formLabel}>Describe the Issue</Text>
-        <Text style={styles.fieldDisclaimer}>Required. Add clear details so tailors can quote correctly.</Text>
+        <Text style={styles.fieldDisclaimer}>
+          Required. Describe the issue in at least {REQUEST_DESCRIPTION_MIN} characters so tailors can quote correctly.
+        </Text>
         <TextInput
           multiline
           style={styles.descriptionInput}
@@ -2054,6 +2094,9 @@ function NewRequestScreen({
           value={draft.description}
           onChangeText={(description) => setDraft({ ...draft, description })}
         />
+        <Text style={[styles.fieldDisclaimer, styles.descriptionCounter]}>
+          {descriptionRemaining > 0 ? `${descriptionRemaining} more character${descriptionRemaining === 1 ? "" : "s"} required.` : "Description looks good."}
+        </Text>
 
         {needsPickupAddress ? (
           <>
@@ -2299,7 +2342,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
   function selectClothType(clothType: string) {
     setShowManualMeasurements(false);
-    setDraft({ ...draft, clothType, measurements: {}, measurementNotes: "", sampleMedia: undefined, uploadedSampleMedia: undefined });
+    setDraft({ ...draft, clothType, measurements: {}, measurementNotes: "" });
   }
 
   function setMeasurement(field: string, value: string) {
@@ -2348,8 +2391,8 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
   async function saveClothingItem() {
     if (!canContinue || !token) return;
-    if (draft.description.trim().length < 10) {
-      Alert.alert("Add details", "Describe the issue in at least 10 characters.");
+    if (draft.description.trim().length < REQUEST_DESCRIPTION_MIN) {
+      Alert.alert("Add details", `Describe the issue in at least ${REQUEST_DESCRIPTION_MIN} characters.`);
       setScreen("newRequest");
       return undefined;
     }
@@ -2396,6 +2439,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} right={<Text style={styles.stepBadge}>2/2</Text>} />
+        <RequestProgressBar step={2} />
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
@@ -2417,19 +2461,67 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           ))}
         </View>
 
-        {draft.clothType && !showManualMeasurements ? (
+        {!showManualMeasurements ? (
           <Pressable style={styles.manualMeasureLink} onPress={() => setShowManualMeasurements(true)}>
             <Text style={styles.manualMeasureText}>Enter measurement manually?</Text>
             <Ionicons name="create-outline" size={16} color={BRAND_ORANGE} />
           </Pressable>
         ) : null}
 
-        {draft.clothType && showManualMeasurements ? (
+        <View style={styles.sampleReferenceCard}>
+          <Pressable style={styles.sampleReferenceHeader} onPress={toggleSampleProvided}>
+            <View style={styles.sampleReferenceIcon}>
+              <Ionicons name={draft.sampleProvided ? "checkbox" : "square-outline"} size={21} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.sampleReferenceText}>
+              <Text style={styles.addressTitle}>I will send a sample with my clothes</Text>
+              <Text style={styles.sampleReferenceCopy}>
+                {draft.sampleProvided ? "Sample selected. Upload a photo so the tailor can check the reference." : "Safer than only typing measurements: one wrong number can affect the fit."}
+              </Text>
+            </View>
+          </Pressable>
+          <View style={styles.sampleBulletList}>
+            <View style={styles.sampleBulletRow}>
+              <Text style={styles.sampleBulletDot}>-</Text>
+              <Text style={styles.sampleBulletText}>Best for matching your preferred fit.</Text>
+            </View>
+            <View style={styles.sampleBulletRow}>
+              <Text style={styles.sampleBulletDot}>-</Text>
+              <Text style={styles.sampleBulletText}>Do not send stretchable samples like rayon.</Text>
+            </View>
+            <View style={styles.sampleBulletRow}>
+              <Text style={styles.sampleBulletDot}>-</Text>
+              <Text style={styles.sampleBulletText}>Readymade S/M/L/XL samples are stitched to that garment size only.</Text>
+            </View>
+          </View>
+          {draft.sampleProvided ? (
+            <>
+              <Pressable style={styles.sampleUploadButton} onPress={pickSampleImage}>
+                <Ionicons name={draft.sampleMedia || draft.uploadedSampleMedia ? "image" : "cloud-upload-outline"} size={17} color={BRAND_ORANGE} />
+                <Text style={styles.sampleUploadText}>{draft.sampleMedia || draft.uploadedSampleMedia ? "Change Sample Photo" : "Upload Sample Photo"}</Text>
+              </Pressable>
+              {draft.sampleMedia || draft.uploadedSampleMedia ? (
+                <View style={styles.samplePreviewRow}>
+                  <Image source={{ uri: draft.sampleMedia?.uri ?? draft.uploadedSampleMedia?.url ?? "" }} resizeMode="cover" style={styles.samplePreviewImage} />
+                  <View style={styles.samplePreviewText}>
+                    <Text style={styles.addressTitle}>Sample photo added</Text>
+                    <Text style={styles.mutedSmall}>Tailor can use this with your measurements.</Text>
+                  </View>
+                  <Pressable style={styles.sampleRemoveButton} onPress={() => setDraft({ ...draft, sampleMedia: undefined, uploadedSampleMedia: undefined })}>
+                    <Ionicons name="close" size={15} color="#ffffff" />
+                  </Pressable>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+        </View>
+
+        {showManualMeasurements ? (
           <View style={styles.measurementCard}>
             <View style={styles.rowBetween}>
               <View style={styles.measurementTitleBlock}>
                 <Text style={styles.cardLabel}>MEASUREMENTS</Text>
-                <Text style={styles.addressTitle}>{draft.clothType}</Text>
+                <Text style={styles.addressTitle}>{draft.clothType || "Cloth measurements"}</Text>
               </View>
               <View style={styles.measurementHeaderActions}>
                 <Pressable style={styles.sizeChartButton} onPress={() => setShowSizeChart(true)}>
@@ -2441,6 +2533,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
                 </Pressable>
               </View>
             </View>
+            {false ? (
             <View style={styles.sampleReferenceCard}>
               <Pressable style={styles.sampleReferenceHeader} onPress={toggleSampleProvided}>
                 <View style={styles.sampleReferenceIcon}>
@@ -2488,6 +2581,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
                 </>
               ) : null}
             </View>
+            ) : null}
             <View style={styles.measurementRiskBanner}>
               <Ionicons name="alert-circle-outline" size={16} color="#b91c1c" />
               <Text style={styles.measurementRiskText}>Clothes are stitched from your measurements. Wrong measurements can cause fit issues and are not Darji's responsibility.</Text>
@@ -3003,12 +3097,14 @@ function QuotesScreen({
           )}
         />
         <View style={styles.quotesSummaryCard}>
-          <View style={styles.quoteClockIcon}>
-            <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
-          </View>
-          <View style={styles.profileRowText}>
-            <Text style={styles.quotesSummaryTitle}>{loading ? "Checking quotes..." : `${visibleQuotes.length} tailors responded`}{` - ${itemCount} ${itemCount === 1 ? "item" : "items"}`}</Text>
-            <Text style={styles.mutedSmall}>Your request was sent just now</Text>
+          <View style={styles.quotesSummaryTop}>
+            <View style={styles.quoteClockIcon}>
+              <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.profileRowText}>
+              <Text style={styles.quotesSummaryTitle}>{loading ? "Checking quotes..." : `${visibleQuotes.length} tailors responded`}{` - ${itemCount} ${itemCount === 1 ? "item" : "items"}`}</Text>
+              <Text style={styles.mutedSmall}>Your request was sent just now</Text>
+            </View>
           </View>
           <Pressable style={styles.quoteDetailsButton} onPress={() => setDetailsOpen(true)}>
             <Ionicons name="list-outline" size={18} color={BRAND_DEEP} />
@@ -3112,14 +3208,34 @@ function QuotesScreen({
             </View>
             <Text style={styles.infoCopy}>Request ID: {draft.backendRequestId ? `REQ-${draft.backendRequestId.slice(0, 8).toUpperCase()}` : "Draft request"}</Text>
             <View style={styles.summaryDivider} />
-            {clothingItemsForDraft(draft).map((item, index) => (
-              <View key={item.id} style={styles.requestDetailItem}>
-                <Text style={styles.cardLabel}>ITEM {index + 1}</Text>
-                <Text style={styles.addressTitle}>{clothingItemTitle(item)}</Text>
-                <Text style={styles.mutedSmall}>{clothingItemSummary(item)}</Text>
-                <Text style={styles.infoCopy}>{item.description}</Text>
-              </View>
-            ))}
+            {clothingItemsForDraft(draft).map((item, index) => {
+              const previews = [
+                ...item.media.map((media) => ({ uri: media.uri, type: media.type })),
+                ...item.uploadedMedia.map((media) => ({ uri: media.url, type: media.resourceType === "video" ? "video" as const : "image" as const }))
+              ].slice(0, 6);
+              return (
+                <View key={item.id} style={styles.requestDetailItem}>
+                  <Text style={styles.cardLabel}>ITEM {index + 1}</Text>
+                  <Text style={styles.addressTitle}>{clothingItemTitle(item)}</Text>
+                  <Text style={styles.mutedSmall}>{clothingItemSummary(item)}</Text>
+                  <Text style={styles.infoCopy}>{item.description}</Text>
+                  {previews.length ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.requestDetailPreviewRow}>
+                      {previews.map((media, mediaIndex) => (
+                        <View key={`${media.uri}-${mediaIndex}`} style={styles.requestDetailPreviewBox}>
+                          <Image source={{ uri: media.uri }} style={styles.requestDetailPreviewImage} />
+                          {media.type === "video" ? (
+                            <View style={styles.videoBadge}>
+                              <Ionicons name="play" size={10} color="#ffffff" />
+                            </View>
+                          ) : null}
+                        </View>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                </View>
+              );
+            })}
             <SummaryRow label="Urgency" value={draft.urgency ?? "Not selected"} />
             <SummaryRow label="Pickup" value={draft.pickup || "Not selected"} />
           </View>
@@ -3733,7 +3849,7 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="help-circle-outline" label="Help Center" value="FAQs & workflows" onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
-          <ProfileRow icon="call-outline" label="Contact Support" value="Chat with support team" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+          <ProfileRow icon="chatbubble-ellipses-outline" label="Contact Support" value="Chat with support team" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
           <ProfileRow icon="bug-outline" label="Report a Bug" value="Submit an application bug report" onPress={() => setScreen("reportBug")} styles={profileStyles} />
         </View>
 
@@ -5190,15 +5306,11 @@ function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Scr
   );
 }
 
-function RateAppScreen({ onSave, setScreen, orders }: { onSave: (rating: number, review: string) => void; setScreen: (screen: Screen) => void; orders: CustomerOrder[] }) {
-  const token = useAppStore((state) => state.token);
+function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review: string) => void; setScreen: (screen: Screen) => void }) {
   const [rating, setRating] = useState(5);
   const [review, setReview] = useState("");
   const [photos, setPhotos] = useState<LocalMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const latestOrder = [...orders]
-    .filter((order) => order.status === "Delivered")
-    .sort((a, b) => parseDateSafe(b.placedAt).getTime() - parseDateSafe(a.placedAt).getTime())[0] ?? orders[0];
 
   async function pickReviewPhotos() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -5228,20 +5340,6 @@ function RateAppScreen({ onSave, setScreen, orders }: { onSave: (rating: number,
     }
     try {
       setSubmitting(true);
-      if (token && latestOrder?.backendOrderId) {
-        await api(
-          "/reviews",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              orderId: latestOrder.backendOrderId,
-              rating,
-              comment: review.trim()
-            })
-          },
-          token
-        ).catch(() => undefined);
-      }
       onSave(rating, review.trim());
       Alert.alert("Saved", "Thanks for rating Darji.");
       setScreen("home");
@@ -5257,16 +5355,8 @@ function RateAppScreen({ onSave, setScreen, orders }: { onSave: (rating: number,
         <Text style={styles.profileName}>How was your experience?</Text>
         <Text style={styles.mutedSmall}>Your feedback helps us improve our service.</Text>
       </View>
-      {latestOrder ? (
-        <View style={styles.ratingCard}>
-          <Text style={styles.cardLabel}>ORDER ID</Text>
-          <Text style={styles.orderId}>{latestOrder.orderNumber}</Text>
-          <Text style={styles.infoCopy}>{latestOrder.draft.workType ?? "Tailoring"} - {latestOrder.draft.clothType ?? "Cloth"}</Text>
-          <Text style={styles.mutedSmall}>{formatInvoiceDate(new Date(latestOrder.placedAt))}</Text>
-        </View>
-      ) : null}
       <View style={styles.ratingCard}>
-        <Text style={styles.profileName}>Rate your experience</Text>
+        <Text style={styles.profileName}>Rate Darji app</Text>
         <View style={styles.starPicker}>
           {[1, 2, 3, 4, 5].map((item) => (
             <Pressable key={item} onPress={() => setRating(item)}>
@@ -5695,6 +5785,7 @@ function LegacyOrderDetailsScreenV2({
             method: "POST",
             body: JSON.stringify({
               orderId: order.backendOrderId ?? order.id,
+              kind,
               rating,
               comment: `${kind === "tailor" ? "Tailor" : "Delivery"}: ${review?.trim() || "No written review"}`
             })
@@ -5919,6 +6010,8 @@ function OrderDetailsScreenV2({
   onRequestCancel: (order: CustomerOrder) => void;
   setScreen: (screen: Screen) => void;
 }) {
+  const token = useAppStore((state) => state.token);
+  const [savingRating, setSavingRating] = useState<"tailor" | "delivery" | undefined>();
   const pickupSchedule = pickupScheduleForOrder(order);
   const estimatedTime = estimatedTimeForOrder(order);
   const orderItems = clothingItemsForDraft(order.draft);
@@ -5930,6 +6023,41 @@ function OrderDetailsScreenV2({
       (order.discountAmount ?? 0),
     0
   );
+
+  async function submitRating(kind: "tailor" | "delivery") {
+    const rating = kind === "tailor" ? order.tailorRating : order.deliveryRating;
+    const review = kind === "tailor" ? order.tailorReview : order.deliveryReview;
+    if (!rating) {
+      Alert.alert("Select rating", `Choose a star rating for the ${kind === "tailor" ? "tailor" : "delivery partner"} first.`);
+      return;
+    }
+
+    try {
+      setSavingRating(kind);
+      if (token) {
+        await api(
+          "/reviews",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              orderId: order.backendOrderId ?? order.id,
+              kind,
+              rating,
+              comment: `${kind === "tailor" ? "Tailor" : "Delivery"}: ${review?.trim() || "No written review"}`
+            })
+          },
+          token
+        ).catch(() => undefined);
+      }
+      onUpdateOrder({
+        ...order,
+        ...(kind === "tailor" ? { tailorRatingSubmittedAt: new Date().toISOString() } : { deliveryRatingSubmittedAt: new Date().toISOString() })
+      });
+      Alert.alert("Rating submitted", `Thanks for rating the ${kind === "tailor" ? "tailor" : "delivery partner"}.`);
+    } finally {
+      setSavingRating(undefined);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -6012,13 +6140,60 @@ function OrderDetailsScreenV2({
             <View style={styles.orderIssueRow}>
               <Ionicons name="star-outline" size={22} color={BRAND_ORANGE} />
               <View style={styles.profileRowText}>
-                <Text style={styles.addressTitle}>Rate Darji</Text>
-                <Text style={styles.mutedSmall}>Share your experience and help other customers.</Text>
+                <Text style={styles.addressTitle}>Rate this order</Text>
+                <Text style={styles.mutedSmall}>Review the tailor and delivery partner separately.</Text>
               </View>
-              <Pressable style={styles.orderSmallAction} onPress={() => setScreen("rateApp")}>
-                <Text style={styles.couponCopyText}>Rate</Text>
-              </Pressable>
             </View>
+            <View style={styles.ratingActionRow}>
+              <View style={styles.ratingActionText}>
+                <View style={styles.feedbackTitleRow}>
+                  <Ionicons name="star" size={17} color={BRAND_ORANGE} />
+                  <Text style={styles.addressTitle}>Rate your tailor</Text>
+                </View>
+                <Text style={[styles.mutedSmall, styles.feedbackPrompt]}>How satisfied are you with the stitching, fitting, and overall craftsmanship?</Text>
+              </View>
+              <RatingButtons value={order.tailorRating} onRate={(rating) => onUpdateOrder({ ...order, tailorRating: rating })} />
+            </View>
+            <TextInput
+              style={styles.reviewInput}
+              value={order.tailorReview ?? ""}
+              onChangeText={(text) => onUpdateOrder({ ...order, tailorReview: text })}
+              multiline
+              placeholder="Write a tailor review..."
+              placeholderTextColor="#98a4b6"
+            />
+            {order.tailorRatingSubmittedAt ? (
+              <Text style={styles.ratingSubmittedText}>Tailor rating submitted</Text>
+            ) : (
+              <Pressable style={[styles.ratingSubmitButton, !order.tailorRating && styles.ratingSubmitDisabled]} onPress={() => submitRating("tailor")} disabled={!order.tailorRating || Boolean(savingRating)}>
+                {savingRating === "tailor" ? <ActivityIndicator size="small" color="#111111" /> : <Text style={styles.ratingSubmitText}>Submit Tailor Rating</Text>}
+              </Pressable>
+            )}
+            <View style={styles.ratingActionRow}>
+              <View style={styles.ratingActionText}>
+                <View style={styles.feedbackTitleRow}>
+                  <Ionicons name="bicycle-outline" size={17} color={BRAND_ORANGE} />
+                  <Text style={styles.addressTitle}>Rate your delivery partner</Text>
+                </View>
+                <Text style={[styles.mutedSmall, styles.feedbackPrompt]}>How was your pickup and delivery experience? Your feedback helps us serve you better.</Text>
+              </View>
+              <RatingButtons value={order.deliveryRating} onRate={(rating) => onUpdateOrder({ ...order, deliveryRating: rating })} />
+            </View>
+            <TextInput
+              style={styles.reviewInput}
+              value={order.deliveryReview ?? ""}
+              onChangeText={(text) => onUpdateOrder({ ...order, deliveryReview: text })}
+              multiline
+              placeholder="Write a delivery review..."
+              placeholderTextColor="#98a4b6"
+            />
+            {order.deliveryRatingSubmittedAt ? (
+              <Text style={styles.ratingSubmittedText}>Delivery rating submitted</Text>
+            ) : (
+              <Pressable style={[styles.ratingSubmitButton, !order.deliveryRating && styles.ratingSubmitDisabled]} onPress={() => submitRating("delivery")} disabled={!order.deliveryRating || Boolean(savingRating)}>
+                {savingRating === "delivery" ? <ActivityIndicator size="small" color="#111111" /> : <Text style={styles.ratingSubmitText}>Submit Delivery Rating</Text>}
+              </Pressable>
+            )}
             <Pressable
               style={styles.secondaryWideButton}
               onPress={() => {
@@ -6463,7 +6638,7 @@ export default function App() {
   }
 
   function markNotificationsRead() {
-    setCustomerNotifications(notifications.map((item) => ({ ...item, read: true })));
+    setCustomerNotifications([]);
   }
 
   function resetRequestDraft() {
@@ -7135,7 +7310,7 @@ export default function App() {
         </Modal>
         
         <Modal visible={screen === "rateApp"} onRequestClose={goBack} animationType="slide">
-          <RateAppScreen onSave={saveAppReview} setScreen={setScreen} orders={orders} />
+          <RateAppScreen onSave={saveAppReview} setScreen={setScreen} />
         </Modal>
 
         <Modal visible={screen === "customerStories"} onRequestClose={goBack} animationType="slide">
@@ -7261,7 +7436,7 @@ function createStyles(isDark = false) {
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
   pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
-  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 96 },
+  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16 },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
   mutedSmall: { color: subtle, fontSize: 12 },
@@ -7313,7 +7488,9 @@ function createStyles(isDark = false) {
   needList: { gap: 10, marginBottom: 22 },
   needCard: { minHeight: 70, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 12 },
   needIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  fabricTipCard: { minHeight: 132, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", padding: 14, gap: 14, marginBottom: 22 },
+  fabricTipRow: { gap: 12, paddingBottom: 18 },
+  fabricTipCard: { width: 244, minHeight: 132, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", padding: 14, gap: 14 },
+  fabricTipIcon: { width: 52, height: 52, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#d8efbd", alignItems: "center", justifyContent: "center" },
   fabricTipImage: { width: 116, height: 92, borderRadius: 15, backgroundColor: iconBg },
   fabricTipText: { flex: 1, minWidth: 0 },
   fabricTipTitle: { color: text, fontSize: 17, fontWeight: "900" },
@@ -7324,11 +7501,11 @@ function createStyles(isDark = false) {
   offerTitle: { color: text, fontSize: 14, fontWeight: "900", marginTop: 10 },
   offerCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 6 },
   offerCode: { color: "#8a5600", fontSize: 11, fontWeight: "900", marginTop: 8 },
-  whyGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 22 },
-  whyCard: { width: "48.5%", minHeight: 88, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 12 },
-  whyIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  whyTitle: { color: text, fontSize: 12, fontWeight: "900" },
-  whyCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 15, marginTop: 4 },
+  whyGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 22 },
+  whyCard: { width: "48%", minHeight: 116, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "flex-start", justifyContent: "center", padding: 12, marginBottom: 12 },
+  whyIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  whyTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 17 },
+  whyCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 16, marginTop: 4 },
   homeStepsRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 22 },
   homeStepItem: { flex: 1, alignItems: "center", minWidth: 0 },
   stepNumber: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 10, backgroundColor: BRAND_ORANGE, color: "#111111", width: 20, height: 20, lineHeight: 20, textAlign: "center", fontSize: 10, fontWeight: "900", marginBottom: -8, zIndex: 1 },
@@ -7351,6 +7528,8 @@ function createStyles(isDark = false) {
   safeDataText: { flex: 1, minWidth: 0, color: text, fontSize: 12, fontWeight: "800", lineHeight: 18 },
   supportList: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, marginBottom: 10, overflow: "hidden" },
   supportRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: border },
+  rateHomeCard: { minHeight: 72, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 12, marginBottom: 16 },
+  rateHomeIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   homeInsightGrid: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 12 },
   homeInsightCard: { flex: 1, minHeight: 104, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, justifyContent: "center" },
   homeInsightValue: { color: text, fontSize: 15, fontWeight: "900", marginTop: 10, marginBottom: 5 },
@@ -7376,6 +7555,9 @@ function createStyles(isDark = false) {
   headerTitle: { color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
   headerSpacer: { width: 40 },
   roundIconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: surface, alignItems: "center", justifyContent: "center" },
+  requestProgressWrap: { flexDirection: "row", gap: 6, marginBottom: 16 },
+  requestProgressSegment: { flex: 1, height: 5, borderRadius: 3, backgroundColor: "#d9dee7" },
+  requestProgressSegmentActive: { backgroundColor: BRAND_ORANGE },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   outlinePill: { height: 34, borderRadius: 17, borderWidth: 1, borderColor: "#efbd65", paddingHorizontal: 16, justifyContent: "center" },
   notificationCard: { minHeight: 90, borderRadius: 22, borderWidth: 1, borderColor: "#efc87d", backgroundColor: "#fff9f0", flexDirection: "row", alignItems: "flex-start", padding: 16, marginBottom: 12 },
@@ -7396,6 +7578,7 @@ function createStyles(isDark = false) {
   helperText: { color: muted, fontSize: 14, lineHeight: 22, marginBottom: 18 },
   formLabel: { color: muted, fontSize: 13, fontWeight: "900", marginTop: 20, marginBottom: 10 },
   fieldDisclaimer: { color: "#8a5600", fontSize: 12, fontWeight: "800", lineHeight: 18, marginTop: 8 },
+  descriptionCounter: { textAlign: "right", marginTop: 6 },
   uploadRow: { flexDirection: "row", gap: 10 },
   uploadBox: { flex: 1, height: 98, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", alignItems: "center", justifyContent: "center", backgroundColor: inputSurface },
   uploadText: { color: muted, fontSize: 11, marginTop: 10 },
@@ -7577,10 +7760,11 @@ function createStyles(isDark = false) {
   paymentVerificationOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(247, 250, 255, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   infoBanner: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8, marginBottom: 14 },
   infoBannerText: { color: muted, fontSize: 13, fontWeight: "700" },
-  quotesSummaryCard: { minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginBottom: 26 },
+  quotesSummaryCard: { minHeight: 126, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 14, marginBottom: 26 },
+  quotesSummaryTop: { flexDirection: "row", alignItems: "center", gap: 14, width: "100%" },
   quoteClockIcon: { width: 62, height: 62, borderRadius: 31, backgroundColor: surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92" },
   quotesSummaryTitle: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 24 },
-  quoteDetailsButton: { minHeight: 46, borderRadius: 23, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12 },
+  quoteDetailsButton: { minHeight: 46, alignSelf: "flex-end", borderRadius: 23, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14, marginTop: 14 },
   quoteDetailsButtonText: { color: text, fontSize: 13, fontWeight: "900" },
   quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 12 },
   quotesIllustration: { width: 220, height: 170, borderRadius: 85, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 10 },
@@ -7595,6 +7779,9 @@ function createStyles(isDark = false) {
   requestExpireRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 18, marginBottom: 20 },
   requestDetailsModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
   requestDetailItem: { borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12, marginVertical: 8 },
+  requestDetailPreviewRow: { gap: 8, paddingTop: 10 },
+  requestDetailPreviewBox: { width: 58, height: 58, borderRadius: 13, overflow: "hidden", borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt },
+  requestDetailPreviewImage: { width: "100%", height: "100%" },
   quoteCard: { width: "100%", minHeight: 162, borderRadius: 20, backgroundColor: surfaceAlt, padding: 18, marginBottom: 16, borderWidth: 1.2, borderColor: "#efcf92" },
   selectedQuoteCard: { borderColor: BRAND_ORANGE, backgroundColor: isDark ? "#2a1d0a" : "#fff5df" },
   quoteTopRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
@@ -7715,6 +7902,7 @@ function createStyles(isDark = false) {
   orderPrice: { color: BRAND_ORANGE, fontSize: 18, fontWeight: "900" },
   emptyState: { minHeight: 360, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
   emptyTitle: { color: text, fontSize: 20, fontWeight: "900", marginTop: 12, marginBottom: 6 },
+  mutedCenter: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, textAlign: "center" },
   searchInputWrap: { height: 54, borderRadius: 18, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10, marginBottom: 16 },
   searchInput: { flex: 1, height: 52, color: text, fontSize: 15, fontWeight: "700" },
   quickRequestCard: { borderRadius: 20, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 22 },

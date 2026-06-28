@@ -120,7 +120,7 @@ const tailorVerificationSchema = z.object({
     .max(50),
   idVerification: z
     .object({
-      idType: z.enum(["Aadhaar", "PAN"]),
+      idType: z.enum(["Aadhaar", "PAN", "License"]),
       idNumber: z.string().trim().min(10).max(20),
       aadhaarFrontUrl: z.string().url().optional(),
       aadhaarBackUrl: z.string().url().optional(),
@@ -140,6 +140,9 @@ const tailorVerificationSchema = z.object({
       if (value.idType === "PAN" && !value.panUrl) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "PAN card photo is required", path: ["panUrl"] });
       }
+      if (value.idType === "License" && !value.panUrl) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Driving licence photo is required", path: ["panUrl"] });
+      }
       if (!value.facePhotoUrl) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Face verification photo is required", path: ["facePhotoUrl"] });
       }
@@ -147,7 +150,7 @@ const tailorVerificationSchema = z.object({
 });
 
 const tailorVerificationDraftSchema = z.object({
-  step: z.number().int().min(1).max(6).optional(),
+  step: z.number().int().min(1).max(5).optional(),
   draft: z.record(z.string(), z.unknown())
 });
 
@@ -348,7 +351,7 @@ async function uploadAdminMediaBuffer(file: Express.Multer.File, folder = "darzi
 
 function defaultTailorReuploadFields(verification: unknown): Array<(typeof tailorVerificationReuploadFields)[number]> {
   const idType = String((verification as { idVerification?: { idType?: string } } | undefined)?.idVerification?.idType ?? "Aadhaar");
-  return idType === "PAN" ? ["panPhoto", "facePhoto"] : ["aadhaarFront", "aadhaarBack", "facePhoto"];
+  return idType === "Aadhaar" ? ["aadhaarFront", "aadhaarBack", "facePhoto"] : ["panPhoto", "facePhoto"];
 }
 
 function normalizeTailorTutorialMedia(value: unknown) {
@@ -953,17 +956,41 @@ export async function registerFcmTokenController(req: Request, res: Response) {
 export async function createReviewController(req: Request, res: Response) {
   const rating = Number(req.body.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new AppError(400, "Rating must be 1-5");
-  const review = await ReviewModel.create({ userId: req.user!.id, orderId: String(req.body.orderId), rating, comment: req.body.comment });
+  const kind = req.body.kind === "delivery" ? "delivery" : req.body.kind === "app" ? "app" : "tailor";
+  const orderId = String(req.body.orderId);
+  const review = await ReviewModel.create({ userId: req.user!.id, orderId, kind, rating, comment: req.body.comment });
+  if (kind === "delivery") {
+    const task = await DeliveryRequestModel.findOne({ orderId, assignedDeliveryPartnerId: { $exists: true, $ne: "" } }).sort({ updatedAt: -1 });
+    if (task?.assignedDeliveryPartnerId) {
+      const partnerTasks = await DeliveryRequestModel.find({ assignedDeliveryPartnerId: task.assignedDeliveryPartnerId }).select("orderId");
+      const orderIds = [...new Set(partnerTasks.map((item) => item.orderId).filter(Boolean))];
+      const [ratingSummary] = await ReviewModel.aggregate<{ _id: null; averageRating: number }>([
+        { $match: { kind: "delivery", orderId: { $in: orderIds } } },
+        { $group: { _id: null, averageRating: { $avg: "$rating" } } }
+      ]);
+      if (ratingSummary) {
+        await DeliveryPartnerModel.findByIdAndUpdate(task.assignedDeliveryPartnerId, { rating: Number(ratingSummary.averageRating.toFixed(1)) });
+      }
+    }
+    res.status(201).json({ data: review });
+    return;
+  }
   const order = await OrderModel.findById(String(req.body.orderId)).select("tailorId");
-  if (order?.tailorId) {
-    const tailorOrders = await OrderModel.find({ tailorId: order.tailorId }).select("_id");
-    const orderIds = tailorOrders.map((tailorOrder) => tailorOrder.id);
+  const tailoringRequest = order?.tailorId ? null : await TailoringRequestModel.findById(orderId).select("selectedQuoteId");
+  const selectedQuote = tailoringRequest?.selectedQuoteId ? await TailorQuoteModel.findById(tailoringRequest.selectedQuoteId).select("tailorId") : null;
+  const tailorId = order?.tailorId ?? selectedQuote?.tailorId;
+  if (tailorId) {
+    const [tailorOrders, tailorQuotes] = await Promise.all([
+      OrderModel.find({ tailorId }).select("_id"),
+      TailorQuoteModel.find({ tailorId, status: "ACCEPTED" }).select("requestId")
+    ]);
+    const orderIds = [...new Set([...tailorOrders.map((tailorOrder) => tailorOrder.id), ...tailorQuotes.map((quote) => quote.requestId)])];
     const [ratingSummary] = await ReviewModel.aggregate<{ _id: null; averageRating: number }>([
-      { $match: { orderId: { $in: orderIds } } },
+      { $match: { kind: "tailor", orderId: { $in: orderIds } } },
       { $group: { _id: null, averageRating: { $avg: "$rating" } } }
     ]);
     if (ratingSummary) {
-      await TailorModel.findByIdAndUpdate(order.tailorId, { rating: Number(ratingSummary.averageRating.toFixed(1)) });
+      await TailorModel.findByIdAndUpdate(tailorId, { rating: Number(ratingSummary.averageRating.toFixed(1)) });
     }
   }
   res.status(201).json({ data: review });
