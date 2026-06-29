@@ -113,12 +113,15 @@ import {
   getAccountChangeRequests,
   approveAccountChangeRequest,
   rejectAccountChangeRequest,
+  getAdminReviews,
+  toggleReviewFeatured,
   resolveDeliveryRetry,
   retryDeliveryNow,
   addSupportTicketMessage,
   addBugReportMessage,
   addChangeRequestMessage,
-  uploadAdminMedia
+  uploadAdminMedia,
+  type AdminReview
 } from "@/src/lib/api";
 import {
   cn,
@@ -460,6 +463,11 @@ export function AdminPortal() {
     queryFn: getAccountChangeRequests,
     enabled: isAuthed
   });
+  const reviewsQuery = useQuery({
+    queryKey: ["admin", "reviews"],
+    queryFn: getAdminReviews,
+    enabled: isAuthed
+  });
 
 
   const dashboardData = useMemo<QueryBundle | null>(() => {
@@ -566,7 +574,8 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "settings"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "support-stats"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "bug-reports"] }),
-      queryClient.invalidateQueries({ queryKey: ["admin", "change-requests"] })
+      queryClient.invalidateQueries({ queryKey: ["admin", "change-requests"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] })
     ]);
 
   const assignMutation = useMutation({
@@ -632,6 +641,15 @@ export function AdminPortal() {
     onSuccess: async () => {
       toast.success("Setting saved");
       await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const reviewFeaturedMutation = useMutation({
+    mutationFn: toggleReviewFeatured,
+    onSuccess: async () => {
+      toast.success("Review visibility updated");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1812,7 +1830,12 @@ export function AdminPortal() {
         ) : null}
 
         {activeSection === "reviews" ? (
-          <ReviewsManagementPanel />
+          <ReviewsManagementPanel
+            loading={reviewsQuery.isLoading}
+            onToggleFeatured={(reviewId) => reviewFeaturedMutation.mutate(reviewId)}
+            pendingReviewId={reviewFeaturedMutation.isPending ? reviewFeaturedMutation.variables : undefined}
+            reviews={reviewsQuery.data ?? []}
+          />
         ) : null}
 
         {activeSection === "settings" ? (
@@ -2926,6 +2949,166 @@ function FinanceStatCard({
       <p className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
       <p className="mt-2 text-sm text-[var(--muted)]">{note}</p>
     </Panel>
+  );
+}
+
+function ReviewsManagementPanel({
+  loading,
+  onToggleFeatured,
+  pendingReviewId,
+  reviews
+}: {
+  loading: boolean;
+  onToggleFeatured: (reviewId: string) => void;
+  pendingReviewId?: string;
+  reviews: AdminReview[];
+}) {
+  const [kindFilter, setKindFilter] = useState<"all" | AdminReview["kind"]>("all");
+  const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured" | "hidden">("all");
+  const [search, setSearch] = useState("");
+  const filteredReviews = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return reviews.filter((review) => {
+      if (kindFilter !== "all" && review.kind !== kindFilter) return false;
+      if (featuredFilter === "featured" && !review.isFeatured) return false;
+      if (featuredFilter === "hidden" && review.isFeatured) return false;
+      if (!query) return true;
+      return [
+        review.user?.name,
+        review.user?.phone,
+        review.targetName,
+        review.targetPhone,
+        review.orderNumber,
+        review.comment,
+        review.kind
+      ].some((value) => String(value ?? "").toLowerCase().includes(query));
+    });
+  }, [featuredFilter, kindFilter, reviews, search]);
+  const featuredCount = reviews.filter((review) => review.isFeatured).length;
+  const averageRating = reviews.length ? reviews.reduce((sum, review) => sum + Number(review.rating ?? 0), 0) / reviews.length : 0;
+
+  if (loading) return <LoadingDashboard />;
+
+  return (
+    <div className="space-y-6">
+      <SectionIntro
+        title="Reviews"
+        description="Moderate customer reviews, filter by Tailor, Delivery Boy, or Darji App, and choose which reviews appear in the customer app."
+        action={
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              className="min-h-11 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 text-sm outline-none focus:border-[var(--accent)]"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search reviews..."
+              value={search}
+            />
+            <FilterSelect
+              value={kindFilter}
+              onChange={(value) => setKindFilter(value as typeof kindFilter)}
+              options={[
+                { label: "All review types", value: "all" },
+                { label: "Tailor reviews", value: "tailor" },
+                { label: "Delivery reviews", value: "delivery" },
+                { label: "Darji app reviews", value: "app" }
+              ]}
+            />
+            <FilterSelect
+              value={featuredFilter}
+              onChange={(value) => setFeaturedFilter(value as typeof featuredFilter)}
+              options={[
+                { label: "All visibility", value: "all" },
+                { label: "Shown in app", value: "featured" },
+                { label: "Hidden from app", value: "hidden" }
+              ]}
+            />
+          </div>
+        }
+      />
+      <div className="grid gap-4 md:grid-cols-4">
+        <FinanceStatCard label="Total reviews" value={String(reviews.length)} note="All submitted reviews" tone="violet" />
+        <FinanceStatCard label="Featured" value={String(featuredCount)} note="Visible in customer app" tone="emerald" />
+        <FinanceStatCard label="Average rating" value={averageRating ? averageRating.toFixed(1) : "0.0"} note="Across all reviews" tone="amber" />
+        <FinanceStatCard label="Filtered" value={String(filteredReviews.length)} note="Current view" tone="sky" />
+      </div>
+      <Panel className="p-0">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-4 font-semibold">Customer</th>
+                <th className="px-4 py-4 font-semibold">Type</th>
+                <th className="px-4 py-4 font-semibold">Review For</th>
+                <th className="px-4 py-4 font-semibold">Rating</th>
+                <th className="px-4 py-4 font-semibold">Review</th>
+                <th className="px-4 py-4 font-semibold">Order</th>
+                <th className="px-4 py-4 font-semibold">Visibility</th>
+                <th className="px-4 py-4 font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReviews.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>
+                    No reviews match the current filters.
+                  </td>
+                </tr>
+              ) : null}
+              {filteredReviews.map((review) => (
+                <tr key={review.id} className="border-b border-[var(--panel-border)] align-top transition hover:bg-[var(--accent-soft)]">
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-3">
+                      <img
+                        alt={review.user?.name ?? "Customer avatar"}
+                        className="h-10 w-10 rounded-full border border-[var(--panel-border)] object-cover"
+                        src={review.user?.avatarUrl || getDefaultAvatarUrl(review.user?.name ?? review.user?.phone ?? "Customer")}
+                      />
+                      <div>
+                        <p className="font-semibold text-[var(--foreground)]">{review.user?.name ?? "Customer"}</p>
+                        <p className="text-xs text-[var(--muted)]">{review.user?.phone ?? "-"}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4"><Badge tone={review.kind === "tailor" ? "amber" : review.kind === "delivery" ? "sky" : "violet"}>{review.kind === "app" ? "Darji App" : formatStatus(review.kind)}</Badge></td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-3">
+                      <img
+                        alt={review.targetName ?? "Review target"}
+                        className="h-9 w-9 rounded-full border border-[var(--panel-border)] object-cover"
+                        src={review.targetAvatarUrl || getDefaultAvatarUrl(review.targetName ?? review.kind)}
+                      />
+                      <div>
+                        <p className="font-semibold text-[var(--foreground)]">{review.targetName ?? (review.kind === "app" ? "Darji App" : "-")}</p>
+                        <p className="text-xs text-[var(--muted)]">{review.targetPhone ?? "-"}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className="inline-flex items-center gap-1 font-semibold text-amber-600"><Star size={15} fill="currentColor" /> {Number(review.rating ?? 0).toFixed(1)}</span>
+                  </td>
+                  <td className="max-w-md px-4 py-4 text-[var(--foreground)]">"{review.comment || "No comment"}"</td>
+                  <td className="px-4 py-4">
+                    <p className="font-semibold">{review.orderNumber}</p>
+                    <p className="text-xs text-[var(--muted)]">{formatDate(review.createdAt, true)}</p>
+                  </td>
+                  <td className="px-4 py-4"><Badge tone={review.isFeatured ? "emerald" : "slate"}>{review.isFeatured ? "Shown" : "Hidden"}</Badge></td>
+                  <td className="px-4 py-4">
+                    <ActionButton
+                      className="px-3 py-2"
+                      disabled={pendingReviewId === review.id}
+                      onClick={() => onToggleFeatured(review.id)}
+                      variant={review.isFeatured ? "secondary" : "primary"}
+                    >
+                      {review.isFeatured ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                      {review.isFeatured ? "Hide" : "Show"}
+                    </ActionButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
   );
 }
 

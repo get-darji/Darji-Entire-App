@@ -1971,12 +1971,50 @@ export async function addChangeRequestMessageController(req: Request, res: Respo
   res.json({ data: updatedRequest });
 }
 
+async function reviewOrderContext(orderId: string, kind: string) {
+  const order = await OrderModel.findById(orderId).select("orderNumber addressId tailorId createdAt");
+  const tailoringRequest = order ? null : await TailoringRequestModel.findById(orderId).select("selectedQuoteId pickupAddress createdAt");
+  const selectedQuote = tailoringRequest?.selectedQuoteId ? await TailorQuoteModel.findById(tailoringRequest.selectedQuoteId).select("tailorId") : null;
+  const deliveryTask = kind === "delivery"
+    ? await DeliveryRequestModel.findOne({ orderId, assignedDeliveryPartnerId: { $exists: true, $ne: "" } }).sort({ updatedAt: -1 }).select("assignedDeliveryPartnerId")
+    : null;
+  const tailorId = order?.tailorId ?? selectedQuote?.tailorId;
+  const partnerId = deliveryTask?.assignedDeliveryPartnerId;
+  const [address, tailor, partner] = await Promise.all([
+    order?.addressId ? AddressModel.findById(order.addressId).select("city state") : null,
+    tailorId ? TailorModel.findById(tailorId).select("shopName userId") : null,
+    partnerId ? DeliveryPartnerModel.findById(partnerId).select("userId vehicleNumber") : null
+  ]);
+  const [tailorUser, partnerUser] = await Promise.all([
+    tailor?.userId ? UserModel.findById(tailor.userId).select("name phone avatarUrl") : null,
+    partner?.userId ? UserModel.findById(partner.userId).select("name phone avatarUrl") : null
+  ]);
+  const location = address?.city
+    ? `${address.city}, ${address.state || "Delhi"}`
+    : tailoringRequest?.pickupAddress
+      ? String(tailoringRequest.pickupAddress).split(",").slice(-2).map((part) => part.trim()).filter(Boolean).join(", ")
+      : "Darji customer";
+
+  return {
+    orderNumber: order?.orderNumber || orderId.slice(0, 8).toUpperCase(),
+    location,
+    targetId: kind === "delivery" ? partnerId : kind === "tailor" ? tailorId : undefined,
+    targetName: kind === "delivery"
+      ? partnerUser?.name || "Delivery partner"
+      : kind === "tailor"
+        ? tailor?.shopName || tailorUser?.name || "Tailor"
+        : "Darji App",
+    targetPhone: kind === "delivery" ? partnerUser?.phone : tailorUser?.phone,
+    targetAvatarUrl: kind === "delivery" ? partnerUser?.avatarUrl : tailorUser?.avatarUrl
+  };
+}
+
 export async function listAdminReviewsController(req: Request, res: Response) {
   const reviews = await ReviewModel.find({}).sort({ createdAt: -1 });
   const populated = await Promise.all(
     reviews.map(async (review) => {
       const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
-      const order = await OrderModel.findById(review.orderId).select("orderNumber address customer placedAt");
+      const context = await reviewOrderContext(String(review.orderId), String(review.kind));
       return {
         id: review.id,
         userId: review.userId,
@@ -1987,7 +2025,11 @@ export async function listAdminReviewsController(req: Request, res: Response) {
         isFeatured: review.isFeatured ?? false,
         createdAt: review.createdAt,
         user: user ? { name: user.name, phone: user.phone, avatarUrl: user.avatarUrl } : null,
-        orderNumber: order?.orderNumber || review.orderId.slice(0, 8).toUpperCase()
+        orderNumber: context.orderNumber,
+        targetId: context.targetId,
+        targetName: context.targetName,
+        targetPhone: context.targetPhone,
+        targetAvatarUrl: context.targetAvatarUrl
       };
     })
   );
@@ -2010,15 +2052,11 @@ export async function listFeaturedReviewsController(req: Request, res: Response)
   const populated = await Promise.all(
     reviews.map(async (review) => {
       const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
-      const order = await OrderModel.findById(review.orderId).select("orderNumber address customer placedAt");
-      let location = "Janakpuri, Delhi";
-      if (order?.address?.city) {
-        location = `${order.address.city}, ${order.address.state || "Delhi"}`;
-      }
+      const context = await reviewOrderContext(String(review.orderId), String(review.kind));
       return {
         id: review.id,
         name: user?.name || "Customer",
-        location,
+        location: context.location,
         rating: review.rating,
         review: review.comment || "No comment",
         createdAt: review.createdAt

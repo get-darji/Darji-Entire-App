@@ -19,6 +19,7 @@ import {
   AppState,
   BackHandler,
   Image,
+  type ImageSourcePropType,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -250,7 +251,7 @@ type PaymentSheetState = {
   config: NonNullable<CheckoutStartResponse["razorpay"]>;
 };
 type ProfileGender = "Male" | "Female" | "Other" | "";
-type ProfileData = { name: string; phone: string; gender?: ProfileGender; dateOfBirth?: string; avatarUri?: string; hasCompletedOnboarding?: boolean };
+type ProfileData = { name: string; phone: string; gender?: ProfileGender; dateOfBirth?: string; avatarUri?: string; avatarPreset?: AvatarPreset; hasCompletedOnboarding?: boolean };
 type AppSettings = { notifications: boolean; orderUpdates: boolean; darkMode: boolean; compactCards: boolean; locationAccess: boolean; saveMedia: boolean };
 type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number };
 type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
@@ -322,6 +323,38 @@ const SCREEN_BG = "#f7faff";
 const CARD_DARK = "#111111";
 const darjiLogo = require("./darji transparent.png");
 const measurementsImage = require("./measurements.png");
+const ironingImage = require("../../icons/ironing.png");
+const avatarImages = {
+  youngMale: require("../../icons/young male.png"),
+  youngFemale: require("../../icons/young female.png"),
+  boy: require("../../icons/boy.png"),
+  girl: require("../../icons/girl.png"),
+  uncle: require("../../icons/uncle.png"),
+  aunt: require("../../icons/aunt.png"),
+  aunt2: require("../../icons/aunt_2.png"),
+  blackFemale: require("../../icons/black_female.png"),
+  blackMale: require("../../icons/black_male.png"),
+  oldMale: require("../../icons/old_male.png"),
+  tannedMale: require("../../icons/tanned_male.png"),
+  tannedMale2: require("../../icons/tanned_male_2.png"),
+  tannedUncle: require("../../icons/tanned_uncle.png")
+} as const;
+type AvatarPreset = keyof typeof avatarImages;
+const avatarOptions: Array<{ key: AvatarPreset; label: string }> = [
+  { key: "boy", label: "Boy" },
+  { key: "girl", label: "Girl" },
+  { key: "youngMale", label: "Young Male" },
+  { key: "youngFemale", label: "Young Female" },
+  { key: "uncle", label: "Uncle" },
+  { key: "aunt", label: "Aunt" },
+  { key: "aunt2", label: "Aunt 2" },
+  { key: "blackFemale", label: "Female" },
+  { key: "blackMale", label: "Male" },
+  { key: "oldMale", label: "Old Male" },
+  { key: "tannedMale", label: "Male 2" },
+  { key: "tannedMale2", label: "Male 3" },
+  { key: "tannedUncle", label: "Uncle 2" }
+];
 const MAX_MEDIA_FILES = 6;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
@@ -396,7 +429,7 @@ const homeMediaFeatures = [
     title: "Cloth Press Doorstep",
     text: "Steam press pickup and delivery at home",
     tag: "Launching soon",
-    image: "https://images.unsplash.com/photo-1512436991641-6745cdb1723f?auto=format&fit=crop&w=800&q=80",
+    image: ironingImage,
     soon: true
   },
   {
@@ -734,47 +767,54 @@ function normalizedAvatarGender(gender?: string) {
   return undefined;
 }
 
-export function getFallbackAvatar(name?: string, gender?: string) {
-  const str = name || "User";
-  const selectedGender = normalizedAvatarGender(gender);
-  if (selectedGender) return `https://avatar.iran.liara.run/public/${selectedGender}?username=${encodeURIComponent(str)}`;
+function hashValue(seed?: string) {
+  const str = seed || "User";
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const isBoy = Math.abs(hash) % 2 === 0;
+  return Math.abs(hash);
+}
+
+function ageFromDob(dateOfBirth?: string) {
+  if (!dateOfBirth) return undefined;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return undefined;
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const birthdayPassed = now.getMonth() > dob.getMonth() || (now.getMonth() === dob.getMonth() && now.getDate() >= dob.getDate());
+  if (!birthdayPassed) age -= 1;
+  return age >= 0 && age < 130 ? age : undefined;
+}
+
+type AvatarProfileInput = { name?: string; gender?: string; dateOfBirth?: string; avatarPreset?: AvatarPreset };
+
+function defaultAvatarPreset(profile: AvatarProfileInput): AvatarPreset {
+  if (profile.avatarPreset && avatarImages[profile.avatarPreset]) return profile.avatarPreset;
+  const gender = normalizedAvatarGender(profile.gender);
+  const isBoy = gender ? gender === "boy" : hashValue(profile.name) % 2 === 0;
+  const age = ageFromDob(profile.dateOfBirth);
+  if (typeof age === "number" && age < 13) return isBoy ? "boy" : "girl";
+  if (typeof age === "number" && age >= 45) return isBoy ? "uncle" : "aunt";
+  return isBoy ? "youngMale" : "youngFemale";
+}
+
+function getDefaultAvatarSource(profile: AvatarProfileInput): ImageSourcePropType {
+  return avatarImages[defaultAvatarPreset(profile)];
+}
+
+export function getFallbackAvatar(name?: string, gender?: string) {
+  const str = name || "User";
+  const selectedGender = normalizedAvatarGender(gender);
+  if (selectedGender) return `https://avatar.iran.liara.run/public/${selectedGender}?username=${encodeURIComponent(str)}`;
+  const isBoy = hashValue(str) % 2 === 0;
   return isBoy 
     ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(str)}`
     : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
 }
 
-export function FallbackAvatar({ name, gender, size = 44, style }: { name?: string; gender?: string; size?: number; style?: any }) {
-  const str = name || "User";
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const selectedGender = normalizedAvatarGender(gender);
-  const isBoy = selectedGender ? selectedGender === "boy" : Math.abs(hash) % 2 === 0;
-  const bgColor = isBoy ? "#e0f2fe" : "#fce7f3";
-  const iconColor = isBoy ? "#0284c7" : "#db2777";
-  return (
-    <View style={[{
-      width: size,
-      height: size,
-      borderRadius: size / 2,
-      backgroundColor: bgColor,
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden"
-    }, style]}>
-      <Ionicons 
-        name={isBoy ? "man-outline" : "woman-outline"} 
-        size={size * 0.58} 
-        color={iconColor} 
-      />
-    </View>
-  );
+export function FallbackAvatar({ name, gender, dateOfBirth, avatarPreset, size = 44, style }: { name?: string; gender?: string; dateOfBirth?: string; avatarPreset?: AvatarPreset; size?: number; style?: any }) {
+  return <Image source={getDefaultAvatarSource({ name, gender: gender as ProfileGender, dateOfBirth, avatarPreset })} style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: "#f1f5f9" }, style]} />;
 }
 
 function shortLocationFromAddress(address?: SavedAddress) {
@@ -1300,7 +1340,7 @@ function LegacyHomeScreen({
             <Pressable onPress={() => setScreen("profile")}>
               {profile.avatarUri 
                 ? <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} /> 
-                : <FallbackAvatar name={profile.name} gender={profile.gender} size={44} style={styles.avatarImage} />}
+                : <FallbackAvatar name={profile.name} gender={profile.gender} dateOfBirth={profile.dateOfBirth} avatarPreset={profile.avatarPreset} size={44} style={styles.avatarImage} />}
             </Pressable>
           </View>
         </View>
@@ -1409,7 +1449,7 @@ function LegacyHomeScreen({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaFeatureRow}>
           {homeMediaFeatures.map((item) => (
             <Pressable key={item.title} style={styles.mediaFeatureCard} onPress={() => setScreen(item.soon ? "featureSoon" : "newRequest")}>
-              <Image source={{ uri: item.image }} style={styles.mediaFeatureImage} resizeMode="cover" />
+              <Image source={typeof item.image === "string" ? { uri: item.image } : item.image} style={styles.mediaFeatureImage} resizeMode="cover" />
               <View style={styles.mediaFeatureOverlay} />
               <Text style={styles.mediaFeatureTag}>{item.tag}</Text>
               <View style={styles.mediaFeatureText}>
@@ -1458,16 +1498,22 @@ function HomeScreen({
   const { width } = useWindowDimensions();
   const popularCardWidth = Math.max(86, (width - 76) / 4);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [featuredStories, setFeaturedStories] = useState<CustomerStory[]>([]);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
-  const stories = storiesFromCustomerData(profile, orders, appReviews, defaultAddress);
+  const localStories = storiesFromCustomerData(profile, orders, appReviews, defaultAddress);
+  const stories = featuredStories.length ? featuredStories : localStories;
 
   useEffect(() => {
     if (!token) return;
     void api<Coupon[]>("/coupons", {}, token).then(setCoupons).catch(() => setCoupons([]));
   }, [token]);
+
+  useEffect(() => {
+    void api<CustomerStory[]>("/reviews/featured").then(setFeaturedStories).catch(() => setFeaturedStories([]));
+  }, []);
 
   const needs = [
     { title: "Alteration", text: "Fit and size changes", icon: "cut-outline" },
@@ -1510,7 +1556,7 @@ function HomeScreen({
               {unreadCount > 0 ? <View style={styles.notificationDot} /> : null}
             </Pressable>
             <Pressable onPress={() => setScreen("profile")}>
-              <Image source={{ uri: profile.avatarUri || getFallbackAvatar(profile.name, profile.gender) }} style={styles.avatarImage} />
+              <Image source={profile.avatarUri ? { uri: profile.avatarUri } : getDefaultAvatarSource(profile)} style={styles.avatarImage} />
             </Pressable>
           </View>
         </View>
@@ -1708,8 +1754,37 @@ function HomeScreen({
           ))}
         </View>
 
-        {/* Customer Reviews Section */}
-        {stories.length ? (() => {
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>What Customers Say</Text>
+          {stories.length ? (
+            <Pressable onPress={() => setScreen("customerStories")}>
+              <Text style={styles.seeAll}>More</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {stories.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
+            {stories.slice(0, 6).map((story) => (
+              <View key={story.id} style={styles.largeReviewCard}>
+                <Text style={styles.reviewQuoteMark}>"</Text>
+                <Text style={styles.largeReviewText} numberOfLines={5}>"{story.review}"</Text>
+                <View style={styles.largeReviewFooter}>
+                  <FallbackAvatar name={story.name} size={52} />
+                  <View style={styles.profileRowText}>
+                    <Text style={styles.storyName}>{story.name}</Text>
+                    <Text style={styles.mutedSmall}>{story.location}</Text>
+                  </View>
+                  <View style={styles.storyRating}>
+                    <Ionicons name="star" size={14} color={BRAND_ORANGE} />
+                    <Text style={styles.storyRatingText}>{story.rating.toFixed(1)}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+
+        {false && stories.length ? (() => {
           const displayedStories = stories.slice(0, 3); // Max 3 items for the pagination dots
           const storyIndex = currentReviewIndex % displayedStories.length;
           const story = displayedStories[storyIndex];
@@ -1784,16 +1859,7 @@ function HomeScreen({
               </View>
             </View>
           );
-        })() : (
-          <Pressable style={styles.emptyStoryCard} onPress={() => setScreen("rateApp")}>
-            <Ionicons name="star-outline" size={22} color={BRAND_ORANGE} />
-            <View style={styles.profileRowText}>
-              <Text style={styles.addressTitle}>No customer stories yet</Text>
-              <Text style={styles.mutedSmall}>Rate Darji after your experience and it will appear here.</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
-          </Pressable>
-        )}
+        })() : null}
 
         <View style={styles.safeDataBand}>
           <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
@@ -3939,7 +4005,7 @@ function ProfileScreen({
       <ScrollView contentContainerStyle={profileStyles.pageContent}>
         <Header title="Profile" />
         <View style={profileStyles.profileHero}>
-          <Image source={{ uri: profile.avatarUri || getFallbackAvatar(profile.name, profile.gender) }} style={profileStyles.profileAvatarImage} />
+          <Image source={profile.avatarUri ? { uri: profile.avatarUri } : getDefaultAvatarSource(profile)} style={profileStyles.profileAvatarImage} />
           <View style={profileStyles.profileInfo}>
             <Text style={profileStyles.profileName}>{profile.name}</Text>
             <Text style={profileStyles.profilePhone}>+91 {user?.phone ?? profile.phone}</Text>
@@ -4099,6 +4165,7 @@ function EditProfileScreen({
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
   const [avatarUri, setAvatarUri] = useState(profile.avatarUri);
+  const [avatarPreset, setAvatarPreset] = useState<AvatarPreset | undefined>(profile.avatarPreset);
 
   async function pickAvatar() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -4112,7 +4179,10 @@ function EditProfileScreen({
       aspect: [1, 1],
       quality: 0.8
     });
-    if (!result.canceled) setAvatarUri(result.assets[0]?.uri);
+    if (!result.canceled) {
+      setAvatarUri(result.assets[0]?.uri);
+      setAvatarPreset(undefined);
+    }
   }
 
   function save() {
@@ -4120,7 +4190,7 @@ function EditProfileScreen({
       Alert.alert("Name required", "Enter your full name.");
       return;
     }
-    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri, hasCompletedOnboarding: true });
+    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri, avatarPreset, hasCompletedOnboarding: true });
     setScreen("profile");
   }
 
@@ -4130,7 +4200,7 @@ function EditProfileScreen({
         <Header title="Edit Profile" onBack={() => setScreen("profile")} />
         <View style={styles.editAvatarWrap}>
           <Pressable onPress={pickAvatar}>
-            <Image source={{ uri: avatarUri || getFallbackAvatar(name, gender) }} style={styles.editAvatarImage} />
+            <Image source={avatarUri ? { uri: avatarUri } : getDefaultAvatarSource({ ...profile, name, gender, avatarPreset })} style={styles.editAvatarImage} />
             <View style={styles.cameraBadge}>
               <Ionicons name="camera" size={16} color="#111111" />
             </View>
@@ -4147,6 +4217,22 @@ function EditProfileScreen({
         </View>
         <Text style={styles.formLabel}>Date of Birth</Text>
         <DatePickerField value={dateOfBirth} onChange={setDateOfBirth} />
+        <Text style={styles.formLabel}>Choose Avatar</Text>
+        <View style={styles.avatarPickerGrid}>
+          {avatarOptions.map((option) => (
+            <Pressable
+              key={option.key}
+              style={[styles.avatarOption, avatarPreset === option.key && styles.avatarOptionActive]}
+              onPress={() => {
+                setAvatarPreset(option.key);
+                setAvatarUri(undefined);
+              }}
+            >
+              <Image source={avatarImages[option.key]} style={styles.avatarOptionImage} />
+              <Text style={styles.avatarOptionText}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </View>
         <Text style={styles.formLabel}>Phone Number</Text>
         <View style={styles.readOnlyField}>
           <Text style={styles.addressTitle}>+91 {profile.phone}</Text>
@@ -5447,7 +5533,7 @@ function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Scr
       {stories.length ? stories.map((story) => (
         <View key={story.id} style={styles.storyListCard}>
           <View style={styles.storyFooter}>
-            <Image source={{ uri: getFallbackAvatar(story.name) }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#f1f5f9" }} />
+            <FallbackAvatar name={story.name} size={36} />
             <View style={styles.profileRowText}>
               <Text style={styles.storyName}>{story.name}</Text>
               <Text style={styles.mutedSmall}>{story.location}</Text>
@@ -5504,6 +5590,12 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
     }
     try {
       setSubmitting(true);
+      await api("/reviews", {
+        method: "POST",
+        body: JSON.stringify({ orderId: "darji-app", kind: "app", rating, comment: review.trim() })
+      }).catch((error) => {
+        if (!/review already submitted/i.test(error instanceof Error ? error.message : "")) throw error;
+      });
       onSave(rating, review.trim());
       Alert.alert("Saved", "Thanks for rating Darji.");
       setScreen("home");
@@ -7740,6 +7832,10 @@ function createStyles(isDark = false) {
   stepTitle: { color: text, fontSize: 10, fontWeight: "900", textAlign: "center", minHeight: 28 },
   stepCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, textAlign: "center", marginTop: 3 },
   storyRow: { gap: 12, paddingBottom: 14 },
+  largeReviewCard: { width: 332, minHeight: 224, borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 18, justifyContent: "space-between" },
+  reviewQuoteMark: { color: BRAND_ORANGE, fontSize: 42, lineHeight: 42, fontWeight: "900" },
+  largeReviewText: { color: text, fontSize: 16, fontWeight: "800", lineHeight: 24, minHeight: 112 },
+  largeReviewFooter: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 14 },
   storyCard: { width: 300, minHeight: 158, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 16 },
   storyText: { color: text, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 10, minHeight: 78 },
   storyFooter: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
@@ -8168,6 +8264,11 @@ function createStyles(isDark = false) {
   editAvatar: { width: 92, height: 92, borderRadius: 30, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   editAvatarImage: { width: 92, height: 92, borderRadius: 30, backgroundColor: iconBg },
   cameraBadge: { position: "absolute", right: -2, bottom: -2, width: 32, height: 32, borderRadius: 16, backgroundColor: BRAND_ORANGE, borderWidth: 3, borderColor: SCREEN_BG, alignItems: "center", justifyContent: "center" },
+  avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },
+  avatarOption: { width: "30.8%", minHeight: 104, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 8 },
+  avatarOptionActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
+  avatarOptionImage: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#f1f5f9" },
+  avatarOptionText: { color: muted, fontSize: 10, fontWeight: "900", textAlign: "center", marginTop: 7 },
   profileInput: { height: 52, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 16, color: text, fontSize: 15, fontWeight: "800" },
   profileInputButton: { height: 52, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   profileInputButtonText: { color: text, fontSize: 15, fontWeight: "800" },

@@ -334,6 +334,10 @@ export type AdminReview = {
   isFeatured: boolean;
   createdAt: string;
   orderNumber: string;
+  targetId?: string;
+  targetName?: string;
+  targetPhone?: string;
+  targetAvatarUrl?: string;
   user: {
     name?: string;
     phone: string;
