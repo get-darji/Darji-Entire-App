@@ -68,7 +68,9 @@ import {
   FileText,
   Image as ImageIcon,
   Send,
-  ArrowRight
+  ArrowRight,
+  ToggleLeft,
+  ToggleRight
 } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
@@ -267,6 +269,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "payments", icon: CreditCard, label: "Payments", description: "Collections and payment state" },
   { id: "coupons", icon: Ticket, label: "Coupons", description: "Offers and retention levers" },
   { id: "support", icon: Bell, label: "Support", description: "Tickets and customer follow-up" },
+  { id: "reviews", icon: MessageSquareText, label: "Reviews", description: "Customer and tailor reviews management" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
@@ -1808,6 +1811,10 @@ export function AdminPortal() {
           />
         ) : null}
 
+        {activeSection === "reviews" ? (
+          <ReviewsManagementPanel />
+        ) : null}
+
         {activeSection === "settings" ? (
           <div className="space-y-6">
             <SectionIntro
@@ -2644,7 +2651,7 @@ function AvatarBadge({ me, size }: { me?: MeResponse; size: "sm" | "md" }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img alt={me.name ?? "Admin avatar"} className="h-full w-full object-cover" src={me.avatarUrl} />
       ) : (
-        <AvatarIllustration className="h-full w-full" seed={me?.name ?? me?.phone ?? "Admin"} />
+        <img alt={me?.name ?? "Admin avatar"} className="h-full w-full object-cover" src={getDefaultAvatarUrl(me?.name ?? me?.phone ?? "Admin")} />
       )}
       <span className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
     </div>
@@ -2683,9 +2690,23 @@ function avatarPalette(seed: string) {
 function MiniAvatar({ seed }: { seed: string }) {
   return (
     <div className="h-10 w-10 overflow-hidden rounded-full border border-[#ead8b2] bg-[#fff6e4] shadow-[0_4px_12px_rgba(206,156,39,0.12)]">
-      <AvatarIllustration className="h-full w-full" seed={seed} />
+      <img alt="" className="h-full w-full object-cover" src={getDefaultAvatarUrl(seed)} />
     </div>
   );
+}
+
+function normalizedAvatarGender(gender?: string) {
+  const value = gender?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["male", "man", "men", "boy"].includes(value)) return "boy";
+  if (["female", "woman", "women", "girl"].includes(value)) return "girl";
+  return undefined;
+}
+
+function getDefaultAvatarUrl(seed: string, gender?: string) {
+  const selectedGender = normalizedAvatarGender(gender);
+  const avatarGender = selectedGender ?? (Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 === 0 ? "boy" : "girl");
+  return `https://avatar.iran.liara.run/public/${avatarGender}?username=${encodeURIComponent(seed || "User")}`;
 }
 
 function GrowthPromoGraphic() {

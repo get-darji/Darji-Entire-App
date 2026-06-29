@@ -15,6 +15,7 @@ export type SectionId =
   | "payments"
   | "coupons"
   | "support"
+  | "reviews"
   | "settings";
 
 type AdminStore = {

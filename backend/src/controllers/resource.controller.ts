@@ -1970,3 +1970,60 @@ export async function addChangeRequestMessageController(req: Request, res: Respo
 
   res.json({ data: updatedRequest });
 }
+
+export async function listAdminReviewsController(req: Request, res: Response) {
+  const reviews = await ReviewModel.find({}).sort({ createdAt: -1 });
+  const populated = await Promise.all(
+    reviews.map(async (review) => {
+      const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
+      const order = await OrderModel.findById(review.orderId).select("orderNumber address customer placedAt");
+      return {
+        id: review.id,
+        userId: review.userId,
+        orderId: review.orderId,
+        kind: review.kind,
+        rating: review.rating,
+        comment: review.comment,
+        isFeatured: review.isFeatured ?? false,
+        createdAt: review.createdAt,
+        user: user ? { name: user.name, phone: user.phone, avatarUrl: user.avatarUrl } : null,
+        orderNumber: order?.orderNumber || review.orderId.slice(0, 8).toUpperCase()
+      };
+    })
+  );
+  res.json({ data: populated });
+}
+
+export async function toggleReviewFeaturedController(req: Request, res: Response) {
+  const { id } = req.params;
+  const review = await ReviewModel.findById(id);
+  if (!review) throw new AppError(404, "Review not found");
+  
+  review.isFeatured = !review.isFeatured;
+  await review.save();
+  
+  res.json({ data: review });
+}
+
+export async function listFeaturedReviewsController(req: Request, res: Response) {
+  const reviews = await ReviewModel.find({ isFeatured: true }).sort({ createdAt: -1 });
+  const populated = await Promise.all(
+    reviews.map(async (review) => {
+      const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
+      const order = await OrderModel.findById(review.orderId).select("orderNumber address customer placedAt");
+      let location = "Janakpuri, Delhi";
+      if (order?.address?.city) {
+        location = `${order.address.city}, ${order.address.state || "Delhi"}`;
+      }
+      return {
+        id: review.id,
+        name: user?.name || "Customer",
+        location,
+        rating: review.rating,
+        review: review.comment || "No comment",
+        createdAt: review.createdAt
+      };
+    })
+  );
+  res.json({ data: populated });
+}

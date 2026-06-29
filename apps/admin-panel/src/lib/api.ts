@@ -315,3 +315,28 @@ export async function addChangeRequestMessage(payload: {
   const { requestId, ...body } = payload;
   return unwrap<AccountChangeRequest>(api.post(`/support/change-requests/${requestId}/messages`, body));
 }
+
+export async function getAdminReviews() {
+  return unwrap<AdminReview[]>(api.get("/admin/reviews"));
+}
+
+export async function toggleReviewFeatured(reviewId: string) {
+  return unwrap<AdminReview>(api.patch(`/admin/reviews/${reviewId}/featured`));
+}
+
+export type AdminReview = {
+  id: string;
+  userId: string;
+  orderId: string;
+  kind: "tailor" | "delivery" | "app";
+  rating: number;
+  comment?: string;
+  isFeatured: boolean;
+  createdAt: string;
+  orderNumber: string;
+  user: {
+    name?: string;
+    phone: string;
+    avatarUrl?: string;
+  } | null;
+};

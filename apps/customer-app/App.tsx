@@ -249,7 +249,8 @@ type PaymentSheetState = {
   paymentMethod: string;
   config: NonNullable<CheckoutStartResponse["razorpay"]>;
 };
-type ProfileData = { name: string; phone: string; dateOfBirth?: string; avatarUri?: string; hasCompletedOnboarding?: boolean };
+type ProfileGender = "Male" | "Female" | "Other" | "";
+type ProfileData = { name: string; phone: string; gender?: ProfileGender; dateOfBirth?: string; avatarUri?: string; hasCompletedOnboarding?: boolean };
 type AppSettings = { notifications: boolean; orderUpdates: boolean; darkMode: boolean; compactCards: boolean; locationAccess: boolean; saveMedia: boolean };
 type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number };
 type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
@@ -725,6 +726,57 @@ function makeDefaultCustomerData(phone: string, name?: string): CustomerData {
   };
 }
 
+function normalizedAvatarGender(gender?: string) {
+  const value = gender?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["male", "man", "men", "boy"].includes(value)) return "boy";
+  if (["female", "woman", "women", "girl"].includes(value)) return "girl";
+  return undefined;
+}
+
+export function getFallbackAvatar(name?: string, gender?: string) {
+  const str = name || "User";
+  const selectedGender = normalizedAvatarGender(gender);
+  if (selectedGender) return `https://avatar.iran.liara.run/public/${selectedGender}?username=${encodeURIComponent(str)}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const isBoy = Math.abs(hash) % 2 === 0;
+  return isBoy 
+    ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(str)}`
+    : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
+}
+
+export function FallbackAvatar({ name, gender, size = 44, style }: { name?: string; gender?: string; size?: number; style?: any }) {
+  const str = name || "User";
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const selectedGender = normalizedAvatarGender(gender);
+  const isBoy = selectedGender ? selectedGender === "boy" : Math.abs(hash) % 2 === 0;
+  const bgColor = isBoy ? "#e0f2fe" : "#fce7f3";
+  const iconColor = isBoy ? "#0284c7" : "#db2777";
+  return (
+    <View style={[{
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: bgColor,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden"
+    }, style]}>
+      <Ionicons 
+        name={isBoy ? "man-outline" : "woman-outline"} 
+        size={size * 0.58} 
+        color={iconColor} 
+      />
+    </View>
+  );
+}
+
 function shortLocationFromAddress(address?: SavedAddress) {
   if (!address?.address) return "Darji customer";
   const parts = address.address.split(",").map((part) => part.trim()).filter(Boolean);
@@ -760,7 +812,34 @@ function storiesFromCustomerData(profile: ProfileData, orders: CustomerOrder[], 
     ].filter((item): item is CustomerStory => Boolean(item));
   });
 
-  return [...appStories, ...orderStories].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
+  const userStories = [...appStories, ...orderStories].sort((a, b) => parseDateSafe(b.createdAt).getTime() - parseDateSafe(a.createdAt).getTime());
+  const DEFAULT_STORIES = [
+    {
+      id: "default-1",
+      name: "Priya Sharma",
+      location: "Janakpuri, Delhi",
+      rating: 5.0,
+      review: "Amazing service! They stitched my jacket perfectly and delivered on time..",
+      createdAt: "2026-06-29T12:00:00.000Z"
+    },
+    {
+      id: "default-2",
+      name: "Aman Gupta",
+      location: "Indiranagar, Bangalore",
+      rating: 4.8,
+      review: "Super convenient home pickup and delivery. The tailor fit was absolute perfection on the first try.",
+      createdAt: "2026-06-29T11:00:00.000Z"
+    },
+    {
+      id: "default-3",
+      name: "Sneha Patel",
+      location: "Andheri West, Mumbai",
+      rating: 5.0,
+      review: "Loved the online tracking and multiple tailor quotes. Saved me a trip to local tailors.",
+      createdAt: "2026-06-29T10:00:00.000Z"
+    }
+  ];
+  return [...userStories, ...DEFAULT_STORIES];
 }
 
 function normalizeCustomerDataByPhone(input: unknown): Record<string, CustomerData> {
@@ -1219,9 +1298,9 @@ function LegacyHomeScreen({
               {unreadCount > 0 ? <View style={styles.notificationDot} /> : null}
             </Pressable>
             <Pressable onPress={() => setScreen("profile")}>
-              {profile.avatarUri ? <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} /> : <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initialsFor(profile.name)}</Text>
-              </View>}
+              {profile.avatarUri 
+                ? <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} /> 
+                : <FallbackAvatar name={profile.name} gender={profile.gender} size={44} style={styles.avatarImage} />}
             </Pressable>
           </View>
         </View>
@@ -1379,6 +1458,7 @@ function HomeScreen({
   const { width } = useWindowDimensions();
   const popularCardWidth = Math.max(86, (width - 76) / 4);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
@@ -1430,13 +1510,7 @@ function HomeScreen({
               {unreadCount > 0 ? <View style={styles.notificationDot} /> : null}
             </Pressable>
             <Pressable onPress={() => setScreen("profile")}>
-              {profile.avatarUri ? (
-                <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} />
-              ) : (
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initialsFor(profile.name)}</Text>
-                </View>
-              )}
+              <Image source={{ uri: profile.avatarUri || getFallbackAvatar(profile.name, profile.gender) }} style={styles.avatarImage} />
             </Pressable>
           </View>
         </View>
@@ -1634,37 +1708,83 @@ function HomeScreen({
           ))}
         </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.listTitle}>Customer Stories</Text>
-          {stories.length > 0 ? (
-            <Pressable onPress={() => setScreen("customerStories")}>
-              <Text style={styles.seeAll}>More</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        {stories.length ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
-            {stories.slice(0, 4).map((story) => (
-              <View key={story.id} style={styles.storyCard}>
-                <Ionicons name="chatbox-ellipses-outline" size={22} color={BRAND_ORANGE} />
-                <Text style={styles.storyText} numberOfLines={4}>{story.review}</Text>
-                <View style={styles.storyFooter}>
-                  <View style={styles.storyAvatar}>
-                    <Text style={styles.storyAvatarText}>{initialsFor(story.name)}</Text>
+        {/* Customer Reviews Section */}
+        {stories.length ? (() => {
+          const displayedStories = stories.slice(0, 3); // Max 3 items for the pagination dots
+          const storyIndex = currentReviewIndex % displayedStories.length;
+          const story = displayedStories[storyIndex];
+          
+          return (
+            <View style={{
+              backgroundColor: "#fff8ed",
+              borderRadius: 24,
+              padding: 20,
+              marginHorizontal: 0,
+              marginVertical: 12,
+              borderWidth: 1,
+              borderColor: "#ffedd5"
+            }}>
+              {/* Header row inside the light orange block */}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <Text style={{ fontSize: 16, fontWeight: "900", color: BRAND_DEEP }}>What Our Customers Say</Text>
+              </View>
+              
+              {/* White card container */}
+              <View style={{
+                backgroundColor: "#ffffff",
+                borderRadius: 18,
+                padding: 16,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                elevation: 2
+              }}>
+                {/* Quote details */}
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6, marginBottom: 14 }}>
+                  <Text style={{ color: "#f59e0b", fontSize: 22, fontWeight: "900", lineHeight: 22, marginTop: -4 }}>“</Text>
+                  <Text style={{ flex: 1, color: "#334155", fontSize: 14, lineHeight: 20 }}>
+                    {story.review}
+                  </Text>
+                </View>
+                
+                {/* Footer details inside the white card */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <FallbackAvatar name={story.name} size={44} />
+                    <View>
+                      <Text style={{ fontSize: 14, fontWeight: "900", color: "#1e293b" }}>{story.name}</Text>
+                      <Text style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{story.location}</Text>
+                    </View>
                   </View>
-                  <View style={styles.profileRowText}>
-                    <Text style={styles.storyName}>{story.name}</Text>
-                    <Text style={styles.mutedSmall}>{story.location}</Text>
-                  </View>
-                  <View style={styles.storyRating}>
-                    <Ionicons name="star" size={13} color={BRAND_ORANGE} />
-                    <Text style={styles.storyRatingText}>{story.rating.toFixed(1)}</Text>
+                  
+                  {/* Rating details */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Ionicons name="star" size={16} color="#f59e0b" />
+                    <Text style={{ fontSize: 14, fontWeight: "900", color: "#475569" }}>{story.rating.toFixed(1)}</Text>
                   </View>
                 </View>
               </View>
-            ))}
-          </ScrollView>
-        ) : (
+              
+              {/* Pagination Dots */}
+              <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 14 }}>
+                {displayedStories.map((_, index) => (
+                  <Pressable
+                    key={index}
+                    onPress={() => setCurrentReviewIndex(index)}
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: index === storyIndex ? BRAND_ORANGE : "#cbd5e1",
+                      marginHorizontal: 4
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
+          );
+        })() : (
           <Pressable style={styles.emptyStoryCard} onPress={() => setScreen("rateApp")}>
             <Ionicons name="star-outline" size={22} color={BRAND_ORANGE} />
             <View style={styles.profileRowText}>
@@ -3754,6 +3874,7 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
 
 function OnboardingScreen({ profile, setProfile }: { profile: ProfileData; setProfile: (profile: ProfileData) => void }) {
   const [name, setName] = useState(profile.name.startsWith("Customer ") ? "" : profile.name);
+  const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
 
   function save() {
@@ -3765,7 +3886,7 @@ function OnboardingScreen({ profile, setProfile }: { profile: ProfileData; setPr
       Alert.alert("Date of birth required", "Enter date of birth in YYYY-MM-DD format.");
       return;
     }
-    setProfile({ ...profile, name: name.trim(), dateOfBirth: dateOfBirth.trim(), hasCompletedOnboarding: true });
+    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), hasCompletedOnboarding: true });
   }
 
   return (
@@ -3777,6 +3898,12 @@ function OnboardingScreen({ profile, setProfile }: { profile: ProfileData; setPr
           <Text style={styles.helperText}>This helps us personalize orders, invoices, tailor assignment, and future delivery updates.</Text>
           <Text style={styles.formLabel}>Full Name</Text>
           <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder="Enter your name" placeholderTextColor="#98a4b6" />
+          <Text style={styles.formLabel}>Gender</Text>
+          <View style={styles.twoCol}>
+            {(["Male", "Female", "Other"] as const).map((item) => (
+              <OptionButton key={item} label={item} selected={gender === item} onPress={() => setGender(item)} />
+            ))}
+          </View>
           <Text style={styles.formLabel}>Date of Birth</Text>
           <DatePickerField value={dateOfBirth} onChange={setDateOfBirth} />
           <Pressable style={styles.primaryWideButton} onPress={save}>
@@ -3805,19 +3932,14 @@ function ProfileScreen({
 }) {
   const { user, signOut } = useAppStore();
   const profileStyles = createStyles(settings.darkMode);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   return (
     <SafeAreaView style={profileStyles.safe}>
       <ScrollView contentContainerStyle={profileStyles.pageContent}>
         <Header title="Profile" />
         <View style={profileStyles.profileHero}>
-          {profile.avatarUri ? (
-            <Image source={{ uri: profile.avatarUri }} style={profileStyles.profileAvatarImage} />
-          ) : (
-            <View style={profileStyles.profileAvatar}>
-              <Text style={profileStyles.profileAvatarText}>{initialsFor(profile.name)}</Text>
-            </View>
-          )}
+          <Image source={{ uri: profile.avatarUri || getFallbackAvatar(profile.name, profile.gender) }} style={profileStyles.profileAvatarImage} />
           <View style={profileStyles.profileInfo}>
             <Text style={profileStyles.profileName}>{profile.name}</Text>
             <Text style={profileStyles.profilePhone}>+91 {user?.phone ?? profile.phone}</Text>
@@ -3829,7 +3951,7 @@ function ProfileScreen({
           <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ACCOUNT</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="person-outline" label="Edit Profile" value="Name, Date of Birth" onPress={() => setScreen("editProfile")} styles={profileStyles} noBorder />
+          <ProfileRow icon="person-outline" label="Edit Profile" value="Name, gender, Date of Birth" onPress={() => setScreen("editProfile")} styles={profileStyles} noBorder />
           <ProfileRow icon="location-outline" label="Saved Addresses" value={`${addresses.length} saved`} onPress={() => setScreen("savedAddresses")} styles={profileStyles} />
         </View>
 
@@ -3896,20 +4018,38 @@ function ProfileScreen({
             icon="log-out-outline"
             label="Logout"
             value="Sign out of your account"
-            onPress={() => {
-              Alert.alert(
-                "Logout Confirmation",
-                "Are you sure you want to logout?",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Yes, Logout", style: "destructive", onPress: signOut }
-                ]
-              );
-            }}
+            onPress={() => setShowLogoutModal(true)}
             styles={profileStyles}
           />
         </View>
       </ScrollView>
+
+      {/* Custom Logout Confirmation Modal */}
+      <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => setShowLogoutModal(false)}>
+          <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
+            <View style={{ alignItems: "center", marginBottom: 20 }}>
+              <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+                <Ionicons name="log-out-outline" size={28} color="#ef4444" />
+              </View>
+              <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>Sign Out</Text>
+              <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>Are you sure you want to sign out of your Darji account?</Text>
+            </View>
+            <Pressable
+              style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
+              onPress={() => { setShowLogoutModal(false); signOut(); }}
+            >
+              <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>Yes, Sign Out</Text>
+            </Pressable>
+            <Pressable
+              style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
+              onPress={() => setShowLogoutModal(false)}
+            >
+              <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -3956,6 +4096,7 @@ function EditProfileScreen({
   setScreen: (screen: Screen) => void;
 }) {
   const [name, setName] = useState(profile.name);
+  const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
   const [avatarUri, setAvatarUri] = useState(profile.avatarUri);
 
@@ -3979,7 +4120,7 @@ function EditProfileScreen({
       Alert.alert("Name required", "Enter your full name.");
       return;
     }
-    setProfile({ ...profile, name: name.trim(), dateOfBirth: dateOfBirth.trim(), avatarUri, hasCompletedOnboarding: true });
+    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri, hasCompletedOnboarding: true });
     setScreen("profile");
   }
 
@@ -3989,9 +4130,7 @@ function EditProfileScreen({
         <Header title="Edit Profile" onBack={() => setScreen("profile")} />
         <View style={styles.editAvatarWrap}>
           <Pressable onPress={pickAvatar}>
-            {avatarUri ? <Image source={{ uri: avatarUri }} style={styles.editAvatarImage} /> : <View style={styles.editAvatar}>
-              <Text style={styles.profileAvatarText}>{initialsFor(name)}</Text>
-            </View>}
+            <Image source={{ uri: avatarUri || getFallbackAvatar(name, gender) }} style={styles.editAvatarImage} />
             <View style={styles.cameraBadge}>
               <Ionicons name="camera" size={16} color="#111111" />
             </View>
@@ -4000,6 +4139,12 @@ function EditProfileScreen({
         </View>
         <Text style={styles.formLabel}>Full Name</Text>
         <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor="#98a4b6" />
+        <Text style={styles.formLabel}>Gender</Text>
+        <View style={styles.twoCol}>
+          {(["Male", "Female", "Other"] as const).map((item) => (
+            <OptionButton key={item} label={item} selected={gender === item} onPress={() => setGender(item)} />
+          ))}
+        </View>
         <Text style={styles.formLabel}>Date of Birth</Text>
         <DatePickerField value={dateOfBirth} onChange={setDateOfBirth} />
         <Text style={styles.formLabel}>Phone Number</Text>
@@ -5302,9 +5447,7 @@ function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Scr
       {stories.length ? stories.map((story) => (
         <View key={story.id} style={styles.storyListCard}>
           <View style={styles.storyFooter}>
-            <View style={styles.storyAvatar}>
-              <Text style={styles.storyAvatarText}>{initialsFor(story.name)}</Text>
-            </View>
+            <Image source={{ uri: getFallbackAvatar(story.name) }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#f1f5f9" }} />
             <View style={styles.profileRowText}>
               <Text style={styles.storyName}>{story.name}</Text>
               <Text style={styles.mutedSmall}>{story.location}</Text>

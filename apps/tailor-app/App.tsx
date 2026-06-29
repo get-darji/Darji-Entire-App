@@ -41,6 +41,28 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 
+function normalizedAvatarGender(gender?: string) {
+  const value = gender?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["male", "man", "men", "boy"].includes(value)) return "boy";
+  if (["female", "woman", "women", "girl"].includes(value)) return "girl";
+  return undefined;
+}
+
+export function getFallbackAvatar(name?: string, gender?: string) {
+  const str = name || "User";
+  const selectedGender = normalizedAvatarGender(gender);
+  if (selectedGender) return `https://avatar.iran.liara.run/public/${selectedGender}?username=${encodeURIComponent(str)}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const isBoy = Math.abs(hash) % 2 === 0;
+  return isBoy 
+    ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(str)}`
+    : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
+}
+
 type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "earnings" | "profile" | "transactions";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
@@ -2796,7 +2818,7 @@ function ProfileScreen({
       <Header title="Profile" subtitle={me?.phone ? `+91 ${me.phone}` : "Tailor account"} />
       <View style={styles.profileCard}>
         <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar}>
-          {me?.avatarUrl ? <Image source={{ uri: me.avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{(me?.name ?? me?.tailorProfile?.shopName ?? "DT").split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</Text>}
+          <Image source={{ uri: me?.avatarUrl || getFallbackAvatar(me?.name || me?.tailorProfile?.shopName) }} style={styles.avatarImage} />
           <View style={styles.avatarEditBadge}>
             {uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}
           </View>

@@ -5,6 +5,28 @@ import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, Sta
 import { api, uploadDeliveryAvatar, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
 
+function normalizedAvatarGender(gender?: string) {
+  const value = gender?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["male", "man", "men", "boy"].includes(value)) return "boy";
+  if (["female", "woman", "women", "girl"].includes(value)) return "girl";
+  return undefined;
+}
+
+export function getFallbackAvatar(name?: string, gender?: string) {
+  const str = name || "User";
+  const selectedGender = normalizedAvatarGender(gender);
+  if (selectedGender) return `https://avatar.iran.liara.run/public/${selectedGender}?username=${encodeURIComponent(str)}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const isBoy = Math.abs(hash) % 2 === 0;
+  return isBoy 
+    ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(str)}`
+    : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
+}
+
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
 const SCREEN_BG = "#f7faff";
@@ -36,6 +58,8 @@ type DeliveryProfile = {
   monthlyEarnings?: number;
   workingHours?: string;
   settings?: DeliverySettings;
+  verification?: Record<string, unknown>;
+  verificationDraft?: Record<string, unknown>;
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   deliveryType?: "PICKUP" | "DROP";
   assignedArea?: string;
@@ -75,6 +99,13 @@ function isSessionError(error: unknown) {
 export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions, onOpenOrders, socket, initialSupportScreen, clearInitialSupportScreen }: Props) {
   const signOut = useAppStore((state) => state.signOut);
   const profile = me?.deliveryProfile;
+  const verificationGender = String(
+    ((profile?.verificationDraft as { personal?: { gender?: string }; gender?: string } | undefined)?.personal?.gender) ??
+    ((profile?.verificationDraft as { gender?: string } | undefined)?.gender) ??
+    ((profile?.verification as { personal?: { gender?: string }; gender?: string } | undefined)?.personal?.gender) ??
+    ((profile?.verification as { gender?: string } | undefined)?.gender) ??
+    ""
+  );
   const settings = profile?.settings ?? {};
   const [editing, setEditing] = useState(false);
   const [showVehicleDetails, setShowVehicleDetails] = useState(false);
@@ -88,6 +119,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
   const [email, setEmail] = useState(me?.email ?? "");
   const [workingHours, setWorkingHours] = useState(profile?.workingHours ?? "9:00 AM - 8:00 PM");
@@ -205,21 +237,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   }
 
   function logout() {
-    Alert.alert(
-      "Logout Confirmation",
-      "Are you sure you want to logout?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Logout",
-          style: "destructive",
-          onPress: () => {
-            signOut();
-            onSignOut();
-          }
-        }
-      ]
-    );
+    setShowLogoutModal(true);
   }
 
   async function submitVehicleChangeRequest() {
@@ -277,7 +295,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
         <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar}>
-          {me?.avatarUrl ? <Image source={{ uri: me.avatarUrl }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{(name || "DD").slice(0, 2).toUpperCase()}</Text>}
+          <Image source={{ uri: me?.avatarUrl || getFallbackAvatar(name, verificationGender) }} style={styles.avatarImage} />
           <View style={styles.cameraBadge}>{uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}</View>
         </Pressable>
         <View style={styles.headerMain}>
@@ -463,6 +481,33 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       ) : supportScreen ? (
         <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
       ) : null}
+    </Modal>
+
+    {/* Custom Logout Confirmation Modal */}
+    <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => setShowLogoutModal(false)}>
+        <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
+          <View style={{ alignItems: "center", marginBottom: 20 }}>
+            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+              <Ionicons name="log-out-outline" size={28} color="#ef4444" />
+            </View>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>Sign Out</Text>
+            <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>Are you sure you want to sign out of your Darji account?</Text>
+          </View>
+          <Pressable
+            style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
+            onPress={() => { setShowLogoutModal(false); signOut(); onSignOut(); }}
+          >
+            <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>Yes, Sign Out</Text>
+          </Pressable>
+          <Pressable
+            style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
+            onPress={() => setShowLogoutModal(false)}
+          >
+            <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>Cancel</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
     </Modal>
   </View>
   );

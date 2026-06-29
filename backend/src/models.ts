@@ -279,7 +279,8 @@ const reviewSchema = new Schema(
     orderId: { type: String, required: true, index: true },
     kind: { type: String, enum: ["tailor", "delivery", "app"], default: "tailor", index: true },
     rating: { type: Number, min: 1, max: 5, required: true },
-    comment: String
+    comment: String,
+    isFeatured: { type: Boolean, default: false }
   },
   baseOptions
 );

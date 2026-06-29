@@ -8,6 +8,9 @@ import {
   createCouponController,
   createOrderController,
   createReviewController,
+  listAdminReviewsController,
+  toggleReviewFeaturedController,
+  listFeaturedReviewsController,
   createSupportTicketController,
   updateSupportTicketController,
   createBugReportController,
@@ -182,6 +185,9 @@ router.get("/notifications", requireAuth, listNotificationsController);
 router.post("/notifications/fcm-token", requireAuth, registerFcmTokenController);
 router.use("/notifications", notificationRoutes);
 router.post("/reviews", requireAuth, createReviewController);
+router.get("/reviews/featured", listFeaturedReviewsController);
+router.get("/admin/reviews", requireAuth, requireRole("ADMIN"), listAdminReviewsController);
+router.patch("/admin/reviews/:id/featured", requireAuth, requireRole("ADMIN"), toggleReviewFeaturedController);
 router.get("/wallet", requireAuth, walletController);
 router.get("/transactions", requireAuth, transactionsController);
 router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
