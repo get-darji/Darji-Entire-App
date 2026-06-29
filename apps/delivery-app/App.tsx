@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   FlatList,
   Image,
@@ -1187,7 +1188,7 @@ function OnboardingScreen({
             <ChoiceGroup onChange={(value) => update("radius", value)} options={["2 km", "5 km", "10 km"]} value={data.radius} disabled={isLocked} />
             <View style={styles.switchRow}>
               <Text style={styles.cardTitle}>Instant deliveries</Text>
-              <Switch value={data.instantDeliveries} onValueChange={(value) => !isLocked && update("instantDeliveries", value)} disabled={isLocked} />
+              <Switch value={data.instantDeliveries} onValueChange={(value) => { if (!isLocked) update("instantDeliveries", value); }} disabled={isLocked} />
             </View>
           </Card>
         ) : null}
@@ -1317,46 +1318,49 @@ function HomeScreen({
         <Stat label="Rating" value={rating} tone="blue" />
         <Stat label="Wallet" value={`Rs ${totalEarnings.toFixed(0)}`} />
       </View>
-      {activeBatch ? (
-        <Card style={{ borderColor: "#10b981", borderWidth: 2 }}>
-          <View style={styles.batchCountHero}>
-            <Text style={styles.batchCountNumber}>{activeBatch.requests.length}</Text>
-            <Text style={styles.batchCountLabel}>requests in this delivery</Text>
-          </View>
-          <View style={styles.cardTopRow}>
-            <View style={styles.iconTile}>
-              <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
+      {activeBatch ? (() => {
+        const activeRequestsCount = activeBatch.requests.filter(r => r.taskStatus !== "delivered" && r.taskStatus !== "cancelled").length;
+        return (
+          <Card style={{ borderColor: "#10b981", borderWidth: 2 }}>
+            <View style={styles.batchCountHero}>
+              <Text style={styles.batchCountNumber}>{activeRequestsCount}</Text>
+              <Text style={styles.batchCountLabel}>{activeRequestsCount === 1 ? "active request in this delivery" : "active requests in this delivery"}</Text>
             </View>
-            <View style={styles.cardMain}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                <Text style={styles.cardTitle}>Active Batch</Text>
-                <View style={{
-                  backgroundColor: activeBatch.deliveryRound === "ONE_PM" ? "#ecfdf5" : "#fff7ed",
-                  paddingHorizontal: 8,
-                  paddingVertical: 3,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: activeBatch.deliveryRound === "ONE_PM" ? "#a7f3d0" : "#ffedd5",
-                }}>
-                  <Text style={{
-                    color: activeBatch.deliveryRound === "ONE_PM" ? "#047857" : "#c2410c",
-                    fontSize: 11,
-                    fontWeight: "900",
-                  }}>
-                    {activeBatch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}
-                  </Text>
-                </View>
+            <View style={styles.cardTopRow}>
+              <View style={styles.iconTile}>
+                <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
               </View>
-              <Text style={styles.cardMeta}>{activeBatch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{activeBatch.requests.length} orders completed • Area: {activeBatch.area}</Text>
+              <View style={styles.cardMain}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <Text style={styles.cardTitle}>Active Batch</Text>
+                  <View style={{
+                    backgroundColor: activeBatch.deliveryRound === "ONE_PM" ? "#ecfdf5" : "#fff7ed",
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: activeBatch.deliveryRound === "ONE_PM" ? "#a7f3d0" : "#ffedd5",
+                  }}>
+                    <Text style={{
+                      color: activeBatch.deliveryRound === "ONE_PM" ? "#047857" : "#c2410c",
+                      fontSize: 11,
+                      fontWeight: "900",
+                    }}>
+                      {activeBatch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.cardMeta}>{activeRequestsCount} active {activeRequestsCount === 1 ? "request" : "requests"} remaining • Area: {activeBatch.area}</Text>
+              </View>
+              <StatusPill status="ACCEPTED" />
             </View>
-            <StatusPill status="ACCEPTED" />
-          </View>
-          <View style={styles.cardDivider} />
-          <StatusRow label="Logistics Type" value={activeBatch.deliveryType} />
-          <StatusRow label="Operational Area" value={activeBatch.area} />
-          <PrimaryButton icon="navigate-outline" label="Open active batch" onPress={() => onOpenBatch(activeBatch.batchId)} />
-        </Card>
-      ) : (
+            <View style={styles.cardDivider} />
+            <StatusRow label="Logistics Type" value={activeBatch.deliveryType} />
+            <StatusRow label="Operational Area" value={activeBatch.area} />
+            <PrimaryButton icon="navigate-outline" label="Open active batch" onPress={() => onOpenBatch(activeBatch.batchId)} />
+          </Card>
+        );
+      })() : (
         <Card>
           <Text style={styles.cardTitle}>No active batch</Text>
           <Text style={styles.helperText}>Any rounds assigned to you will automatically appear here as active batches for your area.</Text>
@@ -1464,6 +1468,45 @@ function BatchDetailsView({
     month: "short"
   });
 
+  const activeRequests = batch.requests.filter(r => r.taskStatus !== "delivered" && r.taskStatus !== "cancelled");
+  const completedRequests = batch.requests.filter(r => r.taskStatus === "delivered");
+  const cancelledRequests = batch.requests.filter(r => r.taskStatus === "cancelled");
+
+  const renderStopCard = (request: DeliveryRequest, index: number) => {
+    const priority = request.routePosition ?? index + 1;
+    return (
+      <Pressable key={request.id} style={styles.orderCard} onPress={() => onOpenOrder(request)}>
+        <View style={styles.cardTopRow}>
+          <View style={styles.roundIcon}>
+            <Text style={styles.stopNumber}>{priority}</Text>
+          </View>
+          <View style={styles.cardMain}>
+            <Text style={styles.prominentOrderId}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
+            <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
+            <Text style={styles.cardMeta}>Priority {priority}</Text>
+            <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
+            {request.createdAt ? (
+              <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
+                Confirmed: {new Date(request.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+              </Text>
+            ) : null}
+          </View>
+          <StatusPill status={request.status} />
+        </View>
+        <View style={styles.cardDivider} />
+        <Text style={styles.cardCopy} numberOfLines={2}>
+          {batch.deliveryType === "PICKUP" 
+            ? `Pickup: ${request.pickupAddress}` 
+            : `Delivery: ${request.dropAddress}`}
+        </Text>
+        <View style={styles.rowBetween}>
+          <Text style={styles.priceText}>Rs {requestEarning(request)}</Text>
+          <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
+        </View>
+      </Pressable>
+    );
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header
@@ -1488,36 +1531,26 @@ function BatchDetailsView({
         <Stat label="Type" value={batch.deliveryType} tone="blue" />
       </View>
 
-      <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8 }]}>Stops on Route</Text>
-      {batch.requests.map((request, index) => {
-        const priority = request.routePosition ?? index + 1;
-        return (
-        <Pressable key={request.id} style={styles.orderCard} onPress={() => onOpenOrder(request)}>
-          <View style={styles.cardTopRow}>
-            <View style={styles.roundIcon}>
-              <Text style={styles.stopNumber}>{priority}</Text>
-            </View>
-            <View style={styles.cardMain}>
-              <Text style={styles.prominentOrderId}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
-              <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
-              <Text style={styles.cardMeta}>Priority {priority}</Text>
-              <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
-            </View>
-            <StatusPill status={request.status} />
-          </View>
-          <View style={styles.cardDivider} />
-          <Text style={styles.cardCopy} numberOfLines={2}>
-            {batch.deliveryType === "PICKUP" 
-              ? `Pickup: ${request.pickupAddress}` 
-              : `Delivery: ${request.dropAddress}`}
-          </Text>
-          <View style={styles.rowBetween}>
-            <Text style={styles.priceText}>Rs {requestEarning(request)}</Text>
-            <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
-          </View>
-        </Pressable>
-        );
-      })}
+      {activeRequests.length > 0 ? (
+        <>
+          <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8, color: BRAND_ORANGE }]}>Active Stops ({activeRequests.length})</Text>
+          {activeRequests.map((r, i) => renderStopCard(r, i))}
+        </>
+      ) : null}
+
+      {completedRequests.length > 0 ? (
+        <>
+          <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8, color: "#10b981" }]}>Completed Stops ({completedRequests.length})</Text>
+          {completedRequests.map((r, i) => renderStopCard(r, i))}
+        </>
+      ) : null}
+
+      {cancelledRequests.length > 0 ? (
+        <>
+          <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8, color: "#ef4444" }]}>Cancelled Stops ({cancelledRequests.length})</Text>
+          {cancelledRequests.map((r, i) => renderStopCard(r, i))}
+        </>
+      ) : null}
     </ScrollView>
   );
 }
@@ -2130,6 +2163,11 @@ function TransactionHistoryScreen({ requests }: { requests: DeliveryRequest[] })
             <View style={styles.cardMain}>
               <Text style={styles.cardTitle}>{shortId(request.id)} - {requestTitle(request)}</Text>
               <Text style={styles.cardMeta}>{request.clothType ?? "Cloth"} / {request.workType ?? "Delivery"}</Text>
+              {request.createdAt ? (
+                <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
+                  Confirmed: {new Date(request.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </Text>
+              ) : null}
             </View>
             <Text style={styles.priceText}>Rs {request.taskStatus === "cancelled" ? "0" : requestEarning(request).toFixed(0)}</Text>
           </View>
@@ -2882,6 +2920,25 @@ export default function App() {
     setStage("auth");
   }, [signOut]);
 
+  const handleSignOut = useCallback(() => {
+    Alert.alert(
+      "Logout Confirmation",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Logout",
+          style: "destructive",
+          onPress: () => {
+            signOut();
+            setMe(undefined);
+            setStage("auth");
+          }
+        }
+      ]
+    );
+  }, [signOut]);
+
   const refreshProfile = useCallback(async () => {
     if (!token) {
       setMe(undefined);
@@ -2955,7 +3012,7 @@ export default function App() {
           me={me}
           onOpenRegistration={() => setStage("onboarding")}
           onRefresh={() => void refreshProfile()}
-          onSignOut={() => { signOut(); setMe(undefined); setStage("auth"); }}
+          onSignOut={handleSignOut}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </>
@@ -2963,7 +3020,7 @@ export default function App() {
   }
   return (
     <>
-      <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={() => { signOut(); setMe(undefined); setStage("auth"); }} showDialog={setDialog} />
+      <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} showDialog={setDialog} />
       <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
     </>
   );

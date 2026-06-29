@@ -436,7 +436,22 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
       <Section title="Account Settings" icon="settings-outline" styles={styles}>
         <InfoRow icon="trash-outline" title="Delete Account" value="Permanently remove your account" styles={styles} danger onPress={() => showDialog({ title: "Delete account", message: "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} noBorder />
-        <InfoRow icon="log-out-outline" title="Logout" value="Sign out of your account" styles={styles} onPress={signOut} />
+        <InfoRow
+          icon="log-out-outline"
+          title="Logout"
+          value="Sign out of your account"
+          styles={styles}
+          onPress={() => {
+            Alert.alert(
+              "Logout Confirmation",
+              "Are you sure you want to logout?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Yes, Logout", style: "destructive", onPress: signOut }
+              ]
+            );
+          }}
+        />
       </Section>
     </ScrollView>
     <Modal visible={Boolean(supportScreen)} onRequestClose={() => setSupportScreen(undefined)} animationType="slide">

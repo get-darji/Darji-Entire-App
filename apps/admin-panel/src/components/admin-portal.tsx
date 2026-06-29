@@ -660,11 +660,19 @@ export function AdminPortal() {
   });
 
   const deliveryRetryMutation = useMutation({
-    mutationFn: ({ taskId, action }: { taskId: string; action: "retry" | "assign_1pm" | "assign_6pm" | "resolve" | "cancel" }) => {
+    mutationFn: ({ taskId, action }: { taskId: string; action: string }) => {
       if (action === "retry") return retryDeliveryNow(taskId);
-      if (action === "assign_1pm") return retryDeliveryNow(taskId, { deliveryRound: "ONE_PM" });
-      if (action === "assign_6pm") return retryDeliveryNow(taskId, { deliveryRound: "SIX_PM" });
       if (action === "resolve") return resolveDeliveryRetry(taskId);
+      if (action === "cancel") return cancelDeliveryRetry(taskId);
+      if (action.startsWith("assign_")) {
+        const parts = action.split("_");
+        const round = parts[1] === "1pm" ? "ONE_PM" : parts[1] === "6pm" ? "SIX_PM" : parts[1];
+        const dateStr = parts[2];
+        return retryDeliveryNow(taskId, {
+          deliveryRound: round as "ONE_PM" | "SIX_PM",
+          roundAt: dateStr ? new Date(dateStr).toISOString() : undefined
+        });
+      }
       return cancelDeliveryRetry(taskId);
     },
     onSuccess: async (_, variables) => {
@@ -3166,6 +3174,40 @@ function PayoutDialog({
   );
 }
 
+export function getNextTwoBatches(now: Date = new Date()) {
+  const batches: Array<{ label: string; date: Date; round: "ONE_PM" | "SIX_PM" }> = [];
+  
+  const today = new Date(now);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayAfter = new Date(now);
+  dayAfter.setDate(dayAfter.getDate() + 2);
+  
+  const candidates = [
+    { date: today, hour: 13, round: "ONE_PM" as const, label: "Today, 1:00 PM" },
+    { date: today, hour: 18, round: "SIX_PM" as const, label: "Today, 6:00 PM" },
+    { date: tomorrow, hour: 13, round: "ONE_PM" as const, label: "Tomorrow, 1:00 PM" },
+    { date: tomorrow, hour: 18, round: "SIX_PM" as const, label: "Tomorrow, 6:00 PM" },
+    { date: dayAfter, hour: 13, round: "ONE_PM" as const, label: "Day After, 1:00 PM" },
+    { date: dayAfter, hour: 18, round: "SIX_PM" as const, label: "Day After, 6:00 PM" }
+  ];
+  
+  for (const cand of candidates) {
+    const candDate = new Date(cand.date);
+    candDate.setHours(cand.hour, 0, 0, 0);
+    if (candDate > now) {
+      batches.push({
+        label: cand.label,
+        date: candDate,
+        round: cand.round
+      });
+      if (batches.length === 2) break;
+    }
+  }
+  
+  return batches;
+}
+
 function PendingRetryOrdersPanel({
   rows,
   pending,
@@ -3175,7 +3217,7 @@ function PendingRetryOrdersPanel({
   rows: DeliveryRequest[];
   pending: boolean;
   onOpen: (request: DeliveryRequest) => void;
-  onAction: (taskId: string, action: "retry" | "assign_1pm" | "assign_6pm" | "resolve" | "cancel") => void;
+  onAction: (taskId: string, action: string) => void;
 }) {
   return (
     <Panel className="space-y-4">
@@ -3205,8 +3247,17 @@ function PendingRetryOrdersPanel({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <ActionButton className="px-3 py-2" disabled={pending} onClick={() => onAction(row.id, "retry")}>Retry Now</ActionButton>
-                  <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "assign_1pm")}>Assign 1 PM</ActionButton>
-                  <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "assign_6pm")}>Assign 6 PM</ActionButton>
+                  {getNextTwoBatches().map((batchOpt, idx) => (
+                    <ActionButton
+                      key={idx}
+                      className="px-3 py-2"
+                      variant="secondary"
+                      disabled={pending}
+                      onClick={() => onAction(row.id, `assign_${batchOpt.round}_${batchOpt.date.toISOString()}`)}
+                    >
+                      Assign {batchOpt.label}
+                    </ActionButton>
+                  ))}
                   <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "resolve")}>Mark Resolved</ActionButton>
                   <ActionButton className="px-3 py-2" variant="secondary" disabled={pending} onClick={() => onAction(row.id, "cancel")}>Cancel</ActionButton>
                   <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row)}>View</ActionButton>
@@ -4438,6 +4489,7 @@ function DeliveryRequestDialog({
                   items={[
                     { label: "Task type", value: formatStatus(request.type) },
                     { label: "Task status", value: <StatusBadge value={request.taskStatus} /> },
+                    ...(request.lastFailureReason ? [{ label: "Failure Reason", value: <span className="text-red-500 font-semibold">{request.lastFailureReason}</span> }] : []),
                     { label: "Assigned partner", value: assignedPartner?.user?.name ?? assignedPartner?.user?.phone ?? "Unassigned" },
                     { label: "Estimated earnings", value: formatCurrency(request.estimatedEarnings) },
                     { label: "Customer", value: `${request.customerName ?? "Unknown"} / ${request.customerPhone ?? "No phone"}` },
@@ -5871,6 +5923,15 @@ function getDeliveryColumns({
       accessorKey: "taskStatus",
       header: "Status",
       cell: ({ row }) => <StatusBadge value={row.original.taskStatus} />
+    },
+    {
+      accessorKey: "lastFailureReason",
+      header: "Issue",
+      cell: ({ row }) => row.original.lastFailureReason ? (
+        <span className="text-red-500 font-semibold">{row.original.lastFailureReason}</span>
+      ) : (
+        <span className="text-[var(--muted)]">-</span>
+      )
     },
     {
       id: "actions",

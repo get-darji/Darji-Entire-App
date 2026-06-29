@@ -205,8 +205,21 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   }
 
   function logout() {
-    signOut();
-    onSignOut();
+    Alert.alert(
+      "Logout Confirmation",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Logout",
+          style: "destructive",
+          onPress: () => {
+            signOut();
+            onSignOut();
+          }
+        }
+      ]
+    );
   }
 
   async function submitVehicleChangeRequest() {

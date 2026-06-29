@@ -2050,10 +2050,10 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
         orderId: razorpayOrder.id,
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency,
-        name: "Darzi",
+        name: "Darji",
         description: requestItemCount(request) === 1 ? `${request.workType} - ${request.clothType}` : `${requestItemCount(request)} clothing items`,
         prefill: {
-          name: customer?.name ?? "Darzi Customer",
+          name: customer?.name ?? "Darji Customer",
           contact: customer?.phone ?? ""
         }
       }

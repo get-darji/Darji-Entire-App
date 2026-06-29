@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Image,
   Linking,
@@ -45,7 +46,22 @@ type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: string; bytes?: number };
 type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "ACCEPTED" | "REJECTED" };
-type HandoffOtp = { taskId: string; type: "customer_to_tailor" | "tailor_to_customer"; stage: "pickup" | "drop"; otp: string; verified: boolean };
+type HandoffOtp = {
+  taskId: string;
+  type: "customer_to_tailor" | "tailor_to_customer";
+  stage: "pickup" | "drop";
+  otp: string;
+  verified: boolean;
+  etaWindowStart?: string;
+  etaWindowEnd?: string;
+  routePosition?: number;
+  routeTotal?: number;
+  lastFailureReason?: string;
+  retryStatus?: string;
+  retryCount?: number;
+  nextScheduledBatch?: string;
+  roundAt?: string;
+};
 type Customer = { id: string; name?: string; phone: string };
 type TailoringRequestItem = {
   id?: string;
@@ -106,6 +122,7 @@ type Order = {
   items: OrderItem[];
   pickupScheduledAt?: string;
   instructions?: string;
+  confirmedAt?: string;
   createdAt?: string;
 };
 type TailorProfile = {
@@ -517,6 +534,11 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
         <View style={styles.cardMain}>
           <Text style={styles.prominentOrderId}>{order.orderNumber}</Text>
           <Text style={styles.cardMeta}>{firstItem(order)} - Order ID {shortId(order.id)}</Text>
+          {order.confirmedAt ? (
+            <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
+              Confirmed: {new Date(order.confirmedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+            </Text>
+          ) : null}
         </View>
         <StatusPill status={order.status} />
       </View>
@@ -1098,14 +1120,84 @@ function ProofBlock({
   );
 }
 
-function TailorHandoffOtpCard({ orderId, status }: { orderId?: string; status?: string }) {
+function formatDeliveryTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function TailorEtaCard({ orderId, status }: { orderId?: string; status: string }) {
   const token = useAppStore((state) => state.token);
-  const [otps, setOtps] = useState<HandoffOtp[]>([]);
+  const [tasks, setTasks] = useState<HandoffOtp[]>([]);
 
   useEffect(() => {
     if (!token || !orderId) return;
-    void api<HandoffOtp[]>(`/delivery-requests/order/${orderId}/otps`, {}, token).then(setOtps).catch(() => setOtps([]));
+    void api<HandoffOtp[]>(`/delivery-requests/order/${orderId}/otps`, {}, token).then(setTasks).catch(() => setTasks([]));
   }, [orderId, status, token]);
+
+  const visibleTasks = tasks.filter((task) => task.etaWindowStart || task.nextScheduledBatch || task.roundAt);
+  if (!visibleTasks.length) return null;
+
+  return (
+    <View style={[styles.whiteCard, { backgroundColor: "#fffbeb", borderColor: "#fef3c7", borderWidth: 1 }]}>
+      <Text style={[styles.cardLabel, { color: "#b45309" }]}>EXPECTED ARRIVAL TIME</Text>
+      {visibleTasks.map((task) => {
+        const start = formatDeliveryTime(task.etaWindowStart ?? task.nextScheduledBatch ?? task.roundAt);
+        const end = formatDeliveryTime(task.etaWindowEnd);
+        const label = task.type === "customer_to_tailor" ? "Rider pickup window (To Tailor)" : "Rider delivery window (To Client)";
+        return (
+          <View key={`${task.taskId}-eta`} style={[styles.handoffOtpRow, { marginTop: 8 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: "#1e293b" }}>{label}</Text>
+              <Text style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>
+                {start}{end ? ` - ${end}` : ""}
+                {task.retryStatus === "PENDING_RETRY" ? ` • Retry ${task.retryCount ?? 0}/3` : ""}
+              </Text>
+              {task.lastFailureReason ? <Text style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontWeight: "600" }}>Last issue: {task.lastFailureReason}</Text> : null}
+            </View>
+            {task.routePosition && task.routeTotal ? (
+              <View style={{ backgroundColor: "#feebc8", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: "#c05621" }}>Stop {task.routePosition}/{task.routeTotal}</Text>
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function TailorHandoffOtpCard({ orderId, status }: { orderId?: string; status?: string }) {
+  const token = useAppStore((state) => state.token);
+  const [otps, setOtps] = useState<HandoffOtp[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token || !orderId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    api<HandoffOtp[]>(`/delivery-requests/order/${orderId}/otps`, {}, token)
+      .then((res) => {
+        setOtps(res);
+        setLoading(false);
+      })
+      .catch(() => {
+        setOtps([]);
+        setLoading(false);
+      });
+  }, [orderId, status, token]);
+
+  if (loading) {
+    return (
+      <View style={[styles.whiteCard, { alignItems: "center", paddingVertical: 20 }]}>
+        <ActivityIndicator color={BRAND_ORANGE} style={{ marginBottom: 8 }} />
+        <Text style={styles.cardMeta}>Loading delivery OTP...</Text>
+      </View>
+    );
+  }
 
   if (!otps.length) return null;
   return (
@@ -1265,6 +1357,7 @@ function OrderDetailsScreen({
           </View>
         </View>
       ) : null}
+      <TailorEtaCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
       <TailorHandoffOtpCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
 
       <View style={styles.whiteCard}>
@@ -2265,7 +2358,19 @@ function TailorVerificationFlow({
             <Ionicons name="play-circle-outline" size={18} color="#111111" />
             <Text style={styles.primaryButtonText}>Watch Tutorial</Text>
           </Pressable>
-          <Pressable style={styles.smallLogoutButton} onPress={signOut}>
+          <Pressable
+            style={styles.smallLogoutButton}
+            onPress={() => {
+              Alert.alert(
+                "Logout Confirmation",
+                "Are you sure you want to logout?",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Yes, Logout", style: "destructive", onPress: signOut }
+                ]
+              );
+            }}
+          >
             <Text style={styles.smallLogoutText}>logout</Text>
           </Pressable>
         </ScrollView>
@@ -2747,9 +2852,21 @@ function ProfileScreen({
         <DetailRow icon="ribbon-outline" label="Specialization" value={(me?.tailorProfile?.specialization ?? ["Alteration", "Stitching"]).join(", ")} />
       </View>
 
-      <Pressable style={styles.secondaryButton} onPress={signOut}>
+      <Pressable
+        style={styles.secondaryButton}
+        onPress={() => {
+          Alert.alert(
+            "Logout Confirmation",
+            "Are you sure you want to logout?",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Yes, Logout", style: "destructive", onPress: signOut }
+            ]
+          );
+        }}
+      >
         <Ionicons name="log-out-outline" size={18} color={BRAND_DEEP} />
-        <Text style={styles.secondaryButtonText}>Sign out</Text>
+        <Text style={styles.secondaryButtonText}>Logout</Text>
       </Pressable>
     </ScrollView>
   );
@@ -2975,6 +3092,16 @@ export default function App() {
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
   const [verifiedWelcomeDismissed, setVerifiedWelcomeDismissed] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem("@darji/verified_welcome_dismissed")
+      .then((val) => {
+        if (val === "true") {
+          setVerifiedWelcomeDismissed(true);
+        }
+      })
+      .catch((err) => console.log("Failed to load welcome dismissal", err));
+  }, []);
   const [requests, setRequests] = useState<TailoringRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeRequest, setActiveRequest] = useState<TailoringRequest>();
@@ -3310,7 +3437,14 @@ export default function App() {
   if (!verifiedWelcomeDismissed) {
     return (
       <>
-        <TailorVerifiedWelcome me={me} onContinue={() => setVerifiedWelcomeDismissed(true)} onRefresh={() => refreshWorkspace(true)} />
+        <TailorVerifiedWelcome
+          me={me}
+          onContinue={() => {
+            setVerifiedWelcomeDismissed(true);
+            void AsyncStorage.setItem("@darji/verified_welcome_dismissed", "true");
+          }}
+          onRefresh={() => refreshWorkspace(true)}
+        />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </>
     );
