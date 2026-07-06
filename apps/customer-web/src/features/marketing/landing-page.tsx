@@ -1,283 +1,549 @@
 "use client";
-
-import { motion, useInView } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import gsap from "gsap";
-import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Clock3, PackageCheck, Quote, Star, Users } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Lenis from "lenis";
+import { Apple, ArrowRight, ChevronDown, Clock3, MapPin, Phone, Play, Star, Plus, Minus, Headphones } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { SectionEyebrow } from "@/src/components/ui";
+import BorderGlow from "@/src/components/border-glow";
+import TiltedCard from "@/src/components/tilted-card";
 import { faq } from "@/src/lib/static-data";
+import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
-
-function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-80px" });
-
-  useEffect(() => {
-    if (!inView || !ref.current) return;
-    const target = { value: 0 };
-    gsap.to(target, {
-      value,
-      duration: 1.4,
-      ease: "power3.out",
-      onUpdate: () => {
-        if (ref.current) ref.current.textContent = `${Math.round(target.value).toLocaleString("en-IN")}${suffix}`;
-      }
-    });
-  }, [inView, suffix, value]);
-
-  return <span ref={ref}>0{suffix}</span>;
-}
-
-const processSteps = [
-  { title: "Upload & Describe", copy: "Upload photos of your clothing and tell us what you need.", image: "/animations/s1.png" },
-  { title: "Schedule Pickup", copy: "Choose a convenient time. We pick it up from your doorstep.", image: "/animations/s2.png" },
-  { title: "Tailor Gets to Work", copy: "Our verified tailor reviews and starts working on it.", image: "/animations/s3.png" },
-  { title: "Live Tracking", copy: "Track your order in real time from pickup to delivery.", image: "/animations/s4.png" },
-  { title: "Delivered Home", copy: "We deliver your perfect clothing back to your doorstep.", image: "/animations/s5.png" }
-];
+import { VideoSection } from "./video-section";
 
 const serviceCards = [
-  { title: "Alterations", copy: "Perfect fit, every time.", image: "/animations/service-alterations.png" },
-  { title: "Repairs", copy: "We fix it like new.", image: "/animations/service-repairs.png" },
-  { title: "Custom Stitching", copy: "Stitch your style.", image: "/animations/service-custom-stitching.png" },
-  { title: "Men's Wear", copy: "Shirts, Pants, Suits & more.", image: "/animations/service-mens-wear.png" },
-  { title: "Women's Wear", copy: "Sarees, Dresses, Tops & more.", image: "/animations/service-womens-wear.png" },
-  { title: "Kids Wear", copy: "Comfort for your little ones.", image: "/animations/service-kids-wear.png" }
+  {
+    title: "Stitching",
+    copy: "Made-to-measure tailoring for everyday and occasion wear.",
+    detail: "Blouses, kurtas, suits, uniforms",
+    image: "/animations/service-custom-stitching.png"
+  },
+  {
+    title: "Alterations",
+    copy: "Precise size fixes for cleaner fit and better comfort.",
+    detail: "Waist, sleeve, hem, shoulder",
+    image: "/animations/service-alterations.png"
+  },
+  {
+    title: "Pressing",
+    copy: "Sharp finishing that keeps garments neat and ready to wear.",
+    detail: "Steam press with wrinkle-free finish",
+    image: "/animations/service-mens-wear.png"
+  },
+  {
+    title: "Repairs",
+    copy: "Careful repair work that extends the life of your clothes.",
+    detail: "Tears, seams, hooks and patchwork",
+    image: "/animations/service-repairs.png"
+  },
+  {
+    title: "Other Services",
+    copy: "Small clothing fixes handled with the same attention to detail.",
+    detail: "Zippers, buttons, lining, hemming",
+    image: "/animations/buttons.png"
+  }
 ];
 
 const testimonials = [
+  { quote: "Amazing stitching and perfect fitting. Super quick delivery too!", name: "Rohan Verma", initials: "RV", color: "#f97316" },
+  { quote: "Very neat press and packaging. Clothes look brand new!", name: "Neha Singh", initials: "NS", color: "#0b2241" },
+  { quote: "Got my jeans altered perfectly. Fit is just right now. Thanks Darji!", name: "Arjun Mehta", initials: "AM", color: "#be123c" },
+  { quote: "Reliable, fast and very professional service.", name: "Pooja Sharma", initials: "PS", color: "#047857" }
+];
+
+function SmoothScroll() {
+  useEffect(() => {
+    window.history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return;
+
+    const lenis = new Lenis({
+      duration: 1.12,
+      easing: (t: number) => 1 - Math.pow(1 - t, 4),
+      smoothWheel: true,
+      wheelMultiplier: 0.86
+    });
+
+    let rafId = 0;
+    const raf = (time: number) => {
+      lenis.raf(time);
+      rafId = requestAnimationFrame(raf);
+    };
+
+    lenis.on("scroll", ScrollTrigger.update);
+    rafId = requestAnimationFrame(raf);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      lenis.destroy();
+    };
+  }, []);
+
+  return null;
+}
+
+function IntroReveal() {
+  const intervalRef = useRef<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+  const timelineRef = useRef<gsap.core.Timeline | null>(null);
+
+  useLayoutEffect(() => {
+    const fill = document.querySelector<HTMLDivElement>("#loader .fill");
+    const percent = document.getElementById("percent");
+    if (!fill || !percent) return;
+
+    document.body.style.overflow = "hidden";
+
+    gsap.set("#loader", { yPercent: 0, force3D: true });
+    gsap.set("#curtain2", { yPercent: 0, force3D: true });
+    gsap.set("#site .darji-navbar", { opacity: 0, y: 20, force3D: true });
+    gsap.set("#site .darji-hero-title", { opacity: 0, y: 50, filter: "blur(8px)", force3D: true });
+    gsap.set("#site .darji-hero-copy", { opacity: 0, y: 20, force3D: true });
+    gsap.set("#site .darji-hero-kicker", { opacity: 0, y: 20, force3D: true });
+    gsap.set("#site .darji-hero-buttons > *", { opacity: 0, y: 20, force3D: true });
+    gsap.set("#site .darji-hero-trust", { opacity: 0, y: 20, force3D: true });
+    gsap.set("#site .darji-hero-social", { opacity: 0, y: 20, force3D: true });
+    gsap.set("#site .darji-hero-image", { opacity: 0, scale: 0.97, force3D: true });
+
+    let p = 0;
+    intervalRef.current = window.setInterval(() => {
+      p += 1;
+      fill.style.width = `${p}%`;
+      percent.textContent = `${p}%`;
+
+      if (p >= 100) {
+        if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+
+        timeoutRef.current = window.setTimeout(() => {
+          const tl = gsap.timeline();
+          timelineRef.current = tl;
+
+          tl.to("#loader", { yPercent: -100, duration: 0.9, ease: "expo.inOut", force3D: true })
+            .to("#curtain2", { yPercent: -100, duration: 1, ease: "expo.inOut", force3D: true }, "-=0.72")
+            .fromTo("#site .darji-navbar", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.2")
+            .fromTo("#site .darji-hero-kicker", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.4")
+            .fromTo("#site .darji-hero-title", { y: 50, opacity: 0, filter: "blur(8px)" }, { y: 0, opacity: 1, filter: "blur(0px)", duration: 0.8 }, "-=0.2")
+            .fromTo("#site .darji-hero-copy", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.5")
+            .fromTo("#site .darji-hero-buttons > *", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, stagger: 0.1 }, "-=0.4")
+            .fromTo("#site .darji-hero-trust", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, stagger: 0.06 }, "-=0.35")
+            .fromTo("#site .darji-hero-social", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.35")
+            .fromTo("#site .darji-hero-image", { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, "-=0.45")
+            .add(() => {
+              document.body.style.overflow = "auto";
+            });
+        }, 250);
+      }
+    }, 20);
+
+    return () => {
+      if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
+      timelineRef.current?.kill();
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  return (
+    <>
+      <div id="curtain2" />
+      <div id="loader">
+        <BrandLogo className="logo" imageClassName="loader-logo-image" />
+        <p>Stitching your experience...</p>
+        <div className="bar"><div className="fill" /></div>
+        <div id="percent">0%</div>
+      </div>
+    </>
+  );
+}
+
+
+function PlayStoreLogo({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 466 511.98" className={className}>
+      <path fill="#EA4335" d="M199.9 237.8 1.4 470.17c7.22 24.57 30.16 41.81 55.8 41.81 11.16 0 20.93-2.79 29.3-8.37l244.16-139.46L199.9 237.8z"/>
+      <path fill="#FBBC04" d="m433.91 205.1-104.65-60-111.61 110.22 113.01 108.83 104.64-58.6c18.14-9.77 30.7-29.3 30.7-50.23-1.4-20.93-13.95-40.46-32.09-50.22z"/>
+      <path fill="#34A853" d="M199.42 273.45 329.27 145.1 87.9 8.37C79.53 2.79 68.36 0 57.2 0 30.7 0 6.98 18.14 1.4 41.86l198.02 231.59z"/>
+      <path fill="#4285F4" d="M1.39 41.86C0 46.04 0 51.63 0 57.2v397.64c0 5.57 0 9.76 1.4 15.34l216.27-214.86L1.39 41.86z"/>
+    </svg>
+  );
+}
+
+function AppleStoreLogo({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 170 170" className={className} fill="currentColor">
+      <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.34.13-9.13-1.92-14.36-6.13-3.09-2.52-6.94-7.05-11.53-13.59-6.07-8.87-10.84-18.77-14.3-29.7-3.46-10.93-5.19-21.43-5.19-31.5 0-14.96 4.06-27.02 12.18-36.19 8.12-9.17 17.55-13.82 28.3-13.95 5.01.13 10.15 1.54 15.42 4.25 5.27 2.7 9.17 4.06 11.69 4.06 2.01 0 6.07-1.49 12.18-4.48 6.12-2.99 11.5-4.38 16.14-4.18 17.15 1.54 30.01 7.97 38.58 19.3-14.54 8.79-21.68 20.67-21.43 35.65.25 11.57 4.64 21.2 13.16 28.91 8.52 7.7 18.66 11.89 30.43 12.56-2.13 6.13-4.76 11.96-7.89 17.48zM119.22 30.05c0-8.13 2.93-15.65 8.79-22.58 5.86-6.93 13.06-11.19 21.6-12.77.25 8.13-2.69 15.74-8.79 22.84-6.11 7.09-13.43 11.45-21.6 13.07-.13-1.01-.2-2.12-.2-3.16z"/>
+    </svg>
+  );
+}
+
+function StoreButton({ type }: { type: "play" | "apple" }) {
+  const isPlay = type === "play";
+  const Logo = isPlay ? PlayStoreLogo : AppleStoreLogo;
+
+  return (
+    <BorderGlow
+      className="store-button-glow"
+      edgeSensitivity={24}
+      glowColor={isPlay ? "28 94 61" : "40 40 40"}
+      backgroundColor="#05070a"
+      borderRadius={8}
+      glowRadius={24}
+      glowIntensity={0.75}
+      coneSpread={20}
+      colors={isPlay ? ["#34a853", "#fbbc05", "#ea4335", "#4285f4"] : ["#ffffff", "#cccccc", "#888888"]}
+    >
+      <button className="store-button" type="button" aria-label={isPlay ? "Get it on Google Play" : "Download on the App Store"}>
+        <Logo className="h-6 w-6 object-contain" />
+        <span className="store-button-copy">
+          <span className="store-button-kicker">{isPlay ? "GET IT ON" : "Download on the"}</span>
+          <strong className="store-button-name">{isPlay ? "Google Play" : "App Store"}</strong>
+        </span>
+      </button>
+    </BorderGlow>
+  );
+}
+
+const faqList = [
   {
-    quote: "Amazing service! Pickup was on time and the stitching quality is top-notch. Highly recommended!",
-    name: "Ankita Sharma",
-    city: "Delhi",
-    initials: "AS",
-    color: "#f97316"
+    question: "How does Darji work?",
+    answer: "Upload a photo of your clothing or describe your tailoring need. Our verified tailors will review your request and send you the best offers. Choose your tailor, confirm, and we'll handle the pickup and delivery."
   },
   {
-    quote: "Super convenient and reliable. Darji has made tailoring so easy for me. Love it!",
-    name: "Rohit Verma",
-    city: "Gurgaon",
-    initials: "RV",
-    color: "#0b2241"
+    question: "How much does the service cost?",
+    answer: "Pricing depends on the service required. We provide transparent upfront quotes from local tailors with platform fees and delivery charges clearly shown before you pay. No hidden costs."
   },
   {
-    quote: "Very professional tailors and quick delivery. My go-to for all alterations now.",
-    name: "Neha Iyer",
-    city: "Bangalore",
-    initials: "NI",
-    color: "#be123c"
+    question: "How long does the tailoring take?",
+    answer: "Standard tailoring and alterations take 3 to 5 days. For urgent requests, express options are available at checkout to get your garments back faster."
+  },
+  {
+    question: "Is pickup and delivery really free?",
+    answer: "Yes! We offer free pickup and doorstep delivery for all standard tailoring orders above a minimum basket size, handled by our verified delivery partners."
+  },
+  {
+    question: "Can I track my order?",
+    answer: "Yes, you can track every step of your order in real-time from the dashboard, including driver pickup, tailor work progress, quality checks, and delivery dispatch."
+  },
+  {
+    question: "What if I'm not satisfied with the stitching?",
+    answer: "Your satisfaction is our priority. If the fit or stitching isn't perfect, request a free re-alteration within 7 days of delivery, and we will pick it up and fix it."
+  },
+  {
+    question: "How do I make a payment?",
+    answer: "We accept all major credit cards, debit cards, UPI, net banking, and digital wallets. Cash on delivery is also supported in select pin codes."
   }
 ];
 
 export function LandingPage() {
-  const [openFaq, setOpenFaq] = useState(0);
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const heroRef = useRef<HTMLElement>(null);
-  const howRef = useRef<HTMLElement>(null);
-
   return (
-    <main>
-      <PremiumHero heroRef={heroRef} howRef={howRef} />
+    <>
+      <main id="site">
+        <SmoothScroll />
+        <PremiumHero heroRef={heroRef} />
+        <VideoSection />
+        <HowItWorksSection />
 
-      <section id="how" ref={howRef} className="bg-white py-20">
-        <div className="shell text-center">
-          <SectionEyebrow>How Darji Works</SectionEyebrow>
-          <h2 className="text-4xl font-black leading-tight sm:text-5xl">5 Simple Steps</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-base font-semibold leading-7 text-[var(--darji-muted)]">
-            From pickup to delivery, we make tailoring effortless.
-          </p>
-          <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            {processSteps.map((step, index) => (
-              <motion.div
-                key={step.title}
-                initial={{ opacity: 0, y: 18 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-80px" }}
-                transition={{ delay: index * 0.05 }}
-                className="process-step-card relative flex min-h-[244px] flex-col rounded-lg border border-[#eee4dc] bg-white p-4 text-left shadow-[0_18px_48px_rgba(8,17,31,0.05)]"
-              >
-                {index < processSteps.length - 1 ? <span className="process-step-arrow" aria-hidden="true" /> : null}
-                <div className="grid h-32 place-items-center overflow-hidden rounded-lg bg-[linear-gradient(180deg,#ffffff_0%,#fff8f1_100%)]">
-                  <img src={step.image} alt="" aria-hidden="true" loading="lazy" decoding="async" className="h-full max-h-32 w-full select-none object-contain p-1" draggable={false} />
-                </div>
-                <div className="mt-4 flex items-start gap-3">
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[var(--darji-orange)] text-sm font-black text-[var(--darji-orange)]">
-                    {index + 1}
-                  </span>
-                  <div>
-                    <p className="text-base font-black text-[var(--darji-ink)]">{step.title}</p>
-                    <p className="mt-2 text-sm font-semibold leading-6 text-[var(--darji-muted)]">{step.copy}</p>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+        <section id="services" className="bg-white py-8">
+          <div className="shell text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "0px 0px -8% 0px" }}
+              transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <SectionEyebrow>Our Services</SectionEyebrow>
+              <h2 className="mx-auto max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl mt-1">All Your Clothing Needs, Handled With Care</h2>
+              <p className="mx-auto mt-2.5 max-w-2xl text-lg sm:text-xl font-medium leading-relaxed text-[#687589]">From simple repairs to perfect alterations, we make it effortless.</p>
+            </motion.div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {serviceCards.map((service, index) => (
+                <motion.div
+                  key={service.title}
+                  initial={{ opacity: 0, y: 18, scale: 0.98, filter: "blur(10px)" }}
+                  whileInView={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                  viewport={{ once: true, margin: "-80px" }}
+                  transition={{ delay: index * 0.05, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                  className="flex justify-center"
+                >
+                  <TiltedCard
+                    imageSrc={service.image}
+                    altText={service.title}
+                    captionText={service.title}
+                    containerHeight="260px"
+                    containerWidth="100%"
+                    imageHeight="150px"
+                    imageWidth="70%"
+                    rotateAmplitude={12}
+                    scaleOnHover={1.03}
+                    showMobileWarning={false}
+                    showTooltip={false}
+                    displayOverlayContent={true}
+                    className="reference-service-tilted-card w-full max-w-[220px]"
+                    imageClassName="reference-service-tilted-image"
+                    overlayContent={
+                      <div className="pointer-events-none absolute inset-0 rounded-[15px] p-3 text-left text-white">
+                        <div className="inline-flex rounded-full border border-white/20 bg-black/82 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
+                          {service.title}
+                        </div>
+                        <div className="absolute inset-x-0 bottom-0 rounded-b-[15px] bg-gradient-to-t from-black via-black/95 to-transparent px-3 pb-3 pt-12">
+                          <p className="text-[12px] font-semibold leading-4 text-white">
+                            {service.copy}
+                          </p>
+                          <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-white/70">
+                            {service.detail}
+                          </p>
+                        </div>
+                      </div>
+                    }
+                  />
+                </motion.div>
+              ))}
+            </div>
+            <a href="/dashboard" className="focus-ring mt-7 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5">
+              View All Services <ArrowRight className="h-4 w-4" />
+            </a>
           </div>
-          <div className="mt-8 grid rounded-lg border border-[#eee4dc] bg-white shadow-[0_18px_48px_rgba(8,17,31,0.05)] sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["Orders Completed", 10000, "+", PackageCheck],
-              ["Verified Tailors", 150, "+", Users],
-              ["Average Pickup Time", 30, " min", Clock3],
-              ["Customer Rating", 49, " ★", Star]
-            ].map(([label, value, suffix, Icon]) => {
-              const StatIcon = Icon as typeof Star;
-              const displayValue = label === "Customer Rating" ? 4.9 : Number(value);
+        </section>
+
+        <section className="bg-white py-14">
+          <div className="app-download-banner">
+            <div className="app-download-copy">
+              <h2>The <span>Darji</span> App</h2>
+              <p>Book, track and manage your orders easily.</p>
+              <div className="app-store-actions"><StoreButton type="play" /><StoreButton type="apple" /></div>
+            </div>
+            <div className="app-download-phone"><div className="phone-shell"><img src="/darji-logo.png" alt="Darji" /><p>Tailoring Picked Up<br />From Your Doorstep</p><div className="phone-bag" /></div></div>
+            <div className="app-download-qr"><img src="/qr-code.png" alt="Scan to Download" /><p>Scan to Download<br />the <strong>Darji</strong> App</p></div>
+          </div>
+        </section>
+
+        <section className="bg-white py-12">
+          <div className="shell text-center">
+            <SectionEyebrow>What Our Customers Say</SectionEyebrow>
+            <h2 className="mx-auto max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl">
+              Loved by thousands,<br />stitched with <span className="text-[#ff7000]">trust.</span>
+            </h2>
+            <div className="flex items-center justify-center gap-4 mt-5">
+              <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-[#eee4dc]" />
+              <svg className="h-5 w-5 text-[#ff7000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2C12 2 8 6 8 10C8 14.5 12 16 12 22" />
+                <path d="M12 22C12 22 16 18 16 14C16 9.5 12 8 12 2" />
+              </svg>
+              <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-[#eee4dc]" />
+            </div>
+            
+            <div className="testimonial-marquee mt-10">
+              {[...testimonials, ...testimonials, ...testimonials].map((testimonial, index) => (
+                <article key={`${testimonial.name}-${index}`} className="reference-testimonial-card testimonial-card relative flex flex-col justify-between overflow-hidden">
+                  <span className="absolute top-4 right-4 text-7xl font-serif text-[#ff7000]/12 select-none pointer-events-none">”</span>
+                  <div>
+                    <div className="flex gap-1 text-[var(--darji-orange)]">
+                      {Array.from({ length: 5 }).map((_, starIndex) => (
+                        <Star key={starIndex} className="h-4 w-4 fill-current" />
+                      ))}
+                    </div>
+                    <p className="mt-4 text-sm font-semibold leading-7 text-[#08111f]">
+                      &quot;{testimonial.quote}&quot;
+                    </p>
+                  </div>
+                  <div className="mt-5 flex items-center gap-3">
+                    <span className="grid h-11 w-11 place-items-center rounded-full border-2 border-white text-xs font-black text-white shadow-[0_12px_24px_rgba(8,17,31,0.12)]" style={{ backgroundColor: testimonial.color }}>
+                      {testimonial.initials}
+                    </span>
+                    <span className="text-left">
+                      <span className="block text-sm font-black text-[#08111f]">{testimonial.name}</span>
+                      <span className="block text-xs font-semibold text-[var(--darji-muted)]">Customer</span>
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col items-center justify-center gap-3">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#687589]">
+                <span className="text-[#ff7000]">&larr;</span>
+                <span>Scrolls automatically</span>
+                <span className="text-[#ff7000]">&rarr;</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-orange-100 bg-[#fff7f0] px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-[#ff7000] shadow-sm">
+                <svg className="h-3 w-3 fill-current" viewBox="0 0 24 24">
+                  <rect x="6" y="4" width="4" height="16" />
+                  <rect x="14" y="4" width="4" height="16" />
+                </svg>
+                <span>Hover to pause</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="faq" className="relative shell py-20 overflow-visible">
+          {/* Background Dotted Thread Trails & Spool Decor */}
+          <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden select-none">
+            {/* Left Thread Trail */}
+            <svg className="absolute top-[20%] left-[-4%] h-48 w-48 text-[#eee4dc] opacity-60 hidden xl:block" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3,3">
+              <path d="M0,50 C30,20 70,80 100,50" />
+            </svg>
+            {/* Right Thread Trail */}
+            <svg className="absolute bottom-[20%] right-[-4%] h-48 w-48 text-[#eee4dc] opacity-60 hidden xl:block" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3,3">
+              <path d="M0,50 C30,80 70,20 100,50" />
+            </svg>
+            
+            {/* Bottom Left Needle */}
+            <svg className="absolute bottom-[-5%] left-[-6%] h-24 w-24 text-[#ff7000]/12 hidden xl:block rotate-[15deg]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="12" cy="4" r="2" />
+              <path d="M12 6L12 22" />
+            </svg>
+            
+            {/* Bottom Right Spool */}
+            <svg className="absolute bottom-[-5%] right-[-6%] h-24 w-24 text-[#ff7000]/12 hidden xl:block rotate-[-15deg]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="6" y="2" width="12" height="4" rx="1" />
+              <rect x="8" y="6" width="8" height="12" />
+              <rect x="6" y="18" width="12" height="4" rx="1" />
+              <line x1="8" y1="9" x2="16" y2="9" />
+              <line x1="8" y1="12" x2="16" y2="12" />
+              <line x1="8" y1="15" x2="16" y2="15" />
+            </svg>
+          </div>
+
+          <div className="text-center">
+            <SectionEyebrow>FAQ</SectionEyebrow>
+            <h2 className="mx-auto max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl mt-1">
+              Frequently Asked <span className="text-[#ff7000]">Questions</span>
+            </h2>
+            <div className="flex items-center justify-center gap-4 mt-5">
+              <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-[#eee4dc]" />
+              <svg className="h-5 w-5 text-[#ff7000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2C12 2 8 6 8 10C8 14.5 12 16 12 22" />
+                <path d="M12 22C12 22 16 18 16 14C16 9.5 12 8 12 2" />
+              </svg>
+              <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-[#eee4dc]" />
+            </div>
+            <p className="mt-4 text-base font-semibold leading-relaxed text-neutral-500">
+              Everything you need to know about Darji.<br />
+              Can't find the answer you're looking for? <a href="/dashboard" className="text-[#ff7000] hover:underline font-bold transition">Contact our support team</a>.
+            </p>
+          </div>
+
+          <div className="mx-auto mt-10 max-w-4xl flex flex-col gap-4">
+            {faqList.map((item, index) => {
+              const isOpen = openFaq === index;
+              const numStr = String(index + 1).padStart(2, "0");
+
               return (
-                <div key={String(label)} className="border-[#eee4dc] p-7 text-center sm:border-r last:border-r-0">
-                  <StatIcon className="mx-auto h-9 w-9 text-[var(--darji-orange)]" />
-                  <p className="mt-4 text-4xl font-black text-[var(--darji-ink)]">
-                    {label === "Customer Rating" ? "4.9 ★" : <AnimatedNumber value={displayValue} suffix={String(suffix)} />}
-                  </p>
-                  <p className="mt-2 text-sm font-semibold text-[var(--darji-muted)]">{String(label)}</p>
+                <div
+                  key={index}
+                  className={`border transition-all duration-300 rounded-2xl ${
+                    isOpen 
+                      ? "border-[#ffd6b9] bg-gradient-to-br from-[#fffdfa] to-[#fff5ee] shadow-[0_12px_36px_rgba(255,112,0,0.03)]" 
+                      : "border-[#eee4dc] bg-white hover:border-[#ffd6b9]/60 shadow-sm"
+                  }`}
+                >
+                  <button
+                    onClick={() => setOpenFaq(isOpen ? null : index)}
+                    className="flex w-full items-center justify-between gap-4 p-5 text-left focus:outline-none"
+                    type="button"
+                    aria-expanded={isOpen}
+                  >
+                    <div className="flex items-center gap-3 md:gap-4 flex-1">
+                      <span className="text-[#ff7000] font-black text-sm md:text-base shrink-0">{numStr}</span>
+                      <span className="h-5 w-[1px] bg-neutral-200 shrink-0" />
+                      <span className="text-base md:text-lg font-black text-[#08111f] leading-snug">
+                        {item.question}
+                      </span>
+                    </div>
+                    
+                    <div className={`h-8 w-8 rounded-full border flex items-center justify-center shrink-0 transition-all duration-300 ${
+                      isOpen
+                        ? "border-[#ff7000] bg-white text-[#ff7000] shadow-[0_4px_12px_rgba(255,112,0,0.12)]"
+                        : "border-neutral-200 bg-white text-neutral-500 hover:border-neutral-300"
+                    }`}>
+                      {isOpen ? (
+                        <Minus className="h-4 w-4" strokeWidth={3} />
+                      ) : (
+                        <Plus className="h-4 w-4" strokeWidth={3} />
+                      )}
+                    </div>
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {isOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-5 pb-5 pt-0">
+                          <div className="border-t border-dashed border-[#ffd6b9] pt-4 text-sm md:text-base leading-relaxed text-[#4b5563]">
+                            {item.answer}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })}
           </div>
-        </div>
-      </section>
 
-      <section id="services" className="bg-white py-8">
-        <div className="shell text-center">
-          <SectionEyebrow>Our Services</SectionEyebrow>
-          <h2 className="text-4xl font-black leading-tight sm:text-5xl">Tailoring For Every Need</h2>
-          <div className="relative mt-8">
-            <button className="reference-round-control -left-4" aria-label="Previous services" type="button">
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-              {serviceCards.map((service, index) => (
-                <motion.article
-                  key={service.title}
-                  initial={{ opacity: 0, y: 16 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-80px" }}
-                  transition={{ delay: index * 0.04 }}
-                  className="reference-service-card"
-                >
-                  <div className="reference-service-image">
-                    <img src={service.image} alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} />
-                  </div>
-                  <h3>{service.title}</h3>
-                  <p>{service.copy}</p>
-                </motion.article>
-              ))}
-            </div>
-            <button className="reference-round-control -right-4" aria-label="Next services" type="button">
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white py-8">
-        <div className="shell text-center">
-          <SectionEyebrow>Our Customers Love Us</SectionEyebrow>
-          <h2 className="text-4xl font-black leading-tight sm:text-5xl">Real Stories, Real Happiness</h2>
-          <div className="relative mt-8">
-            <button className="reference-round-control -left-4" aria-label="Previous testimonials" type="button">
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <div className="mx-auto grid max-w-5xl gap-5 md:grid-cols-3">
-              {testimonials.map((testimonial, index) => (
-                <motion.article
-                  key={testimonial.name}
-                  initial={{ opacity: 0, y: 16 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-80px" }}
-                  transition={{ delay: index * 0.05 }}
-                  className="reference-testimonial-card"
-                >
-                  <Quote className="h-8 w-8 fill-[var(--darji-orange)] text-[var(--darji-orange)]" />
-                  <p className="mt-4 text-sm font-semibold leading-7 text-[var(--darji-ink)]">{testimonial.quote}</p>
-                  <div className="mt-4 flex gap-1 text-[var(--darji-orange)]">
-                    {Array.from({ length: 5 }).map((_, starIndex) => (
-                      <Star key={starIndex} className="h-4 w-4 fill-current" />
-                    ))}
-                  </div>
-                  <div className="mt-5 flex items-center gap-3">
-                    <span className="grid h-12 w-12 place-items-center rounded-full border-2 border-white text-sm font-black text-white shadow-[0_12px_24px_rgba(8,17,31,0.12)]" style={{ backgroundColor: testimonial.color }}>
-                      {testimonial.initials}
-                    </span>
-                    <span className="text-left">
-                      <span className="block text-sm font-black text-[var(--darji-ink)]">{testimonial.name}</span>
-                      <span className="block text-xs font-semibold text-[var(--darji-muted)]">{testimonial.city}</span>
-                    </span>
-                  </div>
-                </motion.article>
-              ))}
-            </div>
-            <button className="reference-round-control -right-4" aria-label="Next testimonials" type="button">
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white py-8">
-        <div className="shell">
-          <div className="reference-cta">
-            <div className="relative z-10 max-w-xl">
-              <h2 className="text-4xl font-black leading-tight text-[var(--darji-ink)]">Ready to get started?</h2>
-              <p className="mt-3 text-base font-semibold text-[#3f4654]">Book your first pickup and experience premium doorstep tailoring.</p>
-            </div>
-            <a href="/dashboard" className="focus-ring relative z-10 inline-flex min-h-14 items-center justify-center gap-3 rounded-lg bg-[var(--darji-orange)] px-8 text-sm font-black text-white shadow-[0_18px_36px_rgba(255,112,0,0.28)] transition hover:-translate-y-0.5">
-              Book Pickup Now
-              <ArrowRight className="h-4 w-4" />
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section id="pricing" className="shell py-24">
-        <SectionEyebrow>Pricing</SectionEyebrow>
-        <div className="rounded-[2.25rem] border border-[#efcf92] bg-[#fffaf0] p-6 shadow-[0_24px_70px_rgba(246,163,19,0.12)] md:p-10">
-          <h2 className="max-w-3xl text-4xl font-black leading-tight sm:text-6xl">Clear before you confirm. No hidden pricing.</h2>
-          <div className="mt-10 grid gap-5 md:grid-cols-4">
-            {[
-              ["Tailor Charges", "Quoted by verified tailor"],
-              ["Delivery Fee", "Based on urgency and area"],
-              ["Platform Fee", "Shown at checkout"],
-              ["Taxes", "Included when applicable"]
-            ].map(([label, copy]) => (
-              <div key={label} className="rounded-3xl border border-[#efcf92] bg-white p-5">
-                <p className="font-black">{label}</p>
-                <p className="mt-2 text-sm font-semibold leading-6 text-[var(--darji-muted)]">{copy}</p>
+          {/* Still have questions card */}
+          <div className="mx-auto mt-10 max-w-4xl rounded-2xl border border-[#ffe3d1] bg-[#fffbf7] p-5 md:p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-center sm:text-left flex-col sm:flex-row">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-orange-100/60 text-[#ff7000] shadow-[0_4px_12px_rgba(255,112,0,0.08)]">
+                  <Headphones className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base md:text-lg font-black text-[#08111f]">Still have questions?</h3>
+                  <p className="text-sm font-semibold text-neutral-500 mt-0.5">We're here to help you.</p>
+                </div>
               </div>
-            ))}
+              <a
+                href="/dashboard"
+                className="focus-ring inline-flex items-center justify-center gap-2 rounded-xl border border-[#ff7000] bg-white px-5 py-2.5 text-sm font-bold text-[#ff7000] shadow-sm transition hover:bg-[#ff7000] hover:text-white"
+              >
+                Contact Support <ArrowRight className="h-4 w-4" />
+              </a>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="faq" className="shell py-24">
-        <SectionEyebrow>FAQ</SectionEyebrow>
-        <div className="grid gap-10 lg:grid-cols-[0.7fr_1.3fr]">
-          <h2 className="text-4xl font-black leading-tight sm:text-6xl">Questions, answered without the fine print.</h2>
-          <div className="grid gap-3">
-            {faq.map(([question, answer], index) => (
-              <button key={question} onClick={() => setOpenFaq(openFaq === index ? -1 : index)} className="focus-ring rounded-3xl border border-[#e6edf5] bg-white p-5 text-left">
-                <span className="flex items-center justify-between gap-4 text-lg font-black">
-                  {question}
-                  <ChevronDown className={`h-5 w-5 transition ${openFaq === index ? "rotate-180" : ""}`} />
-                </span>
-                {openFaq === index ? <span className="mt-3 block text-sm font-semibold leading-6 text-[var(--darji-muted)]">{answer}</span> : null}
-              </button>
-            ))}
+        <footer className="border-t-2 border-[var(--darji-orange)] bg-[var(--darji-ink)] py-12">
+          <div className="shell grid gap-8 text-white md:grid-cols-[1.2fr_1fr_1fr_1fr]">
+            <div><BrandLogo imageClassName="h-[72px] w-auto" /><p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-white/70">Your trusted tailoring partner. Picked up from your doorstep, delivered with perfection.</p></div>
+            <div><h3 className="font-black">Quick Links</h3><div className="mt-4 grid gap-2 text-sm font-bold text-white/70">{["Home", "Services", "FAQs", "About Us"].map((item) => <a key={item} href="#" className="transition hover:text-white">{item}</a>)}</div></div>
+            <div><h3 className="font-black">Support</h3><div className="mt-4 grid gap-2 text-sm font-bold text-white/70">{["Help Center", "Contact Us", "Privacy Policy", "Terms & Conditions"].map((item) => <a key={item} href="#" className="transition hover:text-white">{item}</a>)}</div></div>
+            <div><h3 className="font-black">Contact Us</h3><div className="mt-4 grid gap-3 text-sm font-bold text-white/70">{[[Phone, "+91 98765 43210"], [MapPin, "New Delhi, India"], [Clock3, "Pickup in 30 min average"]].map(([Icon, item]) => { const ContactIcon = Icon as typeof Phone; return <span key={String(item)} className="flex items-center gap-2"><ContactIcon className="h-4 w-4 text-[var(--darji-orange)]" />{String(item)}</span>; })}</div></div>
           </div>
-        </div>
-      </section>
-
-      <footer className="border-t border-[#e6edf5] bg-white py-12">
-        <div className="shell grid gap-8 md:grid-cols-[1fr_1.5fr]">
-          <div>
-            <BrandLogo imageClassName="h-[72px] w-auto" />
-            <p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-[var(--darji-muted)]">Premium customer website and web app for doorstep tailoring, built on the existing Darji backend.</p>
-          </div>
-          <div className="grid gap-3 text-sm font-bold text-[var(--darji-muted)] sm:grid-cols-3">
-            {["How Darji Works", "Services", "Pricing", "About", "Contact", "Privacy Policy", "Terms of Service", "Cancellation Policy"].map((item) => (
-              <a key={item} href="#" className="transition hover:text-[var(--darji-ink)]">{item}</a>
-            ))}
-          </div>
-        </div>
-      </footer>
-    </main>
+          <div className="shell mt-8 border-t border-white/10 pt-5 text-center text-xs font-bold text-white/50">&copy; 2026 Darji. All rights reserved.</div>
+        </footer>
+      </main>
+      <IntroReveal />
+    </>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

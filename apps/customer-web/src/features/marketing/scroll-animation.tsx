@@ -9,26 +9,24 @@ import { heroSceneConfig } from "./hero-config";
 
 type ScrollAnimationProps = {
   heroRef: RefObject<HTMLElement | null>;
-  howRef: RefObject<HTMLElement | null>;
   modelRef: RefObject<Group | null>;
   cameraRef: RefObject<PerspectiveCamera | null>;
   sceneShellRef: RefObject<HTMLDivElement | null>;
   ready: boolean;
 };
 
-export function ScrollAnimation({ heroRef, howRef, modelRef, cameraRef, sceneShellRef, ready }: ScrollAnimationProps) {
+export function ScrollAnimation({ heroRef, modelRef, cameraRef, sceneShellRef, ready }: ScrollAnimationProps) {
   useEffect(() => {
     if (!ready) return;
 
     gsap.registerPlugin(ScrollTrigger);
 
     const hero = heroRef.current;
-    const how = howRef.current;
     const model = modelRef.current;
     const camera = cameraRef.current;
     const sceneShell = sceneShellRef.current;
 
-    if (!hero || !how || !model || !camera || !sceneShell) return;
+    if (!hero || !model || !camera || !sceneShell) return;
 
     const ctx = gsap.context(() => {
       gsap.set(sceneShell, { opacity: 1, scale: 1, filter: "blur(0px)" });
@@ -44,6 +42,7 @@ export function ScrollAnimation({ heroRef, howRef, modelRef, cameraRef, sceneShe
           scrub: 0.68,
           pin: true,
           anticipatePin: 1,
+          refreshPriority: 2,
           invalidateOnRefresh: true
         }
       });
@@ -65,7 +64,7 @@ export function ScrollAnimation({ heroRef, howRef, modelRef, cameraRef, sceneShe
     }, sceneShell);
 
     return () => ctx.revert();
-  }, [cameraRef, heroRef, howRef, modelRef, ready, sceneShellRef]);
+  }, [cameraRef, heroRef, modelRef, ready, sceneShellRef]);
 
   return null;
 }

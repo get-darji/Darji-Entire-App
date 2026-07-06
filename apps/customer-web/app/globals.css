@@ -1,5 +1,6 @@
-@import "tailwindcss";
-
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 :root {
   --darji-orange: #ff7000;
   --darji-ink: #08111f;
@@ -68,23 +69,6 @@ button:disabled {
   border: 1px solid var(--darji-line);
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 22px 58px rgba(8, 17, 31, 0.07);
-}
-
-.process-step-card {
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
-}
-
-.process-step-card:hover {
-  border-color: rgba(255, 112, 0, 0.28);
-  box-shadow: 0 22px 58px rgba(8, 17, 31, 0.08);
-  transform: translateY(-4px);
-}
-
-.process-step-arrow {
-  display: none;
 }
 
 .reference-round-control {
@@ -169,48 +153,16 @@ button:disabled {
 .reference-testimonial-card {
   min-height: 232px;
   border: 1px solid #eee4dc;
-  border-radius: 8px;
+  border-radius: 24px;
   background: #ffffff;
   padding: 24px;
   text-align: left;
   box-shadow: 0 18px 48px rgba(8, 17, 31, 0.05);
 }
 
-.reference-cta {
-  position: relative;
-  display: flex;
-  min-height: 156px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 112, 0, 0.28);
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.74) 45%, rgba(255, 255, 255, 0.1) 100%),
-    url("/animations/cta-tailoring.png") center / cover no-repeat;
-  padding: 30px 36px;
-  box-shadow: 0 24px 68px rgba(246, 163, 19, 0.12);
-}
-
-.reference-cta::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 78% 28%, rgba(255, 112, 0, 0.18), transparent 18rem);
-}
-
 .focus-ring:focus-visible {
   outline: 3px solid rgba(255, 112, 0, 0.35);
   outline-offset: 3px;
-}
-
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-.route-line {
-  background: linear-gradient(180deg, var(--darji-orange), rgba(255, 112, 0, 0.08));
 }
 
 .hero-shell {
@@ -246,9 +198,6 @@ button:disabled {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.tailor-string-main {
   stroke: rgba(185, 124, 48, 0.72);
   stroke-width: 1.15;
   filter:
@@ -360,6 +309,252 @@ button:disabled {
   z-index: 1;
 }
 
+#curtain2,
+#loader {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+#curtain2 {
+  background: linear-gradient(180deg, #fffaf3 0%, #ffffff 100%);
+}
+
+#loader {
+  z-index: 91;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(18px);
+}
+
+#loader .logo {
+  display: flex;
+  justify-content: center;
+}
+
+.loader-logo-image {
+  width: min(360px, 64vw);
+  height: auto;
+}
+
+#loader p {
+  margin: 0;
+  color: #1f2937;
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+#loader .bar {
+  width: min(470px, 72vw);
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+#loader .fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff7000 0%, #ff9d4d 100%);
+}
+
+#percent {
+  color: #1f2937;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+  font-weight: 700;
+}
+
+.stats-strip > div:last-child {
+  border-right: 0;
+}
+
+.app-download-banner {
+  display: grid;
+  gap: 1.5rem;
+  align-items: center;
+  border: 1px solid rgba(255, 112, 0, 0.18);
+  border-radius: 28px;
+  background: linear-gradient(135deg, #fff8ef 0%, #ffffff 48%, #fff3e1 100%);
+  padding: 2rem;
+  box-shadow: 0 24px 68px rgba(246, 163, 19, 0.12);
+}
+
+.app-download-copy h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  font-weight: 900;
+  line-height: 0.95;
+  color: var(--darji-ink);
+}
+
+.app-download-copy h2 span {
+  color: var(--darji-orange);
+}
+
+.app-download-copy p {
+  margin: 0.9rem 0 0;
+  max-width: 32rem;
+  color: #4b5563;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.app-store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 1.4rem;
+}
+
+.store-button {
+  display: inline-flex;
+  min-height: 60px;
+  align-items: center;
+  gap: 0.9rem;
+  border: 1px solid rgba(11, 17, 31, 0.1);
+  border-radius: 18px;
+  background: #08111f;
+  padding: 0.9rem 1.1rem;
+  color: #fff;
+  box-shadow: 0 18px 36px rgba(8, 17, 31, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.store-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 42px rgba(8, 17, 31, 0.22);
+}
+
+.store-button svg {
+  height: 1.65rem;
+  width: 1.65rem;
+}
+
+.store-button-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.store-button-kicker {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+.store-button-name {
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.app-download-phone {
+  display: grid;
+  place-items: center;
+}
+
+.phone-shell {
+  position: relative;
+  width: min(260px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(255, 112, 0, 0.24);
+  border-radius: 34px;
+  background: linear-gradient(180deg, #fffdf9 0%, #fff4e4 100%);
+  padding: 1.5rem 1.2rem 7rem;
+  text-align: center;
+  box-shadow: 0 24px 54px rgba(255, 112, 0, 0.14);
+}
+
+.phone-shell img {
+  width: 120px;
+  height: auto;
+}
+
+.phone-shell p {
+  margin: 1rem 0 0;
+  color: var(--darji-ink);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.phone-bag {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  width: 88px;
+  height: 96px;
+  border-radius: 26px 26px 18px 18px;
+  background: linear-gradient(180deg, #ff8a1c 0%, #ff7000 100%);
+  transform: translateX(-50%);
+  box-shadow: 0 18px 34px rgba(255, 112, 0, 0.24);
+}
+
+.phone-bag::before {
+  content: "";
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: -14px;
+  height: 22px;
+  border: 4px solid #0b2241;
+  border-bottom: 0;
+  border-radius: 999px 999px 0 0;
+}
+
+.app-download-qr {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.app-download-qr span {
+  display: block;
+  width: 110px;
+  height: 110px;
+  border: 10px solid #fff;
+  border-radius: 18px;
+  background:
+    linear-gradient(90deg, #111 12px, transparent 12px) 0 0 / 28px 28px,
+    linear-gradient(#111 12px, transparent 12px) 0 0 / 28px 28px,
+    linear-gradient(90deg, transparent 14px, #111 14px, #111 18px, transparent 18px) 0 0 / 28px 28px,
+    linear-gradient(transparent 14px, #111 14px, #111 18px, transparent 18px) 0 0 / 28px 28px,
+    #f8fafc;
+  box-shadow: 0 16px 34px rgba(8, 17, 31, 0.12);
+}
+
+.app-download-qr p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.testimonial-marquee {
+  display: flex;
+  gap: 1.25rem;
+  overflow: hidden;
+  padding: 0.5rem 0;
+}
+
+.testimonial-marquee:hover .testimonial-card {
+  animation-play-state: paused;
+}
+
+.testimonial-card {
+  min-width: min(360px, calc(100vw - 72px));
+  animation: testimonial-marquee 22s linear infinite;
+}
+
 @keyframes float {
   0%,
   100% {
@@ -429,10 +624,32 @@ button:disabled {
   }
 }
 
+@keyframes testimonial-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(-100% - 1.25rem));
+  }
+}
+
 @media (max-width: 1023px) {
   .hero-shell {
     align-content: start;
     padding-top: 2rem;
+  }
+
+  .app-download-banner {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .app-store-actions {
+    justify-content: center;
+  }
+
+  .stats-strip > div {
+    border-right: 0;
   }
 }
 
@@ -441,26 +658,31 @@ button:disabled {
     display: grid;
   }
 
-  .process-step-arrow {
-    position: absolute;
-    right: -22px;
-    top: 38%;
-    z-index: 3;
-    display: block;
-    height: 1px;
-    width: 28px;
-    background: rgba(255, 112, 0, 0.62);
+  .app-download-banner {
+    grid-template-columns: 1.2fr 0.8fr 0.55fr;
+    padding: 2.5rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .shell {
+    width: min(100% - 28px, 1280px);
   }
 
-  .process-step-arrow::after {
-    content: "";
-    position: absolute;
-    right: -1px;
-    top: -3px;
-    height: 7px;
-    width: 7px;
-    border-right: 1.5px solid rgba(255, 112, 0, 0.8);
-    border-top: 1.5px solid rgba(255, 112, 0, 0.8);
-    transform: rotate(45deg);
+  #loader .bar {
+    width: min(280px, 82vw);
+  }
+
+  .loader-logo-image {
+    width: min(250px, 70vw);
+  }
+
+  .phone-shell {
+    width: 100%;
+    max-width: 240px;
+  }
+
+  .testimonial-card {
+    min-width: calc(100vw - 48px);
   }
 }

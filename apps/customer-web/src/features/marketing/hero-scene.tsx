@@ -16,7 +16,7 @@ import { TailoringOrbit } from "./tailoring-orbit";
 
 type HeroSceneProps = {
   heroRef: RefObject<HTMLElement | null>;
-  howRef: RefObject<HTMLElement | null>;
+  onModelReady?: () => void;
 };
 
 const heroMetricCards = [
@@ -91,12 +91,15 @@ function HeroMetricCards() {
   );
 }
 
-export function HeroScene({ heroRef, howRef }: HeroSceneProps) {
+export function HeroScene({ heroRef, onModelReady }: HeroSceneProps) {
   const sceneShellRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<Group>(null);
   const cameraRef = useRef<PerspectiveCamera>(null);
   const [modelReady, setModelReady] = useState(false);
-  const handleModelReady = useCallback(() => setModelReady(true), []);
+  const handleModelReady = useCallback(() => {
+    setModelReady(true);
+    onModelReady?.();
+  }, [onModelReady]);
 
   return (
     <div ref={sceneShellRef} className="hero-scene absolute inset-0 overflow-visible">
@@ -127,7 +130,7 @@ export function HeroScene({ heroRef, howRef }: HeroSceneProps) {
       </Canvas>
       <TailoringOrbit />
       <HeroMetricCards />
-      <ScrollAnimation heroRef={heroRef} howRef={howRef} modelRef={modelRef} cameraRef={cameraRef} sceneShellRef={sceneShellRef} ready={modelReady} />
+      <ScrollAnimation heroRef={heroRef} modelRef={modelRef} cameraRef={cameraRef} sceneShellRef={sceneShellRef} ready={modelReady} />
     </div>
   );
 }
