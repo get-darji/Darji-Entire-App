@@ -25,17 +25,21 @@ export function VideoSection() {
 
     const ctx = gsap.context(() => {
       gsap.set(frame, {
-        scale: 0.78,
-        yPercent: 0,
-        borderRadius: 32,
+        scale: 0.82,
+        borderRadius: 34,
+        boxShadow: "0 34px 110px rgba(0,0,0,0.26)",
         force3D: true,
         transformOrigin: "50% 50%"
       });
 
       gsap.set(video, {
-        scale: 1.01,
+        scale: 1.08,
         force3D: true,
         transformOrigin: "50% 50%"
+      });
+
+      gsap.set(stage, {
+        backgroundColor: "#f7f7f3"
       });
 
       const playVideo = () => {
@@ -46,43 +50,46 @@ export function VideoSection() {
         video.pause();
       };
 
-      const timeline = gsap.timeline({
-        defaults: { ease: "none" },
-        scrollTrigger: {
-          trigger: section,
-          start: "top top",
-          end: "+=300%",
-          pin: stage,
-          pinSpacing: true,
-          scrub: true,
-          anticipatePin: 1,
-          refreshPriority: -1,
-          invalidateOnRefresh: true,
-          onEnter: playVideo,
-          onEnterBack: playVideo,
-          onLeave: pauseVideo,
-          onLeaveBack: pauseVideo
+      const expandTimeline = gsap.timeline({
+        paused: true,
+        defaults: {
+          duration: 1.08,
+          ease: "power3.inOut"
         }
       });
 
-      timeline
+      expandTimeline
+        .to(stage, {
+          backgroundColor: "#040404"
+        }, 0)
         .to(frame, {
-          scale: 1.18,
+          scale: 1.12,
           borderRadius: 0,
-          duration: 0.4
-        })
-        .to(frame, {
-          scale: 1.18,
-          yPercent: 0,
-          borderRadius: 0,
-          duration: 0.2
-        })
-        .to(frame, {
-          scale: 0.88,
-          yPercent: 0,
-          borderRadius: 24,
-          duration: 0.4
-        });
+          boxShadow: "0 0 0 rgba(0,0,0,0)"
+        }, 0)
+        .to(video, {
+          scale: 1
+        }, 0);
+
+      ScrollTrigger.create({
+        trigger: section,
+        start: "top 72%",
+        end: "bottom 35%",
+        invalidateOnRefresh: true,
+        onEnter: () => {
+          playVideo();
+          expandTimeline.play();
+        },
+        onEnterBack: () => {
+          playVideo();
+          expandTimeline.play();
+        },
+        onLeave: playVideo,
+        onLeaveBack: () => {
+          expandTimeline.reverse();
+          pauseVideo();
+        }
+      });
 
       const refresh = () => ScrollTrigger.refresh();
       const refreshId = window.setTimeout(refresh, 0);
@@ -117,22 +124,28 @@ export function VideoSection() {
 
   return (
     <section ref={sectionRef} className="relative min-h-screen bg-[#f7f7f3]">
-      <div ref={stageRef} className="grid h-screen w-full place-items-center overflow-hidden bg-[#f7f7f3] px-5 py-8 sm:px-10">
+      <div ref={stageRef} className="grid min-h-screen w-full place-items-center overflow-hidden bg-[#f7f7f3] px-3 py-4 sm:px-6 sm:py-6">
         <div
           ref={frameRef}
-          className="relative aspect-video w-[min(86vw,1440px)] overflow-hidden rounded-[32px] bg-[#111111] shadow-[0_34px_110px_rgba(0,0,0,0.26)] will-change-transform"
+          className="relative aspect-video w-[min(92vw,1440px)] overflow-hidden rounded-[34px] bg-[#090909] shadow-[0_34px_110px_rgba(0,0,0,0.26)] will-change-transform"
           style={{
-            transform: "translate3d(0, 0, 0) scale(0.78)",
+            transform: "translate3d(0, 0, 0) scale(0.82)",
             backfaceVisibility: "hidden"
           }}
         >
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-black/45 via-black/10 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-black/55 via-black/12 to-transparent" />
           <video ref={videoRef} className="h-full w-full object-cover will-change-transform" src="/video.mp4" muted={isMuted} playsInline preload="auto" loop />
+
+          <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/88 backdrop-blur-md sm:left-6 sm:top-6">
+            Doorstep tailoring in motion
+          </div>
 
           <button
             type="button"
             onClick={toggleVolume}
             aria-label={isMuted ? "Turn video sound on" : "Mute video sound"}
-            className="absolute bottom-5 right-5 grid h-12 w-12 place-items-center rounded-full border border-white/20 bg-black/55 text-white shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md transition duration-200 hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-white/80"
+            className="absolute bottom-5 right-5 z-20 grid h-12 w-12 place-items-center rounded-full border border-white/20 bg-black/55 text-white shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md transition duration-200 hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-white/80"
           >
             {isMuted ? (
               <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">

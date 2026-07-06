@@ -1,15 +1,15 @@
-"use client";
+﻿"use client";
 import { motion, AnimatePresence } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
-import { Apple, ArrowRight, ChevronDown, Clock3, MapPin, Phone, Play, Star, Plus, Minus, Headphones } from "lucide-react";
+import { ArrowRight, Clock3, Headphones, MapPin, Minus, Phone, Plus, Sparkles, Star } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { SectionEyebrow } from "@/src/components/ui";
 import BorderGlow from "@/src/components/border-glow";
+import FlowingMenu from "@/src/components/flowing-menu";
 import TiltedCard from "@/src/components/tilted-card";
-import { faq } from "@/src/lib/static-data";
 import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
 import { VideoSection } from "./video-section";
@@ -19,32 +19,39 @@ const serviceCards = [
     title: "Stitching",
     copy: "Made-to-measure tailoring for everyday and occasion wear.",
     detail: "Blouses, kurtas, suits, uniforms",
-    image: "/animations/service-custom-stitching.png"
+    image: "/service-icons/stitching.png"
   },
   {
     title: "Alterations",
     copy: "Precise size fixes for cleaner fit and better comfort.",
     detail: "Waist, sleeve, hem, shoulder",
-    image: "/animations/service-alterations.png"
+    image: "/service-icons/alteration.png"
   },
   {
     title: "Pressing",
     copy: "Sharp finishing that keeps garments neat and ready to wear.",
     detail: "Steam press with wrinkle-free finish",
-    image: "/animations/service-mens-wear.png"
+    image: "/service-icons/pressing.png"
   },
   {
     title: "Repairs",
     copy: "Careful repair work that extends the life of your clothes.",
     detail: "Tears, seams, hooks and patchwork",
-    image: "/animations/service-repairs.png"
+    image: "/service-icons/repairs.png"
   },
   {
     title: "Other Services",
     copy: "Small clothing fixes handled with the same attention to detail.",
     detail: "Zippers, buttons, lining, hemming",
-    image: "/animations/buttons.png"
+    image: "/service-icons/other-services.png"
   }
+];
+
+const flowMenuItems = [
+  { link: "#services", text: "Tailoring", image: "/animations/s1.png" },
+  { link: "#services", text: "Alterations", image: "/animations/s2.png" },
+  { link: "#download-app", text: "Doorstep Pickup", image: "/animations/s3.png" },
+  { link: "/dashboard", text: "Track Orders", image: "/animations/s4.png" }
 ];
 
 const testimonials = [
@@ -153,8 +160,8 @@ function IntroReveal() {
     <>
       <div id="curtain2" />
       <div id="loader">
-        <BrandLogo className="logo" imageClassName="loader-logo-image" />
-        <p>Stitching your experience...</p>
+        <div className="logo"><img src="/darji-loader-transparent.png" alt="Darji" className="loader-logo-image loader-logo-black" /></div>
+        <p className="loader-tagline">stitching you web experience </p>
         <div className="bar"><div className="fill" /></div>
         <div id="percent">0%</div>
       </div>
@@ -251,8 +258,9 @@ export function LandingPage() {
         <VideoSection />
         <HowItWorksSection />
 
-        <section id="services" className="bg-white py-8">
-          <div className="shell text-center">
+        <section id="services" className="relative overflow-hidden bg-white py-10 sm:py-14">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top,rgba(255,112,0,0.12),transparent_58%)]" />
+          <div className="shell relative text-center">
             <motion.div
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -260,46 +268,52 @@ export function LandingPage() {
               transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
             >
               <SectionEyebrow>Our Services</SectionEyebrow>
-              <h2 className="mx-auto max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl mt-1">All Your Clothing Needs, Handled With Care</h2>
-              <p className="mx-auto mt-2.5 max-w-2xl text-lg sm:text-xl font-medium leading-relaxed text-[#687589]">From simple repairs to perfect alterations, we make it effortless.</p>
+              <h2 className="mx-auto mt-1 max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl">All Your Clothing Needs, Handled With Care</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-lg font-medium leading-relaxed text-[#687589] sm:text-xl">From simple repairs to perfect alterations, we make every step feel premium.</p>
             </motion.div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
               {serviceCards.map((service, index) => (
                 <motion.div
                   key={service.title}
                   initial={{ opacity: 0, y: 18, scale: 0.98, filter: "blur(10px)" }}
                   whileInView={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
                   viewport={{ once: true, margin: "-80px" }}
-                  transition={{ delay: index * 0.05, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{ delay: index * 0.06, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                   className="flex justify-center"
                 >
                   <TiltedCard
                     imageSrc={service.image}
                     altText={service.title}
                     captionText={service.title}
-                    containerHeight="260px"
+                    containerHeight="320px"
                     containerWidth="100%"
-                    imageHeight="150px"
-                    imageWidth="70%"
-                    rotateAmplitude={12}
-                    scaleOnHover={1.03}
+                    imageHeight="100%"
+                    imageWidth="100%"
+                    rotateAmplitude={11}
+                    scaleOnHover={1.035}
                     showMobileWarning={false}
                     showTooltip={false}
                     displayOverlayContent={true}
-                    className="reference-service-tilted-card w-full max-w-[220px]"
-                    imageClassName="reference-service-tilted-image"
+                    className="w-full max-w-[245px]"
+                    imageClassName="h-full w-full rounded-[18px] object-cover object-center brightness-[0.92] contrast-[1.05]"
                     overlayContent={
-                      <div className="pointer-events-none absolute inset-0 rounded-[15px] p-3 text-left text-white">
-                        <div className="inline-flex rounded-full border border-white/20 bg-black/82 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
-                          {service.title}
+                      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[18px]">
+                        <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-[#fff7ed]/78 via-[#fff7ed]/12 to-transparent" />
+                        <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-black via-black/82 to-transparent" />
+                        <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-3 text-left">
+                          <span className="inline-flex rounded-full border border-white/55 bg-white/84 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-[#0b2241] shadow-[0_10px_22px_rgba(255,255,255,0.22)]">
+                            {index === 0 ? "Custom fit" : index === 1 ? "Clean finish" : index === 2 ? "Fresh press" : index === 3 ? "Longer wear" : "Fine details"}
+                          </span>
+                          <span className="rounded-full border border-white/16 bg-white/18 px-2.5 py-1 text-[11px] font-black tracking-[0.18em] text-white/90 backdrop-blur-sm">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
                         </div>
-                        <div className="absolute inset-x-0 bottom-0 rounded-b-[15px] bg-gradient-to-t from-black via-black/95 to-transparent px-3 pb-3 pt-12">
-                          <p className="text-[12px] font-semibold leading-4 text-white">
-                            {service.copy}
-                          </p>
-                          <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-white/70">
-                            {service.detail}
-                          </p>
+                        <div className="absolute inset-x-0 bottom-0 px-4 pb-4 pt-16 text-left text-white">
+                          <div className="max-w-[88%] rounded-[18px] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_55%)]">
+                            <h3 className="text-[1.85rem] font-black leading-[0.92] text-white drop-shadow-[0_10px_26px_rgba(0,0,0,0.34)]">{service.title}</h3>
+                            <p className="mt-2.5 max-w-[92%] text-[13px] font-semibold leading-6 text-white/92">{service.copy}</p>
+                            <p className="mt-3 text-[10px] font-black uppercase tracking-[0.24em] leading-6 text-white/78">{service.detail}</p>
+                          </div>
                         </div>
                       </div>
                     }
@@ -307,21 +321,60 @@ export function LandingPage() {
                 </motion.div>
               ))}
             </div>
-            <a href="/dashboard" className="focus-ring mt-7 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5">
+            <a href="/dashboard" className="focus-ring mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5 hover:bg-[#fff7f0]">
               View All Services <ArrowRight className="h-4 w-4" />
             </a>
           </div>
         </section>
 
-        <section className="bg-white py-14">
-          <div className="app-download-banner">
-            <div className="app-download-copy">
-              <h2>The <span>Darji</span> App</h2>
-              <p>Book, track and manage your orders easily.</p>
-              <div className="app-store-actions"><StoreButton type="play" /><StoreButton type="apple" /></div>
+        <section id="download-app" className="bg-white py-10 sm:py-14">
+          <div className="shell">
+            <div className="download-banner">
+              <div>
+                <div className="download-banner-badge">
+                  <Sparkles className="h-4 w-4" />
+                  <span>Darji mobile experience</span>
+                </div>
+                <h2 className="download-banner-title">Book tailoring, track pickup, and manage every order from the Darji app.</h2>
+                <p className="download-banner-copy">Built for fast reorders, live status updates, doorstep coordination, and a smoother experience from measurement to delivery.</p>
+                <div className="app-store-actions mt-6"><StoreButton type="play" /><StoreButton type="apple" /></div>
+              </div>
+              <div className="download-visual-panel">
+                <div className="download-phone-card">
+                  <div className="download-phone-top">
+                    <img src="/darji-logo-cropped.png" alt="Darji logo" className="h-9 w-auto" />
+                    <span>Pickup in 30 mins</span>
+                  </div>
+                  <img src="/animations/cta-tailoring.png" alt="Darji app preview" className="download-preview-image" />
+                  <div className="download-phone-footer">
+                    <strong>Track your order</strong>
+                    <span>From tailor confirmation to doorstep delivery</span>
+                  </div>
+                </div>
+              </div>
+              <div className="download-qr-card">
+                <div className="download-qr-grid" aria-hidden="true">
+                  <span />
+                </div>
+                <div>
+                  <p className="download-qr-title">Scan to preview the app</p>
+                  <p className="download-qr-copy">Get tailored updates, reorder favorite services, and stay synced with every pickup.</p>
+                </div>
+              </div>
             </div>
-            <div className="app-download-phone"><div className="phone-shell"><img src="/darji-logo.png" alt="Darji" /><p>Tailoring Picked Up<br />From Your Doorstep</p><div className="phone-bag" /></div></div>
-            <div className="app-download-qr"><img src="/qr-code.png" alt="Scan to Download" /><p>Scan to Download<br />the <strong>Darji</strong> App</p></div>
+          </div>
+        </section>
+
+        <section className="bg-white py-8 sm:py-12">
+          <div className="shell">
+            <div className="mb-6 text-center">
+              <SectionEyebrow>Explore Darji</SectionEyebrow>
+              <h2 className="mx-auto mt-1 max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl">A flowing snapshot of the experience</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-base font-semibold leading-relaxed text-[#687589] sm:text-lg">From tailoring to tracking, this section gives the page a more editorial, high-motion moment without breaking the current brand language.</p>
+            </div>
+            <div className="flow-menu-shell">
+              <FlowingMenu items={flowMenuItems} speed={14} textColor="#fff7ef" bgColor="#08111f" marqueeBgColor="#fff4e6" marqueeTextColor="#08111f" borderColor="rgba(255,255,255,0.12)" />
+            </div>
           </div>
         </section>
 
@@ -343,7 +396,7 @@ export function LandingPage() {
             <div className="testimonial-marquee mt-10">
               {[...testimonials, ...testimonials, ...testimonials].map((testimonial, index) => (
                 <article key={`${testimonial.name}-${index}`} className="reference-testimonial-card testimonial-card relative flex flex-col justify-between overflow-hidden">
-                  <span className="absolute top-4 right-4 text-7xl font-serif text-[#ff7000]/12 select-none pointer-events-none">”</span>
+                  <span className="absolute top-4 right-4 text-7xl font-serif text-[#ff7000]/12 select-none pointer-events-none">&rdquo;</span>
                   <div>
                     <div className="flex gap-1 text-[var(--darji-orange)]">
                       {Array.from({ length: 5 }).map((_, starIndex) => (
@@ -531,6 +584,27 @@ export function LandingPage() {
     </>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -10,6 +10,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -320,24 +321,25 @@ type RequestDraft = {
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
 const SCREEN_BG = "#f7faff";
+const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 const CARD_DARK = "#111111";
 const darjiLogo = require("./darji transparent.png");
 const measurementsImage = require("./measurements.png");
-const ironingImage = require("../../icons/ironing.png");
+const ironingImage = require("./assets/icons/ironing.png");
 const avatarImages = {
-  youngMale: require("../../icons/young male.png"),
-  youngFemale: require("../../icons/young female.png"),
-  boy: require("../../icons/boy.png"),
-  girl: require("../../icons/girl.png"),
-  uncle: require("../../icons/uncle.png"),
-  aunt: require("../../icons/aunt.png"),
-  aunt2: require("../../icons/aunt_2.png"),
-  blackFemale: require("../../icons/black_female.png"),
-  blackMale: require("../../icons/black_male.png"),
-  oldMale: require("../../icons/old_male.png"),
-  tannedMale: require("../../icons/tanned_male.png"),
-  tannedMale2: require("../../icons/tanned_male_2.png"),
-  tannedUncle: require("../../icons/tanned_uncle.png")
+  youngMale: require("./assets/icons/young male.png"),
+  youngFemale: require("./assets/icons/young female.png"),
+  boy: require("./assets/icons/boy.png"),
+  girl: require("./assets/icons/girl.png"),
+  uncle: require("./assets/icons/uncle.png"),
+  aunt: require("./assets/icons/aunt.png"),
+  aunt2: require("./assets/icons/aunt_2.png"),
+  blackFemale: require("./assets/icons/black_female.png"),
+  blackMale: require("./assets/icons/black_male.png"),
+  oldMale: require("./assets/icons/old_male.png"),
+  tannedMale: require("./assets/icons/tanned_male.png"),
+  tannedMale2: require("./assets/icons/tanned_male_2.png"),
+  tannedUncle: require("./assets/icons/tanned_uncle.png")
 } as const;
 type AvatarPreset = keyof typeof avatarImages;
 const avatarOptions: Array<{ key: AvatarPreset; label: string }> = [
@@ -1252,21 +1254,27 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
 }
 
 function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen: Screen) => void }) {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const items: { key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: "Home", icon: "home-outline" },
     { key: "search", label: "Search", icon: "search-outline" },
+    { key: "newRequest", label: "New Request", icon: "add" },
     { key: "orders", label: "Orders", icon: "cube-outline" },
     { key: "profile", label: "Profile", icon: "person-outline" }
   ];
 
   return (
-    <View style={styles.tabs}>
+    <View style={[styles.tabs, { height: 78 + bottomInset, paddingBottom: 8 + bottomInset }]}>
       {items.map((item) => {
         const selected = active === item.key;
+        const isCreate = item.key === "newRequest";
         return (
-          <Pressable key={item.key} style={styles.tabItem} onPress={() => setScreen(item.key)}>
-            <Ionicons name={item.icon} size={22} color={selected ? BRAND_ORANGE : "#151b27"} />
-            <Text style={[styles.tabText, selected && styles.activeTabText]}>{item.label}</Text>
+          <Pressable key={item.key} style={[styles.tabItem, isCreate && styles.createTabItem]} onPress={() => setScreen(item.key)}>
+            <View style={isCreate ? styles.createTabButton : undefined}>
+              <Ionicons name={item.icon} size={isCreate ? 25 : 22} color={isCreate ? "#111111" : selected ? BRAND_ORANGE : "#151b27"} />
+            </View>
+            <Text style={[styles.tabText, isCreate && styles.createTabText, selected && styles.activeTabText]}>{item.label}</Text>
           </Pressable>
         );
       })}
@@ -1642,8 +1650,7 @@ function HomeScreen({
             </Pressable>
           </View>
           <View style={styles.launchIconStack}>
-            <Ionicons name="shirt-outline" size={46} color={BRAND_DEEP} />
-            <Ionicons name="flash-outline" size={20} color={BRAND_ORANGE} style={styles.launchSparkIcon} />
+            <Image source={ironingImage} style={styles.launchBandImage} resizeMode="contain" />
           </View>
         </View>
 
@@ -1766,18 +1773,26 @@ function HomeScreen({
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
             {stories.slice(0, 6).map((story) => (
               <View key={story.id} style={styles.largeReviewCard}>
-                <Text style={styles.reviewQuoteMark}>"</Text>
-                <Text style={styles.largeReviewText} numberOfLines={5}>"{story.review}"</Text>
-                <View style={styles.largeReviewFooter}>
-                  <FallbackAvatar name={story.name} size={52} />
+                <View style={styles.reviewHeader}>
+                  <FallbackAvatar name={story.name} size={42} />
                   <View style={styles.profileRowText}>
                     <Text style={styles.storyName}>{story.name}</Text>
-                    <Text style={styles.mutedSmall}>{story.location}</Text>
+                    <View style={styles.reviewStars}>
+                      {Array.from({ length: 5 }).map((_, starIndex) => (
+                        <Ionicons key={starIndex} name={starIndex < Math.round(story.rating) ? "star" : "star-outline"} size={12} color={BRAND_ORANGE} />
+                      ))}
+                      <Text style={styles.storyRatingText}>{story.rating.toFixed(1)}</Text>
+                    </View>
                   </View>
-                  <View style={styles.storyRating}>
-                    <Ionicons name="star" size={14} color={BRAND_ORANGE} />
-                    <Text style={styles.storyRatingText}>{story.rating.toFixed(1)}</Text>
+                  <Text style={styles.reviewQuoteMark}>”</Text>
+                </View>
+                <Text style={styles.largeReviewText} numberOfLines={4}>"{story.review}"</Text>
+                <View style={styles.largeReviewFooter}>
+                  <View style={styles.storyServicePill}>
+                    <Ionicons name="cut-outline" size={13} color={BRAND_ORANGE} />
+                    <Text style={styles.storyServiceText}>Alteration</Text>
                   </View>
+                  <Text style={styles.mutedSmall}>{story.location}</Text>
                 </View>
               </View>
             ))}
@@ -1935,7 +1950,7 @@ function FeatureSoonScreen({ setScreen, onNotify }: { setScreen: (screen: Screen
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
         <Header title="Launching Soon" onBack={() => setScreen("home")} />
-        <Image source={{ uri: feature.image }} style={styles.launchImage} resizeMode="cover" />
+        <Image source={typeof feature.image === "string" ? { uri: feature.image } : feature.image} style={styles.launchImage} resizeMode="cover" />
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>UPCOMING FEATURE</Text>
           <Text style={styles.launchTitle}>{feature.title}</Text>
@@ -7043,6 +7058,7 @@ export default function App() {
     styles = createStyles(settings.darkMode);
 
     return (
+      <SafeAreaProvider>
       <NotificationProvider
         app="customer"
         onNavigate={(destination) => {
@@ -7187,6 +7203,7 @@ export default function App() {
           </SafeAreaView>
         </Modal>
       </NotificationProvider>
+      </SafeAreaProvider>
     );
   }
 
@@ -7754,8 +7771,8 @@ function createStyles(isDark = false) {
   dialogDestructiveButton: { backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1" },
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
-  pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
-  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16 },
+  pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 118 },
+  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 118 },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
   mutedSmall: { color: subtle, fontSize: 12 },
@@ -7795,14 +7812,15 @@ function createStyles(isDark = false) {
   popularServiceRow: { gap: 12, paddingBottom: 14 },
   popularServiceCard: { minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   popularServiceText: { color: text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 7 },
-  launchBand: { minHeight: 164, borderRadius: 18, borderWidth: 1, borderColor: "#d8c8ff", backgroundColor: isDark ? "#171326" : "#f5f0ff", flexDirection: "row", alignItems: "center", padding: 18, marginBottom: 22, overflow: "hidden" },
+  launchBand: { minHeight: 186, borderRadius: 22, borderWidth: 1, borderColor: "#d8c8ff", backgroundColor: isDark ? "#171326" : "#f5f0ff", flexDirection: "row", alignItems: "center", padding: 18, marginBottom: 22, overflow: "hidden" },
   launchTextBlock: { flex: 1, minWidth: 0 },
   launchBadge: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 12, backgroundColor: "#ede7ff", color: "#6d28d9", paddingHorizontal: 10, paddingVertical: 5, fontSize: 10, fontWeight: "900" },
   launchBandTitle: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 24, marginTop: 12 },
   launchBandCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 8 },
-  launchNotifyButton: { alignSelf: "flex-start", minHeight: 36, borderRadius: 18, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 17, marginTop: 12 },
+  launchNotifyButton: { alignSelf: "flex-start", minHeight: 40, borderRadius: 20, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 20, marginTop: 14 },
   launchNotifyText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
-  launchIconStack: { width: 96, height: 96, borderRadius: 24, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", marginLeft: 12 },
+  launchIconStack: { width: 118, height: 118, borderRadius: 30, backgroundColor: "#1f1307", alignItems: "center", justifyContent: "center", marginLeft: 12, overflow: "hidden", shadowColor: "#c9b5ff", shadowOpacity: 0.2, shadowRadius: 16, elevation: 2 },
+  launchBandImage: { width: 178, height: 178 },
   launchSparkIcon: { position: "absolute", right: 16, top: 14 },
   needList: { gap: 10, marginBottom: 22 },
   needCard: { minHeight: 70, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 12 },
@@ -7831,11 +7849,20 @@ function createStyles(isDark = false) {
   stepIconBox: { width: 52, height: 52, borderRadius: 16, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   stepTitle: { color: text, fontSize: 10, fontWeight: "900", textAlign: "center", minHeight: 28 },
   stepCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, textAlign: "center", marginTop: 3 },
-  storyRow: { gap: 12, paddingBottom: 14 },
-  largeReviewCard: { width: 332, minHeight: 224, borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 18, justifyContent: "space-between" },
-  reviewQuoteMark: { color: BRAND_ORANGE, fontSize: 42, lineHeight: 42, fontWeight: "900" },
-  largeReviewText: { color: text, fontSize: 16, fontWeight: "800", lineHeight: 24, minHeight: 112 },
-  largeReviewFooter: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 14 },
+  storyRow: { gap: 14, paddingBottom: 16 },
+  largeReviewCard: { width: 264, minHeight: 206, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 12, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 14, elevation: 2 },
+  reviewHeader: { flexDirection: "row", alignItems: "center", gap: 9, minHeight: 48 },
+  reviewStars: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 4 },
+  reviewQuoteMark: { color: BRAND_ORANGE, fontSize: 34, lineHeight: 34, fontWeight: "900", marginLeft: 4 },
+  largeReviewText: { color: text, fontSize: 14, fontWeight: "800", lineHeight: 21, minHeight: 84, marginTop: 14 },
+  reviewImageWrap: { height: 142, borderRadius: 14, overflow: "hidden", backgroundColor: iconBg, marginTop: 10 },
+  reviewImage: { width: "100%", height: "100%" },
+  beforePill: { position: "absolute", left: 9, bottom: 9, borderRadius: 8, backgroundColor: surface, paddingHorizontal: 8, paddingVertical: 5 },
+  afterPill: { position: "absolute", right: 9, bottom: 9, borderRadius: 8, backgroundColor: surface, paddingHorizontal: 8, paddingVertical: 5 },
+  beforePillText: { color: BRAND_DEEP, fontSize: 10, fontWeight: "900" },
+  largeReviewFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12 },
+  storyServicePill: { flexDirection: "row", alignItems: "center", gap: 5 },
+  storyServiceText: { color: text, fontSize: 11, fontWeight: "900" },
   storyCard: { width: 300, minHeight: 158, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 16 },
   storyText: { color: text, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 10, minHeight: 78 },
   storyFooter: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
@@ -7870,10 +7897,13 @@ function createStyles(isDark = false) {
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
   workflowItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
-  tabs: { height: 70, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 6 },
+  tabs: { height: 78, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 8, paddingHorizontal: 4 },
   tabItem: { alignItems: "center", justifyContent: "center", flex: 1 },
   tabText: { marginTop: 4, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700" },
   activeTabText: { color: BRAND_ORANGE },
+  createTabItem: { marginTop: -22 },
+  createTabButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.24, shadowRadius: 10, elevation: 5 },
+  createTabText: { marginTop: 2, fontSize: 9 },
   header: { height: 52, flexDirection: "row", alignItems: "center", marginBottom: 14 },
   headerTitle: { color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
   headerSpacer: { width: 40 },

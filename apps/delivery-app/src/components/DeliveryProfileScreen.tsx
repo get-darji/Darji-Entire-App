@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType } from "react-native";
 import { api, uploadDeliveryAvatar, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
 
@@ -13,18 +14,49 @@ function normalizedAvatarGender(gender?: string) {
   return undefined;
 }
 
-export function getFallbackAvatar(name?: string, gender?: string) {
+const avatarImages = {
+  boy: require("../../assets/icons/boy.png"),
+  girl: require("../../assets/icons/girl.png"),
+  youngMale: require("../../assets/icons/young male.png"),
+  youngFemale: require("../../assets/icons/young female.png"),
+  uncle: require("../../assets/icons/uncle.png"),
+  aunt: require("../../assets/icons/aunt.png"),
+  aunt2: require("../../assets/icons/aunt_2.png"),
+  blackMale: require("../../assets/icons/black_male.png"),
+  blackFemale: require("../../assets/icons/black_female.png"),
+  oldMale: require("../../assets/icons/old_male.png"),
+  tannedMale: require("../../assets/icons/tanned_male.png"),
+  tannedMale2: require("../../assets/icons/tanned_male_2.png"),
+  tannedUncle: require("../../assets/icons/tanned_uncle.png")
+} as const;
+type AvatarPreset = keyof typeof avatarImages;
+const avatarOptions: Array<{ key: AvatarPreset; label: string }> = [
+  { key: "boy", label: "Boy" },
+  { key: "girl", label: "Girl" },
+  { key: "youngMale", label: "Young Male" },
+  { key: "youngFemale", label: "Young Female" },
+  { key: "uncle", label: "Uncle" },
+  { key: "aunt", label: "Aunt" },
+  { key: "blackMale", label: "Male" },
+  { key: "blackFemale", label: "Female" },
+  { key: "oldMale", label: "Old Male" },
+  { key: "tannedMale", label: "Male 2" },
+  { key: "tannedMale2", label: "Male 3" },
+  { key: "tannedUncle", label: "Uncle 2" },
+  { key: "aunt2", label: "Aunt 2" }
+];
+
+function hashSeed(value: string) {
+  return Array.from(value || "User").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+export function getFallbackAvatar(name?: string, gender?: string, preset?: AvatarPreset): ImageSourcePropType {
   const str = name || "User";
+  if (preset) return avatarImages[preset];
   const selectedGender = normalizedAvatarGender(gender);
-  if (selectedGender) return `https://avatar.iran.liara.run/public/${selectedGender}?username=${encodeURIComponent(str)}`;
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const isBoy = Math.abs(hash) % 2 === 0;
-  return isBoy 
-    ? `https://avatar.iran.liara.run/public/boy?username=${encodeURIComponent(str)}`
-    : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
+  if (selectedGender === "boy") return avatarImages[["boy", "youngMale", "blackMale", "tannedMale", "uncle", "oldMale"][hashSeed(str) % 6] as AvatarPreset];
+  if (selectedGender === "girl") return avatarImages[["girl", "youngFemale", "blackFemale", "aunt", "aunt2"][hashSeed(str) % 5] as AvatarPreset];
+  return avatarImages[avatarOptions[hashSeed(str) % avatarOptions.length].key];
 }
 
 const BRAND_ORANGE = "#f6a313";
@@ -106,7 +138,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     ((profile?.verification as { gender?: string } | undefined)?.gender) ??
     ""
   );
-  const settings = profile?.settings ?? {};
+  const settings = useMemo(() => profile?.settings ?? {}, [profile?.settings]);
   const [editing, setEditing] = useState(false);
   const [showVehicleDetails, setShowVehicleDetails] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(false);
@@ -119,6 +151,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarPreset, setAvatarPreset] = useState<AvatarPreset>();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
   const [email, setEmail] = useState(me?.email ?? "");
@@ -137,6 +170,15 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
 
   const palette = preferences.darkMode ? darkPalette : lightPalette;
   const styles = useMemo(() => createStyles(palette), [palette]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    AsyncStorage.getItem(`darji.delivery.avatarPreset.${me.id}`)
+      .then((stored) => {
+        if (stored && stored in avatarImages) setAvatarPreset(stored as AvatarPreset);
+      })
+      .catch(() => undefined);
+  }, [me?.id]);
 
   useEffect(() => {
     setName(me?.name ?? "");
@@ -236,6 +278,12 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     }
   }
 
+  async function chooseAvatarPreset(preset: AvatarPreset) {
+    setAvatarPreset(preset);
+    if (me?.id) await AsyncStorage.setItem(`darji.delivery.avatarPreset.${me.id}`, preset);
+    showDialog({ title: "Avatar selected", message: "Your default avatar has been updated on this device.", icon: "person-circle-outline" });
+  }
+
   function logout() {
     setShowLogoutModal(true);
   }
@@ -295,7 +343,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
         <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar}>
-          <Image source={{ uri: me?.avatarUrl || getFallbackAvatar(name, verificationGender) }} style={styles.avatarImage} />
+          <Image source={me?.avatarUrl ? { uri: me.avatarUrl } : getFallbackAvatar(name, verificationGender, avatarPreset)} style={styles.avatarImage} />
           <View style={styles.cameraBadge}>{uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}</View>
         </Pressable>
         <View style={styles.headerMain}>
@@ -329,6 +377,15 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               <Input label="Full Name" value={name} onChangeText={setName} styles={styles} />
               <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
               <Input label="Working Hours" value={workingHours} onChangeText={setWorkingHours} styles={styles} />
+              <Text style={styles.inputLabel}>Choose Avatar</Text>
+              <View style={styles.avatarPickerGrid}>
+                {avatarOptions.map((option) => (
+                  <Pressable key={option.key} style={[styles.avatarOption, avatarPreset === option.key && styles.avatarOptionSelected]} onPress={() => chooseAvatarPreset(option.key)}>
+                    <Image source={avatarImages[option.key]} style={styles.avatarOptionImage} />
+                    <Text style={styles.avatarOptionLabel}>{option.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
                 {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
               </Pressable>
@@ -1836,6 +1893,11 @@ function createStyles(palette: typeof lightPalette) {
     avatar: { width: 78, height: 78, borderRadius: 26, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
     avatarImage: { width: "100%", height: "100%" },
     avatarText: { color: "#111111", fontSize: 22, fontWeight: "900" },
+    avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+    avatarOption: { width: "30%", minWidth: 96, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card, alignItems: "center", padding: 10 },
+    avatarOptionSelected: { borderColor: BRAND_ORANGE, backgroundColor: palette.accentSurface },
+    avatarOptionImage: { width: 64, height: 64, borderRadius: 20 },
+    avatarOptionLabel: { color: palette.text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 8 },
     cameraBadge: { position: "absolute", right: 4, bottom: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
     headerMain: { flex: 1, minWidth: 0 },
     title: { color: palette.text, fontSize: 24, fontWeight: "900" },

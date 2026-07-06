@@ -9,6 +9,7 @@ import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -277,6 +278,7 @@ const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
+const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 
 const onboardingSteps: { key: OnboardingStep; title: string; subtitle: string }[] = [
   { key: "personal", title: "Personal details", subtitle: "Basic identity and emergency contact" },
@@ -455,7 +457,7 @@ function openDirections(destination: string, origin?: string) {
 function Screen({ children }: { children: ReactNode }) {
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent={false} />
+      <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent />
       {children}
     </SafeAreaView>
   );
@@ -2206,6 +2208,8 @@ function NotificationsScreen({ notifications, onOpen }: { notifications: Deliver
 }
 
 function TabBar({ current, onChange }: { current: Tab; onChange: (tab: Tab) => void }) {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: "Home", icon: "home-outline" },
     { key: "orders", label: "Queues", icon: "cube-outline" },
@@ -2214,7 +2218,7 @@ function TabBar({ current, onChange }: { current: Tab; onChange: (tab: Tab) => v
     { key: "profile", label: "Profile", icon: "person-outline" }
   ];
   return (
-    <View style={styles.tabs}>
+    <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
       {tabs.map((tab) => {
         const active = current === tab.key;
         return (
@@ -3020,7 +3024,9 @@ export default function App() {
   }
   return (
     <>
-      <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} showDialog={setDialog} />
+      <SafeAreaProvider>
+        <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} showDialog={setDialog} />
+      </SafeAreaProvider>
       <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
     </>
   );
@@ -3036,7 +3042,7 @@ const styles = StyleSheet.create({
   logoMark: { width: 68, height: 68, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", marginBottom: 18 },
   authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 8, marginBottom: 22 },
-  pageContent: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 32 },
+  pageContent: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 118 },
   centeredState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
   centeredTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", marginTop: 18 },
   centeredCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 8 },

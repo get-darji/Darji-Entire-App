@@ -72,7 +72,7 @@ import {
   ToggleLeft,
   ToggleRight
 } from "lucide-react";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, type ComponentType } from "react";
 import { toast } from "sonner";
 import {
   assignOrder,
@@ -192,6 +192,15 @@ type DashboardMetrics = {
   pendingVerifications: number;
   revenueToday: number;
   totalRevenue: number;
+};
+
+type GlobalSearchResult = {
+  id: string;
+  title: string;
+  subtitle: string;
+  section: SectionId;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  onSelect: () => void;
 };
 
 type PaymentBreakdown = {
@@ -910,6 +919,7 @@ export function AdminPortal() {
         activeSection={activeSection}
         alertCount={0}
         globalSearch={globalSearch}
+        globalSearchResults={[]}
         me={meQuery.data}
         onGlobalSearchChange={setGlobalSearch}
         onLogout={logout}
@@ -990,6 +1000,116 @@ export function AdminPortal() {
   const pendingOrders = allOrders.length - completedOrders - cancelledOrders;
   const recentOrders = [...allOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
+  const globalSearchResults: GlobalSearchResult[] = (() => {
+    if (!searchTerm) return [];
+    const matches = (...values: Array<string | number | null | undefined>) =>
+      values.some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+    const results: GlobalSearchResult[] = [];
+
+    allOrders.forEach((order) => {
+      if (matches(order.id, order.orderNumber, order.customer?.name, order.customer?.phone, order.customerId, order.tailorId, order.pickupPartnerId, order.deliveryPartnerId)) {
+        results.push({
+          id: `order-${order.id}`,
+          title: order.orderNumber || order.id,
+          subtitle: `Order - ${order.customer?.name ?? order.customer?.phone ?? "Customer"} - ${formatStatus(order.status)}`,
+          section: "orders",
+          icon: PackageCheck,
+          onSelect: () => {
+            setOrderDetail(order);
+            setActiveSection("orders");
+            setGlobalSearch("");
+          }
+        });
+      }
+    });
+
+    tailoringRequests.forEach((request) => {
+      if (matches(request.id, request.customerId, request.customer?.name, request.customer?.phone, request.workType, request.clothType, request.assignedTailorId)) {
+        results.push({
+          id: `tailoring-${request.id}`,
+          title: `TR-${request.id.toUpperCase()}`,
+          subtitle: `Tailoring request - ${request.customer?.name ?? request.customer?.phone ?? "Customer"}`,
+          section: "tailoring",
+          icon: Scissors,
+          onSelect: () => {
+            setTailoringDetail(request);
+            setActiveSection("tailoring");
+            setGlobalSearch("");
+          }
+        });
+      }
+    });
+
+    tailors.forEach((tailor) => {
+      if (matches(tailor.id, tailor.userId, tailor.darjiTailorId, tailor.shopName, tailor.user?.name, tailor.user?.phone)) {
+        results.push({
+          id: `tailor-${tailor.id}`,
+          title: tailor.shopName || tailor.user?.name || tailor.darjiTailorId || tailor.id,
+          subtitle: `Tailor - ${tailor.darjiTailorId ?? tailor.user?.phone ?? tailor.id}`,
+          section: "tailors",
+          icon: Scissors,
+          onSelect: () => {
+            setTailorDetail(tailor);
+            setActiveSection("tailors");
+            setGlobalSearch("");
+          }
+        });
+      }
+    });
+
+    partners.forEach((partner) => {
+      if (matches(partner.id, partner.userId, partner.user?.name, partner.user?.phone, partner.vehicleNumber, partner.assignedArea)) {
+        results.push({
+          id: `partner-${partner.id}`,
+          title: partner.user?.name || partner.vehicleNumber || partner.id,
+          subtitle: `Delivery partner - ${partner.user?.phone ?? partner.assignedArea ?? partner.id}`,
+          section: "partners",
+          icon: Truck,
+          onSelect: () => {
+            setPartnerDetail(partner);
+            setActiveSection("partners");
+            setGlobalSearch("");
+          }
+        });
+      }
+    });
+
+    users.forEach((user) => {
+      if (matches(user.id, user.name, user.phone, user.email, user.role)) {
+        results.push({
+          id: `user-${user.id}`,
+          title: user.name || user.phone || user.id,
+          subtitle: `${formatRoleLabel(user.role ?? "CUSTOMER")} - ${user.phone ?? user.email ?? user.id}`,
+          section: "users",
+          icon: UserCircle2,
+          onSelect: () => {
+            setUserDetail(user);
+            setActiveSection("users");
+            setGlobalSearch("");
+          }
+        });
+      }
+    });
+
+    deliveryRequests.forEach((request) => {
+      if (matches(request.id, request.orderId, request.taskId, request.customerName, request.customerPhone, request.tailorName, request.assignedDeliveryPartnerId)) {
+        results.push({
+          id: `delivery-${request.id}`,
+          title: request.taskId || request.orderId || request.id,
+          subtitle: `Delivery task - ${request.customerName ?? request.customerPhone ?? "Customer"}`,
+          section: "delivery",
+          icon: Truck,
+          onSelect: () => {
+            setDeliveryDetail(request);
+            setActiveSection("delivery");
+            setGlobalSearch("");
+          }
+        });
+      }
+    });
+
+    return results.slice(0, 8);
+  })();
   const dateRangeLabel = buildDashboardDateRangeLabel(range);
   const latestGrowthPoint = growthSeries[growthSeries.length - 1] ?? { customers: 0, tailors: 0, partners: 0 };
   const revenueDelta = buildTrendMeta(latestValue(revenueSeries, "revenue"), previousValue(revenueSeries, "revenue"));
@@ -1441,6 +1561,7 @@ export function AdminPortal() {
         activeSection={activeSection}
         alertCount={alertCount}
         globalSearch={globalSearch}
+        globalSearchResults={globalSearchResults}
         me={me}
         onGlobalSearchChange={setGlobalSearch}
         onLogout={logout}
@@ -2379,6 +2500,7 @@ function PortalFrame({
   alertCount,
   children,
   globalSearch,
+  globalSearchResults,
   me,
   onGlobalSearchChange,
   onLogout,
@@ -2391,6 +2513,7 @@ function PortalFrame({
   alertCount: number;
   children: React.ReactNode;
   globalSearch: string;
+  globalSearchResults: GlobalSearchResult[];
   me?: MeResponse;
   onGlobalSearchChange: (value: string) => void;
   onLogout: () => void;
@@ -2404,8 +2527,28 @@ function PortalFrame({
   const setSupportSubTab = useAdminStore((state) => state.setSupportSubTab);
   const theme = useAdminStore((state) => state.theme);
   const toggleTheme = useAdminStore((state) => state.toggleTheme);
+  const [adminProfileOpen, setAdminProfileOpen] = useState(false);
+  const [adminProfile, setAdminProfile] = useState(() => ({ name: "", age: "", avatarUrl: "" }));
+  const displayName = adminProfile.name || me?.name || "Super Admin";
+  const profileMe: MeResponse | undefined = me ? { ...me, name: displayName, avatarUrl: adminProfile.avatarUrl || me.avatarUrl } : undefined;
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("darzi.admin.profilePrefs");
+      if (stored) setAdminProfile(JSON.parse(stored) as { name: string; age: string; avatarUrl: string });
+    } catch {
+      setAdminProfile({ name: "", age: "", avatarUrl: "" });
+    }
+  }, []);
+
+  function saveAdminProfile() {
+    localStorage.setItem("darzi.admin.profilePrefs", JSON.stringify(adminProfile));
+    setAdminProfileOpen(false);
+    toast.success("Admin profile updated");
+  }
 
   return (
+    <>
     <main className="min-h-screen">
       <div className="darji-dashboard-scale darji-shell relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(246,163,19,0.08),transparent_18%)] bg-[var(--background)]">
         <div className={cn("fixed inset-0 z-40 bg-black/55 backdrop-blur-sm transition lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")} onClick={() => setSidebarOpen(false)} />
@@ -2527,9 +2670,9 @@ function PortalFrame({
 
             <div className="rounded-[22px] border border-[var(--panel-border)] bg-[var(--panel-strong)] px-4 py-3">
               <div className="flex items-center gap-3">
-                <AvatarBadge me={me} size="md" />
+                <AvatarBadge me={profileMe} size="md" />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[var(--foreground)]">{me?.name ?? "Super Admin"}</p>
+                  <p className="truncate text-sm font-semibold text-[var(--foreground)]">{displayName}</p>
                   <p className="truncate text-xs text-[var(--muted)]">{me?.phone ?? "admin@darzi.in"}</p>
                 </div>
                 <ChevronDown size={16} className="ml-auto text-[var(--muted)]" />
@@ -2540,7 +2683,7 @@ function PortalFrame({
 
         <div className="lg:pl-[278px]">
           <div className="sticky top-0 z-20 px-3 pt-3 lg:px-6 lg:pt-4">
-            <header className="darji-topbar relative overflow-hidden rounded-[28px] border border-[#e8d2a7] bg-[linear-gradient(180deg,rgba(255,253,248,0.98),rgba(255,249,241,0.98))] px-4 py-4 shadow-[var(--shadow)] backdrop-blur sm:px-5">
+            <header className="darji-topbar relative rounded-[28px] border border-[#e8d2a7] bg-[linear-gradient(180deg,rgba(255,253,248,0.98),rgba(255,249,241,0.98))] px-4 py-4 shadow-[var(--shadow)] backdrop-blur sm:px-5">
               <div className="darji-topbar-overlay pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_55%_120%,rgba(246,163,19,0.14),transparent_24%),radial-gradient(circle_at_78%_30%,rgba(246,163,19,0.12),transparent_20%),linear-gradient(90deg,transparent_0%,rgba(246,163,19,0.04)_34%,rgba(255,255,255,0)_70%)]" />
               <div className="pointer-events-none absolute right-10 top-0 hidden h-full w-80 opacity-60 xl:block">
                 <div className="absolute inset-0 bg-[radial-gradient(circle,#efc871_1px,transparent_1px)] [background-size:12px_12px]" />
@@ -2554,17 +2697,47 @@ function PortalFrame({
                   <div className="darji-header-control hidden h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-[#fff6e3] text-[#c78309] lg:flex">
                     <Menu size={18} />
                   </div>
-                  <div className="darji-header-control flex min-w-0 items-center gap-3 rounded-2xl border border-[#e8cf9d] bg-white px-4 py-3 shadow-[inset_0_0_0_1px_rgba(255,245,224,0.55)] sm:min-w-[340px]">
-                    <Search size={18} className="text-[var(--muted)]" />
-                    <input
-                      className="w-full bg-transparent outline-none"
-                      value={globalSearch}
-                      onChange={(event) => onGlobalSearchChange(event.target.value)}
-                      placeholder="Search anything..."
-                    />
-                    <span className="darji-keycap hidden rounded-lg border border-[#eedec0] bg-[#fff8ea] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] sm:inline-flex">
-                      K
-                    </span>
+                  <div className="relative">
+                    <div className="darji-header-control flex min-w-0 items-center gap-3 rounded-2xl border border-[#e8cf9d] bg-white px-4 py-3 shadow-[inset_0_0_0_1px_rgba(255,245,224,0.55)] sm:min-w-[340px]">
+                      <Search size={18} className="text-[var(--muted)]" />
+                      <input
+                        className="w-full bg-transparent outline-none"
+                        value={globalSearch}
+                        onChange={(event) => onGlobalSearchChange(event.target.value)}
+                        placeholder="Search order, person, ID..."
+                      />
+                      <span className="darji-keycap hidden rounded-lg border border-[#eedec0] bg-[#fff8ea] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] sm:inline-flex">
+                        K
+                      </span>
+                    </div>
+                    {globalSearch.trim() ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-[80] overflow-hidden rounded-3xl border border-[#ead7b2] bg-[var(--panel-strong)] p-2 shadow-[0_18px_42px_rgba(26,22,14,0.16)]">
+                        {globalSearchResults.length ? (
+                          globalSearchResults.map((result) => {
+                            const Icon = result.icon;
+                            return (
+                              <button
+                                key={result.id}
+                                className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-[#fff6e7] dark:hover:bg-white/5"
+                                onClick={result.onSelect}
+                                type="button"
+                              >
+                                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#fff1d6] text-[#c78309]">
+                                  <Icon size={16} />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-semibold text-[var(--foreground)]">{result.title}</span>
+                                  <span className="block truncate text-xs text-[var(--muted)]">{result.subtitle}</span>
+                                </span>
+                                <ChevronRight size={15} className="text-[#c8b79b]" />
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <p className="px-3 py-3 text-sm font-semibold text-[var(--muted)]">No matching orders, users, tailors or delivery tasks.</p>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -2613,9 +2786,9 @@ function PortalFrame({
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger asChild>
                       <button className="darji-header-control flex items-center gap-3 rounded-2xl border border-[#f0dcc0] bg-white px-3 py-2.5 transition hover:border-[var(--accent)]">
-                        <AvatarBadge me={me} size="sm" />
+                        <AvatarBadge me={profileMe} size="sm" />
                         <div className="hidden text-left sm:block">
-                          <p className="text-sm font-semibold">{me?.name ?? "Super Admin"}</p>
+                          <p className="text-sm font-semibold">{displayName}</p>
                           <p className="text-xs text-[var(--muted)]">{me?.role ? formatRoleLabel(me.role) : "Super Administrator"}</p>
                         </div>
                         <ChevronDown size={16} className="text-[var(--muted)]" />
@@ -2625,7 +2798,11 @@ function PortalFrame({
                       <DropdownMenu.Content align="end" className="z-50 w-64 rounded-3xl border border-[var(--panel-border)] bg-[var(--panel-strong)] p-2 shadow-[var(--shadow)] backdrop-blur">
                         <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm outline-none transition hover:bg-[#f4f7fb]">
                           <UserCircle2 size={16} />
-                          Signed in as {me?.name ?? "Admin"}
+                          Signed in as {displayName}
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm outline-none transition hover:bg-[#f4f7fb]" onSelect={() => setAdminProfileOpen(true)}>
+                          <Settings size={16} />
+                          Edit profile
                         </DropdownMenu.Item>
                         <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm outline-none transition hover:bg-[#f4f7fb]" onSelect={onLogout}>
                           <LogOut size={16} />
@@ -2643,6 +2820,44 @@ function PortalFrame({
         </div>
       </div>
     </main>
+    <Dialog.Root open={adminProfileOpen} onOpenChange={setAdminProfileOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-28px))] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-5 shadow-[var(--shadow)]">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <Dialog.Title className="text-lg font-semibold text-[var(--foreground)]">Edit Admin Profile</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Name, age and avatar shown inside this admin panel.</Dialog.Description>
+            </div>
+            <Dialog.Close className="rounded-2xl p-2 text-[var(--muted)] hover:bg-[#fff6e7]">
+              <X size={18} />
+            </Dialog.Close>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm font-semibold text-[var(--foreground)]">
+              Name
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-white px-3 py-2.5 outline-none dark:bg-white/5" value={adminProfile.name} onChange={(event) => setAdminProfile((current) => ({ ...current, name: event.target.value }))} placeholder={me?.name ?? "Admin name"} />
+            </label>
+            <label className="space-y-1 text-sm font-semibold text-[var(--foreground)]">
+              Age
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-white px-3 py-2.5 outline-none dark:bg-white/5" value={adminProfile.age} onChange={(event) => setAdminProfile((current) => ({ ...current, age: event.target.value }))} placeholder="Age" />
+            </label>
+          </div>
+          <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-6">
+            {getAdminAvatarOptions().map((avatar) => (
+              <button key={avatar} className={cn("overflow-hidden rounded-2xl border bg-[#fff6e4] p-1 transition", adminProfile.avatarUrl === avatar ? "border-[var(--accent)] ring-2 ring-[rgba(246,163,19,0.22)]" : "border-[var(--panel-border)]")} onClick={() => setAdminProfile((current) => ({ ...current, avatarUrl: avatar }))} type="button">
+                <img alt="" className="aspect-square w-full rounded-xl object-cover" src={avatar} />
+              </button>
+            ))}
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button className="rounded-2xl border border-[var(--panel-border)] px-4 py-2 text-sm font-semibold" onClick={() => setAdminProfileOpen(false)} type="button">Cancel</button>
+            <button className="rounded-2xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[#111111]" onClick={saveAdminProfile} type="button">Save Profile</button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+    </>
   );
 }
 
@@ -2728,8 +2943,30 @@ function normalizedAvatarGender(gender?: string) {
 
 function getDefaultAvatarUrl(seed: string, gender?: string) {
   const selectedGender = normalizedAvatarGender(gender);
-  const avatarGender = selectedGender ?? (Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 === 0 ? "boy" : "girl");
-  return `https://avatar.iran.liara.run/public/${avatarGender}?username=${encodeURIComponent(seed || "User")}`;
+  const avatarFiles = selectedGender === "boy"
+    ? ["boy.png", "young male.png", "black_male.png", "tanned_male.png", "uncle.png", "old_male.png"]
+    : selectedGender === "girl"
+      ? ["girl.png", "young female.png", "black_female.png", "aunt.png", "aunt_2.png"]
+      : ["boy.png", "girl.png", "young male.png", "young female.png", "black_male.png", "black_female.png", "uncle.png", "aunt.png", "tanned_male.png", "old_male.png"];
+  const value = Array.from(seed || "User").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return `/avatars/${encodeURIComponent(avatarFiles[value % avatarFiles.length])}`;
+}
+
+function getAdminAvatarOptions() {
+  return [
+    "boy.png",
+    "girl.png",
+    "young male.png",
+    "young female.png",
+    "black_male.png",
+    "black_female.png",
+    "uncle.png",
+    "aunt.png",
+    "aunt_2.png",
+    "old_male.png",
+    "tanned_male.png",
+    "tanned_uncle.png"
+  ].map((file) => `/avatars/${encodeURIComponent(file)}`);
 }
 
 function GrowthPromoGraphic() {

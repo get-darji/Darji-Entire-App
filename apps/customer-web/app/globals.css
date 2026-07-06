@@ -317,7 +317,7 @@ button:disabled {
 }
 
 #curtain2 {
-  background: linear-gradient(180deg, #fffaf3 0%, #ffffff 100%);
+  background: linear-gradient(180deg, #ff8a1c 0%, #ff7000 100%);
 }
 
 #loader {
@@ -326,48 +326,56 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.2rem;
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(18px);
+  gap: 0.55rem;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.96) 42%, rgba(248, 245, 240, 0.94) 100%);
+  backdrop-filter: blur(10px);
 }
 
 #loader .logo {
   display: flex;
   justify-content: center;
+  margin-bottom: 0.05rem;
 }
 
 .loader-logo-image {
-  width: min(360px, 64vw);
+  width: min(400px, 62vw);
   height: auto;
+}
+
+.loader-logo-black {
+  filter: brightness(0) saturate(100%);
 }
 
 #loader p {
   margin: 0;
-  color: #1f2937;
-  font-size: clamp(1rem, 1.5vw, 1.25rem);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  color: #202020;
+  font-size: clamp(0.96rem, 1.25vw, 1.12rem);
+  font-weight: 500;
+  letter-spacing: 0.05em;
 }
 
 #loader .bar {
-  width: min(470px, 72vw);
-  height: 8px;
+  width: min(390px, 54vw);
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e5e7eb;
+  background: #dddddd;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.7);
 }
 
 #loader .fill {
   height: 100%;
   width: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, #ff7000 0%, #ff9d4d 100%);
+  background: linear-gradient(90deg, #ff7000 0%, #ff7f1f 100%);
 }
 
 #percent {
-  color: #1f2937;
-  font-size: clamp(1.25rem, 2vw, 1.75rem);
-  font-weight: 700;
+  color: #1a1a1a;
+  font-size: clamp(0.95rem, 1.55vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .stats-strip > div:last-child {
@@ -446,7 +454,7 @@ button:disabled {
 .store-button-kicker {
   font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   opacity: 0.72;
 }
 
@@ -634,6 +642,19 @@ button:disabled {
 }
 
 @media (max-width: 1023px) {
+  .download-banner {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .download-banner-title {
+    max-width: none;
+  }
+
+  .download-phone-top,
+  .download-phone-footer {
+    flex-direction: column;
+  }
   .hero-shell {
     align-content: start;
     padding-top: 2rem;
@@ -654,6 +675,11 @@ button:disabled {
 }
 
 @media (min-width: 1024px) {
+  .download-banner {
+    grid-template-columns: 1.2fr 0.8fr 0.52fr;
+    padding: 2rem;
+  }
+
   .reference-round-control {
     display: grid;
   }
@@ -670,12 +696,19 @@ button:disabled {
   }
 
   #loader .bar {
-    width: min(280px, 82vw);
-  }
+  width: min(390px, 54vw);
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dddddd;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.7);
+}
 
   .loader-logo-image {
-    width: min(250px, 70vw);
-  }
+  width: min(400px, 62vw);
+  height: auto;
+  filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.04));
+}
 
   .phone-shell {
     width: 100%;
@@ -686,3 +719,153 @@ button:disabled {
     min-width: calc(100vw - 48px);
   }
 }
+
+.store-button-glow {
+  display: inline-flex;
+}
+
+.download-banner {
+  display: grid;
+  gap: 1.25rem;
+  align-items: center;
+  border: 1px solid rgba(255, 112, 0, 0.16);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 112, 0, 0.22), transparent 28%),
+    linear-gradient(135deg, #0b1424 0%, #08111f 55%, #142338 100%);
+  padding: 1.4rem;
+  box-shadow: 0 28px 80px rgba(8, 17, 31, 0.22);
+}
+
+.download-banner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.45rem 0.8rem;
+  color: #ffd7b0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.download-banner-title {
+  margin: 1rem 0 0;
+  color: #fffaf5;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 900;
+  line-height: 1;
+  max-width: 15ch;
+}
+
+.download-banner-copy {
+  margin: 1rem 0 0;
+  max-width: 36rem;
+  color: rgba(255, 247, 239, 0.76);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.8;
+}
+
+.download-visual-panel {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.download-phone-card {
+  width: min(100%, 360px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 30px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+  padding: 1rem;
+  box-shadow: 0 22px 64px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(20px);
+}
+
+.download-phone-top,
+.download-phone-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.download-phone-top span,
+.download-phone-footer span {
+  color: rgba(255, 247, 239, 0.72);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.download-preview-image {
+  display: block;
+  width: 100%;
+  margin: 1rem 0;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fff5ea, #fffdfb);
+}
+
+.download-phone-footer strong {
+  color: #fffaf5;
+  font-size: 0.98rem;
+}
+
+.download-qr-card {
+  display: grid;
+  gap: 1rem;
+  align-items: center;
+  justify-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 1.2rem;
+  text-align: center;
+  backdrop-filter: blur(18px);
+}
+
+.download-qr-grid span {
+  display: block;
+  width: 128px;
+  height: 128px;
+  border: 10px solid #fff;
+  border-radius: 20px;
+  background:
+    linear-gradient(90deg, #111 12px, transparent 12px) 0 0 / 28px 28px,
+    linear-gradient(#111 12px, transparent 12px) 0 0 / 28px 28px,
+    linear-gradient(90deg, transparent 14px, #111 14px, #111 18px, transparent 18px) 0 0 / 28px 28px,
+    linear-gradient(transparent 14px, #111 14px, #111 18px, transparent 18px) 0 0 / 28px 28px,
+    #f8fafc;
+  box-shadow: 0 16px 34px rgba(8, 17, 31, 0.18);
+}
+
+.download-qr-title {
+  margin: 0;
+  color: #fffaf5;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.download-qr-copy {
+  margin: 0.45rem 0 0;
+  color: rgba(255, 247, 239, 0.72);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.flow-menu-shell {
+  overflow: hidden;
+  border: 1px solid rgba(8, 17, 31, 0.08);
+  border-radius: 34px;
+  box-shadow: 0 28px 80px rgba(8, 17, 31, 0.12);
+}
+
+
+
+
+

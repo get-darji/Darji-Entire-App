@@ -12,6 +12,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -236,6 +237,7 @@ const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
+const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 const TAILOR_ONBOARDING_STORAGE_PREFIX = "darji.tailorOnboarding.v1";
 const VERIFICATION_TOTAL_STEPS = 5;
 const VERIFICATION_FORM_STEPS = 4;
@@ -2907,6 +2909,8 @@ function SettingsSwitch({ title, copy, value, onValueChange }: { title: string; 
 }
 
 function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen: Screen) => void }) {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const tabs: Array<{ key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { key: "dashboard", label: "Home", icon: "home-outline" },
     { key: "requests", label: "Requests", icon: "albums-outline" },
@@ -2915,7 +2919,7 @@ function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen:
     { key: "profile", label: "Profile", icon: "person-outline" }
   ];
   return (
-    <View style={styles.tabs}>
+    <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
       {tabs.map((tab) => {
         const active = screen === tab.key || (screen === "requestDetails" && tab.key === "requests") || (screen === "quote" && tab.key === "requests") || (screen === "orderDetails" && tab.key === "orders");
         return (
@@ -3501,6 +3505,7 @@ export default function App() {
   if (!body) body = <DashboardScreen me={me} requests={requests} orders={orders} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
 
   return (
+    <SafeAreaProvider>
     <NotificationProvider
       app="tailor"
       onNavigate={(destination) => {
@@ -3534,7 +3539,7 @@ export default function App() {
       }}
     >
       <SafeAreaView style={styles.safe}>
-        <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent={false} />
+        <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent />
         {cancellationAlert ? (
           <Pressable style={styles.topDisclaimer} onPress={() => openCancelledOrder(cancellationAlert.id)}>
             <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
@@ -3561,11 +3566,12 @@ export default function App() {
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </SafeAreaView>
     </NotificationProvider>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: SCREEN_BG },
+  safe: { flex: 1, backgroundColor: SCREEN_BG, paddingTop: STATUS_BAR_INSET },
   screenHost: { flex: 1 },
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, marginTop: 8, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
@@ -3598,7 +3604,7 @@ const styles = StyleSheet.create({
   topDisclaimerText: { flex: 1, minWidth: 0 },
   topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
   topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
-  pageContent: { paddingHorizontal: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 96 },
+  pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 118 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", marginBottom: 18 },
   roundIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", marginRight: 12 },
   headerText: { flex: 1 },

@@ -1,0 +1,30 @@
+
+> @darzi/customer-web@0.1.0 dev
+> next dev --port 3002
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:3002
+- Network:       http://192.168.1.2:3002
+✓ Ready in 1911ms
+Creating turbopack project {
+  dir: 'C:\\Users\\amank\\Desktop\\app\\apps\\customer-web',
+  testMode: true
+}
+
+ GET / 200 in 2.1s (next.js: 573ms, application-code: 1527ms)
+ GET / 200 in 552ms (next.js: 32ms, application-code: 520ms)
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:3002
+- Network:       http://192.168.1.2:3002
+✓ Ready in 4.6s
+Creating turbopack project {
+  dir: 'C:\\Users\\amank\\Desktop\\app\\apps\\customer-web',
+  testMode: true
+}
+
+○ Compiling / ...
+○ Compiling /_error ...
+ GET / 500 in 18.5s (next.js: 17.2s, application-code: 1291ms)
+ GET / 500 in 54ms (next.js: 22ms, application-code: 33ms)
+ GET / 500 in 39ms (next.js: 20ms, application-code: 19ms)
+[?25h
