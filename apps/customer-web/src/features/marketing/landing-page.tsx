@@ -48,10 +48,26 @@ const serviceCards = [
 ];
 
 const flowMenuItems = [
-  { link: "#services", text: "Tailoring", image: "/animations/s1.png" },
-  { link: "#services", text: "Alterations", image: "/animations/s2.png" },
-  { link: "#download-app", text: "Doorstep Pickup", image: "/animations/s3.png" },
-  { link: "/dashboard", text: "Track Orders", image: "/animations/s4.png" }
+  {
+    link: "/dashboard",
+    text: "Doorstep Convenience : We come to you. No travel. No waiting.",
+    image: "/animations/s1.png"
+  },
+  {
+    link: "/dashboard",
+    text: "Expert Craftsmanship : Skilled tailors. Precise craftsmanship.",
+    image: "/animations/s2.png"
+  },
+  {
+    link: "/dashboard",
+    text: "Transparent Pricing : Know the price before the work begins.",
+    image: "/animations/s3.png"
+  },
+  {
+    link: "/dashboard",
+    text: "Quality Checked : Every order is checked before it reaches you.",
+    image: "/animations/s4.png"
+  }
 ];
 
 const testimonials = [
@@ -301,10 +317,10 @@ export function LandingPage() {
                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-[#fff7ed]/78 via-[#fff7ed]/12 to-transparent" />
                         <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-black via-black/82 to-transparent" />
                         <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-3 text-left">
-                          <span className="inline-flex rounded-full border border-white/55 bg-white/84 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-[#0b2241] shadow-[0_10px_22px_rgba(255,255,255,0.22)]">
+                          <span className="inline-flex rounded-full border border-white/40 bg-[linear-gradient(180deg,rgba(255,248,240,0.95)_0%,rgba(245,224,197,0.92)_100%)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-[#0b2241] shadow-[0_10px_22px_rgba(255,255,255,0.16),inset_0_1px_0_rgba(255,255,255,0.85),inset_0_-1px_0_rgba(186,132,72,0.22)] [transform:translateZ(44px)]">
                             {index === 0 ? "Custom fit" : index === 1 ? "Clean finish" : index === 2 ? "Fresh press" : index === 3 ? "Longer wear" : "Fine details"}
                           </span>
-                          <span className="rounded-full border border-white/16 bg-white/18 px-2.5 py-1 text-[11px] font-black tracking-[0.18em] text-white/90 backdrop-blur-sm">
+                          <span className="rounded-full border border-white/18 bg-[linear-gradient(180deg,rgba(255,186,112,0.72)_0%,rgba(120,73,36,0.42)_100%)] px-2.5 py-1 text-[11px] font-black tracking-[0.18em] text-white shadow-[0_10px_22px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-sm [transform:translateZ(52px)]">
                             {String(index + 1).padStart(2, "0")}
                           </span>
                         </div>
@@ -324,6 +340,20 @@ export function LandingPage() {
             <a href="/dashboard" className="focus-ring mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5 hover:bg-[#fff7f0]">
               View All Services <ArrowRight className="h-4 w-4" />
             </a>
+          </div>
+        </section>
+
+
+        <section className="bg-white py-8 sm:py-12">
+          <div className="mx-auto w-[min(1480px,calc(100%-28px))]">
+            <div className="mb-6 text-center">
+              <SectionEyebrow>Why Choose Darji ?</SectionEyebrow>
+              <h2 className="mx-auto mt-1 max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl">Tailoring made easier, sharper, and more reliable.</h2>
+              <p className="mx-auto mt-3 max-w-3xl text-base font-semibold leading-relaxed text-[#687589] sm:text-lg">Four reasons customers keep choosing Darji for tailoring, alterations, pressing, and repairs.</p>
+            </div>
+            <div className="flow-menu-shell flow-menu-shell-wide">
+              <FlowingMenu items={flowMenuItems} speed={14} textColor="#fff7ef" bgColor="#08111f" marqueeBgColor="#fff4e6" marqueeTextColor="#08111f" borderColor="rgba(255,255,255,0.12)" />
+            </div>
           </div>
         </section>
 
@@ -361,19 +391,6 @@ export function LandingPage() {
                   <p className="download-qr-copy">Get tailored updates, reorder favorite services, and stay synced with every pickup.</p>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-white py-8 sm:py-12">
-          <div className="shell">
-            <div className="mb-6 text-center">
-              <SectionEyebrow>Explore Darji</SectionEyebrow>
-              <h2 className="mx-auto mt-1 max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl">A flowing snapshot of the experience</h2>
-              <p className="mx-auto mt-3 max-w-2xl text-base font-semibold leading-relaxed text-[#687589] sm:text-lg">From tailoring to tracking, this section gives the page a more editorial, high-motion moment without breaking the current brand language.</p>
-            </div>
-            <div className="flow-menu-shell">
-              <FlowingMenu items={flowMenuItems} speed={14} textColor="#fff7ef" bgColor="#08111f" marqueeBgColor="#fff4e6" marqueeTextColor="#08111f" borderColor="rgba(255,255,255,0.12)" />
             </div>
           </div>
         </section>
@@ -584,6 +601,8 @@ export function LandingPage() {
     </>
   );
 }
+
+
 
 
 
