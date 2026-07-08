@@ -51,22 +51,22 @@ const flowMenuItems = [
   {
     link: "/dashboard",
     text: "Doorstep Convenience : We come to you. No travel. No waiting.",
-    image: "/animations/s1.png"
+    image: "/flow-icons/doorstep-convenience.png"
   },
   {
     link: "/dashboard",
     text: "Expert Craftsmanship : Skilled tailors. Precise craftsmanship.",
-    image: "/animations/s2.png"
+    image: "/flow-icons/expert-craftsmanship.png"
   },
   {
     link: "/dashboard",
     text: "Transparent Pricing : Know the price before the work begins.",
-    image: "/animations/s3.png"
+    image: "/flow-icons/transparent-pricing.png"
   },
   {
     link: "/dashboard",
     text: "Quality Checked : Every order is checked before it reaches you.",
-    image: "/animations/s4.png"
+    image: "/flow-icons/quality-checked.png"
   }
 ];
 
@@ -215,10 +215,10 @@ function StoreButton({ type }: { type: "play" | "apple" }) {
       edgeSensitivity={24}
       glowColor={isPlay ? "28 94 61" : "40 40 40"}
       backgroundColor="#05070a"
-      borderRadius={8}
-      glowRadius={24}
-      glowIntensity={0.75}
-      coneSpread={20}
+      borderRadius={0}
+      glowRadius={30}
+      glowIntensity={1}
+      coneSpread={18}
       colors={isPlay ? ["#34a853", "#fbbc05", "#ea4335", "#4285f4"] : ["#ffffff", "#cccccc", "#888888"]}
     >
       <button className="store-button" type="button" aria-label={isPlay ? "Get it on Google Play" : "Download on the App Store"}>
@@ -345,12 +345,14 @@ export function LandingPage() {
 
 
         <section className="bg-white py-8 sm:py-12">
-          <div className="mx-auto w-[min(1480px,calc(100%-28px))]">
+          <div className="mx-auto w-[min(1120px,calc(100%-28px))]">
             <div className="mb-6 text-center">
               <SectionEyebrow>Why Choose Darji ?</SectionEyebrow>
               <h2 className="mx-auto mt-1 max-w-4xl text-3xl font-black leading-tight text-[#08111f] sm:text-5xl">Tailoring made easier, sharper, and more reliable.</h2>
               <p className="mx-auto mt-3 max-w-3xl text-base font-semibold leading-relaxed text-[#687589] sm:text-lg">Four reasons customers keep choosing Darji for tailoring, alterations, pressing, and repairs.</p>
             </div>
+          </div>
+          <div className="relative left-1/2 right-1/2 mt-6 w-screen -translate-x-1/2">
             <div className="flow-menu-shell flow-menu-shell-wide">
               <FlowingMenu items={flowMenuItems} speed={14} textColor="#fff7ef" bgColor="#08111f" marqueeBgColor="#fff4e6" marqueeTextColor="#08111f" borderColor="rgba(255,255,255,0.12)" />
             </div>
@@ -358,39 +360,17 @@ export function LandingPage() {
         </section>
 
         <section id="download-app" className="bg-white py-10 sm:py-14">
-          <div className="shell">
-            <div className="download-banner">
-              <div>
+          <div className="relative left-1/2 right-1/2 w-screen -translate-x-1/2">
+            <div className="download-banner download-banner-full">
+              <div className="download-banner-content">
                 <div className="download-banner-badge">
                   <Sparkles className="h-4 w-4" />
                   <span>Darji mobile experience</span>
                 </div>
-                <h2 className="download-banner-title">Book tailoring, track pickup, and manage every order from the Darji app.</h2>
-                <p className="download-banner-copy">Built for fast reorders, live status updates, doorstep coordination, and a smoother experience from measurement to delivery.</p>
-                <div className="app-store-actions mt-6"><StoreButton type="play" /><StoreButton type="apple" /></div>
+                <h2 className="download-banner-title">Download the Darji app and manage every tailoring order in one place.</h2>
+                <p className="download-banner-copy">Book pickups, track progress, chat with your tailor, and reorder your favorite services without leaving the app.</p>
               </div>
-              <div className="download-visual-panel">
-                <div className="download-phone-card">
-                  <div className="download-phone-top">
-                    <img src="/darji-logo-cropped.png" alt="Darji logo" className="h-9 w-auto" />
-                    <span>Pickup in 30 mins</span>
-                  </div>
-                  <img src="/animations/cta-tailoring.png" alt="Darji app preview" className="download-preview-image" />
-                  <div className="download-phone-footer">
-                    <strong>Track your order</strong>
-                    <span>From tailor confirmation to doorstep delivery</span>
-                  </div>
-                </div>
-              </div>
-              <div className="download-qr-card">
-                <div className="download-qr-grid" aria-hidden="true">
-                  <span />
-                </div>
-                <div>
-                  <p className="download-qr-title">Scan to preview the app</p>
-                  <p className="download-qr-copy">Get tailored updates, reorder favorite services, and stay synced with every pickup.</p>
-                </div>
-              </div>
+              <div className="app-store-actions app-store-actions-full"><StoreButton type="play" /><StoreButton type="apple" /></div>
             </div>
           </div>
         </section>
@@ -601,6 +581,11 @@ export function LandingPage() {
     </>
   );
 }
+
+
+
+
+
 
 
 

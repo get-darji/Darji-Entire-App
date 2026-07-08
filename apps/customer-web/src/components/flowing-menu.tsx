@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { gsap } from "gsap";
 import { useEffect, useRef, useState } from "react";
@@ -28,6 +28,17 @@ interface MenuItemProps extends FlowingMenuItem {
   isFirst: boolean;
 }
 
+function splitMenuText(text: string) {
+  const [heading, ...rest] = text.split(":");
+  const title = heading.trim();
+  const subtitle = rest.join(":").trim();
+
+  return {
+    title,
+    subtitle: subtitle || title
+  };
+}
+
 function MenuItem({
   link,
   text,
@@ -44,6 +55,7 @@ function MenuItem({
   const marqueeInnerRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<gsap.core.Tween | null>(null);
   const [repetitions, setRepetitions] = useState(4);
+  const { title, subtitle } = splitMenuText(text);
 
   const animationDefaults = { duration: 0.6, ease: "expo.out" };
 
@@ -72,7 +84,7 @@ function MenuItem({
     window.addEventListener("resize", calculateRepetitions);
 
     return () => window.removeEventListener("resize", calculateRepetitions);
-  }, [text, image]);
+  }, [subtitle, image]);
 
   useEffect(() => {
     const setupMarquee = () => {
@@ -99,7 +111,7 @@ function MenuItem({
       window.clearTimeout(timer);
       animationRef.current?.kill();
     };
-  }, [text, image, repetitions, speed]);
+  }, [subtitle, image, repetitions, speed]);
 
   const handleMouseEnter = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (!itemRef.current || !marqueeRef.current || !marqueeInnerRef.current) return;
@@ -139,7 +151,7 @@ function MenuItem({
         onMouseLeave={handleMouseLeave}
         style={{ color: textColor }}
       >
-        {text}
+        {title}
       </a>
 
       <div
@@ -149,12 +161,12 @@ function MenuItem({
       >
         <div ref={marqueeInnerRef} className="flex h-full w-fit">
           {Array.from({ length: repetitions }).map((_, index) => (
-            <div key={`${text}-${index}`} className="marquee-part flex flex-shrink-0 items-center" style={{ color: marqueeTextColor }}>
-              <span className="whitespace-nowrap px-[1.25vw] text-[clamp(1.1rem,3vw,2.4rem)] font-black uppercase tracking-[0.18em] leading-none">
-                {text}
+            <div key={`${title}-${index}`} className="marquee-part flex flex-shrink-0 items-center" style={{ color: marqueeTextColor }}>
+              <span className="whitespace-nowrap px-[1.25vw] text-[clamp(1.1rem,3vw,2.4rem)] font-black uppercase tracking-[0.12em] leading-none">
+                {subtitle}
               </span>
               <div
-                className="mx-[1.5vw] my-[1.35rem] h-[72px] w-[180px] rounded-[999px] border border-black/10 bg-cover bg-center shadow-[0_18px_38px_rgba(8,17,31,0.16)]"
+                className="mx-[1.5vw] my-[1.15rem] h-[86px] w-[210px] rounded-[999px] border border-black/10 bg-white/95 bg-contain bg-no-repeat bg-center shadow-[0_18px_38px_rgba(8,17,31,0.16)]"
                 style={{ backgroundImage: `url(${image})` }}
               />
             </div>
@@ -175,7 +187,7 @@ export default function FlowingMenu({
   borderColor = "rgba(255,255,255,0.12)"
 }: FlowingMenuProps) {
   return (
-    <div className="h-full w-full overflow-hidden rounded-[32px]" style={{ backgroundColor: bgColor }}>
+    <div className="h-full w-full overflow-hidden rounded-none" style={{ backgroundColor: bgColor }}>
       <nav className="flex h-full flex-col">
         {items.map((item, index) => (
           <MenuItem
@@ -193,3 +205,5 @@ export default function FlowingMenu({
     </div>
   );
 }
+
+
