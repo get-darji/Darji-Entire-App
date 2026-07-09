@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useRef, useCallback, type ReactNode } fro
 import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType } from "react-native";
 import { api, uploadDeliveryAvatar, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
+import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
 
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();
@@ -130,6 +131,8 @@ function isSessionError(error: unknown) {
 
 export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, refresh, onSessionExpired, onSignOut, showDialog, onOpenTransactions, onOpenOrders, socket, initialSupportScreen, clearInitialSupportScreen }: Props) {
   const signOut = useAppStore((state) => state.signOut);
+  const language = useAppStore((state) => state.language);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const profile = me?.deliveryProfile;
   const verificationGender = String(
     ((profile?.verificationDraft as { personal?: { gender?: string }; gender?: string } | undefined)?.personal?.gender) ??
@@ -170,6 +173,11 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
 
   const palette = preferences.darkMode ? darkPalette : lightPalette;
   const styles = useMemo(() => createStyles(palette), [palette]);
+
+  function handleLanguageChange(nextLanguage: AppLanguage) {
+    setLanguagePreference(nextLanguage);
+    showDialog({ title: t(nextLanguage, "languageUpdated"), message: t(nextLanguage, "languageUpdatedMessage"), icon: "checkmark-circle-outline" });
+  }
 
   useEffect(() => {
     if (!me?.id) return;
@@ -355,7 +363,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
         </View>
       </View>
 
-      <Section title="Account" icon="person-outline" styles={styles}>
+      <Section title={t(language, "account")} icon="person-outline" styles={styles}>
         <InfoRow icon="create-outline" title="Edit Profile" value="Update name, email, and hours" styles={styles} onPress={() => setEditing(true)} noBorder />
         <InfoRow icon="car-outline" title="Vehicle Details" value={vehicleNumber || "No vehicle details registered"} styles={styles} onPress={() => setShowVehicleDetails(true)} />
 
@@ -490,42 +498,45 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
         </View>
       </Modal>
 
-      <Section title="Performance" icon="bar-chart-outline" styles={styles}>
-        <InfoRow icon="wallet-outline" title="Earnings" value="Transaction history & payouts" styles={styles} onPress={onOpenTransactions} noBorder />
-        <InfoRow icon="cube-outline" title="Delivery History" value={`${completedJobs} completed deliveries`} styles={styles} onPress={onOpenOrders} />
+      <Section title={t(language, "performance")} icon="bar-chart-outline" styles={styles}>
+        <InfoRow icon="wallet-outline" title={t(language, "earnings")} value={t(language, "transactionHistoryPayouts")} styles={styles} onPress={onOpenTransactions} noBorder />
+        <InfoRow icon="cube-outline" title={t(language, "deliveryHistory")} value={language === "hi" ? `${completedJobs} ???? ???????` : `${completedJobs} completed deliveries`} styles={styles} onPress={onOpenOrders} />
       </Section>
 
-      <Section title="Preferences" icon="options-outline" styles={styles}>
-        <SwitchRow title="Go Online" copy={savingAvailability ? "Updating..." : "Receive pickup and delivery requests."} value={available} onValueChange={updateAvailability} styles={styles} noBorder />
-        <SwitchRow title="Push Notifications" copy="Heads-up alerts for new jobs." value={preferences.notifications} onValueChange={(value) => setPreferences((current) => ({ ...current, notifications: value }))} styles={styles} />
-        <SwitchRow title="Sound Alerts" copy="Play the Darji delivery sounds." value={preferences.sound} onValueChange={(value) => setPreferences((current) => ({ ...current, sound: value }))} styles={styles} />
-        <SwitchRow title="Vibration Alerts" copy="Vibrate on urgent tasks." value={preferences.vibration} onValueChange={(value) => setPreferences((current) => ({ ...current, vibration: value }))} styles={styles} />
+      <Section title={t(language, "preferences")} icon="options-outline" styles={styles}>
+        <SwitchRow title={t(language, "goOnline")} copy={savingAvailability ? t(language, "updating") : t(language, "receivePickupDeliveryRequests")} value={available} onValueChange={updateAvailability} styles={styles} noBorder />
+        <SwitchRow title={t(language, "pushNotifications")} copy={t(language, "headsUpAlertsForNewJobs")} value={preferences.notifications} onValueChange={(value) => setPreferences((current) => ({ ...current, notifications: value }))} styles={styles} />
+        <SwitchRow title={t(language, "soundNotifications")} copy={t(language, "playDeliverySounds")} value={preferences.sound} onValueChange={(value) => setPreferences((current) => ({ ...current, sound: value }))} styles={styles} />
+        <SwitchRow title={t(language, "vibration")} copy={t(language, "vibrateOnUrgentTasks")} value={preferences.vibration} onValueChange={(value) => setPreferences((current) => ({ ...current, vibration: value }))} styles={styles} />
+      </Section>
+      <Section title={t(language, "appLanguage")} icon="language-outline" styles={styles}>
+        <LanguageChoiceRow language={language} onChange={handleLanguageChange} />
       </Section>
 
-      <Section title="Support" icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title="Help Center" value="Delivery workflows and details" styles={styles} onPress={() => setSupportScreen("help")} noBorder />
-        <InfoRow icon="chatbubble-outline" title="Support Center" value="Chat, call, or request account updates" styles={styles} onPress={() => setSupportScreen("support_center")} />
+      <Section title={t(language, "support")} icon="help-circle-outline" styles={styles}>
+        <InfoRow icon="help-buoy-outline" title={t(language, "helpCenter")} value={language === "hi" ? "??????? ????????? ?? ???????" : "Delivery workflows and details"} styles={styles} onPress={() => setSupportScreen("help")} noBorder />
+        <InfoRow icon="chatbubble-outline" title={t(language, "supportCenter")} value={language === "hi" ? "??? ????, ??? ???? ?? ?????? ????? ?? ?????? ????" : "Chat, call, or request account updates"} styles={styles} onPress={() => setSupportScreen("support_center")} />
       </Section>
 
-      <Section title="Policies & Information" icon="document-text-outline" styles={styles}>
-        <InfoRow icon="information-circle-outline" title="About Darji" value="Learn about Darji Delivery Partner network" styles={styles} onPress={() => setSupportScreen("about")} noBorder />
-        <InfoRow icon="shield-checkmark-outline" title="Privacy Policy" value="How your personal data is handled" styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title="Terms of Use" value="Terms of service agreements" styles={styles} onPress={() => setSupportScreen("terms")} />
+      <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
+        <InfoRow icon="information-circle-outline" title={t(language, "aboutDarji")} value={language === "hi" ? "Darji Delivery Partner ??????? ?? ???? ??? ?????" : "Learn about Darji Delivery Partner network"} styles={styles} onPress={() => setSupportScreen("about")} noBorder />
+        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "???? ????????? ???? ???? ?????? ???? ??" : "How your personal data is handled"} styles={styles} onPress={() => setSupportScreen("privacy")} />
+        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "???? ????? ?? ??????" : "Terms of service agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
       </Section>
 
-      <Section title="App" icon="phone-portrait-outline" styles={styles}>
+      <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
         <View style={[styles.row, { borderTopWidth: 0 }]}>
           <View style={styles.smallIcon}><Ionicons name="phone-portrait-outline" size={16} color={BRAND_ORANGE} /></View>
           <View style={styles.rowMain}>
-            <Text style={styles.rowTitle}>App Version</Text>
+            <Text style={styles.rowTitle}>{t(language, "appVersion")}</Text>
             <Text style={styles.rowCopy}>0.1.0 (Development)</Text>
           </View>
         </View>
       </Section>
 
-      <Section title="Account Settings" icon="settings-outline" styles={styles}>
-        <InfoRow icon="trash-outline" title="Delete Account" value="Permanently remove your account" styles={styles} danger onPress={() => showDialog({ title: "Delete account", message: "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} noBorder />
-        <InfoRow icon="log-out-outline" title="Logout" value="Sign out of your account" styles={styles} onPress={logout} />
+      <Section title={t(language, "accountSettings")} icon="settings-outline" styles={styles}>
+        <InfoRow icon="trash-outline" title={t(language, "deleteAccount")} value={t(language, "permanentlyRemoveAccount")} styles={styles} danger onPress={() => showDialog({ title: language === "hi" ? "?????? ????? ????" : "Delete account", message: language === "hi" ? "?????? ????? ?? ?????? ????? ??? ?? ??? ???? ??? ???" : "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} noBorder />
+        <InfoRow icon="log-out-outline" title={t(language, "logout")} value={t(language, "signOutOfAccount")} styles={styles} onPress={logout} />
       </Section>
     </ScrollView>
     <Modal visible={Boolean(supportScreen)} onRequestClose={() => setSupportScreen(undefined)} animationType="slide">
@@ -548,20 +559,20 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
             <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
               <Ionicons name="log-out-outline" size={28} color="#ef4444" />
             </View>
-            <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>Sign Out</Text>
-            <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>Are you sure you want to sign out of your Darji account?</Text>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>{t(language, "signOut")}</Text>
+            <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{t(language, "logoutConfirm")}</Text>
           </View>
           <Pressable
             style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
             onPress={() => { setShowLogoutModal(false); signOut(); onSignOut(); }}
           >
-            <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>Yes, Sign Out</Text>
+            <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{t(language, "yesSignOut")}</Text>
           </Pressable>
           <Pressable
             style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
             onPress={() => setShowLogoutModal(false)}
           >
-            <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>Cancel</Text>
+            <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -589,6 +600,33 @@ function Input({ label, value, onChangeText, styles, editable = true }: { label:
     <View style={styles.inputBlock}>
       <Text style={styles.inputLabel}>{label}</Text>
       <TextInput style={[styles.input, !editable && styles.disabledInput]} value={value} onChangeText={onChangeText} editable={editable} placeholderTextColor="#9aa6b8" />
+    </View>
+  );
+}
+
+function LanguageChoiceRow({ language, onChange }: { language: AppLanguage; onChange: (language: AppLanguage) => void }) {
+  return (
+    <View style={{ borderTopWidth: 0, paddingVertical: 4 }}>
+      <Text style={{ color: MUTED, fontSize: 13, marginBottom: 12 }}>{t(language, "currentLanguage")}: {getLanguageLabel(language)}</Text>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        {(["en", "hi"] as const).map((option) => (
+          <Pressable
+            key={option}
+            style={{
+              flex: 1,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: language === option ? BRAND_ORANGE : BORDER,
+              backgroundColor: language === option ? "#fff4db" : SURFACE,
+              paddingVertical: 12,
+              alignItems: "center"
+            }}
+            onPress={() => onChange(option)}
+          >
+            <Text style={{ color: language === option ? BRAND_DEEP : MUTED, fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }

@@ -41,6 +41,7 @@ import { configureForegroundNotificationHandler } from "./src/notifications/hand
 import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
+import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();
@@ -412,6 +413,9 @@ function AuthScreen() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
   const setSession = useAppStore((state) => state.setSession);
+  const language = useAppStore((state) => state.language);
+  const hasSelectedLanguage = useAppStore((state) => state.hasSelectedLanguage);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "TAILOR" } });
 
@@ -452,31 +456,61 @@ function AuthScreen() {
         </View>
         <Text style={styles.authTitle}>Darzi Tailor</Text>
         <Text style={styles.authCopy}>Manage requests, quotes, stitching progress, and earnings from one workspace.</Text>
+        {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
         {!otpRequested ? (
           <>
-            <Text style={styles.formLabel}>TAILOR LOGIN</Text>
+            <Text style={styles.formLabel}>{t(language, "login")}</Text>
             <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder="Enter tailor mobile number" />} />
-            <AuthButton label="Send OTP" loading={isRequesting} onPress={requestForm.handleSubmit(requestOtp, () => setDialog({ title: "Check phone number", message: "Enter a valid 10 digit mobile number.", icon: "call-outline" }))} />
+            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} onPress={requestForm.handleSubmit(requestOtp, () => setDialog({ title: "Check phone number", message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
           </>
         ) : (
           <>
-            <Text style={styles.formLabel}>VERIFY OTP</Text>
+            <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
             <Controller
               control={verifyForm.control}
               name="otp"
               render={({ field }) => (
-                <TextInput style={styles.input} value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder="Enter OTP" placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} />
+                <TextInput style={styles.input} value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} />
               )}
             />
-            <AuthButton label="Verify OTP" loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: "Enter OTP", message: "Enter the 6 digit OTP to continue.", icon: "keypad-outline" }))} />
+            <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: "Enter OTP", message: t(language, "otpRequired"), icon: "keypad-outline" }))} />
             <Pressable style={styles.textButton} onPress={() => setOtpRequested(false)}>
-              <Text style={styles.textButtonText}>Change number</Text>
+              <Text style={styles.textButtonText}>{t(language, "changeNumber")}</Text>
             </Pressable>
           </>
         )}
       </View>
       <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
     </SafeAreaView>
+  );
+}
+
+function LanguageSelectorCard({ language, onSelect }: { language: AppLanguage; onSelect: (language: AppLanguage) => void }) {
+  return (
+    <View style={{ backgroundColor: SURFACE, borderRadius: 22, borderWidth: 1, borderColor: BORDER, padding: 18, marginBottom: 18 }}>
+      <Text style={styles.cardTitle}>{t(language, "chooseLanguage")}</Text>
+      <Text style={styles.cardMeta}>{t(language, "chooseLanguageCopy")}</Text>
+      <View style={{ flexDirection: "row", gap: 10, marginTop: 12, marginBottom: 10 }}>
+        {(["en", "hi"] as const).map((option) => (
+          <Pressable
+            key={option}
+            style={{
+              flex: 1,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: language === option ? BRAND_ORANGE : BORDER,
+              backgroundColor: language === option ? "#fff4db" : SURFACE,
+              paddingVertical: 12,
+              alignItems: "center"
+            }}
+            onPress={() => onSelect(option)}
+          >
+            <Text style={{ color: language === option ? BRAND_DEEP : MUTED, fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.cardMeta}>{t(language, "languagePreferenceSaved")}</Text>
+    </View>
   );
 }
 
@@ -2909,14 +2943,15 @@ function SettingsSwitch({ title, copy, value, onValueChange }: { title: string; 
 }
 
 function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen: Screen) => void }) {
+  const language = useAppStore((state) => state.language);
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const tabs: Array<{ key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-    { key: "dashboard", label: "Home", icon: "home-outline" },
-    { key: "requests", label: "Requests", icon: "albums-outline" },
-    { key: "orders", label: "Orders", icon: "cube-outline" },
-    { key: "earnings", label: "Earnings", icon: "wallet-outline" },
-    { key: "profile", label: "Profile", icon: "person-outline" }
+    { key: "dashboard", label: t(language, "home"), icon: "home-outline" },
+    { key: "requests", label: t(language, "requests"), icon: "albums-outline" },
+    { key: "orders", label: t(language, "orders"), icon: "cube-outline" },
+    { key: "earnings", label: t(language, "earnings"), icon: "wallet-outline" },
+    { key: "profile", label: t(language, "profile"), icon: "person-outline" }
   ];
   return (
     <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>

@@ -43,6 +43,7 @@ import { configureForegroundNotificationHandler } from "./src/notifications/hand
 import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
+import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 
 type Screen =
   | "home"
@@ -1148,6 +1149,9 @@ function AuthScreen() {
   const [isRequestingOtp, setIsRequestingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const setSession = useAppStore((state) => state.setSession);
+  const language = useAppStore((state) => state.language);
+  const hasSelectedLanguage = useAppStore((state) => state.hasSelectedLanguage);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "CUSTOMER" } });
 
@@ -1185,24 +1189,26 @@ function AuthScreen() {
         <View style={styles.authLayout}>
           <DarjiLogoMark />
           <View style={styles.trustRow}>
-            <TrustItem icon="shield-outline" label="Safe & Secure" />
-            <TrustItem icon="flash-outline" label="Fast" />
-            <TrustItem icon="star-outline" label="Best Services" />
+            <TrustItem icon="shield-outline" label={t(language, "safeSecure")} />
+            <TrustItem icon="flash-outline" label={t(language, "fast")} />
+            <TrustItem icon="star-outline" label={t(language, "bestServices")} />
           </View>
 
+          {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
+
           <View style={styles.authForm}>
-            <Text style={styles.sectionTitle}>{otpRequested ? "VERIFY OTP" : "LOGIN"}</Text>
+            <Text style={styles.sectionTitle}>{otpRequested ? t(language, "verifyOtp") : t(language, "login")}</Text>
             {!otpRequested ? (
               <>
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label="Send OTP" loading={isRequestingOtp} onPress={requestForm.handleSubmit(requestOtp, () => Alert.alert("Enter a valid mobile number"))} />
+                <AuthButton label={t(language, "sendOtp")} loading={isRequestingOtp} onPress={requestForm.handleSubmit(requestOtp, () => Alert.alert(t(language, "invalidMobileNumber")))} />
               </>
             ) : (
               <>
                 <Controller control={verifyForm.control} name="otp" render={({ field }) => <OtpField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label="Verify OTP" loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => Alert.alert("Enter the 6 digit OTP"))} />
+                <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => Alert.alert(t(language, "otpRequired")))} />
                 <Pressable style={styles.editPhoneButton} onPress={() => setOtpRequested(false)}>
-                  <Text style={styles.orangeSmall}>Edit phone number</Text>
+                  <Text style={styles.orangeSmall}>{t(language, "changeNumber")}</Text>
                 </Pressable>
               </>
             )}
@@ -1232,6 +1238,27 @@ function Header({ title, onBack, right }: { title?: string; onBack?: () => void;
   );
 }
 
+function LanguageSelectorCard({ language, onSelect }: { language: AppLanguage; onSelect: (language: AppLanguage) => void }) {
+  return (
+    <View style={[styles.whiteCard, { marginBottom: 18 }]}>
+      <Text style={styles.addressTitle}>{t(language, "chooseLanguage")}</Text>
+      <Text style={[styles.mutedSmall, { marginTop: 6, marginBottom: 14 }]}>{t(language, "chooseLanguageCopy")}</Text>
+      <View style={styles.twoCol}>
+        {(["en", "hi"] as const).map((option) => (
+          <Pressable
+            key={option}
+            style={[styles.optionButton, language === option ? { borderColor: BRAND_ORANGE, backgroundColor: "#fff4db" } : null]}
+            onPress={() => onSelect(option)}
+          >
+            <Text style={{ color: language === option ? BRAND_DEEP : "#42536a", fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={[styles.mutedSmall, { marginTop: 10 }]}>{t(language, "languagePreferenceSaved")}</Text>
+    </View>
+  );
+}
+
 function RequestProgressBar({ step, total = 2 }: { step: number; total?: number }) {
   return (
     <View style={styles.requestProgressWrap}>
@@ -1254,14 +1281,15 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
 }
 
 function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen: Screen) => void }) {
+  const language = useAppStore((state) => state.language);
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const items: { key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: "home", label: "Home", icon: "home-outline" },
-    { key: "search", label: "Search", icon: "search-outline" },
-    { key: "newRequest", label: "New Request", icon: "add" },
-    { key: "orders", label: "Orders", icon: "cube-outline" },
-    { key: "profile", label: "Profile", icon: "person-outline" }
+    { key: "home", label: t(language, "home"), icon: "home-outline" },
+    { key: "search", label: t(language, "search"), icon: "search-outline" },
+    { key: "newRequest", label: t(language, "newRequest"), icon: "add" },
+    { key: "orders", label: t(language, "orders"), icon: "cube-outline" },
+    { key: "profile", label: t(language, "profile"), icon: "person-outline" }
   ];
 
   return (
@@ -1922,7 +1950,7 @@ function ServicesScreen({ setScreen }: { setScreen: (screen: Screen) => void }) 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title="All Services" onBack={() => setScreen("home")} />
+        <Header title={t(useAppStore.getState().language, "allServices")} onBack={() => setScreen("home")} />
         <View style={styles.infoBanner}>
           <Ionicons name="sparkles-outline" size={16} color={BRAND_ORANGE} />
           <Text style={styles.infoBannerText}>Choose a service and upload photos to get quotes.</Text>
@@ -1949,7 +1977,7 @@ function FeatureSoonScreen({ setScreen, onNotify }: { setScreen: (screen: Screen
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title="Launching Soon" onBack={() => setScreen("home")} />
+        <Header title={t(useAppStore.getState().language, "launchingSoon")} onBack={() => setScreen("home")} />
         <Image source={typeof feature.image === "string" ? { uri: feature.image } : feature.image} style={styles.launchImage} resizeMode="cover" />
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>UPCOMING FEATURE</Text>
@@ -2050,7 +2078,7 @@ function NotificationsScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Notifications" onBack={() => setScreen("home")} />
+        <Header title={t(useAppStore.getState().language, "notifications")} onBack={() => setScreen("home")} />
         <View style={styles.rowBetween}>
           <View>
             <Text style={styles.listTitle}>Notification Center</Text>
@@ -2512,7 +2540,7 @@ function MeasurementGuideScreen({ setScreen }: { setScreen: (screen: Screen) => 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title="How to Measure" onBack={() => setScreen("home")} />
+        <Header title={t(useAppStore.getState().language, "howToMeasure")} onBack={() => setScreen("home")} />
         <Text style={styles.helperText}>Use this guide before creating a request. Accurate measurements help tailors quote faster and stitch closer to your preferred fit.</Text>
         <MeasurementOverviewGuide />
         <Text style={styles.formLabel}>Cloth-wise measurement checklist</Text>
@@ -3162,7 +3190,7 @@ function OrderSummaryScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Order Summary" onBack={() => setScreen("newRequest")} />
+        <Header title={t(useAppStore.getState().language, "orderSummary")} onBack={() => setScreen("newRequest")} />
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>ORDER CART</Text>
           <SummaryRow label="Clothing items" value={`${items.length}`} strong />
@@ -3703,7 +3731,7 @@ function OrdersScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Orders" />
+        <Header title={t(useAppStore.getState().language, "orders")} />
         {orders.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="cube-outline" size={34} color={BRAND_ORANGE} />
@@ -3876,7 +3904,7 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title="Search" />
+        <Header title={t(useAppStore.getState().language, "search")} />
         <View style={styles.searchInputWrap}>
           <Ionicons name="search-outline" size={21} color="#6a788d" />
           <TextInput
@@ -3953,18 +3981,18 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   );
 }
 
-function OnboardingScreen({ profile, setProfile }: { profile: ProfileData; setProfile: (profile: ProfileData) => void }) {
+function OnboardingScreen({ profile, setProfile, language }: { profile: ProfileData; setProfile: (profile: ProfileData) => void; language: AppLanguage }) {
   const [name, setName] = useState(profile.name.startsWith("Customer ") ? "" : profile.name);
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
 
   function save() {
     if (name.trim().length < 2) {
-      Alert.alert("Name required", "Enter your name to continue.");
+      Alert.alert("Name required", language === "hi" ? "??? ????? ?? ??? ???? ??? ???? ?????" : "Enter your name to continue.");
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth.trim())) {
-      Alert.alert("Date of birth required", "Enter date of birth in YYYY-MM-DD format.");
+      Alert.alert("Date of birth required", language === "hi" ? "???? ???? YYYY-MM-DD ??????? ??? ???? ?????" : "Enter date of birth in YYYY-MM-DD format.");
       return;
     }
     setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), hasCompletedOnboarding: true });
@@ -3975,20 +4003,24 @@ function OnboardingScreen({ profile, setProfile }: { profile: ProfileData; setPr
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.onboardingContent}>
           <DarjiLogoMark />
-          <Text style={styles.onboardingTitle}>Complete your profile</Text>
-          <Text style={styles.helperText}>This helps us personalize orders, invoices, tailor assignment, and future delivery updates.</Text>
-          <Text style={styles.formLabel}>Full Name</Text>
-          <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder="Enter your name" placeholderTextColor="#98a4b6" />
-          <Text style={styles.formLabel}>Gender</Text>
+          <Text style={styles.onboardingTitle}>{t(language, "completeProfile")}</Text>
+          <Text style={styles.helperText}>{t(language, "onboardingCopy")}</Text>
+          <Text style={styles.formLabel}>{t(language, "fullName")}</Text>
+          <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder={t(language, "enterYourName")} placeholderTextColor="#98a4b6" />
+          <Text style={styles.formLabel}>{t(language, "gender")}</Text>
           <View style={styles.twoCol}>
-            {(["Male", "Female", "Other"] as const).map((item) => (
-              <OptionButton key={item} label={item} selected={gender === item} onPress={() => setGender(item)} />
+            {[
+              { value: "Male" as const, label: t(language, "male") },
+              { value: "Female" as const, label: t(language, "female") },
+              { value: "Other" as const, label: t(language, "other") }
+            ].map((item) => (
+              <OptionButton key={item.value} label={item.label} selected={gender === item.value} onPress={() => setGender(item.value)} />
             ))}
           </View>
-          <Text style={styles.formLabel}>Date of Birth</Text>
+          <Text style={styles.formLabel}>{t(language, "dateOfBirth")}</Text>
           <DatePickerField value={dateOfBirth} onChange={setDateOfBirth} />
           <Pressable style={styles.primaryWideButton} onPress={save}>
-            <Text style={styles.primaryWideButtonText}>Continue</Text>
+            <Text style={styles.primaryWideButtonText}>{t(language, "continue")}</Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -4002,7 +4034,8 @@ function ProfileScreen({
   profile,
   addresses,
   onDeleteAccount,
-  settings
+  settings,
+  language
 }: {
   setScreen: (screen: Screen) => void;
   orders: CustomerOrder[];
@@ -4010,6 +4043,7 @@ function ProfileScreen({
   addresses: SavedAddress[];
   onDeleteAccount: () => void;
   settings: AppSettings;
+  language: AppLanguage;
 }) {
   const { user, signOut } = useAppStore();
   const profileStyles = createStyles(settings.darkMode);
@@ -4018,7 +4052,7 @@ function ProfileScreen({
   return (
     <SafeAreaView style={profileStyles.safe}>
       <ScrollView contentContainerStyle={profileStyles.pageContent}>
-        <Header title="Profile" />
+        <Header title={t(language, "profile")} />
         <View style={profileStyles.profileHero}>
           <Image source={profile.avatarUri ? { uri: profile.avatarUri } : getDefaultAvatarSource(profile)} style={profileStyles.profileAvatarImage} />
           <View style={profileStyles.profileInfo}>
@@ -4029,37 +4063,38 @@ function ProfileScreen({
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ACCOUNT</Text>
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "account")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="person-outline" label="Edit Profile" value="Name, gender, Date of Birth" onPress={() => setScreen("editProfile")} styles={profileStyles} noBorder />
-          <ProfileRow icon="location-outline" label="Saved Addresses" value={`${addresses.length} saved`} onPress={() => setScreen("savedAddresses")} styles={profileStyles} />
+          <ProfileRow icon="person-outline" label={t(language, "editProfile")} value={t(language, "nameGenderDob")} onPress={() => setScreen("editProfile")} styles={profileStyles} noBorder />
+          <ProfileRow icon="location-outline" label={t(language, "savedAddresses")} value={`${addresses.length} ${t(language, "savedCount")}`} onPress={() => setScreen("savedAddresses")} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ORDERS</Text>
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "orders")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="cube-outline" label="Order History" value="View active and past orders" onPress={() => setScreen("orders")} styles={profileStyles} noBorder />
+          <ProfileRow icon="cube-outline" label={t(language, "orderHistory")} value={t(language, "viewActiveAndPastOrders")} onPress={() => setScreen("orders")} styles={profileStyles} noBorder />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>PREFERENCES</Text>
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "preferences")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="notifications-outline" label="Notifications" value="Configure order alerts & promos" onPress={() => setScreen("settings")} styles={profileStyles} noBorder />
+          <ProfileRow icon="language-outline" label={t(language, "appLanguage")} value={getLanguageLabel(language)} onPress={() => setScreen("settings")} styles={profileStyles} noBorder />
+          <ProfileRow icon="notifications-outline" label={t(language, "notifications")} value={language === "hi" ? "????? ????? ?? ??? ??? ????" : "Configure order alerts & promos"} onPress={() => setScreen("settings")} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>SUPPORT</Text>
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "support")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="help-circle-outline" label="Help Center" value="FAQs & workflows" onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
-          <ProfileRow icon="chatbubble-ellipses-outline" label="Contact Support" value="Chat with support team" onPress={() => setScreen("contactSupport")} styles={profileStyles} />
-          <ProfileRow icon="bug-outline" label="Report a Bug" value="Submit an application bug report" onPress={() => setScreen("reportBug")} styles={profileStyles} />
+          <ProfileRow icon="help-circle-outline" label={t(language, "helpCenter")} value={t(language, "faqWorkflows")} onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
+          <ProfileRow icon="chatbubble-ellipses-outline" label={t(language, "contactSupport")} value={t(language, "chatWithSupportTeam")} onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+          <ProfileRow icon="bug-outline" label={t(language, "reportBug")} value={t(language, "submitBugReport")} onPress={() => setScreen("reportBug")} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
@@ -4067,15 +4102,15 @@ function ProfileScreen({
           <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>POLICIES & INFORMATION</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value="Refund and cancellation rules" onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} noBorder />
-          <ProfileRow icon="information-circle-outline" label="About Darji" value="Who we are & how it works" onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
-          <ProfileRow icon="shield-checkmark-outline" label="Privacy Policy" value="Read privacy policy" onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
-          <ProfileRow icon="document-text-outline" label="Terms of Use" value="Read terms of service" onPress={() => setScreen("termsService")} styles={profileStyles} />
+          <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value={t(language, "refundAndCancellationRules")} onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} noBorder />
+          <ProfileRow icon="information-circle-outline" label={t(language, "aboutDarji")} value={t(language, "whoWeAreHowItWorks")} onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
+          <ProfileRow icon="shield-checkmark-outline" label={t(language, "privacyPolicy")} value={t(language, "readPrivacyPolicy")} onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
+          <ProfileRow icon="document-text-outline" label={t(language, "termsOfUse")} value={t(language, "readTermsOfService")} onPress={() => setScreen("termsService")} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>APP</Text>
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "app")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
           <View style={[profileStyles.profileRow, { borderTopWidth: 0 }]}>
@@ -4083,7 +4118,7 @@ function ProfileScreen({
               <Ionicons name="phone-portrait-outline" size={18} color={BRAND_ORANGE} />
             </View>
             <View style={profileStyles.profileRowText}>
-              <Text style={profileStyles.addressTitle}>App Version</Text>
+              <Text style={profileStyles.addressTitle}>{t(language, "appVersion")}</Text>
               <Text style={profileStyles.mutedSmall}>0.1.0 (Development)</Text>
             </View>
           </View>
@@ -4091,14 +4126,14 @@ function ProfileScreen({
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>ACCOUNT SETTINGS</Text>
+          <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "accountSettings")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="trash-outline" label="Delete Account" value="Permanently remove account" onPress={onDeleteAccount} danger styles={profileStyles} noBorder />
+          <ProfileRow icon="trash-outline" label={t(language, "deleteAccount")} value={t(language, "permanentlyRemoveAccount")} onPress={onDeleteAccount} danger styles={profileStyles} noBorder />
           <ProfileRow
             icon="log-out-outline"
-            label="Logout"
-            value="Sign out of your account"
+            label={t(language, "logout")}
+            value={t(language, "signOutOfAccount")}
             onPress={() => setShowLogoutModal(true)}
             styles={profileStyles}
           />
@@ -4113,20 +4148,20 @@ function ProfileScreen({
               <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                 <Ionicons name="log-out-outline" size={28} color="#ef4444" />
               </View>
-              <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>Sign Out</Text>
-              <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>Are you sure you want to sign out of your Darji account?</Text>
+              <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>{t(language, "signOut")}</Text>
+              <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{t(language, "logoutConfirm")}</Text>
             </View>
             <Pressable
               style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
               onPress={() => { setShowLogoutModal(false); signOut(); }}
             >
-              <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>Yes, Sign Out</Text>
+              <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{t(language, "yesSignOut")}</Text>
             </Pressable>
             <Pressable
               style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
               onPress={() => setShowLogoutModal(false)}
             >
-              <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>Cancel</Text>
+              <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -4212,7 +4247,7 @@ function EditProfileScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Edit Profile" onBack={() => setScreen("profile")} />
+        <Header title={t(useAppStore.getState().language, "editProfile")} onBack={() => setScreen("profile")} />
         <View style={styles.editAvatarWrap}>
           <Pressable onPress={pickAvatar}>
             <Image source={avatarUri ? { uri: avatarUri } : getDefaultAvatarSource({ ...profile, name, gender, avatarPreset })} style={styles.editAvatarImage} />
@@ -4264,11 +4299,15 @@ function EditProfileScreen({
 function SettingsScreen({
   settings,
   setSettings,
-  setScreen
+  setScreen,
+  language,
+  setLanguagePreference
 }: {
   settings: AppSettings;
   setSettings: (settings: AppSettings) => void;
   setScreen: (screen: Screen) => void;
+  language: AppLanguage;
+  setLanguagePreference: (language: AppLanguage) => void;
 }) {
   function toggle(key: keyof AppSettings) {
     setSettings({ ...settings, [key]: !settings[key] });
@@ -4277,14 +4316,21 @@ function SettingsScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Notifications" onBack={() => setScreen("profile")} />
+        <Header title={t(language, "notifications")} onBack={() => setScreen("profile")} />
         <View style={styles.whiteCard}>
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
             <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
             <Text style={[styles.cardLabel, { color: BRAND_ORANGE, marginBottom: 0, fontWeight: "900", letterSpacing: 0.5 }]}>NOTIFICATIONS</Text>
           </View>
-          <SettingRow icon="notifications-outline" label="Push notifications" value="Order alerts and offers" enabled={settings.notifications} onPress={() => toggle("notifications")} />
-          <SettingRow icon="cube-outline" label="Order updates" value="Pickup, quote and delivery alerts" enabled={settings.orderUpdates} onPress={() => toggle("orderUpdates")} />
+          <SettingRow icon="notifications-outline" label={t(language, "pushNotifications")} value={t(language, "orderAlertsAndOffers")} enabled={settings.notifications} onPress={() => toggle("notifications")} />
+          <SettingRow icon="cube-outline" label={t(language, "orderUpdates")} value={t(language, "pickupQuoteDeliveryAlerts")} enabled={settings.orderUpdates} onPress={() => toggle("orderUpdates")} />
+        </View>
+        <View style={styles.whiteCard}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+            <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
+            <Text style={[styles.cardLabel, { color: BRAND_ORANGE, marginBottom: 0, fontWeight: "900", letterSpacing: 0.5 }]}>{t(language, "appLanguage").toUpperCase()}</Text>
+          </View>
+          <LanguageSelectorCard language={language} onSelect={(nextLanguage) => { setLanguagePreference(nextLanguage); Alert.alert(t(nextLanguage, "languageUpdated"), t(nextLanguage, "languageUpdatedMessage")); }} />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -4340,7 +4386,7 @@ function SavedAddressesScreen({
   }
 
   return (
-    <ProfileSubPage title="Saved Addresses" setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "savedAddresses")} setScreen={setScreen}>
       {addresses.map((item) => (
         <View key={item.id} style={styles.infoCard}>
           <View style={styles.rowBetween}>
@@ -4423,7 +4469,7 @@ function AddAddressScreen({
   }
 
   return (
-    <ProfileSubPage title="Add Address" setScreen={setScreen} backScreen="savedAddresses">
+    <ProfileSubPage title={t(useAppStore.getState().language, "addAddress")} setScreen={setScreen} backScreen="savedAddresses">
       <Text style={styles.formLabel}>Address Label</Text>
       <TextInput style={styles.profileInput} value={label} onChangeText={setLabel} placeholder="Home, Work, Studio..." placeholderTextColor="#98a4b6" />
       <Text style={styles.formLabel}>Full Address</Text>
@@ -4450,7 +4496,7 @@ function AddAddressScreen({
 
 function WalletPaymentsScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   return (
-    <ProfileSubPage title="Wallet & Payments" setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "walletPayments")} setScreen={setScreen}>
       <View style={styles.walletCard}>
         <Text style={styles.cardLabel}>DARJI WALLET</Text>
         <Text style={styles.walletBalance}>Rs0</Text>
@@ -4476,7 +4522,7 @@ function TransactionHistoryScreen({ setScreen, orders }: { setScreen: (screen: S
     .sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
 
   return (
-    <ProfileSubPage title="Transaction History" setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "transactionHistory")} setScreen={setScreen}>
       {entries.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="receipt-outline" size={34} color={BRAND_ORANGE} />
@@ -4509,7 +4555,7 @@ function CouponsScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
     { code: "ADMIN", text: "Open the active coupon section for current offers", active: true }
   ];
   return (
-    <ProfileSubPage title="Coupons" setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "coupons")} setScreen={setScreen}>
       {coupons.map((coupon) => (
         <View key={coupon.code} style={[styles.couponCard, !coupon.active && styles.inactiveCoupon]}>
           <View>
@@ -4531,7 +4577,7 @@ function HelpCenterScreen({ setScreen, onOpenCancellationPolicy }: { setScreen: 
     ["Order cancellation", "Read refund rules and cancellation charges."]
   ];
   return (
-    <ProfileSubPage title="Help Center" setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "helpCenter")} setScreen={setScreen}>
       {topics.map(([title, text]) => (
         <Pressable key={title} style={styles.infoCard} onPress={() => title === "Order cancellation" ? onOpenCancellationPolicy() : undefined}>
           <Text style={styles.addressTitle}>{title}</Text>
@@ -5021,7 +5067,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
-            <Header title="Support Center" onBack={() => setScreen("profile")} />
+            <Header title={t(useAppStore.getState().language, "supportCenter")} onBack={() => setScreen("profile")} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               
               {/* Start New Conversation button */}
@@ -5446,7 +5492,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
         {view === "bug" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
-            <Header title="Report a Bug" onBack={() => setScreen("profile")} />
+            <Header title={t(useAppStore.getState().language, "reportBug")} onBack={() => setScreen("profile")} />
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
               <Text style={{ color: mutedText, fontSize: 13, fontWeight: "600" }}>Describe any glitches, slow load times, or layout bugs directly to our dev team.</Text>
               
@@ -5544,7 +5590,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
 function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Screen) => void; stories: CustomerStory[] }) {
   return (
-    <ProfileSubPage title="Customer Stories" setScreen={setScreen} backScreen="home">
+    <ProfileSubPage title={t(useAppStore.getState().language, "customerStories")} setScreen={setScreen} backScreen="home">
       {stories.length ? stories.map((story) => (
         <View key={story.id} style={styles.storyListCard}>
           <View style={styles.storyFooter}>
@@ -5620,7 +5666,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
   }
 
   return (
-    <ProfileSubPage title="Rate & Review" setScreen={setScreen} backScreen="home">
+    <ProfileSubPage title={t(useAppStore.getState().language, "rateReview")} setScreen={setScreen} backScreen="home">
       <View style={styles.rateHero}>
         <Ionicons name="thumbs-up-outline" size={34} color={BRAND_ORANGE} />
         <Text style={styles.profileName}>How was your experience?</Text>
@@ -5688,7 +5734,7 @@ function PolicyScreen({ title, setScreen }: { title: string; setScreen: (screen:
 
 function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   return (
-    <ProfileSubPage title="App Info" setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "appInfo")} setScreen={setScreen}>
       <View style={styles.whiteCard}>
         <InfoRow label="App" value="Darji Customer" />
         <InfoRow label="Version" value="0.1.0" />
@@ -5702,7 +5748,7 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
 function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) => void; isDark: boolean }) {
   const profileStyles = createStyles(isDark);
   return (
-    <ProfileSubPage title="About Darji" setScreen={setScreen} styles={profileStyles}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "aboutDarji")} setScreen={setScreen} styles={profileStyles}>
       <View style={profileStyles.whiteCard}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
           <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
@@ -6679,6 +6725,8 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const user = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
+  const language = useAppStore((state) => state.language);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const [screen, setScreenState] = useState<Screen>("home");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [customerDataByPhone, setCustomerDataByPhone] = useState<Record<string, CustomerData>>({});
@@ -7552,7 +7600,7 @@ export default function App() {
 
   if (!token) return <AuthScreen />;
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
-  if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} />);
+  if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} />);
 
   if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} />);
   if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} />);
@@ -7593,14 +7641,14 @@ export default function App() {
   if (screen === "profile" || PROFILE_SUBSCREENS.has(screen)) {
     return withAppChrome(
       <>
-        <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} settings={settings} />
+        <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} settings={settings} language={language} />
         
         <Modal visible={screen === "editProfile"} onRequestClose={goBack} animationType="slide">
           <EditProfileScreen profile={profile} setProfile={setCustomerProfile} setScreen={setScreen} />
         </Modal>
         
         <Modal visible={screen === "settings"} onRequestClose={goBack} animationType="slide">
-          <SettingsScreen settings={settings} setSettings={setCustomerSettings} setScreen={setScreen} />
+          <SettingsScreen settings={settings} setSettings={setCustomerSettings} setScreen={setScreen} language={language} setLanguagePreference={setLanguagePreference} />
         </Modal>
         
         <Modal visible={screen === "savedAddresses"} onRequestClose={goBack} animationType="slide">

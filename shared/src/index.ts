@@ -191,3 +191,7 @@ export type ServiceItem = {
   description: string;
   imageUrl: string;
 };
+
+export * from "./localization";
+
+

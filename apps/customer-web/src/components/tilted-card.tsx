@@ -1,4 +1,4 @@
-import { motion, useMotionValue, useSpring } from "motion/react";
+import { motion, useMotionValue, useSpring } from "framer-motion";
 import { useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 const springValues = {
@@ -154,3 +154,4 @@ export default function TiltedCard({
     </figure>
   );
 }
+

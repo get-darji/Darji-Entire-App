@@ -1,6 +1,4 @@
-﻿@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 :root {
   --darji-orange: #ff7000;
   --darji-ink: #08111f;
@@ -923,3 +921,4 @@ button:disabled {
   border-right: 0;
   box-shadow: none;
 }
+

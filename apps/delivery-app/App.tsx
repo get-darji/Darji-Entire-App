@@ -41,6 +41,7 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useAppStore } from "./src/store";
+import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 import type { NotificationDestination } from "./src/utils/deepLinking";
 
 type AuthStep = "login" | "otp";
@@ -670,6 +671,9 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
   const [timer, setTimer] = useState(30);
   const [loading, setLoading] = useState(false);
   const setSession = useAppStore((state) => state.setSession);
+  const language = useAppStore((state) => state.language);
+  const hasSelectedLanguage = useAppStore((state) => state.hasSelectedLanguage);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
 
@@ -717,10 +721,11 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
         </View>
         <Text style={styles.authTitle}>Darzi Delivery</Text>
         <Text style={styles.authCopy}>Accept pickup jobs, open Google Maps routes, and complete verified handoffs.</Text>
+        {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
         <Card>
           {step === "login" ? (
             <>
-              <Text style={styles.formLabel}>DELIVERY LOGIN</Text>
+              <Text style={styles.formLabel}>{t(language, "login")}</Text>
               <Controller
                 control={requestForm.control}
                 name="phone"
@@ -733,18 +738,18 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                       keyboardType="phone-pad"
                       maxLength={10}
                       onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 10))}
-                      placeholder="Enter mobile number"
+                      placeholder={t(language, "enterMobileNumber")}
                       placeholderTextColor="#9aa6b8"
                       value={field.value}
                     />
                   </View>
                 )}
               />
-              <PrimaryButton icon="chevron-forward" label="Send OTP" loading={loading} onPress={requestForm.handleSubmit(requestOtp, () => showDialog({ title: "Invalid number", message: "Enter a valid 10 digit mobile number.", icon: "call-outline" }))} />
+              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={loading} onPress={requestForm.handleSubmit(requestOtp, () => showDialog({ title: "Invalid number", message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
             </>
           ) : (
             <>
-              <Text style={styles.formLabel}>VERIFY OTP</Text>
+              <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
               <Controller
                 control={verifyForm.control}
                 name="otp"
@@ -760,15 +765,44 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                   />
                 )}
               />
-              <PrimaryButton icon="shield-checkmark-outline" label="Verify OTP" loading={loading} onPress={verifyForm.handleSubmit(verify, () => showDialog({ title: "OTP required", message: "Enter the OTP to continue.", icon: "shield-checkmark-outline" }))} />
+              <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={loading} onPress={verifyForm.handleSubmit(verify, () => showDialog({ title: "OTP required", message: t(language, "otpRequired"), icon: "shield-checkmark-outline" }))} />
               <Pressable style={styles.textButton} disabled={timer > 0} onPress={() => requestForm.handleSubmit(requestOtp)()}>
-                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? `Resend OTP in ${timer}s` : "Resend OTP"}</Text>
+                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? `Resend OTP in ${timer}s` : t(language, "sendOtp")}</Text>
               </Pressable>
             </>
           )}
         </Card>
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+function LanguageSelectorCard({ language, onSelect }: { language: AppLanguage; onSelect: (language: AppLanguage) => void }) {
+  return (
+    <Card>
+      <Text style={styles.formLabel}>{t(language, "chooseLanguage")}</Text>
+      <Text style={[styles.mutedText, { marginBottom: 14 }]}>{t(language, "chooseLanguageCopy")}</Text>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        {(["en", "hi"] as const).map((option) => (
+          <Pressable
+            key={option}
+            style={{
+              flex: 1,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: language === option ? BRAND_ORANGE : BORDER,
+              backgroundColor: language === option ? "#fff4db" : SURFACE,
+              paddingVertical: 12,
+              alignItems: "center"
+            }}
+            onPress={() => onSelect(option)}
+          >
+            <Text style={{ color: language === option ? BRAND_DEEP : MUTED, fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={[styles.mutedText, { marginTop: 10 }]}>{t(language, "languagePreferenceSaved")}</Text>
+    </Card>
   );
 }
 
@@ -2208,14 +2242,15 @@ function NotificationsScreen({ notifications, onOpen }: { notifications: Deliver
 }
 
 function TabBar({ current, onChange }: { current: Tab; onChange: (tab: Tab) => void }) {
+  const language = useAppStore((state) => state.language);
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: "home", label: "Home", icon: "home-outline" },
-    { key: "orders", label: "Queues", icon: "cube-outline" },
-    { key: "earnings", label: "Earnings", icon: "wallet-outline" },
-    { key: "notifications", label: "Alerts", icon: "notifications-outline" },
-    { key: "profile", label: "Profile", icon: "person-outline" }
+    { key: "home", label: t(language, "home"), icon: "home-outline" },
+    { key: "orders", label: t(language, "queues"), icon: "cube-outline" },
+    { key: "earnings", label: t(language, "earnings"), icon: "wallet-outline" },
+    { key: "notifications", label: t(language, "alerts"), icon: "notifications-outline" },
+    { key: "profile", label: t(language, "profile"), icon: "person-outline" }
   ];
   return (
     <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
