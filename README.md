@@ -30,7 +30,7 @@ Monorepo for the Darzi customer app, tailor app, delivery partner app, admin pan
 3. Start the backend:
 
    ```bash
-   npm run dev:backend
+   npm run dev:backend 
    ```
 
 4. Start the admin panel:
@@ -85,3 +85,4 @@ npm --workspace @darzi/delivery-app exec -- expo config --type public
 ```
 
 The backend auto-seeds service catalog and test users on startup. For persistent data, use MongoDB Atlas and set `MONGODB_URI`.
+Author ~aman
