@@ -1,13 +1,18 @@
 import type { Coupon } from "./types";
 
-export const PLATFORM_FEE = 19;
 export const HOME_MEASUREMENT_FEE = 99;
 
 export function deliveryFeeForUrgency(urgency: string) {
-  if (/instant/i.test(urgency)) return 149;
-  if (/same day/i.test(urgency)) return 99;
-  if (/express/i.test(urgency)) return 69;
-  return 39;
+  if (/instant/i.test(urgency)) return 50;
+  if (/urgent|express/i.test(urgency)) return 40;
+  return 30; // Normal or same day
+}
+
+export function getPlatformFee(orderValue: number) {
+  if (orderValue <= 0) return 0;
+  if (orderValue < 500) return 15;
+  if (orderValue <= 1000) return 25;
+  return 35;
 }
 
 export function quoteEta(quote?: { estimatedDays?: number; estimatedHours?: number }) {

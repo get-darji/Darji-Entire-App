@@ -61,6 +61,7 @@ export const customerApi = {
   requestOtp: (phone: string) => request<{ otp?: string }>({ method: "POST", url: "/auth/request-otp", data: { phone, role: "CUSTOMER" } }),
   verifyOtp: (phone: string, otp: string) => request<AuthSession>({ method: "POST", url: "/auth/verify-otp", data: { phone, otp, role: "CUSTOMER" } }),
   me: () => request<AuthSession["user"] & { wallet?: { balance?: number } }>({ method: "GET", url: "/auth/me" }),
+  updateProfile: (data: unknown) => request<AuthSession["user"]>({ method: "PATCH", url: "/auth/me", data }),
   uploadMedia: async (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("media", file));
@@ -79,7 +80,13 @@ export const customerApi = {
   handoffOtps: (orderId: string) => request<HandoffOtp[]>({ method: "GET", url: `/delivery-requests/order/${orderId}/otps` }),
   addresses: () => request<Address[]>({ method: "GET", url: "/addresses" }),
   createAddress: (data: unknown) => request<Address>({ method: "POST", url: "/addresses", data }),
-  createSupportTicket: (data: unknown) => request<unknown>({ method: "POST", url: "/support", data })
+  supportTickets: () => request<any[]>({ method: "GET", url: "/support" }),
+  bugReports: () => request<any[]>({ method: "GET", url: "/support/bug-reports" }),
+  createSupportTicket: (data: unknown) => request<any>({ method: "POST", url: "/support", data }),
+  createBugReport: (data: unknown) => request<any>({ method: "POST", url: "/support/bug-reports", data }),
+  sendTicketMessage: (id: string, data: unknown) => request<any>({ method: "POST", url: `/support/${id}/messages`, data }),
+  sendBugMessage: (id: string, data: unknown) => request<any>({ method: "POST", url: `/support/bug-reports/${id}/messages`, data }),
+  updateTicketStatus: (id: string, status: string) => request<any>({ method: "PATCH", url: `/support/${id}`, data: { status } })
 };
 
 export function errorMessage(error: unknown) {

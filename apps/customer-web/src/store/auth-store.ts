@@ -9,6 +9,10 @@ export type CustomerUser = {
   name?: string;
   email?: string;
   role: string;
+  gender?: string;
+  dateOfBirth?: string;
+  avatarUri?: string;
+  avatarPreset?: string;
   wallet?: { balance?: number };
 };
 
@@ -18,6 +22,7 @@ type AuthState = {
   user?: CustomerUser;
   setSession: (session: { accessToken: string; refreshToken: string; user: CustomerUser }) => void;
   setAccessToken: (token?: string) => void;
+  setUser: (user: CustomerUser) => void;
   signOut: () => void;
 };
 
@@ -26,6 +31,7 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       setSession: (session) => set({ accessToken: session.accessToken, refreshToken: session.refreshToken, user: session.user }),
       setAccessToken: (accessToken) => set({ accessToken }),
+      setUser: (user) => set({ user }),
       signOut: () => set({ accessToken: undefined, refreshToken: undefined, user: undefined })
     }),
     {

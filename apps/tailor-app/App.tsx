@@ -1125,21 +1125,25 @@ function ProofBlock({
   copy,
   media,
   limitText,
-  loadingCamera,
-  loadingLibrary,
-  onCamera,
-  onLibrary,
-  onOpen
+  loadingCamera = false,
+  loadingLibrary = false,
+  onCamera = () => {},
+  onLibrary = () => {},
+  onOpen,
+  onDelete,
+  readOnly = false
 }: {
   title: string;
   copy: string;
   media: MediaItem[];
   limitText: string;
-  loadingCamera: boolean;
-  loadingLibrary: boolean;
-  onCamera: () => void;
-  onLibrary: () => void;
+  loadingCamera?: boolean;
+  loadingLibrary?: boolean;
+  onCamera?: () => void;
+  onLibrary?: () => void;
   onOpen: (media: MediaItem) => void;
+  onDelete?: (media: MediaItem) => void;
+  readOnly?: boolean;
 }) {
   return (
     <View style={styles.proofBlock}>
@@ -1153,27 +1157,55 @@ function ProofBlock({
       {media.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
           {media.map((item, index) => (
-            <Pressable key={`${item.url}-${index}`} style={styles.mediaBox} onPress={() => onOpen(item)}>
-              <Image source={{ uri: item.url }} style={styles.mediaImage} />
-              <View style={styles.mediaOpenBadge}>
-                <Ionicons name="expand-outline" size={13} color="#ffffff" />
-              </View>
-            </Pressable>
+            <View key={`${item.url}-${index}`} style={{ position: "relative", marginRight: 10 }}>
+              <Pressable style={styles.mediaBox} onPress={() => onOpen(item)}>
+                <Image source={{ uri: item.url }} style={styles.mediaImage} />
+                <View style={styles.mediaOpenBadge}>
+                  <Ionicons name="expand-outline" size={13} color="#ffffff" />
+                </View>
+              </Pressable>
+              {onDelete && !readOnly ? (
+                <Pressable
+                  style={{
+                    position: "absolute",
+                    top: -5,
+                    right: -5,
+                    backgroundColor: "#ef4444",
+                    borderRadius: 10,
+                    width: 20,
+                    height: 20,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 10,
+                    elevation: 3,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 1
+                  }}
+                  onPress={() => onDelete(item)}
+                >
+                  <Ionicons name="close" size={12} color="#ffffff" />
+                </Pressable>
+              ) : null}
+            </View>
           ))}
         </ScrollView>
       ) : (
         <Text style={styles.proofEmptyText}>No photos uploaded yet.</Text>
       )}
-      <View style={styles.proofActions}>
-        <Pressable style={styles.proofButton} onPress={onCamera} disabled={loadingCamera || loadingLibrary}>
-          {loadingCamera ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="camera-outline" size={17} color={BRAND_ORANGE} />}
-          <Text style={styles.proofButtonText}>Camera</Text>
-        </Pressable>
-        <Pressable style={styles.proofButton} onPress={onLibrary} disabled={loadingCamera || loadingLibrary}>
-          {loadingLibrary ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="images-outline" size={17} color={BRAND_ORANGE} />}
-          <Text style={styles.proofButtonText}>Gallery</Text>
-        </Pressable>
-      </View>
+      {!readOnly ? (
+        <View style={styles.proofActions}>
+          <Pressable style={styles.proofButton} onPress={onCamera} disabled={loadingCamera || loadingLibrary}>
+            {loadingCamera ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="camera-outline" size={17} color={BRAND_ORANGE} />}
+            <Text style={styles.proofButtonText}>Camera</Text>
+          </Pressable>
+          <Pressable style={styles.proofButton} onPress={onLibrary} disabled={loadingCamera || loadingLibrary}>
+            {loadingLibrary ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="images-outline" size={17} color={BRAND_ORANGE} />}
+            <Text style={styles.proofButtonText}>Gallery</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1353,6 +1385,29 @@ function OrderDetailsScreen({
     }
   }
 
+  async function deleteProof(stage: "RECEIVED" | "STITCHED", item: MediaItem) {
+    if (!acceptedRequest || !token) return;
+    try {
+      await api(`/tailoring-requests/${acceptedRequest.id}/audit-media`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: item.url, stage })
+      }, token);
+      showDialog({
+        title: "Photo deleted",
+        message: "The proof photo has been removed.",
+        icon: "checkmark-circle-outline"
+      });
+      onUpdated();
+    } catch (error) {
+      if (isSessionError(error)) {
+        onSessionExpired();
+        return;
+      }
+      showDialog({ title: "Delete failed", message: error instanceof Error ? error.message : "Could not delete order photo.", icon: "alert-circle-outline" });
+    }
+  }
+
   async function updateStatus(status: string) {
     if (!token) return;
     if (status === "WORKING" && acceptedRequest && !receivedProofComplete) {
@@ -1490,49 +1545,97 @@ function OrderDetailsScreen({
           {acceptedRequest ? (
             <View style={styles.whiteCard}>
               <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
-              <Text style={styles.helperText}>Upload one proof photo per clothing item before moving the order forward.</Text>
-              <ProofBlock
-                title="Received clothes"
-                copy={`Required before Working: ${receivedProofCount}/${requiredProofCount} item photos.`}
-                media={acceptedRequest.receivedMedia ?? []}
-                limitText={`${receivedProofCount}/${requiredProofCount} items`}
-                loadingCamera={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "camera"}
-                loadingLibrary={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "library"}
-                onCamera={() => uploadProof("RECEIVED", "camera")}
-                onLibrary={() => uploadProof("RECEIVED", "library")}
-                onOpen={setSelectedMedia}
-              />
-              <ProofBlock
-                title="After stitching"
-                copy={`Required before Ready: ${stitchedProofCount}/${requiredProofCount} item photos.`}
-                media={acceptedRequest.stitchedMedia ?? []}
-                limitText={`${stitchedProofCount}/${requiredProofCount} items`}
-                loadingCamera={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "camera"}
-                loadingLibrary={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "library"}
-                onCamera={() => uploadProof("STITCHED", "camera")}
-                onLibrary={() => uploadProof("STITCHED", "library")}
-                onOpen={setSelectedMedia}
-              />
+              
+              {/* If AT_TAILOR, show ONLY Received Clothes ProofBlock + Submit button */}
+              {(order.status === "AT_TAILOR" || order.status === "PACKAGE_HANDOVER_TO_TAILOR") && (
+                <>
+                  <ProofBlock
+                    title="Received clothes"
+                    copy={`Required before starting work: ${receivedProofCount}/${requiredProofCount} item photos.`}
+                    media={acceptedRequest.receivedMedia ?? []}
+                    limitText={`${receivedProofCount}/${requiredProofCount} items`}
+                    loadingCamera={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "camera"}
+                    loadingLibrary={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "library"}
+                    onCamera={() => uploadProof("RECEIVED", "camera")}
+                    onLibrary={() => uploadProof("RECEIVED", "library")}
+                    onOpen={setSelectedMedia}
+                    onDelete={(item) => deleteProof("RECEIVED", item)}
+                  />
+                  <Pressable
+                    style={[
+                      styles.primaryButton,
+                      { marginTop: 15 },
+                      (!receivedProofComplete || savingStatus === "WORKING") && { opacity: 0.5 }
+                    ]}
+                    disabled={!receivedProofComplete || Boolean(savingStatus)}
+                    onPress={() => updateStatus("WORKING")}
+                  >
+                    {savingStatus === "WORKING" ? (
+                      <ActivityIndicator color="#111111" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Submit Images & Start Stitching</Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
+
+              {/* If WORKING, show ONLY After Stitching ProofBlock + Ready button */}
+              {(order.status === "WORKING" || order.status === "TAILOR_STARTED") && (
+                <>
+                  <ProofBlock
+                    title="After stitching"
+                    copy={`Required before delivery: ${stitchedProofCount}/${requiredProofCount} item photos.`}
+                    media={acceptedRequest.stitchedMedia ?? []}
+                    limitText={`${stitchedProofCount}/${requiredProofCount} items`}
+                    loadingCamera={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "camera"}
+                    loadingLibrary={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "library"}
+                    onCamera={() => uploadProof("STITCHED", "camera")}
+                    onLibrary={() => uploadProof("STITCHED", "library")}
+                    onOpen={setSelectedMedia}
+                    onDelete={(item) => deleteProof("STITCHED", item)}
+                  />
+                  <Pressable
+                    style={[
+                      styles.primaryButton,
+                      { marginTop: 15 },
+                      (!stitchedProofComplete || savingStatus === "READY") && { opacity: 0.5 }
+                    ]}
+                    disabled={!stitchedProofComplete || Boolean(savingStatus)}
+                    onPress={() => updateStatus("READY")}
+                  >
+                    {savingStatus === "READY" ? (
+                      <ActivityIndicator color="#111111" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>I'm Ready to Deliver</Text>
+                    )}
+                  </Pressable>
+                </>
+              )}
+
+              {/* If READY or later, show read-only lists of both Received clothes & After stitching */}
+              {!(order.status === "AT_TAILOR" || order.status === "PACKAGE_HANDOVER_TO_TAILOR" || order.status === "WORKING" || order.status === "TAILOR_STARTED") && (
+                <>
+                  <ProofBlock
+                    title="Received clothes"
+                    copy={`${receivedProofCount} photos submitted.`}
+                    media={acceptedRequest.receivedMedia ?? []}
+                    limitText={`${receivedProofCount}/${requiredProofCount} items`}
+                    onOpen={setSelectedMedia}
+                    readOnly
+                  />
+                  <View style={{ height: 15 }} />
+                  <ProofBlock
+                    title="After stitching"
+                    copy={`${stitchedProofCount} photos submitted.`}
+                    media={acceptedRequest.stitchedMedia ?? []}
+                    limitText={`${stitchedProofCount}/${requiredProofCount} items`}
+                    onOpen={setSelectedMedia}
+                    readOnly
+                  />
+                </>
+              )}
             </View>
           ) : null}
-          <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>UPDATE WORK STATUS</Text>
-            <View style={styles.statusGrid}>
-              {statusSteps.map((status) => {
-                const missingProof = acceptedRequest && (status === "WORKING" ? !receivedProofComplete : (!receivedProofComplete || !stitchedProofComplete));
-                return (
-                <Pressable
-                  key={status}
-                  style={[styles.statusButton, order.status === status && styles.activeStatusButton, missingProof && styles.disabledButton]}
-                  onPress={() => updateStatus(status)}
-                  disabled={Boolean(savingStatus) || Boolean(missingProof)}
-                >
-                  {savingStatus === status ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.statusButtonText, order.status === status && styles.activeStatusButtonText]}>{formatStatus(status)}</Text>}
-                </Pressable>
-                );
-              })}
-            </View>
-          </View>
         </>
       ) : (
         <View style={styles.whiteCard}>
@@ -2711,6 +2814,30 @@ function TailorVerificationFlow({
             </Pressable>
           ) : null}
         </View>
+        <Pressable
+          style={{ alignItems: "center", marginTop: 25, paddingVertical: 10, marginBottom: 20 }}
+          onPress={() => {
+            Alert.alert(
+              "Login Confirmation",
+              "Do you want to sign out and log in with another mobile number?",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Yes, Logout",
+                  style: "destructive",
+                  onPress: () => {
+                    signOut();
+                    onSessionExpired();
+                  }
+                }
+              ]
+            );
+          }}
+        >
+          <Text style={{ color: "#64748b", fontSize: 13, fontWeight: "800", textDecorationLine: "underline" }}>
+            Login with another number
+          </Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );

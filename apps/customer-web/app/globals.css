@@ -8,6 +8,17 @@
   --darji-cream: #fffaf0;
   --darji-page: #f6f8fb;
   --darji-green: #047857;
+
+  /* Landing Page UI Colors */
+  --color-primary: var(--darji-orange);
+  --color-primary-hover: #e56500;
+  --color-primary-light: #fff0e5;
+  --color-text-primary: var(--darji-ink);
+  --color-text-secondary: var(--darji-muted);
+  --color-text-muted: var(--darji-muted);
+  --color-surface-secondary: #fdfaf6;
+  --color-border: #eee4dc;
+  --color-border-hover: #e0d0c4;
 }
 
 * {
@@ -545,20 +556,40 @@ button:disabled {
   line-height: 1.6;
 }
 
-.testimonial-marquee {
-  display: flex;
-  gap: 1.25rem;
+.testimonial-marquee-wrapper {
   overflow: hidden;
-  padding: 0.5rem 0;
+  padding: 1rem 0;
+  width: 100%;
 }
 
-.testimonial-marquee:hover .testimonial-card {
+.testimonial-marquee-track {
+  display: flex;
+  gap: 1.25rem;
+  width: max-content;
+}
+
+.testimonial-marquee-track:hover .testimonial-group {
   animation-play-state: paused;
+}
+
+.testimonial-group {
+  display: flex;
+  gap: 1.25rem;
+  flex-shrink: 0;
+  animation: scroll-marquee 40s linear infinite;
 }
 
 .testimonial-card {
   min-width: min(360px, calc(100vw - 72px));
-  animation: testimonial-marquee 22s linear infinite;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  will-change: transform;
+  flex-shrink: 0;
+}
+
+.testimonial-card:hover {
+  transform: translateY(-12px) scale(1.03);
+  box-shadow: 0 24px 54px rgba(8, 17, 31, 0.12);
+  z-index: 10;
 }
 
 @keyframes float {
@@ -630,12 +661,12 @@ button:disabled {
   }
 }
 
-@keyframes testimonial-marquee {
+@keyframes scroll-marquee {
   0% {
-    transform: translateX(0);
+    transform: translateX(calc(-100% - 1.25rem));
   }
   100% {
-    transform: translateX(calc(-100% - 1.25rem));
+    transform: translateX(0);
   }
 }
 

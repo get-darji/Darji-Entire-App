@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { meController, refreshController, requestOtpController, verifyOtpController } from "../controllers/auth.controller.js";
+import { meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
   analyticsController,
   assignOrderController,
@@ -99,6 +99,7 @@ import {
   updateTailoringWorkStatusController,
   uploadTailoringMedia,
   uploadTailoringAuditMediaController,
+  deleteTailoringAuditMediaController,
   uploadTailoringMediaController,
   watchDeliveryRequestsController,
   watchTailoringRequestsController
@@ -111,6 +112,7 @@ router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
 router.post("/auth/refresh", refreshController);
 router.get("/auth/me", requireAuth, meController);
+router.patch("/auth/me", requireAuth, updateMeController);
 
 router.get("/catalog", catalogController);
 
@@ -127,6 +129,7 @@ router.get("/tailoring-requests", requireAuth, requireRole("CUSTOMER", "TAILOR",
 router.get("/tailoring-requests/events/watch", requireAuth, requireRole("TAILOR", "ADMIN"), watchTailoringRequestsController);
 router.get("/tailoring-requests/:id", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), getTailoringRequestController);
 router.post("/tailoring-requests/:id/audit-media", requireAuth, requireRole("TAILOR", "ADMIN"), uploadTailoringMedia, uploadTailoringAuditMediaController);
+router.delete("/tailoring-requests/:id/audit-media", requireAuth, requireRole("TAILOR", "ADMIN"), deleteTailoringAuditMediaController);
 router.patch("/tailoring-requests/:id/work-status", requireAuth, requireRole("TAILOR", "ADMIN"), updateTailoringWorkStatusController);
 router.post("/tailoring-requests/:id/checkout", requireAuth, requireRole("CUSTOMER", "ADMIN"), startTailoringCheckoutController);
 router.post("/tailoring-requests/:id/checkout/verify", requireAuth, requireRole("CUSTOMER", "ADMIN"), verifyTailoringCheckoutController);

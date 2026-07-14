@@ -365,7 +365,12 @@ const REQUEST_DESCRIPTION_MIN = 10;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "orderSummary", "quotes", "confirmOrder"]);
-const PLATFORM_FEE = 10;
+function getPlatformFee(orderValue: number) {
+  if (orderValue <= 0) return 0;
+  if (orderValue < 500) return 15;
+  if (orderValue <= 1000) return 25;
+  return 35;
+}
 const HOME_MEASUREMENT_FEE = 30;
 
 configureForegroundNotificationHandler();
@@ -456,10 +461,10 @@ const homeMediaFeatures = [
 ];
 
 const urgencyOptions = [
-  { label: "Normal (3-5 days)", helper: "Delivery Rs20", icon: "calendar-outline", deliveryFee: 20 },
-  { label: "Express (1-2 days)", helper: "Delivery Rs25", icon: "flash-outline", deliveryFee: 25 },
+  { label: "Normal (3-5 days)", helper: "Delivery Rs30", icon: "calendar-outline", deliveryFee: 30 },
+  { label: "Express (1-2 days)", helper: "Delivery Rs40", icon: "flash-outline", deliveryFee: 40 },
   { label: "Same Day", helper: "Delivery Rs30", icon: "today-outline", deliveryFee: 30 },
-  { label: "Instant Delivery", helper: "Delivery Rs40", icon: "rocket-outline", deliveryFee: 40 }
+  { label: "Instant Delivery", helper: "Delivery Rs50", icon: "rocket-outline", deliveryFee: 50 }
 ] as const;
 
 type MeasurementGuide = {
@@ -926,7 +931,7 @@ function checkoutItemCount(draft: RequestDraft) {
 }
 
 function subtotalForQuote(quote: Quote, draft: RequestDraft) {
-  return quote.price + deliveryFeeForUrgency(draft.urgency) + PLATFORM_FEE + homeMeasurementFeeForDraft(draft);
+  return quote.price + deliveryFeeForUrgency(draft.urgency) + getPlatformFee(quote.price) + homeMeasurementFeeForDraft(draft);
 }
 
 function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
@@ -3602,7 +3607,7 @@ function ConfirmOrderScreen({
           <View style={styles.checkoutPriceBox}>
             <SummaryRow label="Tailor quote" value={`Rs${tailoringTotal}`} tone="positive" />
             <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
-            <SummaryRow label="Platform fee" value={`Rs${PLATFORM_FEE}`} tone="positive" />
+            <SummaryRow label="Platform fee" value={`Rs${getPlatformFee(tailoringTotal)}`} tone="positive" />
             {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
             {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
             <View style={styles.summaryDivider} />
@@ -3821,7 +3826,7 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
-          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}`} tone="positive" />
           {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} tone="negative" /> : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
@@ -4892,20 +4897,35 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
     }
   }
 
-  function handleStartChat() {
+  async function handleStartChat() {
     if (!selectedCategory) {
       Alert.alert("Select Category", "Please select the help category related to your issue.");
       return;
     }
-    setActiveTicket({
-      isDraft: true,
-      subject: selectedCategory,
-      category: selectedCategory,
-      orderId: selectedOrder?._id || selectedOrder?.id || null,
-      status: "OPEN",
-      messages: []
-    });
-    setView("chat");
+    if (!token) return;
+    try {
+      setSending(true);
+      const res = await api<any>("/support", {
+        method: "POST",
+        body: JSON.stringify({
+          subject: selectedCategory,
+          message: `I need support regarding: ${selectedCategory}`,
+          orderId: selectedOrder?._id || selectedOrder?.id || undefined,
+          category: selectedCategory,
+          attachments: attachments
+        })
+      }, token);
+
+      setAttachments([]);
+      await loadTickets();
+      const createdTicket = res.data || res;
+      setActiveTicket(createdTicket);
+      setView("chat");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to start support conversation.");
+    } finally {
+      setSending(false);
+    }
   }
 
   async function handleSendReply() {
@@ -5078,6 +5098,16 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               >
                 <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
                 <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
+              </TouchableOpacity>
+
+              {/* Report a Bug button */}
+              <TouchableOpacity 
+                style={{ backgroundColor: "#ef4444", height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 4, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
+                onPress={() => setScreen("reportBug")}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="bug-outline" size={20} color="#ffffff" />
+                <Text style={{ color: "#ffffff", fontSize: 15, fontWeight: "900" }}>Report a Bug</Text>
               </TouchableOpacity>
 
               {/* Open Tickets Section */}
@@ -5859,7 +5889,7 @@ function invoiceHtml(order: CustomerOrder) {
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Pickup</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.pickupWindow)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Address</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.draft.pickup)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Delivery</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}</td></tr>
-          <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Platform fee</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.platformFee ?? PLATFORM_FEE}</td></tr>
+          <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Platform fee</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}</td></tr>
           ${
             order.homeMeasurementFee || order.draft.homeMeasurementBooked
               ? `<tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Tailor measurement visit</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}</td></tr>`
@@ -6191,7 +6221,7 @@ function LegacyOrderDetailsScreenV2({
           <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
-          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}`} tone="positive" />
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
           {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
@@ -6348,7 +6378,7 @@ function OrderDetailsScreenV2({
   const itemTotal = Math.max(
     order.total -
       (order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)) -
-      (order.platformFee ?? PLATFORM_FEE) -
+      (order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)) -
       (order.homeMeasurementFee ?? (order.draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0)) +
       (order.discountAmount ?? 0),
     0
@@ -6449,7 +6479,7 @@ function OrderDetailsScreenV2({
         <View style={styles.orderDetailsCard}>
           <SummaryRow label="Item Total" value={`Rs${itemTotal}`} />
           <SummaryRow label="Pickup Fee" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} />
-          <SummaryRow label="Convenience Fee" value={`Rs${order.platformFee ?? PLATFORM_FEE}`} />
+          <SummaryRow label="Convenience Fee" value={`Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}`} />
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
           {order.discountAmount ? <SummaryRow label={`Discount ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
@@ -7469,7 +7499,7 @@ export default function App() {
             quoteId: selectedQuote.backendQuoteId,
             paymentMethod,
             deliveryFee,
-            platformFee: PLATFORM_FEE,
+            platformFee: getPlatformFee(selectedQuote.price),
             homeMeasurementFee,
             couponCode: checkout?.couponCode,
             totalAmount

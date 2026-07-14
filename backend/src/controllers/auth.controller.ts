@@ -278,3 +278,29 @@ export async function meController(req: Request, res: Response) {
 
   res.json({ data: { ...user?.toJSON(), wallet, tailorProfile: hydratedTailorProfile, deliveryProfile: hydratedDeliveryProfile } });
 }
+
+export async function updateMeController(req: Request, res: Response) {
+  const { name, email, gender, dateOfBirth, avatarPreset, avatarUri } = req.body;
+  const updateData: Record<string, any> = {};
+  if (name !== undefined) updateData.name = name;
+  if (email !== undefined) updateData.email = email;
+  if (gender !== undefined) updateData.gender = gender;
+  if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth;
+  if (avatarPreset !== undefined) updateData.avatarPreset = avatarPreset;
+  if (avatarUri !== undefined) updateData.avatarUri = avatarUri;
+
+  if (avatarUri) {
+    updateData.avatarUrl = avatarUri;
+  }
+
+  const user = await UserModel.findByIdAndUpdate(
+    req.user!.id,
+    { $set: updateData },
+    { returnDocument: "after" }
+  );
+  if (!user) {
+    throw new AppError(404, "User not found");
+  }
+  res.json({ data: user });
+}
+

@@ -1759,6 +1759,28 @@ export async function uploadTailoringAuditMediaController(req: Request, res: Res
   res.status(201).json({ data: await hydrateTailoringRequest(updatedRequest, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
 }
 
+export async function deleteTailoringAuditMediaController(req: Request, res: Response) {
+  const { url, stage } = req.body;
+  if (!url || !stage) throw new AppError(400, "url and stage are required");
+
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+
+  const tailor = req.user!.role === "TAILOR" ? await TailorModel.findOne({ userId: req.user!.id }) : null;
+  if (req.user!.role === "TAILOR") {
+    const acceptedQuote = await TailorQuoteModel.findOne({ requestId: request.id, tailorId: tailor?.id ?? "__none__", status: "ACCEPTED" });
+    if (!acceptedQuote) throw new AppError(403, "Only the accepted tailor can modify order photos");
+  }
+
+  const field = stage === "RECEIVED" ? "receivedMedia" : "stitchedMedia";
+  const requestJson = request.toJSON() as { receivedMedia?: any[]; stitchedMedia?: any[] };
+  const currentMedia = (stage === "RECEIVED" ? requestJson.receivedMedia : requestJson.stitchedMedia) ?? [];
+  const updatedMedia = currentMedia.filter((media: any) => media.url !== url);
+
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, { [field]: updatedMedia }, { returnDocument: "after" });
+  res.status(200).json({ data: await hydrateTailoringRequest(updatedRequest, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
+}
+
 export async function updateTailoringWorkStatusController(req: Request, res: Response) {
   const input = updateTailoringWorkStatusSchema.parse(req.body);
   const request = await TailoringRequestModel.findById(String(req.params.id));

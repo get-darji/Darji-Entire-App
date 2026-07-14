@@ -1263,6 +1263,23 @@ function OnboardingScreen({
             </View>
           ) : null}
         </View>
+        <Pressable
+          style={{ alignItems: "center", marginTop: 20, paddingVertical: 10 }}
+          onPress={() => {
+            Alert.alert(
+              "Login Confirmation",
+              "Do you want to sign out and log in with another mobile number?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Yes, Logout", style: "destructive", onPress: onSessionExpired }
+              ]
+            );
+          }}
+        >
+          <Text style={{ color: "#64748b", fontSize: 13, fontWeight: "800", textDecorationLine: "underline" }}>
+            Login with another number
+          </Text>
+        </Pressable>
       </ScrollView>
     </Screen>
   );
