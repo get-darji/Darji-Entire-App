@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import mongoose, { Schema, type InferSchemaType } from "mongoose";
 import { orderStatuses, paymentMethods, paymentStatuses, roles, supportStatuses } from "@darzi/shared";
+import { attachDarjiIdPlugin, nextDarjiId, type DarjiIdPrefix } from "./utils/darji-id.js";
+
+export async function generateDarjiCustomerId() {
+  return nextDarjiId("CUS");
+}
+
+export async function generateDarjiPartnerId() {
+  return nextDarjiId("DPP");
+}
+
+export async function generateDarjiTailorId() {
+  return nextDarjiId("TLR");
+}
 
 const baseOptions = {
   timestamps: true,
@@ -38,6 +51,8 @@ const userSchema = new Schema(
   {
     _id: stringId,
     phone: { type: String, required: true, unique: true, index: true },
+    darjiCustomerId: { type: String, unique: true, sparse: true },
+    darjiAdminId: { type: String, unique: true, sparse: true },
     name: String,
     email: { type: String, sparse: true, unique: true },
     avatarUrl: String,
@@ -71,6 +86,15 @@ const userSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(userSchema, {
+  field: "darjiCustomerId",
+  prefix: (doc) => String(doc.role ?? "").toUpperCase() === "CUSTOMER" ? "CUS" : undefined
+});
+attachDarjiIdPlugin(userSchema, {
+  field: "darjiAdminId",
+  prefix: (doc) => ["ADMIN", "SUPER_ADMIN"].includes(String(doc.role ?? "").toUpperCase()) ? "ADM" : undefined
+});
+
 
 const addressSchema = new Schema(
   {
@@ -90,6 +114,8 @@ const addressSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(addressSchema, { field: "darjiId", prefix: "ADR" });
+
 
 const serviceCategorySchema = new Schema(
   {
@@ -99,6 +125,8 @@ const serviceCategorySchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(serviceCategorySchema, { field: "darjiId", prefix: "SGC" });
+
 
 const serviceSchema = new Schema(
   {
@@ -113,6 +141,8 @@ const serviceSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(serviceSchema, { field: "darjiId", prefix: "SRV" });
+
 serviceSchema.index({ categoryId: 1, name: 1 }, { unique: true });
 
 const measurementSchema = new Schema(
@@ -175,6 +205,8 @@ const orderSchema = new Schema(
     paymentMethod: { type: String, enum: paymentMethods, required: true },
     paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING" },
     subtotal: { type: Number, required: true },
+    platformFee: { type: Number, default: 0 },
+    smallOrderFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
     pickupScheduledAt: { type: Date, required: true },
@@ -187,6 +219,8 @@ const orderSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(orderSchema, { field: "darjiId", prefix: "ORD" });
+
 
 const tailorSchema = new Schema(
   {
@@ -212,11 +246,14 @@ const tailorSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(tailorSchema, { field: "darjiTailorId", prefix: "TLR" });
+
 
 const deliveryPartnerSchema = new Schema(
   {
     _id: stringId,
     userId: { type: String, required: true, unique: true },
+    darjiPartnerId: { type: String, unique: true, sparse: true },
     vehicleNumber: String,
     deliveryType: { type: String, enum: deliveryTypes, default: "PICKUP", index: true },
     assignedArea: { type: String, default: "unassigned", index: true },
@@ -236,6 +273,8 @@ const deliveryPartnerSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(deliveryPartnerSchema, { field: "darjiPartnerId", prefix: "DPP" });
+
 
 const paymentSchema = new Schema(
   {
@@ -248,6 +287,8 @@ const paymentSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(paymentSchema, { field: "darjiId", prefix: "PAY" });
+
 
 const couponSchema = new Schema(
   {
@@ -263,6 +304,8 @@ const couponSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(couponSchema, { field: "darjiId", prefix: "CPN" });
+
 
 const notificationSchema = new Schema(
   {
@@ -275,6 +318,8 @@ const notificationSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(notificationSchema, { field: "darjiId", prefix: "NTF" });
+
 
 const reviewSchema = new Schema(
   {
@@ -288,6 +333,8 @@ const reviewSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(reviewSchema, { field: "darjiId", prefix: "RVW" });
+
 
 const walletSchema = new Schema(
   {
@@ -298,6 +345,8 @@ const walletSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(walletSchema, { field: "darjiId", prefix: "WLT" });
+
 
 const walletTransactionSchema = new Schema(
   {
@@ -319,6 +368,8 @@ const walletTransactionSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(walletTransactionSchema, { field: "darjiId", prefix: "WTX" });
+
 walletTransactionSchema.index(
   { userId: 1, orderId: 1, category: 1, transactionType: 1 },
   { unique: true, partialFilterExpression: { orderId: { $exists: true }, category: "ORDER_EARNING", transactionType: "CREDIT" } }
@@ -356,6 +407,8 @@ const transactionSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(transactionSchema, { field: "darjiId", prefix: "TXN" });
+
 
 const otpRequestSchema = new Schema(
   {
@@ -406,6 +459,8 @@ const supportTicketSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(supportTicketSchema, { field: "darjiId", prefix: "TKT" });
+
 
 const bugReportSchema = new Schema(
   {
@@ -422,6 +477,8 @@ const bugReportSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(bugReportSchema, { field: "darjiId", prefix: "BUG" });
+
 
 const accountChangeRequestSchema = new Schema(
   {
@@ -440,6 +497,8 @@ const accountChangeRequestSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(accountChangeRequestSchema, { field: "darjiId", prefix: "CRQ" });
+
 
 const requestMediaSchema = new Schema(
   {
@@ -505,6 +564,7 @@ const tailoringRequestSchema = new Schema(
     quoteAmount: Number,
     deliveryFee: Number,
     platformFee: Number,
+    smallOrderFee: { type: Number, default: 0 },
     homeMeasurementFee: Number,
     couponCode: String,
     discountAmount: { type: Number, default: 0 },
@@ -533,6 +593,8 @@ const tailoringRequestSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(tailoringRequestSchema, { field: "darjiId", prefix: "TRQ" });
+
 
 const tailorQuoteSchema = new Schema(
   {
@@ -548,6 +610,8 @@ const tailorQuoteSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(tailorQuoteSchema, { field: "darjiId", prefix: "QUO" });
+
 tailorQuoteSchema.index({ requestId: 1, tailorId: 1 }, { unique: true });
 
 const deliveryRequestSchema = new Schema(
@@ -559,6 +623,7 @@ const deliveryRequestSchema = new Schema(
     customerId: { type: String, required: true, index: true },
     type: { type: String, enum: ["customer_to_tailor", "tailor_to_customer", "darji_to_customer"], required: true, index: true },
     deliveryType: { type: String, enum: deliveryTypes, required: true, index: true },
+    serviceLevel: { type: String, enum: ["STANDARD", "EXPRESS", "INSTANT"], default: "STANDARD", index: true },
     deliveryRound: { type: String, required: true, index: true },
     roundAt: { type: Date, required: true, index: true },
     assignedArea: { type: String, default: "unassigned", index: true },
@@ -626,25 +691,33 @@ const deliveryRequestSchema = new Schema(
   },
   baseOptions
 );
+attachDarjiIdPlugin(deliveryRequestSchema, { field: "darjiId", prefix: "DRQ" });
+
 deliveryRequestSchema.index({ orderId: 1, type: 1 }, { unique: true });
 
 const deliveryBatchSchema = new Schema(
   {
     _id: stringId,
     batchId: { ...stringId, unique: true, index: true },
-    deliveryPartnerId: { type: String, required: true, index: true },
+    deliveryPartnerId: { type: String, index: true },
     deliveryType: { type: String, enum: deliveryTypes, required: true, index: true },
+    serviceLevel: { type: String, enum: ["STANDARD", "EXPRESS"], default: "STANDARD", index: true },
     deliveryRound: { type: String, required: true, index: true },
     roundAt: { type: Date, required: true, index: true },
+    lockAt: { type: Date, required: true, index: true },
+    lockedAt: Date,
+    routeOptimizedAt: Date,
     shift: { type: String, enum: ["morning", "evening"], required: true, index: true },
-    area: { type: String, required: true, default: "unassigned" },
+    area: { type: String, required: true, default: "unassigned", index: true },
     tasks: [{ type: String, required: true }],
     estimatedEarnings: { type: Number, default: 0 },
-    status: { type: String, enum: ["active", "completed", "cancelled"], default: "active", index: true }
+    status: { type: String, enum: ["scheduled", "locked", "active", "completed", "cancelled"], default: "scheduled", index: true }
   },
   baseOptions
 );
-deliveryBatchSchema.index({ deliveryPartnerId: 1, deliveryType: 1, deliveryRound: 1, roundAt: 1, area: 1 }, { unique: true });
+attachDarjiIdPlugin(deliveryBatchSchema, { field: "darjiId", prefix: "DBT" });
+
+deliveryBatchSchema.index({ deliveryType: 1, serviceLevel: 1, deliveryRound: 1, roundAt: 1, area: 1 }, { unique: true });
 
 const settingSchema = new Schema(
   {
@@ -681,3 +754,56 @@ export const DeliveryBatchModel = mongoose.model("DeliveryBatch", deliveryBatchS
 export const SettingModel = mongoose.model("Setting", settingSchema);
 
 export type UserDoc = InferSchemaType<typeof userSchema> & { id: string; _id: string };
+
+type DarjiIdBackfillJob = {
+  model: mongoose.Model<any>;
+  field: string;
+  prefix: DarjiIdPrefix;
+  filter?: Record<string, unknown>;
+};
+
+/** Assign permanent public IDs to records created before the Darji ID system. */
+export async function backfillDarjiIds() {
+  const jobs: DarjiIdBackfillJob[] = [
+    { model: UserModel, field: "darjiCustomerId", prefix: "CUS", filter: { role: "CUSTOMER" } },
+    { model: UserModel, field: "darjiAdminId", prefix: "ADM", filter: { role: { $in: ["ADMIN", "SUPER_ADMIN"] } } },
+    { model: AddressModel, field: "darjiId", prefix: "ADR" },
+    { model: ServiceCategoryModel, field: "darjiId", prefix: "SGC" },
+    { model: ServiceModel, field: "darjiId", prefix: "SRV" },
+    { model: OrderModel, field: "darjiId", prefix: "ORD" },
+    { model: TailorModel, field: "darjiTailorId", prefix: "TLR" },
+    { model: DeliveryPartnerModel, field: "darjiPartnerId", prefix: "DPP" },
+    { model: PaymentModel, field: "darjiId", prefix: "PAY" },
+    { model: CouponModel, field: "darjiId", prefix: "CPN" },
+    { model: NotificationModel, field: "darjiId", prefix: "NTF" },
+    { model: ReviewModel, field: "darjiId", prefix: "RVW" },
+    { model: WalletModel, field: "darjiId", prefix: "WLT" },
+    { model: WalletTransactionModel, field: "darjiId", prefix: "WTX" },
+    { model: TransactionModel, field: "darjiId", prefix: "TXN" },
+    { model: SupportTicketModel, field: "darjiId", prefix: "TKT" },
+    { model: BugReportModel, field: "darjiId", prefix: "BUG" },
+    { model: AccountChangeRequestModel, field: "darjiId", prefix: "CRQ" },
+    { model: TailoringRequestModel, field: "darjiId", prefix: "TRQ" },
+    { model: TailorQuoteModel, field: "darjiId", prefix: "QUO" },
+    { model: DeliveryRequestModel, field: "darjiId", prefix: "DRQ" },
+    { model: DeliveryBatchModel, field: "darjiId", prefix: "DBT" }
+  ];
+
+  let assigned = 0;
+  for (const job of jobs) {
+    const missingId = { $or: [{ [job.field]: { $exists: false } }, { [job.field]: null }, { [job.field]: "" }] };
+    const records = await job.model.find({ ...job.filter, ...missingId }).select({ _id: 1 }).lean();
+
+    for (const record of records) {
+      const result = await job.model.updateOne(
+        { _id: record._id, ...job.filter, ...missingId },
+        { $set: { [job.field]: await nextDarjiId(job.prefix) } }
+      );
+      assigned += result.modifiedCount;
+    }
+  }
+
+  if (assigned) console.log(`Assigned Darji IDs to ${assigned} existing record(s).`);
+  return assigned;
+}
+

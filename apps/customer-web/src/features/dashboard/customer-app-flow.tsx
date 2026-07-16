@@ -53,7 +53,7 @@ import { z } from "zod";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { Button, EmptyState, FieldShell, inputClass } from "@/src/components/ui";
 import { customerApi, errorMessage } from "@/src/lib/api";
-import { couponDiscount, couponLabel, deliveryFeeForUrgency, HOME_MEASUREMENT_FEE, getPlatformFee, quoteEta } from "@/src/lib/pricing";
+import { couponDiscount, couponLabel, deliveryFeeForUrgency, HOME_MEASUREMENT_FEE, getPlatformFee, getSmallOrderFee, quoteEta } from "@/src/lib/pricing";
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailoringRequestItem, TailorQuote, UploadedMedia, WalletSummary } from "@/src/lib/types";
 import { useAuthStore } from "@/src/store/auth-store";
 
@@ -135,7 +135,7 @@ const appNav = [
 const genderOptions = ["Women", "Men", "Kids", "Unisex"];
 const clothTypes = ["Kurta / Salwar", "Saree / Blouse", "Shirt / Pants", "Suit / Blazer", "Dress", "Lehenga", "Jeans", "School Uniform", "Others"];
 const workTypes = ["Alteration", "Custom Stitching", "Repair", "Resize", "Blouse Stitching", "Zip / Button Fix", "Fall / Pico", "Embroidery"];
-const urgencyOptions = ["Normal (3-5 days)", "Express (1-2 days)", "Same Day", "Instant Delivery"];
+const urgencyOptions = ["Normal (3-5 days)", "Express (1-2 days)", "Instant Delivery"];
 const homeBookingSteps: Array<{ label: string; icon: LucideIcon }> = [
   { label: "Upload", icon: Camera },
   { label: "Issue", icon: Scissors },
@@ -1430,6 +1430,11 @@ function ClothIssueStep({
       setFormError("Select gender, cloth type, work type, and urgency.");
       return;
     }
+    const hasMeasurement = showManual || draft.sampleProvided || draft.homeMeasurementBooked;
+    if (!hasMeasurement) {
+      setFormError("Please select at least one measurement option: Enter manual measurements, Send a sample, or Book home measurement.");
+      return;
+    }
     if (!draft.description.trim() || (!draft.uploadedMedia.length && !draft.media.length)) {
       setFormError("The item needs description and uploaded clothing media.");
       return;
@@ -1508,10 +1513,16 @@ function ClothIssueStep({
             <button 
               type="button" 
               onClick={() => setShowManual(!showManual)}
-              className="w-full flex items-center justify-between gap-4 rounded-2xl border border-[#efcf92] bg-[#fffaf0] p-4 text-left transition duration-200 hover:bg-[#fff7e8] shadow-sm"
+              className={`w-full flex items-center justify-between gap-4 rounded-2xl border p-4 text-left transition duration-200 shadow-sm ${
+                showManual 
+                  ? "border-[var(--darji-orange)] bg-[#fffbf7]/70" 
+                  : "border-[#e6edf5] bg-white hover:border-[#ffd5ad]"
+              }`}
             >
               <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-xl bg-white text-[var(--darji-orange)] shadow-sm">
+                <div className={`grid h-10 w-10 place-items-center rounded-xl transition-colors duration-200 shadow-sm ${
+                  showManual ? "bg-[#fff2d8] text-[var(--darji-orange)]" : "bg-[#f8fafc] text-slate-400"
+                }`}>
                   <Ruler className="h-5 w-5" />
                 </div>
                 <div>
@@ -1519,7 +1530,7 @@ function ClothIssueStep({
                   <span className="mt-0.5 block text-xs font-semibold text-[var(--darji-muted)]">You can enter your measurements manually if you already have them.</span>
                 </div>
               </div>
-              <ChevronRight className={`h-5 w-5 text-[var(--darji-orange)] transition-transform duration-200 ${showManual ? "rotate-90" : ""}`} />
+              <ChevronRight className={`h-5 w-5 transition-all duration-200 ${showManual ? "text-[var(--darji-orange)] rotate-90" : "text-slate-400"}`} />
             </button>
 
             {showManual && (
@@ -1563,7 +1574,7 @@ function ClothIssueStep({
               </Button>
             </div>
           </div>
-        </aside>
+        </section>
       </div>
 
       {showSizingModal && (
@@ -2015,11 +2026,23 @@ function ConfirmOrderStep({
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon>();
   const [couponMessage, setCouponMessage] = useState<string>();
   const [verifyingPayment, setVerifyingPayment] = useState(false);
+
+  const faresQuery = useQuery({ queryKey: ["customer", "delivery-fares"], queryFn: customerApi.getDeliveryFares });
+  const fares = faresQuery.data;
+
+  const getCustomerDeliveryFee = (urgency: string) => {
+    const value = String(urgency ?? "").toLowerCase();
+    if (value.includes("instant")) return fares?.instant?.customerCharge ?? 50;
+    if (value.includes("express") || value.includes("urgent")) return fares?.express?.customerCharge ?? 40;
+    return fares?.normal?.customerCharge ?? 30;
+  };
+
   const items = clothingItemsForDraft(draft);
-  const deliveryFee = deliveryFeeForUrgency(draft.urgency ?? "");
+  const deliveryFee = getCustomerDeliveryFee(draft.urgency ?? "");
   const homeFee = homeMeasurementFeeForItems(items);
   const platformFee = getPlatformFee(Number(quote.price ?? 0));
-  const subtotal = Number(quote.price ?? 0) + deliveryFee + platformFee + homeFee;
+  const smallOrderFee = getSmallOrderFee(Number(quote.price ?? 0));
+  const subtotal = Number(quote.price ?? 0) + deliveryFee + platformFee + smallOrderFee + homeFee;
   const discount = couponDiscount(selectedCoupon, subtotal);
   const total = Math.max(subtotal - discount, 0);
 
@@ -2034,6 +2057,7 @@ function ConfirmOrderStep({
         paymentMethod,
         deliveryFee,
         platformFee,
+        smallOrderFee,
         homeMeasurementFee: homeFee,
         couponCode: selectedCoupon?.code,
         additionalItems: items.slice(1).map((item) => ({ gender: item.gender, clothType: item.clothType, workType: item.workType, description: item.description })),
@@ -2203,6 +2227,7 @@ function ConfirmOrderStep({
                 <SummaryLine label="Tailor quote" value={formatMoney(quote.price)} />
                 <SummaryLine label="Delivery" value={formatMoney(deliveryFee)} />
                 <SummaryLine label="Platform fee" value={formatMoney(platformFee)} />
+                {smallOrderFee ? <SummaryLine label="Small order fee" value={formatMoney(smallOrderFee)} /> : null}
                 {homeFee ? <SummaryLine label="Home measurement" value={formatMoney(homeFee)} /> : null}
                 {discount ? <SummaryLine label="Discount" value={`-${formatMoney(discount)}`} /> : null}
                 <SummaryLine label="Total (incl. taxes)" value={formatMoney(total)} strong />
@@ -2652,10 +2677,22 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const quotes = useQuery({ queryKey: ["customer", "quotes", request.id], queryFn: () => customerApi.quotes(request.id) });
   const visibleQuotes = (quotes.data ?? []).filter((quote) => ["SUBMITTED", "RESERVED", "ACCEPTED"].includes(quote.status));
-  const deliveryFee = deliveryFeeForUrgency(request.urgency);
+
+  const faresQuery = useQuery({ queryKey: ["customer", "delivery-fares"], queryFn: customerApi.getDeliveryFares });
+  const fares = faresQuery.data;
+
+  const getCustomerDeliveryFee = (urgency: string) => {
+    const value = String(urgency ?? "").toLowerCase();
+    if (value.includes("instant")) return fares?.instant?.customerCharge ?? 50;
+    if (value.includes("express") || value.includes("urgent")) return fares?.express?.customerCharge ?? 40;
+    return fares?.normal?.customerCharge ?? 30;
+  };
+
+  const deliveryFee = getCustomerDeliveryFee(request.urgency ?? "");
   const homeFee = homeMeasurementFeeForItems(request.items ?? []);
   const platformFee = getPlatformFee(Number(selectedQuote?.price ?? 0));
-  const subtotal = Number(selectedQuote?.price ?? 0) + deliveryFee + platformFee + homeFee;
+  const smallOrderFee = getSmallOrderFee(Number(selectedQuote?.price ?? 0));
+  const subtotal = Number(selectedQuote?.price ?? 0) + deliveryFee + platformFee + smallOrderFee + homeFee;
   const discount = couponDiscount(selectedCoupon, subtotal);
   const total = Math.max(subtotal - discount, 0);
 
@@ -2670,6 +2707,7 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
         paymentMethod,
         deliveryFee,
         platformFee,
+        smallOrderFee,
         homeMeasurementFee: homeFee,
         couponCode: selectedCoupon?.code,
         additionalItems: request.items?.slice(1).map((item) => ({ gender: item.gender, clothType: item.clothType, workType: item.workType, description: item.description })) ?? [],
@@ -2739,9 +2777,13 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
               ))}
             </div>
           </div>
-          <div className="rounded-2xl border border-[#e6edf5] bg-white p-5">
-            <SummaryLine label="Subtotal" value={formatMoney(subtotal)} />
-            {discount ? <SummaryLine label="Coupon" value={`-${formatMoney(discount)}`} /> : null}
+          <div className="rounded-2xl border border-[#e6edf5] bg-white p-5 space-y-2">
+            {selectedQuote ? <SummaryLine label="Tailor quote" value={formatMoney(selectedQuote.price)} /> : null}
+            <SummaryLine label="Delivery" value={formatMoney(deliveryFee)} />
+            <SummaryLine label="Platform fee" value={formatMoney(platformFee)} />
+            {smallOrderFee ? <SummaryLine label="Small order fee" value={formatMoney(smallOrderFee)} /> : null}
+            {homeFee ? <SummaryLine label="Home measurement" value={formatMoney(homeFee)} /> : null}
+            {discount ? <SummaryLine label="Coupon discount" value={`-${formatMoney(discount)}`} /> : null}
             <SummaryLine label="Payable" value={formatMoney(total)} strong />
             {checkout.error ? <p className="mt-4 rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(checkout.error)}</p> : null}
             <Button className="mt-5 w-full" loading={checkout.isPending} onClick={() => checkout.mutate()}>Confirm Order</Button>

@@ -151,6 +151,7 @@ type CustomerOrder = {
   invoiceGeneratedAt?: string;
   deliveryFee?: number;
   platformFee?: number;
+  smallOrderFee?: number;
   homeMeasurementFee?: number;
   couponCode?: string;
   discountAmount?: number;
@@ -367,9 +368,16 @@ const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "orderSummary", "quotes", "confirmOrder"]);
 function getPlatformFee(orderValue: number) {
   if (orderValue <= 0) return 0;
-  if (orderValue < 500) return 15;
-  if (orderValue <= 1000) return 25;
-  return 35;
+  if (orderValue <= 199) return 5;
+  if (orderValue <= 499) return 8;
+  if (orderValue <= 999) return 10;
+  if (orderValue <= 1999) return 15;
+  return 20;
+}
+function getSmallOrderFee(orderValue: number) {
+  if (orderValue <= 0) return 0;
+  if (orderValue < 99) return 19;
+  return 0;
 }
 const HOME_MEASUREMENT_FEE = 30;
 
@@ -461,9 +469,8 @@ const homeMediaFeatures = [
 ];
 
 const urgencyOptions = [
-  { label: "Normal (3-5 days)", helper: "Delivery Rs30", icon: "calendar-outline", deliveryFee: 30 },
-  { label: "Express (1-2 days)", helper: "Delivery Rs40", icon: "flash-outline", deliveryFee: 40 },
-  { label: "Same Day", helper: "Delivery Rs30", icon: "today-outline", deliveryFee: 30 },
+  { label: "Normal", helper: "Delivery Rs30", icon: "calendar-outline", deliveryFee: 30 },
+  { label: "Express", helper: "Delivery Rs40", icon: "flash-outline", deliveryFee: 40 },
   { label: "Instant Delivery", helper: "Delivery Rs50", icon: "rocket-outline", deliveryFee: 50 }
 ] as const;
 
@@ -589,7 +596,7 @@ const sampleDraft: RequestDraft = {
   gender: "Women",
   clothType: "Kurta / Salwar",
   workType: "Kurta Alteration",
-  urgency: "Normal (3-5 days)",
+  urgency: "Normal",
   pickup: "12, Rose Garden, Sector 5, Gurugram, Haryana 122001",
   media: [],
   uploadedMedia: []
@@ -2474,6 +2481,695 @@ function SizeChartModal({ visible, clothType, guide, onClose }: { visible: boole
   );
 }
 
+function ClothGuideModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<"Men" | "Women" | "Kids">("Men");
+
+  const menData = {
+    halfShirt: [
+      { size: "S (36)", plain: "1.8 m", pattern: "2.0 m" },
+      { size: "M (38)", plain: "2.0 m", pattern: "2.2 m" },
+      { size: "L (40)", plain: "2.1 m", pattern: "2.3 m" },
+      { size: "XL (42)", plain: "2.2 m", pattern: "2.5 m" },
+      { size: "XXL (44)", plain: "2.4 m", pattern: "2.7 m" }
+    ],
+    fullShirt: [
+      { size: "S (36)", plain: "2.0 m", pattern: "2.2 m" },
+      { size: "M (38)", plain: "2.2 m", pattern: "2.4 m" },
+      { size: "L (40)", plain: "2.3 m", pattern: "2.5 m" },
+      { size: "XL (42)", plain: "2.5 m", pattern: "2.7 m" },
+      { size: "XXL (44)", plain: "2.7 m", pattern: "2.9 m" }
+    ],
+    kurta: [
+      { size: "S", plain: "2.5 m", pattern: "2.7 m" },
+      { size: "M", plain: "2.7 m", pattern: "2.9 m" },
+      { size: "L", plain: "2.9 m", pattern: "3.1 m" },
+      { size: "XL", plain: "3.1 m", pattern: "3.3 m" },
+      { size: "XXL", plain: "3.3 m", pattern: "3.5 m" }
+    ],
+    pathani: [
+      { size: "S", plain: "3.5 m", pattern: "3.7 m" },
+      { size: "M", plain: "3.7 m", pattern: "3.9 m" },
+      { size: "L", plain: "3.9 m", pattern: "4.1 m" },
+      { size: "XL", plain: "4.1 m", pattern: "4.3 m" },
+      { size: "XXL", plain: "4.3 m", pattern: "4.5 m" }
+    ],
+    trouser: [
+      { size: "S", plain: "1.3 m", pattern: "1.4 m" },
+      { size: "M", plain: "1.4 m", pattern: "1.5 m" },
+      { size: "L", plain: "1.5 m", pattern: "1.6 m" },
+      { size: "XL", plain: "1.6 m", pattern: "1.8 m" },
+      { size: "XXL", plain: "1.8 m", pattern: "2.0 m" }
+    ],
+    churidar: [
+      { size: "S", plain: "2.2 m", pattern: "2.4 m" },
+      { size: "M", plain: "2.4 m", pattern: "2.6 m" },
+      { size: "L", plain: "2.6 m", pattern: "2.8 m" },
+      { size: "XL", plain: "2.8 m", pattern: "3.0 m" },
+      { size: "XXL", plain: "3.0 m", pattern: "3.2 m" }
+    ],
+    waistcoat: [
+      { size: "S", plain: "1.2 m", pattern: "1.3 m" },
+      { size: "M", plain: "1.3 m", pattern: "1.4 m" },
+      { size: "L", plain: "1.4 m", pattern: "1.5 m" },
+      { size: "XL", plain: "1.5 m", pattern: "1.6 m" },
+      { size: "XXL", plain: "1.6 m", pattern: "1.8 m" }
+    ],
+    blazer: [
+      { size: "S", plain: "2.5 m", pattern: "2.7 m" },
+      { size: "M", plain: "2.7 m", pattern: "2.9 m" },
+      { size: "L", plain: "2.9 m", pattern: "3.1 m" },
+      { size: "XL", plain: "3.1 m", pattern: "3.3 m" },
+      { size: "XXL", plain: "3.3 m", pattern: "3.5 m" }
+    ],
+    sherwani: [
+      { size: "S", plain: "3.0 m", pattern: "3.2 m" },
+      { size: "M", plain: "3.2 m", pattern: "3.4 m" },
+      { size: "L", plain: "3.4 m", pattern: "3.6 m" },
+      { size: "XL", plain: "3.6 m", pattern: "3.8 m" },
+      { size: "XXL", plain: "3.8 m", pattern: "4.0 m" }
+    ]
+  };
+
+  const womenData = {
+    shortKurti: [
+      { size: "S", plain: "2.0 m", pattern: "2.2 m" },
+      { size: "M", plain: "2.2 m", pattern: "2.4 m" },
+      { size: "L", plain: "2.4 m", pattern: "2.6 m" },
+      { size: "XL", plain: "2.6 m", pattern: "2.8 m" },
+      { size: "XXL", plain: "2.8 m", pattern: "3.0 m" }
+    ],
+    longKurti: [
+      { size: "S", plain: "2.5 m", pattern: "2.7 m" },
+      { size: "M", plain: "2.7 m", pattern: "2.9 m" },
+      { size: "L", plain: "2.9 m", pattern: "3.1 m" },
+      { size: "XL", plain: "3.1 m", pattern: "3.3 m" },
+      { size: "XXL", plain: "3.3 m", pattern: "3.5 m" }
+    ],
+    straightKurta: [
+      { size: "S", plain: "2.5 m", pattern: "2.7 m" },
+      { size: "M", plain: "2.7 m", pattern: "2.9 m" },
+      { size: "L", plain: "2.9 m", pattern: "3.1 m" },
+      { size: "XL", plain: "3.1 m", pattern: "3.3 m" },
+      { size: "XXL", plain: "3.3 m", pattern: "3.5 m" }
+    ],
+    anarkali: [
+      { size: "S", plain: "4.5 m", pattern: "5.0 m" },
+      { size: "M", plain: "5.0 m", pattern: "5.5 m" },
+      { size: "L", plain: "5.5 m", pattern: "6.0 m" },
+      { size: "XL", plain: "6.0 m", pattern: "6.5 m" },
+      { size: "XXL", plain: "6.5 m", pattern: "7.0 m" }
+    ],
+    palazzo: [
+      { size: "S", plain: "2.5 m", pattern: "2.6 m" },
+      { size: "M", plain: "2.6 m", pattern: "2.7 m" },
+      { size: "L", plain: "2.7 m", pattern: "2.8 m" },
+      { size: "XL", plain: "2.8 m", pattern: "3.0 m" },
+      { size: "XXL", plain: "3.0 m", pattern: "3.2 m" }
+    ],
+    salwar: [
+      { size: "S", plain: "2.2 m", pattern: "2.3 m" },
+      { size: "M", plain: "2.3 m", pattern: "2.4 m" },
+      { size: "L", plain: "2.4 m", pattern: "2.5 m" },
+      { size: "XL", plain: "2.5 m", pattern: "2.7 m" },
+      { size: "XXL", plain: "2.7 m", pattern: "2.9 m" }
+    ],
+    churidar: [
+      { size: "S", plain: "2.5 m", pattern: "2.6 m" },
+      { size: "M", plain: "2.6 m", pattern: "2.7 m" },
+      { size: "L", plain: "2.7 m", pattern: "2.8 m" },
+      { size: "XL", plain: "2.8 m", pattern: "3.0 m" },
+      { size: "XXL", plain: "3.0 m", pattern: "3.2 m" }
+    ],
+    halfBlouse: [
+      { size: "S", plain: "0.8 m", pattern: "0.9 m" },
+      { size: "M", plain: "0.9 m", pattern: "1.0 m" },
+      { size: "L", plain: "1.0 m", pattern: "1.1 m" },
+      { size: "XL", plain: "1.1 m", pattern: "1.2 m" },
+      { size: "XXL", plain: "1.2 m", pattern: "1.3 m" }
+    ],
+    fullBlouse: [
+      { size: "S", plain: "1.2 m", pattern: "1.3 m" },
+      { size: "M", plain: "1.3 m", pattern: "1.4 m" },
+      { size: "L", plain: "1.4 m", pattern: "1.5 m" },
+      { size: "XL", plain: "1.5 m", pattern: "1.6 m" },
+      { size: "XXL", plain: "1.6 m", pattern: "1.8 m" }
+    ],
+    lehenga: [
+      { size: "S", plain: "3.5 m", pattern: "4.0 m" },
+      { size: "M", plain: "4.0 m", pattern: "4.5 m" },
+      { size: "L", plain: "4.5 m", pattern: "5.0 m" },
+      { size: "XL", plain: "5.0 m", pattern: "5.5 m" },
+      { size: "XXL", plain: "5.5 m", pattern: "6.0 m" }
+    ],
+    dupatta: [
+      { size: "S", plain: "2.25 m", pattern: "2.25 m" },
+      { size: "M", plain: "2.25 m", pattern: "2.25 m" },
+      { size: "L", plain: "2.25 m", pattern: "2.25 m" },
+      { size: "XL", plain: "2.5 m", pattern: "2.5 m" },
+      { size: "XXL", plain: "2.5 m", pattern: "2.5 m" }
+    ],
+    saree: [
+      { size: "S", plain: "5.5 m", pattern: "5.5 m" },
+      { size: "M", plain: "5.5 m", pattern: "5.5 m" },
+      { size: "L", plain: "5.5 m", pattern: "5.5 m" },
+      { size: "XL", plain: "6.0 m", pattern: "6.0 m" },
+      { size: "XXL", plain: "6.0 m", pattern: "6.0 m" }
+    ]
+  };
+
+  const kidsData = {
+    shirt: [
+      { age: "1–2 yrs", plain: "0.8 m", pattern: "0.9 m" },
+      { age: "3–5 yrs", plain: "1.0 m", pattern: "1.1 m" },
+      { age: "6–8 yrs", plain: "1.2 m", pattern: "1.3 m" },
+      { age: "9–12 yrs", plain: "1.5 m", pattern: "1.6 m" }
+    ],
+    pant: [
+      { age: "1–2 yrs", plain: "0.7 m", pattern: "0.8 m" },
+      { age: "3–5 yrs", plain: "0.9 m", pattern: "1.0 m" },
+      { age: "6–8 yrs", plain: "1.1 m", pattern: "1.2 m" },
+      { age: "9–12 yrs", plain: "1.3 m", pattern: "1.4 m" }
+    ],
+    kurta: [
+      { age: "1–2 yrs", plain: "1.2 m", pattern: "1.3 m" },
+      { age: "3–5 yrs", plain: "1.5 m", pattern: "1.6 m" },
+      { age: "6–8 yrs", plain: "1.8 m", pattern: "1.9 m" },
+      { age: "9–12 yrs", plain: "2.2 m", pattern: "2.3 m" }
+    ],
+    frock: [
+      { age: "1–2 yrs", plain: "1.2 m", pattern: "1.3 m" },
+      { age: "3–5 yrs", plain: "1.8 m", pattern: "1.9 m" },
+      { age: "6–8 yrs", plain: "2.3 m", pattern: "2.4 m" },
+      { age: "9–12 yrs", plain: "2.8 m", pattern: "2.9 m" }
+    ]
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+        {/* Header */}
+        <View style={styles.guideHeader}>
+          <Pressable style={styles.guideBackButton} onPress={onClose}>
+            <Ionicons name="chevron-back" size={24} color="#111111" />
+          </Pressable>
+          <Text style={styles.guideHeaderTitle}>Cloth Guide</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        {/* Tab Buttons */}
+        <View style={styles.guideTabContainer}>
+          {(["Men", "Women", "Kids"] as const).map((tab) => (
+            <Pressable
+              key={tab}
+              style={[styles.guideTabButton, activeTab === tab && styles.guideActiveTabButton]}
+              onPress={() => setActiveTab(tab)}
+            >
+              <Text style={[styles.guideTabButtonText, activeTab === tab && styles.guideActiveTabButtonText]}>
+                {tab}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 30 }}>
+          {/* Info Banner */}
+          <View style={styles.guideInfoBanner}>
+            <Ionicons name="calculator-outline" size={22} color="#d97706" />
+            <Text style={styles.guideInfoBannerText}>
+              The cloth required may vary depending on the design, fabric width and your body build.
+            </Text>
+          </View>
+
+          {activeTab === "Men" && (
+            <View>
+              {/* Section Header */}
+              <View style={styles.guideSectionHeader}>
+                <Ionicons name="man" size={18} color="#111111" />
+                <Text style={styles.guideSectionHeaderText}>MEN</Text>
+              </View>
+
+              {/* Half Sleeve Shirt */}
+              <Text style={styles.guideTableTitle}>Half Sleeve Shirt</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.halfShirt.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Full Sleeve Shirt */}
+              <Text style={styles.guideTableTitle}>Full Sleeve Shirt</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.fullShirt.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Kurta */}
+              <Text style={styles.guideTableTitle}>Kurta (Knee Length)</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.kurta.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Pathani Suit */}
+              <Text style={styles.guideTableTitle}>Pathani Suit</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.pathani.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Trouser */}
+              <Text style={styles.guideTableTitle}>Trouser</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.trouser.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Churidar */}
+              <Text style={styles.guideTableTitle}>Churidar</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.churidar.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Waistcoat */}
+              <Text style={styles.guideTableTitle}>Waistcoat</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.waistcoat.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Blazer */}
+              <Text style={styles.guideTableTitle}>Blazer</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.blazer.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Sherwani */}
+              <Text style={styles.guideTableTitle}>Sherwani</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Checked / Printed</Text>
+                </View>
+                {menData.sherwani.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {activeTab === "Women" && (
+            <View>
+              {/* Section Header */}
+              <View style={styles.guideSectionHeader}>
+                <Ionicons name="woman" size={18} color="#111111" />
+                <Text style={styles.guideSectionHeaderText}>WOMEN</Text>
+              </View>
+
+              {/* Short Kurti */}
+              <Text style={styles.guideTableTitle}>Short Kurti</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.shortKurti.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Long Kurti */}
+              <Text style={styles.guideTableTitle}>Long Kurti</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.longKurti.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Straight Kurta */}
+              <Text style={styles.guideTableTitle}>Straight Kurta</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.straightKurta.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Anarkali */}
+              <Text style={styles.guideTableTitle}>Anarkali</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.anarkali.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Palazzo */}
+              <Text style={styles.guideTableTitle}>Palazzo</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.palazzo.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Salwar */}
+              <Text style={styles.guideTableTitle}>Salwar</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.salwar.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Churidar */}
+              <Text style={styles.guideTableTitle}>Churidar</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.churidar.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Blouse (Half Sleeve) */}
+              <Text style={styles.guideTableTitle}>Blouse (Half Sleeve)</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.halfBlouse.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Blouse (Full Sleeve) */}
+              <Text style={styles.guideTableTitle}>Blouse (Full Sleeve)</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.fullBlouse.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Lehenga */}
+              <Text style={styles.guideTableTitle}>Lehenga (Skirt Only)</Text>
+              <Text style={styles.guideTableWidthText}>Fabric Width: 44–45 inch</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.lehenga.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Dupatta */}
+              <Text style={styles.guideTableTitle}>Dupatta</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.5 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.dupatta.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.5 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Saree */}
+              <Text style={styles.guideTableTitle}>Saree</Text>
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell, { flex: 1.2 }]}>Size</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                {womenData.saree.map((row) => (
+                  <View key={row.size} style={styles.guideTableRow}>
+                    <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { flex: 1.2 }]}>{row.size}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {activeTab === "Kids" && (
+            <View>
+              {/* Section Header */}
+              <View style={styles.guideSectionHeader}>
+                <Ionicons name="happy" size={18} color="#111111" />
+                <Text style={styles.guideSectionHeaderText}>KIDS</Text>
+              </View>
+
+              {/* Kids Table */}
+              <View style={styles.guideTableContainer}>
+                <View style={styles.guideTableHeaderRow}>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Outfit</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Age</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Plain Fabric</Text>
+                  <Text style={[styles.guideTableCell, styles.guideTableHeaderCell]}>Printed / Pattern</Text>
+                </View>
+                
+                {/* Shirt section */}
+                {kidsData.shirt.map((row, idx) => (
+                  <View key={`kid-shirt-${row.age}`} style={styles.guideTableRow}>
+                    {idx === 0 ? <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { fontWeight: "900" }]}>Shirt</Text> : <Text style={styles.guideTableCell} />}
+                    <Text style={styles.guideTableCell}>{row.age}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+
+                {/* Pant section */}
+                {kidsData.pant.map((row, idx) => (
+                  <View key={`kid-pant-${row.age}`} style={styles.guideTableRow}>
+                    {idx === 0 ? <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { fontWeight: "900" }]}>Pant</Text> : <Text style={styles.guideTableCell} />}
+                    <Text style={styles.guideTableCell}>{row.age}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+
+                {/* Kurta section */}
+                {kidsData.kurta.map((row, idx) => (
+                  <View key={`kid-kurta-${row.age}`} style={styles.guideTableRow}>
+                    {idx === 0 ? <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { fontWeight: "900" }]}>Kurta</Text> : <Text style={styles.guideTableCell} />}
+                    <Text style={styles.guideTableCell}>{row.age}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+
+                {/* Frock section */}
+                {kidsData.frock.map((row, idx) => (
+                  <View key={`kid-frock-${row.age}`} style={styles.guideTableRow}>
+                    {idx === 0 ? <Text style={[styles.guideTableCell, styles.guideTableLabelCell, { fontWeight: "900" }]}>Frock</Text> : <Text style={styles.guideTableCell} />}
+                    <Text style={styles.guideTableCell}>{row.age}</Text>
+                    <Text style={styles.guideTableCell}>{row.plain}</Text>
+                    <Text style={styles.guideTableCell}>{row.pattern}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Bottom Note */}
+          <View style={styles.guideNoteCard}>
+            <Ionicons name="bulb-outline" size={20} color="#b45309" />
+            <Text style={styles.guideNoteText}>
+              <Text style={{ fontWeight: "900", color: "#78350f" }}>Note: </Text>
+              These are recommended minimum fabric requirements for standard designs using 44–45 inch wide fabric. If your design includes extra flare, embroidery, pleats, ruffles, lining, large collars, or if your height is above 5'10" (178 cm), please add <Text style={{ fontWeight: "900" }}>0.25–1.0 meter</Text> of extra fabric. Final fabric requirements may vary based on the tailor's cutting method and design.
+            </Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 function MeasurementOverviewGuide({ compact = false }: { compact?: boolean }) {
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -2568,15 +3264,23 @@ function MeasurementGuideScreen({ setScreen }: { setScreen: (screen: Screen) => 
 }
 
 function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void }) {
-  const canContinue = Boolean(draft.gender && draft.clothType && draft.workType && draft.urgency);
   const [savingAction, setSavingAction] = useState<"summary" | "another" | undefined>();
   const [showSizeChart, setShowSizeChart] = useState(false);
   const [showHomeMeasurementModal, setShowHomeMeasurementModal] = useState(false);
+  const [showClothGuideModal, setShowClothGuideModal] = useState(false);
+  const [stitchingWarningDismissed, setStitchingWarningDismissed] = useState(Boolean(draft.editingItemId));
   const token = useAppStore((state) => state.token);
   const measurementGuide = guideForClothType(draft.clothType);
   const measurements = draft.measurements ?? {};
   const hasManualMeasurements = Object.values(measurements).some((value) => value.trim()) || Boolean(draft.measurementNotes?.trim());
   const [showManualMeasurements, setShowManualMeasurements] = useState(hasManualMeasurements);
+  const canContinue = Boolean(
+    draft.gender &&
+    draft.clothType &&
+    draft.workType &&
+    draft.urgency &&
+    (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked)
+  );
   const savedItemCount = draft.items?.length ?? 0;
   const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
 
@@ -2631,6 +3335,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
   async function saveClothingItem() {
     if (!canContinue || !token) return;
+    const hasMeasurement = showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked;
+    if (!hasMeasurement) {
+      Alert.alert("Measurement required", "Please choose at least one measurement option: Enter manual measurements, Send a sample, or Book home measurement.");
+      return undefined;
+    }
     if (draft.description.trim().length < REQUEST_DESCRIPTION_MIN) {
       Alert.alert("Add details", `Describe the issue in at least ${REQUEST_DESCRIPTION_MIN} characters.`);
       setScreen("newRequest");
@@ -2677,8 +3386,99 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} right={<Text style={styles.stepBadge}>2/2</Text>} />
+      {draft.workType === "Stitching New" && !stitchingWarningDismissed ? (
+        <ScrollView contentContainerStyle={styles.pageContent}>
+          <Header title="New Stitching" onBack={() => { setDraft({ ...draft, workType: undefined }); }} />
+          
+          {/* Progress Steps Bar */}
+          <View style={styles.warningStepsBar}>
+            <View style={styles.warningStepItem}>
+              <View style={[styles.warningStepIconCircle, styles.warningActiveStepIconCircle]}>
+                <Ionicons name="shirt-outline" size={16} color="#ffffff" />
+              </View>
+              <Text style={styles.warningActiveStepText}>Select Type</Text>
+            </View>
+            <View style={styles.warningStepConnector} />
+            <View style={styles.warningStepItem}>
+              <View style={styles.warningStepIconCircle}>
+                <Ionicons name="git-commit-outline" size={16} color="#94a3b8" />
+              </View>
+              <Text style={styles.warningStepText}>Add Details</Text>
+            </View>
+            <View style={styles.warningStepConnector} />
+            <View style={styles.warningStepItem}>
+              <View style={styles.warningStepIconCircle}>
+                <Ionicons name="cloud-upload-outline" size={16} color="#94a3b8" />
+              </View>
+              <Text style={styles.warningStepText}>Upload</Text>
+            </View>
+            <View style={styles.warningStepConnector} />
+            <View style={styles.warningStepItem}>
+              <View style={styles.warningStepIconCircle}>
+                <Ionicons name="checkbox-outline" size={16} color="#94a3b8" />
+              </View>
+              <Text style={styles.warningStepText}>Review</Text>
+            </View>
+          </View>
+
+          {/* Warning Card */}
+          <View style={styles.warningCard}>
+            <Ionicons name="warning" size={54} color="#f97316" style={{ alignSelf: "center", marginBottom: 12 }} />
+            <Text style={styles.warningTitle}>Important: Provide Enough Cloth</Text>
+            <Text style={styles.warningParagraph}>
+              Please make sure the cloth you provide is sufficient for the selected stitching type and size. Insufficient cloth may result in incomplete stitching or pattern adjustments.
+            </Text>
+            <Text style={styles.warningTipText}>
+              <Text style={{ fontWeight: "900", color: "#b45309" }}>Tip: </Text>
+              Tap on “Cloth Guide” to check how much cloth is needed for different outfits and sizes.
+            </Text>
+            
+            <Pressable style={styles.warningClothGuideButton} onPress={() => setShowClothGuideModal(true)}>
+              <Ionicons name="book-outline" size={20} color="#ffffff" />
+              <Text style={styles.warningClothGuideButtonText}>Cloth Guide</Text>
+            </Pressable>
+          </View>
+
+          {/* Why is this important section */}
+          <Text style={styles.warningSectionHeader}>Why is this important?</Text>
+          
+          <View style={styles.warningBulletItem}>
+            <View style={styles.warningBulletIconContainer}>
+              <Ionicons name="resize-outline" size={20} color="#b45309" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.warningBulletText}>Not enough cloth may affect the fit and look.</Text>
+            </View>
+          </View>
+
+          <View style={styles.warningBulletItem}>
+            <View style={styles.warningBulletIconContainer}>
+              <Ionicons name="cut-outline" size={20} color="#b45309" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.warningBulletText}>Extra design, sleeves or length may need more cloth.</Text>
+            </View>
+          </View>
+
+          <View style={styles.warningBulletItem}>
+            <View style={styles.warningBulletIconContainer}>
+              <Ionicons name="shield-checkmark-outline" size={20} color="#b45309" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.warningBulletText}>Providing right amount saves time and avoids delays.</Text>
+            </View>
+          </View>
+
+          <View style={{ height: 20 }} />
+
+          {/* Continue Button */}
+          <Pressable style={styles.primaryWideButton} onPress={() => setStitchingWarningDismissed(true)}>
+            <Text style={styles.primaryWideButtonText}>Continue</Text>
+          </Pressable>
+        </ScrollView>
+      ) : (
+        <ScrollView contentContainerStyle={styles.pageContent}>
+          <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} right={<Text style={styles.stepBadge}>2/2</Text>} />
         <RequestProgressBar step={2} />
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
@@ -2708,7 +3508,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           </Pressable>
         ) : null}
 
-        <View style={styles.sampleReferenceCard}>
+        <View style={[styles.sampleReferenceCard, draft.sampleProvided && styles.sampleReferenceCardSelected]}>
           <Pressable style={styles.sampleReferenceHeader} onPress={toggleSampleProvided}>
             <View style={styles.sampleReferenceIcon}>
               <Ionicons name={draft.sampleProvided ? "checkbox" : "square-outline"} size={21} color={BRAND_ORANGE} />
@@ -2856,19 +3656,19 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
         <Pressable style={[styles.homeMeasurementButton, draft.homeMeasurementBooked && styles.homeMeasurementButtonSelected]} onPress={() => setShowHomeMeasurementModal(true)}>
           <View style={styles.homeMeasurementGlowIcon}>
-            <Ionicons name="help-circle-outline" size={21} color="#111111" />
+            <Ionicons name="help-circle-outline" size={21} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} />
           </View>
           <View style={styles.homeMeasurementTextBlock}>
             <Text style={styles.homeMeasurementTitle}>Not sure about your measurement?</Text>
             <Text style={styles.homeMeasurementCopy}>{draft.homeMeasurementBooked ? `Tailor visit added: Rs${HOME_MEASUREMENT_FEE}` : "Book a tailor to get measured at home"}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color="#111111" />
+          <Ionicons name="chevron-forward" size={18} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} />
         </Pressable>
 
         <Text style={styles.formLabel}>Type of Work</Text>
         <View style={styles.twoCol}>
           {["Stitching New", "Alteration", "Repair / Mending", "Embroidery", "Blouse Work", "Hemming"].map((label) => (
-            <OptionButton key={label} label={label} selected={draft.workType === label} onPress={() => setDraft({ ...draft, workType: label })} />
+            <OptionButton key={label} label={label} selected={draft.workType === label} onPress={() => { setDraft({ ...draft, workType: label }); if (label === "Stitching New") setStitchingWarningDismissed(false); }} />
           ))}
         </View>
 
@@ -2913,7 +3713,9 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           )}
         </Pressable>
       </ScrollView>
+      )}
       <SizeChartModal visible={showSizeChart} clothType={draft.clothType} guide={measurementGuide} onClose={() => setShowSizeChart(false)} />
+      <ClothGuideModal visible={showClothGuideModal} onClose={() => setShowClothGuideModal(false)} />
       <Modal visible={showHomeMeasurementModal} transparent animationType="fade" onRequestClose={() => setShowHomeMeasurementModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.homeMeasurementModal}>
@@ -3110,12 +3912,14 @@ function OrderSummaryScreen({
   draft,
   setDraft,
   setScreen,
-  showDialog
+  showDialog,
+  onCancelRequest
 }: {
   draft: RequestDraft;
   setDraft: (draft: RequestDraft) => void;
   setScreen: (screen: Screen) => void;
   showDialog: (dialog: AppDialogState) => void;
+  onCancelRequest: () => void;
 }) {
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
@@ -3128,9 +3932,23 @@ function OrderSummaryScreen({
   }
 
   function deleteItem(itemId: string) {
+    if (items.length === 1) {
+      showDialog({
+        title: "Cancel request?",
+        message: "Deleting the only item will cancel your request. Do you want to cancel the request and return to the home screen?",
+        actions: [
+          { label: "Keep Editing" },
+          {
+            label: "Yes, Cancel",
+            destructive: true,
+            onPress: onCancelRequest
+          }
+        ]
+      });
+      return;
+    }
     const nextItems = items.filter((item) => item.id !== itemId);
     setDraft({ ...clearActiveClothingItem({ ...draft, items: nextItems }), items: nextItems });
-    if (nextItems.length === 0) setScreen("newRequest");
   }
 
   async function requestQuotes() {
@@ -3516,14 +4334,37 @@ function ConfirmOrderScreen({
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | undefined>();
+  const [deliveryFares, setDeliveryFares] = useState<any>(null);
+
+  useEffect(() => {
+    if (token) {
+      api<any>("/settings/delivery-fares", {}, token)
+        .then((res) => {
+          if (res) setDeliveryFares(res);
+        })
+        .catch(() => {});
+    }
+  }, [token]);
+
+  const getCustomerDeliveryFee = (urgency?: string) => {
+    const value = String(urgency ?? "").toLowerCase();
+    if (value.includes("instant")) return deliveryFares?.instant?.customerCharge ?? 50;
+    if (value.includes("express") || value.includes("urgent")) return deliveryFares?.express?.customerCharge ?? 40;
+    return deliveryFares?.normal?.customerCharge ?? 30;
+  };
+
   const orderItems = clothingItemsForDraft(draft);
-  const deliveryFee = deliveryFeeForUrgency(draft.urgency);
+  const deliveryFee = getCustomerDeliveryFee(draft.urgency);
   const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
   const itemCount = checkoutItemCount(draft);
   const tailoringTotal = quote.price;
-  const subtotal = subtotalForQuote(quote, draft);
+
+  const platformFee = getPlatformFee(tailoringTotal);
+  const smallOrderFee = getSmallOrderFee(tailoringTotal);
+
+  const subtotal = tailoringTotal + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee;
   const discount = calculateCouponDiscount(appliedCoupon, subtotal);
-  const total = totalForQuote(quote, draft, appliedCoupon);
+  const total = Math.max(subtotal - discount, 0);
   const buttonLabel = payment === "COD" ? `Confirm COD Rs${total}` : payment === "UPI" ? `Pay UPI Rs${total}` : `Pay Online Rs${total}`;
 
   useEffect(() => {
@@ -3607,7 +4448,8 @@ function ConfirmOrderScreen({
           <View style={styles.checkoutPriceBox}>
             <SummaryRow label="Tailor quote" value={`Rs${tailoringTotal}`} tone="positive" />
             <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
-            <SummaryRow label="Platform fee" value={`Rs${getPlatformFee(tailoringTotal)}`} tone="positive" />
+            <SummaryRow label="Platform fee" value={`Rs${platformFee}`} tone="positive" />
+            {smallOrderFee > 0 ? <SummaryRow label="Small order fee" value={`Rs${smallOrderFee}`} tone="positive" /> : null}
             {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
             {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
             <View style={styles.summaryDivider} />
@@ -3826,7 +4668,10 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
-          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}`} tone="positive" />
+          {Number(order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)) > 0 ? (
+            <SummaryRow label="Small order fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} tone="positive" />
+          ) : null}
           {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} tone="negative" /> : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
@@ -5084,7 +5929,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 12 : 12 }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
             <Header title={t(useAppStore.getState().language, "supportCenter")} onBack={() => setScreen("profile")} />
@@ -5100,15 +5945,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
               </TouchableOpacity>
 
-              {/* Report a Bug button */}
-              <TouchableOpacity 
-                style={{ backgroundColor: "#ef4444", height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 4, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
-                onPress={() => setScreen("reportBug")}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="bug-outline" size={20} color="#ffffff" />
-                <Text style={{ color: "#ffffff", fontSize: 15, fontWeight: "900" }}>Report a Bug</Text>
-              </TouchableOpacity>
+
 
               {/* Open Tickets Section */}
               <View style={{ marginTop: 8 }}>
@@ -5598,9 +6435,9 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
                 style={({ pressed }) => [
                   { backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 },
-                  (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
+                  sending ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
                 ]}
-                disabled={bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending}
+                disabled={sending}
                 onPress={handleSubmitBug}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Submit Bug Report</Text>}
@@ -5889,7 +6726,12 @@ function invoiceHtml(order: CustomerOrder) {
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Pickup</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.pickupWindow)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Address</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.draft.pickup)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Delivery</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}</td></tr>
-          <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Platform fee</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}</td></tr>
+          <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Platform fee</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}</td></tr>
+          ${
+            Number(order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)) > 0
+              ? `<tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Small order fee</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}</td></tr>`
+              : ""
+          }
           ${
             order.homeMeasurementFee || order.draft.homeMeasurementBooked
               ? `<tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Tailor measurement visit</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}</td></tr>`
@@ -6221,7 +7063,10 @@ function LegacyOrderDetailsScreenV2({
           <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
-          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}`} tone="positive" />
+          <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}`} tone="positive" />
+          {Number(order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)) > 0 ? (
+            <SummaryRow label="Small order fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} tone="positive" />
+          ) : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
           {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
@@ -6378,7 +7223,8 @@ function OrderDetailsScreenV2({
   const itemTotal = Math.max(
     order.total -
       (order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)) -
-      (order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)) -
+      (order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)) -
+      (order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)) -
       (order.homeMeasurementFee ?? (order.draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0)) +
       (order.discountAmount ?? 0),
     0
@@ -6479,7 +7325,10 @@ function OrderDetailsScreenV2({
         <View style={styles.orderDetailsCard}>
           <SummaryRow label="Item Total" value={`Rs${itemTotal}`} />
           <SummaryRow label="Pickup Fee" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} />
-          <SummaryRow label="Convenience Fee" value={`Rs${order.platformFee ?? getPlatformFee(order.quote?.price ?? 0)}`} />
+          <SummaryRow label="Convenience Fee" value={`Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}`} />
+          {Number(order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)) > 0 ? (
+            <SummaryRow label="Small Order Fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} />
+          ) : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
           {order.discountAmount ? <SummaryRow label={`Discount ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
@@ -7060,6 +7909,11 @@ export default function App() {
     });
   }
 
+  function cancelRequest() {
+    resetRequestDraft();
+    setScreen("home");
+  }
+
   function saveSupportTicket(message: string) {
     updateCustomerData((data) => ({
       ...data,
@@ -7500,6 +8354,7 @@ export default function App() {
             paymentMethod,
             deliveryFee,
             platformFee: getPlatformFee(selectedQuote.price),
+            smallOrderFee: getSmallOrderFee(selectedQuote.price),
             homeMeasurementFee,
             couponCode: checkout?.couponCode,
             totalAmount
@@ -7639,7 +8494,7 @@ export default function App() {
   if (screen === "measurementGuide") return withAppChrome(<MeasurementGuideScreen setScreen={setScreen} />);
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
-  if (screen === "orderSummary") return withAppChrome(<OrderSummaryScreen draft={draft} setDraft={setDraft} setScreen={setScreen} showDialog={setDialog} />);
+  if (screen === "orderSummary") return withAppChrome(<OrderSummaryScreen draft={draft} setDraft={setDraft} setScreen={setScreen} showDialog={setDialog} onCancelRequest={cancelRequest} />);
   if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => deleteIncompleteRequest(draft.backendRequestId)} />);
   if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
@@ -8054,7 +8909,8 @@ function createStyles(isDark = false) {
   measurementLabel: { color: muted, fontSize: 11, fontWeight: "900", marginBottom: 6 },
   measurementInput: { height: 44, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 12, color: text, fontSize: 14, fontWeight: "800" },
   measurementNotesInput: { minHeight: 86, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12, color: text, textAlignVertical: "top", fontSize: 13, lineHeight: 19 },
-  sampleReferenceCard: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 12, marginTop: 14 },
+  sampleReferenceCard: { borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 12, marginTop: 14 },
+  sampleReferenceCardSelected: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
   sampleReferenceHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   sampleReferenceIcon: { width: 28, alignItems: "center", paddingTop: 1 },
   sampleReferenceText: { flex: 1, minWidth: 0 },
@@ -8076,26 +8932,21 @@ function createStyles(isDark = false) {
   homeMeasurementButton: {
     minHeight: 74,
     borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: "#f4b338",
-    backgroundColor: BRAND_ORANGE,
+    borderWidth: 1,
+    borderColor: border,
+    backgroundColor: surface,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 18,
-    shadowColor: "#d88904",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
-    elevation: 7
   },
-  homeMeasurementButtonSelected: { borderColor: "#0b2241", backgroundColor: "#ffc85a" },
-  homeMeasurementGlowIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#fff7e6", alignItems: "center", justifyContent: "center" },
+  homeMeasurementButtonSelected: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  homeMeasurementGlowIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   homeMeasurementTextBlock: { flex: 1, minWidth: 0 },
-  homeMeasurementTitle: { color: "#111111", fontSize: 14, fontWeight: "900", lineHeight: 19 },
-  homeMeasurementCopy: { color: "#0f766e", fontSize: 12, fontWeight: "900", lineHeight: 17, marginTop: 3 },
+  homeMeasurementTitle: { color: text, fontSize: 14, fontWeight: "900", lineHeight: 19 },
+  homeMeasurementCopy: { color: muted, fontSize: 12, fontWeight: "800", lineHeight: 17, marginTop: 3 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(11, 34, 65, 0.42)", alignItems: "center", justifyContent: "center", padding: 20 },
   sizeChartModal: { width: "100%", maxWidth: 420, maxHeight: "76%", borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, overflow: "hidden" },
   sizeChartModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 8 },
@@ -8459,7 +9310,50 @@ function createStyles(isDark = false) {
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, paddingHorizontal: 12, marginTop: 8, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
-  liveMapCard: { minHeight: 138, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 }
+  liveMapCard: { minHeight: 138, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 },
+
+  // Warning screen styles
+  warningStepsBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 20, paddingHorizontal: 10 },
+  warningStepItem: { alignItems: "center", flex: 1 },
+  warningStepIconCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: isDark ? "#222222" : "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  warningActiveStepIconCircle: { backgroundColor: BRAND_ORANGE },
+  warningStepText: { fontSize: 10, color: muted, fontWeight: "700", marginTop: 4 },
+  warningActiveStepText: { fontSize: 10, color: text, fontWeight: "900", marginTop: 4 },
+  warningStepConnector: { flex: 1, height: 2, backgroundColor: isDark ? "#222222" : "#e2e8f0", marginHorizontal: 4 },
+  warningCard: { backgroundColor: isDark ? "#1c140d" : "#fff7ed", borderColor: isDark ? "#452a15" : "#ffedd5", borderWidth: 1, borderRadius: 20, padding: 20, gap: 12, elevation: 1 },
+  warningTitle: { fontSize: 18, fontWeight: "900", color: isDark ? "#ffedd5" : "#9a3412", textAlign: "center" },
+  warningParagraph: { fontSize: 13, lineHeight: 20, color: isDark ? "#fdba74" : "#c2410c", textAlign: "center", fontWeight: "600" },
+  warningTipText: { fontSize: 13, lineHeight: 18, color: isDark ? "#fed7aa" : "#9a3412", textAlign: "center", fontWeight: "700", marginTop: 4 },
+  warningClothGuideButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: BRAND_ORANGE, paddingVertical: 14, borderRadius: 14, marginTop: 8 },
+  warningClothGuideButtonText: { color: "#ffffff", fontSize: 14, fontWeight: "900" },
+  warningSectionHeader: { fontSize: 15, fontWeight: "900", color: text, marginTop: 24, marginBottom: 16 },
+  warningBulletItem: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  warningBulletIconContainer: { width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? "#2a1e12" : "#ffedd5", alignItems: "center", justifyContent: "center" },
+  warningBulletText: { fontSize: 13, color: isDark ? "#e2e8f0" : "#334155", fontWeight: "700" },
+
+  // Guide styles
+  guideHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 56, borderBottomWidth: 1, borderBottomColor: border, paddingHorizontal: 16 },
+  guideBackButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  guideHeaderTitle: { fontSize: 18, fontWeight: "900", color: text },
+  guideTabContainer: { flexDirection: "row", paddingHorizontal: 20, marginVertical: 16, gap: 8 },
+  guideTabButton: { flex: 1, height: 40, borderRadius: 20, backgroundColor: isDark ? "#111111" : "#f1f5f9", alignItems: "center", justifyContent: "center" },
+  guideActiveTabButton: { backgroundColor: "#111111" },
+  guideTabButtonText: { fontSize: 13, fontWeight: "900", color: isDark ? "#94a3b8" : "#64748b" },
+  guideActiveTabButtonText: { color: "#ffffff" },
+  guideInfoBanner: { flexDirection: "row", gap: 10, backgroundColor: isDark ? "#1f180c" : "#fffbeb", borderColor: isDark ? "#452c0f" : "#fef3c7", borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 20, alignItems: "center" },
+  guideInfoBannerText: { flex: 1, fontSize: 12, color: isDark ? "#fcd34d" : "#b45309", fontWeight: "800", lineHeight: 18 },
+  guideSectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 14, borderBottomWidth: 1.5, borderBottomColor: border, paddingBottom: 6 },
+  guideSectionHeaderText: { fontSize: 14, fontWeight: "900", color: text, letterSpacing: 0.5 },
+  guideTableTitle: { fontSize: 14, fontWeight: "900", color: text, marginTop: 8 },
+  guideTableWidthText: { fontSize: 11, color: muted, fontWeight: "700", marginBottom: 8 },
+  guideTableContainer: { borderWidth: 1, borderColor: border, borderRadius: 14, overflow: "hidden", backgroundColor: surface, marginBottom: 24 },
+  guideTableHeaderRow: { flexDirection: "row", backgroundColor: isDark ? "#111111" : "#f8fafc", borderBottomWidth: 1, borderBottomColor: border, height: 38, alignItems: "center" },
+  guideTableRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: border, height: 38, alignItems: "center" },
+  guideTableCell: { flex: 1, fontSize: 12, color: text, textAlign: "center", fontWeight: "700" },
+  guideTableHeaderCell: { color: muted, fontWeight: "800", fontSize: 11 },
+  guideTableLabelCell: { color: isDark ? "#e2e8f0" : "#475569", fontWeight: "800" },
+  guideNoteCard: { flexDirection: "row", gap: 10, backgroundColor: isDark ? "#1f180c" : "#fff7ed", borderColor: isDark ? "#452c0f" : "#ffedd5", borderWidth: 1, borderRadius: 14, padding: 12, marginTop: 10, marginBottom: 20 },
+  guideNoteText: { flex: 1, fontSize: 11, color: isDark ? "#fdba74" : "#b45309", fontWeight: "700", lineHeight: 16 }
   });
 }
 

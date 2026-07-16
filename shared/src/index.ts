@@ -192,4 +192,19 @@ export type ServiceItem = {
   imageUrl: string;
 };
 
+export function getPlatformFee(orderValue: number) {
+  if (orderValue <= 0) return 0;
+  if (orderValue <= 199) return 5;
+  if (orderValue <= 499) return 8;
+  if (orderValue <= 999) return 10;
+  if (orderValue <= 1999) return 15;
+  return 20;
+}
+
+export function getSmallOrderFee(orderValue: number) {
+  if (orderValue <= 0) return 0;
+  if (orderValue < 99) return 19;
+  return 0;
+}
+
 export * from "./localization.js";

@@ -86,7 +86,8 @@ export const customerApi = {
   createBugReport: (data: unknown) => request<any>({ method: "POST", url: "/support/bug-reports", data }),
   sendTicketMessage: (id: string, data: unknown) => request<any>({ method: "POST", url: `/support/${id}/messages`, data }),
   sendBugMessage: (id: string, data: unknown) => request<any>({ method: "POST", url: `/support/bug-reports/${id}/messages`, data }),
-  updateTicketStatus: (id: string, status: string) => request<any>({ method: "PATCH", url: `/support/${id}`, data: { status } })
+  updateTicketStatus: (id: string, status: string) => request<any>({ method: "PATCH", url: `/support/${id}`, data: { status } }),
+  getDeliveryFares: () => request<any>({ method: "GET", url: "/settings/delivery-fares" })
 };
 
 export function errorMessage(error: unknown) {

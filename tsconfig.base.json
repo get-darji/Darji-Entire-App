@@ -9,10 +9,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
-    "paths": {
-      "@darzi/shared": ["shared/src/index.ts"],
-      "@darzi/shared/*": ["shared/src/*"]
-    }
+    "baseUrl": "."
   }
 }

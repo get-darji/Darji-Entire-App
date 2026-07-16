@@ -354,7 +354,14 @@ function measurementStatus(item: TailoringRequestItem) {
 }
 
 function orderFromAcceptedRequest(request: TailoringRequest): Order {
-  const status = request.workStatus === "READY" ? "READY" : request.workStatus === "WORKING" ? "AT_TAILOR" : "QUOTE_ACCEPTED";
+  let status = "QUOTE_ACCEPTED";
+  if (request.workStatus === "READY") {
+    status = "READY";
+  } else if (request.workStatus === "WORKING") {
+    status = "WORKING";
+  } else if (request.orderStatus === "received_by_tailor") {
+    status = "AT_TAILOR";
+  }
   const items = requestItems(request).map((item) => ({
     service: { name: `${item.clothType || "Cloth"} - ${item.workType || "Tailoring"}` },
     measurement: item.measurement,
@@ -1332,7 +1339,7 @@ function OrderDetailsScreen({
   const stitchedProofComplete = stitchedProofCount >= requiredProofCount;
   const hasReceivedPackage = acceptedRequest
     ? ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
-    : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
+    : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "WORKING", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
 
   async function uploadProof(stage: "RECEIVED" | "STITCHED", source: "camera" | "library") {
     if (!acceptedRequest || !token) return;

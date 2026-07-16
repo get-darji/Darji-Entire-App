@@ -8,7 +8,9 @@ import { errorHandler, notFound } from "./middleware/error.js";
 import { router } from "./routes/index.js";
 import { seedDatabase } from "./seed.js";
 import { initFirebaseAdmin } from "./services/push.service.js";
+import { backfillDarjiIds } from "./models.js";
 import { setupSocketServer } from "./services/socket.service.js";
+import { lockAndDispatchDueBatches } from "./services/hybrid-delivery.service.js";
 
 const app = express();
 
@@ -25,7 +27,19 @@ await connectDatabase();
 if (env.AUTO_SEED || env.NODE_ENV !== "production") {
   await seedDatabase();
 }
+await backfillDarjiIds();
 initFirebaseAdmin();
+
+const batchLockTimer = setInterval(() => {
+  void lockAndDispatchDueBatches().catch((error) => {
+    console.error("Failed to process due delivery batches", error);
+  });
+}, 60 * 1000);
+batchLockTimer.unref?.();
+
+void lockAndDispatchDueBatches().catch((error) => {
+  console.error("Failed to process due delivery batches", error);
+});
 
 const server = app.listen(env.PORT, () => {
   console.log(`Darzi backend running on port ${env.PORT}`);
@@ -33,6 +47,7 @@ const server = app.listen(env.PORT, () => {
 setupSocketServer(server);
 
 process.on("SIGINT", async () => {
+  clearInterval(batchLockTimer);
   server.close();
   await disconnectDatabase();
   process.exit(0);

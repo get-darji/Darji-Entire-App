@@ -10,8 +10,8 @@ import {
   SettingModel,
   TailorModel,
   UserModel,
-  WalletModel
-} from "./models.js";
+  WalletModel,
+ } from "./models.js";
 
 async function upsertUser(phone: string, data: { name: string; role: string }) {
   const user = await UserModel.findOneAndUpdate({ phone }, { $set: data, $setOnInsert: { phone } }, { upsert: true, returnDocument: "after" });
@@ -126,6 +126,22 @@ export async function seedDatabase() {
     { upsert: true }
   );
 
+  // Migrate existing data to assign IDs if missing
+  const usersWithoutId = await UserModel.find({ darjiCustomerId: { $exists: false } });
+  for (const user of usersWithoutId) {
+    await user.save();
+  }
+
+  const partnersWithoutId = await DeliveryPartnerModel.find({ darjiPartnerId: { $exists: false } });
+  for (const partner of partnersWithoutId) {
+    await partner.save();
+  }
+
+  const tailorsWithoutId = await TailorModel.find({ darjiTailorId: { $exists: false } });
+  for (const tailor of tailorsWithoutId) {
+    await tailor.save();
+  }
+
   console.log({ admin: admin.phone, customer: customer.phone, tailor: tailorUser.phone, delivery: deliveryUser.phone });
 }
 
@@ -134,3 +150,4 @@ if (process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js")
   await seedDatabase();
   await disconnectDatabase();
 }
+

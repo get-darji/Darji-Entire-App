@@ -953,7 +953,8 @@ export function AdminPortal() {
       const mappedStatus = request.orderStatus ? (orderStatusMap[request.orderStatus] || request.orderStatus) : request.status;
       return {
         id: request.id,
-        orderNumber: `TR-${request.id.toUpperCase()}`,
+        darjiId: request.darjiId,
+        orderNumber: request.darjiId ?? "Darji ID pending",
         customerId: request.customerId,
         customer: request.customer,
         tailorId: request.selectedQuote?.tailor?.id ?? request.assignedTailorId,
@@ -967,6 +968,7 @@ export function AdminPortal() {
         paymentStatus: request.paymentStatus || "PENDING",
         totalAmount: request.totalAmount || request.quoteAmount || request.selectedQuote?.price || request.ownQuote?.price || 0,
         createdAt: request.confirmedAt || request.createdAt,
+        request,
         items: [{
           serviceId: "tailoring",
           quantity: 1,
@@ -1024,10 +1026,10 @@ export function AdminPortal() {
     });
 
     tailoringRequests.forEach((request) => {
-      if (matches(request.id, request.customerId, request.customer?.name, request.customer?.phone, request.workType, request.clothType, request.assignedTailorId)) {
+      if (matches(request.darjiId, request.customer?.name, request.customer?.phone, request.workType, request.clothType, request.assignedTailorId)) {
         results.push({
           id: `tailoring-${request.id}`,
-          title: `TR-${request.id.toUpperCase()}`,
+          title: request.darjiId ?? "Darji ID pending",
           subtitle: `Tailoring request - ${request.customer?.name ?? request.customer?.phone ?? "Customer"}`,
           section: "tailoring",
           icon: Scissors,
@@ -1044,8 +1046,8 @@ export function AdminPortal() {
       if (matches(tailor.id, tailor.userId, tailor.darjiTailorId, tailor.shopName, tailor.user?.name, tailor.user?.phone)) {
         results.push({
           id: `tailor-${tailor.id}`,
-          title: tailor.shopName || tailor.user?.name || tailor.darjiTailorId || tailor.id,
-          subtitle: `Tailor - ${tailor.darjiTailorId ?? tailor.user?.phone ?? tailor.id}`,
+          title: tailor.shopName || tailor.user?.name || "Tailor",
+          subtitle: `Tailor - ${tailor.darjiTailorId ?? "Darji ID pending"}`,
           section: "tailors",
           icon: Scissors,
           onSelect: () => {
@@ -1321,7 +1323,7 @@ export function AdminPortal() {
 
   const filteredTailoring = tailoringRequests.filter((request) =>
     !searchTerm ||
-    [request.description, request.clothType, request.workType, request.customer?.name, request.customer?.phone]
+    [request.description, request.clothType, request.workType, request.darjiId, request.customer?.name, request.customer?.phone]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1330,7 +1332,7 @@ export function AdminPortal() {
 
   const filteredDelivery = deliveryRequests.filter((request) =>
     !searchTerm ||
-    [request.taskId, request.customerName, request.tailorName, request.pickupAddress, request.dropAddress, request.taskStatus]
+    [request.taskId, request.darjiId, request.customerName, request.tailorName, request.pickupAddress, request.dropAddress, request.taskStatus]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1338,7 +1340,7 @@ export function AdminPortal() {
   );
   const retryDeliveryRows = (deliveryRetriesQuery.data ?? []).filter((request) =>
     !searchTerm ||
-    [request.taskId, request.customerName, request.tailorName, request.lastFailureReason, request.retryStatus]
+    [request.taskId, request.darjiId, request.customerName, request.tailorName, request.lastFailureReason, request.retryStatus]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1347,7 +1349,7 @@ export function AdminPortal() {
 
   const filteredTailors = tailors.filter((tailor) =>
     !searchTerm ||
-    [tailor.shopName, tailor.user?.name, tailor.user?.phone, tailor.verificationStatus, formatList(tailor.specialization)]
+    [tailor.shopName, tailor.darjiTailorId, tailor.user?.name, tailor.user?.phone, tailor.verificationStatus, formatList(tailor.specialization)]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1357,7 +1359,7 @@ export function AdminPortal() {
 
   const filteredPartners = partners.filter((partner) =>
     !searchTerm ||
-    [partner.user?.name, partner.user?.phone, partner.vehicleNumber, partner.verificationStatus]
+    [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, partner.vehicleNumber, partner.verificationStatus]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1402,7 +1404,7 @@ export function AdminPortal() {
 
   const filteredCoupons = coupons.filter((coupon) =>
     !searchTerm ||
-    [coupon.code, coupon.description, coupon.discountType]
+    [coupon.darjiId, coupon.code, coupon.description, coupon.discountType]
       .join(" ")
       .toLowerCase()
       .includes(searchTerm)
@@ -1410,7 +1412,7 @@ export function AdminPortal() {
 
   const filteredTickets = tickets.filter((ticket) => {
     const searchMatch = !searchTerm ||
-      [ticket.subject, ticket.status, ticket.user?.phone, ticket.order?.orderNumber, ticket.user?.name]
+      [ticket.darjiId, ticket.subject, ticket.status, ticket.user?.phone, ticket.order?.orderNumber, ticket.user?.darjiCustomerId, ticket.user?.name]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -2044,6 +2046,7 @@ export function AdminPortal() {
         onStatusChange={(status) => orderDetail && statusMutation.mutate({ orderId: orderDetail.id, status })}
         open={Boolean(orderDetail)}
         order={orderDetail}
+        deliveryRequests={deliveryRequests}
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
         }}
@@ -2226,7 +2229,7 @@ function LoginPanel({
       <section className="mx-auto grid min-h-screen max-w-[1540px] items-center gap-8 px-5 py-8 xl:grid-cols-[1fr_0.92fr] xl:px-10">
         <div className="relative flex min-h-[760px] flex-col justify-between overflow-hidden rounded-[42px] bg-[radial-gradient(circle_at_top,rgba(255,213,94,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.4),rgba(255,248,231,0.72))] p-8 lg:p-12">
           <div>
-            <Image alt="Darji" className="h-auto w-[240px]" height={146} priority src="/darji-logo.png" width={240} />
+            <Image alt="Darji" className="h-auto w-[240px]" height={146} priority src="/darji-logo.png" width={240} style={{ height: "auto" }} />
             <p className="mt-3 pl-2 text-[15px] font-medium text-[#59483a]">Stitching Made Simple</p>
 
             <div className="mt-12 max-w-[520px]">
@@ -2874,7 +2877,7 @@ function LoadingDashboard() {
 function LogoMark() {
   return (
     <div className="pl-1">
-      <Image alt="Darji" className="h-auto w-[112px]" height={72} priority src="/darji-logo.png" width={112} />
+      <Image alt="Darji" className="h-auto w-[112px]" height={72} priority src="/darji-logo.png" width={112} style={{ height: "auto" }} />
       <p className="mt-1 pl-1 text-[11px] font-semibold tracking-[0.04em] text-[#7d6d58]">Stitching Made Simple</p>
     </div>
   );
@@ -3844,10 +3847,20 @@ function DeliveryFareSettingsCard({
   pending: boolean;
   settings?: DeliveryFareSettings;
 }) {
-  const [draft, setDraft] = useState<DeliveryFareSettings>({ normal: 8, express: 8, sameDay: 10, instant: 15 });
+  const [draft, setDraft] = useState<any>({
+    normal: { partnerFare: 8, customerCharge: 30 },
+    express: { partnerFare: 8, customerCharge: 40 },
+    instant: { partnerFare: 15, customerCharge: 50 }
+  });
 
   useEffect(() => {
-    if (settings) setDraft(settings);
+    if (settings) {
+      setDraft({
+        normal: settings.normal ?? { partnerFare: 8, customerCharge: 30 },
+        express: settings.express ?? { partnerFare: 8, customerCharge: 40 },
+        instant: settings.instant ?? { partnerFare: 15, customerCharge: 50 }
+      });
+    }
   }, [settings]);
 
   return (
@@ -3855,26 +3868,51 @@ function DeliveryFareSettingsCard({
       <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h3 className="text-lg font-semibold">Delivery Fare Settings</h3>
-          <p className="text-sm text-[var(--muted)]">Used dynamically whenever delivery earnings are created.</p>
+          <p className="text-sm text-[var(--muted)]">Configure rider payouts and customer display delivery charges dynamically.</p>
         </div>
         <ActionButton disabled={pending} onClick={() => onSave(draft)}>Save fares</ActionButton>
       </div>
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="space-y-4">
         {[
-          ["normal", "Normal"],
-          ["express", "Express"],
-          ["sameDay", "Same Day"],
-          ["instant", "Instant"]
+          ["normal", "Normal Delivery"],
+          ["express", "Express Delivery"],
+          ["instant", "Instant Delivery"]
         ].map(([key, label]) => (
-          <Field key={key} label={label}>
-            <input
-              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
-              type="number"
-              min="1"
-              value={draft[key as keyof DeliveryFareSettings]}
-              onChange={(event) => setDraft((current) => ({ ...current, [key]: Number(event.target.value) }))}
-            />
-          </Field>
+          <div key={key} className="grid gap-4 rounded-2xl border border-[var(--panel-border)] p-4 sm:grid-cols-3 sm:items-center">
+            <div>
+              <p className="font-semibold">{label}</p>
+            </div>
+            <Field label="Delivery Partner Earning (Rs)">
+              <input
+                className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+                type="number"
+                min="0"
+                value={draft[key]?.partnerFare ?? 0}
+                onChange={(event) => {
+                  const val = Number(event.target.value);
+                  setDraft((current: any) => ({
+                    ...current,
+                    [key]: { ...current[key], partnerFare: val }
+                  }));
+                }}
+              />
+            </Field>
+            <Field label="Customer Display Charge (Rs)">
+              <input
+                className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+                type="number"
+                min="0"
+                value={draft[key]?.customerCharge ?? 0}
+                onChange={(event) => {
+                  const val = Number(event.target.value);
+                  setDraft((current: any) => ({
+                    ...current,
+                    [key]: { ...current[key], customerCharge: val }
+                  }));
+                }}
+              />
+            </Field>
+          </div>
         ))}
       </div>
     </Panel>
@@ -4558,8 +4596,8 @@ function getSupportQueueMeta(item: SupportQueueItem) {
     return {
       avatar: getInitials(item.entity.user?.name, "CU"),
       title: item.entity.user?.name ?? item.entity.user?.phone ?? "Customer",
-      subtitle: `#${item.entity.id.slice(-6).toUpperCase()} | ${item.entity.order?.orderNumber ?? item.entity.subject}`,
-      ticketLabel: `#CUS-${item.entity.id.slice(-4).toUpperCase()}`,
+      subtitle: `${item.entity.darjiId ?? "Darji ID pending"} | ${item.entity.order?.orderNumber ?? item.entity.subject}`,
+      ticketLabel: item.entity.darjiId ?? "Darji ID pending",
       preview: lastMessage?.text ?? item.entity.message ?? "No messages yet",
       status: item.entity.status,
       timeLabel: item.entity.updatedAt ? new Date(item.entity.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
@@ -4573,8 +4611,8 @@ function getSupportQueueMeta(item: SupportQueueItem) {
     return {
       avatar: getInitials(item.entity.user?.name, item.entity.userRole === "TAILOR" ? "TA" : "DP"),
       title: item.entity.user?.name ?? item.entity.user?.phone ?? "Partner",
-      subtitle: `#${item.entity.id.slice(-6).toUpperCase()} | ${formatStatus(item.entity.type)}`,
-      ticketLabel: `#REQ-${item.entity.id.slice(-4).toUpperCase()}`,
+      subtitle: `${item.entity.darjiId ?? "Darji ID pending"} | ${formatStatus(item.entity.type)}`,
+      ticketLabel: item.entity.darjiId ?? "Darji ID pending",
       preview: lastMessage?.text ?? `${formatStatus(item.entity.type)} update request`,
       status: item.entity.status,
       timeLabel: item.entity.updatedAt ? new Date(item.entity.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
@@ -4587,8 +4625,8 @@ function getSupportQueueMeta(item: SupportQueueItem) {
   return {
     avatar: "BG",
     title: item.entity.title,
-    subtitle: `#${item.entity.id.slice(-6).toUpperCase()} | ${item.entity.appVersion}`,
-    ticketLabel: `#BUG-${item.entity.id.slice(-4).toUpperCase()}`,
+    subtitle: `${item.entity.darjiId ?? "Darji ID pending"} | ${item.entity.appVersion}`,
+    ticketLabel: item.entity.darjiId ?? "Darji ID pending",
     preview: lastMessage?.text ?? item.entity.description,
     status: item.entity.status,
     timeLabel: item.entity.updatedAt ? new Date(item.entity.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
@@ -4720,12 +4758,14 @@ function OrderDetailDialog({
   onStatusChange,
   open,
   order,
+  deliveryRequests = [],
   setOpen
 }: {
   onAssign: () => void;
   onStatusChange: (status: string) => void;
   open: boolean;
   order: Order | null;
+  deliveryRequests?: any[];
   setOpen: (open: boolean) => void;
 }) {
   const [nextStatus, setNextStatus] = useState(order?.status ?? "ORDER_PLACED");
@@ -4742,6 +4782,7 @@ function OrderDetailDialog({
           {order ? (
             <>
               <Dialog.Title className="text-2xl font-semibold">{order.orderNumber}</Dialog.Title>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Darji ID: {order.darjiId ?? "Darji ID pending"}</p>
               <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">
                 Standard order workflow with current assignment and proof media visibility.
               </Dialog.Description>
@@ -4770,7 +4811,7 @@ function OrderDetailDialog({
                 <Panel>
                   <h4 className="text-lg font-semibold">Order items</h4>
                   <div className="mt-4 space-y-3">
-                    {order.items.map((item, index) => (
+                    {(order.items ?? []).map((item, index) => (
                       <div key={`${item.serviceId}-${index}`} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
                         <div className="flex items-start justify-between gap-4">
                           <div>
@@ -4840,11 +4881,168 @@ function OrderDetailDialog({
                   </Panel>
                 ) : null}
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  {order.pickupImageUrl ? <img alt="Pickup proof" className="aspect-video rounded-2xl border border-[var(--panel-border)] object-cover" src={order.pickupImageUrl} /> : null}
-                  {order.finalImageUrl ? <img alt="Final proof" className="aspect-video rounded-2xl border border-[var(--panel-border)] object-cover" src={order.finalImageUrl} /> : null}
-                  {order.deliveryProofUrl ? <img alt="Delivery proof" className="aspect-video rounded-2xl border border-[var(--panel-border)] object-cover" src={order.deliveryProofUrl} /> : null}
-                </div>
+                {/* Categorized Order Photo Proofs */}
+                <Panel className="space-y-4">
+                  <h4 className="text-lg font-semibold text-[var(--deep)]">Order Photo Proofs</h4>
+                  <p className="text-sm text-[var(--muted)] -mt-2">Categorized proof images from customer, tailor, and delivery boy.</p>
+                  
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {/* Category 1: Customer Uploads */}
+                    {(() => {
+                      const customerMedia = order?.request?.media ?? [];
+                      const customerSampleMedia = order?.request?.sampleMedia ?? [];
+                      const allCustomerMedia = [...customerMedia, ...customerSampleMedia];
+                      return allCustomerMedia.length > 0 ? (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-slate-50/50 p-4">
+                          <h5 className="font-bold text-sm text-[var(--deep)]">1. Customer References</h5>
+                          <p className="text-xs text-[var(--muted)] mb-3">Images uploaded during request</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {allCustomerMedia.map((item: any, idx: number) => (
+                              <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative aspect-video overflow-hidden rounded-xl border border-[var(--panel-border)] bg-white transition hover:opacity-90">
+                                {item.resourceType === "video" ? (
+                                  <div className="flex h-full w-full flex-col items-center justify-center bg-slate-800 text-white">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                    <span className="mt-1 text-[9px] uppercase font-bold tracking-wider">Video</span>
+                                  </div>
+                                ) : (
+                                  <img alt="Customer reference" src={item.url} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                                )}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* Category 2: Delivery Boy Pickup Proof */}
+                    {(() => {
+                      const linkedDeliveries = (deliveryRequests ?? []).filter((dr) => dr.orderId === order?.id);
+                      const pickupMedia = [
+                        ...(order?.pickupImageUrl ? [{ url: order.pickupImageUrl, resourceType: "image" }] : []),
+                        ...linkedDeliveries
+                          .filter((dr) => dr.type === "customer_to_tailor")
+                          .flatMap((dr) => [
+                            ...(dr.clothPhotos ?? []),
+                            ...(dr.samplePhotos ?? [])
+                          ])
+                      ];
+                      return pickupMedia.length > 0 ? (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-slate-50/50 p-4">
+                          <h5 className="font-bold text-sm text-[var(--deep)]">2. Delivery Boy Pickup</h5>
+                          <p className="text-xs text-[var(--muted)] mb-3">Proof clothes picked up from customer</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {pickupMedia.map((item: any, idx: number) => (
+                              <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative aspect-video overflow-hidden rounded-xl border border-[var(--panel-border)] bg-white transition hover:opacity-90">
+                                {item.resourceType === "video" ? (
+                                  <div className="flex h-full w-full flex-col items-center justify-center bg-slate-800 text-white">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                    <span className="mt-1 text-[9px] uppercase font-bold tracking-wider">Video</span>
+                                  </div>
+                                ) : (
+                                  <img alt="Delivery pickup proof" src={item.url} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                                )}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* Category 3: Tailor Received Clothes Proof */}
+                    {(() => {
+                      const tailorReceived = order?.request?.receivedMedia ?? [];
+                      return tailorReceived.length > 0 ? (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-slate-50/50 p-4">
+                          <h5 className="font-bold text-sm text-[var(--deep)]">3. Tailor Received</h5>
+                          <p className="text-xs text-[var(--muted)] mb-3">Proof package received by tailor</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {tailorReceived.map((item: any, idx: number) => (
+                              <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative aspect-video overflow-hidden rounded-xl border border-[var(--panel-border)] bg-white transition hover:opacity-90">
+                                {item.resourceType === "video" ? (
+                                  <div className="flex h-full w-full flex-col items-center justify-center bg-slate-800 text-white">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                    <span className="mt-1 text-[9px] uppercase font-bold tracking-wider">Video</span>
+                                  </div>
+                                ) : (
+                                  <img alt="Tailor received proof" src={item.url} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                                )}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* Category 4: Tailor Stitched Clothes Proof */}
+                    {(() => {
+                      const tailorStitched = [
+                        ...(order?.finalImageUrl ? [{ url: order.finalImageUrl, resourceType: "image" }] : []),
+                        ...(order?.request?.stitchedMedia ?? [])
+                      ];
+                      return tailorStitched.length > 0 ? (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-slate-50/50 p-4">
+                          <h5 className="font-bold text-sm text-[var(--deep)]">4. Tailor Stitched</h5>
+                          <p className="text-xs text-[var(--muted)] mb-3">Proof uploaded after stitching garment</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {tailorStitched.map((item: any, idx: number) => (
+                              <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative aspect-video overflow-hidden rounded-xl border border-[var(--panel-border)] bg-white transition hover:opacity-90">
+                                {item.resourceType === "video" ? (
+                                  <div className="flex h-full w-full flex-col items-center justify-center bg-slate-800 text-white">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                    <span className="mt-1 text-[9px] uppercase font-bold tracking-wider">Video</span>
+                                  </div>
+                                ) : (
+                                  <img alt="Tailor stitched proof" src={item.url} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                                )}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+
+                    {/* Category 5: Delivery Boy Delivery Proof */}
+                    {(() => {
+                      const linkedDeliveries = (deliveryRequests ?? []).filter((dr) => dr.orderId === order?.id);
+                      const deliveryHandover = [
+                        ...(order?.deliveryProofUrl ? [{ url: order.deliveryProofUrl, resourceType: "image" }] : []),
+                        ...linkedDeliveries
+                          .filter((dr) => dr.type === "tailor_to_customer" || dr.type === "darji_to_customer")
+                          .flatMap((dr) => dr.deliveryPhotos ?? [])
+                      ];
+                      return deliveryHandover.length > 0 ? (
+                        <div className="rounded-2xl border border-[var(--panel-border)] bg-slate-50/50 p-4">
+                          <h5 className="font-bold text-sm text-[var(--deep)]">5. Delivery Handover</h5>
+                          <p className="text-xs text-[var(--muted)] mb-3">Proof package delivered to customer</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {deliveryHandover.map((item: any, idx: number) => (
+                              <a key={idx} href={item.url} target="_blank" rel="noopener noreferrer" className="group relative aspect-video overflow-hidden rounded-xl border border-[var(--panel-border)] bg-white transition hover:opacity-90">
+                                {item.resourceType === "video" ? (
+                                  <div className="flex h-full w-full flex-col items-center justify-center bg-slate-800 text-white">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                    <span className="mt-1 text-[9px] uppercase font-bold tracking-wider">Video</span>
+                                  </div>
+                                ) : (
+                                  <img alt="Delivery handover proof" src={item.url} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                                )}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                </Panel>
               </div>
             </>
           ) : null}
@@ -5551,6 +5749,7 @@ function InspectTicketDialog({
                 <span>Category: <strong className="text-[var(--foreground)]">{ticket.category ?? "General"}</strong></span>
                 <span>-</span>
                 <span>Opened: <strong>{formatDate(ticket.createdAt, true)}</strong></span>
+                <span>Ticket ID: <strong>{ticket.darjiId ?? "Darji ID pending"}</strong></span>
               </div>
             </div>
             <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
@@ -5708,7 +5907,7 @@ function InspectTicketDialog({
                       <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
                         <p>Total amount: <strong className="text-[var(--foreground)]">{formatCurrency(linkedOrder.totalAmount)}</strong></p>
                         <p>Payment: <strong className="text-[var(--foreground)]">{linkedOrder.paymentMethod}</strong></p>
-                        <p>Items: <strong>{linkedOrder.items.map(it => it.service?.name ?? "Custom Stitch").join(", ")}</strong></p>
+                        <p>Items: <strong>{(linkedOrder.items ?? []).map(it => it.service?.name ?? "Custom Stitch").join(", ")}</strong></p>
                       </div>
                       <button
                         onClick={() => {
@@ -5853,6 +6052,7 @@ function InspectBugReportDialog({
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
                 Submitted by {bug.user?.name ?? "Unknown user"} ({bug.user?.phone})
               </Dialog.Description>
+              <span className="mt-2 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-600">Bug ID: {bug.darjiId ?? "Darji ID pending"}</span>
             </div>
             <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
               <X size={20} className="text-[var(--muted)] hover:text-[var(--foreground)]" />
@@ -5985,6 +6185,7 @@ function InspectChangeRequestDialog({
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
                 From {request.user?.name ?? "Partner"} ({request.user?.phone}) - Role: <strong>{request.user?.role}</strong>
               </Dialog.Description>
+              <span className="mt-2 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-600">Request ID: {request.darjiId ?? "Darji ID pending"}</span>
             </div>
             <Dialog.Close className="rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
               <X size={20} className="text-[var(--muted)] hover:text-[var(--foreground)]" />
@@ -6136,7 +6337,7 @@ function AssignOrderDialog({
                     <option value="">Unassigned</option>
                     {tailors.map((tailor) => (
                       <option key={tailor.id} value={tailor.id}>
-                        {tailor.shopName ?? tailor.user?.name ?? tailor.user?.phone ?? "Tailor"}
+                        {tailor.shopName ?? tailor.user?.name ?? "Tailor"} ({tailor.darjiTailorId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -6146,7 +6347,7 @@ function AssignOrderDialog({
                     <option value="">Unassigned</option>
                     {partners.map((partner) => (
                       <option key={partner.id} value={partner.id}>
-                        {partner.user?.name ?? partner.user?.phone ?? "Partner"}
+                        {partner.user?.name ?? "Partner"} ({partner.darjiPartnerId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -6156,7 +6357,7 @@ function AssignOrderDialog({
                     <option value="">Unassigned</option>
                     {partners.map((partner) => (
                       <option key={partner.id} value={partner.id}>
-                        {partner.user?.name ?? partner.user?.phone ?? "Partner"}
+                        {partner.user?.name ?? "Partner"} ({partner.darjiPartnerId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -6196,7 +6397,7 @@ function getOrderColumns({
       header: "Order",
       cell: ({ row }) => (
         <div>
-          <p className="break-all font-medium">{row.original.orderNumber}</p>
+          <p className="font-medium">{row.original.darjiId ?? "Darji ID pending"}</p>
           <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
         </div>
       )
@@ -6207,7 +6408,8 @@ function getOrderColumns({
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.customer?.name ?? "Unknown"}</p>
+          <p className="font-medium">
+            {row.original.customer?.name ?? "Unknown"}</p>
           <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
         </div>
       )
@@ -6215,20 +6417,34 @@ function getOrderColumns({
     {
       id: "category",
       header: "Category",
-      accessorFn: (row) => row.items.map((item) => item.service?.category?.name ?? "General").join(", "),
-      cell: ({ row }) => <span>{row.original.items[0]?.service?.category?.name ?? "General"}</span>
+      accessorFn: (row) => (row.items ?? []).map((item) => item.service?.category?.name ?? "General").join(", "),
+      cell: ({ row }) => <span>{row.original.items?.[0]?.service?.category?.name ?? "General"}</span>
     },
     {
       id: "tailor",
       header: "Tailor",
       accessorFn: (row) => row.tailor?.shopName ?? row.tailor?.user?.name ?? "",
-      cell: ({ row }) => <span>{row.original.tailor?.shopName ?? row.original.tailor?.user?.name ?? "Unassigned"}</span>
+      cell: ({ row }) => {
+        const t = row.original.tailor;
+        if (!t) return <span>Unassigned</span>;
+        return (
+          <span>
+            {t.shopName ?? t.user?.name ?? "Tailor"}</span>
+        );
+      }
     },
     {
       id: "partner",
       header: "Delivery partner",
       accessorFn: (row) => row.deliveryPartner?.user?.name ?? row.deliveryPartner?.user?.phone ?? row.pickupPartner?.user?.name ?? "",
-      cell: ({ row }) => <span>{row.original.deliveryPartner?.user?.name ?? row.original.deliveryPartner?.user?.phone ?? row.original.pickupPartner?.user?.phone ?? "Unassigned"}</span>
+      cell: ({ row }) => {
+        const dp = row.original.deliveryPartner || row.original.pickupPartner;
+        if (!dp) return <span>Unassigned</span>;
+        return (
+          <span>
+            {dp.user?.name ?? dp.user?.phone ?? "Partner"}</span>
+        );
+      }
     },
     {
       accessorKey: "totalAmount",
@@ -6287,7 +6503,14 @@ function getTailoringColumns({
       id: "customer",
       header: "Customer",
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
-      cell: ({ row }) => <span>{row.original.customer?.name ?? row.original.customer?.phone ?? "Unknown"}</span>
+      cell: ({ row }) => (
+        <span>
+          {row.original.customer?.name ?? row.original.customer?.phone ?? "Unknown"}{" "}
+          {row.original.customer?.darjiCustomerId ? (
+            <span className="text-xs font-semibold text-orange-500">({row.original.customer.darjiCustomerId})</span>
+          ) : null}
+        </span>
+      )
     },
     {
       accessorKey: "workType",
@@ -6353,7 +6576,18 @@ function getDeliveryColumns({
       id: "partner",
       header: "Assigned partner",
       accessorFn: (row) => partners.find((partner) => partner.id === row.assignedDeliveryPartnerId)?.user?.name ?? "",
-      cell: ({ row }) => <span>{partners.find((partner) => partner.id === row.original.assignedDeliveryPartnerId)?.user?.name ?? "Unassigned"}</span>
+      cell: ({ row }) => {
+        const partner = partners.find((p) => p.id === row.original.assignedDeliveryPartnerId);
+        if (!partner) return <span>Unassigned</span>;
+        return (
+          <span>
+            {partner.user?.name ?? "Partner"}{" "}
+            {partner.darjiPartnerId ? (
+              <span className="text-xs font-semibold text-orange-500">({partner.darjiPartnerId})</span>
+            ) : null}
+          </span>
+        );
+      }
     },
     {
       accessorKey: "estimatedEarnings",
@@ -6471,10 +6705,19 @@ function getPartnerColumns({
       accessorFn: (row) => row.user?.name ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.user?.name ?? "Unnamed"}</p>
+          <p className="font-medium">
+            {row.original.user?.name ?? "Unnamed"}{" "}
+            {row.original.darjiPartnerId ? (
+              <span className="text-xs font-semibold text-orange-500">({row.original.darjiPartnerId})</span>
+            ) : null}
+          </p>
           <p className="text-xs text-[var(--muted)]">{row.original.user?.phone ?? "No phone"}</p>
         </div>
       )
+    },
+    {
+      accessorKey: "darjiPartnerId",
+      header: "Partner ID"
     },
     {
       accessorKey: "vehicleNumber",
@@ -6541,7 +6784,12 @@ function getUserColumns({
       accessorFn: (row) => row.name ?? row.phone,
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.name ?? "Unnamed user"}</p>
+          <p className="font-medium">
+            {row.original.name ?? "Unnamed user"}{" "}
+            {(row.original.darjiAdminId ?? row.original.darjiCustomerId) ? (
+              <span className="text-xs font-semibold text-orange-500">({row.original.darjiAdminId ?? row.original.darjiCustomerId})</span>
+            ) : null}
+          </p>
           <p className="text-xs text-[var(--muted)]">{row.original.phone}</p>
         </div>
       )
@@ -6626,7 +6874,12 @@ function getPaymentColumns({
       id: "order",
       header: "Order",
       accessorFn: (row) => row.order?.orderNumber ?? "",
-      cell: ({ row }) => <span>{row.original.order?.orderNumber ?? "-"}</span>
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium text-[var(--foreground)]">{row.original.order?.orderNumber ?? "-"}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">{row.original.darjiId ?? "Darji ID pending"}</p>
+        </div>
+      )
     },
     {
       id: "customer",
@@ -6711,7 +6964,13 @@ function getCouponColumns(): Array<ColumnDef<Coupon>> {
   return [
     {
       accessorKey: "code",
-      header: "Code"
+      header: "Code",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium text-[var(--foreground)]">{row.original.code}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.darjiId ?? "Darji ID pending"}</p>
+        </div>
+      )
     },
     {
       accessorKey: "description",
@@ -6753,7 +7012,13 @@ function getTicketColumns({
   return [
     {
       accessorKey: "subject",
-      header: "Ticket"
+      header: "Ticket",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium text-[var(--foreground)]">{row.original.subject}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.darjiId ?? "Darji ID pending"}</p>
+        </div>
+      )
     },
     {
       id: "customer",

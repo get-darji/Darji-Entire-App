@@ -184,11 +184,15 @@ const payoutSchema = z.object({
   referenceNumber: z.string().trim().max(120).optional()
 });
 
+const fareSchema = z.object({
+  partnerFare: z.coerce.number().positive(),
+  customerCharge: z.coerce.number().nonnegative()
+});
+
 const deliveryFareSettingsSchema = z.object({
-  normal: z.coerce.number().positive().default(8),
-  express: z.coerce.number().positive().default(8),
-  sameDay: z.coerce.number().positive().default(10),
-  instant: z.coerce.number().positive().default(15)
+  normal: fareSchema,
+  express: fareSchema,
+  instant: fareSchema
 });
 
 const deliveryVerificationSchema = z.object({
@@ -924,12 +928,37 @@ export async function adminCreatePayoutController(req: Request, res: Response) {
 }
 
 export async function getDeliveryFareSettingsController(_req: Request, res: Response) {
-  const setting = await SettingModel.findOneAndUpdate(
-    { key: "delivery_fare_settings" },
-    { $setOnInsert: { key: "delivery_fare_settings", value: { normal: 8, express: 8, sameDay: 10, instant: 15 } } },
-    { upsert: true, returnDocument: "after" }
-  );
-  res.json({ data: setting.value });
+  let setting = await SettingModel.findOne({ key: "delivery_fare_settings" });
+  if (!setting) {
+    setting = await SettingModel.findOneAndUpdate(
+      { key: "delivery_fare_settings" },
+      {
+        $setOnInsert: {
+          key: "delivery_fare_settings",
+          value: {
+            normal: { partnerFare: 8, customerCharge: 30 },
+            express: { partnerFare: 8, customerCharge: 40 },
+            instant: { partnerFare: 15, customerCharge: 50 }
+          }
+        }
+      },
+      { upsert: true, returnDocument: "after" }
+    );
+  }
+  const val = setting?.value as any;
+  if (val && typeof val.normal !== "object") {
+    const migratedValue = {
+      normal: { partnerFare: typeof val.normal === "number" ? val.normal : 8, customerCharge: 30 },
+      express: { partnerFare: typeof val.express === "number" ? val.express : 8, customerCharge: 40 },
+      instant: { partnerFare: typeof val.instant === "number" ? val.instant : 15, customerCharge: 50 }
+    };
+    setting = await SettingModel.findOneAndUpdate(
+      { key: "delivery_fare_settings" },
+      { value: migratedValue },
+      { returnDocument: "after" }
+    );
+  }
+  res.json({ data: setting?.value });
 }
 
 export async function updateDeliveryFareSettingsController(req: Request, res: Response) {

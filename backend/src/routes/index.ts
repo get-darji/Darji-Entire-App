@@ -196,7 +196,7 @@ router.get("/transactions", requireAuth, transactionsController);
 router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
 router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletDetailController);
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
-router.get("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getDeliveryFareSettingsController);
+router.get("/settings/delivery-fares", requireAuth, getDeliveryFareSettingsController);
 router.put("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateDeliveryFareSettingsController);
 router.post("/admin/media", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), uploadAdminMedia, uploadAdminMediaController);
 router.get("/support/stats", requireAuth, requireRole("ADMIN"), getSupportStatsController);

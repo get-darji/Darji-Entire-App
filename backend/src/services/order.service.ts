@@ -1,4 +1,4 @@
-import { createOrderSchema, updateOrderStatusSchema } from "@darzi/shared";
+import { createOrderSchema, updateOrderStatusSchema, getPlatformFee, getSmallOrderFee } from "@darzi/shared";
 import {
   AddressModel,
   DeliveryBatchModel,
@@ -44,32 +44,47 @@ async function assignExistingDeliveryTask(orderId: string, partnerId: string | u
   const task = await DeliveryRequestModel.findOne({ orderId, type, taskStatus: { $in: ["pending", "accepted"] } });
   if (!task) return;
 
+  const now = new Date();
+  if (String(task.serviceLevel) === "INSTANT") {
+    await DeliveryRequestModel.findByIdAndUpdate(task.id, {
+      assignedDeliveryPartnerId: partnerId,
+      assignedDeliveryBoyId: partnerId,
+      taskStatus: "accepted",
+      acceptedAt: now,
+      deadlineAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      notificationSentAt: now
+    });
+    return;
+  }
+
   const partner = await DeliveryPartnerModel.findById(partnerId);
   const acceptedAt = new Date();
-  const batch = await DeliveryBatchModel.findOneAndUpdate(
-    {
+  const batchQuery = {
+    deliveryPartnerId: partnerId,
+    deliveryType: task.deliveryType || partner?.deliveryType,
+    deliveryRound: task.deliveryRound,
+    roundAt: task.roundAt,
+    status: "active" as const
+  };
+  let batch = await DeliveryBatchModel.findOne(batchQuery);
+  if (batch) {
+    if (!Array.isArray(batch.tasks) || !batch.tasks.includes(task.id)) {
+      await DeliveryBatchModel.updateOne({ _id: batch._id }, { $addToSet: { tasks: task.id }, $inc: { estimatedEarnings: task.estimatedEarnings || 0 } });
+    }
+  } else {
+    batch = await DeliveryBatchModel.create({
+      batchId: randomUUID(),
       deliveryPartnerId: partnerId,
       deliveryType: task.deliveryType || partner?.deliveryType,
       deliveryRound: task.deliveryRound,
       roundAt: task.roundAt,
+      shift: task.shift || (task.deliveryRound === "ONE_PM" ? "morning" : "evening"),
+      area: task.assignedArea || partner?.assignedArea || "All Areas",
+      tasks: [task.id],
+      estimatedEarnings: task.estimatedEarnings || 0,
       status: "active"
-    },
-    {
-      $setOnInsert: {
-        batchId: randomUUID(),
-        deliveryPartnerId: partnerId,
-        deliveryType: task.deliveryType || partner?.deliveryType,
-        deliveryRound: task.deliveryRound,
-        roundAt: task.roundAt,
-        shift: task.shift || (task.deliveryRound === "ONE_PM" ? "morning" : "evening"),
-        area: task.assignedArea || partner?.assignedArea || "All Areas",
-        estimatedEarnings: 0
-      },
-      $addToSet: { tasks: task.id },
-      $inc: { estimatedEarnings: task.estimatedEarnings || 0 }
-    },
-    { upsert: true, returnDocument: "after" }
-  );
+    });
+  }
 
   if (task.batchId && batch?.batchId && task.batchId !== batch.batchId) {
     await DeliveryBatchModel.updateOne({ batchId: task.batchId }, { $pull: { tasks: task.id } });
@@ -159,6 +174,9 @@ export async function createOrder(customerId: string, payload: unknown) {
     return sum + Number(service.price) * item.quantity;
   }, 0);
 
+  const platformFee = getPlatformFee(subtotal);
+  const smallOrderFee = getSmallOrderFee(subtotal);
+
   let discount = 0;
   if (input.couponCode) {
     const coupon = await CouponModel.findOne({ code: input.couponCode.toUpperCase() });
@@ -170,7 +188,7 @@ export async function createOrder(customerId: string, payload: unknown) {
     }
   }
 
-  const totalAmount = Math.max(subtotal - discount, 0);
+  const totalAmount = Math.max(subtotal + platformFee + smallOrderFee - discount, 0);
 
   const order = await OrderModel.create({
     orderNumber: generateOrderNumber(),
@@ -179,6 +197,8 @@ export async function createOrder(customerId: string, payload: unknown) {
     paymentMethod: input.paymentMethod,
     paymentStatus: "PENDING",
     subtotal,
+    platformFee,
+    smallOrderFee,
     discount,
     totalAmount,
     pickupScheduledAt: new Date(input.pickupScheduledAt),
@@ -291,7 +311,7 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
   else if (input.pickupPartnerId) data.pickupPartnerId = input.pickupPartnerId;
   
   if (input.deliveryPartnerId || input.pickupPartnerId) {
-    if (input.mode !== "delivery") data.status = "PICKUP_ASSIGNED";
+    data.status = input.mode === "delivery" ? "OUT_FOR_DELIVERY" : "PICKUP_ASSIGNED";
   }
 
   if (Object.keys(data).length === 0) {
@@ -346,3 +366,5 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
 
   return hydrateOrder(order);
 }
+
+

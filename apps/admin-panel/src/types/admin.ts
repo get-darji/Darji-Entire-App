@@ -9,6 +9,8 @@ export type AccountStatus = "ACTIVE" | "SUSPENDED" | "BANNED";
 export type BasicUser = {
   id: string;
   phone: string;
+  darjiCustomerId?: string;
+  darjiAdminId?: string;
   name?: string;
   role?: UserRole | string;
   accountStatus?: AccountStatus | string;
@@ -49,6 +51,7 @@ export type Address = {
 
 export type Payment = {
   id: string;
+  darjiId?: string;
   orderId: string;
   method: string;
   status: string;
@@ -73,6 +76,7 @@ export type Payment = {
 
 export type TailorProfile = {
   id: string;
+  darjiId?: string;
   userId: string;
   darjiTailorId?: string;
   shopName?: string;
@@ -98,7 +102,9 @@ export type TailorProfile = {
 
 export type DeliveryPartnerProfile = {
   id: string;
+  darjiId?: string;
   userId: string;
+  darjiPartnerId?: string;
   vehicleNumber?: string;
   isAvailable: boolean;
   deliveryType?: "PICKUP" | "DROP";
@@ -142,6 +148,7 @@ export type OrderItem = {
 
 export type Order = {
   id: string;
+  darjiId?: string;
   orderNumber: string;
   customerId: string;
   addressId: string;
@@ -169,6 +176,7 @@ export type Order = {
   items: OrderItem[];
   payments?: Payment[];
   timelineEvents?: TimelineEvent[];
+  request?: any;
 };
 
 export type TimelineEvent = {
@@ -208,6 +216,7 @@ export type SupportPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export type SupportTicket = {
   id: string;
+  darjiId?: string;
   userId: string;
   orderId?: string;
   subject: string;
@@ -235,6 +244,7 @@ export type SupportTicket = {
 
 export type BugReport = {
   id: string;
+  darjiId?: string;
   userId: string;
   title: string;
   description: string;
@@ -263,6 +273,7 @@ export type AccountChangeRequestHistoryEntry = {
 
 export type AccountChangeRequest = {
   id: string;
+  darjiId?: string;
   userId: string;
   userRole?: "TAILOR" | "DELIVERY_PARTNER";
   type: "ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "Vehicle" | "RC" | "DrivingLicense";
@@ -297,6 +308,7 @@ export type SupportStats = {
 
 export type Coupon = {
   id: string;
+  darjiId?: string;
   code: string;
   description: string;
   discountType: "FLAT" | "PERCENTAGE";
@@ -311,6 +323,7 @@ export type Coupon = {
 
 export type SettingRecord = {
   id: string;
+  darjiId?: string;
   key: string;
   value: unknown;
   createdAt?: string;
@@ -319,6 +332,7 @@ export type SettingRecord = {
 
 export type WalletTransaction = {
   id: string;
+  darjiId?: string;
   walletId: string;
   userId: string;
   userType: "TAILOR" | "DELIVERY_PARTNER";
@@ -338,6 +352,7 @@ export type WalletTransaction = {
 
 export type PaymentHistory = {
   id: string;
+  darjiId?: string;
   userId: string;
   userType: "TAILOR" | "DELIVERY_PARTNER";
   amount: number;
@@ -374,15 +389,20 @@ export type WalletDetail = {
   payments: PaymentHistory[];
 };
 
+export type DeliveryFareOption = {
+  partnerFare: number;
+  customerCharge: number;
+};
+
 export type DeliveryFareSettings = {
-  normal: number;
-  express: number;
-  sameDay: number;
-  instant: number;
+  normal: DeliveryFareOption;
+  express: DeliveryFareOption;
+  instant: DeliveryFareOption;
 };
 
 export type TailorQuote = {
   id: string;
+  darjiId?: string;
   requestId: string;
   tailorId: string;
   price: number;
@@ -396,6 +416,7 @@ export type TailorQuote = {
 
 export type TailoringRequest = {
   id: string;
+  darjiId?: string;
   customerId: string;
   description: string;
   gender?: string;
@@ -435,6 +456,7 @@ export type TailoringRequest = {
 
 export type DeliveryRequest = {
   id: string;
+  darjiId?: string;
   taskId: string;
   orderId: string;
   tailorId: string;
