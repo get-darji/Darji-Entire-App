@@ -116,6 +116,7 @@ type DeliveryRequest = {
   dropOtpVerifiedAt?: string;
   deadlineAt?: string;
   deliveredAt?: string;
+  acceptedAt?: string;
   createdAt?: string;
   batchId?: string;
   deliveryType?: "PICKUP" | "DROP";
@@ -223,6 +224,22 @@ function routeSortTime(value?: string) {
   if (!value) return Number.MAX_SAFE_INTEGER;
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function TimestampBadge({ label, value }: { label: string; value?: string }) {
+  return (
+    <View style={styles.timestampBadge}>
+      <Ionicons name="time-outline" size={13} color="#b91c1c" />
+      <Text style={styles.timestampBadgeText}>{label}: {formatTimestamp(value)}</Text>
+    </View>
+  );
 }
 
 function sortDeliveryTasksForRoute(list: DeliveryRequest[]) {
@@ -938,6 +955,17 @@ function OnboardingScreen({
     update(target, uploaded as OnboardingData[typeof target]);
   }
 
+  function confirmFaceProfilePhoto(action: () => void) {
+    Alert.alert(
+      "Profile photo notice",
+      "This face verification photo will become your permanent Darji profile photo. Make sure your face is clear and well lit.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Continue", onPress: action }
+      ]
+    );
+  }
+
   async function fillCurrentLocation() {
     try {
       setLocatingAddress(true);
@@ -1175,7 +1203,7 @@ function OnboardingScreen({
                 <Field label="PAN number" onChange={(value) => update("panNumber", value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))} value={data.panNumber} readOnly={isLocked} />
               </>
             )}
-            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => void pickMedia("facePhoto", "camera", "face")} onGallery={() => void pickMedia("facePhoto", "gallery", "face")} disabled={isLocked} />
+            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "camera", "face"))} onGallery={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "gallery", "face"))} disabled={isLocked} />
             <View style={styles.mlKitPanel}>
               {scanning ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="scan-outline" size={18} color={BRAND_ORANGE} />}
               <View style={styles.flexOne}>
@@ -1410,6 +1438,7 @@ function HomeScreen({
             <View style={styles.cardDivider} />
             <StatusRow label="Logistics Type" value={activeBatch.deliveryType} />
             <StatusRow label="Operational Area" value={activeBatch.area} />
+            <TimestampBadge label="Batch assigned" value={activeBatch.requests[0]?.acceptedAt ?? activeBatch.roundAt} />
             <PrimaryButton icon="navigate-outline" label="Open active batch" onPress={() => onOpenBatch(activeBatch.batchId)} />
           </Card>
         );
@@ -1538,11 +1567,7 @@ function BatchDetailsView({
             <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
             <Text style={styles.cardMeta}>Priority {priority}</Text>
             <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
-            {request.createdAt ? (
-              <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
-                Confirmed: {new Date(request.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-              </Text>
-            ) : null}
+            <TimestampBadge label={request.acceptedAt ? "Assigned" : "Request created"} value={request.acceptedAt ?? request.createdAt} />
           </View>
           <StatusPill status={request.status} />
         </View>
@@ -1700,6 +1725,7 @@ function OrdersScreen({
             <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : "CANCELLED"} />
           </View>
           <View style={styles.cardDivider} />
+          <TimestampBadge label="Batch assigned" value={item.requests[0]?.acceptedAt ?? item.roundAt} />
           <Text style={styles.cardCopy} numberOfLines={2}>
             Route contains {item.requests.length} stop{item.requests.length !== 1 ? "s" : ""}.
           </Text>
@@ -3201,6 +3227,8 @@ const styles = StyleSheet.create({
   cardTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   prominentOrderId: { color: "#dc2626", fontSize: 22, lineHeight: 28, fontWeight: "900", letterSpacing: 0.5, marginBottom: 3 },
   cardMeta: { color: MUTED, fontSize: 12, fontWeight: "700", marginTop: 4 },
+  timestampBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#fff1f2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 10, paddingVertical: 7, marginTop: 9 },
+  timestampBadgeText: { color: "#b91c1c", fontSize: 11, fontWeight: "900" },
   cardCopy: { color: "#526276", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 4 },
   helperText: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", marginTop: 8 },
   cardDivider: { height: 1, backgroundColor: BORDER, marginVertical: 13 },

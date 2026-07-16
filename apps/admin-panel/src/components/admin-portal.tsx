@@ -5193,6 +5193,19 @@ function ProfileDialog({
                 {profile.user?.name ?? (isTailorProfile(profile) ? profile.shopName : undefined) ?? "Profile"}
               </Dialog.Title>
               <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">{subtitle}</Dialog.Description>
+              <div className="mt-5 flex items-center gap-4 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
+                <div className="h-20 w-20 overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fff6e4]">
+                  <img
+                    alt="Profile photo"
+                    className="h-full w-full object-cover"
+                    src={profile.user?.avatarUrl || getDefaultAvatarUrl(profile.user?.name ?? profile.user?.phone ?? (isTailorProfile(profile) ? profile.shopName ?? "Partner" : "Partner"))}
+                  />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">Profile photo</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">For verified partners this is the submitted face verification selfie.</p>
+                </div>
+              </div>
               <div className="mt-6 space-y-5">
                 {onReview ? (
                   <Panel>

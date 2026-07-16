@@ -545,7 +545,7 @@ export async function submitTailorVerificationController(req: Request, res: Resp
   }
 
   const [user, tailor] = await Promise.all([
-    UserModel.findByIdAndUpdate(req.user!.id, { name: input.personal.name }, { returnDocument: "after" }),
+    UserModel.findByIdAndUpdate(req.user!.id, { name: input.personal.name, avatarUrl: input.idVerification.facePhotoUrl }, { returnDocument: "after" }),
     TailorModel.findOneAndUpdate(
       { userId: req.user!.id },
       {
@@ -587,6 +587,11 @@ export async function saveTailorVerificationDraftController(req: Request, res: R
 
 export async function uploadTailorAvatarController(req: Request, res: Response) {
   assertCloudinaryConfigured();
+  const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("verification verificationStatus");
+  const verifiedFacePhotoUrl = (tailor?.verification as { idVerification?: { facePhotoUrl?: string } } | undefined)?.idVerification?.facePhotoUrl;
+  if (verifiedFacePhotoUrl || tailor?.verificationStatus === "VERIFIED") {
+    throw new AppError(409, "Your verification selfie is your permanent profile photo");
+  }
   const file = req.file;
   if (!file) throw new AppError(400, "Attach a profile photo");
   const result = await uploadAvatarBuffer(file);
@@ -776,7 +781,8 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
       req.user!.id,
       {
         name: input.personal.fullName,
-        ...(input.personal.email ? { email: input.personal.email } : {})
+        ...(input.personal.email ? { email: input.personal.email } : {}),
+        avatarUrl: input.identity.facePhotoUrl
       },
       { returnDocument: "after" }
     ),
@@ -822,6 +828,11 @@ export async function saveDeliveryVerificationDraftController(req: Request, res:
 
 export async function uploadDeliveryAvatarController(req: Request, res: Response) {
   assertCloudinaryConfigured();
+  const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id }).select("verification verificationStatus");
+  const verifiedFacePhotoUrl = (partner?.verification as { identity?: { facePhotoUrl?: string } } | undefined)?.identity?.facePhotoUrl;
+  if (verifiedFacePhotoUrl || partner?.verificationStatus === "VERIFIED") {
+    throw new AppError(409, "Your verification selfie is your permanent profile photo");
+  }
   const file = req.file;
   if (!file) throw new AppError(400, "Attach a profile photo");
   const result = await uploadAvatarBuffer(file, "darzi/delivery-profiles");

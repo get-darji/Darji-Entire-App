@@ -1824,10 +1824,20 @@ export async function listTailoringRequestsController(req: Request, res: Respons
 
   if (req.user!.role === "CUSTOMER") {
     where.customerId = req.user!.id;
+  } else if (req.user!.role === "TAILOR") {
+    const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id");
+    if (status && status !== "QUOTE_REQUESTED") {
+      const ownQuotes = await TailorQuoteModel.find({
+        tailorId: tailor?.id ?? "__none__",
+        status: { $in: ["ACCEPTED", "RESERVED"] }
+      }).select("_id");
+      where.selectedQuoteId = { $in: ownQuotes.map((quote) => quote.id) };
+      where.status = status;
+    } else {
+      where.status = "QUOTE_REQUESTED";
+    }
   } else if (status) {
     where.status = status;
-  } else if (req.user!.role === "TAILOR") {
-    where.status = "QUOTE_REQUESTED";
   }
 
   const requests = await TailoringRequestModel.find(where).sort({ createdAt: -1 }).limit(100);
@@ -1838,6 +1848,11 @@ export async function getTailoringRequestController(req: Request, res: Response)
   const request = await TailoringRequestModel.findById(String(req.params.id));
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+  if (req.user!.role === "TAILOR" && request.status !== "QUOTE_REQUESTED") {
+    const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id");
+    const ownQuote = await TailorQuoteModel.findOne({ requestId: request.id, tailorId: tailor?.id ?? "__none__" }).select("_id");
+    if (!ownQuote) throw new AppError(403, "Forbidden");
+  }
   res.json({ data: await hydrateTailoringRequest(request, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
 }
 
@@ -1931,15 +1946,16 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   const deliveryConfig = deliveryFaresValue[deliveryKey] ?? deliveryDefaults[deliveryKey as keyof typeof deliveryDefaults] ?? deliveryDefaults.normal;
   const expectedDeliveryFeeValue = typeof deliveryConfig === "object" && deliveryConfig ? Number(deliveryConfig.customerCharge) : Number(deliveryConfig);
   const expectedDeliveryFee = Number.isFinite(expectedDeliveryFeeValue) && expectedDeliveryFeeValue > 0 ? expectedDeliveryFeeValue : deliveryDefaults.normal.customerCharge;
+  const enforceClientCheckoutTotals = env.ENFORCE_CLIENT_CHECKOUT_TOTALS;
 
-  if (Math.abs(input.deliveryFee - expectedDeliveryFee) > 1) {
+  if (enforceClientCheckoutTotals && Math.abs(input.deliveryFee - expectedDeliveryFee) > 1) {
     throw new AppError(400, `Delivery fee mismatch. Expected: ?${expectedDeliveryFee}`);
   }
 
-  if (Math.abs(input.platformFee - expectedPlatformFee) > 1) {
+  if (enforceClientCheckoutTotals && Math.abs(input.platformFee - expectedPlatformFee) > 1) {
     throw new AppError(400, `Platform fee mismatch. Expected: ₹${expectedPlatformFee}`);
   }
-  if (Math.abs(input.smallOrderFee - expectedSmallOrderFee) > 1) {
+  if (enforceClientCheckoutTotals && Math.abs(input.smallOrderFee - expectedSmallOrderFee) > 1) {
     throw new AppError(400, `Small order fee mismatch. Expected: ₹${expectedSmallOrderFee}`);
   }
 
@@ -1962,7 +1978,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     couponCode = coupon.code;
   }
   const payableAmount = Number(Math.max(subtotalBeforeDiscount - discountAmount, 0).toFixed(2));
-  if (Math.abs(input.totalAmount - payableAmount) > 1) throw new AppError(400, "Checkout total changed. Refresh cart and try again.");
+  if (enforceClientCheckoutTotals && Math.abs(input.totalAmount - payableAmount) > 1) throw new AppError(400, "Checkout total changed. Refresh cart and try again.");
 
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: input.paymentMethod === "COD" ? "ACCEPTED" : "RESERVED" });

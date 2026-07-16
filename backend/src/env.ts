@@ -19,7 +19,8 @@ const envSchema = z.object({
   FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   RAZORPAY_KEY_ID: z.string().optional(),
-  RAZORPAY_KEY_SECRET: z.string().optional()
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+  ENFORCE_CLIENT_CHECKOUT_TOTALS: z.coerce.boolean().default(false)
 });
 
 export const env = envSchema.parse(process.env);

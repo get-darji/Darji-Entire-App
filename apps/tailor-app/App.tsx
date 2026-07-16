@@ -271,6 +271,22 @@ function formatStatus(status: string) {
     .join(" ");
 }
 
+function formatTimestamp(value?: string) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function TimestampBadge({ label, value }: { label: string; value?: string }) {
+  return (
+    <View style={styles.timestampBadge}>
+      <Ionicons name="time-outline" size={13} color="#b91c1c" />
+      <Text style={styles.timestampBadgeText}>{label}: {formatTimestamp(value)}</Text>
+    </View>
+  );
+}
+
 function statusTone(status: string) {
   if (["READY", "DELIVERED", "STITCHING_COMPLETED"].includes(status)) return { color: SUCCESS, backgroundColor: "#dcfce7" };
   if (["CANCELLED"].includes(status)) return { color: "#b91c1c", backgroundColor: "#fee2e2" };
@@ -581,6 +597,7 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
         {request.ownQuote ? <Text style={styles.quotedPill}>Quoted</Text> : <StatusPill status={request.status} />}
       </View>
       <Text style={styles.cardCopy} numberOfLines={2}>{request.description}</Text>
+      <TimestampBadge label="Created" value={request.createdAt} />
       <View style={styles.infoRow}>
         <Ionicons name="receipt-outline" size={15} color={MUTED} />
         <Text style={styles.infoText}>Request ID {shortId(request.id)}</Text>
@@ -599,11 +616,7 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
         <View style={styles.cardMain}>
           <Text style={styles.prominentOrderId}>{order.orderNumber}</Text>
           <Text style={styles.cardMeta}>{firstItem(order)} - Order ID {shortId(order.id)}</Text>
-          {order.confirmedAt ? (
-            <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
-              Confirmed: {new Date(order.confirmedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-            </Text>
-          ) : null}
+          <TimestampBadge label={order.confirmedAt ? "Confirmed" : "Created"} value={order.confirmedAt ?? order.createdAt} />
         </View>
         <StatusPill status={order.status} />
       </View>
@@ -751,6 +764,7 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
           <Text style={styles.cardLabel}>CUSTOMER DESCRIPTION</Text>
           <Text style={styles.customerDescriptionText}>{request.description}</Text>
           <DetailRow icon="receipt-outline" label="Request ID" value={shortId(request.id)} />
+          <DetailRow icon="time-outline" label="Created" value={formatTimestamp(request.createdAt)} />
           <DetailRow icon="shirt-outline" label="Clothing Items" value={`${itemCount}`} />
           <View style={styles.detailRow}>
             <View style={styles.smallIcon}>
@@ -2173,6 +2187,17 @@ function TailorVerificationFlow({
     }
   }
 
+  function confirmFaceProfilePhoto(action: () => void) {
+    Alert.alert(
+      "Profile photo notice",
+      "This face verification photo will become your permanent Darji profile photo. Make sure your face is clear and well lit.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Continue", onPress: action }
+      ]
+    );
+  }
+
   async function pickDoc(setter: (media: VerificationMediaDraft) => void, camera = false, scan?: "ocr" | "face") {
     const permission = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -2719,11 +2744,11 @@ function TailorVerificationFlow({
                 <Text style={styles.faceStatusText}>{faceLiveness === "idle" ? "Not started" : faceLiveness === "aligning" ? "Aligning face..." : faceLiveness === "aligned" ? "Green circle: blink now" : faceLiveness === "blink-detected" ? "Blink detected, capturing..." : "Selfie captured"}</Text>
               </View>
             </View>
-            <Pressable style={styles.secondaryButton} onPress={() => setFaceModeOpen(true)}>
+            <Pressable style={styles.secondaryButton} onPress={() => confirmFaceProfilePhoto(() => setFaceModeOpen(true))}>
               <Ionicons name="camera-outline" size={18} color={BRAND_DEEP} />
               <Text style={styles.secondaryButtonText}>{facePhoto ? "Retake Face Verification" : "Start Face Verification"}</Text>
             </Pressable>
-            <VerificationDocBox label="Upload Face Photo Manually" media={facePhoto} onPick={() => pickDoc(setFacePhoto, true, "face")} />
+            <VerificationDocBox label="Upload Face Photo Manually" media={facePhoto} onPick={() => confirmFaceProfilePhoto(() => pickDoc(setFacePhoto, true, "face"))} />
             {faceModeOpen ? (
               <Modal visible animationType="slide" onRequestClose={() => setFaceModeOpen(false)}>
                 <SafeAreaView style={styles.cameraSafe}>
@@ -2952,6 +2977,10 @@ function ProfileScreen({
   }
 
   async function pickAvatar() {
+    if (me?.tailorProfile?.verification?.idVerification?.facePhotoUrl || me?.tailorProfile?.verificationStatus === "VERIFIED") {
+      showDialog({ title: "Photo locked", message: "Your verification selfie is your permanent profile photo.", icon: "lock-closed-outline" });
+      return;
+    }
     if (!token) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -2987,15 +3016,17 @@ function ProfileScreen({
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header title="Profile" subtitle={me?.phone ? `+91 ${me.phone}` : "Tailor account"} />
       <View style={styles.profileCard}>
-        <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar}>
+        <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar || Boolean(me?.tailorProfile?.verification?.idVerification?.facePhotoUrl) || me?.tailorProfile?.verificationStatus === "VERIFIED"}>
           <Image source={{ uri: me?.avatarUrl || getFallbackAvatar(me?.name || me?.tailorProfile?.shopName) }} style={styles.avatarImage} />
-          <View style={styles.avatarEditBadge}>
-            {uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}
-          </View>
+          {me?.tailorProfile?.verification?.idVerification?.facePhotoUrl || me?.tailorProfile?.verificationStatus === "VERIFIED" ? null : (
+            <View style={styles.avatarEditBadge}>
+              {uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}
+            </View>
+          )}
         </Pressable>
         <View style={styles.cardMain}>
           <Text style={styles.bigTitle}>{me?.tailorProfile?.shopName ?? "Darji Tailor"}</Text>
-          <Text style={styles.cardMeta}>{me?.name ?? "Tailor Partner"} - tap photo to change</Text>
+          <Text style={styles.cardMeta}>{me?.tailorProfile?.verification?.idVerification?.facePhotoUrl || me?.tailorProfile?.verificationStatus === "VERIFIED" ? `${me?.name ?? "Tailor Partner"} - verification photo locked` : `${me?.name ?? "Tailor Partner"} - tap photo to change`}</Text>
         </View>
       </View>
 
@@ -3818,6 +3849,8 @@ const styles = StyleSheet.create({
   cardTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   prominentOrderId: { color: "#dc2626", fontSize: 21, lineHeight: 27, fontWeight: "900", letterSpacing: 0.4, marginBottom: 3 },
   cardMeta: { color: MUTED, fontSize: 12, fontWeight: "700", marginTop: 4 },
+  timestampBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 12, backgroundColor: "#fff1f2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 10, paddingVertical: 7, marginTop: 9 },
+  timestampBadgeText: { color: "#b91c1c", fontSize: 11, fontWeight: "900" },
   cardCopy: { color: "#526276", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 12 },
   cardLabel: { color: MUTED, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
   cardDivider: { height: 1, backgroundColor: BORDER, marginVertical: 13 },

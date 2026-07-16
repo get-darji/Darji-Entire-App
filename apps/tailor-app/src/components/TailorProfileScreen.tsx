@@ -91,6 +91,8 @@ type TailorProfile = {
   earnings: number;
   workingHours?: { from?: string; to?: string };
   settings?: TailorSettings;
+  verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
+  verification?: { idVerification?: { facePhotoUrl?: string } };
 };
 type MeResponse = {
   id: string;
@@ -173,6 +175,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   const palette = general.darkMode ? darkPalette : lightPalette;
   const styles = useMemo(() => createStyles(palette), [palette]);
+  const avatarLocked = Boolean(profile?.verification?.idVerification?.facePhotoUrl) || profile?.verificationStatus === "VERIFIED";
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
@@ -256,6 +259,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   }
 
   async function pickAvatar() {
+    if (avatarLocked) {
+      showDialog({ title: "Photo locked", message: "Your verification selfie is your permanent profile photo.", icon: "lock-closed-outline" });
+      return;
+    }
     if (!token) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -278,6 +285,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   }
 
   async function chooseAvatarPreset(preset: AvatarPreset) {
+    if (avatarLocked) {
+      showDialog({ title: "Photo locked", message: "Your verification selfie is your permanent profile photo.", icon: "lock-closed-outline" });
+      return;
+    }
     setAvatarPreset(preset);
     if (me?.id) await AsyncStorage.setItem(`darji.tailor.avatarPreset.${me.id}`, preset);
     showDialog({ title: "Avatar selected", message: "Your default avatar has been updated on this device.", icon: "person-circle-outline" });
@@ -337,13 +348,13 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     <View style={styles.root}>
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
-        <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar}>
+        <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar || avatarLocked}>
           <Image source={me?.avatarUrl ? { uri: me.avatarUrl } : getFallbackAvatar(name || shopName, undefined, avatarPreset)} style={styles.avatarImage} />
-          <View style={styles.cameraBadge}>{uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}</View>
+          {!avatarLocked ? <View style={styles.cameraBadge}>{uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}</View> : null}
         </Pressable>
         <View style={styles.headerMain}>
           <Text style={styles.title}>{shopName}</Text>
-          <Text style={styles.meta}>{name || "Tailor Partner"}</Text>
+          <Text style={styles.meta}>{avatarLocked ? `${name || "Tailor Partner"} - verification photo locked` : name || "Tailor Partner"}</Text>
           <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}</Text>
           <Text style={styles.meta}>{email || "Email not added"}</Text>
           <Text style={styles.completedText}>{completedOrders} completed orders</Text>
@@ -379,7 +390,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <Text style={styles.inputLabel}>Choose Avatar</Text>
               <View style={styles.avatarPickerGrid}>
                 {avatarOptions.map((option) => (
-                  <Pressable key={option.key} style={[styles.avatarOption, avatarPreset === option.key && styles.avatarOptionSelected]} onPress={() => chooseAvatarPreset(option.key)}>
+                  <Pressable key={option.key} style={[styles.avatarOption, avatarPreset === option.key && styles.avatarOptionSelected, avatarLocked && styles.avatarOptionDisabled]} onPress={() => chooseAvatarPreset(option.key)} disabled={avatarLocked}>
                     <Image source={avatarImages[option.key]} style={styles.avatarOptionImage} />
                     <Text style={styles.avatarOptionLabel}>{option.label}</Text>
                   </Pressable>
@@ -1885,6 +1896,7 @@ function createStyles(palette: typeof lightPalette) {
     avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
     avatarOption: { width: "30%", minWidth: 96, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, alignItems: "center", padding: 10 },
     avatarOptionSelected: { borderColor: BRAND_ORANGE, backgroundColor: palette.surfaceAlt },
+    avatarOptionDisabled: { opacity: 0.45 },
     avatarOptionImage: { width: 64, height: 64, borderRadius: 20 },
     avatarOptionLabel: { color: palette.text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 8 },
     cameraBadge: { position: "absolute", right: -3, bottom: -3, width: 28, height: 28, borderRadius: 14, backgroundColor: BRAND_ORANGE, borderWidth: 2, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },

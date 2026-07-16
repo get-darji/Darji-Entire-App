@@ -2215,38 +2215,60 @@ function NewRequestScreen({
       setScreen("clothIssue");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Try uploading smaller files.";
+      if (/access to this resource|authentication required|invalid session|session expired/i.test(message)) {
+        Alert.alert("Session issue", "Please login again before uploading photos.");
+        signOut();
+        return;
+      }
       Alert.alert("Upload failed", message);
-      if (message.includes("Session expired")) signOut();
     } finally {
       setUploading(false);
     }
   }
 
   async function pickFromGallery() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to upload photos.");
-      return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", "Allow photo library access to upload photos.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        quality: 0.8,
+        allowsMultipleSelection: true
+      });
+      if (!result.canceled) appendMedia(result.assets.map(toLocalMedia));
+    } catch (error) {
+      Alert.alert(
+        "Gallery unavailable",
+        error instanceof Error && /access to this resource|permission/i.test(error.message)
+          ? "Photo access is blocked. Open device settings and allow photo access for Darzi."
+          : "Could not open the gallery right now."
+      );
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality: 0.8,
-      allowsMultipleSelection: true
-    });
-    if (!result.canceled) appendMedia(result.assets.map(toLocalMedia));
   }
 
   async function openCamera() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow camera access to capture photos.");
-      return;
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", "Allow camera access to capture photos.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        quality: 0.8
+      });
+      if (!result.canceled) appendMedia(result.assets.map(toLocalMedia));
+    } catch (error) {
+      Alert.alert(
+        "Camera unavailable",
+        error instanceof Error && /access to this resource|permission/i.test(error.message)
+          ? "Camera access is blocked. Open device settings and allow camera access for Darzi."
+          : "Could not open the camera right now."
+      );
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality: 0.8
-    });
-    if (!result.canceled) appendMedia(result.assets.map(toLocalMedia));
   }
 
   async function useCurrentLocation() {
@@ -4325,7 +4347,7 @@ function ConfirmOrderScreen({
   draft: RequestDraft;
   setDraft: (draft: RequestDraft) => void;
   setScreen: (screen: Screen) => void;
-  onPlaceOrder: (paymentMethod: string, checkout: { couponCode?: string; totalAmount: number }) => void;
+  onPlaceOrder: (paymentMethod: string, checkout: { couponCode?: string; totalAmount: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number }) => void;
   isPlacingOrder?: boolean;
   onDeleteRequest?: () => Promise<void> | void;
 }) {
@@ -4521,7 +4543,7 @@ function ConfirmOrderScreen({
           ))}
         </View>
 
-        <Pressable style={[styles.primaryWideButton, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total })} disabled={isPlacingOrder}>
+        <Pressable style={[styles.primaryWideButton, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee })} disabled={isPlacingOrder}>
           {isPlacingOrder ? (
             <ActivityIndicator color="#111111" />
           ) : (
@@ -7629,8 +7651,8 @@ export default function App() {
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
 
-  const customerPhone = user?.phone ?? "9876543210";
-  const customerData = customerDataByPhone[customerPhone] ?? makeDefaultCustomerData(customerPhone, user?.name);
+  const customerPhone = user?.phone ?? (user?.id ? `user-${user.id}` : "guest");
+  const customerData = customerDataByPhone[customerPhone] ?? makeDefaultCustomerData(user?.phone ?? customerPhone, user?.name);
   const { orders, profile, settings, addresses, notifications, appReviews } = customerData;
   const defaultAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
   const unreadCount = notifications.filter((item) => !item.read).length;
@@ -8335,12 +8357,14 @@ export default function App() {
     void playAppSound("confirmation");
   }
 
-  async function placeOrder(paymentMethod: string, checkout?: { couponCode?: string; totalAmount?: number }) {
+  async function placeOrder(paymentMethod: string, checkout?: { couponCode?: string; totalAmount?: number; deliveryFee?: number; platformFee?: number; smallOrderFee?: number; homeMeasurementFee?: number }) {
     if (!selectedQuote?.backendRequestId || !selectedQuote.backendQuoteId || !token) return;
     if (checkoutPaymentMethod) return;
     const orderDraft = { ...draft, pickup: defaultAddress?.address ?? draft.pickup };
-    const deliveryFee = deliveryFeeForUrgency(orderDraft.urgency);
-    const homeMeasurementFee = homeMeasurementFeeForDraft(orderDraft);
+    const deliveryFee = checkout?.deliveryFee ?? deliveryFeeForUrgency(orderDraft.urgency);
+    const platformFee = checkout?.platformFee ?? getPlatformFee(selectedQuote.price);
+    const smallOrderFee = checkout?.smallOrderFee ?? getSmallOrderFee(selectedQuote.price);
+    const homeMeasurementFee = checkout?.homeMeasurementFee ?? homeMeasurementFeeForDraft(orderDraft);
     const totalAmount = checkout?.totalAmount ?? totalForQuote(selectedQuote, orderDraft);
 
     try {
@@ -8353,8 +8377,8 @@ export default function App() {
             quoteId: selectedQuote.backendQuoteId,
             paymentMethod,
             deliveryFee,
-            platformFee: getPlatformFee(selectedQuote.price),
-            smallOrderFee: getSmallOrderFee(selectedQuote.price),
+            platformFee,
+            smallOrderFee,
             homeMeasurementFee,
             couponCode: checkout?.couponCode,
             totalAmount
