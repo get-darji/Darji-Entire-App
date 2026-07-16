@@ -82,6 +82,7 @@ import {
   getAnalytics,
   getCoupons,
   getDeliveryPartners,
+  getDeliveryBatches,
   getDeliveryRequests,
   getDeliveryRetries,
   getMe,
@@ -99,7 +100,6 @@ import {
   getUsers,
   markPaymentPaid,
   moderateUser,
-  inviteAdmin,
   requestOtp,
   reviewDeliveryVerification,
   reviewTailorVerification,
@@ -117,6 +117,7 @@ import {
   toggleReviewFeatured,
   resolveDeliveryRetry,
   retryDeliveryNow,
+  reassignDeliveryBatchTask,
   addSupportTicketMessage,
   addBugReportMessage,
   addChangeRequestMessage,
@@ -141,10 +142,12 @@ import type {
   AnalyticsSummary,
   Coupon,
   DeliveryPartnerProfile,
+  DeliveryBatch,
   DeliveryRequest,
   MeResponse,
   Order,
   Payment,
+  BasicUser,
   SettingRecord,
   SupportTicket,
   TailorProfile,
@@ -165,6 +168,7 @@ type QueryBundle = {
   orders: Order[];
   tailoringRequests: TailoringRequest[];
   deliveryRequests: DeliveryRequest[];
+  deliveryBatches: DeliveryBatch[];
   tailors: TailorProfile[];
   partners: DeliveryPartnerProfile[];
   users: AdminUser[];
@@ -275,9 +279,10 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "orders", icon: PackageCheck, label: "Orders", description: "Assignment and status control" },
   { id: "tailoring", icon: Scissors, label: "Tailoring Requests", description: "Quote-led requests and work status" },
   { id: "delivery", icon: Truck, label: "Delivery Ops", description: "Pickup and delivery tasks" },
+  { id: "batches", icon: PackageCheck, label: "Batch Management", description: "Delivery batch routing and reassignment" },
   { id: "tailors", icon: ShieldCheck, label: "Tailors", description: "Availability, verification, earnings" },
   { id: "partners", icon: Users, label: "Delivery Partners", description: "Fleet management and ratings" },
-  { id: "users", icon: UserCircle2, label: "Users", description: "Customer and partner access control" },
+  { id: "users", icon: UserCircle2, label: "Customers", description: "Customer accounts and access control" },
   { id: "payments", icon: CreditCard, label: "Payments", description: "Collections and payment state" },
   { id: "coupons", icon: Ticket, label: "Coupons", description: "Offers and retention levers" },
   { id: "support", icon: Bell, label: "Support", description: "Tickets and customer follow-up" },
@@ -402,6 +407,11 @@ export function AdminPortal() {
     queryFn: getDeliveryRetries,
     enabled: isAuthed
   });
+  const deliveryBatchesQuery = useQuery({
+    queryKey: ["admin", "delivery-batches"],
+    queryFn: getDeliveryBatches,
+    enabled: isAuthed
+  });
   const tailorsQuery = useQuery({
     queryKey: ["admin", "tailors"],
     queryFn: getTailors,
@@ -502,6 +512,7 @@ export function AdminPortal() {
       orders: ordersQuery.data,
       tailoringRequests: tailoringQuery.data,
       deliveryRequests: deliveryQuery.data,
+      deliveryBatches: deliveryBatchesQuery.data ?? [],
       tailors: tailorsQuery.data,
       partners: partnersQuery.data,
       users: usersQuery.data,
@@ -516,6 +527,7 @@ export function AdminPortal() {
     ordersQuery.data,
     tailoringQuery.data,
     deliveryQuery.data,
+    deliveryBatchesQuery.data,
     tailorsQuery.data,
     partnersQuery.data,
     usersQuery.data,
@@ -571,6 +583,7 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "delivery-retries"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "partners"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
@@ -710,6 +723,20 @@ export function AdminPortal() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-retries"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] })
+      ]);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const batchReassignMutation = useMutation({
+    mutationFn: reassignDeliveryBatchTask,
+    onSuccess: async () => {
+      toast.success("Order moved to selected batch");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] })
       ]);
     },
@@ -738,14 +765,6 @@ export function AdminPortal() {
     mutationFn: moderateUser,
     onSuccess: async (_, variables) => {
       toast.success(`User set to ${formatStatus(variables.action).toLowerCase()}`);
-      await refreshData();
-    },
-    onError: (error) => toast.error(extractError(error))
-  });
-  const inviteAdminMutation = useMutation({
-    mutationFn: inviteAdmin,
-    onSuccess: async () => {
-      toast.success("Admin invited successfully");
       await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
@@ -933,7 +952,7 @@ export function AdminPortal() {
     );
   }
 
-  const { analytics, me, orders, tailoringRequests, deliveryRequests, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
+  const { analytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
   
   const confirmedTailoringRequests: Order[] = tailoringRequests
     .filter((request) => request.status === "TAILOR_SELECTED" || !!request.orderStatus)
@@ -954,7 +973,7 @@ export function AdminPortal() {
       return {
         id: request.id,
         darjiId: request.darjiId,
-        orderNumber: request.darjiId ?? "Darji ID pending",
+        orderNumber: formatCustomerRequestId(request.id),
         customerId: request.customerId,
         customer: request.customer,
         tailorId: request.selectedQuote?.tailor?.id ?? request.assignedTailorId,
@@ -1001,6 +1020,7 @@ export function AdminPortal() {
   const cancelledOrders = allOrders.filter((order) => order.status === "CANCELLED").length;
   const pendingOrders = allOrders.length - completedOrders - cancelledOrders;
   const recentOrders = [...allOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
+  const customerUsers = users.filter((user) => user.role === "CUSTOMER" && !user.tailorProfile && !user.deliveryProfile);
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const globalSearchResults: GlobalSearchResult[] = (() => {
     if (!searchTerm) return [];
@@ -1063,8 +1083,8 @@ export function AdminPortal() {
       if (matches(partner.id, partner.userId, partner.user?.name, partner.user?.phone, partner.vehicleNumber, partner.assignedArea)) {
         results.push({
           id: `partner-${partner.id}`,
-          title: partner.user?.name || partner.vehicleNumber || partner.id,
-          subtitle: `Delivery partner - ${partner.user?.phone ?? partner.assignedArea ?? partner.id}`,
+          title: getPartnerDisplayName(partner),
+          subtitle: `${getPartnerRoleLabel(partner)} delivery partner - ${partner.user?.phone ?? partner.assignedArea ?? partner.id}`,
           section: "partners",
           icon: Truck,
           onSelect: () => {
@@ -1076,12 +1096,12 @@ export function AdminPortal() {
       }
     });
 
-    users.forEach((user) => {
+    customerUsers.forEach((user) => {
       if (matches(user.id, user.name, user.phone, user.email, user.role)) {
         results.push({
           id: `user-${user.id}`,
-          title: user.name || user.phone || user.id,
-          subtitle: `${formatRoleLabel(user.role ?? "CUSTOMER")} - ${user.phone ?? user.email ?? user.id}`,
+          title: getCustomerDisplayName(user),
+          subtitle: `Customer - ${user.phone ?? user.email ?? user.id}`,
           section: "users",
           icon: UserCircle2,
           onSelect: () => {
@@ -1359,14 +1379,14 @@ export function AdminPortal() {
 
   const filteredPartners = partners.filter((partner) =>
     !searchTerm ||
-    [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, partner.vehicleNumber, partner.verificationStatus]
+    [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, getPartnerVehicleNumber(partner), getPartnerRoleLabel(partner), partner.verificationStatus]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
       .includes(searchTerm)
   );
 
-  const filteredUsers = users.filter((user) =>
+  const filteredUsers = customerUsers.filter((user) =>
     !searchTerm ||
     [
       user.name,
@@ -1374,8 +1394,7 @@ export function AdminPortal() {
       user.email,
       user.role,
       user.accountStatus,
-      user.tailorProfile?.shopName,
-      user.deliveryProfile?.vehicleNumber
+      user.darjiCustomerId
     ]
       .filter(Boolean)
       .join(" ")
@@ -1710,7 +1729,7 @@ export function AdminPortal() {
                 description="Highest earners this cycle."
                 items={topTailors.map((tailor) => ({
                   id: tailor.id,
-                  name: tailor.shopName ?? tailor.user?.name ?? "Unnamed tailor",
+                  name: getTailorDisplayName(tailor),
                   subtitle: `${countTailorOrders(orders, tailor.id)} orders`,
                   value: formatCurrency(tailor.earnings ?? 0),
                   rating: tailor.rating ? tailor.rating.toFixed(1) : undefined,
@@ -1723,8 +1742,8 @@ export function AdminPortal() {
                 description="Top performing delivery network."
                 items={topPartners.map((partner) => ({
                   id: partner.id,
-                  name: partner.user?.name ?? "Unnamed partner",
-                  subtitle: `${countPartnerOrders(orders, partner.id)} orders`,
+                  name: getPartnerDisplayName(partner),
+                  subtitle: `${getPartnerRoleLabel(partner)} - ${countPartnerOrders(orders, partner.id)} orders`,
                   value: formatCurrency(partner.weeklyEarnings ?? partner.monthlyEarnings ?? partner.dailyEarnings ?? 0),
                   rating: partner.rating ? partner.rating.toFixed(1) : undefined,
                   onClick: () => setPartnerDetail(partner)
@@ -1793,6 +1812,17 @@ export function AdminPortal() {
           </div>
         ) : null}
 
+        {activeSection === "batches" ? (
+          <DeliveryBatchManagement
+            batches={deliveryBatches}
+            error={deliveryBatchesQuery.isError ? extractError(deliveryBatchesQuery.error) : undefined}
+            orders={allOrders}
+            pendingTaskId={batchReassignMutation.isPending ? batchReassignMutation.variables?.taskId : undefined}
+            onOpenOrder={(order) => setOrderDetail(order)}
+            onReassign={(taskId, batchId) => batchReassignMutation.mutate({ taskId, batchId })}
+          />
+        ) : null}
+
         {activeSection === "tailors" ? (
           <div className="space-y-6">
             <SectionIntro
@@ -1825,24 +1855,15 @@ export function AdminPortal() {
         {activeSection === "users" ? (
           <div className="space-y-6">
             <SectionIntro
-              title="User access control"
-              description="Manage registration access across customers, tailors, and delivery partners with live account status and moderation actions."
+              title="Customer access control"
+              description="Customer-only accounts. Tailors and delivery partners are managed in their own dedicated sections."
               action={
                 <div className="flex items-center gap-2">
-                  <ActionButton 
-                    onClick={() => {
-                      const phone = window.prompt("Enter phone number to invite as ADMIN:");
-                      if (phone) inviteAdminMutation.mutate({ phone });
-                    }}
-                    disabled={inviteAdminMutation.isPending}
-                  >
-                    Invite Admin
-                  </ActionButton>
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-users.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-customers.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
                 </div>
               }
             />
-            <DataTable columns={userColumns} data={filteredUsers} emptyMessage="No users match the current search." />
+            <DataTable columns={userColumns} data={filteredUsers} emptyMessage="No customers match the current search." />
           </div>
         ) : null}
 
@@ -1874,7 +1895,7 @@ export function AdminPortal() {
               {[
                 { id: "ledger", label: "Ledger" },
                 { id: "tailors", label: "Tailors" },
-                { id: "delivery", label: "Delivery Boys" }
+                { id: "delivery", label: "Delivery Partners" }
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -1906,8 +1927,10 @@ export function AdminPortal() {
               <PayoutWorkspace
                 rows={activePayoutRows}
                 loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading}
+                payingUserId={walletPayoutMutation.isPending ? payoutTarget?.userId : undefined}
                 onDetails={setWalletDetailTarget}
                 onPay={(row) => {
+                  if (walletPayoutMutation.isPending) return;
                   setPayoutTarget(row);
                   setPayoutDraft({ amount: String(row.pendingAmount || ""), receiptUrl: "", notes: "", referenceNumber: "" });
                 }}
@@ -1999,7 +2022,7 @@ export function AdminPortal() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-[var(--foreground)]">Enable Logistics Area Filtering</p>
-                          <p className="text-xs text-[var(--muted)]">If disabled, delivery boys can see and accept orders from any area.</p>
+                          <p className="text-xs text-[var(--muted)]">If disabled, delivery partners can see and accept orders from any area.</p>
                         </div>
                         <select
                           className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-1.5 text-sm outline-none text-[var(--foreground)]"
@@ -2067,6 +2090,7 @@ export function AdminPortal() {
         }}
       />
       <ProfileDialog
+        orders={allOrders}
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
         pending={tailorReviewMutation.isPending}
@@ -2077,6 +2101,7 @@ export function AdminPortal() {
         }}
       />
       <ProfileDialog
+        orders={allOrders}
         open={Boolean(partnerDetail)}
         profile={partnerDetail}
         pending={partnerReviewMutation.isPending}
@@ -3233,7 +3258,7 @@ function ReviewsManagementPanel({
     <div className="space-y-6">
       <SectionIntro
         title="Reviews"
-        description="Moderate customer reviews, filter by Tailor, Delivery Boy, or Darji App, and choose which reviews appear in the customer app."
+        description="Moderate customer reviews, filter by Tailor, Delivery Partner, or Darji App, and choose which reviews appear in the customer app."
         action={
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
@@ -3356,11 +3381,13 @@ function PayoutWorkspace({
   loading,
   onDetails,
   onPay,
+  payingUserId,
   rows
 }: {
   loading: boolean;
   onDetails: (row: WalletPayoutRow) => void;
   onPay: (row: WalletPayoutRow) => void;
+  payingUserId?: string;
   rows: WalletPayoutRow[];
 }) {
   if (loading) return <LoadingDashboard />;
@@ -3395,7 +3422,9 @@ function PayoutWorkspace({
                   </td>
                 </tr>
               ) : null}
-              {pendingRows.map((row) => (
+              {pendingRows.map((row) => {
+                const paying = payingUserId === row.userId;
+                return (
                 <tr key={row.userId} className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]">
                   <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
                   <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
@@ -3406,11 +3435,15 @@ function PayoutWorkspace({
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
                       <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onDetails(row)}>Details</ActionButton>
-                      <ActionButton className="px-3 py-2" onClick={() => onPay(row)}>Pay</ActionButton>
+                      <ActionButton className="px-3 py-2" disabled={Boolean(payingUserId)} onClick={() => onPay(row)}>
+                        {paying ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                        {paying ? "Paying" : "Pay"}
+                      </ActionButton>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -3459,6 +3492,172 @@ function PayoutWorkspace({
           </table>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function DeliveryBatchManagement({
+  batches,
+  error,
+  onOpenOrder,
+  onReassign,
+  orders,
+  pendingTaskId
+}: {
+  batches: DeliveryBatch[];
+  error?: string;
+  onOpenOrder: (order: Order) => void;
+  onReassign: (taskId: string, batchId: string) => void;
+  orders: Order[];
+  pendingTaskId?: string;
+}) {
+  const [statusFilter, setStatusFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const visibleBatches = batches.filter((batch) =>
+    (!statusFilter || batch.status === statusFilter) &&
+    (!typeFilter || batch.deliveryType === typeFilter)
+  );
+  const activeTargetBatches = batches.filter((batch) => !["completed", "cancelled"].includes(batch.status));
+  const totalEarnings = visibleBatches.reduce((sum, batch) => sum + Number(batch.estimatedEarnings ?? 0), 0);
+  const totalTasks = visibleBatches.reduce((sum, batch) => sum + batch.tasks.length, 0);
+
+  return (
+    <div className="space-y-6">
+      <SectionIntro
+        title="Batch management"
+        description="Inspect active pickup/drop batches, route orders, earnings, and move an order into another compatible batch."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterSelect
+              value={typeFilter}
+              onChange={setTypeFilter}
+              options={[
+                { label: "All types", value: "" },
+                { label: "Pickup", value: "PICKUP" },
+                { label: "Drop", value: "DROP" }
+              ]}
+            />
+            <FilterSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { label: "All statuses", value: "" },
+                { label: "Scheduled", value: "scheduled" },
+                { label: "Locked", value: "locked" },
+                { label: "Active", value: "active" },
+                { label: "Completed", value: "completed" },
+                { label: "Cancelled", value: "cancelled" }
+              ]}
+            />
+          </div>
+        }
+      />
+      <div className="grid gap-4 md:grid-cols-3">
+        <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note="Current filter" tone="sky" />
+        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note="Delivery tasks" tone="amber" />
+        <FinanceStatCard label="Delivery earnings" value={formatCurrency(totalEarnings)} note="Partner payable" tone="emerald" />
+      </div>
+      {error ? (
+        <Panel className="border-red-200 bg-red-50 text-red-700">
+          <p className="text-sm font-semibold">Batch endpoint unavailable</p>
+          <p className="mt-1 text-xs">{error}</p>
+        </Panel>
+      ) : null}
+      <div className="space-y-4">
+        {visibleBatches.map((batch) => {
+          const partner = batch.partner;
+          const completedTasks = batch.tasks.filter((task) => task.taskStatus === "delivered" || task.taskStatus === "cancelled").length;
+          return (
+            <Panel key={batch.batchId} className="overflow-hidden p-0">
+              <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-bold text-[var(--deep)]">BATCH-{batch.batchId.slice(0, 8).toUpperCase()}</h3>
+                    <DeliveryRoleBadge role={batch.deliveryType} />
+                    <StatusBadge value={batch.status} />
+                  </div>
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    {batch.deliveryRound === "ONE_PM" ? "1 PM" : batch.deliveryRound === "SIX_PM" ? "6 PM" : formatStatus(batch.deliveryRound)} round - {batch.area} - {formatDate(batch.roundAt, true)}
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--foreground)]">
+                    Accepted by {partner ? getPartnerDisplayName(partner) : "Unassigned"} {partner?.darjiPartnerId ? `(${partner.darjiPartnerId})` : ""}
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <MetricChip label="Orders" value={`${completedTasks}/${batch.tasks.length}`} />
+                  <MetricChip label="Earnings" value={formatCurrency(batch.estimatedEarnings ?? 0)} />
+                  <MetricChip label="Service" value={batch.serviceLevel ?? "STANDARD"} />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Order ID</th>
+                      <th className="px-4 py-3 font-semibold">Customer</th>
+                      <th className="px-4 py-3 font-semibold">Status timeline</th>
+                      <th className="px-4 py-3 font-semibold">Earnings</th>
+                      <th className="px-4 py-3 font-semibold">Move to batch</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batch.tasks.length ? batch.tasks.map((task) => {
+                      const order = orders.find((candidate) => candidate.id === task.orderId || candidate.request?.id === task.orderId);
+                      const targetBatches = activeTargetBatches.filter((target) => target.batchId !== batch.batchId && target.deliveryType === batch.deliveryType);
+                      const pending = pendingTaskId === task.id;
+                      return (
+                        <tr key={task.id} className="border-b border-[var(--panel-border)] last:border-0">
+                          <td className="px-4 py-4">
+                            <button className="font-bold text-[#c68008] hover:underline" type="button" onClick={() => order && onOpenOrder(order)}>
+                              {order ? getOrderDisplayNumber(order) : formatCustomerRequestId(task.orderId)}
+                            </button>
+                            <p className="mt-1 text-xs text-[var(--muted)]">{task.taskId}</p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <p className="font-semibold">{cleanText(task.customerName) ?? cleanText(task.customerPhone) ?? "Customer"}</p>
+                            <p className="text-xs text-[var(--muted)]">{task.customerPhone ?? "No phone"}</p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex flex-wrap gap-2">
+                              <StatusBadge value={task.taskStatus} />
+                              {task.acceptedAt ? <Badge tone="sky">Accepted {formatDate(task.acceptedAt, true)}</Badge> : null}
+                              {task.pickedUpAt ? <Badge tone="amber">Picked {formatDate(task.pickedUpAt, true)}</Badge> : null}
+                              {task.deliveredAt ? <Badge tone="emerald">Delivered {formatDate(task.deliveredAt, true)}</Badge> : null}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 font-semibold">{formatCurrency(task.estimatedEarnings ?? 0)}</td>
+                          <td className="px-4 py-4">
+                            <select
+                              className="h-10 min-w-[220px] rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none"
+                              disabled={pending || targetBatches.length === 0}
+                              value=""
+                              onChange={(event) => {
+                                if (event.target.value) onReassign(task.id, event.target.value);
+                              }}
+                            >
+                              <option value="">{pending ? "Moving..." : targetBatches.length ? "Select batch" : "No compatible batch"}</option>
+                              {targetBatches.map((target) => (
+                                <option key={target.batchId} value={target.batchId}>
+                                  BATCH-{target.batchId.slice(0, 8).toUpperCase()} - {target.area} - {formatDate(target.roundAt, true)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      );
+                    }) : (
+                      <tr>
+                        <td className="px-4 py-8 text-center text-[var(--muted)]" colSpan={5}>No orders in this batch yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          );
+        })}
+        {!visibleBatches.length ? <EmptyState message="No delivery batches match the current filters." /> : null}
+      </div>
     </div>
   );
 }
@@ -3563,27 +3762,45 @@ function PayoutDialog({
   setOpen: (open: boolean) => void;
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root open={open} onOpenChange={(next) => {
+      if (pending && !next) return;
+      setOpen(next);
+    }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-2xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(460px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-5 shadow-2xl">
+          {pending ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-[24px] bg-white/80 text-[var(--deep)] backdrop-blur-sm">
+              <LoaderCircle className="h-7 w-7 animate-spin text-[var(--accent)]" />
+              <p className="mt-3 text-sm font-semibold">Saving payout...</p>
+            </div>
+          ) : null}
           <Dialog.Title className="text-xl font-semibold">Record weekly payout</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">
             Debit the wallet only after transfer proof is available.
           </Dialog.Description>
-          <div className="mt-5 space-y-4">
-            <InspectGrid items={[
-              { label: "User", value: row?.name ?? "-" },
-              { label: "Wallet Balance", value: formatCurrency(row?.walletBalance ?? 0) },
-              { label: "Current Week", value: formatCurrency(row?.currentWeekEarnings ?? 0) }
-            ]} />
+          <div className="mt-5 space-y-3">
+            <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
+              <p className="text-sm font-semibold text-[var(--foreground)]">{row?.name ?? "Partner"}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">{row?.phone || "No phone"} - {row?.userType === "DELIVERY_PARTNER" ? "Delivery partner" : "Tailor"}</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">Wallet</p>
+                  <p className="font-bold">{formatCurrency(row?.walletBalance ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">This week</p>
+                  <p className="font-bold">{formatCurrency(row?.currentWeekEarnings ?? 0)}</p>
+                </div>
+              </div>
+            </div>
             <Field label="Amount to pay">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.amount} onChange={(event) => onChange({ ...draft, amount: event.target.value })} />
             </Field>
-            <Field label="Payment proof URL (PNG, JPG, JPEG, PDF)">
+            <Field label="Payment proof URL">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.receiptUrl} onChange={(event) => onChange({ ...draft, receiptUrl: event.target.value })} placeholder="https://..." />
             </Field>
-            <Field label="Upload payment proof">
+            <Field label="Upload proof (PNG, JPG, PDF)">
               <input
                 accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
                 className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
@@ -3604,12 +3821,12 @@ function PayoutDialog({
             <Field label="Reference number">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.referenceNumber} onChange={(event) => onChange({ ...draft, referenceNumber: event.target.value })} />
             </Field>
-            <Field label="Notes">
-              <textarea className="h-24 w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.notes} onChange={(event) => onChange({ ...draft, notes: event.target.value })} />
-            </Field>
             <div className="flex justify-end gap-2">
-              <Dialog.Close asChild><ActionButton variant="secondary">Cancel</ActionButton></Dialog.Close>
-              <ActionButton disabled={pending || !draft.receiptUrl.trim() || Number(draft.amount) <= 0} onClick={onSubmit}>Save payout</ActionButton>
+              <Dialog.Close asChild><ActionButton disabled={pending} variant="secondary">Cancel</ActionButton></Dialog.Close>
+              <ActionButton disabled={pending || !draft.receiptUrl.trim() || Number(draft.amount) <= 0} onClick={onSubmit}>
+                {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                Save payout
+              </ActionButton>
             </div>
           </div>
         </Dialog.Content>
@@ -4082,8 +4299,8 @@ function RecentOrdersPanel({
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3 text-[var(--foreground)]">
-                      <MiniAvatar seed={order.tailor?.shopName ?? order.tailor?.user?.name ?? `tailor-${order.id}`} />
-                      <span>{order.tailor?.shopName ?? order.tailor?.user?.name ?? "Unassigned"}</span>
+                      <MiniAvatar seed={getTailorDisplayName(order.tailor) ?? `tailor-${order.id}`} />
+                      <span>{order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned"}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
@@ -4502,6 +4719,53 @@ function StatusBadge({ value }: { value?: string | null }) {
   return <Badge tone={tone}>{formatStatus(normalized)}</Badge>;
 }
 
+function cleanText(value?: string | null) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed.length ? trimmed : undefined;
+}
+
+function getUserDisplayName(user?: BasicUser | AdminUser | null, fallback = "Customer") {
+  return cleanText(user?.name) ?? cleanText(user?.phone) ?? cleanText(user?.darjiCustomerId) ?? fallback;
+}
+
+function getCustomerDisplayName(user?: BasicUser | AdminUser | null) {
+  return getUserDisplayName(user, "Customer");
+}
+
+function getTailorDisplayName(tailor?: TailorProfile | null) {
+  return cleanText(tailor?.shopName) ?? cleanText(tailor?.user?.name) ?? cleanText(tailor?.user?.phone) ?? cleanText(tailor?.darjiTailorId) ?? "Tailor";
+}
+
+function getPartnerRole(partner?: DeliveryPartnerProfile | null) {
+  return partner?.deliveryType === "DROP" ? "DROP" : "PICKUP";
+}
+
+function getPartnerRoleLabel(partner?: DeliveryPartnerProfile | null) {
+  return getPartnerRole(partner) === "DROP" ? "Drop" : "Pickup";
+}
+
+function getPartnerDisplayName(partner?: DeliveryPartnerProfile | null) {
+  return cleanText(partner?.user?.name) ?? cleanText(partner?.user?.phone) ?? cleanText(partner?.vehicleNumber) ?? cleanText(partner?.darjiPartnerId) ?? "Delivery partner";
+}
+
+function getPartnerVehicleNumber(partner?: DeliveryPartnerProfile | null) {
+  const verificationVehicle = partner?.verification?.vehicle as { vehicleNumber?: string } | undefined;
+  return cleanText(partner?.vehicleNumber) ?? cleanText(verificationVehicle?.vehicleNumber) ?? "Vehicle not added";
+}
+
+function DeliveryRoleBadge({ partner, role }: { partner?: DeliveryPartnerProfile | null; role?: "PICKUP" | "DROP" }) {
+  const normalized = role ?? getPartnerRole(partner);
+  return <Badge tone={normalized === "DROP" ? "sky" : "amber"}>{normalized === "DROP" ? "Drop" : "Pickup"}</Badge>;
+}
+
+function getOrderDisplayNumber(order?: Pick<Order, "orderNumber" | "darjiId" | "id"> | null) {
+  return cleanText(order?.orderNumber) ?? cleanText(order?.darjiId) ?? cleanText(order?.id) ?? "Order ID pending";
+}
+
+function formatCustomerRequestId(id?: string | null) {
+  return id ? `REQ-${id.slice(0, 8).toUpperCase()}` : "REQ-PENDING";
+}
+
 function SupportStatMini({
   label,
   value,
@@ -4671,6 +4935,15 @@ function InspectGrid({ items }: { items: InspectionItem[] }) {
   );
 }
 
+function ProfileMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-white/80 px-5 py-4 md:border-r md:last:border-r-0">
+      <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+      <p className="mt-1 text-xl font-bold text-[var(--deep)]">{value}</p>
+    </div>
+  );
+}
+
 function MediaStrip({
   items,
   title
@@ -4781,15 +5054,15 @@ function OrderDetailDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,980px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
           {order ? (
             <>
-              <Dialog.Title className="text-2xl font-semibold">{order.orderNumber}</Dialog.Title>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Darji ID: {order.darjiId ?? "Darji ID pending"}</p>
+              <Dialog.Title className="text-2xl font-semibold">{getOrderDisplayNumber(order)}</Dialog.Title>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Internal trace: {order.darjiId ?? order.id}</p>
               <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">
                 Standard order workflow with current assignment and proof media visibility.
               </Dialog.Description>
               <div className="mt-6 space-y-5">
                 <InspectGrid
                   items={[
-                    { label: "Customer", value: `${order.customer?.name ?? "Unknown"} / ${order.customer?.phone ?? "No phone"}` },
+                    { label: "Customer", value: `${getCustomerDisplayName(order.customer)} / ${order.customer?.phone ?? "No phone"}` },
                     { label: "Status", value: <StatusBadge value={order.status} /> },
                     {
                       label: "Payment",
@@ -4801,9 +5074,9 @@ function OrderDetailDialog({
                       )
                     },
                     { label: "Order total", value: formatCurrency(order.totalAmount) },
-                    { label: "Tailor", value: order.tailor?.shopName ?? order.tailor?.user?.name ?? "Unassigned" },
-                    { label: "Pickup partner", value: order.pickupPartner?.user?.name ?? order.pickupPartner?.user?.phone ?? "Unassigned" },
-                    { label: "Delivery partner", value: order.deliveryPartner?.user?.name ?? order.deliveryPartner?.user?.phone ?? "Unassigned" },
+                    { label: "Tailor", value: order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned" },
+                    { label: "Pickup partner", value: order.pickupPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.pickupPartner)} <DeliveryRoleBadge partner={order.pickupPartner} /></span> : "Unassigned" },
+                    { label: "Delivery partner", value: order.deliveryPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.deliveryPartner)} <DeliveryRoleBadge partner={order.deliveryPartner} /></span> : "Unassigned" },
                     { label: "Pickup scheduled", value: formatDate(order.pickupScheduledAt, true) }
                   ]}
                 />
@@ -4884,7 +5157,7 @@ function OrderDetailDialog({
                 {/* Categorized Order Photo Proofs */}
                 <Panel className="space-y-4">
                   <h4 className="text-lg font-semibold text-[var(--deep)]">Order Photo Proofs</h4>
-                  <p className="text-sm text-[var(--muted)] -mt-2">Categorized proof images from customer, tailor, and delivery boy.</p>
+                  <p className="text-sm text-[var(--muted)] -mt-2">Categorized proof images from customer, tailor, and delivery partner.</p>
                   
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {/* Category 1: Customer Uploads */}
@@ -4916,7 +5189,7 @@ function OrderDetailDialog({
                       ) : null;
                     })()}
 
-                    {/* Category 2: Delivery Boy Pickup Proof */}
+                    {/* Category 2: Delivery Partner Pickup Proof */}
                     {(() => {
                       const linkedDeliveries = (deliveryRequests ?? []).filter((dr) => dr.orderId === order?.id);
                       const pickupMedia = [
@@ -4930,7 +5203,7 @@ function OrderDetailDialog({
                       ];
                       return pickupMedia.length > 0 ? (
                         <div className="rounded-2xl border border-[var(--panel-border)] bg-slate-50/50 p-4">
-                          <h5 className="font-bold text-sm text-[var(--deep)]">2. Delivery Boy Pickup</h5>
+                          <h5 className="font-bold text-sm text-[var(--deep)]">2. Delivery Partner Pickup</h5>
                           <p className="text-xs text-[var(--muted)] mb-3">Proof clothes picked up from customer</p>
                           <div className="grid grid-cols-2 gap-2">
                             {pickupMedia.map((item: any, idx: number) => (
@@ -5009,7 +5282,7 @@ function OrderDetailDialog({
                       ) : null;
                     })()}
 
-                    {/* Category 5: Delivery Boy Delivery Proof */}
+                    {/* Category 5: Delivery Partner Delivery Proof */}
                     {(() => {
                       const linkedDeliveries = (deliveryRequests ?? []).filter((dr) => dr.orderId === order?.id);
                       const deliveryHandover = [
@@ -5073,7 +5346,7 @@ function TailoringRequestDialog({
               <div className="mt-6 space-y-5">
                 <InspectGrid
                   items={[
-                    { label: "Customer", value: `${request.customer?.name ?? "Unknown"} / ${request.customer?.phone ?? "No phone"}` },
+                    { label: "Customer", value: `${getCustomerDisplayName(request.customer)} / ${request.customer?.phone ?? "No phone"}` },
                     { label: "Request status", value: <StatusBadge value={request.status} /> },
                     { label: "Work status", value: <StatusBadge value={request.workStatus} /> },
                     { label: "Order status", value: <StatusBadge value={request.orderStatus} /> },
@@ -5129,10 +5402,10 @@ function DeliveryRequestDialog({
                     { label: "Task type", value: formatStatus(request.type) },
                     { label: "Task status", value: <StatusBadge value={request.taskStatus} /> },
                     ...(request.lastFailureReason ? [{ label: "Failure Reason", value: <span className="text-red-500 font-semibold">{request.lastFailureReason}</span> }] : []),
-                    { label: "Assigned partner", value: assignedPartner?.user?.name ?? assignedPartner?.user?.phone ?? "Unassigned" },
+                    { label: "Assigned partner", value: assignedPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(assignedPartner)} <DeliveryRoleBadge partner={assignedPartner} /></span> : "Unassigned" },
                     { label: "Estimated earnings", value: formatCurrency(request.estimatedEarnings) },
-                    { label: "Customer", value: `${request.customerName ?? "Unknown"} / ${request.customerPhone ?? "No phone"}` },
-                    { label: "Tailor", value: `${request.tailorName ?? "Unknown"} / ${request.tailorPhone ?? "No phone"}` },
+                    { label: "Customer", value: `${cleanText(request.customerName) ?? cleanText(request.customerPhone) ?? "Customer"} / ${request.customerPhone ?? "No phone"}` },
+                    { label: "Tailor", value: `${cleanText(request.tailorName) ?? cleanText(request.tailorPhone) ?? "Tailor"} / ${request.tailorPhone ?? "No phone"}` },
                     { label: "Pickup address", value: request.pickupAddress },
                     { label: "Drop address", value: request.dropAddress }
                   ]}
@@ -5148,6 +5421,7 @@ function DeliveryRequestDialog({
 
 function ProfileDialog({
   onReview,
+  orders,
   open,
   pending,
   profile,
@@ -5155,6 +5429,7 @@ function ProfileDialog({
   subtitle
 }: {
   onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
+  orders: Order[];
   open: boolean;
   pending?: boolean;
   profile: TailorProfile | DeliveryPartnerProfile | null;
@@ -5181,6 +5456,26 @@ function ProfileDialog({
   const isDelivery = profile ? !isTailorProfile(profile) : false;
   const submittedMedia = collectVerificationMedia(profile?.verification);
   const draftMedia = collectVerificationMedia(profile?.verificationDraft);
+  const profileOrders = profile
+    ? orders.filter((order) =>
+        isDelivery
+          ? order.pickupPartnerId === profile.id || order.deliveryPartnerId === profile.id
+          : order.tailorId === profile.id
+      )
+    : [];
+  const activeProfileOrders = profileOrders.filter((order) => !["DELIVERED", "CANCELLED", "completed", "cancelled"].includes(order.status));
+  const completedProfileOrders = profileOrders.filter((order) => ["DELIVERED", "completed"].includes(order.status));
+  const displayName = profile
+    ? isDelivery
+      ? getPartnerDisplayName(profile as DeliveryPartnerProfile)
+      : getTailorDisplayName(profile as TailorProfile)
+    : "Profile";
+  const avatarSeed = profile?.user?.name ?? profile?.user?.phone ?? displayName;
+  const headline = profile
+    ? isDelivery
+      ? `${getPartnerRoleLabel(profile as DeliveryPartnerProfile)} delivery partner - ${getPartnerVehicleNumber(profile as DeliveryPartnerProfile)}`
+      : `${(profile as TailorProfile).shopName ?? "Tailor shop"} - ${formatList((profile as TailorProfile).specialization)}`
+    : subtitle;
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
@@ -5190,20 +5485,39 @@ function ProfileDialog({
           {profile ? (
             <>
               <Dialog.Title className="text-2xl font-semibold">
-                {profile.user?.name ?? (isTailorProfile(profile) ? profile.shopName : undefined) ?? "Profile"}
+                {displayName}
               </Dialog.Title>
               <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">{subtitle}</Dialog.Description>
-              <div className="mt-5 flex items-center gap-4 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
-                <div className="h-20 w-20 overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fff6e4]">
-                  <img
-                    alt="Profile photo"
-                    className="h-full w-full object-cover"
-                    src={profile.user?.avatarUrl || getDefaultAvatarUrl(profile.user?.name ?? profile.user?.phone ?? (isTailorProfile(profile) ? profile.shopName ?? "Partner" : "Partner"))}
-                  />
+              <div className="mt-5 overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff_58%,#eef6ff)]">
+                <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center">
+                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-3xl border border-white/80 bg-[#fff6e4] shadow-lg">
+                    <img
+                      alt="Profile photo"
+                      className="h-full w-full object-cover"
+                      src={profile.user?.avatarUrl || getDefaultAvatarUrl(avatarSeed)}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">{displayName}</h3>
+                      {isDelivery ? <DeliveryRoleBadge partner={profile as DeliveryPartnerProfile} /> : null}
+                      <StatusBadge value={profile.verificationStatus} />
+                      <Badge tone={profile.isAvailable ? "emerald" : "slate"}>{profile.isAvailable ? "Available" : "Offline"}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-[#6f614c]">{headline}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--muted)]">
+                      <span>{profile.user?.phone ?? "No phone"}</span>
+                      <span>{isDelivery ? (profile as DeliveryPartnerProfile).darjiPartnerId ?? "Partner ID pending" : (profile as TailorProfile).darjiTailorId ?? "Tailor ID pending"}</span>
+                      <span>Joined {formatDate(profile.createdAt, true)}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-[var(--muted)]">For verified partners, this photo is the submitted face verification selfie.</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-[var(--foreground)]">Profile photo</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">For verified partners this is the submitted face verification selfie.</p>
+                <div className="grid border-t border-white/80 bg-white/50 md:grid-cols-4">
+                  <ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} />
+                  <ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} />
+                  <ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} />
+                  <ProfileMetric label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-"} />
                 </div>
               </div>
               <div className="mt-6 space-y-5">
@@ -5266,7 +5580,7 @@ function ProfileDialog({
                 ) : null}
                 {isDelivery ? (
                   <Panel>
-                    <h4 className="text-lg font-semibold text-[var(--foreground)]">Delivery Boy Role Assignment</h4>
+                    <h4 className="text-lg font-semibold text-[var(--foreground)]">Delivery partner role assignment</h4>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                       <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 dark:bg-white/5">
                         <label className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Delivery Type</label>
@@ -5608,6 +5922,9 @@ function UserDialog({
   setOpen: (open: boolean) => void;
   user: AdminUser | null;
 }) {
+  const displayName = user ? getCustomerDisplayName(user) : "Customer";
+  const avatarSeed = user?.name ?? user?.phone ?? displayName;
+
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
@@ -5615,8 +5932,32 @@ function UserDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,760px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
           {user ? (
             <>
-              <Dialog.Title className="text-2xl font-semibold">{user.name ?? user.phone}</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Account moderation, registration visibility, and role-level access state.</Dialog.Description>
+              <Dialog.Title className="text-2xl font-semibold">{displayName}</Dialog.Title>
+              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Customer profile, account state, and moderation controls.</Dialog.Description>
+              <div className="mt-5 overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff_62%,#eef6ff)]">
+                <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center">
+                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-3xl border border-white/80 bg-[#fff6e4] shadow-lg">
+                    <img
+                      alt="Customer profile"
+                      className="h-full w-full object-cover"
+                      src={user.avatarUrl || getDefaultAvatarUrl(avatarSeed)}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">{displayName}</h3>
+                      <Badge tone="slate">Customer</Badge>
+                      <StatusBadge value={user.accountStatus} />
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-[#6f614c]">{user.darjiCustomerId ?? "Customer ID pending"}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--muted)]">
+                      <span>{user.phone ?? "No phone"}</span>
+                      <span>{user.email ?? "Email not added"}</span>
+                      <span>Joined {formatDate(user.createdAt, true)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div className="mt-6 space-y-5">
                 {user.role === "ADMIN" ? (
                   <Badge tone="slate">Admin account is protected from moderation.</Badge>
@@ -5636,14 +5977,12 @@ function UserDialog({
                 )}
                 <InspectGrid
                   items={[
+                    { label: "Customer ID", value: user.darjiCustomerId ?? "-" },
                     { label: "Phone", value: user.phone },
                     { label: "Email", value: user.email ?? "-" },
-                    { label: "Role", value: <StatusBadge value={user.role} /> },
                     { label: "Account", value: <StatusBadge value={user.accountStatus} /> },
                     { label: "Suspended until", value: formatDate(user.suspendedUntil, true) },
-                    { label: "Moderation note", value: user.moderationReason ?? "-" },
-                    { label: "Tailor registration", value: user.tailorProfile ? <StatusBadge value={user.tailorProfile.verificationStatus} /> : "No profile" },
-                    { label: "Delivery registration", value: user.deliveryProfile ? <StatusBadge value={user.deliveryProfile.verificationStatus} /> : "No profile" }
+                    { label: "Moderation note", value: user.moderationReason ?? "-" }
                   ]}
                 />
               </div>
@@ -5895,7 +6234,7 @@ function InspectTicketDialog({
                   </div>
                   <div>
                     <h5 className="font-semibold text-sm text-[var(--foreground)]">
-                      {ticket.user?.name ?? "Unnamed User"}
+                      {getCustomerDisplayName(ticket.user)}
                     </h5>
                     <p className="text-xs text-[var(--muted)]">{ticket.user?.phone}</p>
                     <p className="text-[11px] text-[var(--muted)]">{ticket.user?.email ?? "No email address"}</p>
@@ -6063,7 +6402,7 @@ function InspectBugReportDialog({
                 Bug Report: {bug.title}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
-                Submitted by {bug.user?.name ?? "Unknown user"} ({bug.user?.phone})
+                Submitted by {getUserDisplayName(bug.user, "Reporter")} ({bug.user?.phone ?? "No phone"})
               </Dialog.Description>
               <span className="mt-2 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-600">Bug ID: {bug.darjiId ?? "Darji ID pending"}</span>
             </div>
@@ -6196,7 +6535,7 @@ function InspectChangeRequestDialog({
                 Account Update Request
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
-                From {request.user?.name ?? "Partner"} ({request.user?.phone}) - Role: <strong>{request.user?.role}</strong>
+                From {getUserDisplayName(request.user, "Partner")} ({request.user?.phone ?? "No phone"}) - Role: <strong>{request.user?.role}</strong>
               </Dialog.Description>
               <span className="mt-2 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-600">Request ID: {request.darjiId ?? "Darji ID pending"}</span>
             </div>
@@ -6341,8 +6680,8 @@ function AssignOrderDialog({
           {order ? (
             <div className="mt-6 space-y-4">
               <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 text-sm">
-                <p className="font-medium">{order.orderNumber}</p>
-                <p className="mt-1 text-[var(--muted)]">{order.customer?.name ?? order.customer?.phone ?? "Unknown customer"}</p>
+                <p className="font-medium">{getOrderDisplayNumber(order)}</p>
+                <p className="mt-1 text-[var(--muted)]">{getCustomerDisplayName(order.customer)}</p>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <Field label="Tailor">
@@ -6350,7 +6689,7 @@ function AssignOrderDialog({
                     <option value="">Unassigned</option>
                     {tailors.map((tailor) => (
                       <option key={tailor.id} value={tailor.id}>
-                        {tailor.shopName ?? tailor.user?.name ?? "Tailor"} ({tailor.darjiTailorId ?? "Darji ID pending"})
+                        {getTailorDisplayName(tailor)} ({tailor.darjiTailorId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -6360,7 +6699,7 @@ function AssignOrderDialog({
                     <option value="">Unassigned</option>
                     {partners.map((partner) => (
                       <option key={partner.id} value={partner.id}>
-                        {partner.user?.name ?? "Partner"} ({partner.darjiPartnerId ?? "Darji ID pending"})
+                        {getPartnerDisplayName(partner)} - {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -6370,7 +6709,7 @@ function AssignOrderDialog({
                     <option value="">Unassigned</option>
                     {partners.map((partner) => (
                       <option key={partner.id} value={partner.id}>
-                        {partner.user?.name ?? "Partner"} ({partner.darjiPartnerId ?? "Darji ID pending"})
+                        {getPartnerDisplayName(partner)} - {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -6410,7 +6749,7 @@ function getOrderColumns({
       header: "Order",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.darjiId ?? "Darji ID pending"}</p>
+          <p className="font-medium">{getOrderDisplayNumber(row.original)}</p>
           <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
         </div>
       )
@@ -6422,7 +6761,7 @@ function getOrderColumns({
       cell: ({ row }) => (
         <div>
           <p className="font-medium">
-            {row.original.customer?.name ?? "Unknown"}</p>
+            {getCustomerDisplayName(row.original.customer)}</p>
           <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
         </div>
       )
@@ -6442,7 +6781,7 @@ function getOrderColumns({
         if (!t) return <span>Unassigned</span>;
         return (
           <span>
-            {t.shopName ?? t.user?.name ?? "Tailor"}</span>
+            {getTailorDisplayName(t)}</span>
         );
       }
     },
@@ -6454,8 +6793,10 @@ function getOrderColumns({
         const dp = row.original.deliveryPartner || row.original.pickupPartner;
         if (!dp) return <span>Unassigned</span>;
         return (
-          <span>
-            {dp.user?.name ?? dp.user?.phone ?? "Partner"}</span>
+          <div className="flex flex-col gap-1">
+            <span>{getPartnerDisplayName(dp)}</span>
+            <DeliveryRoleBadge partner={dp} />
+          </div>
         );
       }
     },
@@ -6518,7 +6859,7 @@ function getTailoringColumns({
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
         <span>
-          {row.original.customer?.name ?? row.original.customer?.phone ?? "Unknown"}{" "}
+          {getCustomerDisplayName(row.original.customer)}{" "}
           {row.original.customer?.darjiCustomerId ? (
             <span className="text-xs font-semibold text-orange-500">({row.original.customer.darjiCustomerId})</span>
           ) : null}
@@ -6579,11 +6920,23 @@ function getDeliveryColumns({
     },
     {
       accessorKey: "customerName",
-      header: "Customer"
+      header: "Customer",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium">{cleanText(row.original.customerName) ?? cleanText(row.original.customerPhone) ?? "Customer"}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.customerPhone ?? "No phone"}</p>
+        </div>
+      )
     },
     {
       accessorKey: "tailorName",
-      header: "Tailor"
+      header: "Tailor",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium">{cleanText(row.original.tailorName) ?? cleanText(row.original.tailorPhone) ?? "Tailor"}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.tailorPhone ?? "No phone"}</p>
+        </div>
+      )
     },
     {
       id: "partner",
@@ -6593,12 +6946,15 @@ function getDeliveryColumns({
         const partner = partners.find((p) => p.id === row.original.assignedDeliveryPartnerId);
         if (!partner) return <span>Unassigned</span>;
         return (
-          <span>
-            {partner.user?.name ?? "Partner"}{" "}
-            {partner.darjiPartnerId ? (
-              <span className="text-xs font-semibold text-orange-500">({partner.darjiPartnerId})</span>
-            ) : null}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span>
+              {getPartnerDisplayName(partner)}{" "}
+              {partner.darjiPartnerId ? (
+                <span className="text-xs font-semibold text-orange-500">({partner.darjiPartnerId})</span>
+              ) : null}
+            </span>
+            <DeliveryRoleBadge partner={partner} />
+          </div>
         );
       }
     },
@@ -6648,7 +7004,7 @@ function getTailorColumns({
       accessorFn: (row) => row.shopName ?? row.user?.name ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.shopName ?? row.original.user?.name ?? "Unnamed"}</p>
+          <p className="font-medium">{getTailorDisplayName(row.original)}</p>
           <p className="text-xs text-[var(--muted)]">{row.original.user?.phone ?? "No phone"}</p>
         </div>
       )
@@ -6718,11 +7074,12 @@ function getPartnerColumns({
       accessorFn: (row) => row.user?.name ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">
-            {row.original.user?.name ?? "Unnamed"}{" "}
+          <p className="flex flex-wrap items-center gap-2 font-medium">
+            <span>{getPartnerDisplayName(row.original)}</span>
             {row.original.darjiPartnerId ? (
               <span className="text-xs font-semibold text-orange-500">({row.original.darjiPartnerId})</span>
             ) : null}
+            <DeliveryRoleBadge partner={row.original} />
           </p>
           <p className="text-xs text-[var(--muted)]">{row.original.user?.phone ?? "No phone"}</p>
         </div>
@@ -6734,7 +7091,8 @@ function getPartnerColumns({
     },
     {
       accessorKey: "vehicleNumber",
-      header: "Vehicle"
+      header: "Vehicle",
+      cell: ({ row }) => <span>{getPartnerVehicleNumber(row.original)}</span>
     },
     {
       accessorKey: "rating",
@@ -6793,14 +7151,14 @@ function getUserColumns({
   return [
     {
       id: "user",
-      header: "User",
+      header: "Customer",
       accessorFn: (row) => row.name ?? row.phone,
       cell: ({ row }) => (
         <div>
           <p className="font-medium">
-            {row.original.name ?? "Unnamed user"}{" "}
-            {(row.original.darjiAdminId ?? row.original.darjiCustomerId) ? (
-              <span className="text-xs font-semibold text-orange-500">({row.original.darjiAdminId ?? row.original.darjiCustomerId})</span>
+            {getCustomerDisplayName(row.original)}{" "}
+            {row.original.darjiCustomerId ? (
+              <span className="text-xs font-semibold text-orange-500">({row.original.darjiCustomerId})</span>
             ) : null}
           </p>
           <p className="text-xs text-[var(--muted)]">{row.original.phone}</p>
@@ -6808,24 +7166,14 @@ function getUserColumns({
       )
     },
     {
-      accessorKey: "role",
-      header: "Role",
-      cell: ({ row }) => <StatusBadge value={row.original.role} />
+      accessorKey: "darjiCustomerId",
+      header: "Customer ID",
+      cell: ({ row }) => row.original.darjiCustomerId ?? "-"
     },
     {
       accessorKey: "accountStatus",
       header: "Account",
       cell: ({ row }) => <StatusBadge value={row.original.accountStatus} />
-    },
-    {
-      id: "registration",
-      header: "Registration",
-      accessorFn: (row) => row.tailorProfile?.verificationStatus ?? row.deliveryProfile?.verificationStatus ?? "CUSTOMER",
-      cell: ({ row }) => {
-        if (row.original.tailorProfile) return <StatusBadge value={row.original.tailorProfile.verificationStatus} />;
-        if (row.original.deliveryProfile) return <StatusBadge value={row.original.deliveryProfile.verificationStatus} />;
-        return <Badge tone="slate">Customer</Badge>;
-      }
     },
     {
       accessorKey: "moderationReason",
@@ -6889,7 +7237,7 @@ function getPaymentColumns({
       accessorFn: (row) => row.order?.orderNumber ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium text-[var(--foreground)]">{row.original.order?.orderNumber ?? "-"}</p>
+          <p className="font-medium text-[var(--foreground)]">{row.original.order?.orderNumber ?? row.original.darjiId ?? row.original.orderId ?? "-"}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">{row.original.darjiId ?? "Darji ID pending"}</p>
         </div>
       )
@@ -6900,7 +7248,7 @@ function getPaymentColumns({
       accessorFn: (row) => row.order?.customerName ?? row.order?.customerPhone ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium text-[var(--foreground)]">{row.original.order?.customerName ?? "Customer"}</p>
+          <p className="font-medium text-[var(--foreground)]">{cleanText(row.original.order?.customerName) ?? cleanText(row.original.order?.customerPhone) ?? "Customer"}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">{row.original.order?.customerPhone ?? row.original.order?.customerId ?? "-"}</p>
         </div>
       )
@@ -7037,7 +7385,7 @@ function getTicketColumns({
       id: "customer",
       header: "Customer",
       accessorFn: (row) => row.user?.name ?? row.user?.phone ?? "",
-      cell: ({ row }) => <span>{row.original.user?.name ?? row.original.user?.phone ?? "Unknown"}</span>
+      cell: ({ row }) => <span>{getCustomerDisplayName(row.original.user)}</span>
     },
     {
       accessorKey: "status",
@@ -7081,8 +7429,8 @@ function getChangeRequestColumns({ onOpen }: { onOpen: (req: AccountChangeReques
       accessorFn: (row) => row.user?.name ?? row.user?.phone ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium text-sm text-[var(--foreground)]">{row.original.user?.name ?? "Unnamed"}</p>
-          <p className="text-xs text-[var(--muted)]">{row.original.user?.phone}</p>
+          <p className="font-medium text-sm text-[var(--foreground)]">{getUserDisplayName(row.original.user, "Partner")}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.user?.phone ?? "No phone"}</p>
         </div>
       )
     },
@@ -7122,8 +7470,8 @@ function getBugReportColumns({ onOpen, users }: { onOpen: (bug: BugReport) => vo
       accessorFn: (row) => row.user?.name ?? row.user?.phone ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="font-medium text-sm text-[var(--foreground)]">{row.original.user?.name ?? "Unnamed"}</p>
-          <p className="text-xs text-[var(--muted)]">{row.original.user?.phone}</p>
+          <p className="font-medium text-sm text-[var(--foreground)]">{getUserDisplayName(row.original.user, "Reporter")}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.user?.phone ?? "No phone"}</p>
         </div>
       )
     },
@@ -7550,11 +7898,11 @@ function tooltipStyle() {
 
 function orderToCsv(order: Order) {
   return {
-    orderNumber: order.orderNumber,
-    customer: order.customer?.name ?? order.customer?.phone ?? "",
+    orderNumber: getOrderDisplayNumber(order),
+    customer: getCustomerDisplayName(order.customer),
     category: order.items[0]?.service?.category?.name ?? "General",
-    tailor: order.tailor?.shopName ?? order.tailor?.user?.name ?? "",
-    deliveryPartner: order.deliveryPartner?.user?.name ?? order.deliveryPartner?.user?.phone ?? "",
+    tailor: order.tailor ? getTailorDisplayName(order.tailor) : "",
+    deliveryPartner: order.deliveryPartner ? `${getPartnerDisplayName(order.deliveryPartner)} (${getPartnerRoleLabel(order.deliveryPartner)})` : "",
     amount: order.totalAmount,
     paymentMethod: order.paymentMethod,
     status: order.status,
@@ -7564,7 +7912,7 @@ function orderToCsv(order: Order) {
 
 function tailoringToCsv(request: TailoringRequest) {
   return {
-    customer: request.customer?.name ?? request.customer?.phone ?? "",
+    customer: getCustomerDisplayName(request.customer),
     clothType: request.clothType,
     workType: request.workType,
     urgency: request.urgency,
@@ -7591,7 +7939,7 @@ function deliveryToCsv(request: DeliveryRequest) {
 function tailorToCsv(tailor: TailorProfile) {
   return {
     shopName: tailor.shopName ?? "",
-    name: tailor.user?.name ?? "",
+    name: getUserDisplayName(tailor.user, "Tailor"),
     phone: tailor.user?.phone ?? "",
     rating: tailor.rating ?? "",
     earnings: tailor.earnings ?? 0,
@@ -7602,9 +7950,10 @@ function tailorToCsv(tailor: TailorProfile) {
 
 function partnerToCsv(partner: DeliveryPartnerProfile) {
   return {
-    name: partner.user?.name ?? "",
+    name: getPartnerDisplayName(partner),
     phone: partner.user?.phone ?? "",
-    vehicleNumber: partner.vehicleNumber ?? "",
+    deliveryType: getPartnerRoleLabel(partner),
+    vehicleNumber: getPartnerVehicleNumber(partner),
     rating: partner.rating ?? "",
     weeklyEarnings: partner.weeklyEarnings ?? 0,
     verificationStatus: partner.verificationStatus ?? "",
@@ -7614,7 +7963,7 @@ function partnerToCsv(partner: DeliveryPartnerProfile) {
 
 function userToCsv(user: AdminUser) {
   return {
-    name: user.name ?? "",
+    name: getCustomerDisplayName(user),
     phone: user.phone,
     email: user.email ?? "",
     role: user.role ?? "",

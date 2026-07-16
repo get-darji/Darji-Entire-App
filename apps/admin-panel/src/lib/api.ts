@@ -9,6 +9,7 @@ import type {
   AuthSession,
   Coupon,
   DeliveryPartnerProfile,
+  DeliveryBatch,
   DeliveryRequest,
   MeResponse,
   Order,
@@ -94,6 +95,15 @@ export async function getDeliveryRequests() {
 
 export async function getDeliveryRetries() {
   return unwrap<DeliveryRequest[]>(api.get("/admin/delivery-retries"));
+}
+
+export async function getDeliveryBatches() {
+  return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
+}
+
+export async function reassignDeliveryBatchTask(payload: { taskId: string; batchId: string }) {
+  const { taskId, ...body } = payload;
+  return unwrap<DeliveryRequest>(api.patch(`/admin/delivery-batches/tasks/${taskId}`, body));
 }
 
 export async function retryDeliveryNow(taskId: string, payload?: { deliveryRound?: "ONE_PM" | "SIX_PM"; roundAt?: string }) {

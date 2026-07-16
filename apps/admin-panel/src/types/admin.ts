@@ -494,6 +494,28 @@ export type DeliveryRequest = {
   updatedAt?: string;
 };
 
+export type DeliveryBatch = {
+  id: string;
+  darjiId?: string;
+  batchId: string;
+  deliveryPartnerId?: string;
+  deliveryType: "PICKUP" | "DROP";
+  serviceLevel?: "STANDARD" | "EXPRESS";
+  deliveryRound: string;
+  roundAt: string;
+  lockAt?: string;
+  lockedAt?: string;
+  routeOptimizedAt?: string;
+  shift: string;
+  area: string;
+  tasks: Array<DeliveryRequest & { request?: Partial<TailoringRequest> | null }>;
+  estimatedEarnings: number;
+  status: "scheduled" | "locked" | "active" | "completed" | "cancelled" | string;
+  partner?: DeliveryPartnerProfile | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type MeResponse = BasicUser & {
   wallet?: { balance: number };
   tailorProfile?: TailorProfile | null;
