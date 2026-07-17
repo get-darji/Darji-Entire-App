@@ -37,7 +37,7 @@ import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
-import { notifyScheduledBatchNow } from "../services/hybrid-delivery.service.js";
+import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow } from "../services/hybrid-delivery.service.js";
 import { emitToCustomer, emitToAdmins } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 
@@ -667,13 +667,20 @@ export async function listDeliveryPartnersController(_req: Request, res: Respons
 }
 
 export async function listAdminDeliveryBatchesController(_req: Request, res: Response) {
+  await ensureDeliveryBatchesFromRequests();
   const batches = await DeliveryBatchModel.find().sort({ roundAt: -1 }).limit(200);
   const partnerIds = [...new Set(batches.map((batch) => String(batch.deliveryPartnerId ?? "")).filter(Boolean))];
   const batchIds = batches.map((batch) => String(batch.batchId));
+  const taskIdsFromBatches = [...new Set(batches.flatMap((batch) => (batch.tasks ?? []).map((taskId) => String(taskId))))];
 
   const [partners, tasks] = await Promise.all([
     DeliveryPartnerModel.find({ _id: { $in: partnerIds } }),
-    DeliveryRequestModel.find({ batchId: { $in: batchIds } }).sort({ routePosition: 1, acceptedAt: 1, createdAt: 1 })
+    DeliveryRequestModel.find({
+      $or: [
+        { batchId: { $in: batchIds } },
+        { _id: { $in: taskIdsFromBatches } }
+      ]
+    }).sort({ routePosition: 1, acceptedAt: 1, createdAt: 1 })
   ]);
 
   const partnerMap = new Map(await Promise.all(partners.map(async (partner) => [partner.id, await withUser(partner)] as const)));
@@ -683,12 +690,16 @@ export async function listAdminDeliveryBatchesController(_req: Request, res: Res
   const tasksByBatch = new Map<string, Array<Record<string, unknown>>>();
 
   for (const task of tasks) {
-    const list = tasksByBatch.get(String(task.batchId)) ?? [];
+    const batchId = batchIds.includes(String(task.batchId))
+      ? String(task.batchId)
+      : String(batches.find((batch) => (batch.tasks ?? []).some((taskId) => String(taskId) === String(task.id)))?.batchId ?? "");
+    if (!batchId) continue;
+    const list = tasksByBatch.get(batchId) ?? [];
     list.push({
       ...task.toJSON(),
       request: requestMap.get(String(task.orderId)) ?? null
     });
-    tasksByBatch.set(String(task.batchId), list);
+    tasksByBatch.set(batchId, list);
   }
 
   res.json({
@@ -710,7 +721,7 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
   if (targetBatch.status === "cancelled" || targetBatch.status === "completed") {
     throw new AppError(409, "Cannot move orders into a completed or cancelled batch");
   }
-  if (targetBatch.deliveryType !== task.deliveryType) {
+  if (targetBatch.deliveryType !== task.deliveryType || targetBatch.deliveryRound !== task.deliveryRound) {
     throw new AppError(409, "Pickup orders can only move to pickup batches and drop orders can only move to drop batches");
   }
 
@@ -720,7 +731,17 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
   }
 
   if (previousBatchId && previousBatchId !== targetBatch.batchId) {
-    await DeliveryBatchModel.updateOne({ batchId: previousBatchId }, { $pull: { tasks: task.id }, $inc: { estimatedEarnings: -Number(task.estimatedEarnings ?? 0) } });
+    await DeliveryBatchModel.updateOne(
+      { batchId: previousBatchId },
+      {
+        $pull: { tasks: task.id },
+        $inc: {
+          ordersCount: -1,
+          estimatedEarnings: -Number(task.estimatedEarnings ?? 0),
+          totalDistance: -Number(task.estimatedDistanceKm ?? 0)
+        }
+      }
+    );
   }
 
   const update: Record<string, unknown> = {
@@ -738,7 +759,17 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
   }
 
   const updatedTask = await DeliveryRequestModel.findByIdAndUpdate(task.id, update, { returnDocument: "after" });
-  await DeliveryBatchModel.updateOne({ batchId: targetBatch.batchId }, { $addToSet: { tasks: task.id }, $inc: { estimatedEarnings: Number(task.estimatedEarnings ?? 0) } });
+  await DeliveryBatchModel.updateOne(
+    { batchId: targetBatch.batchId },
+    {
+      $addToSet: { tasks: task.id },
+      $inc: {
+        ordersCount: previousBatchId === targetBatch.batchId ? 0 : 1,
+        estimatedEarnings: Number(task.estimatedEarnings ?? 0),
+        totalDistance: Number(task.estimatedDistanceKm ?? 0)
+      }
+    }
+  );
   res.json({ data: updatedTask });
 }
 
@@ -748,7 +779,7 @@ export async function notifyDeliveryBatchController(req: Request, res: Response)
   res.json({
     data: {
       batchId,
-      notifiedTasks: result.assignedTasks,
+      notifiedTasks: result.notifiedTasks,
       status: result.batch?.status ?? "scheduled"
     }
   });

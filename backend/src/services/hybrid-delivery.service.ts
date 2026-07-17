@@ -1,16 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, DeliveryType, SettingModel, TailoringRequestModel, TailorModel, UserModel } from "../models.js";
+import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, DeliveryType, OrderModel, SettingModel, TailoringRequestModel, TailorModel, UserModel } from "../models.js";
 import { emitToCustomer, emitToDeliveryPartner } from "./socket.service.js";
 import { sendPushToUsers } from "./push.service.js";
+import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
 
 export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
-type BatchSettings = { pickupTimes: BatchTime[]; dropTimes: BatchTime[]; lockMinutes: number };
+type BatchSettings = { pickupTimes: BatchTime[]; dropTimes: BatchTime[]; lockMinutes: number; maxOrdersPerBatch: number };
 
+const FIXED_BATCH_TIMES: BatchTime[] = [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }];
 const DEFAULT_SETTINGS: BatchSettings = {
-  pickupTimes: [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }],
-  dropTimes: [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }],
-  lockMinutes: 60
+  pickupTimes: FIXED_BATCH_TIMES,
+  dropTimes: FIXED_BATCH_TIMES,
+  lockMinutes: 45,
+  maxOrdersPerBatch: 10
 };
 
 export function deliveryServiceLevel(urgency?: string): DeliveryServiceLevel {
@@ -57,10 +60,39 @@ export async function getBatchSettings(): Promise<BatchSettings> {
   const record = await SettingModel.findOne({ key: "delivery_batch_settings" });
   const value = record?.value as Partial<BatchSettings> | undefined;
   return {
-    pickupTimes: validTimes(value?.pickupTimes, DEFAULT_SETTINGS.pickupTimes),
-    dropTimes: validTimes(value?.dropTimes, DEFAULT_SETTINGS.dropTimes),
-    lockMinutes: Math.max(60, Number(value?.lockMinutes) || DEFAULT_SETTINGS.lockMinutes)
+    pickupTimes: DEFAULT_SETTINGS.pickupTimes,
+    dropTimes: DEFAULT_SETTINGS.dropTimes,
+    lockMinutes: Math.max(45, Number(value?.lockMinutes) || DEFAULT_SETTINGS.lockMinutes),
+    maxOrdersPerBatch: Math.max(1, Number(value?.maxOrdersPerBatch) || DEFAULT_SETTINGS.maxOrdersPerBatch)
   };
+}
+
+async function createBatchForSlot(
+  deliveryType: DeliveryType,
+  serviceLevel: Exclude<DeliveryServiceLevel, "INSTANT">,
+  deliveryRound: string,
+  roundAt: Date,
+  lockAt: Date,
+  area: string,
+  taskId: string,
+  estimatedEarnings: number,
+  totalDistance: number
+) {
+  return DeliveryBatchModel.create({
+    batchId: randomUUID(),
+    deliveryType,
+    serviceLevel,
+    deliveryRound,
+    roundAt,
+    lockAt,
+    shift: batchShift(deliveryRound),
+    area,
+    tasks: [taskId],
+    ordersCount: 1,
+    estimatedEarnings,
+    totalDistance,
+    status: "scheduled"
+  });
 }
 
 export async function nextOpenBatchSlot(deliveryType: DeliveryType, from = new Date()) {
@@ -73,7 +105,7 @@ export async function nextOpenBatchSlot(deliveryType: DeliveryType, from = new D
       const [hour, minute] = entry.time.split(":").map(Number);
       const roundAt = istDate(day.year, day.month, day.day, hour, minute);
       const lockAt = new Date(roundAt.getTime() - settings.lockMinutes * 60 * 1000);
-      if (lockAt > from) return { deliveryRound: entry.name, roundAt, lockAt };
+      if (roundAt > from) return { deliveryRound: entry.name, roundAt, lockAt };
     }
     day = nextIstDay(day);
   }
@@ -139,6 +171,27 @@ async function refreshRoutePositions(batchId?: string) {
   );
 }
 
+async function recalculateBatchTotals(batchId?: string) {
+  if (!batchId) return null;
+  const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } });
+  const estimatedEarnings = tasks.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
+  const totalDistance = tasks.reduce((sum, task) => sum + Number(task.estimatedDistanceKm ?? 0), 0);
+  const allCompleted = tasks.length > 0 && tasks.every((task) => ["delivered", "completed"].includes(String(task.taskStatus)));
+  return DeliveryBatchModel.findOneAndUpdate(
+    { batchId },
+    {
+      $set: {
+        tasks: tasks.map((task) => task.id),
+        ordersCount: tasks.length,
+        estimatedEarnings,
+        totalDistance,
+        ...(allCompleted ? { status: "completed" } : {})
+      }
+    },
+    { returnDocument: "after" }
+  );
+}
+
 async function notifyBatchAssignment(partner: any, task: any) {
   const payload = task.toJSON();
   emitToDeliveryPartner(partner.id, "delivery:task_assigned", payload);
@@ -159,10 +212,11 @@ async function notifyBatchAssignment(partner: any, task: any) {
   });
 }
 
-async function dispatchScheduledBatch(batch: any, now = new Date()) {
+async function notifyScheduledBatch(batch: any, now = new Date()) {
+  const nextStatus = String(batch.status) === "active" ? "active" : "locked";
   const claimed = await DeliveryBatchModel.findOneAndUpdate(
-    { _id: batch.id, status: "scheduled" },
-    { status: "locked", lockedAt: now },
+    { _id: batch.id, status: { $in: ["scheduled", "locked", "active"] } },
+    { status: nextStatus, lockedAt: batch.lockedAt ?? now, routeOptimizedAt: now },
     { returnDocument: "after" }
   );
   if (!claimed) return null;
@@ -177,46 +231,54 @@ async function dispatchScheduledBatch(batch: any, now = new Date()) {
         etaWindowStart: new Date(claimed.roundAt.getTime() + index * 20 * 60 * 1000),
         etaWindowEnd: new Date(claimed.roundAt.getTime() + (index + 1) * 20 * 60 * 1000)
       })
-    )
+      )
   );
-
-  const partner = await DeliveryPartnerModel.findOne({
+  const eligiblePartners = await DeliveryPartnerModel.find({
     deliveryType: claimed.deliveryType,
     isAvailable: true,
     verificationStatus: "VERIFIED",
     ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
-  }).sort({ updatedAt: 1 });
+  }).select("userId assignedArea").sort({ updatedAt: 1 });
 
-  if (!partner) return { batch: claimed, partner: null, assignedTasks: 0 };
-
-  await DeliveryBatchModel.findByIdAndUpdate(claimed.id, { deliveryPartnerId: partner.id, status: "active", routeOptimizedAt: now });
-  let assignedTasks = 0;
-  for (const task of ordered) {
-    const assigned = await DeliveryRequestModel.findByIdAndUpdate(
-      task.id,
-      {
-        assignedDeliveryPartnerId: partner.id,
-        assignedDeliveryBoyId: partner.id,
-        taskStatus: "accepted",
-        acceptedAt: now,
-        deadlineAt: new Date(claimed.roundAt.getTime() + 2 * 60 * 60 * 1000),
-        notificationSentAt: now
-      },
-      { returnDocument: "after" }
-    );
-    if (assigned) {
-      assignedTasks += 1;
-      await TailoringRequestModel.findByIdAndUpdate(task.orderId, {
-        deliveryType: task.deliveryType,
-        batchId: claimed.batchId,
-        assignedDeliveryBoyId: partner.id,
-        ...(task.type === "customer_to_tailor" ? { orderStatus: "pickup_started" } : { orderStatus: "out_for_delivery" })
-      });
-      await notifyBatchAssignment(partner, assigned);
-    }
+  const representativeTask = ordered[0];
+  if (!representativeTask) {
+    return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: 0, notifiedTasks: 0 };
   }
 
-  return { batch: await DeliveryBatchModel.findById(claimed.id), partner, assignedTasks };
+  const representativePayload = {
+    ...(typeof representativeTask.toJSON === "function" ? representativeTask.toJSON() : representativeTask),
+    batchId: claimed.batchId,
+    deliveryRound: claimed.deliveryRound,
+    roundAt: claimed.roundAt,
+    shift: claimed.shift,
+    assignedArea: claimed.area
+  };
+
+  await Promise.all(
+    eligiblePartners.map(async (partner) => {
+      emitToDeliveryPartner(partner.id, "delivery:task_created", representativePayload);
+      await sendDeliveryBatchReadyNotification({
+        userId: partner.userId,
+        title: `${claimed.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} ${String(claimed.deliveryType).toLowerCase()} batch ready`,
+        body: `${tasks.length} requests | Rs ${Number(claimed.estimatedEarnings ?? 0).toFixed(0)} earnings | Tap to accept or view details.`,
+        data: {
+          type: "DELIVERY_BATCH_READY",
+          taskId: representativeTask.id,
+          orderId: representativeTask.orderId,
+          requestId: representativeTask.id,
+          batchId: claimed.batchId,
+          screen: "pickupDetails"
+        }
+      });
+    })
+  );
+
+  await DeliveryRequestModel.updateMany(
+    { batchId: claimed.batchId, taskStatus: "pending" },
+    { $set: { notificationSentAt: now } }
+  );
+
+  return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: eligiblePartners.length, notifiedTasks: tasks.length };
 }
 
 async function notifyInstantAssignment(partner: any, task: any) {
@@ -292,8 +354,15 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()) {
   const batch = await DeliveryBatchModel.findOne({ batchId: task.batchId });
   if (!batch || !["locked", "active"].includes(String(batch.status))) return null;
 
-  const accepted = await DeliveryRequestModel.findOneAndUpdate(
-    { _id: task.id, taskStatus: "pending" },
+  const batchTasks = await DeliveryRequestModel.find({
+    batchId: batch.batchId,
+    taskStatus: "pending",
+    retryStatus: { $ne: "ACTION_REQUIRED" }
+  }).sort({ routePosition: 1, createdAt: 1 });
+  if (!batchTasks.length) return null;
+
+  await DeliveryRequestModel.updateMany(
+    { _id: { $in: batchTasks.map((item) => item.id) }, taskStatus: "pending" },
     {
       $set: {
         assignedDeliveryPartnerId: partner.id,
@@ -310,53 +379,78 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()) {
         etaWindowStart: 1,
         etaWindowEnd: 1
       }
-    },
-    { returnDocument: "after" }
+    }
   );
-  if (!accepted) return null;
 
   await DeliveryBatchModel.findByIdAndUpdate(batch.id, {
     deliveryPartnerId: partner.id,
-    status: "active",
     routeOptimizedAt: batch.routeOptimizedAt ?? now
   });
 
   await refreshRoutePositions(task.batchId);
-  const routedTask = (await DeliveryRequestModel.findById(accepted.id)) ?? accepted;
-  await TailoringRequestModel.findByIdAndUpdate(task.orderId, {
-    deliveryType: task.deliveryType,
-    batchId: task.batchId,
-    assignedDeliveryBoyId: partner.id,
-    ...(task.type === "customer_to_tailor" ? { orderStatus: "pickup_started" } : { orderStatus: "out_for_delivery" })
-  });
+  const acceptedTasks = await DeliveryRequestModel.find({ _id: { $in: batchTasks.map((item) => item.id) } }).sort({ routePosition: 1, createdAt: 1 });
+  await Promise.all(
+    acceptedTasks.map((acceptedTask) =>
+      TailoringRequestModel.findByIdAndUpdate(acceptedTask.orderId, {
+        deliveryType: acceptedTask.deliveryType,
+        batchId: acceptedTask.batchId,
+        assignedDeliveryBoyId: partner.id,
+        ...(acceptedTask.type === "customer_to_tailor" ? { orderStatus: "pickup_started" } : { orderStatus: "out_for_delivery" })
+      })
+    )
+  );
 
-  await notifyBatchAssignment(partner, routedTask);
-  return routedTask;
+  for (const acceptedTask of acceptedTasks) {
+    const payload = acceptedTask.toJSON();
+    emitToDeliveryPartner(partner.id, "delivery:task_assigned", payload);
+    emitToCustomer(acceptedTask.customerId, "customer:delivery_status_updated", {
+      requestId: acceptedTask.id,
+      tailoringRequestId: acceptedTask.orderId,
+      status: acceptedTask.type === "customer_to_tailor" ? "PICKUP_STARTED" : "OUT_FOR_DELIVERY",
+      deliveryRequest: payload
+    });
+  }
+  return acceptedTasks.find((acceptedTask) => String(acceptedTask.id) === String(task.id)) ?? acceptedTasks[0] ?? null;
 }
 
 export async function addTaskToSilentBatch(task: any, level: Exclude<DeliveryServiceLevel, "INSTANT">) {
   const slot = await nextOpenBatchSlot(task.deliveryType);
   const area = task.assignedArea || "unassigned";
-  const batch = await DeliveryBatchModel.findOneAndUpdate(
-    { deliveryType: task.deliveryType, serviceLevel: level, deliveryRound: slot.deliveryRound, roundAt: slot.roundAt, area, status: "scheduled" },
-    {
-      $setOnInsert: {
-        batchId: randomUUID(),
-        deliveryType: task.deliveryType,
-        serviceLevel: level,
-        deliveryRound: slot.deliveryRound,
-        roundAt: slot.roundAt,
-        lockAt: slot.lockAt,
-        shift: batchShift(slot.deliveryRound),
+  const batchQuery = {
+    deliveryType: task.deliveryType,
+    deliveryRound: slot.deliveryRound,
+    roundAt: slot.roundAt,
+    status: { $nin: ["completed", "cancelled"] }
+  } as Record<string, any>;
+  let batch: any = await DeliveryBatchModel.findOne(batchQuery).sort({ createdAt: 1 });
+
+  if (!batch) {
+    try {
+      batch = await createBatchForSlot(
+        task.deliveryType,
+        level,
+        slot.deliveryRound,
+        slot.roundAt,
+        slot.lockAt,
         area,
-        tasks: [],
-        status: "scheduled"
-      },
-      $addToSet: { tasks: task.id },
-      $inc: { estimatedEarnings: Number(task.estimatedEarnings ?? 0) }
-    },
-    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
-  );
+        task.id,
+        Number(task.estimatedEarnings ?? 0),
+        Number(task.estimatedDistanceKm ?? 0)
+      );
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? (error as { code?: number }).code : undefined;
+      if (code !== 11000) throw error;
+      batch = await DeliveryBatchModel.findOne(batchQuery).sort({ createdAt: 1 });
+      if (!batch) throw error;
+    }
+  }
+
+  if (batch) {
+    await DeliveryBatchModel.findByIdAndUpdate(batch.id, {
+      $addToSet: { tasks: task.id }
+    });
+    batch = await recalculateBatchTotals(batch.batchId);
+  }
   if (!batch) throw new Error("Could not create delivery batch");
 
   await DeliveryRequestModel.findByIdAndUpdate(task.id, {
@@ -377,6 +471,19 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
       etaWindowEnd: 1
     }
   });
+  batch = await recalculateBatchTotals(batch.batchId) ?? batch;
+  await Promise.all([
+    OrderModel.findByIdAndUpdate(task.orderId, {
+      deliveryType: task.deliveryType,
+      deliveryRound: slot.deliveryRound,
+      batchId: batch.batchId
+    }),
+    TailoringRequestModel.findByIdAndUpdate(task.orderId, {
+      deliveryType: task.deliveryType,
+      deliveryRound: slot.deliveryRound,
+      batchId: batch.batchId
+    })
+  ]);
   return batch;
 }
 
@@ -418,16 +525,172 @@ export async function assignPendingTasksToPartner(partner: any) {
 }
 
 export async function lockAndDispatchDueBatches(now = new Date()) {
-  const batches = await DeliveryBatchModel.find({ status: "scheduled", lockAt: { $lte: now } });
-  for (const batch of batches) {
-    await dispatchScheduledBatch(batch, now);
+  await ensureDeliveryBatchesFromRequests();
+
+  const completedCandidates = await DeliveryBatchModel.find({ status: { $nin: ["completed", "cancelled"] } });
+  for (const batch of completedCandidates) {
+    const tasks = await DeliveryRequestModel.find({ batchId: batch.batchId, taskStatus: { $ne: "cancelled" } }).select("taskStatus");
+    if (tasks.length && tasks.every((task) => task.taskStatus === "delivered")) {
+      await DeliveryBatchModel.updateOne({ _id: batch.id }, { status: "completed" });
+    }
   }
+
+  const batchesToNotify = await DeliveryBatchModel.find({ status: "scheduled", lockAt: { $lte: now }, roundAt: { $gt: now } });
+  for (const batch of batchesToNotify) {
+    await notifyScheduledBatch(batch, now);
+  }
+
+  await DeliveryBatchModel.updateMany(
+    { status: { $in: ["scheduled", "locked"] }, roundAt: { $lte: now } },
+    { status: "active", lockedAt: now }
+  );
 }
 
 export async function notifyScheduledBatchNow(batchId: string, now = new Date()) {
-  const batch = await DeliveryBatchModel.findOne({ batchId, status: "scheduled" });
-  if (!batch) throw new Error("Scheduled batch not found");
-  const result = await dispatchScheduledBatch(batch, now);
-  if (!result) throw new Error("Could not dispatch batch");
+  const batch = await DeliveryBatchModel.findOne({ batchId, status: { $in: ["scheduled", "locked", "active"] } });
+  if (!batch) throw new Error("Upcoming batch not found");
+  const result = await notifyScheduledBatch(batch, now);
+  if (!result) throw new Error("Could not notify batch");
   return result;
 }
+
+export async function assignBatchToPartnerFromTask(taskId: string, partner: any, now = new Date()) {
+  const task = await DeliveryRequestModel.findById(taskId);
+  if (!task) return null;
+  if (String(task.serviceLevel) === "INSTANT") return claimInstantTask(task, partner, now);
+  return claimLockedBatchTask(task, partner, now);
+}
+
+export async function activateDueBatches(now = new Date()) {
+  await DeliveryBatchModel.updateMany(
+    { status: { $in: ["scheduled", "locked"] }, roundAt: { $lte: now } },
+    { status: "active", lockedAt: now }
+  );
+}
+
+export async function completeFinishedBatches() {
+  const candidates = await DeliveryBatchModel.find({ status: { $nin: ["completed", "cancelled"] } });
+  for (const batch of candidates) {
+    const tasks = await DeliveryRequestModel.find({ batchId: batch.batchId, taskStatus: { $ne: "cancelled" } }).select("taskStatus");
+    if (tasks.length && tasks.every((task) => task.taskStatus === "delivered")) {
+      await DeliveryBatchModel.updateOne({ _id: batch.id }, { status: "completed" });
+    }
+  }
+}
+
+export async function ensureDeliveryBatchesFromRequests() {
+  const settings = await getBatchSettings();
+  const requests = await DeliveryRequestModel.find({
+    deliveryType: { $in: [DeliveryType.PICKUP, DeliveryType.DROP] },
+    serviceLevel: { $in: ["STANDARD", "EXPRESS"] },
+    taskStatus: { $ne: "cancelled" }
+  }).sort({ roundAt: 1, createdAt: 1 });
+
+  const grouped = new Map<string, any[]>();
+  for (const request of requests) {
+    if (!request.roundAt || !request.deliveryRound) continue;
+    const key = [
+      String(request.deliveryType ?? ""),
+      String(request.deliveryRound ?? ""),
+      new Date(request.roundAt).toISOString()
+    ].join("|");
+    const list = grouped.get(key) ?? [];
+    list.push(request);
+    grouped.set(key, list);
+  }
+
+  for (const group of grouped.values()) {
+    if (!group.length) continue;
+    const first = group[0];
+    const area = String(first.assignedArea ?? "unassigned");
+    const roundAt = new Date(first.roundAt);
+    const lockAt = new Date(roundAt.getTime() - settings.lockMinutes * 60 * 1000);
+    const status = group.every((request) => ["delivered", "completed"].includes(String(request.taskStatus))) ? "completed" : (roundAt <= new Date() ? "active" : "scheduled");
+    const estimatedEarnings = group.reduce((sum, request) => sum + Number(request.estimatedEarnings ?? 0), 0);
+    const totalDistance = group.reduce((sum, request) => sum + Number(request.estimatedDistanceKm ?? 0), 0);
+    const existingBatch = await DeliveryBatchModel.findOne({
+      deliveryType: first.deliveryType,
+      deliveryRound: first.deliveryRound,
+      roundAt,
+      status: { $ne: "cancelled" }
+    }).sort({ createdAt: 1 });
+
+    if (existingBatch) {
+      const existingTaskIds = new Set((existingBatch.tasks ?? []).map((taskId: string) => String(taskId)));
+      const missingRequests = group.filter((request) => !existingTaskIds.has(String(request.id)));
+      if (missingRequests.length) {
+        await DeliveryBatchModel.updateOne(
+          { _id: existingBatch._id },
+          {
+            $addToSet: { tasks: { $each: missingRequests.map((request) => request.id) } }
+          }
+        );
+      }
+      await recalculateBatchTotals(existingBatch.batchId);
+      await DeliveryRequestModel.updateMany(
+        { _id: { $in: group.map((request) => request.id) } },
+        {
+          $set: {
+            batchId: existingBatch.batchId,
+            deliveryRound: first.deliveryRound,
+            roundAt,
+            assignedArea: area,
+            serviceLevel: first.serviceLevel ?? "STANDARD"
+          }
+        }
+      );
+      await Promise.all([
+        OrderModel.updateMany(
+          { _id: { $in: group.map((request) => request.orderId).filter(Boolean) } },
+          { $set: { deliveryType: first.deliveryType, deliveryRound: first.deliveryRound, batchId: existingBatch.batchId } }
+        ),
+        TailoringRequestModel.updateMany(
+          { _id: { $in: group.map((request) => request.orderId).filter(Boolean) } },
+          { $set: { deliveryType: first.deliveryType, deliveryRound: first.deliveryRound, batchId: existingBatch.batchId } }
+        )
+      ]);
+      continue;
+    }
+
+    const batch = await DeliveryBatchModel.create({
+      batchId: randomUUID(),
+      deliveryType: first.deliveryType,
+      serviceLevel: first.serviceLevel ?? "STANDARD",
+      deliveryRound: first.deliveryRound,
+      roundAt,
+      lockAt,
+      shift: first.shift ?? batchShift(first.deliveryRound),
+      area,
+      slotIndex: 1,
+      tasks: group.map((request) => request.id),
+      ordersCount: group.length,
+      estimatedEarnings,
+      totalDistance,
+      status
+    });
+
+    await DeliveryRequestModel.updateMany(
+      { _id: { $in: group.map((request) => request.id) } },
+      {
+        $set: {
+          batchId: batch.batchId,
+          deliveryRound: first.deliveryRound,
+          roundAt,
+          assignedArea: area,
+          serviceLevel: first.serviceLevel ?? "STANDARD"
+        }
+      }
+    );
+    await Promise.all([
+      OrderModel.updateMany(
+        { _id: { $in: group.map((request) => request.orderId).filter(Boolean) } },
+        { $set: { deliveryType: first.deliveryType, deliveryRound: first.deliveryRound, batchId: batch.batchId } }
+      ),
+      TailoringRequestModel.updateMany(
+        { _id: { $in: group.map((request) => request.orderId).filter(Boolean) } },
+        { $set: { deliveryType: first.deliveryType, deliveryRound: first.deliveryRound, batchId: batch.batchId } }
+      )
+    ]);
+  }
+}
+

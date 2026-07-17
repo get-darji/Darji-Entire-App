@@ -155,6 +155,9 @@ export type Order = {
   tailorId?: string;
   pickupPartnerId?: string;
   deliveryPartnerId?: string;
+  deliveryType?: "PICKUP" | "DROP";
+  deliveryRound?: string;
+  batchId?: string;
   status: string;
   paymentMethod: string;
   paymentStatus: string;
@@ -509,8 +512,11 @@ export type DeliveryBatch = {
   routeOptimizedAt?: string;
   shift: string;
   area: string;
+  slotIndex?: number;
   tasks: Array<DeliveryRequest & { request?: Partial<TailoringRequest> | null }>;
+  ordersCount?: number;
   estimatedEarnings: number;
+  totalDistance?: number;
   status: "scheduled" | "locked" | "active" | "completed" | "cancelled" | string;
   partner?: DeliveryPartnerProfile | null;
   createdAt?: string;

@@ -126,6 +126,26 @@ export async function seedDatabase() {
     { upsert: true }
   );
 
+  await SettingModel.findOneAndUpdate(
+    { key: "delivery_batch_settings" },
+    {
+      key: "delivery_batch_settings",
+      value: {
+        pickupTimes: [
+          { name: "ONE_PM", time: "13:00" },
+          { name: "SIX_PM", time: "18:00" }
+        ],
+        dropTimes: [
+          { name: "ONE_PM", time: "13:00" },
+          { name: "SIX_PM", time: "18:00" }
+        ],
+        lockMinutes: 45,
+        maxOrdersPerBatch: 10
+      }
+    },
+    { upsert: true }
+  );
+
   // Migrate existing data to assign IDs if missing
   const usersWithoutId = await UserModel.find({ darjiCustomerId: { $exists: false } });
   for (const user of usersWithoutId) {

@@ -712,15 +712,18 @@ const deliveryBatchSchema = new Schema(
     routeOptimizedAt: Date,
     shift: { type: String, enum: ["morning", "evening"], required: true, index: true },
     area: { type: String, required: true, default: "unassigned", index: true },
+    slotIndex: { type: Number, default: 1, index: true },
     tasks: [{ type: String, required: true }],
+    ordersCount: { type: Number, default: 0 },
     estimatedEarnings: { type: Number, default: 0 },
+    totalDistance: { type: Number, default: 0 },
     status: { type: String, enum: ["scheduled", "locked", "active", "completed", "cancelled"], default: "scheduled", index: true }
   },
   baseOptions
 );
 attachDarjiIdPlugin(deliveryBatchSchema, { field: "darjiId", prefix: "DBT" });
 
-deliveryBatchSchema.index({ deliveryType: 1, serviceLevel: 1, deliveryRound: 1, roundAt: 1, area: 1 }, { unique: true });
+deliveryBatchSchema.index({ deliveryType: 1, deliveryRound: 1, roundAt: 1 }, { unique: true });
 
 const settingSchema = new Schema(
   {

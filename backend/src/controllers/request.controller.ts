@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import type { Request, Response } from "express";
 import multer from "multer";
@@ -19,7 +19,7 @@ import {
 } from "../services/notificationService.js";
 import { emitToAdmins, emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
 import { creditOrderEarning } from "../services/wallet.service.js";
-import { addTaskToSilentBatch, assignPendingTasksToPartner as assignPendingDeliveryTasksToPartner, deliveryServiceLevel } from "../services/hybrid-delivery.service.js";
+import { addTaskToSilentBatch, assignBatchToPartnerFromTask, assignPendingTasksToPartner as assignPendingDeliveryTasksToPartner, deliveryServiceLevel, nextOpenBatchSlot } from "../services/hybrid-delivery.service.js";
 import { getPlatformFee, getSmallOrderFee } from "@darzi/shared";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -523,13 +523,6 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const cashCollectionRequired = type === "tailor_to_customer" && request.paymentMethod === "COD";
   const serviceLevel = deliveryServiceLevel(request.urgency);
 
-  const roundsSetting = await SettingModel.findOne({ key: "delivery_rounds" });
-  const rounds = roundsSetting?.value || [
-    { name: "ONE_PM", time: "13:00" },
-    { name: "SIX_PM", time: "18:00" }
-  ];
-  const { deliveryRound, roundAt } = getDeliveryRoundForTime(new Date(), rounds);
-
   const activePartners = await DeliveryPartnerModel.find({ assignedArea: { $ne: "unassigned" } }).select("assignedArea");
   const areas = activePartners.map((p) => p.assignedArea).filter((a): a is string => typeof a === "string");
   const assignedArea = matchAddressToArea(customerAddress, areas);
@@ -538,6 +531,10 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const enableAreaFiltering = areaFilteringSetting?.value === true;
 
   const deliveryType: DeliveryType = type === "customer_to_tailor" ? DeliveryType.PICKUP : DeliveryType.DROP;
+  const slot = serviceLevel === "INSTANT"
+    ? { deliveryRound: DeliveryRound.ONE_PM, roundAt: new Date() }
+    : await nextOpenBatchSlot(deliveryType);
+  const { deliveryRound, roundAt } = slot;
 
   const boyQuery: Record<string, any> = {
     deliveryType,
@@ -551,30 +548,13 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const immediateBoy = serviceLevel === "INSTANT" ? assignedBoy : undefined;
 
   const taskStatus = immediateBoy ? "accepted" : "pending";
-  let batchId: string = randomUUID();
+  let batchId = "";
   const items = tailoringItemsForRequest(request);
   const itemCount = requestItemCount(request);
   const deliveryClothType = itemCount === 1 ? request.clothType : `${itemCount} clothing items`;
   const deliveryWorkType = itemCount === 1 ? request.workType : "Multi-cloth order";
   const sampleMedia = items.flatMap((item: any) => item.sampleProvided ? item.sampleMedia ?? [] : []);
   const sampleProvided = sampleMedia.length > 0 || items.some((item: any) => item.sampleProvided);
-
-  if (serviceLevel === "INSTANT" && immediateBoy) {
-    const batchQuery: Record<string, any> = {
-      deliveryPartnerId: immediateBoy._id,
-      deliveryType,
-      deliveryRound,
-      roundAt,
-      status: "active"
-    };
-    if (enableAreaFiltering) {
-      batchQuery.area = assignedArea;
-    }
-    const batch = await DeliveryBatchModel.findOne(batchQuery);
-    if (batch) {
-      batchId = batch.batchId;
-    }
-  }
 
   let deliveryRequest = await DeliveryRequestModel.findOne({ orderId: request._id, type });
   try {
@@ -585,12 +565,13 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         customerId: request.customerId,
         type,
         deliveryType,
+        serviceLevel,
         deliveryRound,
         roundAt,
         assignedArea,
         batchId,
-        assignedDeliveryPartnerId: assignedBoy?._id || undefined,
-        assignedDeliveryBoyId: assignedBoy?._id || undefined,
+        assignedDeliveryPartnerId: immediateBoy?._id || undefined,
+        assignedDeliveryBoyId: immediateBoy?._id || undefined,
         taskStatus,
         shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
         estimatedEarnings,
@@ -610,14 +591,15 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         cashCollected: false,
         sampleProvided,
         sampleMedia,
-        acceptedAt: assignedBoy ? new Date() : undefined,
-        deadlineAt: assignedBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
+        acceptedAt: immediateBoy ? new Date() : undefined,
+        deadlineAt: immediateBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
       });
     } else {
       deliveryRequest = await DeliveryRequestModel.findByIdAndUpdate(
         deliveryRequest._id,
         {
           deliveryType,
+          serviceLevel,
           deliveryRound,
           roundAt,
           assignedArea,
@@ -662,49 +644,18 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   }
 
   if (serviceLevel === "INSTANT" && immediateBoy) {
-    const batchQuery: Record<string, any> = {
-      deliveryPartnerId: immediateBoy._id,
-      deliveryType,
-      deliveryRound,
-      roundAt,
-      status: "active"
-    };
-    if (enableAreaFiltering) {
-      batchQuery.area = assignedArea;
-    }
-    const batch = await DeliveryBatchModel.findOne(batchQuery);
-    if (batch) {
-      await DeliveryBatchModel.findByIdAndUpdate(batch._id, {
-        $addToSet: { tasks: deliveryRequest._id },
-        $inc: { estimatedEarnings }
-      });
-    } else {
-      await DeliveryBatchModel.create({
-        batchId,
-        deliveryPartnerId: immediateBoy._id,
-        deliveryType,
-        deliveryRound,
-        roundAt,
-        shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
-        area: enableAreaFiltering ? assignedArea : "All Areas",
-        tasks: [deliveryRequest._id],
-        estimatedEarnings,
-        status: "active"
-      });
-    }
     await TailoringRequestModel.findByIdAndUpdate(request._id, {
       orderStatus: type === "customer_to_tailor" ? "pickup_started" : "out_for_delivery",
       deliveryType,
       deliveryRound,
-      batchId,
+      $unset: { batchId: 1 },
       assignedDeliveryBoyId: immediateBoy._id
     });
-    await refreshBatchRoutePositions(batchId);
   } else {
     await TailoringRequestModel.findByIdAndUpdate(request._id, {
       deliveryType,
       deliveryRound,
-      batchId
+      $unset: { batchId: 1 }
     });
   }
 
@@ -1016,37 +967,8 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to accept delivery jobs");
   if (!partner.isAvailable) throw new AppError(400, "Go online before accepting delivery jobs");
 
-  const deadlineAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
-  let request = await DeliveryRequestModel.findOneAndUpdate(
-    { _id: String(req.params.id), taskStatus: "pending", assignedDeliveryPartnerId: { $exists: false }, retryStatus: { $ne: "ACTION_REQUIRED" } },
-    { taskStatus: "accepted", retryStatus: "ACTIVE", assignedDeliveryPartnerId: partner.id, assignedDeliveryBoyId: partner.id, acceptedAt: new Date(), deadlineAt },
-    { returnDocument: "after" }
-  );
+  const request = await assignBatchToPartnerFromTask(String(req.params.id), partner);
   if (!request) throw new AppError(409, "Delivery request is no longer available");
-
-  const batch = await DeliveryBatchModel.findOneAndUpdate(
-    { deliveryPartnerId: partner.id, deliveryType: partner.deliveryType, deliveryRound: request.deliveryRound, roundAt: request.roundAt, status: "active" },
-    { 
-      $setOnInsert: { 
-        batchId: randomUUID(),
-        deliveryPartnerId: partner.id, 
-        deliveryType: partner.deliveryType, 
-        deliveryRound: request.deliveryRound, 
-        roundAt: request.roundAt, 
-        shift: request.shift, 
-        area: request.assignedArea || "All Areas",
-        estimatedEarnings: 0
-      }, 
-      $addToSet: { tasks: request.id },
-      $inc: { estimatedEarnings: request.estimatedEarnings || 0 }
-    },
-    { upsert: true, returnDocument: "after" }
-  );
-  if (batch) {
-    request = await DeliveryRequestModel.findByIdAndUpdate(request.id, { batchId: batch.batchId }, { returnDocument: "after" }) ?? request;
-    await refreshBatchRoutePositions(batch.batchId);
-    request = await DeliveryRequestModel.findById(request.id) ?? request;
-  }
 
   emitDeliveryEvent({ type: "DELIVERY_REQUEST_ACCEPTED", requestId: request.id, deliveryPartnerId: partner.id });
   emitToDeliveryPartners("delivery:task_accepted", { taskId: request.id, deliveryPartnerId: partner.id });

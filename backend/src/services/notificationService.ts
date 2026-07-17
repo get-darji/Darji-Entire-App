@@ -62,6 +62,14 @@ export function sendPickupAssignedNotification(input: NotificationEventInput) {
   });
 }
 
+export function sendDeliveryBatchReadyNotification(input: NotificationEventInput) {
+  return sendEventNotification(input, {
+    channelId: "delivery-pickup-assigned-v2",
+    categoryId: "DELIVERY_PICKUP_REQUEST",
+    actions: ["Accept", "View Details"]
+  });
+}
+
 export function sendOrderCompletedNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "customer-orders-v2",

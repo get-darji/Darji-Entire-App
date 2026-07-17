@@ -3,6 +3,7 @@ import {
   AddressModel,
   DeliveryBatchModel,
   DeliveryRequestModel,
+  DeliveryType,
   CouponModel,
   DeliveryPartnerModel,
   OrderModel,
@@ -17,6 +18,7 @@ import {
 import { AppError } from "../middleware/error.js";
 import { notifyUser, orderStatusMessage } from "./notification.service.js";
 import { creditOrderEarning } from "./wallet.service.js";
+import { addTaskToSilentBatch, nextOpenBatchSlot } from "./hybrid-delivery.service.js";
 import { randomUUID } from "crypto";
 
 type JsonDoc = { toJSON: () => Record<string, unknown> };
@@ -162,6 +164,7 @@ export async function createOrder(customerId: string, payload: unknown) {
   if (!address) {
     throw new AppError(404, "Address not found");
   }
+  const customer = await UserModel.findById(customerId).select("name phone");
 
   const services = await ServiceModel.find({ _id: { $in: input.items.map((item) => item.serviceId) }, isActive: true });
   const serviceMap = new Map(services.map((service) => [service.id, service]));
@@ -218,6 +221,45 @@ export async function createOrder(customerId: string, payload: unknown) {
 
   await PaymentModel.create({ orderId: order.id, method: input.paymentMethod, amount: totalAmount, status: "PENDING" });
 
+  const pickupAddress = [address.line1, address.line2, address.city, address.state, address.pincode].filter(Boolean).join(", ") || address.line1;
+  const nextSlot = await nextOpenBatchSlot(DeliveryType.PICKUP);
+  const deliveryRequest = await DeliveryRequestModel.create({
+    orderId: order.id,
+    tailorId: undefined,
+    customerId,
+    type: "customer_to_tailor",
+    deliveryType: DeliveryType.PICKUP,
+    serviceLevel: "STANDARD",
+    deliveryRound: nextSlot.deliveryRound,
+    roundAt: nextSlot.roundAt,
+    assignedArea: "unassigned",
+    taskStatus: "pending",
+    shift: nextSlot.deliveryRound === "ONE_PM" ? "morning" : "evening",
+    estimatedEarnings: 8,
+    pickupAddress,
+    dropAddress: "Tailor address pending",
+    customerName: customer?.name ?? address.name,
+    customerPhone: customer?.phone ?? address.phone,
+    clothType: input.items.length === 1 ? "Standard order" : `${input.items.length} items`,
+    workType: "Order pickup",
+    itemCount: input.items.length,
+    paymentMethod: input.paymentMethod,
+    paymentStatus: "PENDING",
+    totalAmount,
+    cashCollectionRequired: input.paymentMethod === "COD",
+    cashCollected: false,
+    sampleProvided: false,
+    sampleMedia: []
+  });
+
+  const scheduledBatch = await addTaskToSilentBatch(deliveryRequest, "STANDARD");
+  const scheduledTask = await DeliveryRequestModel.findById(deliveryRequest.id);
+  await OrderModel.findByIdAndUpdate(order.id, {
+    deliveryType: DeliveryType.PICKUP,
+    deliveryRound: scheduledTask?.deliveryRound ?? nextSlot.deliveryRound,
+    batchId: scheduledBatch.batchId
+  });
+
   await notifyUser({
     userId: customerId,
     orderId: order.id,
@@ -225,7 +267,8 @@ export async function createOrder(customerId: string, payload: unknown) {
     body: "Your Darzi pickup request has been created."
   });
 
-  return hydrateOrder(order);
+  const updatedOrder = await OrderModel.findById(order.id);
+  return updatedOrder ? hydrateOrder(updatedOrder) : hydrateOrder(order);
 }
 
 export async function listOrders(user: { id: string; role: string }, query: Record<string, unknown>) {

@@ -42,15 +42,22 @@ import {
   ChevronDown,
   ChevronRight,
   CreditCard,
+  Download,
+  Eye,
+  Filter,
   LayoutGrid,
   LoaderCircle,
   LogOut,
+  MoreHorizontal,
   Menu,
   MessageSquareText,
   MapPin,
   Mail,
   PackageCheck,
+  PencilLine,
   Phone,
+  PhoneCall,
+  Printer,
   ReceiptIndianRupee,
   Scissors,
   Search,
@@ -70,9 +77,14 @@ import {
   Send,
   ArrowRight,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  UserRoundPlus,
+  Copy,
+  Flag,
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
-import { useEffect, useMemo, useState, useRef, type ComponentType } from "react";
+import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType } from "react";
 import { toast } from "sonner";
 import {
   assignOrder,
@@ -188,6 +200,11 @@ type TailorTutorialMediaDraft = {
   images: string[];
 };
 
+type DeliveryBatchSettingsDraft = {
+  lockMinutes: number;
+  maxOrdersPerBatch: number;
+};
+
 type DashboardMetrics = {
   averageOrderValue: number;
   cancellationRate: number;
@@ -220,6 +237,8 @@ type BatchFocusTarget = {
   batchId: string;
   roundAt: string;
 };
+
+type OrderDetailFocus = "overview" | "notes" | "invoice" | "media" | "timeline";
 
 type PaymentBreakdown = {
   customerPaid: number;
@@ -340,14 +359,17 @@ export function AdminPortal() {
   const token = useAdminStore((state) => state.token);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [orderSearch, setOrderSearch] = useState("");
   const [range] = useState<TrendRange>("monthly");
   const [orderFilter, setOrderFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
+  const [deliveryPartnerFilter, setDeliveryPartnerFilter] = useState("");
   const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
   const [orderDetail, setOrderDetail] = useState<Order | null>(null);
+  const [orderDetailFocus, setOrderDetailFocus] = useState<OrderDetailFocus>("overview");
   const [tailoringDetail, setTailoringDetail] = useState<TailoringRequest | null>(null);
   const [deliveryDetail, setDeliveryDetail] = useState<DeliveryRequest | null>(null);
   const [tailorDetail, setTailorDetail] = useState<TailorProfile | null>(null);
@@ -394,6 +416,7 @@ export function AdminPortal() {
     isActive: true
   });
   const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
+  const [batchSettingsDraft, setBatchSettingsDraft] = useState<DeliveryBatchSettingsDraft>({ lockMinutes: 45, maxOrdersPerBatch: 10 });
   const [tailorTutorialDraft, setTailorTutorialDraft] = useState<TailorTutorialMediaDraft>(() => defaultTailorTutorialMediaDraft());
   const [uploadingTutorialMedia, setUploadingTutorialMedia] = useState<"video" | "thumbnail" | "image" | null>(null);
   const queryClient = useQueryClient();
@@ -433,7 +456,8 @@ export function AdminPortal() {
   const deliveryBatchesQuery = useQuery({
     queryKey: ["admin", "delivery-batches"],
     queryFn: getDeliveryBatches,
-    enabled: isAuthed
+    enabled: isAuthed,
+    refetchInterval: 5000
   });
   const tailorsQuery = useQuery({
     queryKey: ["admin", "tailors"],
@@ -510,55 +534,34 @@ export function AdminPortal() {
     queryFn: getAdminReviews,
     enabled: isAuthed
   });
-
-
-  const dashboardData = useMemo<QueryBundle | null>(() => {
-    if (
-      !analyticsQuery.data ||
-      !meQuery.data ||
-      !ordersQuery.data ||
-      !tailoringQuery.data ||
-      !deliveryQuery.data ||
-      !tailorsQuery.data ||
-      !partnersQuery.data ||
-      !usersQuery.data ||
-      !paymentsQuery.data ||
-      !couponsQuery.data ||
-      !supportQuery.data ||
-      !settingsQuery.data
-    ) {
-      return null;
-    }
-    return {
-      analytics: analyticsQuery.data,
-      me: meQuery.data,
-      orders: ordersQuery.data,
-      tailoringRequests: tailoringQuery.data,
-      deliveryRequests: deliveryQuery.data,
-      deliveryBatches: deliveryBatchesQuery.data ?? [],
-      tailors: tailorsQuery.data,
-      partners: partnersQuery.data,
-      users: usersQuery.data,
-      payments: paymentsQuery.data,
-      coupons: couponsQuery.data,
-      tickets: supportQuery.data,
-      settings: settingsQuery.data
-    };
-  }, [
-    analyticsQuery.data,
-    meQuery.data,
-    ordersQuery.data,
-    tailoringQuery.data,
-    deliveryQuery.data,
-    deliveryBatchesQuery.data,
-    tailorsQuery.data,
-    partnersQuery.data,
-    usersQuery.data,
-    paymentsQuery.data,
-    couponsQuery.data,
-    supportQuery.data,
-    settingsQuery.data
-  ]);
+  const dashboardData = !analyticsQuery.data ||
+    !meQuery.data ||
+    !ordersQuery.data ||
+    !tailoringQuery.data ||
+    !deliveryQuery.data ||
+    !tailorsQuery.data ||
+    !partnersQuery.data ||
+    !usersQuery.data ||
+    !paymentsQuery.data ||
+    !couponsQuery.data ||
+    !supportQuery.data ||
+    !settingsQuery.data
+    ? null
+    : {
+        analytics: analyticsQuery.data,
+        me: meQuery.data,
+        orders: ordersQuery.data,
+        tailoringRequests: tailoringQuery.data,
+        deliveryRequests: deliveryQuery.data,
+        deliveryBatches: deliveryBatchesQuery.data ?? [],
+        tailors: tailorsQuery.data,
+        partners: partnersQuery.data,
+        users: usersQuery.data,
+        payments: paymentsQuery.data,
+        coupons: couponsQuery.data,
+        tickets: supportQuery.data,
+        settings: settingsQuery.data
+      };
 
   useEffect(() => {
     if (settingsQuery.data) {
@@ -569,6 +572,8 @@ export function AdminPortal() {
       setSettingsDrafts(nextDrafts);
       const tutorialSetting = settingsQuery.data.find((item) => item.key === "tailor_tutorial_media");
       setTailorTutorialDraft(normalizeTailorTutorialDraft(tutorialSetting?.value));
+      const batchSetting = settingsQuery.data.find((item) => item.key === "delivery_batch_settings");
+      setBatchSettingsDraft(normalizeDeliveryBatchSettings(batchSetting?.value));
     }
   }, [settingsQuery.data]);
 
@@ -614,6 +619,53 @@ export function AdminPortal() {
     setAssignPickupPartnerId(assignOrderTarget.pickupPartnerId ?? "");
     setAssignDeliveryPartnerId(assignOrderTarget.deliveryPartnerId ?? "");
   }, [assignOrderTarget]);
+
+  const openOrderDetail = (order: Order, focus: OrderDetailFocus = "overview") => {
+    setOrderDetailFocus(focus);
+    setOrderDetail(order);
+  };
+
+  const openOrderAssignment = (order: Order) => {
+    setAssignOrderTarget(order);
+  };
+
+  const normalizePhoneDigits = (phone?: string | null) => (phone ?? "").replace(/\D/g, "");
+
+  const openCustomerChat = (order: Order) => {
+    const digits = normalizePhoneDigits(order.customer?.phone);
+    if (!digits) {
+      toast.error("Customer phone number is missing");
+      return;
+    }
+    window.open(`https://wa.me/${digits}`, "_blank", "noopener,noreferrer");
+  };
+
+  const callCustomer = (order: Order) => {
+    const phone = order.customer?.phone?.trim();
+    if (!phone) {
+      toast.error("Customer phone number is missing");
+      return;
+    }
+    window.open(`tel:${phone}`);
+  };
+
+  const downloadMediaManifest = (order: Order) => {
+    const media = collectOrderMedia(order);
+    if (!media.length) {
+      toast.error("No customer images found for this order");
+      return;
+    }
+    downloadBlob(
+      `${safeFileName(getOrderDisplayNumber(order))}-images.json`,
+      JSON.stringify(media, null, 2),
+      "application/json;charset=utf-8"
+    );
+    toast.success("Image manifest downloaded");
+  };
+
+  const printOrderInvoice = (order: Order) => {
+    openPrintableInvoice(order);
+  };
 
   const requestOtpMutation = useMutation({
     mutationFn: requestOtp,
@@ -1103,7 +1155,7 @@ export function AdminPortal() {
           section: "orders",
           icon: PackageCheck,
           onSelect: () => {
-            setOrderDetail(order);
+            openOrderDetail(order, "overview");
             setActiveSection("orders");
             setGlobalSearch("");
           }
@@ -1405,26 +1457,37 @@ export function AdminPortal() {
     }
   ];
 
-  const filteredOrders = (() => {
-    return allOrders
-      .filter((order) => {
-        const content = [
-          order.orderNumber,
-          order.customer?.name,
-          order.customer?.phone,
-          order.status,
-          order.tailor?.shopName,
-          order.deliveryPartner?.user?.name
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return (!searchTerm || content.includes(searchTerm.toLowerCase())) && (!orderFilter || order.status === orderFilter);
-      })
-      .sort((a, b) => {
-        return new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime();
-      });
-  })();
+  const orderPartnerOptions = [...partners]
+    .filter((partner, index, list) => list.findIndex((item) => item.id === partner.id) === index)
+    .sort((a, b) => getPartnerDisplayName(a).localeCompare(getPartnerDisplayName(b)));
+
+  const filteredOrders = allOrders
+    .filter((order) => {
+      const query = orderSearch.trim().toLowerCase();
+      const content = [
+        order.orderNumber,
+        order.darjiId,
+        order.customer?.name,
+        order.customer?.phone,
+        order.status,
+        order.paymentMethod,
+        order.paymentStatus,
+        order.tailor?.shopName,
+        order.tailor?.user?.name,
+        order.deliveryPartner?.user?.name,
+        order.deliveryPartner?.user?.phone,
+        order.pickupPartner?.user?.name,
+        order.pickupPartner?.user?.phone
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      const orderPartnerId = String(order.deliveryPartner?.id ?? order.pickupPartner?.id ?? "");
+      const partnerMatch = !deliveryPartnerFilter || orderPartnerId === deliveryPartnerFilter;
+      return (!query || content.includes(query)) && (!orderFilter || order.status === orderFilter) && partnerMatch;
+    })
+    .sort((a, b) => new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime());
 
   const filteredTailoring = tailoringRequests.filter((request) =>
     !searchTerm ||
@@ -1623,8 +1686,51 @@ export function AdminPortal() {
 
 
   const orderColumns = getOrderColumns({
-    onAssign: setAssignOrderTarget,
-    onOpen: setOrderDetail,
+    onAssign: openOrderAssignment,
+    onCallCustomer: (order) => {
+      openOrderDetail(order, "overview");
+      callCustomer(order);
+    },
+    onChatCustomer: (order) => {
+      openOrderDetail(order, "notes");
+      openCustomerChat(order);
+    },
+    onDownloadImages: (order) => {
+      openOrderDetail(order, "media");
+      downloadMediaManifest(order);
+    },
+    onDuplicateOrder: (order) => {
+      const payload = {
+        customerId: order.customerId,
+        items: order.items,
+        instructions: order.instructions,
+        sourceOrderId: order.id
+      };
+      const draft = JSON.stringify(payload, null, 2);
+      if (!navigator.clipboard?.writeText) {
+        toast.error("Clipboard access is not available in this browser");
+        return;
+      }
+      navigator.clipboard.writeText(draft).then(
+        () => toast.success("Order draft copied for duplication"),
+        () => toast.error("Unable to copy order draft")
+      );
+    },
+    onGenerateInvoice: (order) => {
+      openOrderDetail(order, "invoice");
+      printOrderInvoice(order);
+    },
+    onMarkHighPriority: (order) => {
+      setOrderPriorities((current) => ({ ...current, [order.id]: "High" }));
+      openOrderDetail(order, "notes");
+      toast.success("Order marked high priority");
+    },
+    onOpen: openOrderDetail,
+    onReportIssue: (order) => {
+      openOrderDetail(order, "notes");
+      setActiveSection("support");
+      toast.info("Use support to log the operational issue for this order.");
+    },
     onOpenBatch: (batch) => {
       setBatchFocus(batch);
       setActiveSection("batches");
@@ -1859,10 +1965,50 @@ export function AdminPortal() {
         {activeSection === "orders" ? (
           <div className="space-y-6">
             <SectionIntro
-              title="Order management"
-              description="Assignment, status control, and operational inspection for the standard order pipeline."
+              title="Order Management"
+              description="Manage orders, assignments and deliveries from one place."
               action={
                 <div className="flex items-center gap-2">
+                  <ActionButton variant="secondary" onClick={() => toast.info("Orders filters are available in the row below.")}>
+                    <Filter size={16} className="mr-1.5" />
+                    Filters
+                  </ActionButton>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-orders.csv", filteredOrders.map(orderToCsv))}>
+                    Export CSV
+                  </ActionButton>
+                </div>
+              }
+            />
+            {(() => {
+              const total = Math.max(allOrders.length, 1);
+              const counts = {
+                pending: allOrders.filter((order) => ["ORDER_PLACED", "PICKUP_ASSIGNED", "PENDING"].includes(order.status)).length,
+                progress: allOrders.filter((order) => ["PICKUP_ASSIGNED", "TAILOR_ASSIGNED", "STITCHING_STARTED", "OUT_FOR_DELIVERY", "READY"].includes(order.status)).length,
+                completed: allOrders.filter((order) => ["DELIVERED", "COMPLETED"].includes(order.status)).length,
+                cancelled: allOrders.filter((order) => ["CANCELLED", "FAILED"].includes(order.status)).length
+              };
+              return (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <FinanceStatCard label="Total Orders" value={String(allOrders.length)} note="100% of orders" tone="amber" />
+                  <FinanceStatCard label="Pending" value={String(counts.pending)} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" />
+                  <FinanceStatCard label="In Progress" value={String(counts.progress)} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" />
+                  <FinanceStatCard label="Completed" value={String(counts.completed)} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" />
+                  <FinanceStatCard label="Cancelled" value={String(counts.cancelled)} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" />
+                </div>
+              );
+            })()}
+            <Panel className="p-0">
+              <div className="border-b border-[var(--panel-border)] p-4">
+                <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(3,0.9fr)_auto]">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} />
+                    <input
+                      className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] pl-11 pr-4 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+                      onChange={(event) => setOrderSearch(event.target.value)}
+                      placeholder="Search orders..."
+                      value={orderSearch}
+                    />
+                  </div>
                   <FilterSelect
                     value={orderFilter}
                     onChange={setOrderFilter}
@@ -1871,13 +2017,41 @@ export function AdminPortal() {
                       ...orderStatuses.map((status) => ({ label: formatStatus(status), value: status }))
                     ]}
                   />
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-orders.csv", filteredOrders.map(orderToCsv))}>
-                    Export CSV
+                  <FilterSelect
+                    value={deliveryPartnerFilter}
+                    onChange={setDeliveryPartnerFilter}
+                    options={[
+                      { label: "All delivery partners", value: "" },
+                      ...orderPartnerOptions.map((partner) => ({ label: getPartnerDisplayName(partner), value: partner.id }))
+                    ]}
+                  />
+                  <FilterSelect
+                    value={paymentFilter}
+                    onChange={setPaymentFilter}
+                    options={[
+                      { label: "All payment methods", value: "" },
+                      { label: "COD", value: "COD" },
+                      { label: "Paid", value: "PAID" },
+                      { label: "Online", value: "ONLINE" },
+                      { label: "Unknown", value: "UNKNOWN" }
+                    ]}
+                  />
+                  <ActionButton
+                    className="h-12 px-4"
+                    variant="secondary"
+                    onClick={() => {
+                      setOrderSearch("");
+                      setOrderFilter("");
+                      setDeliveryPartnerFilter("");
+                      setPaymentFilter("");
+                    }}
+                  >
+                    Reset
                   </ActionButton>
                 </div>
-              }
-            />
-            <DataTable columns={orderColumns} data={filteredOrders} emptyMessage="No orders match the current filters." />
+              </div>
+              <DataTable columns={orderColumns} data={filteredOrders} emptyMessage="No orders match the current filters." />
+            </Panel>
           </div>
         ) : null}
 
@@ -1914,6 +2088,7 @@ export function AdminPortal() {
             batches={deliveryBatches}
             error={deliveryBatchesQuery.isError ? extractError(deliveryBatchesQuery.error) : undefined}
             focusBatch={batchFocus}
+            batchCapacity={batchSettingsDraft.maxOrdersPerBatch}
             orders={allOrders}
             pendingTaskId={batchReassignMutation.isPending ? batchReassignMutation.variables?.taskId : undefined}
             onOpenOrder={(order) => setOrderDetail(order)}
@@ -2151,8 +2326,25 @@ export function AdminPortal() {
               pending={deliveryFareMutation.isPending}
               onSave={(value) => deliveryFareMutation.mutate(value)}
             />
+            <BatchSettingsCard
+              draft={batchSettingsDraft}
+              pending={settingMutation.isPending}
+              onChange={setBatchSettingsDraft}
+              onSave={(value) => {
+                const batchSettingsRecord = settingsQuery.data?.find((item) => item.key === "delivery_batch_settings");
+                const existingValue = batchSettingsRecord?.value && typeof batchSettingsRecord.value === "object" ? (batchSettingsRecord.value as Record<string, unknown>) : {};
+                settingMutation.mutate({
+                  key: "delivery_batch_settings",
+                  value: {
+                    ...existingValue,
+                    lockMinutes: value.lockMinutes,
+                    maxOrdersPerBatch: value.maxOrdersPerBatch
+                  }
+                });
+              }}
+            />
             <div className="grid gap-4 xl:grid-cols-2">
-              {settings.map((setting) => (
+              {settings.filter((setting) => setting.key !== "delivery_batch_settings").map((setting) => (
                 <Panel key={setting.id}>
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
@@ -2215,7 +2407,7 @@ export function AdminPortal() {
       <OrderDetailDialog
         me={me}
         notes={orderDetail ? orderNotes[orderDetail.id] ?? [] : []}
-        onAssign={() => orderDetail && setAssignOrderTarget(orderDetail)}
+        onAssign={() => orderDetail && openOrderAssignment(orderDetail)}
         onAddNote={(note) => {
           if (!orderDetail) return;
           const adminName = me.name ?? me.phone ?? "Admin";
@@ -2233,6 +2425,8 @@ export function AdminPortal() {
         order={orderDetail}
         deliveryRequests={deliveryRequests}
         priority={orderDetail ? orderPriorities[orderDetail.id] ?? "Normal" : "Normal"}
+        focusSection={orderDetailFocus}
+        onPrintInvoice={() => orderDetail && printOrderInvoice(orderDetail)}
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
         }}
@@ -2331,7 +2525,7 @@ export function AdminPortal() {
         }}
         users={users}
         orders={orders}
-        onOpenOrder={setOrderDetail}
+        onOpenOrder={(order) => openOrderDetail(order, "overview")}
       />
       <InspectBugReportDialog
         open={Boolean(activeBugReport)}
@@ -3269,9 +3463,16 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: "teal" | "
   return <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-semibold", toneMap[tone])}>{children}</span>;
 }
 
-function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("darji-panel rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-4 shadow-[var(--shadow)]", className)}>{children}</div>;
-}
+const Panel = forwardRef<HTMLDivElement, { children: React.ReactNode; className?: string }>(function Panel({ children, className }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={cn("darji-panel rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-4 shadow-[var(--shadow)]", className)}
+    >
+      {children}
+    </div>
+  );
+});
 
 function SectionIntro({
   action,
@@ -3917,6 +4118,7 @@ function DeliveryBatchManagement({
   batches,
   error,
   focusBatch,
+  batchCapacity,
   onOpenOrder,
   onNotifyBatch,
   onReassign,
@@ -3926,6 +4128,7 @@ function DeliveryBatchManagement({
   batches: DeliveryBatch[];
   error?: string;
   focusBatch?: BatchFocusTarget | null;
+  batchCapacity: number;
   onOpenOrder: (order: Order) => void;
   onNotifyBatch: (batchId: string) => void;
   onReassign: (taskId: string, batchId: string) => void;
@@ -3933,7 +4136,7 @@ function DeliveryBatchManagement({
   pendingTaskId?: string;
 }) {
   const [statusFilter, setStatusFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"PICKUP" | "DROP">("PICKUP");
   const [selectedDate, setSelectedDate] = useState(() => localDateInputValue(new Date()));
   const sortedBatches = useMemo(
     () => [...batches].sort((a, b) => new Date(a.roundAt).getTime() - new Date(b.roundAt).getTime()),
@@ -3943,24 +4146,20 @@ function DeliveryBatchManagement({
     () => sortedBatches.filter((batch) => localDateKey(batch.roundAt) === selectedDate),
     [selectedDate, sortedBatches]
   );
+  const pickupCount = selectedDayBatches.filter((batch) => batch.deliveryType === "PICKUP").length;
+  const dropCount = selectedDayBatches.filter((batch) => batch.deliveryType === "DROP").length;
   const visibleBatches = selectedDayBatches.filter((batch) =>
     (!statusFilter || batch.status === statusFilter) &&
-    (!typeFilter || batch.deliveryType === typeFilter)
+    batch.deliveryType === typeFilter
   );
   const selectedIsToday = selectedDate === localDateInputValue(new Date());
-  const now = Date.now();
-  const upcomingBatches = selectedIsToday
-    ? visibleBatches.filter((batch) => new Date(batch.roundAt).getTime() >= now)
-    : visibleBatches;
-  const previousBatches = selectedIsToday
-    ? visibleBatches.filter((batch) => new Date(batch.roundAt).getTime() < now)
-    : [];
   const activeTargetBatches = sortedBatches.filter((batch) => !["completed", "cancelled"].includes(batch.status));
   const totalEarnings = visibleBatches.reduce((sum, batch) => sum + Number(batch.estimatedEarnings ?? 0), 0);
   const totalTasks = visibleBatches.reduce((sum, batch) => sum + batch.tasks.length, 0);
   const selectedDateLabel = formatDate(selectedDate, false);
-  const nextBatch = upcomingBatches[0];
   const focusedBatch = focusBatch ? selectedDayBatches.find((batch) => batch.batchId === focusBatch.batchId) : undefined;
+  const onePmBatches = visibleBatches.filter((batch) => String(batch.deliveryRound).toUpperCase() === "ONE_PM");
+  const sixPmBatches = visibleBatches.filter((batch) => String(batch.deliveryRound).toUpperCase() === "SIX_PM");
 
   return (
     <div className="space-y-6">
@@ -3983,9 +4182,8 @@ function DeliveryBatchManagement({
             </ActionButton>
             <FilterSelect
               value={typeFilter}
-              onChange={setTypeFilter}
+              onChange={(value) => setTypeFilter(value === "DROP" ? "DROP" : "PICKUP")}
               options={[
-                { label: "All types", value: "" },
                 { label: "Pickup", value: "PICKUP" },
                 { label: "Drop", value: "DROP" }
               ]}
@@ -3995,8 +4193,8 @@ function DeliveryBatchManagement({
               onChange={setStatusFilter}
               options={[
                 { label: "All statuses", value: "" },
-                { label: "Scheduled", value: "scheduled" },
-                { label: "Locked", value: "locked" },
+                { label: "Upcoming", value: "scheduled" },
+                { label: "Notified", value: "locked" },
                 { label: "Active", value: "active" },
                 { label: "Completed", value: "completed" },
                 { label: "Cancelled", value: "cancelled" }
@@ -4007,26 +4205,30 @@ function DeliveryBatchManagement({
       />
       <div className="grid gap-4 md:grid-cols-4">
         <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note={selectedDateLabel} tone="sky" />
-        <FinanceStatCard label="Upcoming batches" value={upcomingBatches.length.toLocaleString("en-IN")} note={selectedIsToday ? "Later today" : "Selected day"} tone="amber" />
-        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note="Delivery tasks" tone="emerald" />
+        <FinanceStatCard label="Pickup" value={pickupCount.toLocaleString("en-IN")} note="Selected day" tone="amber" />
+        <FinanceStatCard label="Drop" value={dropCount.toLocaleString("en-IN")} note="Selected day" tone="rose" />
+        <FinanceStatCard label="1 PM batches" value={onePmBatches.length.toLocaleString("en-IN")} note={selectedIsToday ? "Today" : "Selected day"} tone="amber" />
+        <FinanceStatCard label="6 PM batches" value={sixPmBatches.length.toLocaleString("en-IN")} note={selectedIsToday ? "Today" : "Selected day"} tone="emerald" />
+      </div>
+      <div className="inline-flex rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-1">
+        {(["PICKUP", "DROP"] as const).map((type) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => setTypeFilter(type)}
+            className={cn(
+              "rounded-xl px-4 py-2 text-sm font-black transition",
+              typeFilter === type ? "bg-[var(--deep)] text-white" : "text-[var(--muted)] hover:text-[var(--deep)]"
+            )}
+          >
+            {type === "PICKUP" ? "Pickup" : "Drop"} ({type === "PICKUP" ? pickupCount : dropCount})
+          </button>
+        ))}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note={typeFilter === "PICKUP" ? "Pickup requests" : "Drop requests"} tone="emerald" />
         <FinanceStatCard label="Delivery earnings" value={formatCurrency(totalEarnings)} note="Partner payable" tone="rose" />
       </div>
-      {nextBatch ? (
-        <Panel className="border-amber-200 bg-gradient-to-br from-amber-50 to-white">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Next batch</p>
-              <h3 className="mt-1 text-xl font-bold text-[var(--deep)]">
-                BATCH-{nextBatch.batchId.slice(0, 8).toUpperCase()} - {nextBatch.deliveryRound === "ONE_PM" ? "1 PM" : nextBatch.deliveryRound === "SIX_PM" ? "6 PM" : formatStatus(nextBatch.deliveryRound)}
-              </h3>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {formatDate(nextBatch.roundAt, true)} - {nextBatch.area} - {nextBatch.deliveryType} - {nextBatch.status}
-              </p>
-            </div>
-            <Badge tone="amber">Viewing {selectedDateLabel}</Badge>
-          </div>
-        </Panel>
-      ) : null}
       {error ? (
         <Panel className="border-red-200 bg-red-50 text-red-700">
           <p className="text-sm font-semibold">Batch endpoint unavailable</p>
@@ -4046,45 +4248,35 @@ function DeliveryBatchManagement({
             </div>
           </Panel>
         ) : null}
-        {selectedIsToday ? (
-          <>
-            <BatchSection
-              title="Upcoming batches"
-              focusBatchId={focusBatch?.batchId}
-              batches={upcomingBatches}
-              orders={orders}
-              activeTargetBatches={activeTargetBatches}
-              pendingTaskId={pendingTaskId}
-              onOpenOrder={onOpenOrder}
-              onNotifyBatch={onNotifyBatch}
-              onReassign={onReassign}
-            />
-            <BatchSection
-              title="Earlier batches"
-              focusBatchId={focusBatch?.batchId}
-              batches={previousBatches}
-              orders={orders}
-              activeTargetBatches={activeTargetBatches}
-              pendingTaskId={pendingTaskId}
-              onOpenOrder={onOpenOrder}
-              onNotifyBatch={onNotifyBatch}
-              onReassign={onReassign}
-            />
-          </>
-        ) : (
-          <BatchSection
-            title={`Batches for ${selectedDateLabel}`}
-            focusBatchId={focusBatch?.batchId}
-            batches={visibleBatches}
-            orders={orders}
-            activeTargetBatches={activeTargetBatches}
-            pendingTaskId={pendingTaskId}
-            onOpenOrder={onOpenOrder}
-            onNotifyBatch={onNotifyBatch}
-            onReassign={onReassign}
+        <BatchSection
+          title={`${typeFilter === "PICKUP" ? "Pickup" : "Drop"} - 1 PM batches for ${selectedDateLabel}`}
+          focusBatchId={focusBatch?.batchId}
+          batchCapacity={batchCapacity}
+          batches={onePmBatches}
+          orders={orders}
+          activeTargetBatches={activeTargetBatches}
+          pendingTaskId={pendingTaskId}
+          onOpenOrder={onOpenOrder}
+          onNotifyBatch={onNotifyBatch}
+          onReassign={onReassign}
+        />
+        <BatchSection
+          title={`${typeFilter === "PICKUP" ? "Pickup" : "Drop"} - 6 PM batches for ${selectedDateLabel}`}
+          focusBatchId={focusBatch?.batchId}
+          batchCapacity={batchCapacity}
+          batches={sixPmBatches}
+          orders={orders}
+          activeTargetBatches={activeTargetBatches}
+          pendingTaskId={pendingTaskId}
+          onOpenOrder={onOpenOrder}
+          onNotifyBatch={onNotifyBatch}
+          onReassign={onReassign}
+        />
+        {!visibleBatches.length ? (
+          <EmptyState
+            message={sortedBatches.length ? `No delivery batches found for ${selectedDateLabel} and the current filters.` : "No delivery batches found yet."}
           />
-        )}
-        {!visibleBatches.length ? <EmptyState message="No delivery batches found for the selected date and filters." /> : null}
+        ) : null}
       </div>
     </div>
   );
@@ -4096,6 +4288,7 @@ function BatchSection({
   orders,
   activeTargetBatches,
   focusBatchId,
+  batchCapacity,
   onNotifyBatch,
   pendingTaskId,
   onOpenOrder,
@@ -4106,6 +4299,7 @@ function BatchSection({
   orders: Order[];
   activeTargetBatches: DeliveryBatch[];
   focusBatchId?: string | null;
+  batchCapacity: number;
   onNotifyBatch: (batchId: string) => void;
   pendingTaskId?: string;
   onOpenOrder: (order: Order) => void;
@@ -4127,10 +4321,11 @@ function BatchSection({
       </div>
       {batches.map((batch) => {
         const partner = batch.partner;
-        const completedTasks = batch.tasks.filter((task) => task.taskStatus === "delivered" || task.taskStatus === "cancelled").length;
         const isOpen = openBatchIds.has(batch.batchId);
-        const hiddenTaskCount = batch.tasks.filter((task) => !task.notificationSentAt).length;
-        const isHidden = batch.status === "scheduled" && hiddenTaskCount === batch.tasks.length && batch.tasks.length > 0;
+        const tasks = batch.tasks ?? [];
+        const ordersCount = batch.ordersCount ?? tasks.length;
+        const hiddenTaskCount = tasks.filter((task) => !task.notificationSentAt).length;
+        const isHidden = batch.status === "scheduled" && hiddenTaskCount === tasks.length && tasks.length > 0;
         return (
           <Panel key={batch.batchId} className={cn("overflow-hidden p-0", focusBatchId === batch.batchId && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-transparent")}>
             <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -4149,6 +4344,7 @@ function BatchSection({
                   <DeliveryRoleBadge role={batch.deliveryType} />
                   <StatusBadge value={batch.status} />
                   {isHidden ? <Badge tone="slate">Hidden</Badge> : <Badge tone="emerald">Visible</Badge>}
+                  <Badge tone="sky">{ordersCount} orders</Badge>
                   {hiddenTaskCount > 0 ? <Badge tone="amber">{hiddenTaskCount} pending notify</Badge> : null}
                 </div>
                 <p className="mt-1 text-sm text-[var(--muted)]">
@@ -4160,17 +4356,17 @@ function BatchSection({
               </button>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="grid grid-cols-3 gap-3 text-center">
-                  <MetricChip label="Orders" value={`${completedTasks}/${batch.tasks.length}`} />
+                  <MetricChip label="Orders" value={String(ordersCount)} />
                   <MetricChip label="Earnings" value={formatCurrency(batch.estimatedEarnings ?? 0)} />
-                  <MetricChip label="Service" value={batch.serviceLevel ?? "STANDARD"} />
+                  <MetricChip label="Distance" value={`${Number(batch.totalDistance ?? 0).toFixed(1)} km`} />
                 </div>
-                {isHidden && batch.status === "scheduled" ? (
+                {!partner && !["active", "completed", "cancelled"].includes(String(batch.status)) ? (
                   <ActionButton
                     className="px-4 py-2"
                     onClick={() => onNotifyBatch(batch.batchId)}
                     variant="secondary"
                   >
-                    Notify now
+                    {batch.status === "locked" || hiddenTaskCount === 0 ? "Notify again" : "Notify now"}
                   </ActionButton>
                 ) : null}
                 <ChevronDown className={cn("h-5 w-5 text-[var(--muted)] transition-transform", isOpen ? "rotate-180" : "")} />
@@ -4183,15 +4379,21 @@ function BatchSection({
                     <tr>
                       <th className="px-4 py-3 font-semibold">Order ID</th>
                       <th className="px-4 py-3 font-semibold">Customer</th>
-                      <th className="px-4 py-3 font-semibold">Status timeline</th>
+                      <th className="px-4 py-3 font-semibold">Tailor</th>
+                      <th className="px-4 py-3 font-semibold">Route</th>
+                      <th className="px-4 py-3 font-semibold">Status</th>
                       <th className="px-4 py-3 font-semibold">Earnings</th>
                       <th className="px-4 py-3 font-semibold">Move to batch</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {batch.tasks.length ? batch.tasks.map((task) => {
+                    {tasks.length ? tasks.map((task) => {
                       const order = orders.find((candidate) => candidate.id === task.orderId || candidate.request?.id === task.orderId);
-                      const targetBatches = activeTargetBatches.filter((target) => target.batchId !== batch.batchId && target.deliveryType === batch.deliveryType);
+                      const targetBatches = activeTargetBatches.filter((target) =>
+                        target.batchId !== batch.batchId &&
+                        target.deliveryType === batch.deliveryType &&
+                        target.deliveryRound === batch.deliveryRound
+                      );
                       const pending = pendingTaskId === task.id;
                       return (
                         <tr key={task.id} className="border-b border-[var(--panel-border)] last:border-0">
@@ -4204,6 +4406,17 @@ function BatchSection({
                           <td className="px-4 py-4">
                             <p className="font-semibold">{cleanText(task.customerName) ?? cleanText(task.customerPhone) ?? "Customer"}</p>
                             <p className="text-xs text-[var(--muted)]">{task.customerPhone ?? "No phone"}</p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <p className="font-semibold">{cleanText(task.tailorName) ?? "Tailor"}</p>
+                            <p className="text-xs text-[var(--muted)]">{task.tailorPhone ?? "No phone"}</p>
+                          </td>
+                          <td className="max-w-[340px] px-4 py-4">
+                            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">Pickup</p>
+                            <p className="truncate font-semibold">{task.pickupAddress}</p>
+                            <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">Drop</p>
+                            <p className="truncate font-semibold">{task.dropAddress}</p>
+                            <p className="mt-1 text-xs text-[var(--muted)]">{Number(task.estimatedDistanceKm ?? 0).toFixed(1)} km</p>
                           </td>
                           <td className="px-4 py-4">
                             <div className="flex flex-wrap gap-2">
@@ -4226,17 +4439,17 @@ function BatchSection({
                             >
                               <option value="">{pending ? "Moving..." : targetBatches.length ? "Select batch" : "No compatible batch"}</option>
                               {targetBatches.map((target) => (
-                                <option key={target.batchId} value={target.batchId}>
-                                  BATCH-{target.batchId.slice(0, 8).toUpperCase()} - {target.area} - {formatDate(target.roundAt, true)}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                        </tr>
-                      );
+                              <option key={target.batchId} value={target.batchId}>
+                                  BATCH-{target.batchId.slice(0, 8).toUpperCase()} - {target.area} - {formatDate(target.roundAt, true)} - {target.ordersCount ?? (target.tasks ?? []).length} orders
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
                     }) : (
                       <tr>
-                        <td className="px-4 py-8 text-center text-[var(--muted)]" colSpan={5}>No orders in this batch yet.</td>
+                        <td className="px-4 py-8 text-center text-[var(--muted)]" colSpan={7}>No delivery requests in this batch yet.</td>
                       </tr>
                     )}
                   </tbody>
@@ -4555,6 +4768,23 @@ function normalizeTailorTutorialDraft(value: unknown): TailorTutorialMediaDraft 
   };
 }
 
+function defaultDeliveryBatchSettingsDraft(): DeliveryBatchSettingsDraft {
+  return {
+    lockMinutes: 45,
+    maxOrdersPerBatch: 10
+  };
+}
+
+function normalizeDeliveryBatchSettings(value: unknown): DeliveryBatchSettingsDraft {
+  const base = defaultDeliveryBatchSettingsDraft();
+  if (!value || typeof value !== "object") return base;
+  const raw = value as Record<string, unknown>;
+  return {
+    lockMinutes: Number.isFinite(Number(raw.lockMinutes)) ? Math.max(45, Number(raw.lockMinutes)) : base.lockMinutes,
+    maxOrdersPerBatch: Number.isFinite(Number(raw.maxOrdersPerBatch)) ? Math.max(1, Number(raw.maxOrdersPerBatch)) : base.maxOrdersPerBatch
+  };
+}
+
 function TailorTutorialMediaCard({
   draft,
   onChange,
@@ -4722,6 +4952,55 @@ function DeliveryFareSettingsCard({
           </div>
         ))}
       </div>
+    </Panel>
+  );
+}
+
+function BatchSettingsCard({
+  draft,
+  onChange,
+  onSave,
+  pending
+}: {
+  draft: DeliveryBatchSettingsDraft;
+  onChange: (value: DeliveryBatchSettingsDraft) => void;
+  onSave: (value: DeliveryBatchSettingsDraft) => void;
+  pending: boolean;
+}) {
+  return (
+    <Panel>
+      <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Batch Capacity Settings</h3>
+          <p className="text-sm text-[var(--muted)]">Control how many delivery requests can sit in one batch before a new one is created.</p>
+        </div>
+        <ActionButton disabled={pending} onClick={() => onSave(draft)}>
+          Save batch settings
+        </ActionButton>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Max orders per batch">
+          <input
+            className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+            min="1"
+            type="number"
+            value={draft.maxOrdersPerBatch}
+            onChange={(event) => onChange({ ...draft, maxOrdersPerBatch: Math.max(1, Number(event.target.value) || 1) })}
+          />
+        </Field>
+        <Field label="Notify before batch (minutes)">
+          <input
+            className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+            min="45"
+            type="number"
+            value={draft.lockMinutes}
+            onChange={(event) => onChange({ ...draft, lockMinutes: Math.max(45, Number(event.target.value) || 45) })}
+          />
+        </Field>
+      </div>
+      <p className="mt-3 text-xs text-[var(--muted)]">
+        This keeps batches hidden until they are notified, and it limits each batch to the configured order count.
+      </p>
     </Panel>
   );
 }
@@ -5254,7 +5533,7 @@ function DataTable<T extends object>({ columns, data, emptyMessage }: TableProps
       <div className="overflow-hidden rounded-[24px] border border-[var(--panel-border)]">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-[var(--accent-cream)] text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+            <thead className="sticky top-0 z-10 bg-[var(--accent-cream)] text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
@@ -5283,9 +5562,9 @@ function DataTable<T extends object>({ columns, data, emptyMessage }: TableProps
                 </tr>
               ) : null}
               {table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-t border-[var(--panel-border)] bg-[var(--panel-strong)]/50">
+                <tr key={row.id} className="border-t border-[var(--panel-border)] bg-[var(--panel-strong)]/50 align-top transition hover:bg-[var(--accent-soft)]/40">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-4 py-4 align-top">
+                    <td key={cell.id} className="px-4 py-5 align-top">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -5301,12 +5580,18 @@ function DataTable<T extends object>({ columns, data, emptyMessage }: TableProps
 
 function StatusBadge({ value }: { value?: string | null }) {
   const normalized = value ?? "";
+  const lower = normalized.toLowerCase();
   let tone: "teal" | "amber" | "rose" | "sky" | "slate" | "emerald" | "violet" | "cyan" = "slate";
-  if (["ACTIVE", "DELIVERED", "PAID", "SETTLED", "READY", "VERIFIED", "RESOLVED", "completed", "delivered", "accepted"].includes(normalized)) tone = "emerald";
-  else if (["BANNED", "CANCELLED", "FAILED", "REJECTED", "cancelled"].includes(normalized)) tone = "rose";
+  if (["scheduled", "upcoming", "locked"].includes(lower)) tone = "amber";
+  else if (lower === "active") tone = "emerald";
+  else if (lower === "completed") tone = "slate";
+  else if (lower === "cancelled") tone = "rose";
+  else if (["ACTIVE", "DELIVERED", "PAID", "SETTLED", "READY", "VERIFIED", "RESOLVED", "delivered", "accepted"].includes(normalized)) tone = "emerald";
+  else if (["BANNED", "CANCELLED", "FAILED", "REJECTED"].includes(normalized)) tone = "rose";
   else if (["DUE", "PENDING", "QUOTE_REQUESTED", "OPEN", "REUPLOAD_REQUIRED", "SUSPENDED", "pending", "accepted", "picked_up"].includes(normalized)) tone = "amber";
   else if (["STITCHING_STARTED", "AT_TAILOR", "IN_PROGRESS", "WORKING"].includes(normalized)) tone = "sky";
-  return <Badge tone={tone}>{formatStatus(normalized)}</Badge>;
+  const label = lower === "scheduled" || lower === "locked" ? "Upcoming" : lower === "active" ? "Active" : lower === "completed" ? "Completed" : lower === "cancelled" ? "Cancelled" : formatStatus(normalized);
+  return <Badge tone={tone}>{label}</Badge>;
 }
 
 function PriorityBadge({ value }: { value: AdminOrderPriority }) {
@@ -5368,7 +5653,10 @@ function formatCustomerRequestId(id?: string | null) {
 
 function findBatchForOrder(order: Order, batches: DeliveryBatch[]) {
   const orderIds = [order.id, order.request?.id].filter(Boolean) as string[];
-  return batches.find((batch) => batch.tasks.some((task) => orderIds.includes(task.orderId)));
+  return batches.find((batch) =>
+    batch.batchId === order.batchId ||
+    (batch.tasks ?? []).some((task) => orderIds.includes(task.orderId))
+  );
 }
 
 function localDateInputValue(value: Date) {
@@ -5652,6 +5940,8 @@ function OrderDetailDialog({
   onAddNote,
   onPriorityChange,
   onStatusChange,
+  onPrintInvoice,
+  focusSection,
   open,
   order,
   deliveryRequests = [],
@@ -5664,6 +5954,8 @@ function OrderDetailDialog({
   onAddNote: (note: string) => void;
   onPriorityChange: (priority: AdminOrderPriority) => void;
   onStatusChange: (status: string) => void;
+  onPrintInvoice: () => void;
+  focusSection: OrderDetailFocus;
   open: boolean;
   order: Order | null;
   deliveryRequests?: any[];
@@ -5672,45 +5964,75 @@ function OrderDetailDialog({
 }) {
   const [nextStatus, setNextStatus] = useState(order?.status ?? "ORDER_PLACED");
   const [noteDraft, setNoteDraft] = useState("");
+  const overviewRef = useRef<HTMLDivElement>(null);
+  const instructionsRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef<HTMLDivElement>(null);
+  const invoiceRef = useRef<HTMLDivElement>(null);
+  const mediaRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setNextStatus(order?.status ?? "ORDER_PLACED");
     setNoteDraft("");
   }, [order]);
 
+  useEffect(() => {
+    if (!open) return;
+    const target = {
+      overview: overviewRef.current,
+      notes: notesRef.current,
+      invoice: invoiceRef.current,
+      media: mediaRef.current,
+      timeline: timelineRef.current
+    }[focusSection];
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focusSection, open, order?.id]);
+
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,980px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+        <Dialog.Content className="fixed right-4 top-4 bottom-4 z-50 w-[min(96vw,650px)] overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
           {order ? (
             <>
               <Dialog.Title className="text-2xl font-semibold">{getOrderDisplayNumber(order)}</Dialog.Title>
               <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Internal trace: {order.darjiId ?? order.id}</p>
               <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">
-                Standard order workflow with current assignment and proof media visibility.
+                Order timeline, assignment details, pricing, notes, and activity in one drawer.
               </Dialog.Description>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <ActionButton variant="secondary" onClick={onAssign}>
+                  <PencilLine className="h-4 w-4" />
+                  Edit
+                </ActionButton>
+                <ActionButton variant="secondary" onClick={onPrintInvoice}>
+                  <Printer className="h-4 w-4" />
+                  Print Invoice
+                </ActionButton>
+              </div>
               <div className="mt-6 space-y-5">
-                <InspectGrid
-                  items={[
-                    { label: "Customer", value: `${getCustomerDisplayName(order.customer)} / ${order.customer?.phone ?? "No phone"}` },
-                    { label: "Status", value: <StatusBadge value={order.status} /> },
-                    {
-                      label: "Payment",
-                      value: (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>{formatStatus(order.paymentMethod)}</span>
-                          <StatusBadge value={order.paymentStatus} />
-                        </div>
-                      )
-                    },
-                    { label: "Order total", value: formatCurrency(order.totalAmount) },
-                    { label: "Tailor", value: order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned" },
-                    { label: "Pickup partner", value: order.pickupPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.pickupPartner)} <DeliveryRoleBadge partner={order.pickupPartner} /></span> : "Unassigned" },
-                    { label: "Delivery partner", value: order.deliveryPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.deliveryPartner)} <DeliveryRoleBadge partner={order.deliveryPartner} /></span> : "Unassigned" },
-                    { label: "Pickup scheduled", value: formatDate(order.pickupScheduledAt, true) }
-                  ]}
-                />
+                <div ref={overviewRef}>
+                  <InspectGrid
+                    items={[
+                      { label: "Customer", value: `${getCustomerDisplayName(order.customer)} / ${order.customer?.phone ?? "No phone"}` },
+                      { label: "Status", value: <StatusBadge value={order.status} /> },
+                      {
+                        label: "Payment",
+                        value: (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{formatStatus(order.paymentMethod)}</span>
+                            <StatusBadge value={order.paymentStatus} />
+                          </div>
+                        )
+                      },
+                      { label: "Order total", value: formatCurrency(order.totalAmount) },
+                      { label: "Tailor", value: order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned" },
+                      { label: "Pickup partner", value: order.pickupPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.pickupPartner)} <DeliveryRoleBadge partner={order.pickupPartner} /></span> : "Unassigned" },
+                      { label: "Delivery partner", value: order.deliveryPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.deliveryPartner)} <DeliveryRoleBadge partner={order.deliveryPartner} /></span> : "Unassigned" },
+                      { label: "Pickup scheduled", value: formatDate(order.pickupScheduledAt, true) }
+                    ]}
+                  />
+                </div>
 
                 <Panel>
                   <h4 className="text-lg font-semibold">Order items</h4>
@@ -5734,13 +6056,13 @@ function OrderDetailDialog({
                 </Panel>
 
                 {order.instructions ? (
-                  <Panel>
+                  <Panel ref={instructionsRef}>
                     <h4 className="text-lg font-semibold">Instructions</h4>
                     <p className="mt-3 text-sm text-[var(--muted)]">{order.instructions}</p>
                   </Panel>
                 ) : null}
 
-                <Panel>
+                <Panel ref={invoiceRef}>
                   <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
                     <div>
                       <h4 className="text-lg font-semibold">Admin priority</h4>
@@ -5760,7 +6082,7 @@ function OrderDetailDialog({
                         <PriorityBadge value={priority} />
                       </div>
                     </div>
-                    <div>
+                    <div ref={notesRef}>
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <h4 className="text-lg font-semibold">Admin notes</h4>
@@ -5805,7 +6127,7 @@ function OrderDetailDialog({
                   </div>
                 </Panel>
 
-                <Panel>
+                <Panel className="sticky bottom-0 border border-[var(--panel-border)] bg-[var(--panel-strong)]/95 backdrop-blur">
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                     <div>
                       <h4 className="text-lg font-semibold">Admin actions</h4>
@@ -5828,7 +6150,7 @@ function OrderDetailDialog({
                 </Panel>
 
                 {order.timelineEvents && order.timelineEvents.length > 0 ? (
-                  <Panel>
+                  <Panel ref={timelineRef}>
                     <h4 className="text-lg font-semibold">Order timeline</h4>
                     <div className="mt-4 space-y-4">
                       {order.timelineEvents.map((event, index) => (
@@ -5851,7 +6173,7 @@ function OrderDetailDialog({
                 ) : null}
 
                 {/* Categorized Order Photo Proofs */}
-                <Panel className="space-y-4">
+                <Panel ref={mediaRef} className="space-y-4">
                   <h4 className="text-lg font-semibold text-[var(--deep)]">Order Photo Proofs</h4>
                   <p className="text-sm text-[var(--muted)] -mt-2">Categorized proof images from customer, tailor, and delivery partner.</p>
                   
@@ -7431,6 +7753,13 @@ function AssignOrderDialog({
 function getOrderColumns({
   onAssign,
   onOpen,
+  onChatCustomer,
+  onCallCustomer,
+  onDownloadImages,
+  onDuplicateOrder,
+  onGenerateInvoice,
+  onMarkHighPriority,
+  onReportIssue,
   onOpenBatch,
   batches,
   onStatusChange,
@@ -7438,7 +7767,14 @@ function getOrderColumns({
   priorities
 }: {
   onAssign: (order: Order) => void;
-  onOpen: (order: Order) => void;
+  onOpen: (order: Order, focus?: OrderDetailFocus) => void;
+  onChatCustomer: (order: Order) => void;
+  onCallCustomer: (order: Order) => void;
+  onDownloadImages: (order: Order) => void;
+  onDuplicateOrder: (order: Order) => void;
+  onGenerateInvoice: (order: Order) => void;
+  onMarkHighPriority: (order: Order) => void;
+  onReportIssue: (order: Order) => void;
   onOpenBatch: (batch: BatchFocusTarget) => void;
   batches: DeliveryBatch[];
   onStatusChange: (orderId: string, status: string) => void;
@@ -7450,26 +7786,42 @@ function getOrderColumns({
       accessorKey: "orderNumber",
       header: "Order",
       cell: ({ row }) => (
-        <div>
-          <p className="font-medium">{getOrderDisplayNumber(row.original)}</p>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-[var(--foreground)]">{getOrderDisplayNumber(row.original)}</p>
+            <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
+          </div>
           <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
+          {(() => {
+            const batch = findBatchForOrder(row.original, batches);
+            if (!batch) return null;
+            const hiddenTaskCount = batch.tasks.filter((task) => !task.notificationSentAt).length;
+            const isHidden = batch.status === "scheduled" && hiddenTaskCount === batch.tasks.length && batch.tasks.length > 0;
+            return (
+              <button
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                  isHidden
+                    ? "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    : "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--deep)] hover:bg-[var(--accent)] hover:text-black"
+                )}
+                type="button"
+                onClick={() => onOpenBatch({ batchId: batch.batchId, roundAt: batch.roundAt })}
+              >
+                <span>{isHidden ? "Hidden batch" : "Batch"} BATCH-{batch.batchId.slice(0, 8).toUpperCase()}</span>
+              </button>
+            );
+          })()}
         </div>
       )
-    },
-    {
-      id: "priority",
-      header: "Priority",
-      enableSorting: false,
-      cell: ({ row }) => <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
     },
     {
       id: "customer",
       header: "Customer",
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
-        <div>
-          <p className="font-medium">
-            {getCustomerDisplayName(row.original.customer)}</p>
+        <div className="space-y-1">
+          <p className="font-semibold text-[var(--foreground)]">{getCustomerDisplayName(row.original.customer)}</p>
           <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
         </div>
       )
@@ -7478,7 +7830,7 @@ function getOrderColumns({
       id: "category",
       header: "Category",
       accessorFn: (row) => (row.items ?? []).map((item) => item.service?.category?.name ?? "General").join(", "),
-      cell: ({ row }) => <span>{row.original.items?.[0]?.service?.category?.name ?? "General"}</span>
+      cell: ({ row }) => <span className="font-medium text-[var(--foreground)]">{row.original.items?.[0]?.service?.category?.name ?? "General"}</span>
     },
     {
       id: "tailor",
@@ -7486,10 +7838,12 @@ function getOrderColumns({
       accessorFn: (row) => row.tailor?.shopName ?? row.tailor?.user?.name ?? "",
       cell: ({ row }) => {
         const t = row.original.tailor;
-        if (!t) return <span>Unassigned</span>;
+        if (!t) return <span className="text-[var(--muted)]">Unassigned</span>;
         return (
-          <span>
-            {getTailorDisplayName(t)}</span>
+          <div className="space-y-1">
+            <p className="font-semibold text-[var(--foreground)]">{getTailorDisplayName(t)}</p>
+            <p className="text-xs text-[var(--muted)]">{t.user?.phone ?? t.darjiTailorId ?? "No phone"}</p>
+          </div>
         );
       }
     },
@@ -7499,34 +7853,12 @@ function getOrderColumns({
       accessorFn: (row) => row.deliveryPartner?.user?.name ?? row.deliveryPartner?.user?.phone ?? row.pickupPartner?.user?.name ?? "",
       cell: ({ row }) => {
         const dp = row.original.deliveryPartner || row.original.pickupPartner;
-        if (!dp) return <span>Unassigned</span>;
+        if (!dp) return <span className="text-[var(--muted)]">Unassigned</span>;
         return (
-          <div className="flex flex-col gap-1">
-            <span>{getPartnerDisplayName(dp)}</span>
+          <div className="space-y-1">
+            <p className="font-semibold text-[var(--foreground)]">{getPartnerDisplayName(dp)}</p>
+            <p className="text-xs text-[var(--muted)]">{dp.user?.phone ?? dp.darjiPartnerId ?? "No phone"}</p>
             <DeliveryRoleBadge partner={dp} />
-          </div>
-        );
-      }
-    },
-    {
-      id: "batch",
-      header: "Batch",
-      enableSorting: false,
-      cell: ({ row }) => {
-        const batch = findBatchForOrder(row.original, batches);
-        if (!batch) return <span className="text-[var(--muted)]">Not assigned</span>;
-        const hiddenTaskCount = batch.tasks.filter((task) => !task.notificationSentAt).length;
-        const isHidden = batch.status === "scheduled" && hiddenTaskCount === batch.tasks.length && batch.tasks.length > 0;
-        return (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="inline-flex rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--deep)] hover:bg-[var(--accent)] hover:text-black"
-              type="button"
-              onClick={() => onOpenBatch({ batchId: batch.batchId, roundAt: batch.roundAt })}
-            >
-              BATCH-{batch.batchId.slice(0, 8).toUpperCase()}
-            </button>
-            <Badge tone={isHidden ? "slate" : "emerald"}>{isHidden ? "Hidden" : "Notified"}</Badge>
           </div>
         );
       }
@@ -7534,7 +7866,7 @@ function getOrderColumns({
     {
       accessorKey: "totalAmount",
       header: "Amount",
-      cell: ({ row }) => <span className="font-medium">{formatCurrency(row.original.totalAmount)}</span>
+      cell: ({ row }) => <span className="font-semibold text-[var(--foreground)]">{formatCurrency(row.original.totalAmount)}</span>
     },
     {
       accessorKey: "paymentMethod",
@@ -7543,7 +7875,7 @@ function getOrderColumns({
     },
     {
       accessorKey: "status",
-      header: "Current status",
+      header: "Status",
       cell: ({ row }) => <StatusBadge value={row.original.status} />
     },
     {
@@ -7551,16 +7883,85 @@ function getOrderColumns({
       header: "Actions",
       enableSorting: false,
       cell: ({ row }) => (
-        <div className="flex flex-wrap gap-2">
-          <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row.original)}>
-            View
-          </ActionButton>
-          <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onAssign(row.original)}>
-            Assign
-          </ActionButton>
-          <ActionButton className="px-3 py-2" disabled={pending} variant="danger" onClick={() => onStatusChange(row.original.id, "CANCELLED")}>
-            Cancel
-          </ActionButton>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            aria-label="View order details"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+            onClick={() => onOpen(row.original, "overview")}
+            type="button"
+          >
+            <Eye size={16} />
+          </button>
+          <button
+            aria-label="Assign order"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+            onClick={() => onAssign(row.original)}
+            type="button"
+          >
+            <UserRoundPlus size={16} />
+          </button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                aria-label="More actions"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+                type="button"
+              >
+                <MoreHorizontal size={16} />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="z-50 min-w-56 rounded-3xl border border-[var(--panel-border)] bg-white p-2 shadow-[0_20px_45px_rgba(17,24,39,0.12)]">
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onOpen(row.original, "overview")}>
+                  <Eye size={14} /> View Details
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
+                  <PencilLine size={14} /> Edit Order
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
+                  <UserRoundPlus size={14} /> Assign Tailor
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
+                  <UserRoundPlus size={14} /> Assign Pickup Partner
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
+                  <UserRoundPlus size={14} /> Reassign Delivery
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator className="my-2 h-px bg-[var(--panel-border)]" />
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onChatCustomer(row.original)}>
+                  <MessageSquareText size={14} /> Chat Customer
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onCallCustomer(row.original)}>
+                  <PhoneCall size={14} /> Call Customer
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onGenerateInvoice(row.original)}>
+                  <Printer size={14} /> Generate Invoice
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onDownloadImages(row.original)}>
+                  <Download size={14} /> Download Images
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onOpen(row.original, "notes")}>
+                  <FileText size={14} /> Add Internal Note
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onDuplicateOrder(row.original)}>
+                  <Copy size={14} /> Duplicate Order
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onMarkHighPriority(row.original)}>
+                  <Flag size={14} /> Mark High Priority
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onReportIssue(row.original)}>
+                  <AlertTriangle size={14} /> Report Issue
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator className="my-2 h-px bg-[var(--panel-border)]" />
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-red-50" onSelect={() => onStatusChange(row.original.id, "CANCELLED")}>
+                  <Trash2 size={14} className="text-red-500" /> Cancel Order
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-red-600 outline-none hover:bg-red-50" onSelect={() => toast.info("Delete Order is not wired to the backend yet.")}>
+                  <Trash2 size={14} /> Delete Order
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         </div>
       )
     }
@@ -8912,4 +9313,157 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function downloadBlob(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function safeFileName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .trim() || "order";
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function collectOrderMedia(order: Order) {
+  const media: Array<{ label: string; resourceType: "image" | "video"; url: string }> = [];
+  const seen = new Set<string>();
+  const add = (label: string, url?: string, resourceType: "image" | "video" = "image") => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    media.push({ label, resourceType, url });
+  };
+
+  (order.request?.media ?? []).forEach((item: any, index: number) => add(`Customer media ${index + 1}`, item?.url, item?.resourceType === "video" ? "video" : "image"));
+  (order.request?.sampleMedia ?? []).forEach((item: any, index: number) => add(`Sample media ${index + 1}`, item?.url, item?.resourceType === "video" ? "video" : "image"));
+  (order.request?.receivedMedia ?? []).forEach((item: any, index: number) => add(`Tailor received ${index + 1}`, item?.url, item?.resourceType === "video" ? "video" : "image"));
+  (order.request?.stitchedMedia ?? []).forEach((item: any, index: number) => add(`Tailor stitched ${index + 1}`, item?.url, item?.resourceType === "video" ? "video" : "image"));
+  (order.items ?? []).forEach((item, index) => add(`Order item ${index + 1}`, item.referenceImageUrl));
+  add("Pickup proof", order.pickupImageUrl);
+  add("Delivery proof", order.deliveryProofUrl);
+  add("Final proof", order.finalImageUrl);
+
+  return media;
+}
+
+function openPrintableInvoice(order: Order) {
+  const popup = window.open("", "_blank", "noopener,noreferrer,width=980,height=860");
+  if (!popup) {
+    toast.error("Allow popups to print the invoice");
+    return;
+  }
+
+  const customerName = getCustomerDisplayName(order.customer);
+  const items = (order.items ?? [])
+    .map((item) => {
+      const title = escapeHtml(item.service?.name ?? "Service item");
+      const subtitle = escapeHtml(`${item.service?.category?.name ?? "General"} / Qty ${item.quantity}`);
+      const amount = formatCurrency(item.price ?? item.service?.price ?? 0);
+      return `
+        <tr>
+          <td style="padding:12px 0;border-bottom:1px solid #eee;">
+            <div style="font-weight:600;color:#111827">${title}</div>
+            <div style="font-size:12px;color:#6b7280">${subtitle}</div>
+          </td>
+          <td style="padding:12px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:#111827">${amount}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(getOrderDisplayNumber(order))}</title>
+        <style>
+          :root { color-scheme: light; }
+          * { box-sizing: border-box; }
+          body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #faf7f0; color: #111827; }
+          .page { max-width: 860px; margin: 0 auto; padding: 28px; }
+          .card { background: #fff; border: 1px solid #ead8b2; border-radius: 24px; padding: 24px; box-shadow: 0 20px 45px rgba(0,0,0,0.06); }
+          .header { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+          .muted { color: #6b7280; font-size: 12px; }
+          .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+          .stat { border: 1px solid #eee3c8; border-radius: 18px; padding: 14px; background: #fffdf8; }
+          .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #9a7a2b; }
+          .stat .value { margin-top: 6px; font-weight: 700; }
+          table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+          .total { display: flex; justify-content: space-between; margin-top: 18px; font-weight: 700; font-size: 18px; }
+          .footer { margin-top: 18px; color: #6b7280; font-size: 12px; }
+          @media print {
+            body { background: white; }
+            .page { padding: 0; max-width: none; }
+            .card { border: none; box-shadow: none; border-radius: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page">
+          <div class="card">
+            <div class="header">
+              <div>
+                <div style="font-size:28px;font-weight:800;letter-spacing:-0.03em">Darji Invoice</div>
+                <div class="muted">Order ${escapeHtml(getOrderDisplayNumber(order))}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-weight:700">${escapeHtml(formatStatus(order.status))}</div>
+                <div class="muted">${escapeHtml(formatDate(order.createdAt, true))}</div>
+              </div>
+            </div>
+
+            <div class="grid">
+              <div class="stat"><div class="label">Customer</div><div class="value">${escapeHtml(customerName)}</div><div class="muted">${escapeHtml(order.customer?.phone ?? "No phone")}</div></div>
+              <div class="stat"><div class="label">Payment</div><div class="value">${escapeHtml(order.paymentMethod)} / ${escapeHtml(order.paymentStatus)}</div><div class="muted">Order total ${escapeHtml(formatCurrency(order.totalAmount))}</div></div>
+              <div class="stat"><div class="label">Tailor</div><div class="value">${escapeHtml(order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned")}</div></div>
+              <div class="stat"><div class="label">Pickup schedule</div><div class="value">${escapeHtml(formatDate(order.pickupScheduledAt, true))}</div></div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:0 0 12px 0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.12em">Item</th>
+                  <th style="text-align:right;padding:0 0 12px 0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.12em">Amount</th>
+                </tr>
+              </thead>
+              <tbody>${items || `<tr><td colspan="2" style="padding:12px 0;color:#6b7280">No line items available.</td></tr>`}</tbody>
+            </table>
+
+            <div class="total">
+              <span>Total</span>
+              <span>${escapeHtml(formatCurrency(order.totalAmount))}</span>
+            </div>
+
+            ${order.instructions ? `<div class="footer"><strong>Instructions:</strong> ${escapeHtml(order.instructions)}</div>` : ""}
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  popup.document.open();
+  popup.document.write(html);
+  popup.document.close();
+  popup.focus();
+  setTimeout(() => popup.print(), 250);
 }

@@ -17,7 +17,6 @@ export async function registerPushToken(token: string, app: string) {
   }
   await Notifications.setNotificationCategoryAsync("DARZI_ORDER", [
     { identifier: "ACCEPT", buttonTitle: "Accept", options: { opensAppToForeground: true } },
-    { identifier: "REJECT", buttonTitle: "Reject", options: { opensAppToForeground: true, isDestructive: true } },
     { identifier: "VIEW_ORDER", buttonTitle: "View Order", options: { opensAppToForeground: true } }
   ]);
 
