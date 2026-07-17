@@ -797,7 +797,6 @@ async function finalizeTailoringRequestConfirmation(
   const quote = await TailorQuoteModel.findOne({ _id: quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
   const itemCount = requestItemCount(request);
-
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id } }, { status: "REJECTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "ACCEPTED" });
 
@@ -828,51 +827,63 @@ async function finalizeTailoringRequestConfirmation(
 
   emitTailoringEvent({ type: "QUOTE_ACCEPTED", requestId: request.id, quoteId: quote.id, tailorId: quote.tailorId });
   emitToTailors("tailoring:request_closed", { requestId: request.id, acceptedTailorId: quote.tailorId });
-  emitToTailor(quote.tailorId, "tailoring:quote_accepted", {
-    requestId: request.id,
-    quoteId: quote.id,
-    request: await hydrateTailoringRequest(updatedRequest)
-  });
-  emitToCustomer(request.customerId, "customer:order_status_updated", {
-    requestId: request.id,
-    status: "TAILOR_ACCEPTED",
-    request: await hydrateTailoringRequest(updatedRequest)
-  });
-
+  const hydratedRequest = await hydrateTailoringRequest(updatedRequest);
   const acceptedTailor = await hydrateTailorQuote(await TailorQuoteModel.findById(quote.id));
-  const acceptedTailorProfile = await TailorModel.findById(quote.tailorId).select("userId");
-  if (acceptedTailorProfile?.userId) {
-    await sendOrderConfirmedNotification({
-      userId: acceptedTailorProfile.userId,
-      title: "Quote accepted",
-      body: `The customer confirmed your quote for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
-      data: {
-        type: "ORDER_CONFIRMED",
-        requestId: request.id,
-        orderId: request.id,
-        quoteId: quote.id,
-        screen: "requestDetails"
-      }
-    });
-  }
-  await sendPushToUsers([request.customerId], {
-    title: paymentStatus === "PAID" ? "Payment received" : "Order confirmed",
-    body: `Your order has been confirmed with ${(acceptedTailor as { tailor?: { shopName?: string } } | null)?.tailor?.shopName ?? "Darzi Tailor"}.`,
-    data: {
-      type: paymentStatus === "PAID" ? "PAYMENT_SUCCESS" : "TAILOR_ACCEPTED",
+  let deliveryRequest = null;
+
+  try {
+    emitToTailor(quote.tailorId, "tailoring:quote_accepted", {
       requestId: request.id,
       quoteId: quote.id,
-      screen: "trackOrder"
-    },
-    channelId: "customer-orders-v2",
-    categoryId: "DARJI_ORDER",
-    sound: "ding.mp3",
-    actions: ["View Order"]
-  });
+      request: hydratedRequest
+    });
+    emitToCustomer(request.customerId, "customer:order_status_updated", {
+      requestId: request.id,
+      status: "TAILOR_ACCEPTED",
+      request: hydratedRequest
+    });
 
-  const deliveryRequest = await createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId);
+    const acceptedTailorProfile = await TailorModel.findById(quote.tailorId).select("userId");
+    if (acceptedTailorProfile?.userId) {
+      await sendOrderConfirmedNotification({
+        userId: acceptedTailorProfile.userId,
+        title: "Quote accepted",
+        body: `The customer confirmed your quote for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
+        data: {
+          type: "ORDER_CONFIRMED",
+          requestId: request.id,
+          orderId: request.id,
+          quoteId: quote.id,
+          screen: "requestDetails"
+        }
+      });
+    }
+    await sendPushToUsers([request.customerId], {
+      title: paymentStatus === "PAID" ? "Payment received" : "Order confirmed",
+      body: `Your order has been confirmed with ${(acceptedTailor as { tailor?: { shopName?: string } } | null)?.tailor?.shopName ?? "Darzi Tailor"}.`,
+      data: {
+        type: paymentStatus === "PAID" ? "PAYMENT_SUCCESS" : "TAILOR_ACCEPTED",
+        requestId: request.id,
+        quoteId: quote.id,
+        screen: "trackOrder"
+      },
+      channelId: "customer-orders-v2",
+      categoryId: "DARJI_ORDER",
+      sound: "ding.mp3",
+      actions: ["View Order"]
+    });
+
+    deliveryRequest = await createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId);
+  } catch (error) {
+    console.error("[checkout] post-confirmation side effects failed", {
+      requestId: request.id,
+      quoteId: quote.id,
+      error
+    });
+  }
+
   return {
-    request: await hydrateTailoringRequest(updatedRequest),
+    request: hydratedRequest,
     quote: acceptedTailor,
     deliveryRequest
   };

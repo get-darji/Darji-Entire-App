@@ -29,6 +29,7 @@ import {
   adminCreatePayoutController,
   adminWalletDetailController,
   adminWalletPayoutsController,
+  listAdminDeliveryBatchesController,
   getOrderController,
   getDeliveryFareSettingsController,
   listAddressesController,
@@ -42,6 +43,7 @@ import {
   markPaymentPaidController,
   moderateUserController,
   paymentsController,
+  reassignDeliveryBatchTaskController,
   reviewDeliveryVerificationController,
   reviewTailorVerificationController,
   registerFcmTokenController,
@@ -153,6 +155,8 @@ router.get("/admin/delivery-retries", requireAuth, requireRole("ADMIN"), listDel
 router.patch("/admin/delivery-retries/:id/retry-now", requireAuth, requireRole("ADMIN"), retryDeliveryTaskNowController);
 router.patch("/admin/delivery-retries/:id/resolve", requireAuth, requireRole("ADMIN"), resolveDeliveryRetryController);
 router.patch("/admin/delivery-retries/:id/cancel", requireAuth, requireRole("ADMIN"), cancelDeliveryRetryController);
+router.get("/admin/delivery-batches", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminDeliveryBatchesController);
+router.patch("/admin/delivery-batches/tasks/:taskId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reassignDeliveryBatchTaskController);
 
 router.get("/addresses", requireAuth, listAddressesController);
 router.post("/addresses", requireAuth, createAddressController);

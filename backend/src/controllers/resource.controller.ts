@@ -5,6 +5,7 @@ import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import {
   AddressModel,
   CouponModel,
+  DeliveryBatchModel,
   DeliveryPartnerModel,
   NotificationModel,
   OrderModel,
@@ -33,6 +34,7 @@ import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
 import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
+import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
 import { emitToCustomer, emitToAdmins } from "../services/socket.service.js";
@@ -257,6 +259,10 @@ const verificationReviewSchema = z.object({
   assignedArea: z.string().trim().min(1).max(100).optional()
 });
 
+const reassignBatchTaskSchema = z.object({
+  batchId: z.string().trim().min(1)
+});
+
 const userModerationSchema = z
   .object({
     action: z.enum(["ACTIVE", "SUSPENDED", "BANNED"]),
@@ -374,6 +380,15 @@ function normalizeTailorTutorialMedia(value: unknown) {
 async function withUser<T extends { toJSON: () => Record<string, unknown>; userId: string }>(profile: T) {
   const user = await UserModel.findById(profile.userId).select("name phone role email avatarUrl accountStatus suspendedUntil moderationReason moderatedAt");
   return { ...profile.toJSON(), user: user?.toJSON() };
+}
+
+async function ensureDeliveryPartnerRoleId(partner: { id: string; deliveryType?: string; darjiPartnerId?: string | null }) {
+  const prefix = String(partner.deliveryType ?? "").toUpperCase() === "DROP" ? "DDP" : "DPP";
+  const current = String(partner.darjiPartnerId ?? "");
+  if (current.includes(`-${prefix}-`)) return current;
+  const darjiPartnerId = await nextDarjiId(prefix);
+  await DeliveryPartnerModel.findByIdAndUpdate(partner.id, { darjiPartnerId });
+  return darjiPartnerId;
 }
 
 async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
@@ -645,7 +660,85 @@ export async function getTailorTutorialMediaController(_req: Request, res: Respo
 
 export async function listDeliveryPartnersController(_req: Request, res: Response) {
   const partners = await DeliveryPartnerModel.find().sort({ createdAt: -1 });
-  res.json({ data: await Promise.all(partners.map((partner) => withUser(partner))) });
+  await Promise.all(partners.map((partner) => ensureDeliveryPartnerRoleId(partner)));
+  const refreshed = await DeliveryPartnerModel.find().sort({ createdAt: -1 });
+  res.json({ data: await Promise.all(refreshed.map((partner) => withUser(partner))) });
+}
+
+export async function listAdminDeliveryBatchesController(_req: Request, res: Response) {
+  const batches = await DeliveryBatchModel.find().sort({ roundAt: -1 }).limit(200);
+  const partnerIds = [...new Set(batches.map((batch) => String(batch.deliveryPartnerId ?? "")).filter(Boolean))];
+  const batchIds = batches.map((batch) => String(batch.batchId));
+
+  const [partners, tasks] = await Promise.all([
+    DeliveryPartnerModel.find({ _id: { $in: partnerIds } }),
+    DeliveryRequestModel.find({ batchId: { $in: batchIds } }).sort({ routePosition: 1, acceptedAt: 1, createdAt: 1 })
+  ]);
+
+  const partnerMap = new Map(await Promise.all(partners.map(async (partner) => [partner.id, await withUser(partner)] as const)));
+  const orderIds = [...new Set(tasks.map((task) => String(task.orderId)).filter(Boolean))];
+  const tailoringRequests = await TailoringRequestModel.find({ _id: { $in: orderIds } }).select("customerId orderStatus workStatus status paymentStatus totalAmount confirmedAt createdAt");
+  const requestMap = new Map(tailoringRequests.map((request) => [request.id, request.toJSON()]));
+  const tasksByBatch = new Map<string, Array<Record<string, unknown>>>();
+
+  for (const task of tasks) {
+    const list = tasksByBatch.get(String(task.batchId)) ?? [];
+    list.push({
+      ...task.toJSON(),
+      request: requestMap.get(String(task.orderId)) ?? null
+    });
+    tasksByBatch.set(String(task.batchId), list);
+  }
+
+  res.json({
+    data: batches.map((batch) => ({
+      ...batch.toJSON(),
+      partner: batch.deliveryPartnerId ? partnerMap.get(String(batch.deliveryPartnerId)) ?? null : null,
+      tasks: tasksByBatch.get(String(batch.batchId)) ?? []
+    }))
+  });
+}
+
+export async function reassignDeliveryBatchTaskController(req: Request, res: Response) {
+  const input = reassignBatchTaskSchema.parse(req.body);
+  const task = await DeliveryRequestModel.findById(String(req.params.taskId));
+  if (!task) throw new AppError(404, "Delivery task not found");
+
+  const targetBatch = await DeliveryBatchModel.findOne({ batchId: input.batchId });
+  if (!targetBatch) throw new AppError(404, "Target batch not found");
+  if (targetBatch.status === "cancelled" || targetBatch.status === "completed") {
+    throw new AppError(409, "Cannot move orders into a completed or cancelled batch");
+  }
+  if (targetBatch.deliveryType !== task.deliveryType) {
+    throw new AppError(409, "Pickup orders can only move to pickup batches and drop orders can only move to drop batches");
+  }
+
+  const previousBatchId = String(task.batchId ?? "");
+  if (previousBatchId === targetBatch.batchId) {
+    return res.json({ data: task });
+  }
+
+  if (previousBatchId && previousBatchId !== targetBatch.batchId) {
+    await DeliveryBatchModel.updateOne({ batchId: previousBatchId }, { $pull: { tasks: task.id }, $inc: { estimatedEarnings: -Number(task.estimatedEarnings ?? 0) } });
+  }
+
+  const update: Record<string, unknown> = {
+    batchId: targetBatch.batchId,
+    deliveryRound: targetBatch.deliveryRound,
+    roundAt: targetBatch.roundAt,
+    shift: targetBatch.shift,
+    assignedArea: targetBatch.area
+  };
+  if (targetBatch.deliveryPartnerId) {
+    update.assignedDeliveryPartnerId = targetBatch.deliveryPartnerId;
+    update.assignedDeliveryBoyId = targetBatch.deliveryPartnerId;
+    update.acceptedAt = new Date();
+    if (task.taskStatus === "pending") update.taskStatus = "accepted";
+  }
+
+  const updatedTask = await DeliveryRequestModel.findByIdAndUpdate(task.id, update, { returnDocument: "after" });
+  await DeliveryBatchModel.updateOne({ batchId: targetBatch.batchId }, { $addToSet: { tasks: task.id }, $inc: { estimatedEarnings: Number(task.estimatedEarnings ?? 0) } });
+  res.json({ data: updatedTask });
 }
 
 export async function reviewDeliveryVerificationController(req: Request, res: Response) {
@@ -663,10 +756,12 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
   );
 
   if (!partner) throw new AppError(404, "Delivery partner profile not found");
-  if (partner.isAvailable && partner.verificationStatus === "VERIFIED") {
-    await assignPendingTasksToPartner(partner);
+  await ensureDeliveryPartnerRoleId(partner);
+  const refreshedPartner = await DeliveryPartnerModel.findById(partner.id) ?? partner;
+  if (refreshedPartner.isAvailable && refreshedPartner.verificationStatus === "VERIFIED") {
+    await assignPendingTasksToPartner(refreshedPartner);
   }
-  res.json({ data: await withUser(partner) });
+  res.json({ data: await withUser(refreshedPartner) });
 }
 
 export async function listUsersController(_req: Request, res: Response) {

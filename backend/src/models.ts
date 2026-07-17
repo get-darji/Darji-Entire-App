@@ -273,7 +273,10 @@ const deliveryPartnerSchema = new Schema(
   },
   baseOptions
 );
-attachDarjiIdPlugin(deliveryPartnerSchema, { field: "darjiPartnerId", prefix: "DPP" });
+attachDarjiIdPlugin(deliveryPartnerSchema, {
+  field: "darjiPartnerId",
+  prefix: (doc) => String(doc.deliveryType ?? "").toUpperCase() === "DROP" ? "DDP" : "DPP"
+});
 
 
 const paymentSchema = new Schema(

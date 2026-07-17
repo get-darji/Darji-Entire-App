@@ -8,6 +8,7 @@ export type DarjiIdPrefix =
   | "CRQ"
   | "CUS"
   | "DBT"
+  | "DDP"
   | "DPP"
   | "DRQ"
   | "INV"

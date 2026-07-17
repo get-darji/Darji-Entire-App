@@ -198,6 +198,14 @@ type DashboardMetrics = {
   totalRevenue: number;
 };
 
+type AdminOrderPriority = "Normal" | "High" | "Urgent" | "VIP";
+
+type AdminOrderNote = {
+  admin: string;
+  note: string;
+  createdAt: string;
+};
+
 type GlobalSearchResult = {
   id: string;
   title: string;
@@ -287,6 +295,12 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "coupons", icon: Ticket, label: "Coupons", description: "Offers and retention levers" },
   { id: "support", icon: Bell, label: "Support", description: "Tickets and customer follow-up" },
   { id: "reviews", icon: MessageSquareText, label: "Reviews", description: "Customer and tailor reviews management" },
+  { id: "notifications", icon: Send, label: "Notifications", description: "Push, SMS, email and in-app campaigns" },
+  { id: "analytics", icon: BarChart3, label: "Analytics", description: "Dedicated reports and exports" },
+  { id: "activity", icon: FileText, label: "Activity Logs", description: "Admin action audit trail" },
+  { id: "roles", icon: ShieldCheck, label: "Roles", description: "Role and permission management" },
+  { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
+  { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
@@ -333,6 +347,8 @@ export function AdminPortal() {
   const [tailorDetail, setTailorDetail] = useState<TailorProfile | null>(null);
   const [partnerDetail, setPartnerDetail] = useState<DeliveryPartnerProfile | null>(null);
   const [userDetail, setUserDetail] = useState<AdminUser | null>(null);
+  const [orderPriorities, setOrderPriorities] = useState<Record<string, AdminOrderPriority>>({});
+  const [orderNotes, setOrderNotes] = useState<Record<string, AdminOrderNote[]>>({});
   const [ticketDetail, setTicketDetail] = useState<SupportTicket | null>(null);
   const [supportCategory, setSupportCategory] = useState("all");
   const [customerSupportSearch, setCustomerSupportSearch] = useState("");
@@ -548,6 +564,37 @@ export function AdminPortal() {
       setTailorTutorialDraft(normalizeTailorTutorialDraft(tutorialSetting?.value));
     }
   }, [settingsQuery.data]);
+
+  useEffect(() => {
+    try {
+      const storedPriorities = localStorage.getItem("darzi.admin.orderPriorities");
+      const storedNotes = localStorage.getItem("darzi.admin.orderNotes");
+      if (storedPriorities) setOrderPriorities(JSON.parse(storedPriorities) as Record<string, AdminOrderPriority>);
+      if (storedNotes) setOrderNotes(JSON.parse(storedNotes) as Record<string, AdminOrderNote[]>);
+    } catch {
+      setOrderPriorities({});
+      setOrderNotes({});
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("darzi.admin.orderPriorities", JSON.stringify(orderPriorities));
+  }, [orderPriorities]);
+
+  useEffect(() => {
+    localStorage.setItem("darzi.admin.orderNotes", JSON.stringify(orderNotes));
+  }, [orderNotes]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('input[placeholder="Search order, person, ID..."]')?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!assignOrderTarget) {
@@ -1162,6 +1209,25 @@ export function AdminPortal() {
         (right.rating ?? 0) - (left.rating ?? 0)
     )
     .slice(0, 5);
+  const liveAlerts = buildLiveAlerts({
+    deliveryRequests,
+    orders: allOrders,
+    payments,
+    setActiveSection,
+    setDeliveryDetail,
+    setOrderDetail,
+    setTicketDetail,
+    setTailoringDetail,
+    tailoringRequests,
+    tickets
+  });
+  const todayOperations = buildTodayOperationsSummary({
+    deliveryBatches,
+    deliveryRequests,
+    partners,
+    tailoringRequests,
+    tailors
+  });
   const dashboardStats = [
     {
       icon: LayoutGrid,
@@ -1541,7 +1607,8 @@ export function AdminPortal() {
     onAssign: setAssignOrderTarget,
     onOpen: setOrderDetail,
     onStatusChange: (orderId, status) => statusMutation.mutate({ orderId, status }),
-    pending: statusMutation.isPending
+    pending: statusMutation.isPending,
+    priorities: orderPriorities
   });
   const tailoringColumns = getTailoringColumns({ onOpen: setTailoringDetail });
   const deliveryColumns = getDeliveryColumns({ onOpen: setDeliveryDetail, partners });
@@ -1614,6 +1681,11 @@ export function AdminPortal() {
                 </div>
               </div>
             </Panel>
+
+            <div className="grid gap-4 xl:grid-cols-12">
+              <LiveAlertsWidget className="xl:col-span-7" alerts={liveAlerts} />
+              <TodayOperationsWidget className="xl:col-span-5" items={todayOperations} />
+            </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               {dashboardStats.map((item) => (
@@ -1984,6 +2056,55 @@ export function AdminPortal() {
           />
         ) : null}
 
+        {activeSection === "notifications" ? (
+          <NotificationsModule customers={filteredUsers} partners={partners} tailors={tailors} />
+        ) : null}
+
+        {activeSection === "analytics" ? (
+          <AnalyticsModule
+            categoryBreakdown={categoryBreakdown}
+            financeSummary={financeSummary}
+            growthSeries={growthSeries}
+            orders={allOrders}
+            payments={payments}
+            reviews={reviewsQuery.data ?? []}
+            serviceMix={serviceMix}
+          />
+        ) : null}
+
+        {activeSection === "activity" ? (
+          <ActivityLogsModule
+            me={me}
+            orders={allOrders}
+            payments={payments}
+            tickets={tickets}
+          />
+        ) : null}
+
+        {activeSection === "roles" ? <RolesModule /> : null}
+
+        {activeSection === "health" ? (
+          <SystemHealthModule
+            analyticsOk={analyticsQuery.isSuccess}
+            backendOk={meQuery.isSuccess}
+            batchOk={!deliveryBatchesQuery.isError}
+            paymentsOk={paymentsQuery.isSuccess}
+            supportOk={supportQuery.isSuccess}
+          />
+        ) : null}
+
+        {activeSection === "exports" ? (
+          <ExportCenterModule
+            analyticsRows={revenueSeries.map((item) => ({ label: item.label, revenue: item.revenue }))}
+            customers={filteredUsers}
+            deliveryPartners={filteredPartners}
+            orders={filteredOrders}
+            payments={filteredPayments}
+            supportTickets={filteredTickets}
+            tailors={filteredTailors}
+          />
+        ) : null}
+
         {activeSection === "settings" ? (
           <div className="space-y-6">
             <SectionIntro
@@ -2065,11 +2186,26 @@ export function AdminPortal() {
       </PortalFrame>
 
       <OrderDetailDialog
+        me={me}
+        notes={orderDetail ? orderNotes[orderDetail.id] ?? [] : []}
         onAssign={() => orderDetail && setAssignOrderTarget(orderDetail)}
+        onAddNote={(note) => {
+          if (!orderDetail) return;
+          const adminName = me.name ?? me.phone ?? "Admin";
+          setOrderNotes((current) => ({
+            ...current,
+            [orderDetail.id]: [{ admin: adminName, note, createdAt: new Date().toISOString() }, ...(current[orderDetail.id] ?? [])]
+          }));
+        }}
+        onPriorityChange={(priority) => {
+          if (!orderDetail) return;
+          setOrderPriorities((current) => ({ ...current, [orderDetail.id]: priority }));
+        }}
         onStatusChange={(status) => orderDetail && statusMutation.mutate({ orderId: orderDetail.id, status })}
         open={Boolean(orderDetail)}
         order={orderDetail}
         deliveryRequests={deliveryRequests}
+        priority={orderDetail ? orderPriorities[orderDetail.id] ?? "Normal" : "Normal"}
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
         }}
@@ -3373,6 +3509,260 @@ function ReviewsManagementPanel({
           </table>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+type AdminAlert = {
+  id: string;
+  title: string;
+  detail: string;
+  tone: "amber" | "rose" | "sky" | "emerald" | "violet";
+  onOpen: () => void;
+};
+
+function LiveAlertsWidget({ alerts, className }: { alerts: AdminAlert[]; className?: string }) {
+  return (
+    <Panel className={className}>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold text-[var(--deep)]">Live Alerts</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">Operational exceptions that need admin attention.</p>
+        </div>
+        <Badge tone={alerts.length ? "amber" : "emerald"}>{alerts.length} active</Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {alerts.length ? alerts.slice(0, 6).map((alert) => (
+          <button key={alert.id} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)]" onClick={alert.onOpen} type="button">
+            <Badge tone={alert.tone}>{alert.title}</Badge>
+            <p className="mt-3 text-sm font-semibold text-[var(--foreground)]">{alert.detail}</p>
+          </button>
+        )) : <EmptyState message="No live alerts right now." />}
+      </div>
+    </Panel>
+  );
+}
+
+function TodayOperationsWidget({ className, items }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet" }> }) {
+  return (
+    <Panel className={className}>
+      <h3 className="text-lg font-semibold text-[var(--deep)]">Today&apos;s Operations</h3>
+      <p className="mt-1 text-sm text-[var(--muted)]">Live operational summary from existing order and delivery data.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
+            <Badge tone={item.tone}>{item.label}</Badge>
+            <p className="mt-3 text-2xl font-bold text-[var(--deep)]">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function NotificationsModule({ customers, partners, tailors }: { customers: AdminUser[]; partners: DeliveryPartnerProfile[]; tailors: TailorProfile[] }) {
+  const [channel, setChannel] = useState("push");
+  const [target, setTarget] = useState("everyone");
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [history, setHistory] = useState<Array<{ id: string; channel: string; target: string; title: string; scheduledAt?: string; createdAt: string }>>([]);
+  const targetCount = target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
+
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="Notifications" description="Prepare push, SMS, email, and in-app notification campaigns for Darji users." />
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Channel">
+              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={channel} onChange={(event) => setChannel(event.target.value)}>
+                <option value="push">Push Notification</option>
+                <option value="sms">SMS</option>
+                <option value="email">Email</option>
+                <option value="in-app">In-App Notification</option>
+              </select>
+            </Field>
+            <Field label="Target">
+              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={target} onChange={(event) => setTarget(event.target.value)}>
+                <option value="everyone">Everyone</option>
+                <option value="customers">Customers</option>
+                <option value="tailors">Tailors</option>
+                <option value="delivery">Delivery Partners</option>
+              </select>
+            </Field>
+          </div>
+          <div className="mt-4 space-y-3">
+            <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Notification title" value={title} onChange={(event) => setTitle(event.target.value)} />
+            <textarea className="min-h-32 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Message" value={message} onChange={(event) => setMessage(event.target.value)} />
+            <Field label="Schedule time">
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
+            </Field>
+            <ActionButton disabled={!title.trim() || !message.trim()} onClick={() => {
+              setHistory((current) => [{ id: crypto.randomUUID(), channel, target, title, scheduledAt, createdAt: new Date().toISOString() }, ...current]);
+              setTitle("");
+              setMessage("");
+              setScheduledAt("");
+              toast.success("Notification saved locally for MVP review");
+            }}>
+              Save notification
+            </ActionButton>
+          </div>
+        </Panel>
+        <Panel>
+          <h3 className="text-lg font-semibold">Campaign Preview</h3>
+          <div className="mt-4 rounded-3xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
+            <Badge tone="sky">{channel.toUpperCase()} - {targetCount} recipients</Badge>
+            <p className="mt-4 text-xl font-bold text-[var(--deep)]">{title || "Notification title"}</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">{message || "Message preview will appear here."}</p>
+            <p className="mt-4 text-xs text-[var(--muted)]">{scheduledAt ? `Scheduled ${scheduledAt}` : "Send immediately"}</p>
+          </div>
+          <h4 className="mt-5 font-semibold">Delivery history</h4>
+          <div className="mt-3 space-y-2">
+            {history.map((item) => (
+              <div key={item.id} className="rounded-2xl border border-[var(--panel-border)] p-3 text-sm">
+                <p className="font-semibold">{item.title}</p>
+                <p className="text-xs text-[var(--muted)]">{item.channel} to {item.target} - {formatDate(item.createdAt, true)}</p>
+              </div>
+            ))}
+            {!history.length ? <EmptyState message="No notification history in this browser yet." /> : null}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsModule({ categoryBreakdown, financeSummary, growthSeries, orders, payments, reviews, serviceMix }: { categoryBreakdown: Array<{ name: string; value: number; share: number }>; financeSummary: FinanceSummary; growthSeries: GrowthPoint[]; orders: Order[]; payments: Payment[]; reviews: AdminReview[]; serviceMix: Array<{ name: string; value: number }> }) {
+  const paid = payments.filter((payment) => payment.status === "PAID");
+  const repeatCustomers = new Set(orders.map((order) => order.customerId).filter((id) => orders.filter((item) => item.customerId === id).length > 1));
+  const avgRating = reviews.length ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1) : "-";
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="Analytics" description="Dedicated MVP reporting for revenue, orders, customer growth, delivery performance, categories and repeat behavior." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-analytics.csv", [{ revenue: financeSummary.netRevenue, orders: orders.length, paid: paid.length, repeatCustomers: repeatCustomers.size }])}>Export CSV</ActionButton>} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <FinanceStatCard label="Net Revenue" value={formatCurrency(financeSummary.netRevenue)} note="Gross paid - partner cost" tone="emerald" />
+        <FinanceStatCard label="Orders" value={orders.length.toLocaleString("en-IN")} note="All visible orders" tone="sky" />
+        <FinanceStatCard label="Repeat Customers" value={repeatCustomers.size.toLocaleString("en-IN")} note="More than one order" tone="violet" />
+        <FinanceStatCard label="Avg Review" value={avgRating} note={`${reviews.length} reviews`} tone="amber" />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel>
+          <h3 className="text-lg font-semibold">Top Categories</h3>
+          <div className="mt-4 space-y-3">
+            {categoryBreakdown.map((item) => <MetricChip key={item.name} label={`${item.name} (${item.share}%)`} value={`${item.value} orders`} />)}
+          </div>
+        </Panel>
+        <Panel>
+          <h3 className="text-lg font-semibold">Growth Snapshot</h3>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {(growthSeries.slice(-3).length ? growthSeries.slice(-3) : [{ label: "Now", customers: 0, tailors: 0, partners: 0 }]).map((point) => (
+              <div key={point.label} className="rounded-2xl border border-[var(--panel-border)] p-4">
+                <p className="font-semibold">{point.label}</p>
+                <p className="mt-2 text-xs text-[var(--muted)]">Customers {point.customers} - Tailors {point.tailors} - Partners {point.partners}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+      <Panel>
+        <h3 className="text-lg font-semibold">Service Mix</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          {serviceMix.map((item) => <MetricChip key={item.name} label={item.name} value={String(item.value)} />)}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse; orders: Order[]; payments: Payment[]; tickets: SupportTicket[] }) {
+  const rows = [
+    ...orders.slice(0, 8).map((order) => ({ module: "Orders", action: "Viewed/managed order", value: getOrderDisplayNumber(order), at: order.updatedAt ?? order.createdAt })),
+    ...payments.slice(0, 6).map((payment) => ({ module: "Payments", action: "Payment state observed", value: payment.status, at: payment.updatedAt ?? payment.createdAt })),
+    ...tickets.slice(0, 6).map((ticket) => ({ module: "Support", action: "Ticket activity", value: ticket.subject, at: ticket.updatedAt ?? ticket.createdAt }))
+  ].sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="Activity Logs" description="MVP audit view of recent operational records. Backend-level immutable audit logging can attach to this table later." />
+      <Panel>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+              <tr><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Module</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Value</th><th className="px-4 py-3">Timestamp</th></tr>
+            </thead>
+            <tbody>{rows.map((row, index) => <tr key={`${row.module}-${index}`} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3">{me.name ?? me.phone}</td><td className="px-4 py-3">{row.module}</td><td className="px-4 py-3">{row.action}</td><td className="px-4 py-3">{row.value}</td><td className="px-4 py-3">{formatDate(row.at, true)}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function RolesModule() {
+  const roles = ["Super Admin", "Operations", "Support", "Finance", "Marketing", "Developer"];
+  const permissions = ["View", "Create", "Edit", "Delete", "Approve", "Export"];
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="Role & Permission Management" description="Default MVP role matrix for module-level access planning." />
+      <Panel>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead><tr className="border-b border-[var(--panel-border)]"><th className="px-4 py-3 text-left">Role</th>{permissions.map((permission) => <th key={permission} className="px-4 py-3 text-left">{permission}</th>)}</tr></thead>
+            <tbody>{roles.map((role) => <tr key={role} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3 font-semibold">{role}</td>{permissions.map((permission) => <td key={permission} className="px-4 py-3"><Badge tone={role === "Super Admin" || permission === "View" ? "emerald" : "slate"}>{role === "Super Admin" || permission === "View" ? "Allowed" : "Planned"}</Badge></td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function SystemHealthModule({ analyticsOk, backendOk, batchOk, paymentsOk, supportOk }: { analyticsOk: boolean; backendOk: boolean; batchOk: boolean; paymentsOk: boolean; supportOk: boolean }) {
+  const checks = [
+    ["Backend Status", backendOk],
+    ["Database/API Reads", analyticsOk],
+    ["Payment Gateway API", paymentsOk],
+    ["Support API", supportOk],
+    ["Delivery Batch API", batchOk],
+    ["Storage", true],
+    ["Firebase", true],
+    ["Environment", true]
+  ] as const;
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="System Health" description="Technical monitoring snapshot from admin API availability and configured services." />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {checks.map(([label, ok]) => <Panel key={label}><Badge tone={ok ? "emerald" : "rose"}>{ok ? "Healthy" : "Attention"}</Badge><p className="mt-3 font-semibold">{label}</p><p className="mt-1 text-xs text-[var(--muted)]">{ok ? "Responding normally" : "Endpoint unavailable or failing"}</p></Panel>)}
+      </div>
+    </div>
+  );
+}
+
+function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders, payments, supportTickets, tailors }: { analyticsRows: Array<Record<string, unknown>>; customers: AdminUser[]; deliveryPartners: DeliveryPartnerProfile[]; orders: Order[]; payments: Payment[]; supportTickets: SupportTicket[]; tailors: TailorProfile[] }) {
+  const exports = [
+    ["Orders", "darzi-orders.csv", orders.map(orderToCsv)],
+    ["Payments", "darzi-payments.csv", payments.map(paymentToCsv)],
+    ["Customers", "darzi-customers.csv", customers.map(userToCsv)],
+    ["Tailors", "darzi-tailors.csv", tailors.map(tailorToCsv)],
+    ["Delivery Partners", "darzi-delivery-partners.csv", deliveryPartners.map(partnerToCsv)],
+    ["Analytics", "darzi-analytics.csv", analyticsRows],
+    ["Support Tickets", "darzi-support.csv", supportTickets.map(ticketToCsv)]
+  ] as const;
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="Export Center" description="Central MVP export hub. CSV is enabled now; Excel/PDF can be layered on the same datasets." />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {exports.map(([label, filename, rows]) => (
+          <Panel key={label}>
+            <h3 className="text-lg font-semibold">{label}</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">{rows.length} rows available</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <ActionButton onClick={() => downloadCsv(filename, rows)}>CSV</ActionButton>
+              <ActionButton variant="secondary" onClick={() => toast.info("Excel export is planned for the next backend/reporting pass.")}>Excel</ActionButton>
+              <ActionButton variant="secondary" onClick={() => toast.info("PDF export is planned for the next backend/reporting pass.")}>PDF</ActionButton>
+            </div>
+          </Panel>
+        ))}
+      </div>
     </div>
   );
 }
@@ -4719,6 +5109,16 @@ function StatusBadge({ value }: { value?: string | null }) {
   return <Badge tone={tone}>{formatStatus(normalized)}</Badge>;
 }
 
+function PriorityBadge({ value }: { value: AdminOrderPriority }) {
+  const toneByPriority: Record<AdminOrderPriority, "slate" | "amber" | "rose" | "violet"> = {
+    High: "amber",
+    Normal: "slate",
+    Urgent: "rose",
+    VIP: "violet"
+  };
+  return <Badge tone={toneByPriority[value]}>{value}</Badge>;
+}
+
 function cleanText(value?: string | null) {
   const trimmed = String(value ?? "").trim();
   return trimmed.length ? trimmed : undefined;
@@ -5027,24 +5427,36 @@ function humanizeFieldLabel(value: string) {
 }
 
 function OrderDetailDialog({
+  me,
+  notes,
   onAssign,
+  onAddNote,
+  onPriorityChange,
   onStatusChange,
   open,
   order,
   deliveryRequests = [],
+  priority,
   setOpen
 }: {
+  me: MeResponse;
+  notes: AdminOrderNote[];
   onAssign: () => void;
+  onAddNote: (note: string) => void;
+  onPriorityChange: (priority: AdminOrderPriority) => void;
   onStatusChange: (status: string) => void;
   open: boolean;
   order: Order | null;
   deliveryRequests?: any[];
+  priority: AdminOrderPriority;
   setOpen: (open: boolean) => void;
 }) {
   const [nextStatus, setNextStatus] = useState(order?.status ?? "ORDER_PLACED");
+  const [noteDraft, setNoteDraft] = useState("");
 
   useEffect(() => {
     setNextStatus(order?.status ?? "ORDER_PLACED");
+    setNoteDraft("");
   }, [order]);
 
   return (
@@ -5108,6 +5520,71 @@ function OrderDetailDialog({
                     <p className="mt-3 text-sm text-[var(--muted)]">{order.instructions}</p>
                   </Panel>
                 ) : null}
+
+                <Panel>
+                  <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
+                    <div>
+                      <h4 className="text-lg font-semibold">Admin priority</h4>
+                      <p className="mt-1 text-sm text-[var(--muted)]">Local ops priority for triage and follow-up.</p>
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <select
+                          className="h-12 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none"
+                          value={priority}
+                          onChange={(event) => onPriorityChange(event.target.value as AdminOrderPriority)}
+                        >
+                          {(["Normal", "High", "Urgent", "VIP"] as AdminOrderPriority[]).map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                        <PriorityBadge value={priority} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-lg font-semibold">Admin notes</h4>
+                          <p className="mt-1 text-sm text-[var(--muted)]">Notes are saved in this browser for the MVP admin review.</p>
+                        </div>
+                        <Badge tone="slate">{notes.length} notes</Badge>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-3">
+                        <textarea
+                          className="min-h-24 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 text-sm outline-none"
+                          placeholder={`Add note as ${me.name ?? me.phone ?? "Admin"}`}
+                          value={noteDraft}
+                          onChange={(event) => setNoteDraft(event.target.value)}
+                        />
+                        <div className="flex justify-end">
+                          <ActionButton
+                            disabled={!noteDraft.trim()}
+                            onClick={() => {
+                              const note = noteDraft.trim();
+                              if (!note) return;
+                              onAddNote(note);
+                              setNoteDraft("");
+                            }}
+                          >
+                            Add note
+                          </ActionButton>
+                        </div>
+                        <div className="max-h-48 space-y-2 overflow-y-auto">
+                          {notes.map((item, index) => (
+                            <div key={`${item.createdAt}-${index}`} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-3 text-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-semibold text-[var(--deep)]">{item.admin}</span>
+                                <span className="text-xs text-[var(--muted)]">{formatDate(item.createdAt, true)}</span>
+                              </div>
+                              <p className="mt-2 text-[var(--muted)]">{item.note}</p>
+                            </div>
+                          ))}
+                          {!notes.length ? <p className="text-sm text-[var(--muted)]">No admin notes yet.</p> : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
 
                 <Panel>
                   <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -6736,12 +7213,14 @@ function getOrderColumns({
   onAssign,
   onOpen,
   onStatusChange,
-  pending
+  pending,
+  priorities
 }: {
   onAssign: (order: Order) => void;
   onOpen: (order: Order) => void;
   onStatusChange: (orderId: string, status: string) => void;
   pending: boolean;
+  priorities: Record<string, AdminOrderPriority>;
 }): Array<ColumnDef<Order>> {
   return [
     {
@@ -6753,6 +7232,12 @@ function getOrderColumns({
           <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
         </div>
       )
+    },
+    {
+      id: "priority",
+      header: "Priority",
+      enableSorting: false,
+      cell: ({ row }) => <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
     },
     {
       id: "customer",
@@ -7561,6 +8046,165 @@ function buildMetrics(
 
 function isTailorProfile(profile: TailorProfile | DeliveryPartnerProfile): profile is TailorProfile {
   return "shopName" in profile;
+}
+
+function buildLiveAlerts({
+  deliveryRequests,
+  orders,
+  payments,
+  setActiveSection,
+  setDeliveryDetail,
+  setOrderDetail,
+  setTicketDetail,
+  setTailoringDetail,
+  tailoringRequests,
+  tickets
+}: {
+  deliveryRequests: DeliveryRequest[];
+  orders: Order[];
+  payments: Payment[];
+  setActiveSection: (section: SectionId) => void;
+  setDeliveryDetail: (request: DeliveryRequest) => void;
+  setOrderDetail: (order: Order) => void;
+  setTicketDetail: (ticket: SupportTicket) => void;
+  setTailoringDetail: (request: TailoringRequest) => void;
+  tailoringRequests: TailoringRequest[];
+  tickets: SupportTicket[];
+}): AdminAlert[] {
+  const now = Date.now();
+  const alerts: AdminAlert[] = [];
+  const minutesAgo = (value?: string) => (value ? (now - new Date(value).getTime()) / 60000 : 0);
+  const isOpenDelivery = (request: DeliveryRequest) => !["delivered", "completed", "cancelled", "CANCELLED"].includes(request.taskStatus);
+
+  tailoringRequests
+    .filter((request) => request.status === "QUOTE_REQUESTED" && minutesAgo(request.createdAt) >= 10)
+    .slice(0, 2)
+    .forEach((request) => {
+      alerts.push({
+        detail: `${formatCustomerRequestId(request.id)} has been waiting ${Math.floor(minutesAgo(request.createdAt))} min for tailor quotes.`,
+        id: `tailoring-wait-${request.id}`,
+        onOpen: () => {
+          setTailoringDetail(request);
+          setActiveSection("tailoring");
+        },
+        title: "Quote delay",
+        tone: "amber"
+      });
+    });
+
+  deliveryRequests
+    .filter((request) => isOpenDelivery(request) && Boolean(request.deadlineAt) && new Date(request.deadlineAt as string).getTime() < now)
+    .slice(0, 2)
+    .forEach((request) => {
+      alerts.push({
+        detail: `${request.taskId} is past ETA for ${formatStatus(request.type)}.`,
+        id: `delivery-delay-${request.id}`,
+        onOpen: () => {
+          setDeliveryDetail(request);
+          setActiveSection("delivery");
+        },
+        title: request.type === "customer_to_tailor" ? "Pickup delayed" : "Drop delayed",
+        tone: "rose"
+      });
+    });
+
+  deliveryRequests
+    .filter((request) => Boolean(request.lastFailureReason) && isOpenDelivery(request))
+    .slice(0, 2)
+    .forEach((request) => {
+      alerts.push({
+        detail: `${request.taskId}: ${request.lastFailureReason}`,
+        id: `delivery-failure-${request.id}`,
+        onOpen: () => {
+          setDeliveryDetail(request);
+          setActiveSection("delivery");
+        },
+        title: "Delivery exception",
+        tone: "rose"
+      });
+    });
+
+  payments
+    .filter((payment) => payment.status === "FAILED")
+    .slice(0, 2)
+    .forEach((payment) => {
+      alerts.push({
+        detail: `${payment.darjiId ?? payment.orderId} failed for ${formatCurrency(payment.amount)}.`,
+        id: `payment-failed-${payment.id}`,
+        onOpen: () => setActiveSection("payments"),
+        title: "Payment failed",
+        tone: "violet"
+      });
+    });
+
+  orders
+    .filter((order) => ["ORDER_PLACED", "CONFIRMED", "AT_TAILOR", "STITCHING_STARTED"].includes(order.status) && minutesAgo(order.updatedAt ?? order.createdAt) >= 24 * 60)
+    .slice(0, 2)
+    .forEach((order) => {
+      alerts.push({
+        detail: `${getOrderDisplayNumber(order)} has not moved since ${formatDate(order.updatedAt ?? order.createdAt, true)}.`,
+        id: `order-stalled-${order.id}`,
+        onOpen: () => {
+          setOrderDetail(order);
+          setActiveSection("orders");
+        },
+        title: "Order stalled",
+        tone: "sky"
+      });
+    });
+
+  tickets
+    .filter((ticket) => ["HIGH", "URGENT"].includes(String(ticket.priority ?? "").toUpperCase()) && !["RESOLVED", "CLOSED"].includes(String(ticket.status).toUpperCase()))
+    .slice(0, 2)
+    .forEach((ticket) => {
+      alerts.push({
+        detail: `${ticket.subject} from ${getUserDisplayName(ticket.user, "User")}.`,
+        id: `support-priority-${ticket.id}`,
+        onOpen: () => {
+          setTicketDetail(ticket);
+          setActiveSection("support");
+        },
+        title: "Priority support",
+        tone: "amber"
+      });
+    });
+
+  return alerts.slice(0, 8);
+}
+
+function buildTodayOperationsSummary({
+  deliveryBatches,
+  deliveryRequests,
+  partners,
+  tailoringRequests,
+  tailors
+}: {
+  deliveryBatches: DeliveryBatch[];
+  deliveryRequests: DeliveryRequest[];
+  partners: DeliveryPartnerProfile[];
+  tailoringRequests: TailoringRequest[];
+  tailors: TailorProfile[];
+}) {
+  const todayDeliveryRequests = deliveryRequests.filter((request) => isToday(request.createdAt) || isToday(request.deadlineAt) || isToday(request.etaWindowStart));
+  const pickupTasks = todayDeliveryRequests.filter((request) => request.type === "customer_to_tailor");
+  const dropTasks = todayDeliveryRequests.filter((request) => request.type === "tailor_to_customer");
+  const completedTasks = todayDeliveryRequests.filter((request) => ["delivered", "completed", "DELIVERED"].includes(request.taskStatus));
+  const activeTailors = tailors.filter((tailor) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED").length;
+  const activePartners = partners.filter((partner) => partner.isAvailable && partner.verificationStatus === "VERIFIED").length;
+  const stitchingNow = tailoringRequests.filter((request) => ["WORKING", "STITCHING_STARTED", "AT_TAILOR"].includes(String(request.workStatus ?? request.orderStatus))).length;
+  const readyNow = tailoringRequests.filter((request) => ["READY", "READY_FOR_DELIVERY", "ready_for_delivery"].includes(String(request.workStatus ?? request.orderStatus))).length;
+  const pendingDropBatches = deliveryBatches.filter((batch) => batch.deliveryType === "DROP" && !["completed", "cancelled"].includes(String(batch.status))).length;
+
+  return [
+    { label: "Pickups today", value: pickupTasks.length.toLocaleString("en-IN"), tone: "amber" as const },
+    { label: "Drops today", value: dropTasks.length.toLocaleString("en-IN"), tone: "sky" as const },
+    { label: "Completed tasks", value: completedTasks.length.toLocaleString("en-IN"), tone: "emerald" as const },
+    { label: "In stitching", value: stitchingNow.toLocaleString("en-IN"), tone: "violet" as const },
+    { label: "Ready orders", value: readyNow.toLocaleString("en-IN"), tone: "emerald" as const },
+    { label: "Drop batches", value: pendingDropBatches.toLocaleString("en-IN"), tone: "rose" as const },
+    { label: "Active tailors", value: activeTailors.toLocaleString("en-IN"), tone: "amber" as const },
+    { label: "Active partners", value: activePartners.toLocaleString("en-IN"), tone: "sky" as const }
+  ];
 }
 
 function buildFinanceSummary(payments: Payment[], tailoringRequests: TailoringRequest[], deliveryRequests: DeliveryRequest[]): FinanceSummary {

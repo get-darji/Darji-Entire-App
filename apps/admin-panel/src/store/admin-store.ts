@@ -17,6 +17,12 @@ export type SectionId =
   | "coupons"
   | "support"
   | "reviews"
+  | "notifications"
+  | "analytics"
+  | "activity"
+  | "roles"
+  | "health"
+  | "exports"
   | "settings";
 
 type AdminStore = {
