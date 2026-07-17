@@ -30,6 +30,7 @@ import {
   adminWalletDetailController,
   adminWalletPayoutsController,
   listAdminDeliveryBatchesController,
+  notifyDeliveryBatchController,
   getOrderController,
   getDeliveryFareSettingsController,
   listAddressesController,
@@ -156,6 +157,7 @@ router.patch("/admin/delivery-retries/:id/retry-now", requireAuth, requireRole("
 router.patch("/admin/delivery-retries/:id/resolve", requireAuth, requireRole("ADMIN"), resolveDeliveryRetryController);
 router.patch("/admin/delivery-retries/:id/cancel", requireAuth, requireRole("ADMIN"), cancelDeliveryRetryController);
 router.get("/admin/delivery-batches", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminDeliveryBatchesController);
+router.post("/admin/delivery-batches/:batchId/notify", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), notifyDeliveryBatchController);
 router.patch("/admin/delivery-batches/tasks/:taskId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reassignDeliveryBatchTaskController);
 
 router.get("/addresses", requireAuth, listAddressesController);

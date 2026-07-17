@@ -101,6 +101,10 @@ export async function getDeliveryBatches() {
   return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
 }
 
+export async function notifyDeliveryBatch(batchId: string) {
+  return unwrap(api.post(`/admin/delivery-batches/${batchId}/notify`, {}));
+}
+
 export async function reassignDeliveryBatchTask(payload: { taskId: string; batchId: string }) {
   const { taskId, ...body } = payload;
   return unwrap<DeliveryRequest>(api.patch(`/admin/delivery-batches/tasks/${taskId}`, body));

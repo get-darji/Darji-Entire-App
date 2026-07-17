@@ -488,6 +488,7 @@ export type DeliveryRequest = {
   etaWindowEnd?: string;
   deadlineAt?: string;
   acceptedAt?: string;
+  notificationSentAt?: string;
   pickedUpAt?: string;
   deliveredAt?: string;
   createdAt?: string;

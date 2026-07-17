@@ -83,6 +83,7 @@ import {
   getCoupons,
   getDeliveryPartners,
   getDeliveryBatches,
+  notifyDeliveryBatch,
   getDeliveryRequests,
   getDeliveryRetries,
   getMe,
@@ -213,6 +214,11 @@ type GlobalSearchResult = {
   section: SectionId;
   icon: ComponentType<{ size?: number; className?: string }>;
   onSelect: () => void;
+};
+
+type BatchFocusTarget = {
+  batchId: string;
+  roundAt: string;
 };
 
 type PaymentBreakdown = {
@@ -350,6 +356,7 @@ export function AdminPortal() {
   const [orderPriorities, setOrderPriorities] = useState<Record<string, AdminOrderPriority>>({});
   const [orderNotes, setOrderNotes] = useState<Record<string, AdminOrderNote[]>>({});
   const [ticketDetail, setTicketDetail] = useState<SupportTicket | null>(null);
+  const [batchFocus, setBatchFocus] = useState<BatchFocusTarget | null>(null);
   const [supportCategory, setSupportCategory] = useState("all");
   const [customerSupportSearch, setCustomerSupportSearch] = useState("");
   const [customerSupportStatus, setCustomerSupportStatus] = useState("");
@@ -785,6 +792,18 @@ export function AdminPortal() {
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] })
+      ]);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const notifyBatchMutation = useMutation({
+    mutationFn: notifyDeliveryBatch,
+    onSuccess: async () => {
+      toast.success("Batch notifications sent");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] })
       ]);
     },
     onError: (error) => toast.error(extractError(error))
@@ -1606,7 +1625,13 @@ export function AdminPortal() {
   const orderColumns = getOrderColumns({
     onAssign: setAssignOrderTarget,
     onOpen: setOrderDetail,
+    onOpenBatch: (batch) => {
+      setBatchFocus(batch);
+      setActiveSection("batches");
+      setSidebarOpen(false);
+    },
     onStatusChange: (orderId, status) => statusMutation.mutate({ orderId, status }),
+    batches: deliveryBatches,
     pending: statusMutation.isPending,
     priorities: orderPriorities
   });
@@ -1888,10 +1913,12 @@ export function AdminPortal() {
           <DeliveryBatchManagement
             batches={deliveryBatches}
             error={deliveryBatchesQuery.isError ? extractError(deliveryBatchesQuery.error) : undefined}
+            focusBatch={batchFocus}
             orders={allOrders}
             pendingTaskId={batchReassignMutation.isPending ? batchReassignMutation.variables?.taskId : undefined}
             onOpenOrder={(order) => setOrderDetail(order)}
             onReassign={(taskId, batchId) => batchReassignMutation.mutate({ taskId, batchId })}
+            onNotifyBatch={(batchId) => notifyBatchMutation.mutate(batchId)}
           />
         ) : null}
 
@@ -3889,27 +3916,51 @@ function PayoutWorkspace({
 function DeliveryBatchManagement({
   batches,
   error,
+  focusBatch,
   onOpenOrder,
+  onNotifyBatch,
   onReassign,
   orders,
   pendingTaskId
 }: {
   batches: DeliveryBatch[];
   error?: string;
+  focusBatch?: BatchFocusTarget | null;
   onOpenOrder: (order: Order) => void;
+  onNotifyBatch: (batchId: string) => void;
   onReassign: (taskId: string, batchId: string) => void;
   orders: Order[];
   pendingTaskId?: string;
 }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
-  const visibleBatches = batches.filter((batch) =>
+  const [selectedDate, setSelectedDate] = useState(() => localDateInputValue(new Date()));
+  const sortedBatches = useMemo(
+    () => [...batches].sort((a, b) => new Date(a.roundAt).getTime() - new Date(b.roundAt).getTime()),
+    [batches]
+  );
+  const selectedDayBatches = useMemo(
+    () => sortedBatches.filter((batch) => localDateKey(batch.roundAt) === selectedDate),
+    [selectedDate, sortedBatches]
+  );
+  const visibleBatches = selectedDayBatches.filter((batch) =>
     (!statusFilter || batch.status === statusFilter) &&
     (!typeFilter || batch.deliveryType === typeFilter)
   );
-  const activeTargetBatches = batches.filter((batch) => !["completed", "cancelled"].includes(batch.status));
+  const selectedIsToday = selectedDate === localDateInputValue(new Date());
+  const now = Date.now();
+  const upcomingBatches = selectedIsToday
+    ? visibleBatches.filter((batch) => new Date(batch.roundAt).getTime() >= now)
+    : visibleBatches;
+  const previousBatches = selectedIsToday
+    ? visibleBatches.filter((batch) => new Date(batch.roundAt).getTime() < now)
+    : [];
+  const activeTargetBatches = sortedBatches.filter((batch) => !["completed", "cancelled"].includes(batch.status));
   const totalEarnings = visibleBatches.reduce((sum, batch) => sum + Number(batch.estimatedEarnings ?? 0), 0);
   const totalTasks = visibleBatches.reduce((sum, batch) => sum + batch.tasks.length, 0);
+  const selectedDateLabel = formatDate(selectedDate, false);
+  const nextBatch = upcomingBatches[0];
+  const focusedBatch = focusBatch ? selectedDayBatches.find((batch) => batch.batchId === focusBatch.batchId) : undefined;
 
   return (
     <div className="space-y-6">
@@ -3918,6 +3969,18 @@ function DeliveryBatchManagement({
         description="Inspect active pickup/drop batches, route orders, earnings, and move an order into another compatible batch."
         action={
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2">
+              <CalendarDays size={16} className="text-[var(--muted)]" />
+              <input
+                className="bg-transparent text-sm font-semibold outline-none"
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+              />
+            </div>
+            <ActionButton className="px-4 py-2" variant="secondary" onClick={() => setSelectedDate(localDateInputValue(new Date()))}>
+              Today
+            </ActionButton>
             <FilterSelect
               value={typeFilter}
               onChange={setTypeFilter}
@@ -3942,11 +4005,28 @@ function DeliveryBatchManagement({
           </div>
         }
       />
-      <div className="grid gap-4 md:grid-cols-3">
-        <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note="Current filter" tone="sky" />
-        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note="Delivery tasks" tone="amber" />
-        <FinanceStatCard label="Delivery earnings" value={formatCurrency(totalEarnings)} note="Partner payable" tone="emerald" />
+      <div className="grid gap-4 md:grid-cols-4">
+        <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note={selectedDateLabel} tone="sky" />
+        <FinanceStatCard label="Upcoming batches" value={upcomingBatches.length.toLocaleString("en-IN")} note={selectedIsToday ? "Later today" : "Selected day"} tone="amber" />
+        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note="Delivery tasks" tone="emerald" />
+        <FinanceStatCard label="Delivery earnings" value={formatCurrency(totalEarnings)} note="Partner payable" tone="rose" />
       </div>
+      {nextBatch ? (
+        <Panel className="border-amber-200 bg-gradient-to-br from-amber-50 to-white">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Next batch</p>
+              <h3 className="mt-1 text-xl font-bold text-[var(--deep)]">
+                BATCH-{nextBatch.batchId.slice(0, 8).toUpperCase()} - {nextBatch.deliveryRound === "ONE_PM" ? "1 PM" : nextBatch.deliveryRound === "SIX_PM" ? "6 PM" : formatStatus(nextBatch.deliveryRound)}
+              </h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {formatDate(nextBatch.roundAt, true)} - {nextBatch.area} - {nextBatch.deliveryType} - {nextBatch.status}
+              </p>
+            </div>
+            <Badge tone="amber">Viewing {selectedDateLabel}</Badge>
+          </div>
+        </Panel>
+      ) : null}
       {error ? (
         <Panel className="border-red-200 bg-red-50 text-red-700">
           <p className="text-sm font-semibold">Batch endpoint unavailable</p>
@@ -3954,31 +4034,149 @@ function DeliveryBatchManagement({
         </Panel>
       ) : null}
       <div className="space-y-4">
-        {visibleBatches.map((batch) => {
-          const partner = batch.partner;
-          const completedTasks = batch.tasks.filter((task) => task.taskStatus === "delivered" || task.taskStatus === "cancelled").length;
-          return (
-            <Panel key={batch.batchId} className="overflow-hidden p-0">
-              <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-bold text-[var(--deep)]">BATCH-{batch.batchId.slice(0, 8).toUpperCase()}</h3>
-                    <DeliveryRoleBadge role={batch.deliveryType} />
-                    <StatusBadge value={batch.status} />
-                  </div>
-                  <p className="mt-1 text-sm text-[var(--muted)]">
-                    {batch.deliveryRound === "ONE_PM" ? "1 PM" : batch.deliveryRound === "SIX_PM" ? "6 PM" : formatStatus(batch.deliveryRound)} round - {batch.area} - {formatDate(batch.roundAt, true)}
-                  </p>
-                  <p className="mt-1 text-sm text-[var(--foreground)]">
-                    Accepted by {partner ? getPartnerDisplayName(partner) : "Unassigned"} {partner?.darjiPartnerId ? `(${partner.darjiPartnerId})` : ""}
-                  </p>
+        {focusedBatch ? (
+          <Panel className="border-[var(--accent)] bg-[linear-gradient(135deg,#fff9ec,#ffffff)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--accent)]">Opened from Orders</p>
+                <h3 className="mt-1 text-xl font-bold text-[var(--deep)]">BATCH-{focusedBatch.batchId.slice(0, 8).toUpperCase()}</h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">{formatDate(focusedBatch.roundAt, true)} - {focusedBatch.area} - {focusedBatch.deliveryType}</p>
+              </div>
+              <Badge tone="amber">Focused batch</Badge>
+            </div>
+          </Panel>
+        ) : null}
+        {selectedIsToday ? (
+          <>
+            <BatchSection
+              title="Upcoming batches"
+              focusBatchId={focusBatch?.batchId}
+              batches={upcomingBatches}
+              orders={orders}
+              activeTargetBatches={activeTargetBatches}
+              pendingTaskId={pendingTaskId}
+              onOpenOrder={onOpenOrder}
+              onNotifyBatch={onNotifyBatch}
+              onReassign={onReassign}
+            />
+            <BatchSection
+              title="Earlier batches"
+              focusBatchId={focusBatch?.batchId}
+              batches={previousBatches}
+              orders={orders}
+              activeTargetBatches={activeTargetBatches}
+              pendingTaskId={pendingTaskId}
+              onOpenOrder={onOpenOrder}
+              onNotifyBatch={onNotifyBatch}
+              onReassign={onReassign}
+            />
+          </>
+        ) : (
+          <BatchSection
+            title={`Batches for ${selectedDateLabel}`}
+            focusBatchId={focusBatch?.batchId}
+            batches={visibleBatches}
+            orders={orders}
+            activeTargetBatches={activeTargetBatches}
+            pendingTaskId={pendingTaskId}
+            onOpenOrder={onOpenOrder}
+            onNotifyBatch={onNotifyBatch}
+            onReassign={onReassign}
+          />
+        )}
+        {!visibleBatches.length ? <EmptyState message="No delivery batches found for the selected date and filters." /> : null}
+      </div>
+    </div>
+  );
+}
+
+function BatchSection({
+  title,
+  batches,
+  orders,
+  activeTargetBatches,
+  focusBatchId,
+  onNotifyBatch,
+  pendingTaskId,
+  onOpenOrder,
+  onReassign
+}: {
+  title: string;
+  batches: DeliveryBatch[];
+  orders: Order[];
+  activeTargetBatches: DeliveryBatch[];
+  focusBatchId?: string | null;
+  onNotifyBatch: (batchId: string) => void;
+  pendingTaskId?: string;
+  onOpenOrder: (order: Order) => void;
+  onReassign: (taskId: string, batchId: string) => void;
+}) {
+  if (!batches.length) return null;
+  const [openBatchIds, setOpenBatchIds] = useState<Set<string>>(() => new Set(focusBatchId ? [focusBatchId] : []));
+
+  useEffect(() => {
+    if (!focusBatchId) return;
+    setOpenBatchIds(new Set([focusBatchId]));
+  }, [focusBatchId]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h4 className="text-sm font-black uppercase tracking-[0.18em] text-[var(--muted)]">{title}</h4>
+        <Badge tone="slate">{batches.length}</Badge>
+      </div>
+      {batches.map((batch) => {
+        const partner = batch.partner;
+        const completedTasks = batch.tasks.filter((task) => task.taskStatus === "delivered" || task.taskStatus === "cancelled").length;
+        const isOpen = openBatchIds.has(batch.batchId);
+        const hiddenTaskCount = batch.tasks.filter((task) => !task.notificationSentAt).length;
+        const isHidden = batch.status === "scheduled" && hiddenTaskCount === batch.tasks.length && batch.tasks.length > 0;
+        return (
+          <Panel key={batch.batchId} className={cn("overflow-hidden p-0", focusBatchId === batch.batchId && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-transparent")}>
+            <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-center lg:justify-between">
+              <button
+                type="button"
+                onClick={() => setOpenBatchIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(batch.batchId)) next.delete(batch.batchId);
+                  else next.add(batch.batchId);
+                  return next;
+                })}
+                className="flex min-w-0 flex-1 flex-col text-left"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-xl font-bold text-[var(--deep)]">BATCH-{batch.batchId.slice(0, 8).toUpperCase()}</h3>
+                  <DeliveryRoleBadge role={batch.deliveryType} />
+                  <StatusBadge value={batch.status} />
+                  {isHidden ? <Badge tone="slate">Hidden</Badge> : <Badge tone="emerald">Visible</Badge>}
+                  {hiddenTaskCount > 0 ? <Badge tone="amber">{hiddenTaskCount} pending notify</Badge> : null}
                 </div>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {batch.deliveryRound === "ONE_PM" ? "1 PM" : batch.deliveryRound === "SIX_PM" ? "6 PM" : formatStatus(batch.deliveryRound)} round - {batch.area} - {formatDate(batch.roundAt, true)}
+                </p>
+                <p className="mt-1 text-sm text-[var(--foreground)]">
+                  Accepted by {partner ? getPartnerDisplayName(partner) : "Unassigned"} {partner?.darjiPartnerId ? `(${partner.darjiPartnerId})` : ""}
+                </p>
+              </button>
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <MetricChip label="Orders" value={`${completedTasks}/${batch.tasks.length}`} />
                   <MetricChip label="Earnings" value={formatCurrency(batch.estimatedEarnings ?? 0)} />
                   <MetricChip label="Service" value={batch.serviceLevel ?? "STANDARD"} />
                 </div>
+                {isHidden && batch.status === "scheduled" ? (
+                  <ActionButton
+                    className="px-4 py-2"
+                    onClick={() => onNotifyBatch(batch.batchId)}
+                    variant="secondary"
+                  >
+                    Notify now
+                  </ActionButton>
+                ) : null}
+                <ChevronDown className={cn("h-5 w-5 text-[var(--muted)] transition-transform", isOpen ? "rotate-180" : "")} />
               </div>
+            </div>
+            {isOpen ? (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-left text-sm">
                   <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
@@ -4010,6 +4208,7 @@ function DeliveryBatchManagement({
                           <td className="px-4 py-4">
                             <div className="flex flex-wrap gap-2">
                               <StatusBadge value={task.taskStatus} />
+                              {task.notificationSentAt ? <Badge tone="emerald">Notified {formatDate(task.notificationSentAt, true)}</Badge> : <Badge tone="slate">Hidden</Badge>}
                               {task.acceptedAt ? <Badge tone="sky">Accepted {formatDate(task.acceptedAt, true)}</Badge> : null}
                               {task.pickedUpAt ? <Badge tone="amber">Picked {formatDate(task.pickedUpAt, true)}</Badge> : null}
                               {task.deliveredAt ? <Badge tone="emerald">Delivered {formatDate(task.deliveredAt, true)}</Badge> : null}
@@ -4043,11 +4242,12 @@ function DeliveryBatchManagement({
                   </tbody>
                 </table>
               </div>
-            </Panel>
-          );
-        })}
-        {!visibleBatches.length ? <EmptyState message="No delivery batches match the current filters." /> : null}
-      </div>
+            ) : (
+              <div className="px-5 py-4 text-sm text-[var(--muted)]">Tap to open batch details.</div>
+            )}
+          </Panel>
+        );
+      })}
     </div>
   );
 }
@@ -5164,6 +5364,25 @@ function getOrderDisplayNumber(order?: Pick<Order, "orderNumber" | "darjiId" | "
 
 function formatCustomerRequestId(id?: string | null) {
   return id ? `REQ-${id.slice(0, 8).toUpperCase()}` : "REQ-PENDING";
+}
+
+function findBatchForOrder(order: Order, batches: DeliveryBatch[]) {
+  const orderIds = [order.id, order.request?.id].filter(Boolean) as string[];
+  return batches.find((batch) => batch.tasks.some((task) => orderIds.includes(task.orderId)));
+}
+
+function localDateInputValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localDateKey(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return localDateInputValue(date);
 }
 
 function SupportStatMini({
@@ -7212,12 +7431,16 @@ function AssignOrderDialog({
 function getOrderColumns({
   onAssign,
   onOpen,
+  onOpenBatch,
+  batches,
   onStatusChange,
   pending,
   priorities
 }: {
   onAssign: (order: Order) => void;
   onOpen: (order: Order) => void;
+  onOpenBatch: (batch: BatchFocusTarget) => void;
+  batches: DeliveryBatch[];
   onStatusChange: (orderId: string, status: string) => void;
   pending: boolean;
   priorities: Record<string, AdminOrderPriority>;
@@ -7281,6 +7504,29 @@ function getOrderColumns({
           <div className="flex flex-col gap-1">
             <span>{getPartnerDisplayName(dp)}</span>
             <DeliveryRoleBadge partner={dp} />
+          </div>
+        );
+      }
+    },
+    {
+      id: "batch",
+      header: "Batch",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const batch = findBatchForOrder(row.original, batches);
+        if (!batch) return <span className="text-[var(--muted)]">Not assigned</span>;
+        const hiddenTaskCount = batch.tasks.filter((task) => !task.notificationSentAt).length;
+        const isHidden = batch.status === "scheduled" && hiddenTaskCount === batch.tasks.length && batch.tasks.length > 0;
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="inline-flex rounded-full border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--deep)] hover:bg-[var(--accent)] hover:text-black"
+              type="button"
+              onClick={() => onOpenBatch({ batchId: batch.batchId, roundAt: batch.roundAt })}
+            >
+              BATCH-{batch.batchId.slice(0, 8).toUpperCase()}
+            </button>
+            <Badge tone={isHidden ? "slate" : "emerald"}>{isHidden ? "Hidden" : "Notified"}</Badge>
           </div>
         );
       }

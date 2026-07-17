@@ -37,6 +37,7 @@ import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
+import { notifyScheduledBatchNow } from "../services/hybrid-delivery.service.js";
 import { emitToCustomer, emitToAdmins } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 
@@ -739,6 +740,18 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
   const updatedTask = await DeliveryRequestModel.findByIdAndUpdate(task.id, update, { returnDocument: "after" });
   await DeliveryBatchModel.updateOne({ batchId: targetBatch.batchId }, { $addToSet: { tasks: task.id }, $inc: { estimatedEarnings: Number(task.estimatedEarnings ?? 0) } });
   res.json({ data: updatedTask });
+}
+
+export async function notifyDeliveryBatchController(req: Request, res: Response) {
+  const batchId = String(req.params.batchId);
+  const result = await notifyScheduledBatchNow(batchId);
+  res.json({
+    data: {
+      batchId,
+      notifiedTasks: result.assignedTasks,
+      status: result.batch?.status ?? "scheduled"
+    }
+  });
 }
 
 export async function reviewDeliveryVerificationController(req: Request, res: Response) {

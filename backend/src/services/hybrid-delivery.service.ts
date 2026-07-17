@@ -10,7 +10,7 @@ type BatchSettings = { pickupTimes: BatchTime[]; dropTimes: BatchTime[]; lockMin
 const DEFAULT_SETTINGS: BatchSettings = {
   pickupTimes: [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }],
   dropTimes: [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }],
-  lockMinutes: 45
+  lockMinutes: 60
 };
 
 export function deliveryServiceLevel(urgency?: string): DeliveryServiceLevel {
@@ -59,7 +59,7 @@ export async function getBatchSettings(): Promise<BatchSettings> {
   return {
     pickupTimes: validTimes(value?.pickupTimes, DEFAULT_SETTINGS.pickupTimes),
     dropTimes: validTimes(value?.dropTimes, DEFAULT_SETTINGS.dropTimes),
-    lockMinutes: Math.min(60, Math.max(45, Number(value?.lockMinutes) || DEFAULT_SETTINGS.lockMinutes))
+    lockMinutes: Math.max(60, Number(value?.lockMinutes) || DEFAULT_SETTINGS.lockMinutes)
   };
 }
 
@@ -157,6 +157,66 @@ async function notifyBatchAssignment(partner: any, task: any) {
     sound: "ding.mp3",
     actions: ["View Order"]
   });
+}
+
+async function dispatchScheduledBatch(batch: any, now = new Date()) {
+  const claimed = await DeliveryBatchModel.findOneAndUpdate(
+    { _id: batch.id, status: "scheduled" },
+    { status: "locked", lockedAt: now },
+    { returnDocument: "after" }
+  );
+  if (!claimed) return null;
+
+  const tasks = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: "pending" });
+  const ordered = routeOrder(tasks);
+  await Promise.all(
+    ordered.map((task, index) =>
+      DeliveryRequestModel.findByIdAndUpdate(task.id, {
+        routePosition: index + 1,
+        routeTotal: ordered.length,
+        etaWindowStart: new Date(claimed.roundAt.getTime() + index * 20 * 60 * 1000),
+        etaWindowEnd: new Date(claimed.roundAt.getTime() + (index + 1) * 20 * 60 * 1000)
+      })
+    )
+  );
+
+  const partner = await DeliveryPartnerModel.findOne({
+    deliveryType: claimed.deliveryType,
+    isAvailable: true,
+    verificationStatus: "VERIFIED",
+    ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
+  }).sort({ updatedAt: 1 });
+
+  if (!partner) return { batch: claimed, partner: null, assignedTasks: 0 };
+
+  await DeliveryBatchModel.findByIdAndUpdate(claimed.id, { deliveryPartnerId: partner.id, status: "active", routeOptimizedAt: now });
+  let assignedTasks = 0;
+  for (const task of ordered) {
+    const assigned = await DeliveryRequestModel.findByIdAndUpdate(
+      task.id,
+      {
+        assignedDeliveryPartnerId: partner.id,
+        assignedDeliveryBoyId: partner.id,
+        taskStatus: "accepted",
+        acceptedAt: now,
+        deadlineAt: new Date(claimed.roundAt.getTime() + 2 * 60 * 60 * 1000),
+        notificationSentAt: now
+      },
+      { returnDocument: "after" }
+    );
+    if (assigned) {
+      assignedTasks += 1;
+      await TailoringRequestModel.findByIdAndUpdate(task.orderId, {
+        deliveryType: task.deliveryType,
+        batchId: claimed.batchId,
+        assignedDeliveryBoyId: partner.id,
+        ...(task.type === "customer_to_tailor" ? { orderStatus: "pickup_started" } : { orderStatus: "out_for_delivery" })
+      });
+      await notifyBatchAssignment(partner, assigned);
+    }
+  }
+
+  return { batch: await DeliveryBatchModel.findById(claimed.id), partner, assignedTasks };
 }
 
 async function notifyInstantAssignment(partner: any, task: any) {
@@ -360,54 +420,14 @@ export async function assignPendingTasksToPartner(partner: any) {
 export async function lockAndDispatchDueBatches(now = new Date()) {
   const batches = await DeliveryBatchModel.find({ status: "scheduled", lockAt: { $lte: now } });
   for (const batch of batches) {
-    const claimed = await DeliveryBatchModel.findOneAndUpdate({ _id: batch.id, status: "scheduled" }, { status: "locked", lockedAt: now }, { returnDocument: "after" });
-    if (!claimed) continue;
-
-    const tasks = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: "pending" });
-    const ordered = routeOrder(tasks);
-    await Promise.all(
-      ordered.map((task, index) =>
-        DeliveryRequestModel.findByIdAndUpdate(task.id, {
-          routePosition: index + 1,
-          routeTotal: ordered.length,
-          etaWindowStart: new Date(claimed.roundAt.getTime() + index * 20 * 60 * 1000),
-          etaWindowEnd: new Date(claimed.roundAt.getTime() + (index + 1) * 20 * 60 * 1000)
-        })
-      )
-    );
-
-    const partner = await DeliveryPartnerModel.findOne({
-      deliveryType: claimed.deliveryType,
-      isAvailable: true,
-      verificationStatus: "VERIFIED",
-      ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
-    }).sort({ updatedAt: 1 });
-
-    if (!partner) continue;
-
-    await DeliveryBatchModel.findByIdAndUpdate(claimed.id, { deliveryPartnerId: partner.id, status: "active", routeOptimizedAt: now });
-    for (const task of ordered) {
-      const assigned = await DeliveryRequestModel.findByIdAndUpdate(
-        task.id,
-        {
-          assignedDeliveryPartnerId: partner.id,
-          assignedDeliveryBoyId: partner.id,
-          taskStatus: "accepted",
-          acceptedAt: now,
-          deadlineAt: new Date(claimed.roundAt.getTime() + 2 * 60 * 60 * 1000),
-          notificationSentAt: now
-        },
-        { returnDocument: "after" }
-      );
-      if (assigned) {
-        await TailoringRequestModel.findByIdAndUpdate(task.orderId, {
-          deliveryType: task.deliveryType,
-          batchId: claimed.batchId,
-          assignedDeliveryBoyId: partner.id,
-          ...(task.type === "customer_to_tailor" ? { orderStatus: "pickup_started" } : { orderStatus: "out_for_delivery" })
-        });
-        await notifyBatchAssignment(partner, assigned);
-      }
-    }
+    await dispatchScheduledBatch(batch, now);
   }
+}
+
+export async function notifyScheduledBatchNow(batchId: string, now = new Date()) {
+  const batch = await DeliveryBatchModel.findOne({ batchId, status: "scheduled" });
+  if (!batch) throw new Error("Scheduled batch not found");
+  const result = await dispatchScheduledBatch(batch, now);
+  if (!result) throw new Error("Could not dispatch batch");
+  return result;
 }
