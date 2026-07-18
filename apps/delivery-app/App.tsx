@@ -118,11 +118,15 @@ type DeliveryRequest = {
   deliveredAt?: string;
   acceptedAt?: string;
   createdAt?: string;
+  notificationSentAt?: string;
   batchId?: string;
   deliveryType?: "PICKUP" | "DROP";
   deliveryRound?: string;
   roundAt?: string;
   assignedArea?: string;
+  batchOrdersCount?: number;
+  batchEstimatedEarnings?: number;
+  batchArea?: string;
   retryStatus?: "ACTIVE" | "PENDING_RETRY" | "ACTION_REQUIRED" | "CANCELLED" | "RESOLVED";
   retryCount?: number;
   lastFailureReason?: string;
@@ -1463,12 +1467,14 @@ function OrderRequestModal({
   request,
   accepting,
   onAccept,
+  onViewDetails,
   onClose
 }: {
   visible: boolean;
   request?: DeliveryRequest;
   accepting: boolean;
   onAccept: () => void;
+  onViewDetails: () => void;
   onClose: () => void;
 }) {
   const [countdown, setCountdown] = useState(30);
@@ -1485,6 +1491,11 @@ function OrderRequestModal({
   }, [countdown, onClose, visible]);
 
   if (!request) return null;
+  const isBatchOffer = Boolean(request.batchId && request.taskStatus === "pending");
+  const roundLabel = request.deliveryRound === "ONE_PM" ? "1 PM" : request.deliveryRound === "SIX_PM" ? "6 PM" : request.deliveryRound ?? "Batch";
+  const housesCount = Number(request.batchOrdersCount ?? request.routeTotal ?? request.itemCount ?? 1);
+  const earningTotal = Number(request.batchEstimatedEarnings ?? request.estimatedEarnings ?? 0);
+  const areaLabel = request.batchArea ?? request.assignedArea ?? "All Areas";
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
@@ -1495,8 +1506,8 @@ function OrderRequestModal({
               <Ionicons name="bicycle-outline" size={24} color={BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.popupEyebrow}>NEW DELIVERY</Text>
-              <Text style={styles.popupTitle}>{requestTitle(request)}</Text>
+              <Text style={styles.popupEyebrow}>{isBatchOffer ? "BATCH OFFER" : "NEW DELIVERY"}</Text>
+              <Text style={styles.popupTitle}>{isBatchOffer ? `${roundLabel} ${request.deliveryType === "DROP" ? "drop" : "pickup"} batch` : requestTitle(request)}</Text>
             </View>
             <View style={styles.countCircle}>
               <Text style={styles.countText}>{countdown}</Text>
@@ -1505,19 +1516,30 @@ function OrderRequestModal({
           <View style={styles.countdownPanel}>
             <Ionicons name="time-outline" size={20} color={BRAND_ORANGE} />
             <View style={styles.flexOne}>
-              <Text style={styles.countdownTitle}>12 hour deadline after accept</Text>
-              <Text style={styles.countdownCopy}>{request.clothType ?? "Clothes"} - {request.workType ?? "Tailoring job"}</Text>
+              <Text style={styles.countdownTitle}>{isBatchOffer ? `${housesCount} ${housesCount === 1 ? "house" : "houses"} in ${areaLabel}` : "12 hour deadline after accept"}</Text>
+              <Text style={styles.countdownCopy}>{isBatchOffer ? `Estimated earning Rs ${earningTotal.toFixed(0)}` : `${request.clothType ?? "Clothes"} - ${request.workType ?? "Tailoring job"}`}</Text>
             </View>
           </View>
-          <StatusRow label="Customer" value={request.customerName ?? "Customer"} />
-          <StatusRow label="Tailor" value={request.tailorName ?? "Tailor"} />
-          <StatusRow label="Pickup" value={request.pickupAddress} />
-          <StatusRow label="Drop" value={request.dropAddress} />
-          <StatusRow label="Distance" value={request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Calculated when route opens"} />
-          <StatusRow label="Expected earning" value={`Rs ${requestEarning(request)}`} />
+          {isBatchOffer ? (
+            <>
+              <StatusRow label="Round" value={roundLabel} />
+              <StatusRow label="Area" value={areaLabel} />
+              <StatusRow label="Houses" value={String(housesCount)} />
+              <StatusRow label="Total earning" value={`Rs ${earningTotal.toFixed(0)}`} />
+            </>
+          ) : (
+            <>
+              <StatusRow label="Customer" value={request.customerName ?? "Customer"} />
+              <StatusRow label="Tailor" value={request.tailorName ?? "Tailor"} />
+              <StatusRow label="Pickup" value={request.pickupAddress} />
+              <StatusRow label="Drop" value={request.dropAddress} />
+              <StatusRow label="Distance" value={request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Calculated when route opens"} />
+              <StatusRow label="Expected earning" value={`Rs ${requestEarning(request)}`} />
+            </>
+          )}
           <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
           <View style={styles.navRow}>
-            <View style={styles.flexOne}><PrimaryButton icon="close-outline" label="Close" onPress={onClose} variant="danger" /></View>
+            <View style={styles.flexOne}><PrimaryButton icon="eye-outline" label="View details" onPress={onViewDetails} variant="danger" /></View>
             <View style={styles.flexOne}><PrimaryButton icon="checkmark-outline" label="Accept" loading={accepting} onPress={onAccept} /></View>
           </View>
         </View>
@@ -2918,6 +2940,15 @@ function MainApp({
         <OrderRequestModal
           accepting={accepting}
           onAccept={acceptPopupRequest}
+          onViewDetails={() => {
+            if (popupRequest?.batchId) setActiveBatchId(popupRequest.batchId);
+            else if (popupRequest) {
+              setActiveOrder(popupRequest);
+              setActiveOrderScreen("summary");
+            }
+            setRequestVisible(false);
+            setTab("orders");
+          }}
           onClose={() => {
             if (popupRequest) dismissedRequestIdsRef.current.add(popupRequest.id);
             setRequestVisible(false);

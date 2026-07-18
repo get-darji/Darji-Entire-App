@@ -12,7 +12,7 @@ const FIXED_BATCH_TIMES: BatchTime[] = [{ name: "ONE_PM", time: "13:00" }, { nam
 const DEFAULT_SETTINGS: BatchSettings = {
   pickupTimes: FIXED_BATCH_TIMES,
   dropTimes: FIXED_BATCH_TIMES,
-  lockMinutes: 45,
+  lockMinutes: 60,
   maxOrdersPerBatch: 10
 };
 
@@ -221,6 +221,11 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
   );
   if (!claimed) return null;
 
+  await DeliveryRequestModel.updateMany(
+    { batchId: claimed.batchId, taskStatus: "pending" },
+    { $set: { notificationSentAt: now } }
+  );
+
   const tasks = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: "pending" });
   const ordered = routeOrder(tasks);
   await Promise.all(
@@ -251,7 +256,11 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     deliveryRound: claimed.deliveryRound,
     roundAt: claimed.roundAt,
     shift: claimed.shift,
-    assignedArea: claimed.area
+    assignedArea: claimed.area,
+    notificationSentAt: now,
+    batchOrdersCount: tasks.length,
+    batchEstimatedEarnings: Number(claimed.estimatedEarnings ?? 0),
+    batchArea: claimed.area
   };
 
   await Promise.all(
@@ -271,11 +280,6 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
         }
       });
     })
-  );
-
-  await DeliveryRequestModel.updateMany(
-    { batchId: claimed.batchId, taskStatus: "pending" },
-    { $set: { notificationSentAt: now } }
   );
 
   return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: eligiblePartners.length, notifiedTasks: tasks.length };
@@ -351,13 +355,15 @@ async function claimInstantTask(task: any, partner: any, now = new Date()) {
 
 async function claimLockedBatchTask(task: any, partner: any, now = new Date()) {
   if (!task.batchId) return null;
+  if (!task.notificationSentAt) return null;
   const batch = await DeliveryBatchModel.findOne({ batchId: task.batchId });
   if (!batch || !["locked", "active"].includes(String(batch.status))) return null;
 
   const batchTasks = await DeliveryRequestModel.find({
     batchId: batch.batchId,
     taskStatus: "pending",
-    retryStatus: { $ne: "ACTION_REQUIRED" }
+    retryStatus: { $ne: "ACTION_REQUIRED" },
+    notificationSentAt: { $exists: true }
   }).sort({ routePosition: 1, createdAt: 1 });
   if (!batchTasks.length) return null;
 
@@ -373,7 +379,6 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()) {
         notificationSentAt: now
       },
       $unset: {
-        batchId: 1,
         routePosition: 1,
         routeTotal: 1,
         etaWindowStart: 1,
@@ -496,6 +501,7 @@ export async function assignPendingTasksToPartner(partner: any) {
 
   const pendingTasksQuery: Record<string, any> = {
     deliveryType: partner.deliveryType,
+    serviceLevel: "INSTANT",
     taskStatus: "pending",
     retryStatus: { $ne: "ACTION_REQUIRED" }
   };
@@ -510,17 +516,7 @@ export async function assignPendingTasksToPartner(partner: any) {
     if (String(task.serviceLevel) === "INSTANT") {
       const claimed = await claimInstantTask(task, partner);
       if (claimed) continue;
-      continue;
     }
-
-    if (!task.batchId) continue;
-    const batch = await DeliveryBatchModel.findOne({ batchId: task.batchId });
-    if (!batch || !["locked", "active"].includes(String(batch.status))) continue;
-    if (enableAreaFiltering && batch.area !== partner.assignedArea && batch.area !== "unassigned" && batch.area !== "All Areas") continue;
-    if (batch.deliveryPartnerId && String(batch.deliveryPartnerId) !== String(partner._id)) continue;
-
-    const claimed = await claimLockedBatchTask(task, partner);
-    if (!claimed) continue;
   }
 }
 

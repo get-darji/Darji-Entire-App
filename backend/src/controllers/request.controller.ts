@@ -921,8 +921,15 @@ export async function listDeliveryRequestsController(req: Request, res: Response
     where.retryStatus = { $ne: "ACTION_REQUIRED" };
     where.$or = [
       enableAreaFiltering
-        ? { taskStatus: "pending", assignedArea: { $in: [partner.assignedArea, "unassigned"] } }
-        : { taskStatus: "pending" },
+        ? {
+            taskStatus: "pending",
+            assignedArea: { $in: [partner.assignedArea, "unassigned"] },
+            $or: [{ serviceLevel: "INSTANT" }, { notificationSentAt: { $exists: true } }]
+          }
+        : {
+            taskStatus: "pending",
+            $or: [{ serviceLevel: "INSTANT" }, { notificationSentAt: { $exists: true } }]
+          },
       { assignedDeliveryPartnerId: partner._id }
     ];
   } else if (status === "pending" || status === "OPEN") {
