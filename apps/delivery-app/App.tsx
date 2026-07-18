@@ -1521,6 +1521,7 @@ function OrderRequestModal({
 
   if (!request) return null;
   const isBatchOffer = Boolean(request.batchId && request.taskStatus === "pending");
+  const isInstant = request.serviceLevel === "INSTANT";
   const roundLabel = request.deliveryRound === "ONE_PM" ? "1 PM" : request.deliveryRound === "SIX_PM" ? "6 PM" : request.deliveryRound ?? "Batch";
   const housesCount = Number(request.batchOrdersCount ?? request.routeTotal ?? request.itemCount ?? 1);
   const earningTotal = Number(request.batchEstimatedEarnings ?? request.estimatedEarnings ?? 0);
@@ -1529,23 +1530,23 @@ function OrderRequestModal({
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.popupBackdrop}>
-        <View style={styles.requestPopupCard}>
+        <View style={[styles.requestPopupCard, isInstant && styles.instantRequestPopupCard]}>
           <View style={styles.cardTopRow}>
-            <View style={styles.popupIconSmall}>
-              <Ionicons name="bicycle-outline" size={24} color={BRAND_ORANGE} />
+            <View style={[styles.popupIconSmall, isInstant && styles.instantPopupIcon]}>
+              <Ionicons name={isInstant ? "flash-outline" : "bicycle-outline"} size={24} color={isInstant ? "#dc2626" : BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
-              <Text style={styles.popupEyebrow}>{isBatchOffer ? "BATCH OFFER" : "NEW DELIVERY"}</Text>
+              <Text style={[styles.popupEyebrow, isInstant && styles.instantEyebrow]}>{isBatchOffer ? "BATCH OFFER" : isInstant ? "INSTANT DELIVERY" : "NEW DELIVERY"}</Text>
               <Text style={styles.popupTitle}>{isBatchOffer ? `${roundLabel} ${request.deliveryType === "DROP" ? "drop" : "pickup"} batch` : requestTitle(request)}</Text>
             </View>
-            <View style={styles.countCircle}>
-              <Text style={styles.countText}>{countdown}</Text>
+            <View style={[styles.countCircle, isInstant && styles.instantCountCircle]}>
+              <Text style={[styles.countText, isInstant && styles.instantCountText]}>{countdown}</Text>
             </View>
           </View>
-          <View style={styles.countdownPanel}>
-            <Ionicons name="time-outline" size={20} color={BRAND_ORANGE} />
+          <View style={[styles.countdownPanel, isInstant && styles.instantCountdownPanel]}>
+            <Ionicons name={isInstant ? "flash-outline" : "time-outline"} size={20} color={isInstant ? "#dc2626" : BRAND_ORANGE} />
             <View style={styles.flexOne}>
-              <Text style={styles.countdownTitle}>{isBatchOffer ? `${housesCount} ${housesCount === 1 ? "house" : "houses"} in ${areaLabel}` : "12 hour deadline after accept"}</Text>
+              <Text style={styles.countdownTitle}>{isBatchOffer ? `${housesCount} ${housesCount === 1 ? "house" : "houses"} in ${areaLabel}` : isInstant ? "Accept only if you can start now" : "12 hour deadline after accept"}</Text>
               <Text style={styles.countdownCopy}>{isBatchOffer ? `Estimated earning Rs ${earningTotal.toFixed(0)}` : `${request.clothType ?? "Clothes"} - ${request.workType ?? "Tailoring job"}`}</Text>
             </View>
           </View>
@@ -1786,6 +1787,7 @@ function OrdersScreen({
     area: string;
     estimatedEarnings: number;
     status: string;
+    isInstant?: boolean;
     requests: DeliveryRequest[];
   }>;
   onOpenBatch: (batchId: string) => void;
@@ -1828,37 +1830,39 @@ function OrdersScreen({
           expectedRound = "SIX_PM";
         }
         
-        const isActiveTime = queue === "active" && item.deliveryRound === expectedRound;
+        const isInstant = item.isInstant || item.requests.some((request) => request.serviceLevel === "INSTANT");
+        const isActiveTime = queue === "active" && !isInstant && item.deliveryRound === expectedRound;
 
         return (
         <Pressable 
           style={[
             styles.orderCard, 
+            isInstant && styles.instantOrderCard,
             isActiveTime && { borderColor: "#10b981", borderWidth: 2 }
           ]} 
           onPress={() => onOpenBatch(item.batchId)}
         >
           <View style={styles.cardTopRow}>
-            <View style={styles.iconTile}>
-              <Ionicons name={item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={isActiveTime ? "#10b981" : BRAND_ORANGE} />
+            <View style={[styles.iconTile, isInstant && styles.instantIconTile]}>
+              <Ionicons name={isInstant ? "flash-outline" : item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={isInstant ? "#dc2626" : isActiveTime ? "#10b981" : BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                <Text style={styles.prominentOrderId}>BATCH-{item.batchId.slice(0, 8).toUpperCase()}</Text>
+                <Text style={styles.prominentOrderId}>{isInstant ? "INSTANT" : `BATCH-${item.batchId.slice(0, 8).toUpperCase()}`}</Text>
                 <View style={{
-                  backgroundColor: item.deliveryRound === "ONE_PM" ? "#ecfdf5" : "#fff7ed",
+                  backgroundColor: isInstant ? "#fee2e2" : item.deliveryRound === "ONE_PM" ? "#ecfdf5" : "#fff7ed",
                   paddingHorizontal: 8,
                   paddingVertical: 3,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: item.deliveryRound === "ONE_PM" ? "#a7f3d0" : "#ffedd5",
+                  borderColor: isInstant ? "#fecaca" : item.deliveryRound === "ONE_PM" ? "#a7f3d0" : "#ffedd5",
                 }}>
                   <Text style={{
-                    color: item.deliveryRound === "ONE_PM" ? "#047857" : "#c2410c",
+                    color: isInstant ? "#b91c1c" : item.deliveryRound === "ONE_PM" ? "#047857" : "#c2410c",
                     fontSize: 11,
                     fontWeight: "900",
                   }}>
-                    {item.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}
+                    {isInstant ? "Instant" : item.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}
                   </Text>
                 </View>
               </View>
@@ -1867,9 +1871,9 @@ function OrdersScreen({
             <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : item.status === "offered" ? "OPEN" : "CANCELLED"} />
           </View>
           <View style={styles.cardDivider} />
-          <TimestampBadge label={item.status === "active" ? "Batch assigned" : "Batch offered"} value={item.requests[0]?.acceptedAt ?? item.requests[0]?.notificationSentAt ?? item.roundAt} />
+          <TimestampBadge label={isInstant ? item.status === "active" ? "Instant assigned" : "Instant offered" : item.status === "active" ? "Batch assigned" : "Batch offered"} value={item.requests[0]?.acceptedAt ?? item.requests[0]?.notificationSentAt ?? item.roundAt} />
           <Text style={styles.cardCopy} numberOfLines={2}>
-            Route contains {item.requests.length} stop{item.requests.length !== 1 ? "s" : ""}.
+            {isInstant ? "Direct instant delivery request." : `Route contains ${item.requests.length} stop${item.requests.length !== 1 ? "s" : ""}.`}
           </Text>
           {item.status === "offered" ? (
             <View style={{ marginTop: 12 }}>
@@ -2519,7 +2523,7 @@ function MainApp({
   const batches = useMemo(() => {
     const groups: Record<string, DeliveryRequest[]> = {};
     for (const req of filteredRequests) {
-      const bid = req.batchId || req.deliveryRound || "ONE_PM";
+      const bid = req.serviceLevel === "INSTANT" ? req.id : req.batchId || req.deliveryRound || "ONE_PM";
       if (!groups[bid]) groups[bid] = [];
       groups[bid].push(req);
     }
@@ -2539,13 +2543,14 @@ function MainApp({
         area: first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
         estimatedEarnings,
         status,
+        isInstant: sortedList.some((request) => request.serviceLevel === "INSTANT"),
         requests: sortedList
       };
     });
   }, [filteredRequests]);
 
   const activeBatch = useMemo(() => {
-    const activeBatches = batches.filter((b) => b.status === "active" && b.requests.length > 0);
+    const activeBatches = batches.filter((b) => !b.isInstant && b.status === "active" && b.requests.length > 0);
     if (activeBatches.length === 0) return undefined;
     
     const currentHour = getKolkataHour();
@@ -3480,8 +3485,11 @@ const styles = StyleSheet.create({
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center" },
   popupIcon: { width: 58, height: 58, borderRadius: 20, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
   requestPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20 },
+  instantRequestPopupCard: { backgroundColor: "#fff7f7", borderColor: "#fecaca", borderWidth: 2 },
   popupIconSmall: { width: 48, height: 48, borderRadius: 18, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  instantPopupIcon: { backgroundColor: "#fee2e2" },
   popupEyebrow: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
+  instantEyebrow: { color: "#dc2626" },
   popupTitle: { color: BRAND_DEEP, fontSize: 20, lineHeight: 26, fontWeight: "900", marginTop: 4 },
   popupCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 10 },
   popupActions: { flexDirection: "row", gap: 10, marginTop: 18, width: "100%" },
@@ -3499,12 +3507,17 @@ const styles = StyleSheet.create({
   dialogButtonText: { color: "#111111", fontSize: 13, fontWeight: "900", textAlign: "center" },
   dialogSecondaryText: { color: BRAND_DEEP },
   countCircle: { width: 48, height: 48, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  instantCountCircle: { backgroundColor: "#ef4444" },
   countText: { color: "#111111", fontSize: 16, fontWeight: "900" },
+  instantCountText: { color: "#ffffff" },
   countdownPanel: { minHeight: 68, borderRadius: 18, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginTop: 16 },
+  instantCountdownPanel: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
   countdownTitle: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900" },
   countdownCopy: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 3 },
   helperWarning: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 10, marginBottom: 4 },
   orderCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
+  instantOrderCard: { backgroundColor: "#fff7f7", borderColor: "#fecaca", borderWidth: 2 },
+  instantIconTile: { backgroundColor: "#fee2e2" },
   priceText: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900", marginTop: 10 },
   emptyState: { minHeight: 220, alignItems: "center", justifyContent: "center", padding: 22 },
   emptyTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900", marginTop: 12 },

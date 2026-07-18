@@ -579,9 +579,7 @@ export async function assignPendingTasksToPartner(partner: any) {
   if (!pendingTasks.length) return;
 
   for (const task of pendingTasks) {
-    if (String(task.serviceLevel) === "INSTANT") {
-      await claimInstantTask(task, partner);
-    }
+    emitToDeliveryPartner(partner.id, "delivery:task_created", task.toJSON());
   }
 }
 

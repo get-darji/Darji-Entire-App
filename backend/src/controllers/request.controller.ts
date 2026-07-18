@@ -481,9 +481,14 @@ async function deliveryTaskEstimatedEarnings(
   request: { deliveryFee?: number | null; urgency?: string | null },
   _type: "customer_to_tailor" | "tailor_to_customer"
 ) {
+  const fare = await deliveryFareForUrgency(request.urgency);
+  return Number(fare.partnerFare.toFixed(2));
+}
+
+async function deliveryFareForUrgency(urgency?: string | null) {
   const setting = await SettingModel.findOne({ key: "delivery_fare_settings" });
   const value = typeof setting?.value === "object" && setting.value ? setting.value as Record<string, any> : {};
-  const normalized = normalizeUrgency(request.urgency ?? "");
+  const normalized = normalizeUrgency(urgency ?? "");
   const key = normalized === "same_day" ? "normal" : normalized;
   const defaults: Record<string, { partnerFare: number; customerCharge: number }> = {
     normal: { partnerFare: 8, customerCharge: 30 },
@@ -491,9 +496,13 @@ async function deliveryTaskEstimatedEarnings(
     instant: { partnerFare: 15, customerCharge: 50 }
   };
   const config = value[key] ?? defaults[key as keyof typeof defaults] ?? defaults.normal;
-  const fare = typeof config === "object" && config ? Number(config.partnerFare) : Number(config);
-  const finalFare = Number.isFinite(fare) && fare > 0 ? fare : 8;
-  return Number(finalFare.toFixed(2));
+  const partnerFareValue = typeof config === "object" && config ? Number(config.partnerFare) : Number(config);
+  const customerChargeValue = typeof config === "object" && config ? Number(config.customerCharge) : Number(config);
+  const fallback = defaults[key as keyof typeof defaults] ?? defaults.normal;
+  return {
+    partnerFare: Number.isFinite(partnerFareValue) && partnerFareValue > 0 ? partnerFareValue : fallback.partnerFare,
+    customerCharge: Number.isFinite(customerChargeValue) && customerChargeValue >= 0 ? customerChargeValue : fallback.customerCharge
+  };
 }
 
 async function createDeliveryRequestForTailoringRequest(requestId: string, type: "customer_to_tailor" | "tailor_to_customer", acceptedTailorId?: string) {
@@ -536,18 +545,16 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     : await nextOpenBatchSlot(deliveryType);
   const { deliveryRound, roundAt } = slot;
 
-  const boyQuery: Record<string, any> = {
+  const availablePartnersQuery: Record<string, any> = {
     deliveryType,
     isAvailable: true,
     verificationStatus: "VERIFIED"
   };
   if (enableAreaFiltering && assignedArea !== "unassigned") {
-    boyQuery.assignedArea = assignedArea;
+    availablePartnersQuery.assignedArea = assignedArea;
   }
-  const assignedBoy = await DeliveryPartnerModel.findOne(boyQuery);
-  const immediateBoy = serviceLevel === "INSTANT" ? assignedBoy : undefined;
 
-  const taskStatus = immediateBoy ? "accepted" : "pending";
+  const taskStatus = "pending";
   let batchId = "";
   const items = tailoringItemsForRequest(request);
   const itemCount = requestItemCount(request);
@@ -570,8 +577,8 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         roundAt,
         assignedArea,
         batchId,
-        assignedDeliveryPartnerId: immediateBoy?._id || undefined,
-        assignedDeliveryBoyId: immediateBoy?._id || undefined,
+        assignedDeliveryPartnerId: undefined,
+        assignedDeliveryBoyId: undefined,
         taskStatus,
         shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
         estimatedEarnings,
@@ -591,33 +598,37 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         cashCollected: false,
         sampleProvided,
         sampleMedia,
-        acceptedAt: immediateBoy ? new Date() : undefined,
-        deadlineAt: immediateBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
+        acceptedAt: undefined,
+        deadlineAt: undefined
       });
     } else {
       deliveryRequest = await DeliveryRequestModel.findByIdAndUpdate(
         deliveryRequest._id,
         {
-          deliveryType,
-          serviceLevel,
-          deliveryRound,
-          roundAt,
-          assignedArea,
-          batchId,
-          assignedDeliveryPartnerId: immediateBoy?._id || undefined,
-          assignedDeliveryBoyId: immediateBoy?._id || undefined,
-          taskStatus,
-          shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
-          estimatedEarnings,
-          paymentMethod: request.paymentMethod,
-          paymentStatus: request.paymentStatus,
-          totalAmount: request.totalAmount,
-          cashCollectionRequired,
-          itemCount,
-          sampleProvided,
-          sampleMedia,
-          acceptedAt: immediateBoy ? new Date() : undefined,
-          deadlineAt: immediateBoy ? new Date(Date.now() + 12 * 60 * 60 * 1000) : undefined
+          $set: {
+            deliveryType,
+            serviceLevel,
+            deliveryRound,
+            roundAt,
+            assignedArea,
+            batchId,
+            taskStatus,
+            shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
+            estimatedEarnings,
+            paymentMethod: request.paymentMethod,
+            paymentStatus: request.paymentStatus,
+            totalAmount: request.totalAmount,
+            cashCollectionRequired,
+            itemCount,
+            sampleProvided,
+            sampleMedia
+          },
+          $unset: {
+            assignedDeliveryPartnerId: 1,
+            assignedDeliveryBoyId: 1,
+            acceptedAt: 1,
+            deadlineAt: 1
+          }
         },
         { returnDocument: "after" }
       );
@@ -643,21 +654,11 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     return updatedDelivery;
   }
 
-  if (serviceLevel === "INSTANT" && immediateBoy) {
-    await TailoringRequestModel.findByIdAndUpdate(request._id, {
-      orderStatus: type === "customer_to_tailor" ? "pickup_started" : "out_for_delivery",
-      deliveryType,
-      deliveryRound,
-      $unset: { batchId: 1 },
-      assignedDeliveryBoyId: immediateBoy._id
-    });
-  } else {
-    await TailoringRequestModel.findByIdAndUpdate(request._id, {
-      deliveryType,
-      deliveryRound,
-      $unset: { batchId: 1 }
-    });
-  }
+  await TailoringRequestModel.findByIdAndUpdate(request._id, {
+    deliveryType,
+    deliveryRound,
+    $unset: { batchId: 1, assignedDeliveryBoyId: 1 }
+  });
 
   const notificationClaim = await DeliveryRequestModel.findOneAndUpdate(
     { _id: deliveryRequest._id, notificationSentAt: { $exists: false } },
@@ -668,67 +669,25 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     const deliveryPayload = notificationClaim.toJSON();
     emitDeliveryEvent({ type: "DELIVERY_REQUEST_CREATED", requestId: notificationClaim._id });
 
-    if (serviceLevel === "INSTANT" && immediateBoy) {
-      emitToDeliveryPartner(immediateBoy._id, "delivery:task_assigned", deliveryPayload);
-      emitToCustomer(deliveryRequest.customerId, "customer:delivery_status_updated", {
-        requestId: deliveryRequest._id,
-        tailoringRequestId: deliveryRequest.orderId,
-        status: type === "customer_to_tailor" ? "PICKUP_STARTED" : "OUT_FOR_DELIVERY",
-        deliveryRequest: deliveryPayload
-      });
-      await sendPushToUsers([deliveryRequest.customerId], {
-        title: type === "customer_to_tailor" ? "Pickup started" : "Out for delivery",
-        body: type === "customer_to_tailor" ? "A delivery partner is heading to pick up your clothes." : "Your stitched clothes are on the way.",
-        data: {
-          type: "DELIVERY_REQUEST_ACCEPTED",
-          requestId: deliveryRequest._id,
-          tailoringRequestId: deliveryRequest.orderId,
-          screen: "trackOrder"
-        },
-        channelId: "customer-orders-v2",
-        categoryId: "DARJI_ORDER",
-        sound: "ding.mp3",
-        actions: ["View Order"]
-      });
-      await sendNewOrderScheduledNotification(assignedBoy, notificationClaim);
-
-      const assignedTailor = await TailorModel.findById(deliveryRequest.tailorId).select("userId");
-      if (type === "customer_to_tailor" && assignedTailor?.userId) {
-        await sendPushToUsers([assignedTailor.userId], {
-          title: "Pickup partner assigned",
-          body: "A delivery partner has accepted the customer pickup task.",
-          data: { type: "PICKUP_PARTNER_ASSIGNED", taskId: deliveryRequest._id, orderId: deliveryRequest.orderId, screen: "orderDetails" },
-          channelId: "tailor-pickup-updates-v2",
-          categoryId: "DARJI_ORDER",
-          sound: "ding.mp3",
-          actions: ["View Order"]
-        });
-      }
-    } else {
-      emitToDeliveryPartners("delivery:task_created", deliveryPayload);
-      const availablePartnersQuery: Record<string, any> = {
-        isAvailable: true,
-        verificationStatus: "VERIFIED",
-        deliveryType
-      };
-      if (enableAreaFiltering && assignedArea !== "unassigned") {
-        availablePartnersQuery.assignedArea = assignedArea;
-      }
-      const availablePartners = await DeliveryPartnerModel.find(availablePartnersQuery).select("userId");
-      await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
-        userId: partner.userId,
-        title: type === "customer_to_tailor" ? "New Pickup Request" : "New Delivery Request",
-        body: `${deliveryClothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
-        data: {
-          type: "PICKUP_ASSIGNED",
-          taskType: type,
-          taskId: notificationClaim._id,
-          pickupId: notificationClaim._id,
-          orderId: request._id,
-          screen: "pickupDetails"
-        }
-      })));
+    const availablePartners = await DeliveryPartnerModel.find(availablePartnersQuery).select("userId");
+    for (const partner of availablePartners) {
+      emitToDeliveryPartner(partner.id, "delivery:task_created", deliveryPayload);
     }
+    await Promise.all(availablePartners.map((partner) => sendPickupAssignedNotification({
+      userId: partner.userId,
+      title: type === "customer_to_tailor" ? "Instant Pickup Request" : "Instant Drop Request",
+      body: `${deliveryClothType}: ${pickupAddress} to ${dropAddress}. ${request.paymentMethod === "COD" ? "COD on final delivery." : "Paid online."} Earnings Rs.${estimatedEarnings.toFixed(0)}.`,
+      data: {
+        type: "INSTANT_DELIVERY_REQUEST",
+        serviceLevel,
+        deliveryType,
+        taskType: type,
+        taskId: notificationClaim._id,
+        pickupId: notificationClaim._id,
+        orderId: request._id,
+        screen: "pickupDetails"
+      }
+    })));
   }
 
   return deliveryRequest;
@@ -1879,18 +1838,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const expectedPlatformFee = getPlatformFee(tailoringSubtotal);
   const expectedSmallOrderFee = getSmallOrderFee(tailoringSubtotal);
-  const deliveryFaresSetting = await SettingModel.findOne({ key: "delivery_fare_settings" });
-  const deliveryFaresValue = typeof deliveryFaresSetting?.value === "object" && deliveryFaresSetting.value ? deliveryFaresSetting.value as Record<string, any> : {};
-  const normalizedUrgency = normalizeUrgency(request.urgency ?? "");
-  const deliveryKey = normalizedUrgency === "same_day" ? "normal" : normalizedUrgency;
-  const deliveryDefaults: Record<string, { customerCharge: number }> = {
-    normal: { customerCharge: 30 },
-    express: { customerCharge: 40 },
-    instant: { customerCharge: 50 }
-  };
-  const deliveryConfig = deliveryFaresValue[deliveryKey] ?? deliveryDefaults[deliveryKey as keyof typeof deliveryDefaults] ?? deliveryDefaults.normal;
-  const expectedDeliveryFeeValue = typeof deliveryConfig === "object" && deliveryConfig ? Number(deliveryConfig.customerCharge) : Number(deliveryConfig);
-  const expectedDeliveryFee = Number.isFinite(expectedDeliveryFeeValue) && expectedDeliveryFeeValue > 0 ? expectedDeliveryFeeValue : deliveryDefaults.normal.customerCharge;
+  const expectedDeliveryFee = (await deliveryFareForUrgency(request.urgency)).customerCharge;
   const enforceClientCheckoutTotals = env.ENFORCE_CLIENT_CHECKOUT_TOTALS;
 
   if (enforceClientCheckoutTotals && Math.abs(input.deliveryFee - expectedDeliveryFee) > 1) {
