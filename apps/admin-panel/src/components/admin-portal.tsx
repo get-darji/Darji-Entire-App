@@ -4176,8 +4176,16 @@ function DeliveryBatchManagement({
   );
   const pickupCount = selectedDayBatches.filter((batch) => batch.deliveryType === "PICKUP").length;
   const dropCount = selectedDayBatches.filter((batch) => batch.deliveryType === "DROP").length;
+  const batchStage = (batch: DeliveryBatch) => {
+    const status = String(batch.status);
+    if (status === "completed") return "completed";
+    if (status === "cancelled") return "cancelled";
+    if (batch.deliveryPartnerId || batch.partner) return status === "active" ? "active" : "accepted";
+    if (status === "locked") return "notified";
+    return "upcoming";
+  };
   const visibleBatches = selectedDayBatches.filter((batch) =>
-    (!statusFilter || batch.status === statusFilter) &&
+    (!statusFilter || batchStage(batch) === statusFilter) &&
     batch.deliveryType === typeFilter
   );
   const selectedIsToday = selectedDate === localDateInputValue(new Date());
@@ -4220,9 +4228,10 @@ function DeliveryBatchManagement({
               value={statusFilter}
               onChange={setStatusFilter}
               options={[
-                { label: "All statuses", value: "" },
-                { label: "Upcoming", value: "scheduled" },
-                { label: "Notified", value: "locked" },
+                { label: "All stages", value: "" },
+                { label: "Upcoming", value: "upcoming" },
+                { label: "Notified", value: "notified" },
+                { label: "Accepted", value: "accepted" },
                 { label: "Active", value: "active" },
                 { label: "Completed", value: "completed" },
                 { label: "Cancelled", value: "cancelled" }
@@ -4349,14 +4358,28 @@ function BatchSection({
       </div>
       {batches.map((batch) => {
         const partner = batch.partner;
+        const partnerPhone = partner?.user?.phone?.trim();
         const isOpen = openBatchIds.has(batch.batchId);
         const tasks = batch.tasks ?? [];
         const ordersCount = batch.ordersCount ?? tasks.length;
         const hiddenTaskCount = tasks.filter((task) => !task.notificationSentAt).length;
         const isHidden = batch.status === "scheduled" && hiddenTaskCount === tasks.length && tasks.length > 0;
+        const isCompleted = String(batch.status) === "completed";
+        const isAccepted = Boolean(partner) && !isCompleted;
         return (
-          <Panel key={batch.batchId} className={cn("overflow-hidden p-0", focusBatchId === batch.batchId && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-transparent")}>
-            <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-center lg:justify-between">
+          <Panel
+            key={batch.batchId}
+            className={cn(
+              "overflow-hidden p-0",
+              isCompleted && "border-emerald-200 bg-emerald-50/60 opacity-80",
+              isAccepted && "border-sky-200",
+              focusBatchId === batch.batchId && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-transparent"
+            )}
+          >
+            <div className={cn(
+              "flex flex-col gap-4 border-b border-[var(--panel-border)] p-5 lg:flex-row lg:items-center lg:justify-between",
+              isCompleted ? "bg-emerald-50/80" : "bg-[linear-gradient(135deg,#fff8e9,#fbfdff)]"
+            )}>
               <button
                 type="button"
                 onClick={() => setOpenBatchIds((current) => {
@@ -4378,9 +4401,15 @@ function BatchSection({
                 <p className="mt-1 text-sm text-[var(--muted)]">
                   {batch.deliveryRound === "ONE_PM" ? "1 PM" : batch.deliveryRound === "SIX_PM" ? "6 PM" : formatStatus(batch.deliveryRound)} round - {batch.area} - {formatDate(batch.roundAt, true)}
                 </p>
-                <p className="mt-1 text-sm text-[var(--foreground)]">
-                  Accepted by {partner ? getPartnerDisplayName(partner) : "Unassigned"} {partner?.darjiPartnerId ? `(${partner.darjiPartnerId})` : ""}
-                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--foreground)]">
+                  <span>Accepted by {partner ? getPartnerDisplayName(partner) : "Unassigned"} {partner?.darjiPartnerId ? `(${partner.darjiPartnerId})` : ""}</span>
+                  {partnerPhone ? (
+                    <a className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100" href={`tel:${partnerPhone}`}>
+                      <PhoneCall className="h-3.5 w-3.5" />
+                      {partnerPhone}
+                    </a>
+                  ) : null}
+                </div>
               </button>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="grid grid-cols-3 gap-3 text-center">

@@ -2499,14 +2499,21 @@ function MainApp({
   const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
 
   const filteredRequests = useMemo(() => {
-    if (!me?.deliveryProfile) return requests;
+    const visibleRequests = requests.filter((request) => {
+      const assignedToMe = request.assignedDeliveryPartnerId && request.assignedDeliveryPartnerId === me?.deliveryProfile?.id;
+      if (request.taskStatus === "pending" && request.serviceLevel !== "INSTANT" && !request.notificationSentAt && !assignedToMe) {
+        return false;
+      }
+      return true;
+    });
+    if (!me?.deliveryProfile) return visibleRequests;
     const dt = me.deliveryProfile.deliveryType;
     if (dt === "PICKUP") {
-      return requests.filter((r) => r.type === "customer_to_tailor");
+      return visibleRequests.filter((r) => r.type === "customer_to_tailor");
     } else if (dt === "DROP") {
-      return requests.filter((r) => r.type === "tailor_to_customer");
+      return visibleRequests.filter((r) => r.type === "tailor_to_customer");
     }
-    return requests;
+    return visibleRequests;
   }, [requests, me?.deliveryProfile]);
 
   const batches = useMemo(() => {
