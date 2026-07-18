@@ -316,6 +316,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
           orderId: representativeTask.orderId,
           requestId: representativeTask.id,
           batchId: claimed.batchId,
+          deliveryType: claimed.deliveryType,
           screen: "pickupDetails"
         }
       });
@@ -542,6 +543,18 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
       batchId: batch.batchId
     })
   ]);
+  const now = new Date();
+  const batchLockAt = batch.lockAt ? new Date(batch.lockAt) : undefined;
+  const batchRoundAt = batch.roundAt ? new Date(batch.roundAt) : undefined;
+  const shouldNotifyImmediately =
+    !batch.deliveryPartnerId &&
+    batchLockAt &&
+    batchRoundAt &&
+    batchLockAt <= now &&
+    batchRoundAt > now;
+  if (shouldNotifyImmediately) {
+    await notifyScheduledBatch(batch, now);
+  }
   return batch;
 }
 

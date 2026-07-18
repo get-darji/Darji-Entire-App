@@ -63,8 +63,9 @@ export function sendPickupAssignedNotification(input: NotificationEventInput) {
 }
 
 export function sendDeliveryBatchReadyNotification(input: NotificationEventInput) {
+  const isDropBatch = String(input.data.deliveryType ?? "").toUpperCase() === "DROP";
   return sendEventNotification(input, {
-    channelId: "delivery-pickup-assigned-v2",
+    channelId: isDropBatch ? "delivery-updates-v2" : "delivery-pickup-assigned-v2",
     categoryId: "DELIVERY_PICKUP_REQUEST",
     actions: ["Accept", "View Details"]
   });

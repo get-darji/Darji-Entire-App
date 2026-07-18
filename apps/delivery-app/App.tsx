@@ -2719,6 +2719,21 @@ function MainApp({
     showOpenRequestPopupRef.current = showOpenRequestPopup;
   }, [showOpenRequestPopup]);
 
+  useEffect(() => {
+    const subscription = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data as Record<string, unknown>;
+      const taskId = typeof data.taskId === "string" ? data.taskId : typeof data.requestId === "string" ? data.requestId : undefined;
+      const orderId = typeof data.orderId === "string" ? data.orderId : undefined;
+      addDeliveryNotification({
+        title: notification.request.content.title ?? "Delivery alert",
+        body: notification.request.content.body ?? "Open delivery details",
+        taskId,
+        orderId
+      });
+    });
+    return () => subscription.remove();
+  }, []);
+
   const loadRequests = useCallback(async (presentLatest = false) => {
     if (!token) return;
     try {
@@ -3283,7 +3298,7 @@ export default function App() {
   if (stage === "auth") {
     return (
       <>
-        <AuthScreen onAuthenticated={() => { skipLoadingScreenRef.current = true; setStage("onboarding"); }} showDialog={setDialog} />
+        <AuthScreen onAuthenticated={() => { skipLoadingScreenRef.current = false; setStage("loading"); }} showDialog={setDialog} />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </>
     );
