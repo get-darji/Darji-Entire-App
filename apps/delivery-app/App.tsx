@@ -1651,7 +1651,9 @@ function BatchOfferModal({
 
 function BatchDetailsView({
   batch,
+  accepting,
   onBack,
+  onAcceptBatch,
   onOpenOrder
 }: {
   batch: {
@@ -1664,7 +1666,9 @@ function BatchDetailsView({
     status: string;
     requests: DeliveryRequest[];
   };
+  accepting: boolean;
   onBack: () => void;
+  onAcceptBatch: (batch: { requests: DeliveryRequest[] }) => void;
   onOpenOrder: (order: DeliveryRequest) => void;
 }) {
   const roundLabel = batch.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round";
@@ -1676,6 +1680,7 @@ function BatchDetailsView({
   const activeRequests = batch.requests.filter(r => r.taskStatus !== "delivered" && r.taskStatus !== "cancelled");
   const completedRequests = batch.requests.filter(r => r.taskStatus === "delivered");
   const cancelledRequests = batch.requests.filter(r => r.taskStatus === "cancelled");
+  const isOffered = batch.requests.some((r) => r.taskStatus === "pending") && !batch.requests.some((r) => r.taskStatus === "accepted" || r.taskStatus === "picked_up");
 
   const renderStopCard = (request: DeliveryRequest, index: number) => {
     const priority = request.routePosition ?? index + 1;
@@ -1732,6 +1737,16 @@ function BatchDetailsView({
         <Stat label="Type" value={batch.deliveryType} tone="blue" />
       </View>
 
+      {isOffered ? (
+        <PrimaryButton
+          disabled={accepting}
+          icon="checkmark-outline"
+          label="Accept offer"
+          loading={accepting}
+          onPress={() => onAcceptBatch(batch)}
+        />
+      ) : null}
+
       {activeRequests.length > 0 ? (
         <>
           <Text style={[styles.cardTitle, { marginTop: 18, marginBottom: 8, color: BRAND_ORANGE }]}>Active Stops ({activeRequests.length})</Text>
@@ -1759,6 +1774,8 @@ function BatchDetailsView({
 function OrdersScreen({
   batches,
   onOpenBatch,
+  onAcceptBatch,
+  accepting,
   deliveryType
 }: {
   batches: Array<{
@@ -1772,6 +1789,8 @@ function OrdersScreen({
     requests: DeliveryRequest[];
   }>;
   onOpenBatch: (batchId: string) => void;
+  onAcceptBatch: (batch: { requests: DeliveryRequest[] }) => void;
+  accepting: boolean;
   deliveryType?: string;
 }) {
   const [queue, setQueue] = useState<"active" | "history" | "cancelled">("active");
@@ -1852,6 +1871,17 @@ function OrdersScreen({
           <Text style={styles.cardCopy} numberOfLines={2}>
             Route contains {item.requests.length} stop{item.requests.length !== 1 ? "s" : ""}.
           </Text>
+          {item.status === "offered" ? (
+            <View style={{ marginTop: 12 }}>
+              <PrimaryButton
+                disabled={accepting}
+                icon="checkmark-outline"
+                label="Accept offer"
+                loading={accepting}
+                onPress={() => onAcceptBatch(item)}
+              />
+            </View>
+          ) : null}
           <View style={styles.rowBetween}>
             <Text style={styles.priceText}>Rs {item.estimatedEarnings.toFixed(0)}</Text>
             <Text style={styles.paymentPill}>Earnings</Text>
@@ -2849,20 +2879,25 @@ function MainApp({
     }
   }
 
-  async function acceptPopupRequest() {
-    if (!token || !popupRequest) return;
+  async function acceptDeliveryTask(taskId: string) {
+    if (!token) return;
     if (accepting) return;
+    setAccepting(true);
+    const acceptedPayload = await api<DeliveryTaskPayload>(`/delivery-requests/${taskId}/accept`, { method: "POST" }, token);
+    const acceptedTasks = normalizeDeliveryTaskPayloads(acceptedPayload);
+    const accepted = acceptedTasks[0];
+    setRequests((current) => mergeDeliveryRequests(current, acceptedTasks));
+    setRequestVisible(false);
+    setActiveOrder(accepted);
+    setActiveOrderScreen("route");
+    void playAppSound("confirmation");
+  }
+
+  async function acceptPopupRequest() {
+    if (!popupRequest) return;
     try {
-      setAccepting(true);
-      const acceptedPayload = await api<DeliveryTaskPayload>(`/delivery-requests/${popupRequest.id}/accept`, { method: "POST" }, token);
-      const acceptedTasks = normalizeDeliveryTaskPayloads(acceptedPayload);
-      const accepted = acceptedTasks[0];
+      await acceptDeliveryTask(popupRequest.id);
       dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
-      setRequests((current) => mergeDeliveryRequests(current, acceptedTasks));
-      setRequestVisible(false);
-      setActiveOrder(accepted);
-      setActiveOrderScreen("route");
-      void playAppSound("confirmation");
     } catch (error) {
       showDialog({ title: "Accept failed", message: error instanceof Error ? error.message : "Could not accept request.", icon: "alert-circle-outline" });
       void loadRequests();
@@ -2983,7 +3018,18 @@ function MainApp({
       <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
         <Screen>
           <BatchDetailsView
+            accepting={accepting}
             batch={selectedBatch}
+            onAcceptBatch={(batch) => {
+              const task = batch.requests.find((request) => request.taskStatus === "pending") ?? batch.requests[0];
+              if (!task) return;
+              void acceptDeliveryTask(task.id)
+                .catch((error) => {
+                  showDialog({ title: "Accept failed", message: error instanceof Error ? error.message : "Could not accept batch.", icon: "alert-circle-outline" });
+                  void loadRequests();
+                })
+                .finally(() => setAccepting(false));
+            }}
             onBack={() => setActiveBatchId(undefined)}
             onOpenOrder={(order) => {
               setActiveOrder(order);
@@ -3022,8 +3068,19 @@ function MainApp({
           />
         ) : null}
         {tab === "orders" ? <OrdersScreen
+          accepting={accepting}
           batches={batches}
           onOpenBatch={(batchId) => setActiveBatchId(batchId)}
+          onAcceptBatch={(batch) => {
+            const task = batch.requests.find((request) => request.taskStatus === "pending") ?? batch.requests[0];
+            if (!task) return;
+            void acceptDeliveryTask(task.id)
+              .catch((error) => {
+                showDialog({ title: "Accept failed", message: error instanceof Error ? error.message : "Could not accept batch.", icon: "alert-circle-outline" });
+                void loadRequests();
+              })
+              .finally(() => setAccepting(false));
+          }}
           deliveryType={me?.deliveryProfile?.deliveryType}
         /> : null}
         {tab === "earnings" ? <EarningsScreen me={me} requests={requests} /> : null}

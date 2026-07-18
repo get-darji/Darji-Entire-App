@@ -723,7 +723,7 @@ const deliveryBatchSchema = new Schema(
 );
 attachDarjiIdPlugin(deliveryBatchSchema, { field: "darjiId", prefix: "DBT" });
 
-deliveryBatchSchema.index({ deliveryType: 1, deliveryRound: 1, roundAt: 1 }, { unique: true });
+deliveryBatchSchema.index({ deliveryType: 1, deliveryRound: 1, roundAt: 1, slotIndex: 1 }, { unique: true });
 
 const settingSchema = new Schema(
   {

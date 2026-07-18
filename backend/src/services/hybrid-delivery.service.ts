@@ -8,6 +8,7 @@ export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
 type BatchSettings = { pickupTimes: BatchTime[]; dropTimes: BatchTime[]; lockMinutes: number; maxOrdersPerBatch: number };
 type BatchClaimResult = { request: any; acceptedTasks?: any[] };
+let deliveryBatchIndexesReady: Promise<void> | undefined;
 
 const FIXED_BATCH_TIMES: BatchTime[] = [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }];
 const DEFAULT_SETTINGS: BatchSettings = {
@@ -75,6 +76,7 @@ async function createBatchForSlot(
   roundAt: Date,
   lockAt: Date,
   area: string,
+  slotIndex: number,
   taskId: string,
   estimatedEarnings: number,
   totalDistance: number
@@ -88,6 +90,7 @@ async function createBatchForSlot(
     lockAt,
     shift: batchShift(deliveryRound),
     area,
+    slotIndex,
     tasks: [taskId],
     ordersCount: 1,
     estimatedEarnings,
@@ -116,6 +119,24 @@ export async function nextOpenBatchSlot(deliveryType: DeliveryType, from = new D
 
 function batchShift(round: string) {
   return round === "ONE_PM" ? "morning" : "evening";
+}
+
+async function ensureDeliveryBatchIndexes() {
+  if (!deliveryBatchIndexesReady) {
+    deliveryBatchIndexesReady = (async () => {
+      try {
+        await DeliveryBatchModel.collection.dropIndex("deliveryType_1_deliveryRound_1_roundAt_1");
+      } catch (error) {
+        const codeName = typeof error === "object" && error && "codeName" in error ? (error as { codeName?: string }).codeName : undefined;
+        if (codeName !== "IndexNotFound") throw error;
+      }
+      await DeliveryBatchModel.collection.createIndex(
+        { deliveryType: 1, deliveryRound: 1, roundAt: 1, slotIndex: 1 },
+        { unique: true, name: "deliveryType_1_deliveryRound_1_roundAt_1_slotIndex_1" }
+      );
+    })();
+  }
+  return deliveryBatchIndexesReady;
 }
 
 function point(value: unknown): { lat: number; lng: number } | undefined {
@@ -441,17 +462,26 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()): 
 }
 
 export async function addTaskToSilentBatch(task: any, level: Exclude<DeliveryServiceLevel, "INSTANT">) {
+  await ensureDeliveryBatchIndexes();
   const slot = await nextOpenBatchSlot(task.deliveryType);
   const area = task.assignedArea || "unassigned";
   const batchQuery = {
     deliveryType: task.deliveryType,
     deliveryRound: slot.deliveryRound,
     roundAt: slot.roundAt,
-    status: { $nin: ["completed", "cancelled"] }
+    deliveryPartnerId: { $exists: false },
+    status: { $in: ["scheduled", "locked"] }
   } as Record<string, any>;
   let batch: any = await DeliveryBatchModel.findOne(batchQuery).sort({ createdAt: 1 });
 
   if (!batch) {
+    const existingSlotCount = await DeliveryBatchModel.countDocuments({
+      deliveryType: task.deliveryType,
+      deliveryRound: slot.deliveryRound,
+      roundAt: slot.roundAt,
+      status: { $ne: "cancelled" }
+    });
+    const slotIndex = existingSlotCount + 1;
     try {
       batch = await createBatchForSlot(
         task.deliveryType,
@@ -460,6 +490,7 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
         slot.roundAt,
         slot.lockAt,
         area,
+        slotIndex,
         task.id,
         Number(task.estimatedEarnings ?? 0),
         Number(task.estimatedDistanceKm ?? 0)
@@ -596,6 +627,7 @@ export async function completeFinishedBatches() {
 }
 
 export async function ensureDeliveryBatchesFromRequests() {
+  await ensureDeliveryBatchIndexes();
   const settings = await getBatchSettings();
   const requests = await DeliveryRequestModel.find({
     deliveryType: { $in: [DeliveryType.PICKUP, DeliveryType.DROP] },
@@ -606,7 +638,7 @@ export async function ensureDeliveryBatchesFromRequests() {
   const grouped = new Map<string, any[]>();
   for (const request of requests) {
     if (!request.roundAt || !request.deliveryRound) continue;
-    const key = [
+    const key = request.batchId ? `batch|${request.batchId}` : [
       String(request.deliveryType ?? ""),
       String(request.deliveryRound ?? ""),
       new Date(request.roundAt).toISOString()
@@ -625,12 +657,15 @@ export async function ensureDeliveryBatchesFromRequests() {
     const status = group.every((request) => ["delivered", "completed"].includes(String(request.taskStatus))) ? "completed" : (roundAt <= new Date() ? "active" : "scheduled");
     const estimatedEarnings = group.reduce((sum, request) => sum + Number(request.estimatedEarnings ?? 0), 0);
     const totalDistance = group.reduce((sum, request) => sum + Number(request.estimatedDistanceKm ?? 0), 0);
-    const existingBatch = await DeliveryBatchModel.findOne({
-      deliveryType: first.deliveryType,
-      deliveryRound: first.deliveryRound,
-      roundAt,
-      status: { $ne: "cancelled" }
-    }).sort({ createdAt: 1 });
+    const existingBatch = first.batchId
+      ? await DeliveryBatchModel.findOne({ batchId: first.batchId, status: { $ne: "cancelled" } }).sort({ createdAt: 1 })
+      : await DeliveryBatchModel.findOne({
+          deliveryType: first.deliveryType,
+          deliveryRound: first.deliveryRound,
+          roundAt,
+          deliveryPartnerId: { $exists: false },
+          status: { $in: ["scheduled", "locked"] }
+        }).sort({ createdAt: 1 });
 
     if (existingBatch) {
       const existingTaskIds = new Set((existingBatch.tasks ?? []).map((taskId: string) => String(taskId)));
@@ -669,6 +704,13 @@ export async function ensureDeliveryBatchesFromRequests() {
       continue;
     }
 
+    const existingSlotCount = await DeliveryBatchModel.countDocuments({
+      deliveryType: first.deliveryType,
+      deliveryRound: first.deliveryRound,
+      roundAt,
+      status: { $ne: "cancelled" }
+    });
+
     const batch = await DeliveryBatchModel.create({
       batchId: randomUUID(),
       deliveryType: first.deliveryType,
@@ -678,7 +720,7 @@ export async function ensureDeliveryBatchesFromRequests() {
       lockAt,
       shift: first.shift ?? batchShift(first.deliveryRound),
       area,
-      slotIndex: 1,
+      slotIndex: existingSlotCount + 1,
       tasks: group.map((request) => request.id),
       ordersCount: group.length,
       estimatedEarnings,
