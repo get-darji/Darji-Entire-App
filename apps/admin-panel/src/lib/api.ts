@@ -211,6 +211,20 @@ export async function updateSetting(payload: { key: string; value: unknown }) {
   return unwrap<SettingRecord>(api.put(`/settings/${payload.key}`, { value: payload.value }));
 }
 
+export type DevelopmentResetResult = {
+  deleted: Record<string, number>;
+  reset?: Record<string, number>;
+  preserved?: Record<string, boolean>;
+};
+
+export async function resetOrdersRequestsBatches() {
+  return unwrap<DevelopmentResetResult>(api.post("/admin/development/reset-orders", {}));
+}
+
+export async function resetEverythingDevelopment() {
+  return unwrap<DevelopmentResetResult>(api.post("/admin/development/reset-everything", {}));
+}
+
 export async function moderateUser(payload: {
   userId: string;
   action: "ACTIVE" | "SUSPENDED" | "BANNED";

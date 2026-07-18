@@ -48,6 +48,8 @@ import {
   reviewDeliveryVerificationController,
   reviewTailorVerificationController,
   registerFcmTokenController,
+  resetEverythingDataController,
+  resetOrderRequestBatchDataController,
   saveDeliveryVerificationDraftController,
   settingsController,
   submitDeliveryVerificationController,
@@ -159,6 +161,8 @@ router.patch("/admin/delivery-retries/:id/cancel", requireAuth, requireRole("ADM
 router.get("/admin/delivery-batches", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminDeliveryBatchesController);
 router.post("/admin/delivery-batches/:batchId/notify", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), notifyDeliveryBatchController);
 router.patch("/admin/delivery-batches/tasks/:taskId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reassignDeliveryBatchTaskController);
+router.post("/admin/development/reset-orders", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetOrderRequestBatchDataController);
+router.post("/admin/development/reset-everything", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetEverythingDataController);
 
 router.get("/addresses", requireAuth, listAddressesController);
 router.post("/addresses", requireAuth, createAddressController);

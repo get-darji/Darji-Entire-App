@@ -9,7 +9,9 @@ import {
   DeliveryPartnerModel,
   NotificationModel,
   OrderModel,
+  OtpRequestModel,
   PaymentModel,
+  PaymentHistoryModel,
   ReviewModel,
   ServiceCategoryModel,
   ServiceModel,
@@ -20,7 +22,6 @@ import {
   UserModel,
   WalletModel,
   WalletTransactionModel,
-  PaymentHistoryModel,
   BugReportModel,
   AccountChangeRequestModel,
   DeliveryRequestModel,
@@ -1539,6 +1540,81 @@ export async function updateSettingController(req: Request, res: Response) {
   const key = String(req.params.key);
   const setting = await SettingModel.findOneAndUpdate({ key }, { key, value: req.body.value }, { upsert: true, returnDocument: "after" });
   res.json({ data: setting });
+}
+
+type ResetTarget = {
+  label: string;
+  deleteMany: (filter?: Record<string, unknown>) => Promise<{ deletedCount?: number }>;
+};
+
+async function deleteTargets(targets: ResetTarget[]) {
+  const deleted: Record<string, number> = {};
+  for (const target of targets) {
+    const result = await target.deleteMany({});
+    deleted[target.label] = Number(result.deletedCount ?? 0);
+  }
+  return deleted;
+}
+
+const orderRequestBatchResetTargets: ResetTarget[] = [
+  { label: "delivery_batches", deleteMany: (filter = {}) => DeliveryBatchModel.deleteMany(filter) },
+  { label: "delivery_tasks", deleteMany: (filter = {}) => DeliveryRequestModel.deleteMany(filter) },
+  { label: "tailorquotes", deleteMany: (filter = {}) => TailorQuoteModel.deleteMany(filter) },
+  { label: "tailoringrequests", deleteMany: (filter = {}) => TailoringRequestModel.deleteMany(filter) },
+  { label: "orders", deleteMany: (filter = {}) => OrderModel.deleteMany(filter) },
+  { label: "payments", deleteMany: (filter = {}) => PaymentModel.deleteMany(filter) },
+  { label: "transactions", deleteMany: (filter = {}) => TransactionModel.deleteMany(filter) },
+  { label: "wallettransactions", deleteMany: (filter = {}) => WalletTransactionModel.deleteMany(filter) },
+  { label: "paymenthistories", deleteMany: (filter = {}) => PaymentHistoryModel.deleteMany(filter) },
+  { label: "notifications", deleteMany: (filter = {}) => NotificationModel.deleteMany(filter) },
+  { label: "reviews", deleteMany: (filter = {}) => ReviewModel.deleteMany(filter) },
+  { label: "supporttickets", deleteMany: (filter = {}) => SupportTicketModel.deleteMany(filter) },
+  { label: "bugreports", deleteMany: (filter = {}) => BugReportModel.deleteMany(filter) },
+  { label: "accountchangerequests", deleteMany: (filter = {}) => AccountChangeRequestModel.deleteMany(filter) }
+];
+
+export async function resetOrderRequestBatchDataController(_req: Request, res: Response) {
+  const deleted = await deleteTargets(orderRequestBatchResetTargets);
+  const [tailors, deliveryPartners, wallets] = await Promise.all([
+    TailorModel.updateMany({}, { $set: { earnings: 0 } }),
+    DeliveryPartnerModel.updateMany({}, { $set: { dailyEarnings: 0, weeklyEarnings: 0, monthlyEarnings: 0 } }),
+    WalletModel.updateMany({}, { $set: { balance: 0 } })
+  ]);
+
+  res.json({
+    data: {
+      deleted,
+      reset: {
+        tailors: tailors.modifiedCount,
+        deliveryPartners: deliveryPartners.modifiedCount,
+        wallets: wallets.modifiedCount
+      }
+    }
+  });
+}
+
+export async function resetEverythingDataController(_req: Request, res: Response) {
+  const deleted = await deleteTargets([
+    ...orderRequestBatchResetTargets,
+    { label: "addresses", deleteMany: (filter = {}) => AddressModel.deleteMany(filter) },
+    { label: "coupons", deleteMany: (filter = {}) => CouponModel.deleteMany(filter) },
+    { label: "servicecategories", deleteMany: (filter = {}) => ServiceCategoryModel.deleteMany(filter) },
+    { label: "services", deleteMany: (filter = {}) => ServiceModel.deleteMany(filter) },
+    { label: "otprequests", deleteMany: (filter = {}) => OtpRequestModel.deleteMany(filter) },
+    { label: "wallets", deleteMany: (filter = {}) => WalletModel.deleteMany(filter) },
+    { label: "tailors", deleteMany: (filter = {}) => TailorModel.deleteMany(filter) },
+    { label: "deliverypartners", deleteMany: (filter = {}) => DeliveryPartnerModel.deleteMany(filter) }
+  ]);
+
+  const users = await UserModel.deleteMany({ role: { $nin: ["ADMIN", "SUPER_ADMIN"] } });
+  deleted.users = Number(users.deletedCount ?? 0);
+
+  const counters = await mongoose.connection.collection<{ _id: string }>("darjicounters").deleteMany({
+    _id: { $nin: ["ADM"] }
+  });
+  deleted.darjicounters = Number(counters.deletedCount ?? 0);
+
+  res.json({ data: { deleted, preserved: { adminAccounts: true, settings: true } } });
 }
 
 export async function createBugReportController(req: Request, res: Response) {

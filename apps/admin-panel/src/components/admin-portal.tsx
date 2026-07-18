@@ -107,6 +107,8 @@ import {
   getDeliveryFareSettings,
   updateDeliveryFareSettings,
   getSettings,
+  resetEverythingDevelopment,
+  resetOrdersRequestsBatches,
   getSupportTickets,
   getTailoringRequests,
   getTailors,
@@ -769,6 +771,26 @@ export function AdminPortal() {
     onSuccess: async () => {
       toast.success("Setting saved");
       await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const resetOrdersMutation = useMutation({
+    mutationFn: resetOrdersRequestsBatches,
+    onSuccess: async (result) => {
+      const deletedCount = Object.values(result.deleted ?? {}).reduce((sum, value) => sum + Number(value ?? 0), 0);
+      toast.success(`Order/request/batch data reset (${deletedCount} records deleted)`);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const resetEverythingMutation = useMutation({
+    mutationFn: resetEverythingDevelopment,
+    onSuccess: async (result) => {
+      const deletedCount = Object.values(result.deleted ?? {}).reduce((sum, value) => sum + Number(value ?? 0), 0);
+      toast.success(`Development data reset (${deletedCount} records deleted)`);
+      await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -2342,6 +2364,12 @@ export function AdminPortal() {
                   }
                 });
               }}
+            />
+            <DevelopmentResetCard
+              ordersPending={resetOrdersMutation.isPending}
+              everythingPending={resetEverythingMutation.isPending}
+              onResetOrders={() => resetOrdersMutation.mutate()}
+              onResetEverything={() => resetEverythingMutation.mutate()}
             />
             <div className="grid gap-4 xl:grid-cols-2">
               {settings.filter((setting) => setting.key !== "delivery_batch_settings").map((setting) => (
@@ -5001,6 +5029,71 @@ function BatchSettingsCard({
       <p className="mt-3 text-xs text-[var(--muted)]">
         This keeps batches hidden until they are notified, and it limits each batch to the configured order count.
       </p>
+    </Panel>
+  );
+}
+
+function DevelopmentResetCard({
+  ordersPending,
+  everythingPending,
+  onResetOrders,
+  onResetEverything
+}: {
+  ordersPending: boolean;
+  everythingPending: boolean;
+  onResetOrders: () => void;
+  onResetEverything: () => void;
+}) {
+  const pending = ordersPending || everythingPending;
+  const confirmAndRun = (expected: string, action: () => void) => {
+    const value = window.prompt(`Type ${expected} to continue.`);
+    if (value === expected) action();
+  };
+
+  return (
+    <Panel className="border-rose-200 bg-rose-50/70 dark:border-rose-500/30 dark:bg-rose-500/10">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-rose-600" />
+            <h3 className="text-lg font-semibold text-rose-700 dark:text-rose-200">Development reset</h3>
+          </div>
+          <p className="mt-1 max-w-3xl text-sm text-rose-700/80 dark:text-rose-100/80">
+            Destructive tools for clearing test data. Admin and super admin accounts are preserved so you can keep using this panel.
+          </p>
+        </div>
+        <Badge tone="rose">Development only</Badge>
+      </div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-rose-200 bg-white/70 p-4 dark:border-rose-500/20 dark:bg-black/10">
+          <h4 className="font-semibold text-[var(--foreground)]">Reset orders, requests, batches</h4>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Clears orders, tailoring requests, quotes, delivery tasks, delivery batches, payments, notifications, reviews, support data, transactions, and resets earnings/wallet balances.
+          </p>
+          <ActionButton
+            className="mt-4 bg-rose-600 text-white hover:bg-rose-700"
+            disabled={pending}
+            onClick={() => confirmAndRun("RESET ORDERS", onResetOrders)}
+          >
+            {ordersPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Reset orders-req-batches
+          </ActionButton>
+        </div>
+        <div className="rounded-2xl border border-rose-300 bg-white/80 p-4 dark:border-rose-500/30 dark:bg-black/20">
+          <h4 className="font-semibold text-[var(--foreground)]">Reset everything</h4>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Clears all test data plus customer, tailor, and delivery partner accounts/profiles, catalog, coupons, wallets, OTPs, and non-admin ID counters.
+          </p>
+          <ActionButton
+            className="mt-4 bg-red-700 text-white hover:bg-red-800"
+            disabled={pending}
+            onClick={() => confirmAndRun("RESET EVERYTHING", onResetEverything)}
+          >
+            {everythingPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Reset everything
+          </ActionButton>
+        </div>
+      </div>
     </Panel>
   );
 }
