@@ -7,6 +7,7 @@ import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
 export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
 type BatchSettings = { pickupTimes: BatchTime[]; dropTimes: BatchTime[]; lockMinutes: number; maxOrdersPerBatch: number };
+type BatchClaimResult = { request: any; acceptedTasks?: any[] };
 
 const FIXED_BATCH_TIMES: BatchTime[] = [{ name: "ONE_PM", time: "13:00" }, { name: "SIX_PM", time: "18:00" }];
 const DEFAULT_SETTINGS: BatchSettings = {
@@ -226,8 +227,8 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     { $set: { notificationSentAt: now } }
   );
 
-  const tasks = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: "pending" });
-  const ordered = routeOrder(tasks);
+  const pendingTasks = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: "pending" });
+  const ordered = routeOrder(pendingTasks);
   await Promise.all(
     ordered.map((task, index) =>
       DeliveryRequestModel.findByIdAndUpdate(task.id, {
@@ -238,17 +239,34 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
       })
       )
   );
-  const eligiblePartners = await DeliveryPartnerModel.find({
-    deliveryType: claimed.deliveryType,
-    isAvailable: true,
-    verificationStatus: "VERIFIED",
-    ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
-  }).select("userId assignedArea").sort({ updatedAt: 1 });
+  const eligiblePartners = claimed.deliveryPartnerId
+    ? await DeliveryPartnerModel.find({ _id: claimed.deliveryPartnerId }).select("userId assignedArea")
+    : await DeliveryPartnerModel.find({
+        deliveryType: claimed.deliveryType,
+        isAvailable: true,
+        verificationStatus: "VERIFIED",
+        ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
+      }).select("userId assignedArea").sort({ updatedAt: 1 });
 
-  const representativeTask = ordered[0];
+  const batchTasksForOffer = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: { $ne: "cancelled" } }).sort({ routePosition: 1, createdAt: 1 });
+  const representativeTask = batchTasksForOffer.find((task) => task.taskStatus === "pending") ?? batchTasksForOffer[0];
   if (!representativeTask) {
     return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: 0, notifiedTasks: 0 };
   }
+
+  const batchOrdersCount = batchTasksForOffer.length;
+  const batchEstimatedEarnings = batchTasksForOffer.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
+  const batchTasks = batchTasksForOffer.map((task) => ({
+    ...(typeof task.toJSON === "function" ? task.toJSON() : task),
+    batchId: claimed.batchId,
+    deliveryRound: claimed.deliveryRound,
+    roundAt: claimed.roundAt,
+    shift: claimed.shift,
+    assignedArea: claimed.area,
+    batchOrdersCount,
+    batchEstimatedEarnings,
+    batchArea: claimed.area
+  }));
 
   const representativePayload = {
     ...(typeof representativeTask.toJSON === "function" ? representativeTask.toJSON() : representativeTask),
@@ -258,9 +276,10 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     shift: claimed.shift,
     assignedArea: claimed.area,
     notificationSentAt: now,
-    batchOrdersCount: tasks.length,
-    batchEstimatedEarnings: Number(claimed.estimatedEarnings ?? 0),
-    batchArea: claimed.area
+    batchOrdersCount,
+    batchEstimatedEarnings,
+    batchArea: claimed.area,
+    batchTasks
   };
 
   await Promise.all(
@@ -269,7 +288,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
       await sendDeliveryBatchReadyNotification({
         userId: partner.userId,
         title: `${claimed.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} ${String(claimed.deliveryType).toLowerCase()} batch ready`,
-        body: `${tasks.length} requests | Rs ${Number(claimed.estimatedEarnings ?? 0).toFixed(0)} earnings | Tap to accept or view details.`,
+        body: `${batchOrdersCount} requests | Rs ${batchEstimatedEarnings.toFixed(0)} earnings | Tap to accept or view details.`,
         data: {
           type: "DELIVERY_BATCH_READY",
           taskId: representativeTask.id,
@@ -282,7 +301,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     })
   );
 
-  return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: eligiblePartners.length, notifiedTasks: tasks.length };
+  return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: eligiblePartners.length, notifiedTasks: pendingTasks.length };
 }
 
 async function notifyInstantAssignment(partner: any, task: any) {
@@ -319,7 +338,7 @@ async function notifyInstantAssignment(partner: any, task: any) {
   });
 }
 
-async function claimInstantTask(task: any, partner: any, now = new Date()) {
+async function claimInstantTask(task: any, partner: any, now = new Date()): Promise<BatchClaimResult | null> {
   const accepted = await DeliveryRequestModel.findOneAndUpdate(
     { _id: task.id, taskStatus: "pending", serviceLevel: "INSTANT" },
     {
@@ -350,10 +369,10 @@ async function claimInstantTask(task: any, partner: any, now = new Date()) {
   });
 
   await notifyInstantAssignment(partner, accepted);
-  return accepted;
+  return { request: accepted, acceptedTasks: [accepted] };
 }
 
-async function claimLockedBatchTask(task: any, partner: any, now = new Date()) {
+async function claimLockedBatchTask(task: any, partner: any, now = new Date()): Promise<BatchClaimResult | null> {
   if (!task.batchId) return null;
   if (!task.notificationSentAt) return null;
   const batch = await DeliveryBatchModel.findOne({ batchId: task.batchId });
@@ -415,7 +434,10 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()) {
       deliveryRequest: payload
     });
   }
-  return acceptedTasks.find((acceptedTask) => String(acceptedTask.id) === String(task.id)) ?? acceptedTasks[0] ?? null;
+  return {
+    request: acceptedTasks.find((acceptedTask) => String(acceptedTask.id) === String(task.id)) ?? acceptedTasks[0] ?? null,
+    acceptedTasks
+  };
 }
 
 export async function addTaskToSilentBatch(task: any, level: Exclude<DeliveryServiceLevel, "INSTANT">) {
@@ -514,8 +536,7 @@ export async function assignPendingTasksToPartner(partner: any) {
 
   for (const task of pendingTasks) {
     if (String(task.serviceLevel) === "INSTANT") {
-      const claimed = await claimInstantTask(task, partner);
-      if (claimed) continue;
+      await claimInstantTask(task, partner);
     }
   }
 }

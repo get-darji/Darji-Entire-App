@@ -974,12 +974,17 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to accept delivery jobs");
   if (!partner.isAvailable) throw new AppError(400, "Go online before accepting delivery jobs");
 
-  const request = await assignBatchToPartnerFromTask(String(req.params.id), partner);
+  const claim = await assignBatchToPartnerFromTask(String(req.params.id), partner);
+  const request = claim?.request;
   if (!request) throw new AppError(409, "Delivery request is no longer available");
+  const acceptedTasks = claim.acceptedTasks?.length ? claim.acceptedTasks : [request];
 
   emitDeliveryEvent({ type: "DELIVERY_REQUEST_ACCEPTED", requestId: request.id, deliveryPartnerId: partner.id });
   emitToDeliveryPartners("delivery:task_accepted", { taskId: request.id, deliveryPartnerId: partner.id });
-  emitToDeliveryPartner(partner.id, "delivery:task_assigned", request.toJSON());
+  emitToDeliveryPartner(partner.id, "delivery:task_assigned", {
+    ...request.toJSON(),
+    batchTasks: acceptedTasks.map((task) => task.toJSON())
+  });
   await TailoringRequestModel.findByIdAndUpdate(request.orderId, { orderStatus: request.type === "customer_to_tailor" ? "pickup_started" : "out_for_delivery" });
   emitToCustomer(request.customerId, "customer:delivery_status_updated", {
     requestId: request.id,
@@ -1014,7 +1019,7 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
       actions: ["View Order"]
     });
   }
-  res.json({ data: request });
+  res.json({ data: { ...request.toJSON(), batchTasks: acceptedTasks.map((task) => task.toJSON()) } });
 }
 
 export async function failDeliveryTaskController(req: Request, res: Response) {

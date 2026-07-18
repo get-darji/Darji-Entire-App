@@ -86,6 +86,7 @@ type DeliveryRequest = {
   type: "customer_to_tailor" | "tailor_to_customer";
   taskStatus: "pending" | "accepted" | "picked_up" | "delivered" | "cancelled";
   shift: "morning" | "evening";
+  serviceLevel?: "STANDARD" | "EXPRESS" | "INSTANT";
   assignedDeliveryPartnerId?: string;
   estimatedDistanceKm?: number;
   estimatedEarnings?: number;
@@ -141,6 +142,7 @@ type DeliveryTaskPayload = Omit<DeliveryRequest, "tailoringRequestId" | "leg" | 
   tailoringRequestId?: string;
   leg?: DeliveryRequest["leg"];
   status?: DeliveryRequest["status"];
+  batchTasks?: DeliveryTaskPayload[];
 };
 
 type DeliveryProfile = {
@@ -214,6 +216,33 @@ function normalizeDeliveryTask(task: DeliveryTaskPayload): DeliveryRequest {
     status: taskStatus === "pending" ? "OPEN" : taskStatus === "accepted" || taskStatus === "picked_up" ? "ACCEPTED" : taskStatus === "delivered" ? "COMPLETED" : "CANCELLED",
     shift: task.shift ?? (type === "customer_to_tailor" ? "morning" : "evening")
   };
+}
+
+function normalizeDeliveryTaskPayloads(payload: DeliveryTaskPayload): DeliveryRequest[] {
+  const tasks = Array.isArray(payload.batchTasks) && payload.batchTasks.length ? payload.batchTasks : [payload];
+  return tasks.map((task) => normalizeDeliveryTask({
+    ...task,
+    batchId: task.batchId ?? payload.batchId,
+    deliveryRound: task.deliveryRound ?? payload.deliveryRound,
+    roundAt: task.roundAt ?? payload.roundAt,
+    assignedArea: task.assignedArea ?? payload.assignedArea ?? payload.batchArea,
+    batchOrdersCount: task.batchOrdersCount ?? payload.batchOrdersCount ?? tasks.length,
+    batchEstimatedEarnings: task.batchEstimatedEarnings ?? payload.batchEstimatedEarnings,
+    batchArea: task.batchArea ?? payload.batchArea ?? payload.assignedArea
+  }));
+}
+
+function mergeDeliveryRequests(current: DeliveryRequest[], incoming: DeliveryRequest[]) {
+  const incomingIds = new Set(incoming.map((request) => request.id));
+  return [...incoming, ...current.filter((request) => !incomingIds.has(request.id))];
+}
+
+function isBatchOfferRequest(request?: DeliveryRequest) {
+  return Boolean(request?.batchId && request.taskStatus === "pending" && request.serviceLevel !== "INSTANT");
+}
+
+function requestPresentationKey(request: DeliveryRequest) {
+  return isBatchOfferRequest(request) ? `${request.batchId}:${request.notificationSentAt ?? request.createdAt ?? request.id}` : request.id;
 }
 
 function deliveryItemCount(request: DeliveryRequest) {
@@ -1548,6 +1577,78 @@ function OrderRequestModal({
   );
 }
 
+function BatchOfferModal({
+  visible,
+  request,
+  accepting,
+  onAccept,
+  onViewDetails,
+  onClose
+}: {
+  visible: boolean;
+  request?: DeliveryRequest;
+  accepting: boolean;
+  onAccept: () => void;
+  onViewDetails: () => void;
+  onClose: () => void;
+}) {
+  const [countdown, setCountdown] = useState(30);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    setCountdown(30);
+    const id = setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(id);
+  }, [visible, request?.batchId]);
+
+  useEffect(() => {
+    if (visible && countdown === 0) onClose();
+  }, [countdown, onClose, visible]);
+
+  if (!request) return null;
+
+  const roundLabel = request.deliveryRound === "ONE_PM" ? "1 PM" : request.deliveryRound === "SIX_PM" ? "6 PM" : request.deliveryRound ?? "Batch";
+  const housesCount = Number(request.batchOrdersCount ?? request.routeTotal ?? request.itemCount ?? 1);
+  const earningTotal = Number(request.batchEstimatedEarnings ?? request.estimatedEarnings ?? 0);
+  const areaLabel = request.batchArea ?? request.assignedArea ?? "All Areas";
+
+  return (
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+      <View style={styles.popupBackdrop}>
+        <View style={styles.requestPopupCard}>
+          <View style={styles.cardTopRow}>
+            <View style={styles.popupIconSmall}>
+              <Ionicons name="cube-outline" size={24} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.cardMain}>
+              <Text style={styles.popupEyebrow}>BATCH OFFER</Text>
+              <Text style={styles.popupTitle}>{roundLabel} {request.deliveryType === "DROP" ? "drop" : "pickup"} batch</Text>
+            </View>
+            <View style={styles.countCircle}>
+              <Text style={styles.countText}>{countdown}</Text>
+            </View>
+          </View>
+          <View style={styles.countdownPanel}>
+            <Ionicons name="map-outline" size={20} color={BRAND_ORANGE} />
+            <View style={styles.flexOne}>
+              <Text style={styles.countdownTitle}>{housesCount} {housesCount === 1 ? "house" : "houses"} in {areaLabel}</Text>
+              <Text style={styles.countdownCopy}>Estimated earning Rs {earningTotal.toFixed(0)}</Text>
+            </View>
+          </View>
+          <StatusRow label="Round" value={roundLabel} />
+          <StatusRow label="Area" value={areaLabel} />
+          <StatusRow label="Houses" value={String(housesCount)} />
+          <StatusRow label="Total earning" value={`Rs ${earningTotal.toFixed(0)}`} />
+          <View style={styles.navRow}>
+            <View style={styles.flexOne}><PrimaryButton icon="eye-outline" label="View details" onPress={onViewDetails} variant="secondary" /></View>
+            <View style={styles.flexOne}><PrimaryButton icon="checkmark-outline" label="Accept" loading={accepting} onPress={onAccept} /></View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function BatchDetailsView({
   batch,
   onBack,
@@ -1677,7 +1778,7 @@ function OrdersScreen({
 
   const visibleBatches = useMemo(() => {
     return batches.filter((b) => {
-      if (queue === "active") return b.status === "active";
+      if (queue === "active") return b.status === "active" || b.status === "offered";
       if (queue === "history") return b.status === "completed";
       return b.status === "cancelled";
     });
@@ -1744,10 +1845,10 @@ function OrdersScreen({
               </View>
               <Text style={styles.cardMeta}>{item.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{item.requests.length} orders completed • Area: {item.area}</Text>
             </View>
-            <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : "CANCELLED"} />
+            <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : item.status === "offered" ? "OPEN" : "CANCELLED"} />
           </View>
           <View style={styles.cardDivider} />
-          <TimestampBadge label="Batch assigned" value={item.requests[0]?.acceptedAt ?? item.roundAt} />
+          <TimestampBadge label={item.status === "active" ? "Batch assigned" : "Batch offered"} value={item.requests[0]?.acceptedAt ?? item.requests[0]?.notificationSentAt ?? item.roundAt} />
           <Text style={styles.cardCopy} numberOfLines={2}>
             Route contains {item.requests.length} stop{item.requests.length !== 1 ? "s" : ""}.
           </Text>
@@ -2391,7 +2492,8 @@ function MainApp({
       const estimatedEarnings = sortedList.reduce((sum, r) => sum + (r.estimatedEarnings ?? 0), 0);
       const isCompleted = list.length > 0 && list.every((r) => r.taskStatus === "delivered");
       const isCancelled = list.length > 0 && list.every((r) => r.taskStatus === "cancelled");
-      const status = isCompleted ? "completed" : isCancelled ? "cancelled" : "active";
+      const isAssigned = list.some((r) => r.taskStatus === "accepted" || r.taskStatus === "picked_up");
+      const status = isCompleted ? "completed" : isCancelled ? "cancelled" : isAssigned ? "active" : "offered";
       return {
         batchId,
         deliveryRound: first?.deliveryRound || batchId,
@@ -2563,13 +2665,16 @@ function MainApp({
   const showOpenRequestPopup = useCallback((requestList: DeliveryRequest[]) => {
     if (!online || requestVisible || activeOrder) return;
     const newest = requestList.find(
-      (request) => request.status === "OPEN" && !dismissedRequestIdsRef.current.has(request.id) && !presentedRequestIdsRef.current.has(request.id)
+      (request) => {
+        const key = requestPresentationKey(request);
+        return request.status === "OPEN" && !dismissedRequestIdsRef.current.has(key) && !presentedRequestIdsRef.current.has(key);
+      }
     );
     if (!newest) return;
-    presentedRequestIdsRef.current.add(newest.id);
+    presentedRequestIdsRef.current.add(requestPresentationKey(newest));
     setPopupRequest(newest);
     setRequestVisible(true);
-    void playDeliveryAlert("New delivery request", requestTitle(newest));
+    void playDeliveryAlert(isBatchOfferRequest(newest) ? "Batch offer" : "New delivery request", isBatchOfferRequest(newest) ? `${newest.batchOrdersCount ?? 1} orders in ${newest.batchArea ?? newest.assignedArea ?? "your area"}` : requestTitle(newest));
   }, [activeOrder, online, requestVisible]);
   const showOpenRequestPopupRef = useRef(showOpenRequestPopup);
 
@@ -2613,11 +2718,14 @@ function MainApp({
 
     socket.on("delivery:task_created", (payload: DeliveryTaskPayload) => {
       if (!payload?.id) return;
-      const request = normalizeDeliveryTask(payload);
-      setRequests((current) => current.some((item) => item.id === request.id) ? current : [request, ...current]);
+      const incoming = normalizeDeliveryTaskPayloads(payload);
+      const request = incoming[0];
+      setRequests((current) => mergeDeliveryRequests(current, incoming));
       addDeliveryNotification({
-        title: "New delivery request",
-        body: requestTitle(request),
+        title: isBatchOfferRequest(request) ? "Batch offer" : "New delivery request",
+        body: isBatchOfferRequest(request)
+          ? `${request.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} batch | ${request.batchOrdersCount ?? incoming.length} orders | Rs ${Number(request.batchEstimatedEarnings ?? 0).toFixed(0)}`
+          : requestTitle(request),
         taskId: request.id,
         orderId: request.orderId
       });
@@ -2634,8 +2742,9 @@ function MainApp({
     });
     socket.on("delivery:task_assigned", (payload: DeliveryTaskPayload) => {
       if (!payload?.id) return;
-      const request = normalizeDeliveryTask(payload);
-      setRequests((current) => [request, ...current.filter((item) => item.id !== request.id)]);
+      const incoming = normalizeDeliveryTaskPayloads(payload);
+      const request = incoming[0];
+      setRequests((current) => mergeDeliveryRequests(current, incoming));
       setActiveOrder(request);
       setActiveOrderScreen("route");
       addDeliveryNotification({
@@ -2746,9 +2855,10 @@ function MainApp({
     try {
       setAccepting(true);
       const acceptedPayload = await api<DeliveryTaskPayload>(`/delivery-requests/${popupRequest.id}/accept`, { method: "POST" }, token);
-      const accepted = normalizeDeliveryTask(acceptedPayload);
-      dismissedRequestIdsRef.current.add(popupRequest.id);
-      setRequests((current) => [accepted, ...current.filter((item) => item.id !== accepted.id)]);
+      const acceptedTasks = normalizeDeliveryTaskPayloads(acceptedPayload);
+      const accepted = acceptedTasks[0];
+      dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
+      setRequests((current) => mergeDeliveryRequests(current, acceptedTasks));
       setRequestVisible(false);
       setActiveOrder(accepted);
       setActiveOrderScreen("route");
@@ -2783,8 +2893,9 @@ function MainApp({
       setAccepting(true);
       void api<DeliveryTaskPayload>(`/delivery-requests/${taskId}/accept`, { method: "POST" }, token)
         .then((payload) => {
-          const accepted = normalizeDeliveryTask(payload);
-          setRequests((current) => [accepted, ...current.filter((item) => item.id !== accepted.id)]);
+          const acceptedTasks = normalizeDeliveryTaskPayloads(payload);
+          const accepted = acceptedTasks[0];
+          setRequests((current) => mergeDeliveryRequests(current, acceptedTasks));
           setPopupRequest(undefined);
           setRequestVisible(false);
           setActiveOrder(accepted);
@@ -2937,25 +3048,42 @@ function MainApp({
         ) : null}
         </View>
         <TabBar current={tab} onChange={setTab} />
-        <OrderRequestModal
-          accepting={accepting}
-          onAccept={acceptPopupRequest}
-          onViewDetails={() => {
-            if (popupRequest?.batchId) setActiveBatchId(popupRequest.batchId);
-            else if (popupRequest) {
-              setActiveOrder(popupRequest);
-              setActiveOrderScreen("summary");
-            }
-            setRequestVisible(false);
-            setTab("orders");
-          }}
-          onClose={() => {
-            if (popupRequest) dismissedRequestIdsRef.current.add(popupRequest.id);
-            setRequestVisible(false);
-          }}
-          request={popupRequest}
-          visible={requestVisible}
-        />
+        {isBatchOfferRequest(popupRequest) ? (
+          <BatchOfferModal
+            accepting={accepting}
+            onAccept={acceptPopupRequest}
+            onViewDetails={() => {
+              if (popupRequest?.batchId) setActiveBatchId(popupRequest.batchId);
+              setRequestVisible(false);
+              setTab("orders");
+            }}
+            onClose={() => {
+              if (popupRequest) dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
+              setRequestVisible(false);
+            }}
+            request={popupRequest}
+            visible={requestVisible}
+          />
+        ) : (
+          <OrderRequestModal
+            accepting={accepting}
+            onAccept={acceptPopupRequest}
+            onViewDetails={() => {
+              if (popupRequest) {
+                setActiveOrder(popupRequest);
+                setActiveOrderScreen("summary");
+              }
+              setRequestVisible(false);
+              setTab("orders");
+            }}
+            onClose={() => {
+              if (popupRequest) dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
+              setRequestVisible(false);
+            }}
+            request={popupRequest}
+            visible={requestVisible}
+          />
+        )}
       </Screen>
     </NotificationProvider>
   );
