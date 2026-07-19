@@ -35,10 +35,18 @@ async function displayRemoteMessage(message: FirebaseMessagingTypes.RemoteMessag
 }
 
 let registered = false;
+let backgroundHandlerRegistered = false;
+
+function registerBackgroundHandler() {
+  if (backgroundHandlerRegistered) return;
+  backgroundHandlerRegistered = true;
+  messaging().setBackgroundMessageHandler(displayRemoteMessage);
+}
+
+registerBackgroundHandler();
 
 export function registerIncomingRequestMessaging() {
   if (registered) return () => undefined;
   registered = true;
-  messaging().setBackgroundMessageHandler(displayRemoteMessage);
   return messaging().onMessage(displayRemoteMessage);
 }

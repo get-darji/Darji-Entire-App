@@ -25,8 +25,7 @@ const channelAppMap = {
   "tailor-pickup-updates-v2": "tailor",
   "delivery-pickup-assigned-v2": "delivery",
   "delivery-updates-v2": "delivery",
-  "delivery-orders-v2": "delivery",
-  "darji-incoming-requests-v1": "delivery"
+  "delivery-orders-v2": "delivery"
 } as const;
 
 function normalizeData(data?: PushPayload["data"]) {
@@ -218,7 +217,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       actions: (payload.actions ?? []).join(","),
       categoryId: payload.categoryId ?? "DARZI_ORDER",
       categoryIdentifier: payload.categoryId ?? "DARZI_ORDER",
-      brand: "Darzi"
+      brand: "Darji"
     };
     const tag = data.taskId || data.requestId || data.orderId || "darzi-order";
     const isIncomingRequest = payload.channelId === "darji-incoming-requests-v1" || isIncomingRequestType(data.type);

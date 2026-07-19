@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
+import messaging from "@react-native-firebase/messaging";
 import { Platform } from "react-native";
 import { api } from "../api";
 import { configureNotificationActions } from "../notifications/actions";
@@ -32,7 +33,24 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     }
 
     let cancelled = false;
-    async function saveTokens(nativeToken?: Notifications.DevicePushToken) {
+    async function getNativePushToken() {
+      try {
+        const firebaseToken = await messaging().getToken();
+        if (firebaseToken) return firebaseToken;
+      } catch (error) {
+        console.warn("Firebase push token registration failed", error);
+      }
+
+      try {
+        const nativeToken = await Notifications.getDevicePushTokenAsync();
+        return String(nativeToken.data);
+      } catch (error) {
+        console.warn("Native push token registration failed", error);
+      }
+      return undefined;
+    }
+
+    async function saveTokens() {
       let expoPushToken: string | undefined;
       try {
         const projectId = easProjectId();
@@ -41,16 +59,9 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
         console.warn("Expo push token registration failed", error);
       }
 
-      let fcmToken = nativeToken;
-      if (!fcmToken) {
-        try {
-          fcmToken = await Notifications.getDevicePushTokenAsync();
-        } catch (error) {
-          console.warn("Native push token registration failed", error);
-        }
-      }
+      const fcmToken = await getNativePushToken();
       if (!expoPushToken && !fcmToken) throw new Error("No push token could be generated");
-      const registrationKey = `${app}:${userId ?? "unknown"}:${expoPushToken ?? ""}:${fcmToken ? String(fcmToken.data) : ""}`;
+      const registrationKey = `${app}:${userId ?? "unknown"}:${expoPushToken ?? ""}:${fcmToken ?? ""}`;
       const storageKey = `darji.push-registration.v2.${app}.${userId ?? "unknown"}`;
       if ((await AsyncStorage.getItem(storageKey)) === registrationKey) return;
       if (completedRegistrations.has(registrationKey)) return;
@@ -66,7 +77,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
           method: "POST",
           body: JSON.stringify({
             expoPushToken,
-            fcmToken: fcmToken ? String(fcmToken.data) : undefined,
+            fcmToken,
             platform: Platform.OS,
             app: Constants.expoConfig?.slug ?? app
           })
@@ -95,6 +106,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
           if (!cancelled) setStatus("denied");
           return;
         }
+        await messaging().requestPermission().catch(() => undefined);
 
         await saveTokens();
         if (cancelled) return;

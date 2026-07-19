@@ -16,6 +16,7 @@ export const CHANNEL_IDS = {
   },
   delivery: {
     pickup: "delivery-pickup-assigned-v2",
+    orders: "delivery-orders-v2",
     updates: "delivery-updates-v2"
   }
 } as const;
@@ -27,6 +28,7 @@ const channelNames: Record<string, string> = {
   "tailor-new-requests-v2": "New Requests",
   "tailor-pickup-updates-v2": "Pickup Updates",
   "delivery-pickup-assigned-v2": "Pickup Assigned",
+  "delivery-orders-v2": "Delivery Orders",
   "delivery-updates-v2": "Delivery Updates"
 };
 

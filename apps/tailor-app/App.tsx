@@ -535,7 +535,7 @@ function AuthScreen() {
         <View style={styles.logoMark}>
           <Ionicons name="cut-outline" size={34} color={BRAND_ORANGE} />
         </View>
-        <Text style={styles.authTitle}>Darzi Tailor</Text>
+        <Text style={styles.authTitle}>Darji Tailor</Text>
         <Text style={styles.authCopy}>Manage requests, quotes, stitching progress, and earnings from one workspace.</Text>
         {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
         {!otpRequested ? (
@@ -708,7 +708,7 @@ function DashboardScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header title="Tailor Studio" subtitle={me?.tailorProfile?.shopName ?? "Darzi Tailor"} />
+      <Header title="Tailor Studio" subtitle={me?.tailorProfile?.shopName ?? "Darji Tailor"} />
       <View style={styles.heroCard}>
         <View>
           <Text style={styles.heroLabel}>TODAY</Text>
