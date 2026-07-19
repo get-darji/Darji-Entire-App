@@ -54,8 +54,6 @@
         "expo-notifications",
         {
           "icon": "./darji-notification.png",
-          "color": "#F98A04",
-          "defaultChannel": "darji-alerts-v2",
           "sounds": [
             "./ding.mp3",
             "./requests.mp3"
