@@ -311,14 +311,16 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
         title: `${claimed.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} ${String(claimed.deliveryType).toLowerCase()} batch ready`,
         body: `${batchOrdersCount} requests | Rs ${batchEstimatedEarnings.toFixed(0)} earnings | Tap to accept or view details.`,
         data: {
-          type: "DELIVERY_BATCH_READY",
+          type: "INCOMING_DELIVERY_BATCH_REQUEST",
+          event: "delivery:task_created",
           taskId: representativeTask.id,
           orderId: representativeTask.orderId,
           requestId: representativeTask.id,
           batchId: claimed.batchId,
           deliveryType: claimed.deliveryType,
           screen: "pickupDetails"
-        }
+        },
+        sound: "requests.mp3"
       });
     })
   );

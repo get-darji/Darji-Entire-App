@@ -780,6 +780,7 @@ export async function notifyDeliveryBatchController(req: Request, res: Response)
   res.json({
     data: {
       batchId,
+      notifiedPartners: result.notifiedPartners,
       notifiedTasks: result.notifiedTasks,
       status: result.batch?.status ?? "scheduled"
     }

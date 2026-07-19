@@ -24,7 +24,9 @@ const channelAppMap = {
   "tailor-new-requests-v2": "tailor",
   "tailor-pickup-updates-v2": "tailor",
   "delivery-pickup-assigned-v2": "delivery",
-  "delivery-updates-v2": "delivery"
+  "delivery-updates-v2": "delivery",
+  "delivery-orders-v2": "delivery",
+  "darji-incoming-requests-v1": "delivery"
 } as const;
 
 function normalizeData(data?: PushPayload["data"]) {
@@ -45,6 +47,10 @@ function resolveTargetApps(payload: PushPayload) {
   if (explicitApps.length) return explicitApps;
   const channelApp = payload.channelId ? channelAppMap[payload.channelId as keyof typeof channelAppMap] : undefined;
   return channelApp ? [channelApp] : [];
+}
+
+function isIncomingRequestType(type?: string) {
+  return /incoming|assignment|delivery_batch_ready|delivery:task_created|tailoring:request_created/i.test(type ?? "");
 }
 
 function firebaseCredential() {
@@ -206,6 +212,8 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
   try {
     const data: Record<string, string> = {
       ...normalizeData(payload.data),
+      title: payload.title,
+      body: payload.body,
       subtitle: payload.subtitle ?? "",
       actions: (payload.actions ?? []).join(","),
       categoryId: payload.categoryId ?? "DARZI_ORDER",
@@ -213,26 +221,31 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       brand: "Darzi"
     };
     const tag = data.taskId || data.requestId || data.orderId || "darzi-order";
+    const isIncomingRequest = payload.channelId === "darji-incoming-requests-v1" || isIncomingRequestType(data.type);
     const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
       tokens,
-      notification: {
-        title: payload.title,
-        body: payload.body,
-        imageUrl: payload.imageUrl
-      },
+      ...(!isIncomingRequest ? {
+        notification: {
+          title: payload.title,
+          body: payload.body,
+          imageUrl: payload.imageUrl
+        }
+      } : {}),
       data,
       android: {
         priority: "high",
-        notification: {
-          channelId: payload.channelId ?? "darji-alerts-v2",
-          color: "#F98A04",
-          sound: payload.sound ?? "ding.mp3",
-          imageUrl: payload.imageUrl,
-          priority: "max",
-          visibility: "public",
-          notificationCount: 1,
-          tag
-        }
+        ...(!isIncomingRequest ? {
+          notification: {
+            channelId: payload.channelId ?? "darji-alerts-v2",
+            color: "#F98A04",
+            sound: payload.sound ?? "ding.mp3",
+            imageUrl: payload.imageUrl,
+            priority: "max",
+            visibility: "public",
+            notificationCount: 1,
+            tag
+          }
+        } : {})
       },
       apns: {
         headers: { "apns-priority": "10" },

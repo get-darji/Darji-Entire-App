@@ -4,6 +4,9 @@
       "eas": {
         "projectId": "f00d9cfc-40a0-4db1-892b-449911f3f926"
       }
+    },
+    "android": {
+      "package": "com.aman1206.darzi"
     }
   }
 }

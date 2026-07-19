@@ -1762,10 +1762,12 @@ export async function createTailoringRequestController(req: Request, res: Respon
       title: "New customer order",
       body: `${requestClothingLabel(request)}. Open the request to send a quote.`,
       data: {
-        type: "NEW_REQUEST",
+        type: "INCOMING_TAILORING_REQUEST",
+        event: "tailoring:request_created",
         requestId: request.id,
         screen: "requestDetails"
-      }
+      },
+      sound: "requests.mp3"
     }))
   );
   res.status(201).json({ data: request });

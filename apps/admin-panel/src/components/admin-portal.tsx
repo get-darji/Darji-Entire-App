@@ -873,8 +873,16 @@ export function AdminPortal() {
 
   const notifyBatchMutation = useMutation({
     mutationFn: notifyDeliveryBatch,
-    onSuccess: async () => {
-      toast.success("Batch notifications sent");
+    onSuccess: async (result) => {
+      const partnerCount = Number(result?.notifiedPartners ?? 0);
+      const taskCount = Number(result?.notifiedTasks ?? 0);
+      if (partnerCount <= 0) {
+        toast.error(`No eligible delivery partners found for this batch (${taskCount} tasks)`);
+      } else {
+        toast.success(
+          `Batch notification sent to ${partnerCount} partner${partnerCount === 1 ? "" : "s"} for ${taskCount} task${taskCount === 1 ? "" : "s"}`
+        );
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] })

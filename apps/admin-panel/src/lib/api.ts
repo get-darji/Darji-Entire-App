@@ -101,8 +101,15 @@ export async function getDeliveryBatches() {
   return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
 }
 
+export type NotifyDeliveryBatchResult = {
+  batchId: string;
+  notifiedPartners: number;
+  notifiedTasks: number;
+  status: string;
+};
+
 export async function notifyDeliveryBatch(batchId: string) {
-  return unwrap(api.post(`/admin/delivery-batches/${batchId}/notify`, {}));
+  return unwrap<NotifyDeliveryBatchResult>(api.post(`/admin/delivery-batches/${batchId}/notify`, {}));
 }
 
 export async function reassignDeliveryBatchTask(payload: { taskId: string; batchId: string }) {

@@ -7,9 +7,10 @@ export type NotificationEventInput = {
   body: string;
   data: Record<string, string | number | boolean | undefined>;
   imageUrl?: string;
+  sound?: string;
 };
 
-type NotificationDefaults = Pick<PushPayload, "channelId" | "categoryId" | "actions">;
+type NotificationDefaults = Pick<PushPayload, "channelId" | "categoryId" | "actions" | "targetApps">;
 
 async function sendEventNotification(input: NotificationEventInput, defaults: NotificationDefaults) {
   const orderId = typeof input.data.orderId === "string" ? input.data.orderId : undefined;
@@ -24,7 +25,7 @@ async function sendEventNotification(input: NotificationEventInput, defaults: No
     body: input.body,
     imageUrl: input.imageUrl,
     data: input.data,
-    sound: "ding.mp3",
+    sound: input.sound ?? "ding.mp3",
     ...defaults
   });
   return notification;
@@ -32,9 +33,10 @@ async function sendEventNotification(input: NotificationEventInput, defaults: No
 
 export function sendNewRequestNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
-    channelId: "tailor-new-requests-v2",
+    channelId: "darji-incoming-requests-v1",
     categoryId: "TAILOR_NEW_REQUEST",
-    actions: ["Send Quote", "View Details"]
+    actions: ["Send Quote", "Reject", "View Details"],
+    targetApps: ["tailor"]
   });
 }
 
@@ -63,11 +65,11 @@ export function sendPickupAssignedNotification(input: NotificationEventInput) {
 }
 
 export function sendDeliveryBatchReadyNotification(input: NotificationEventInput) {
-  const isDropBatch = String(input.data.deliveryType ?? "").toUpperCase() === "DROP";
   return sendEventNotification(input, {
-    channelId: isDropBatch ? "delivery-updates-v2" : "delivery-pickup-assigned-v2",
+    channelId: "darji-incoming-requests-v1",
     categoryId: "DELIVERY_PICKUP_REQUEST",
-    actions: ["Accept", "View Details"]
+    actions: ["Accept", "Reject", "View Details"],
+    targetApps: ["delivery"]
   });
 }
 

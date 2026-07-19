@@ -4,7 +4,7 @@ import { displayIncomingRequestNotification, INCOMING_REQUEST_CHANNEL_ID } from 
 
 export function isIncomingRequestData(data: Record<string, unknown>) {
   const type = String(data.type ?? data.event ?? data.notificationType ?? "");
-  return /incoming|assignment|delivery:task_created|tailoring:request_created/i.test(type);
+  return /incoming|new_request|assignment|delivery_batch_ready|delivery:task_created|tailoring:request_created/i.test(type);
 }
 
 export async function showIncomingRequestNotification(title: string, body: string, data: Record<string, unknown>) {
@@ -28,8 +28,8 @@ async function displayRemoteMessage(message: FirebaseMessagingTypes.RemoteMessag
   const data = stringData(message.data);
   if (!isIncomingRequestData(data)) return;
   await displayIncomingRequestNotification({
-    title: message.notification?.title ?? "Incoming Request",
-    body: message.notification?.body ?? "You have a new order",
+    title: message.notification?.title ?? data.title ?? "Incoming Request",
+    body: message.notification?.body ?? data.body ?? "You have a new order",
     data
   });
 }
