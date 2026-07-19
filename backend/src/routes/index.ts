@@ -84,12 +84,14 @@ import {
   cancelTailoringRequestController,
   cancelDeliveryRetryController,
   confirmDeliveryCashCollectionController,
+  declineTailoringRequestController,
   failDeliveryTaskController,
   getDeliveryRequestController,
   getDeliveryTaskOtpsController,
   listDeliveryRetriesController,
   listDeliveryRequestsController,
   resolveDeliveryRetryController,
+  rejectDeliveryRequestController,
   createTailorQuoteController,
   getTailoringRequestController,
   listTailorQuotesController,
@@ -139,6 +141,7 @@ router.patch("/tailoring-requests/:id/work-status", requireAuth, requireRole("TA
 router.post("/tailoring-requests/:id/checkout", requireAuth, requireRole("CUSTOMER", "ADMIN"), startTailoringCheckoutController);
 router.post("/tailoring-requests/:id/checkout/verify", requireAuth, requireRole("CUSTOMER", "ADMIN"), verifyTailoringCheckoutController);
 router.post("/tailoring-requests/:id/cancel", requireAuth, requireRole("CUSTOMER", "ADMIN"), cancelTailoringRequestController);
+router.post("/tailoring-requests/:id/decline", requireAuth, requireRole("TAILOR", "ADMIN"), declineTailoringRequestController);
 router.get("/tailoring-requests/:id/quotes", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), listTailorQuotesController);
 router.post("/tailoring-requests/:id/quotes", requireAuth, requireRole("TAILOR", "ADMIN"), createTailorQuoteController);
 router.post("/tailoring-requests/:id/quotes/:quoteId/select", requireAuth, requireRole("CUSTOMER", "ADMIN"), selectTailorQuoteController);
@@ -149,6 +152,7 @@ router.post("/delivery-requests/media", requireAuth, requireRole("DELIVERY_PARTN
 router.get("/delivery-requests/events/watch", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), watchDeliveryRequestsController);
 router.get("/delivery-requests/:id", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), getDeliveryRequestController);
 router.post("/delivery-requests/:id/accept", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), acceptDeliveryRequestController);
+router.post("/delivery-requests/:id/reject", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), rejectDeliveryRequestController);
 router.post("/delivery-requests/:id/verify-otp", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), verifyDeliveryTaskOtpController);
 router.patch("/delivery-requests/:id/photos", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), saveDeliveryTaskPhotosController);
 router.patch("/delivery-requests/:id/cash-collection", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), confirmDeliveryCashCollectionController);

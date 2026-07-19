@@ -10,7 +10,7 @@ import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -22,8 +22,10 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   SafeAreaView,
-  ScrollView,
+  ScrollView as RNScrollView,
+  type ScrollViewProps,
   StyleSheet,
   StatusBar,
   Switch,
@@ -34,6 +36,9 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { api, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
+import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
+import { IncomingRequestScreen } from "./src/incoming-request/IncomingRequestScreen";
+import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { TailorProfileScreen } from "./src/components/TailorProfileScreen";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
@@ -245,6 +250,36 @@ const VERIFICATION_FORM_STEPS = 4;
 const VERIFICATION_STATUS_STEP = 5;
 const verificationStepLabels = ["Personal", "Shop", "ID", "Tutorial", "Submit"] as const;
 
+type PullToRefreshState = {
+  refreshing: boolean;
+  onRefresh?: () => void;
+};
+
+const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ refreshControl, horizontal, ...props }, ref) {
+  const pullToRefresh = useContext(PullToRefreshContext);
+  const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
+  return (
+    <RNScrollView
+      ref={ref}
+      horizontal={horizontal}
+      refreshControl={canRefresh ? (
+        <RefreshControl
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
+          refreshing={pullToRefresh.refreshing}
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
+          onRefresh={pullToRefresh.onRefresh}
+        />
+      ) : refreshControl}
+      {...props}
+    />
+  );
+});
+
 configureForegroundNotificationHandler();
 
 const statusSteps = ["WORKING", "READY"] as const;
@@ -325,6 +360,29 @@ function tailorOrderEarning(order: Order) {
 
 function shortId(id?: string) {
   return id ? `#${id.slice(0, 8).toUpperCase()}` : "#REQUEST";
+}
+
+function incomingPayloadFromTailoringRequest(request?: TailoringRequest): IncomingRequestPayload | undefined {
+  if (!request) return undefined;
+  const amount = request.quoteAmount ?? request.ownQuote?.price ?? 0;
+  return {
+    id: request.id,
+    orderId: request.id,
+    requestType: "pickup",
+    title: "Incoming Pickup Request",
+    subtitle: "You have a new order",
+    expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    rows: [
+      { icon: "person-outline", label: "Customer", value: request.customer?.name ?? "Customer" },
+      { icon: "location-outline", label: "Pickup", value: request.pickupAddress },
+      { icon: "navigate-outline", label: "Drop", value: "Tailor shop" },
+      { icon: "map-outline", label: "Distance", value: "Calculated after quote" },
+      { icon: "time-outline", label: "ETA", value: request.urgency },
+      { icon: "cash-outline", label: "Earnings", value: amount ? money(amount) : "Quote required" },
+      { icon: "receipt-outline", label: "Value", value: amount ? money(amount) : "Pending quote" },
+      { icon: "flash-outline", label: "Type", value: request.urgency?.toUpperCase().includes("INSTANT") ? "INSTANT" : request.urgency?.toUpperCase().includes("EXPRESS") ? "EXPRESS" : "STANDARD" }
+    ]
+  };
 }
 
 function isSessionError(error: unknown) {
@@ -3333,6 +3391,7 @@ export default function App() {
   const [activeRequest, setActiveRequest] = useState<TailoringRequest>();
   const [activeOrder, setActiveOrder] = useState<Order>();
   const [loading, setLoading] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
   const [newRequestPopup, setNewRequestPopup] = useState<TailoringRequest>();
   const [newRequestSecondsLeft, setNewRequestSecondsLeft] = useState(30);
@@ -3353,6 +3412,8 @@ export default function App() {
   const newRequestNotificationsEnabled = me?.tailorProfile?.settings?.notifications !== false;
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
   const activeTailorOrderCount = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
+
+  useEffect(() => registerIncomingRequestMessaging(), []);
 
   function setScreen(nextScreen: Screen, options?: { resetStack?: boolean; replace?: boolean }) {
     if (nextScreen === screen) return;
@@ -3466,6 +3527,16 @@ export default function App() {
     setNewRequestPopup(undefined);
   }
 
+  function rejectNewRequestPopup(reason: "partner_rejected" | "timeout" = "partner_rejected") {
+    if (!newRequestPopup) return;
+    const requestId = newRequestPopup.id;
+    dismissedRequestIdsRef.current.add(requestId);
+    setNewRequestPopup(undefined);
+    if (token) {
+      void api(`/tailoring-requests/${requestId}/decline`, { method: "POST", body: JSON.stringify({ reason }) }, token).catch(() => undefined);
+    }
+  }
+
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", goBack);
     return () => subscription.remove();
@@ -3522,6 +3593,16 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshVisibleTailorScreen() {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    try {
+      await refreshWorkspace(false);
+    } finally {
+      setPullRefreshing(false);
     }
   }
 
@@ -3706,6 +3787,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+    <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleTailorScreen() }}>
     <NotificationProvider
       app="tailor"
       onNavigate={(destination) => {
@@ -3753,7 +3835,17 @@ export default function App() {
         <View style={styles.screenHost}>{body}</View>
         <BottomTabs screen={screen} setScreen={setScreen} />
         <LoadingOverlay visible={loading} />
-        <NewRequestPopup request={newRequestPopup} secondsLeft={newRequestSecondsLeft} flashOn={alertFlashVisible && alertFlashOn} onAccept={() => openPopupRequest("quote")} onViewDetails={() => openPopupRequest("requestDetails")} onClose={closeNewRequestPopup} />
+        <IncomingRequestScreen
+          acceptLabel="Send Quote"
+          loading={loading}
+          onAccept={() => openPopupRequest("quote")}
+          onReject={() => rejectNewRequestPopup("partner_rejected")}
+          onTimeout={() => rejectNewRequestPopup("timeout")}
+          request={incomingPayloadFromTailoringRequest(newRequestPopup)}
+          soundEnabled={soundAlertsEnabled}
+          vibrationEnabled
+          visible={Boolean(newRequestPopup)}
+        />
         <QuoteAcceptedPopup
           request={acceptedQuoteRequest}
           onViewDetails={() => {
@@ -3766,6 +3858,7 @@ export default function App() {
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </SafeAreaView>
     </NotificationProvider>
+    </PullToRefreshContext.Provider>
     </SafeAreaProvider>
   );
 }

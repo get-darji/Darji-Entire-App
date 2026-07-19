@@ -33,6 +33,7 @@ export async function configureNotificationActions(app: DarjiApp) {
   if (app === "delivery") {
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORIES.deliveryPickup, [
       { identifier: "ACCEPT", buttonTitle: "Accept", options: { opensAppToForeground: true } },
+      { identifier: "DECLINE", buttonTitle: "Reject", options: { opensAppToForeground: true } },
       { identifier: "VIEW_DETAILS", buttonTitle: "View Details", options: { opensAppToForeground: true } }
     ]);
   }

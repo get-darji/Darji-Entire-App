@@ -14,6 +14,9 @@
         "CAMERA",
         "ACCESS_FINE_LOCATION",
         "POST_NOTIFICATIONS",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.WAKE_LOCK",
+        "android.permission.TURN_SCREEN_ON",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -21,6 +24,9 @@
         "CAMERA",
         "ACCESS_FINE_LOCATION",
         "POST_NOTIFICATIONS",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.WAKE_LOCK",
+        "android.permission.TURN_SCREEN_ON",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -42,7 +48,8 @@
           "color": "#F98A04",
           "defaultChannel": "darji-alerts-v2",
           "sounds": [
-            "./ding.mp3"
+            "./ding.mp3",
+            "./requests.mp3"
           ]
         }
       ],

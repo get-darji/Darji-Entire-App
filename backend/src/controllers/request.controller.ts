@@ -981,6 +981,66 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
   res.json({ data: { ...request.toJSON(), batchTasks: acceptedTasks.map((task) => task.toJSON()) } });
 }
 
+const declineAssignmentSchema = z.object({
+  reason: z.string().trim().max(80).optional()
+});
+
+export async function rejectDeliveryRequestController(req: Request, res: Response) {
+  const input = declineAssignmentSchema.parse(req.body);
+  const partner = req.user!.role === "DELIVERY_PARTNER" ? await DeliveryPartnerModel.findOne({ userId: req.user!.id }) : null;
+  if (req.user!.role === "DELIVERY_PARTNER") {
+    if (!partner) throw new AppError(404, "Delivery partner profile not found");
+    if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to reject delivery jobs");
+  }
+
+  const request = await DeliveryRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Delivery request not found");
+  if (request.taskStatus !== "pending") {
+    return res.json({ data: { declined: true, requestId: request.id, status: request.taskStatus } });
+  }
+
+  emitDeliveryEvent({
+    type: "DELIVERY_REQUEST_DECLINED",
+    requestId: request.id,
+    deliveryPartnerId: partner?.id,
+    reason: input.reason ?? "partner_rejected"
+  });
+  emitToAdmins("delivery:task_declined", {
+    taskId: request.id,
+    deliveryPartnerId: partner?.id,
+    reason: input.reason ?? "partner_rejected"
+  });
+  res.json({ data: { declined: true, requestId: request.id } });
+}
+
+export async function declineTailoringRequestController(req: Request, res: Response) {
+  const input = declineAssignmentSchema.parse(req.body);
+  const tailor = req.user!.role === "TAILOR" ? await TailorModel.findOne({ userId: req.user!.id }) : null;
+  if (req.user!.role === "TAILOR") {
+    if (!tailor) throw new AppError(404, "Tailor profile not found");
+    if (tailor.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to reject requests");
+  }
+
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (request.status !== "QUOTE_REQUESTED") {
+    return res.json({ data: { declined: true, requestId: request.id, status: request.status } });
+  }
+
+  emitTailoringEvent({
+    type: "TAILORING_REQUEST_DECLINED",
+    requestId: request.id,
+    tailorId: tailor?.id,
+    reason: input.reason ?? "partner_rejected"
+  });
+  emitToAdmins("tailoring:request_declined", {
+    requestId: request.id,
+    tailorId: tailor?.id,
+    reason: input.reason ?? "partner_rejected"
+  });
+  res.json({ data: { declined: true, requestId: request.id } });
+}
+
 export async function failDeliveryTaskController(req: Request, res: Response) {
   const input = failDeliveryTaskSchema.parse(req.body);
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });

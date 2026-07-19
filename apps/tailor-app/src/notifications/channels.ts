@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { configureIncomingRequestNotifications } from "../incoming-request/NotificationService";
 
 export type DarjiApp = "customer" | "tailor" | "delivery";
 
@@ -65,4 +66,6 @@ export async function configureNotificationChannels(app: DarjiApp) {
     lightColor: "#F98A04",
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC
   });
+
+  await configureIncomingRequestNotifications();
 }

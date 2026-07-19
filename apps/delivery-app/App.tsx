@@ -7,7 +7,7 @@ import * as Notifications from "expo-notifications";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -21,8 +21,10 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   SafeAreaView,
-  ScrollView,
+  ScrollView as RNScrollView,
+  type ScrollViewProps,
   StatusBar,
   StyleSheet,
   Switch,
@@ -34,6 +36,9 @@ import {
 import { z } from "zod";
 import { api, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
 import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
+import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
+import { IncomingRequestScreen } from "./src/incoming-request/IncomingRequestScreen";
+import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
 import { configureForegroundNotificationHandler } from "./src/notifications/handlers";
@@ -331,6 +336,36 @@ const SUCCESS = "#15803d";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 
+type PullToRefreshState = {
+  refreshing: boolean;
+  onRefresh?: () => void;
+};
+
+const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ refreshControl, horizontal, ...props }, ref) {
+  const pullToRefresh = useContext(PullToRefreshContext);
+  const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
+  return (
+    <RNScrollView
+      ref={ref}
+      horizontal={horizontal}
+      refreshControl={canRefresh ? (
+        <RefreshControl
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
+          refreshing={pullToRefresh.refreshing}
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
+          onRefresh={pullToRefresh.onRefresh ?? (() => undefined)}
+        />
+      ) : refreshControl}
+      {...props}
+    />
+  );
+});
+
 const onboardingSteps: { key: OnboardingStep; title: string; subtitle: string }[] = [
   { key: "personal", title: "Personal details", subtitle: "Basic identity and emergency contact" },
   { key: "identity", title: "Identity verification", subtitle: "Upload either Aadhaar or PAN" },
@@ -453,6 +488,56 @@ function requestTitle(request: DeliveryRequest) {
 
 function requestEarning(request: DeliveryRequest) {
   return Number(request.estimatedEarnings ?? 0);
+}
+
+function incomingPayloadFromDeliveryRequest(request?: DeliveryRequest): IncomingRequestPayload | undefined {
+  if (!request) return undefined;
+  const isBatchOffer = isBatchOfferRequest(request);
+  const requestType = request.type === "customer_to_tailor" ? "pickup" : "delivery";
+  const roundLabel = request.deliveryRound === "ONE_PM" ? "1 PM" : request.deliveryRound === "SIX_PM" ? "6 PM" : request.deliveryRound ?? "Batch";
+  const housesCount = Number(request.batchOrdersCount ?? request.routeTotal ?? request.itemCount ?? 1);
+  const earningTotal = Number(request.batchEstimatedEarnings ?? request.estimatedEarnings ?? 0);
+  const expiresAt = new Date(Date.now() + 30_000).toISOString();
+
+  if (isBatchOffer) {
+    return {
+      id: requestPresentationKey(request),
+      orderId: request.orderId,
+      requestType,
+      title: `Incoming ${requestType === "pickup" ? "Pickup" : "Delivery"} Request`,
+      subtitle: `${roundLabel} batch offer`,
+      expiresAt,
+      rows: [
+        { icon: "people-outline", label: "Customer", value: `${housesCount} ${housesCount === 1 ? "house" : "houses"}` },
+        { icon: "location-outline", label: "Pickup", value: request.batchArea ?? request.assignedArea ?? "Assigned area" },
+        { icon: "navigate-outline", label: "Drop", value: request.deliveryType === "DROP" ? "Customer route" : "Tailor route" },
+        { icon: "map-outline", label: "Distance", value: request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Route optimized" },
+        { icon: "time-outline", label: "ETA", value: request.etaWindowStart && request.etaWindowEnd ? `${formatTimestamp(request.etaWindowStart)} - ${formatTimestamp(request.etaWindowEnd)}` : roundLabel },
+        { icon: "cash-outline", label: "Earnings", value: `Rs ${earningTotal.toFixed(0)}` },
+        { icon: "receipt-outline", label: "Value", value: request.totalAmount ? `Rs ${Number(request.totalAmount).toFixed(0)}` : paymentLabel(request) },
+        { icon: "flash-outline", label: "Type", value: request.serviceLevel ?? "STANDARD" }
+      ]
+    };
+  }
+
+  return {
+    id: request.id,
+    orderId: request.orderId,
+    requestType,
+    title: `Incoming ${requestType === "pickup" ? "Pickup" : "Delivery"} Request`,
+    subtitle: "You have a new order",
+    expiresAt,
+    rows: [
+      { icon: "person-outline", label: "Customer", value: request.customerName ?? "Customer" },
+      { icon: "location-outline", label: "Pickup", value: request.pickupAddress },
+      { icon: "navigate-outline", label: "Drop", value: request.dropAddress },
+      { icon: "map-outline", label: "Distance", value: request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Calculated on route" },
+      { icon: "time-outline", label: "ETA", value: request.deadlineAt ? formatTimestamp(request.deadlineAt) : "12 hours after accept" },
+      { icon: "cash-outline", label: "Earnings", value: `Rs ${requestEarning(request).toFixed(0)}` },
+      { icon: "receipt-outline", label: "Value", value: request.totalAmount ? `Rs ${Number(request.totalAmount).toFixed(0)}` : paymentLabel(request) },
+      { icon: "flash-outline", label: "Type", value: request.serviceLevel ?? "STANDARD" }
+    ]
+  };
 }
 
 function taskCompletedAt(request: DeliveryRequest) {
@@ -1796,6 +1881,7 @@ function OrdersScreen({
   deliveryType?: string;
 }) {
   const [queue, setQueue] = useState<"active" | "history" | "cancelled">("active");
+  const pullToRefresh = useContext(PullToRefreshContext);
 
   const visibleBatches = useMemo(() => {
     return batches.filter((b) => {
@@ -1810,6 +1896,17 @@ function OrdersScreen({
       contentContainerStyle={styles.pageContent}
       data={visibleBatches}
       keyExtractor={(item) => item.batchId}
+      refreshControl={
+        <RefreshControl
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
+          refreshing={pullToRefresh.refreshing}
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
+          onRefresh={pullToRefresh.onRefresh}
+        />
+      }
       ListHeaderComponent={<>
         <Header subtitle={`${deliveryType || "PICKUP"} batch pickup and delivery workflow`} title="Delivery Batches" />
         <View style={styles.segmentRow}>
@@ -2475,7 +2572,7 @@ function MainApp({
   showDialog
 }: {
   me?: MeResponse;
-  onRefreshProfile: () => void;
+  onRefreshProfile: () => void | Promise<void>;
   onSessionExpired: () => void;
   onSignOut: () => void;
   showDialog: (dialog: DialogState) => void;
@@ -2493,6 +2590,7 @@ function MainApp({
   const [activeOrder, setActiveOrder] = useState<DeliveryRequest | undefined>();
   const [activeOrderScreen, setActiveOrderScreen] = useState<ActiveOrderScreen>("summary");
   const [accepting, setAccepting] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [notificationCenterItems, setNotificationCenterItems] = useState<DeliveryNotification[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number }>();
@@ -2501,6 +2599,8 @@ function MainApp({
   const presentedRequestIdsRef = useRef<Set<string>>(new Set());
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
+
+  useEffect(() => registerIncomingRequestMessaging(), []);
 
   const filteredRequests = useMemo(() => {
     const visibleRequests = requests.filter((request) => {
@@ -2751,6 +2851,19 @@ function MainApp({
     }
   }, [token]);
 
+  const refreshVisibleDeliveryScreen = useCallback(async () => {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    try {
+      await Promise.all([
+        loadRequests(false),
+        Promise.resolve(onRefreshProfile())
+      ]);
+    } finally {
+      setPullRefreshing(false);
+    }
+  }, [loadRequests, onRefreshProfile, pullRefreshing]);
+
   useEffect(() => {
     void loadRequests(true);
   }, [loadRequests]);
@@ -2933,6 +3046,16 @@ function MainApp({
     }
   }
 
+  function rejectPopupRequest(reason: "partner_rejected" | "timeout" = "partner_rejected") {
+    if (!popupRequest) return;
+    dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
+    setRequestVisible(false);
+    const taskId = popupRequest.id;
+    if (token) {
+      void api(`/delivery-requests/${taskId}/reject`, { method: "POST", body: JSON.stringify({ reason }) }, token).catch(() => undefined);
+    }
+  }
+
   const handleNotificationNavigation = useCallback((destination: NotificationDestination) => {
     if (destination.screen === "support_center" || destination.screen === "contactSupport") {
       setInitialSupportScreen("support_center");
@@ -3002,6 +3125,7 @@ function MainApp({
 
   if (activeOrder) {
     return (
+      <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleDeliveryScreen() }}>
       <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
         <>
           {cancellationAlert ? (
@@ -3037,11 +3161,13 @@ function MainApp({
           />
         </>
       </NotificationProvider>
+      </PullToRefreshContext.Provider>
     );
   }
 
   if (selectedBatch) {
     return (
+      <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleDeliveryScreen() }}>
       <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
         <Screen>
           <BatchDetailsView
@@ -3065,10 +3191,12 @@ function MainApp({
           />
         </Screen>
       </NotificationProvider>
+      </PullToRefreshContext.Provider>
     );
   }
 
   return (
+    <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleDeliveryScreen() }}>
     <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
       <Screen>
         {cancellationAlert ? (
@@ -3132,44 +3260,19 @@ function MainApp({
         ) : null}
         </View>
         <TabBar current={tab} onChange={setTab} />
-        {isBatchOfferRequest(popupRequest) ? (
-          <BatchOfferModal
-            accepting={accepting}
-            onAccept={acceptPopupRequest}
-            onViewDetails={() => {
-              if (popupRequest?.batchId) setActiveBatchId(popupRequest.batchId);
-              setRequestVisible(false);
-              setTab("orders");
-            }}
-            onClose={() => {
-              if (popupRequest) dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
-              setRequestVisible(false);
-            }}
-            request={popupRequest}
-            visible={requestVisible}
-          />
-        ) : (
-          <OrderRequestModal
-            accepting={accepting}
-            onAccept={acceptPopupRequest}
-            onViewDetails={() => {
-              if (popupRequest) {
-                setActiveOrder(popupRequest);
-                setActiveOrderScreen("summary");
-              }
-              setRequestVisible(false);
-              setTab("orders");
-            }}
-            onClose={() => {
-              if (popupRequest) dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
-              setRequestVisible(false);
-            }}
-            request={popupRequest}
-            visible={requestVisible}
-          />
-        )}
+        <IncomingRequestScreen
+          loading={accepting}
+          onAccept={acceptPopupRequest}
+          onReject={() => rejectPopupRequest("partner_rejected")}
+          onTimeout={() => rejectPopupRequest("timeout")}
+          request={incomingPayloadFromDeliveryRequest(popupRequest)}
+          soundEnabled={me?.deliveryProfile?.settings?.soundAlerts !== false}
+          vibrationEnabled={me?.deliveryProfile?.settings?.vibrationAlerts !== false}
+          visible={requestVisible}
+        />
       </Screen>
     </NotificationProvider>
+    </PullToRefreshContext.Provider>
   );
 }
 

@@ -12,7 +12,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
@@ -25,8 +25,10 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   SafeAreaView,
-  ScrollView,
+  ScrollView as RNScrollView,
+  type ScrollViewProps,
   StyleSheet,
   Text,
   TextInput,
@@ -343,6 +345,37 @@ const avatarImages = {
   tannedMale2: require("./assets/icons/tanned_male_2.png"),
   tannedUncle: require("./assets/icons/tanned_uncle.png")
 } as const;
+
+type PullToRefreshState = {
+  refreshing: boolean;
+  onRefresh?: () => void;
+};
+
+const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ refreshControl, horizontal, ...props }, ref) {
+  const pullToRefresh = useContext(PullToRefreshContext);
+  const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
+  return (
+    <RNScrollView
+      ref={ref}
+      horizontal={horizontal}
+      refreshControl={canRefresh ? (
+        <RefreshControl
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
+          refreshing={pullToRefresh.refreshing}
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
+          onRefresh={pullToRefresh.onRefresh}
+        />
+      ) : refreshControl}
+      {...props}
+    />
+  );
+});
+
 type AvatarPreset = keyof typeof avatarImages;
 const avatarOptions: Array<{ key: AvatarPreset; label: string }> = [
   { key: "boy", label: "Boy" },
@@ -5572,7 +5605,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   const [chatMessage, setChatMessage] = useState("");
   const [sending, setSending] = useState(false);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<RNScrollView>(null);
 
   const bg = isDark ? "#000000" : "#f7faff";
   const cardBg = isDark ? "#121212" : "#ffffff";
@@ -7647,6 +7680,7 @@ export default function App() {
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<string | undefined>();
   const [cancellingOrderId, setCancellingOrderId] = useState<string | undefined>();
   const [isFetchingOrders, setIsFetchingOrders] = useState(true);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
@@ -7852,6 +7886,16 @@ export default function App() {
     }
   }
 
+  async function refreshVisibleCustomerScreen() {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    try {
+      await refreshCustomerOrders();
+    } finally {
+      setPullRefreshing(false);
+    }
+  }
+
   function statusFromRealtime(status: string): OrderStatus {
     const map: Record<string, OrderStatus> = {
       PAYMENT_PENDING: "Awaiting Payment",
@@ -8008,11 +8052,12 @@ export default function App() {
     });
   }
 
-  function withAppChrome(node: React.ReactNode) {
+  function withAppChrome(node: ReactNode) {
     styles = createStyles(settings.darkMode);
 
     return (
       <SafeAreaProvider>
+      <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleCustomerScreen() }}>
       <NotificationProvider
         app="customer"
         onNavigate={(destination) => {
@@ -8157,6 +8202,7 @@ export default function App() {
           </SafeAreaView>
         </Modal>
       </NotificationProvider>
+      </PullToRefreshContext.Provider>
       </SafeAreaProvider>
     );
   }

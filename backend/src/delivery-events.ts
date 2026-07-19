@@ -1,10 +1,11 @@
-type DeliveryEventType = "DELIVERY_REQUEST_CREATED" | "DELIVERY_REQUEST_ACCEPTED";
+type DeliveryEventType = "DELIVERY_REQUEST_CREATED" | "DELIVERY_REQUEST_ACCEPTED" | "DELIVERY_REQUEST_DECLINED";
 
 export type DeliveryEvent = {
   id: number;
   type: DeliveryEventType;
   requestId: string;
   deliveryPartnerId?: string;
+  reason?: string;
   createdAt: string;
 };
 

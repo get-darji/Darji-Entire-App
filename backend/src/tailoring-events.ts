@@ -1,4 +1,4 @@
-type TailoringEventType = "REQUEST_CREATED" | "QUOTE_ACCEPTED";
+type TailoringEventType = "REQUEST_CREATED" | "QUOTE_ACCEPTED" | "TAILORING_REQUEST_DECLINED";
 
 export type TailoringEvent = {
   id: number;
@@ -6,6 +6,7 @@ export type TailoringEvent = {
   requestId: string;
   quoteId?: string;
   tailorId?: string;
+  reason?: string;
   createdAt: string;
 };
 

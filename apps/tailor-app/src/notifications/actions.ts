@@ -23,6 +23,7 @@ export async function configureNotificationActions(app: DarjiApp) {
   if (app === "tailor") {
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORIES.tailorRequest, [
       { identifier: "SEND_QUOTE", buttonTitle: "Send Quote", options: { opensAppToForeground: true } },
+      { identifier: "DECLINE", buttonTitle: "Reject", options: { opensAppToForeground: true } },
       { identifier: "VIEW_DETAILS", buttonTitle: "View Details", options: { opensAppToForeground: true } }
     ]);
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORIES.tailorQuoteAccepted, [

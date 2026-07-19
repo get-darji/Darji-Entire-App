@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, ScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType } from "react-native";
+import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType, type ScrollViewProps } from "react-native";
 import { api, uploadDeliveryAvatar, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -70,6 +70,36 @@ const SUCCESS = "#15803d";
 const DANGER = "#dc2626";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
+
+type PullToRefreshState = {
+  refreshing: boolean;
+  onRefresh?: () => void;
+};
+
+const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScrollView({ refreshControl, horizontal, ...props }, ref) {
+  const pullToRefresh = useContext(PullToRefreshContext);
+  const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
+  return (
+    <RNScrollView
+      ref={ref}
+      horizontal={horizontal}
+      refreshControl={canRefresh ? (
+        <RefreshControl
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
+          refreshing={pullToRefresh.refreshing}
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
+          onRefresh={pullToRefresh.onRefresh}
+        />
+      ) : refreshControl}
+      {...props}
+    />
+  );
+});
 
 type IconName = keyof typeof Ionicons.glyphMap;
 type DeliverySettings = {
@@ -156,6 +186,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarPreset, setAvatarPreset] = useState<AvatarPreset>();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
   const [email, setEmail] = useState(me?.email ?? "");
   const [workingHours, setWorkingHours] = useState(profile?.workingHours ?? "9:00 AM - 8:00 PM");
@@ -355,7 +386,25 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     }
   }
 
-  return (
+  async function refreshProfileScreen() {
+    if (pullRefreshing) return;
+    setPullRefreshing(true);
+    try {
+      await Promise.resolve(refresh());
+    } finally {
+      setPullRefreshing(false);
+    }
+  }
+
+  function withProfileRefresh(node: ReactNode) {
+    return (
+      <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshProfileScreen() }}>
+        {node}
+      </PullToRefreshContext.Provider>
+    );
+  }
+
+  return withProfileRefresh(
     <View style={styles.root}>
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
@@ -831,7 +880,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
   const [chatMessage, setChatMessage] = useState("");
   const [sending, setSending] = useState(false);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<RNScrollView>(null);
 
   const loadTickets = useCallback(async () => {
     if (!token) return;
