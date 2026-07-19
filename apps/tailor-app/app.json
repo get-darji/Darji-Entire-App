@@ -42,6 +42,13 @@
       }
     },
     "plugins": [
+      [
+        "@react-native-firebase/app",
+        {
+          "android_google_services_file": "./google-services.json"
+        }
+      ],
+      "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker",
       [
         "expo-notifications",
@@ -55,6 +62,7 @@
           ]
         }
       ],
+      "../../scripts/withFirebaseMessagingManifestFix.js",
       "expo-audio"
     ],
     "runtimeVersion": {
