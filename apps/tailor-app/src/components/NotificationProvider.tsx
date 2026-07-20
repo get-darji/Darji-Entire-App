@@ -59,10 +59,14 @@ export function NotificationProvider({
       if (initialResponse) handleResponse(initialResponse);
     });
     void consumeNativeAction();
+    const nativeActionPoll = setInterval(() => {
+      if (AppState.currentState === "active") void consumeNativeAction();
+    }, 1000);
     return () => {
       received.remove();
       response.remove();
       appState.remove();
+      clearInterval(nativeActionPoll);
     };
   }, [consumeNativeAction, handleResponse]);
 

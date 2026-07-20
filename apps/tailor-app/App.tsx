@@ -37,7 +37,7 @@ import {
 import { z } from "zod";
 import { api, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
-import { IncomingRequestScreen } from "./src/incoming-request/IncomingRequestScreen";
+import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
 import { NotificationProvider } from "./src/components/NotificationProvider";
@@ -3373,7 +3373,7 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
-  useIncomingAlertPermissionGuide(Boolean(token), "tailor");
+  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
@@ -3468,8 +3468,31 @@ export default function App() {
     if (request.status !== "QUOTE_REQUESTED" || request.ownQuote || dismissedRequestIdsRef.current.has(request.id)) return;
 
     knownRequestIdsRef.current.add(request.id);
-    setNewRequestSecondsLeft(30);
-    setNewRequestPopup(request);
+    if (alertedRequestIdsRef.current.has(request.id)) return;
+    alertedRequestIdsRef.current.add(request.id);
+    const payload = incomingPayloadFromTailoringRequest(request);
+    if (!payload) return;
+    void displayIncomingRequestNotification({
+      title: payload.title || "Incoming tailoring request",
+      body: requestSummary(request),
+      data: {
+        darjiIncomingRequest: "true",
+        type: "INCOMING_TAILORING_REQUEST",
+        categoryId: "TAILOR_NEW_REQUEST",
+        screen: "requestDetails",
+        id: request.id,
+        requestId: request.id,
+        orderId: request.id,
+        expiresAt: payload.expiresAt ?? "",
+        clothType: request.clothType,
+        workType: request.workType,
+        urgency: request.urgency,
+        orderType: request.urgency?.toUpperCase().includes("INSTANT") ? "INSTANT" : request.urgency?.toUpperCase().includes("EXPRESS") ? "EXPRESS" : request.urgency?.toUpperCase().includes("SAME") ? "SAME_DAY" : "STANDARD",
+        customerName: request.customer?.name ?? "Customer",
+        pickupAddress: request.pickupAddress,
+        rows: payload.rows ?? []
+      }
+    });
   }
 
   function handleSessionExpired() {
@@ -3647,6 +3670,7 @@ export default function App() {
     socket.on("tailoring:request_closed", ({ requestId, acceptedTailorId }: { requestId: string; acceptedTailorId?: string }) => {
       setRequests((current) => current.filter((request) => request.id !== requestId));
       if (newRequestPopup?.id === requestId) setNewRequestPopup(undefined);
+      void cancelIncomingRequestNotifications({ requestId });
       if (acceptedTailorId !== me?.tailorProfile?.id) dismissedRequestIdsRef.current.add(requestId);
       void refreshWorkspace();
     });
@@ -3729,6 +3753,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.safe}>
         <LoadingOverlay visible />
+        {incomingAlertPermissionGuide}
       </SafeAreaView>
     );
   }
@@ -3739,6 +3764,7 @@ export default function App() {
       <>
         <TailorVerificationFlow me={me} token={token} onRefresh={() => refreshWorkspace(true)} showDialog={setDialog} onSessionExpired={handleSessionExpired} />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }
@@ -3755,6 +3781,7 @@ export default function App() {
           onRefresh={() => refreshWorkspace(true)}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }
@@ -3850,17 +3877,6 @@ export default function App() {
         <View style={styles.screenHost}>{body}</View>
         <BottomTabs screen={screen} setScreen={setScreen} />
         <LoadingOverlay visible={loading} />
-        <IncomingRequestScreen
-          acceptLabel="Send Quote"
-          loading={loading}
-          onAccept={() => openPopupRequest("quote")}
-          onReject={() => rejectNewRequestPopup("partner_rejected")}
-          onTimeout={() => rejectNewRequestPopup("timeout")}
-          request={incomingPayloadFromTailoringRequest(newRequestPopup)}
-          soundEnabled={soundAlertsEnabled}
-          vibrationEnabled
-          visible={Boolean(newRequestPopup)}
-        />
         <QuoteAcceptedPopup
           request={acceptedQuoteRequest}
           onViewDetails={() => {
@@ -3871,6 +3887,7 @@ export default function App() {
           onClose={() => setAcceptedQuoteRequest(undefined)}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </SafeAreaView>
     </NotificationProvider>
     </PullToRefreshContext.Provider>

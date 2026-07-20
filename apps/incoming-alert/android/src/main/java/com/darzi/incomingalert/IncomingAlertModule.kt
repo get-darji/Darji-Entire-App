@@ -44,7 +44,7 @@ class IncomingAlertModule : Module() {
     }
 
     AsyncFunction("openOverlaySettingsAsync") {
-      openSettings(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+      openOverlaySettings()
     }
 
     AsyncFunction("openFullScreenIntentSettingsAsync") {
@@ -59,14 +59,36 @@ class IncomingAlertModule : Module() {
     }
   }
 
+  private fun openOverlaySettings() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      openApplicationDetails()
+      return
+    }
+    // Android's public API for SYSTEM_ALERT_WINDOW accepts package:<id> and
+    // opens the app-specific "Display over other apps" toggle on stock Android.
+    // A few OEM builds ignore the package URI and show the full app list; in
+    // that case the app details fallback is the closest legal public screen.
+    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+      context.startActivity(intent)
+    } catch (_: Exception) {
+      openApplicationDetails()
+    }
+  }
+
   private fun openSettings(action: String) {
     val intent = Intent(action, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       context.startActivity(intent)
     } catch (_: Exception) {
-      val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      context.startActivity(fallback)
+      openApplicationDetails()
     }
+  }
+
+  private fun openApplicationDetails() {
+    val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(fallback)
   }
 }

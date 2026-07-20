@@ -37,7 +37,7 @@ import { z } from "zod";
 import { api, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
 import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
-import { IncomingRequestScreen } from "./src/incoming-request/IncomingRequestScreen";
+import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
 import { NotificationProvider } from "./src/components/NotificationProvider";
@@ -2791,14 +2791,8 @@ function MainApp({
   function openNotification(notification: DeliveryNotification) {
     const request = requests.find((item) => item.id === notification.taskId || item.orderId === notification.orderId);
     if (request) {
-      if (request.taskStatus === "pending") {
-        setPopupRequest(request);
-        setRequestVisible(true);
-        setTab("orders");
-        return;
-      }
       setActiveOrder(request);
-      setActiveOrderScreen("route");
+      setActiveOrderScreen(request.taskStatus === "pending" ? "summary" : "route");
       setTab("orders");
       return;
     }
@@ -2806,7 +2800,7 @@ function MainApp({
   }
 
   const showOpenRequestPopup = useCallback((requestList: DeliveryRequest[]) => {
-    if (!online || requestVisible || activeOrder) return;
+    if (!online) return;
     const newest = requestList.find(
       (request) => {
         const key = requestPresentationKey(request);
@@ -2814,11 +2808,38 @@ function MainApp({
       }
     );
     if (!newest) return;
-    presentedRequestIdsRef.current.add(requestPresentationKey(newest));
-    setPopupRequest(newest);
-    setRequestVisible(true);
-    void playDeliveryAlert(isBatchOfferRequest(newest) ? "Batch offer" : "New delivery request", isBatchOfferRequest(newest) ? `${newest.batchOrdersCount ?? 1} orders in ${newest.batchArea ?? newest.assignedArea ?? "your area"}` : requestTitle(newest));
-  }, [activeOrder, online, requestVisible]);
+    const key = requestPresentationKey(newest);
+    presentedRequestIdsRef.current.add(key);
+    const payload = incomingPayloadFromDeliveryRequest(newest);
+    if (!payload) return;
+    const isBatchOffer = isBatchOfferRequest(newest);
+    const earning = Number(newest.batchEstimatedEarnings ?? newest.estimatedEarnings ?? 0);
+    void displayIncomingRequestNotification({
+      title: payload.title || "Incoming delivery request",
+      body: isBatchOffer ? `${newest.batchOrdersCount ?? newest.routeTotal ?? 1} orders in ${newest.batchArea ?? newest.assignedArea ?? "your area"}` : requestTitle(newest),
+      data: {
+        darjiIncomingRequest: "true",
+        type: "INCOMING_DELIVERY_REQUEST",
+        categoryId: "DELIVERY_PICKUP_REQUEST",
+        screen: "pickupDetails",
+        id: key,
+        taskId: newest.id,
+        orderId: newest.orderId,
+        batchId: newest.batchId ?? "",
+        expiresAt: payload.expiresAt ?? "",
+        serviceLevel: newest.serviceLevel ?? "STANDARD",
+        deliveryType: newest.deliveryType ?? (newest.type === "customer_to_tailor" ? "PICKUP" : "DROP"),
+        requestKind: isBatchOffer ? "BATCH" : "SINGLE",
+        customerName: newest.customerName ?? "Customer",
+        pickupAddress: newest.pickupAddress ?? newest.batchArea ?? newest.assignedArea ?? "Pickup area",
+        dropAddress: newest.dropAddress ?? (newest.deliveryType === "DROP" ? "Customer route" : "Tailor route"),
+        expectedEarnings: `Rs ${earning.toFixed(0)}`,
+        clothType: newest.clothType ?? "",
+        workType: newest.workType ?? "",
+        rows: payload.rows ?? []
+      }
+    });
+  }, [online]);
   const showOpenRequestPopupRef = useRef(showOpenRequestPopup);
 
   useEffect(() => {
@@ -2909,6 +2930,7 @@ function MainApp({
         setRequestVisible(false);
         return undefined;
       });
+      void cancelIncomingRequestNotifications({ taskId });
       if (!deliveryPartnerId) dismissedRequestIdsRef.current.add(taskId);
     });
     socket.on("delivery:task_assigned", (payload: DeliveryTaskPayload) => {
@@ -2941,6 +2963,7 @@ function MainApp({
       const ids = new Set(taskIds ?? []);
       setRequestVisible(false);
       setPopupRequest((current) => current && (ids.has(current.id) || current.orderId === orderId) ? undefined : current);
+      void cancelIncomingRequestNotifications({ taskId: taskIds?.[0], orderId });
       setRequests((current) =>
         current.map((request) =>
           ids.has(request.id) || request.orderId === orderId
@@ -3105,13 +3128,8 @@ function MainApp({
         .then((payload) => {
           const loadedRequest = normalizeDeliveryTask(payload);
           setRequests((current) => [loadedRequest, ...current.filter((item) => item.id !== loadedRequest.id)]);
-          if (loadedRequest.taskStatus === "pending") {
-            setPopupRequest(loadedRequest);
-            setRequestVisible(true);
-          } else {
-            setActiveOrder(loadedRequest);
-            setActiveOrderScreen("summary");
-          }
+          setActiveOrder(loadedRequest);
+          setActiveOrderScreen("summary");
           setTab("orders");
         })
         .catch((error) => showDialog({ title: "Open request failed", message: error instanceof Error ? error.message : "Could not open request.", icon: "alert-circle-outline" }));
@@ -3120,13 +3138,8 @@ function MainApp({
 
     setTab("orders");
     if (!request) return;
-    if (request.taskStatus === "pending") {
-      setPopupRequest(request);
-      setRequestVisible(true);
-    } else {
-      setActiveOrder(request);
-      setActiveOrderScreen("summary");
-    }
+    setActiveOrder(request);
+    setActiveOrderScreen("summary");
   }, [requests, token]);
 
   const selectedBatch = useMemo(() => batches.find((b) => b.batchId === activeBatchId), [batches, activeBatchId]);
@@ -3268,16 +3281,6 @@ function MainApp({
         ) : null}
         </View>
         <TabBar current={tab} onChange={setTab} />
-        <IncomingRequestScreen
-          loading={accepting}
-          onAccept={acceptPopupRequest}
-          onReject={() => rejectPopupRequest("partner_rejected")}
-          onTimeout={() => rejectPopupRequest("timeout")}
-          request={incomingPayloadFromDeliveryRequest(popupRequest)}
-          soundEnabled={me?.deliveryProfile?.settings?.soundAlerts !== false}
-          vibrationEnabled={me?.deliveryProfile?.settings?.vibrationAlerts !== false}
-          visible={requestVisible}
-        />
       </Screen>
     </NotificationProvider>
     </PullToRefreshContext.Provider>
@@ -3345,7 +3348,7 @@ function VerificationPendingScreen({
 export default function App() {
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
-  useIncomingAlertPermissionGuide(Boolean(token), "delivery");
+  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
   const [dialog, setDialog] = useState<DialogState>();
@@ -3431,6 +3434,7 @@ export default function App() {
           </View>
         </Screen>
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }
@@ -3439,6 +3443,7 @@ export default function App() {
       <>
         <OnboardingScreen me={me} token={token} onSubmitted={refreshProfile} onSessionExpired={handleSessionExpired} showDialog={setDialog} />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }
@@ -3452,6 +3457,7 @@ export default function App() {
           onSignOut={handleSignOut}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }
@@ -3461,6 +3467,7 @@ export default function App() {
         <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} showDialog={setDialog} />
       </SafeAreaProvider>
       <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+      {incomingAlertPermissionGuide}
     </>
   );
 }

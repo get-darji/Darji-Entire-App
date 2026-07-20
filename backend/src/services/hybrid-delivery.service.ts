@@ -318,6 +318,11 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
           requestId: representativeTask.id,
           batchId: claimed.batchId,
           deliveryType: claimed.deliveryType,
+          serviceLevel: representativeTask.serviceLevel ?? "STANDARD",
+          requestKind: "BATCH",
+          pickupAddress: claimed.area,
+          dropAddress: claimed.deliveryType === "DROP" ? "Customer route" : "Tailor route",
+          expectedEarnings: `Rs ${batchEstimatedEarnings.toFixed(0)}`,
           screen: "pickupDetails"
         },
         sound: "requests.mp3"

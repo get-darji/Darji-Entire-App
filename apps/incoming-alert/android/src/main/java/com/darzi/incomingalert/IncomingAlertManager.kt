@@ -10,9 +10,13 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -34,6 +38,8 @@ internal object IncomingAlertManager {
   private const val PENDING_ACTION = "pendingAction"
   private const val DEFAULT_DURATION_MS = 30_000L
   private const val MAX_DURATION_MS = 60_000L
+  private val alertVibrationPattern = longArrayOf(0, 700, 180, 700, 240, 1100)
+  private var mediaPlayer: MediaPlayer? = null
 
   fun bundleToPayload(bundle: Bundle): JSONObject {
     val payload = JSONObject()
@@ -124,7 +130,7 @@ internal object IncomingAlertManager {
       enableLights(true)
       lightColor = Color.rgb(246, 163, 19)
       enableVibration(true)
-      vibrationPattern = longArrayOf(0, 700, 250, 700, 250, 900)
+      vibrationPattern = alertVibrationPattern
       lockscreenVisibility = Notification.VISIBILITY_PUBLIC
       setBypassDnd(false)
       setSound(soundUri, audioAttributes)
@@ -142,17 +148,16 @@ internal object IncomingAlertManager {
       .putString(CURRENT_KEY, key)
       .apply()
     createChannel(appContext)
+    startAlertSignal(appContext)
     appContext.getSystemService(NotificationManager::class.java).notify(id, buildNotification(appContext, payload))
 
-    if (!isAppInForeground(appContext)) {
-      val serviceIntent = Intent(appContext, IncomingAlertOverlayService::class.java).putExtra(EXTRA_PAYLOAD, payload.toString())
-      try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) appContext.startForegroundService(serviceIntent)
-        else appContext.startService(serviceIntent)
-      } catch (_: Exception) {
-        // High-priority FCM normally permits this start. If Android/OEM policy rejects
-        // it, the already-posted heads-up/full-screen notification remains the fallback.
-      }
+    val serviceIntent = Intent(appContext, IncomingAlertOverlayService::class.java).putExtra(EXTRA_PAYLOAD, payload.toString())
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) appContext.startForegroundService(serviceIntent)
+      else appContext.startService(serviceIntent)
+    } catch (_: Exception) {
+      // High-priority FCM normally permits this start. If Android/OEM policy rejects
+      // it, the already-posted heads-up/full-screen notification remains the fallback.
     }
   }
 
@@ -173,6 +178,7 @@ internal object IncomingAlertManager {
     val acceptLabel = if (isTailor(payload)) "Send quote" else "Accept"
     val acceptIntent = actionPendingIntent(context, id, ACTION_ACCEPT, acceptAction, payloadString)
     val declineIntent = actionPendingIntent(context, id, ACTION_DECLINE, "DECLINE", payloadString)
+    val viewIntent = actionPendingIntent(context, id, ACTION_VIEW, "VIEW_DETAILS", payloadString)
     val iconId = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
       .takeIf { it != 0 } ?: context.applicationInfo.icon
 
@@ -193,6 +199,7 @@ internal object IncomingAlertManager {
       .setWhen(System.currentTimeMillis())
       .setShowWhen(true)
       .addAction(Notification.Action.Builder(0, acceptLabel, acceptIntent).build())
+      .addAction(Notification.Action.Builder(0, "View details", viewIntent).build())
       .addAction(Notification.Action.Builder(0, "Reject", declineIntent).build())
 
     if (canUseFullScreenIntent(context)) {
@@ -204,7 +211,7 @@ internal object IncomingAlertManager {
       val soundId = context.resources.getIdentifier("requests", "raw", context.packageName)
       val soundUri = if (soundId != 0) Uri.parse("android.resource://${context.packageName}/$soundId") else Settings.System.DEFAULT_NOTIFICATION_URI
       builder.setSound(soundUri)
-      builder.setVibrate(longArrayOf(0, 700, 250, 700, 250, 900))
+      builder.setVibrate(alertVibrationPattern)
     }
 
     return builder.build().apply {
@@ -269,6 +276,7 @@ internal object IncomingAlertManager {
     val currentKey = preferences.getString(CURRENT_KEY, null)
     val key = requestedKey ?: currentKey
     if (key != null) appContext.getSystemService(NotificationManager::class.java).cancel(notificationId(key))
+    stopAlertSignal(appContext)
     if (requestedKey == null || requestedKey == currentKey) {
       preferences.edit().remove(CURRENT_PAYLOAD).remove(CURRENT_KEY).apply()
       appContext.stopService(Intent(appContext, IncomingAlertOverlayService::class.java))
@@ -278,4 +286,61 @@ internal object IncomingAlertManager {
 
   fun isDeviceLocked(context: Context): Boolean =
     context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+  private fun startAlertSignal(context: Context) {
+    stopAlertSignal(context)
+    vibrate(context)
+    val soundId = context.resources.getIdentifier("requests", "raw", context.packageName)
+    val soundUri = if (soundId != 0) Uri.parse("android.resource://${context.packageName}/$soundId") else Settings.System.DEFAULT_RINGTONE_URI
+    try {
+      mediaPlayer = MediaPlayer.create(context.applicationContext, soundUri)?.apply {
+        isLooping = true
+        start()
+      }
+    } catch (_: Exception) {
+      mediaPlayer = null
+    }
+  }
+
+  private fun vibrate(context: Context) {
+    try {
+      val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        context.getSystemService(VibratorManager::class.java).defaultVibrator
+      } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Vibrator::class.java)
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        vibrator.vibrate(VibrationEffect.createWaveform(alertVibrationPattern, 0))
+      } else {
+        @Suppress("DEPRECATION")
+        vibrator.vibrate(alertVibrationPattern, 0)
+      }
+    } catch (_: Exception) {
+      // Some OEM builds suppress vibration for background services; sound and
+      // the visible overlay/notification still carry the incoming request.
+    }
+  }
+
+  private fun stopAlertSignal(context: Context) {
+    try {
+      mediaPlayer?.stop()
+    } catch (_: Exception) {
+    }
+    try {
+      mediaPlayer?.release()
+    } catch (_: Exception) {
+    }
+    mediaPlayer = null
+    try {
+      val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        context.getSystemService(VibratorManager::class.java).defaultVibrator
+      } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Vibrator::class.java)
+      }
+      vibrator.cancel()
+    } catch (_: Exception) {
+    }
+  }
 }

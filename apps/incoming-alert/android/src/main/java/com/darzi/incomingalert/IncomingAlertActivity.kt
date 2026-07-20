@@ -61,6 +61,10 @@ class IncomingAlertActivity : Activity() {
         IncomingAlertManager.performAction(this, "DECLINE", payload)
         finish()
       },
+      onViewDetails = {
+        IncomingAlertManager.performAction(this, "VIEW_DETAILS", payload)
+        finish()
+      },
       onTimeout = {
         IncomingAlertManager.dismiss(this, IncomingAlertManager.requestKey(payload))
         finish()

@@ -685,6 +685,12 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         taskId: notificationClaim._id,
         pickupId: notificationClaim._id,
         orderId: request._id,
+        requestKind: "SINGLE",
+        clothType: deliveryClothType,
+        workType: deliveryWorkType,
+        pickupAddress,
+        dropAddress,
+        expectedEarnings: `Rs ${estimatedEarnings.toFixed(0)}`,
         screen: "pickupDetails"
       }
     })));
@@ -1765,6 +1771,13 @@ export async function createTailoringRequestController(req: Request, res: Respon
         type: "INCOMING_TAILORING_REQUEST",
         event: "tailoring:request_created",
         requestId: request.id,
+        orderId: request.id,
+        clothType: request.clothType,
+        workType: request.workType,
+        urgency: request.urgency,
+        orderType: normalizeUrgency(request.urgency).includes("instant") ? "INSTANT" : normalizeUrgency(request.urgency).includes("express") ? "EXPRESS" : normalizeUrgency(request.urgency).includes("same") ? "SAME_DAY" : "STANDARD",
+        customerName: "Customer",
+        pickupAddress: request.pickupAddress,
         screen: "requestDetails"
       },
       sound: "requests.mp3"

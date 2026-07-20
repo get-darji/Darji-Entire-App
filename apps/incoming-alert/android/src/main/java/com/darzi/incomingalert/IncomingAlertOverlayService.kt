@@ -50,7 +50,7 @@ class IncomingAlertOverlayService : Service() {
       IncomingAlertManager.dismiss(this, IncomingAlertManager.requestKey(payload))
     }.also { timeoutHandler.postDelayed(it, IncomingAlertManager.remainingMs(payload)) }
 
-    if (Settings.canDrawOverlays(this) && !IncomingAlertManager.isDeviceLocked(this) && !IncomingAlertManager.isAppInForeground(this)) {
+    if (Settings.canDrawOverlays(this) && !IncomingAlertManager.isDeviceLocked(this)) {
       showOverlay(payload)
     }
     return START_NOT_STICKY
@@ -67,6 +67,7 @@ class IncomingAlertOverlayService : Service() {
         IncomingAlertManager.performAction(this, action, payload)
       },
       onDecline = { IncomingAlertManager.performAction(this, "DECLINE", payload) },
+      onViewDetails = { IncomingAlertManager.performAction(this, "VIEW_DETAILS", payload) },
       onTimeout = { IncomingAlertManager.dismiss(this, IncomingAlertManager.requestKey(payload)) }
     )
     val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
