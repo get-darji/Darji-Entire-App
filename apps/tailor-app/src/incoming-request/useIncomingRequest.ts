@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Vibration } from "react-native";
+import { isNativeIncomingAlertAvailable } from "@darzi/incoming-alert";
 import { startLoopingAppSound, stopAppSound } from "../services/soundService";
 
 const DEFAULT_SECONDS = 30;
@@ -37,8 +38,9 @@ export function useIncomingRequest({
 
     handledTimeoutRef.current = false;
     setSecondsLeft(secondsUntil(expiresAt));
-    void startLoopingAppSound("request", soundEnabled);
-    if (Platform.OS !== "web" && vibrationEnabled) {
+    const nativeAndroidAlert = Platform.OS === "android" && isNativeIncomingAlertAvailable();
+    if (!nativeAndroidAlert) void startLoopingAppSound("request", soundEnabled);
+    if (!nativeAndroidAlert && Platform.OS !== "web" && vibrationEnabled) {
       Vibration.vibrate([0, 600, 250, 600], true);
     }
 

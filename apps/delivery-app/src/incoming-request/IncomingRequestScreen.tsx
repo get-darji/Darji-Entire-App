@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useIncomingRequest } from "./useIncomingRequest";
 import type { IncomingRequestPayload } from "./types";
+import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./NotificationService";
 
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
@@ -56,8 +57,39 @@ export function IncomingRequestScreen({
     expiresAt: request?.expiresAt,
     soundEnabled,
     vibrationEnabled,
-    onTimeout
+    onTimeout: () => {
+      void cancelIncomingRequestNotifications(request);
+      onTimeout();
+    }
   });
+
+  function stopCurrentRequestAlerts() {
+    stopAlerts();
+    void cancelIncomingRequestNotifications(request);
+  }
+
+  useEffect(() => {
+    if (visible && request) {
+      const detail = request.rows?.slice(0, 3).map((row) => `${row.label}: ${row.value ?? "Not available"}`).join(" | ");
+      void displayIncomingRequestNotification({
+        title: request.title || "Incoming delivery request",
+        body: detail || request.subtitle || "A new delivery order is waiting for your response.",
+        data: {
+          darjiIncomingRequest: "true",
+          type: "INCOMING_DELIVERY_REQUEST",
+          categoryId: "DELIVERY_PICKUP_REQUEST",
+          id: request.id,
+          taskId: request.id,
+          orderId: request.orderId ?? request.id,
+          expiresAt: request.expiresAt ?? ""
+        }
+      });
+    }
+  }, [request?.id, visible]);
+
+  useEffect(() => {
+    if (!visible && request) void cancelIncomingRequestNotifications(request);
+  }, [request, visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -128,7 +160,7 @@ export function IncomingRequestScreen({
                   style={[styles.rejectButton, loading && styles.disabled]}
                   disabled={loading}
                   onPress={() => {
-                    stopAlerts();
+                    stopCurrentRequestAlerts();
                     onReject();
                   }}
                 >
@@ -141,7 +173,7 @@ export function IncomingRequestScreen({
                     style={[styles.acceptButton, loading && styles.disabled]}
                     disabled={loading}
                     onPress={() => {
-                      stopAlerts();
+                      stopCurrentRequestAlerts();
                       onAccept();
                     }}
                   >

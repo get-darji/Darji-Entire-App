@@ -101,8 +101,8 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
         await configureNotificationActions(app);
 
         const existing = await Notifications.getPermissionsAsync();
-        const permission = existing.granted ? existing : await Notifications.requestPermissionsAsync();
-        if (!permission.granted) {
+        const permission = existing.status === Notifications.PermissionStatus.GRANTED ? existing : await Notifications.requestPermissionsAsync();
+        if (permission.status !== Notifications.PermissionStatus.GRANTED) {
           if (!cancelled) setStatus("denied");
           return;
         }

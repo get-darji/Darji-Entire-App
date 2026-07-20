@@ -21,8 +21,8 @@ export async function registerPushToken(token: string, app: string) {
   ]);
 
   const permission = await Notifications.getPermissionsAsync();
-  const finalPermission = permission.granted ? permission : await Notifications.requestPermissionsAsync();
-  if (!finalPermission.granted) return;
+  const finalPermission = permission.status === Notifications.PermissionStatus.GRANTED ? permission : await Notifications.requestPermissionsAsync();
+  if (finalPermission.status !== Notifications.PermissionStatus.GRANTED) return;
 
   const nativeToken = await Notifications.getDevicePushTokenAsync();
   await api("/notifications/fcm-token", {

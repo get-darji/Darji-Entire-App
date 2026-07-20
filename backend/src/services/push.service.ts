@@ -49,7 +49,7 @@ function resolveTargetApps(payload: PushPayload) {
 }
 
 function isIncomingRequestType(type?: string) {
-  return /incoming|assignment|delivery_batch_ready|delivery:task_created|tailoring:request_created/i.test(type ?? "");
+  return /incoming|new_request|request_created|assignment|delivery_batch_ready|task_created|pickup_assigned/i.test(type ?? "");
 }
 
 function firebaseCredential() {
@@ -209,18 +209,25 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
   }
 
   try {
+    const normalizedPayloadData = normalizeData(payload.data);
+    const isIncomingRequest = payload.channelId === "darji-incoming-orders-v3" ||
+      payload.channelId === "darji-incoming-requests-v1" ||
+      isIncomingRequestType(normalizedPayloadData.type) ||
+      isIncomingRequestType(normalizedPayloadData.event);
     const data: Record<string, string> = {
-      ...normalizeData(payload.data),
+      ...normalizedPayloadData,
       title: payload.title,
       body: payload.body,
       subtitle: payload.subtitle ?? "",
       actions: (payload.actions ?? []).join(","),
+      channelId: payload.channelId ?? "darji-alerts-v2",
       categoryId: payload.categoryId ?? "DARZI_ORDER",
       categoryIdentifier: payload.categoryId ?? "DARZI_ORDER",
+      darjiIncomingRequest: String(isIncomingRequest),
+      ...(isIncomingRequest ? { expiresAt: normalizedPayloadData.expiresAt || new Date(Date.now() + 30_000).toISOString() } : {}),
       brand: "Darji"
     };
     const tag = data.taskId || data.requestId || data.orderId || "darzi-order";
-    const isIncomingRequest = payload.channelId === "darji-incoming-requests-v1" || isIncomingRequestType(data.type);
     const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
       tokens,
       ...(!isIncomingRequest ? {
@@ -233,6 +240,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       data,
       android: {
         priority: "high",
+        ...(isIncomingRequest ? { ttl: 35_000, collapseKey: `incoming-${tag}` } : {}),
         ...(!isIncomingRequest ? {
           notification: {
             channelId: payload.channelId ?? "darji-alerts-v2",

@@ -39,6 +39,7 @@ import { api, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTa
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { IncomingRequestScreen } from "./src/incoming-request/IncomingRequestScreen";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
+import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { TailorProfileScreen } from "./src/components/TailorProfileScreen";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
@@ -3372,6 +3373,7 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
+  useIncomingAlertPermissionGuide(Boolean(token), "tailor");
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
@@ -3794,6 +3796,19 @@ export default function App() {
         if (destination.screen === "support_center" || destination.screen === "contactSupport") {
           setInitialSupportScreen("support_center");
           setScreen("profile");
+          return;
+        }
+        if (destination.actionIdentifier === "DECLINE" && destination.entityId) {
+          const requestId = destination.entityId;
+          dismissedRequestIdsRef.current.add(requestId);
+          setNewRequestPopup((current) => current?.id === requestId ? undefined : current);
+          if (token) {
+            void api(`/tailoring-requests/${requestId}/decline`, {
+              method: "POST",
+              body: JSON.stringify({ reason: "partner_rejected" })
+            }, token).catch(() => undefined);
+          }
+          setScreen("requests");
           return;
         }
         if (destination.screen === "requestDetails") {

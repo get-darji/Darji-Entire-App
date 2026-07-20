@@ -34,7 +34,11 @@ export function resolveNotificationDestination(
   data: NotificationData,
   actionIdentifier?: string
 ): NotificationDestination {
-  const entityId = data.orderId ?? data.requestId ?? data.taskId ?? data.pickupId;
+  const entityId = app === "delivery"
+    ? data.taskId ?? data.pickupId ?? data.requestId ?? data.orderId
+    : app === "tailor"
+      ? data.requestId ?? data.orderId ?? data.taskId ?? data.pickupId
+      : data.orderId ?? data.requestId ?? data.taskId ?? data.pickupId;
   if (typeof data.screen === "string") {
     return { screen: data.screen, entityId, actionIdentifier, data };
   }

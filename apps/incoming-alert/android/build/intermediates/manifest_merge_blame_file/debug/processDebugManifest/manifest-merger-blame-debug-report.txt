@@ -1,0 +1,68 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.darzi.incomingalert" >
+4
+5    <uses-sdk android:minSdkVersion="24" />
+6
+7    <application>
+7-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:2:3-34:17
+8        <receiver
+8-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:3:5-10:16
+9            android:name="com.darzi.incomingalert.IncomingAlertFirebaseReceiver"
+9-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:4:7-52
+10            android:exported="true"
+10-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:5:7-30
+11            android:permission="com.google.android.c2dm.permission.SEND" >
+11-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:6:7-67
+12            <intent-filter android:priority="999" >
+12-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:7:7-9:23
+12-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:7:22-44
+13                <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+13-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:8:9-73
+13-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:8:17-70
+14            </intent-filter>
+15        </receiver>
+16        <receiver
+16-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:12:5-14:34
+17            android:name="com.darzi.incomingalert.IncomingAlertActionReceiver"
+17-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:13:7-50
+18            android:exported="false" />
+18-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:14:7-31
+19
+20        <service
+20-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:16:5-24:15
+21            android:name="com.darzi.incomingalert.IncomingAlertOverlayService"
+21-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:17:7-50
+22            android:exported="false"
+22-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:18:7-31
+23            android:foregroundServiceType="specialUse"
+23-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:19:7-49
+24            android:stopWithTask="false" >
+24-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:20:7-35
+25            <property
+25-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:21:7-23:69
+26                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+26-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:22:9-68
+27                android:value="time_limited_incoming_order_alert_overlay" />
+27-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:23:9-66
+28        </service>
+29
+30        <activity
+30-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:26:5-33:37
+31            android:name="com.darzi.incomingalert.IncomingAlertActivity"
+31-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:27:7-44
+32            android:excludeFromRecents="true"
+32-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:28:7-40
+33            android:exported="false"
+33-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:29:7-31
+34            android:launchMode="singleTop"
+34-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:30:7-37
+35            android:showWhenLocked="true"
+35-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:31:7-36
+36            android:theme="@android:style/Theme.Material.Light.NoActionBar"
+36-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:32:7-70
+37            android:turnScreenOn="true" />
+37-->D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:33:7-34
+38    </application>
+39
+40</manifest>

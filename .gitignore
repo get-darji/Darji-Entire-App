@@ -11,3 +11,5 @@ coverage
 android
 ios
 generated
+!apps/incoming-alert/android/
+!apps/incoming-alert/android/**

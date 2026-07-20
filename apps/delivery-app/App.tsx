@@ -39,6 +39,7 @@ import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { IncomingRequestScreen } from "./src/incoming-request/IncomingRequestScreen";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
+import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
 import { configureForegroundNotificationHandler } from "./src/notifications/handlers";
@@ -3066,9 +3067,16 @@ function MainApp({
     const request = taskId ? requests.find((item) => item.id === taskId || item.orderId === taskId) : undefined;
 
     if (destination.actionIdentifier === "DECLINE" && taskId) {
-      dismissedRequestIdsRef.current.add(taskId);
-      setPopupRequest((current) => current?.id === taskId ? undefined : current);
+      const deliveryTaskId = request?.id ?? taskId;
+      dismissedRequestIdsRef.current.add(deliveryTaskId);
+      setPopupRequest((current) => current?.id === deliveryTaskId ? undefined : current);
       setRequestVisible(false);
+      if (token) {
+        void api(`/delivery-requests/${deliveryTaskId}/reject`, {
+          method: "POST",
+          body: JSON.stringify({ reason: "partner_rejected" })
+        }, token).catch(() => undefined);
+      }
       setTab("orders");
       return;
     }
@@ -3337,6 +3345,7 @@ function VerificationPendingScreen({
 export default function App() {
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
+  useIncomingAlertPermissionGuide(Boolean(token), "delivery");
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
   const [dialog, setDialog] = useState<DialogState>();

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.darzi.incomingalert" >
+
+    <uses-sdk android:minSdkVersion="24" />
+
+    <application>
+        <receiver
+            android:name="com.darzi.incomingalert.IncomingAlertFirebaseReceiver"
+            android:exported="true"
+            android:permission="com.google.android.c2dm.permission.SEND" >
+            <intent-filter android:priority="999" >
+                <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.darzi.incomingalert.IncomingAlertActionReceiver"
+            android:exported="false" />
+
+        <service
+            android:name="com.darzi.incomingalert.IncomingAlertOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false" >
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="time_limited_incoming_order_alert_overlay" />
+        </service>
+
+        <activity
+            android:name="com.darzi.incomingalert.IncomingAlertActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"
+            android:turnScreenOn="true" />
+    </application>
+
+</manifest>

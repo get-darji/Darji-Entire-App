@@ -11,25 +11,18 @@
       "package": "com.darzi.delivery",
       "googleServicesFile": "./google-services.json",
       "permissions": [
-        "CAMERA",
-        "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.WAKE_LOCK",
         "android.permission.TURN_SCREEN_ON",
+        "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "CAMERA",
-        "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS",
-        "android.permission.USE_FULL_SCREEN_INTENT",
-        "android.permission.WAKE_LOCK",
-        "android.permission.TURN_SCREEN_ON",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
@@ -48,17 +41,20 @@
       ],
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker",
+      "../../scripts/withFirebaseMessagingManifestFix.js",
       [
         "expo-notifications",
         {
           "icon": "./darji-notification.png",
+          "color": "#F6A313",
+          "defaultChannel": "darji-incoming-orders-v3",
           "sounds": [
             "./ding.mp3",
             "./requests.mp3"
           ]
         }
       ],
-      "../../scripts/withFirebaseMessagingManifestFix.js",
+      "@darzi/incoming-alert/app.plugin.js",
       "expo-audio"
     ],
     "runtimeVersion": {

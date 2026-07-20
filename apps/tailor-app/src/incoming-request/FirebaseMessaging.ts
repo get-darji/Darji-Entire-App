@@ -1,30 +1,17 @@
 import messaging, { type FirebaseMessagingTypes } from "@react-native-firebase/messaging";
-import * as Notifications from "expo-notifications";
-import { displayIncomingRequestNotification, INCOMING_REQUEST_CHANNEL_ID } from "./NotificationService";
+import { displayIncomingRequestNotification } from "./NotificationService";
 
 export function isIncomingRequestData(data: Record<string, unknown>) {
+  if (String(data.darjiIncomingRequest).toLowerCase() === "true") return true;
   const type = String(data.type ?? data.event ?? data.notificationType ?? "");
-  return /incoming|new_request|assignment|delivery_batch_ready|delivery:task_created|tailoring:request_created/i.test(type);
-}
-
-export async function showIncomingRequestNotification(title: string, body: string, data: Record<string, unknown>) {
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title,
-      body,
-      data,
-      sound: "requests.mp3",
-      priority: Notifications.AndroidNotificationPriority.MAX
-    },
-    trigger: { channelId: INCOMING_REQUEST_CHANNEL_ID, seconds: 1 }
-  });
+  return /incoming|new_request|request_created|assignment|delivery_batch_ready|task_created|pickup_assigned/i.test(type);
 }
 
 function stringData(data?: FirebaseMessagingTypes.RemoteMessage["data"]) {
   return Object.fromEntries(Object.entries(data ?? {}).map(([key, value]) => [key, String(value)]));
 }
 
-async function displayRemoteMessage(message: FirebaseMessagingTypes.RemoteMessage) {
+async function displayForegroundMessage(message: FirebaseMessagingTypes.RemoteMessage) {
   const data = stringData(message.data);
   if (!isIncomingRequestData(data)) return;
   await displayIncomingRequestNotification({
@@ -40,7 +27,10 @@ let backgroundHandlerRegistered = false;
 function registerBackgroundHandler() {
   if (backgroundHandlerRegistered) return;
   backgroundHandlerRegistered = true;
-  messaging().setBackgroundMessageHandler(displayRemoteMessage);
+  // The shared Android receiver has already rendered the alert before headless
+  // React starts. Keeping this handler registered preserves RNFirebase delivery
+  // semantics without producing a second notification.
+  messaging().setBackgroundMessageHandler(async () => undefined);
 }
 
 registerBackgroundHandler();
@@ -48,5 +38,5 @@ registerBackgroundHandler();
 export function registerIncomingRequestMessaging() {
   if (registered) return () => undefined;
   registered = true;
-  return messaging().onMessage(displayRemoteMessage);
+  return messaging().onMessage(displayForegroundMessage);
 }

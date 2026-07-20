@@ -1,0 +1,72 @@
+-- Merging decision tree log ---
+manifest
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:1:1-35:12
+INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:1:1-35:12
+	package
+		INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml
+	xmlns:android
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:1:11-69
+application
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:2:3-34:17
+receiver#com.darzi.incomingalert.IncomingAlertFirebaseReceiver
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:3:5-10:16
+	android:exported
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:5:7-30
+	android:permission
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:6:7-67
+	android:name
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:4:7-52
+intent-filter#action:name:com.google.android.c2dm.intent.RECEIVE
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:7:7-9:23
+	android:priority
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:7:22-44
+action#com.google.android.c2dm.intent.RECEIVE
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:8:9-73
+	android:name
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:8:17-70
+receiver#com.darzi.incomingalert.IncomingAlertActionReceiver
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:12:5-14:34
+	android:exported
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:14:7-31
+	android:name
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:13:7-50
+service#com.darzi.incomingalert.IncomingAlertOverlayService
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:16:5-24:15
+	android:exported
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:18:7-31
+	android:stopWithTask
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:20:7-35
+	android:foregroundServiceType
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:19:7-49
+	android:name
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:17:7-50
+property#android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:21:7-23:69
+	android:value
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:23:9-66
+	android:name
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:22:9-68
+activity#com.darzi.incomingalert.IncomingAlertActivity
+ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:26:5-33:37
+	android:turnScreenOn
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:33:7-34
+	android:excludeFromRecents
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:28:7-40
+	android:showWhenLocked
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:31:7-36
+	android:launchMode
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:30:7-37
+	android:exported
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:29:7-31
+	android:theme
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:32:7-70
+	android:name
+		ADDED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml:27:7-44
+uses-sdk
+INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml
+INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from D:\app\apps\incoming-alert\android\src\main\AndroidManifest.xml

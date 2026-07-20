@@ -1,34 +1,29 @@
-import notifee, { AndroidCategory, AndroidImportance, AndroidVisibility } from "@notifee/react-native";
-import * as Notifications from "expo-notifications";
+import {
+  configureIncomingAlert,
+  dismissIncomingAlert,
+  INCOMING_ALERT_CHANNEL_ID,
+  showIncomingAlert,
+  type IncomingAlertData
+} from "@darzi/incoming-alert";
 import { Platform } from "react-native";
 
-export const INCOMING_REQUEST_CHANNEL_ID = "darji-incoming-requests-v1";
+export const INCOMING_REQUEST_CHANNEL_ID = INCOMING_ALERT_CHANNEL_ID;
+
+type IncomingNotificationIdentity = IncomingAlertData & Record<string, unknown>;
+
+export function incomingRequestNotificationId(data?: IncomingNotificationIdentity) {
+  const id = data?.requestId ?? data?.taskId ?? data?.pickupId ?? data?.orderId ?? data?.id ?? "current";
+  return `darji-incoming-request-${String(id)}`;
+}
+
+export async function cancelIncomingRequestNotifications(data?: IncomingNotificationIdentity) {
+  if (Platform.OS !== "android") return;
+  await dismissIncomingAlert(data);
+}
 
 export async function configureIncomingRequestNotifications() {
   if (Platform.OS !== "android") return;
-  await notifee.createChannel({
-    id: INCOMING_REQUEST_CHANNEL_ID,
-    name: "Incoming Requests",
-    sound: "requests",
-    vibration: true,
-    vibrationPattern: [0, 600, 250, 600, 250, 600],
-    lights: true,
-    lightColor: "#F98A04",
-    importance: AndroidImportance.HIGH,
-    visibility: AndroidVisibility.PUBLIC
-  });
-  await Notifications.setNotificationChannelAsync(INCOMING_REQUEST_CHANNEL_ID, {
-    name: "Incoming Requests",
-    description: "Full-screen pickup and delivery assignment alerts",
-    importance: Notifications.AndroidImportance.MAX,
-    sound: "requests.mp3",
-    enableVibrate: true,
-    vibrationPattern: [0, 600, 250, 600, 250, 600],
-    enableLights: true,
-    lightColor: "#F98A04",
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    bypassDnd: false
-  });
+  await configureIncomingAlert();
 }
 
 export async function displayIncomingRequestNotification({
@@ -38,30 +33,8 @@ export async function displayIncomingRequestNotification({
 }: {
   title: string;
   body: string;
-  data: Record<string, string>;
+  data: Record<string, unknown>;
 }) {
   if (Platform.OS !== "android") return;
-  await configureIncomingRequestNotifications();
-  await notifee.displayNotification({
-    title,
-    body,
-    data,
-    android: {
-      channelId: INCOMING_REQUEST_CHANNEL_ID,
-      category: AndroidCategory.CALL,
-      importance: AndroidImportance.HIGH,
-      visibility: AndroidVisibility.PUBLIC,
-      pressAction: { id: "default", launchActivity: "default" },
-      fullScreenAction: { id: "default", launchActivity: "default" },
-      sound: "requests",
-      vibrationPattern: [0, 600, 250, 600, 250, 600],
-      autoCancel: false,
-      ongoing: true,
-      loopSound: true,
-      actions: [
-        { title: "Accept", pressAction: { id: "ACCEPT", launchActivity: "default" } },
-        { title: "Reject", pressAction: { id: "DECLINE", launchActivity: "default" } }
-      ]
-    }
-  });
+  await showIncomingAlert({ ...data, title, body });
 }

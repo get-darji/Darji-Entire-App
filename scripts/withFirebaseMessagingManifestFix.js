@@ -42,13 +42,18 @@ module.exports = function withFirebaseMessagingManifestFix(config) {
         );
       }
 
+      function addToolsReplace(tag, value) {
+        if (tag.includes("tools:replace=")) return tag;
+        return tag.replace(/\s*\/?>$/, (ending) => ` tools:replace="${value}"${ending}`);
+      }
+
       source = source.replace(
-        /(<meta-data\s+android:name="com\.google\.firebase\.messaging\.default_notification_channel_id"(?=[^>]*android:value=)(?![^>]*tools:replace=)[^>]*)(\/?>)/,
-        '$1 tools:replace="android:value"$2'
+        /<meta-data\s+android:name="com\.google\.firebase\.messaging\.default_notification_channel_id"(?=[^>]*android:value=)[^>]*\/?>/,
+        (tag) => addToolsReplace(tag, "android:value")
       );
       source = source.replace(
-        /(<meta-data\s+android:name="com\.google\.firebase\.messaging\.default_notification_color"(?=[^>]*android:resource=)(?![^>]*tools:replace=)[^>]*)(\/?>)/,
-        '$1 tools:replace="android:resource"$2'
+        /<meta-data\s+android:name="com\.google\.firebase\.messaging\.default_notification_color"(?=[^>]*android:resource=)[^>]*\/?>/,
+        (tag) => addToolsReplace(tag, "android:resource")
       );
 
       await fs.promises.writeFile(manifestPath, source);
