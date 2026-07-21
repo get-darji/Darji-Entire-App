@@ -2,6 +2,7 @@
   "expo": {
     "name": "Darji Delivery",
     "slug": "darzi-delivery",
+    "owner": "getdarjis-team",
     "scheme": "darzidelivery",
     "icon": "./app-icon.png",
     "version": "0.1.0",
@@ -29,7 +30,7 @@
     "extra": {
       "apiUrl": "https://backend-production-5a7e4.up.railway.app/api",
       "eas": {
-        "projectId": "968c9b32-8390-4eda-8b4a-2fb3056451eb"
+        "projectId": "366ee016-f839-4868-8fe7-8ab3129ed4ce"
       }
     },
     "plugins": [
@@ -59,9 +60,6 @@
     ],
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/968c9b32-8390-4eda-8b4a-2fb3056451eb"
     },
     "ios": {}
   }

@@ -1,7 +1,9 @@
-node_modules
-.expo
-android
-ios
-dist
-build
+/node_modules
+/.expo
+/android
+/ios
+/dist
+/build
+modules/incoming-alert/android/build
+modules/incoming-alert/android/.gradle
 *.log

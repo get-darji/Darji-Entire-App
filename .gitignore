@@ -13,3 +13,11 @@ ios
 generated
 !apps/incoming-alert/android/
 !apps/incoming-alert/android/**
+!apps/tailor-app/modules/incoming-alert/android/
+!apps/tailor-app/modules/incoming-alert/android/**
+!apps/delivery-app/modules/incoming-alert/android/
+!apps/delivery-app/modules/incoming-alert/android/**
+apps/tailor-app/modules/incoming-alert/android/build/
+apps/tailor-app/modules/incoming-alert/android/.gradle/
+apps/delivery-app/modules/incoming-alert/android/build/
+apps/delivery-app/modules/incoming-alert/android/.gradle/

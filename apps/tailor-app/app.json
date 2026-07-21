@@ -2,6 +2,7 @@
   "expo": {
     "name": "Darji Tailor",
     "slug": "darzi-tailor",
+    "owner": "getdarjis-team",
     "scheme": "darzitailor",
     "icon": "./app-icon.png",
     "version": "0.1.0",
@@ -30,7 +31,7 @@
     "extra": {
       "apiUrl": "https://backend-production-5a7e4.up.railway.app/api",
       "eas": {
-        "projectId": "1c43b695-9dfe-437b-9aed-05b1851c6c93"
+        "projectId": "759fd7bd-ebea-4407-ad7e-6eca2e7b10d5"
       }
     },
     "plugins": [
@@ -60,9 +61,6 @@
     ],
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/1c43b695-9dfe-437b-9aed-05b1851c6c93"
     },
     "ios": {}
   }

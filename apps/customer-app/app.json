@@ -2,6 +2,7 @@
   "expo": {
     "name": "Darji",
     "slug": "darzi-customer",
+    "owner": "getdarjis-team",
     "scheme": "darzicustomer",
     "icon": "./app-icon.png",
     "version": "0.1.0",
@@ -17,20 +18,13 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "CAMERA",
-        "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "extra": {
       "apiUrl": "https://backend-production-5a7e4.up.railway.app/api",
       "eas": {
-        "projectId": "4838cd1b-b7cd-4ac5-a665-5091d061fecf"
+        "projectId": "97bb70dd-f20c-4131-88f3-c5be3f4eb3fc"
       }
     },
     "plugins": [
@@ -52,9 +46,6 @@
     ],
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/4838cd1b-b7cd-4ac5-a665-5091d061fecf"
     },
     "ios": {}
   }
