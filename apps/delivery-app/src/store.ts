@@ -26,6 +26,17 @@ export const useAppStore = create<Store>()(persist((set) => ({
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined })
 }), {
   name: "darzi-delivery-session",
+  version: 1,
   storage: createJSONStorage(() => AsyncStorage),
-  partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage })
+  partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage }),
+  migrate: (persistedState, version) => {
+    const persisted = (persistedState ?? {}) as Partial<Store>;
+    if (version < 1) {
+      return {
+        language: persisted.language ?? "en",
+        hasSelectedLanguage: persisted.hasSelectedLanguage ?? false
+      } as Store;
+    }
+    return persisted as Store;
+  }
 }));
