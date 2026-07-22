@@ -36,7 +36,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
+import { api, checkServiceArea as checkServiceAreaAvailability, getPlatformStatus, refreshAccessToken, requestServiceAreaLaunch, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
@@ -51,6 +51,8 @@ import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
+import { useServiceAreaAccess } from "../../shared/src/use-service-area-access";
+import { OutsideServiceAreaScreen, ServiceAreaLoadingScreen } from "../../shared/src/service-area-screen";
 import {
   emptyPartnerWallet,
   isSameLocalDate,
@@ -88,7 +90,7 @@ type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" |
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: string; bytes?: number };
-type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "ACCEPTED" | "REJECTED" };
+type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED" };
 type HandoffOtp = {
   taskId: string;
   type: "customer_to_tailor" | "tailor_to_customer";
@@ -428,7 +430,7 @@ function incomingPayloadFromTailoringRequest(request?: TailoringRequest): Incomi
 
 function isSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
+  return /authentication required|invalid session|invalid or expired token|session expired|signed in on another device/i.test(message);
 }
 
 function firstItem(order: Order) {
@@ -973,17 +975,19 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
 
         {request.ownQuote ? (
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>YOUR QUOTE</Text>
+            <Text style={styles.cardLabel}>QUOTE SUBMITTED</Text>
             <Text style={styles.bigTitle}>{money(request.ownQuote.price)}</Text>
             <Text style={styles.helperText}>Estimated {quoteEtaLabel(request.ownQuote)}.</Text>
+            <Text style={styles.infoText}>Status: {request.ownQuote.status}</Text>
+            {request.ownQuote.status === "SUBMITTED" ? <Text style={styles.helperText}>Waiting for customer response.</Text> : null}
             {request.ownQuote.message ? <Text style={styles.infoText}>{request.ownQuote.message}</Text> : null}
           </View>
-        ) : (
+        ) : request.status === "QUOTE_REQUESTED" ? (
           <Pressable style={styles.primaryButton} onPress={() => setScreen("quote")}>
             <Ionicons name="send-outline" size={18} color="#111111" />
             <Text style={styles.primaryButtonText}>Send Quote</Text>
           </Pressable>
-        )}
+        ) : null}
       </ScrollView>
       <MediaViewer media={selectedMedia} onClose={() => setSelectedMedia(undefined)} showDialog={showDialog} />
     </>
@@ -1080,7 +1084,7 @@ function QuoteScreen({
 }: {
   request: TailoringRequest;
   token?: string;
-  onDone: () => void;
+  onDone: (quote: TailorQuote) => void;
   setScreen: (screen: Screen) => void;
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
@@ -1119,7 +1123,7 @@ function QuoteScreen({
     }
     try {
       setSaving(true);
-      await api(`/tailoring-requests/${request.id}/quotes`, {
+      const quote = await api<TailorQuote>(`/tailoring-requests/${request.id}/quotes`, {
         method: "POST",
         body: JSON.stringify({
           price: amount,
@@ -1130,7 +1134,7 @@ function QuoteScreen({
       }, token);
       void playAppSound("confirmation");
       showDialog({ title: "Quote sent", message: `Your quote for request ${shortId(request.id)} has been sent to the customer.`, icon: "checkmark-circle-outline" });
-      onDone();
+      onDone(quote);
     } catch (error) {
       if (isSessionError(error)) {
         onSessionExpired();
@@ -3447,12 +3451,28 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
+  const sessionNotice = useAppStore((state) => state.sessionNotice);
+  const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
   const platform = usePlatformStatus(getPlatformStatus, token);
+  const loadServiceCoordinates = useCallback(async () => {
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== "granted") throw new Error("Allow location access to check whether Darji serves your current area.");
+    const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    return { latitude: current.coords.latitude, longitude: current.coords.longitude };
+  }, []);
+  const serviceArea = useServiceAreaAccess({ enabled: Boolean(token), getCoordinates: loadServiceCoordinates, check: checkServiceAreaAvailability });
+  const [serviceAreaNotifying, setServiceAreaNotifying] = useState(false);
+  const [serviceAreaNotified, setServiceAreaNotified] = useState(false);
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
   const [verifiedWelcomeDismissed, setVerifiedWelcomeDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!sessionNotice) return;
+    Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
+  }, [clearSessionNotice, sessionNotice]);
 
   useEffect(() => {
     AsyncStorage.getItem("@darji/verified_welcome_dismissed")
@@ -3872,6 +3892,10 @@ export default function App() {
       </>
     );
   }
+  if (serviceArea.checking && !serviceArea.status) return <ServiceAreaLoadingScreen />;
+  if (!serviceArea.status?.available || serviceArea.error) {
+    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} onProfile={() => Alert.alert("Profile", `${sessionUser?.name ?? "Darji Tailor"}\n${sessionUser?.phone ?? ""}`)} onSupport={() => Alert.alert("Darji Support", "Contact support from your registered mobile number for account assistance.")} onAbout={() => Alert.alert("About Darji", "Darji connects customers, verified tailors, and delivery partners through one managed platform.")} />;
+  }
 
   if (!me) {
     return (
@@ -3914,7 +3938,8 @@ export default function App() {
   if (screen === "dashboard") body = <DashboardScreen me={me} requests={requests} orders={orders} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
   if (screen === "requests") body = <RequestsScreen requests={requests} setScreen={setScreen} setActiveRequest={setActiveRequest} />;
   if (screen === "requestDetails" && activeRequest) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} />;
-  if (screen === "quote" && activeRequest) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} activeOrderCount={activeTailorOrderCount} maxOrdersPerDay={maxOrdersPerDay} onDone={() => { void refreshWorkspace(); setScreen("requestDetails"); }} />;
+  if (screen === "quote" && activeRequest && activeRequest.status === "QUOTE_REQUESTED" && !activeRequest.ownQuote) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} activeOrderCount={activeTailorOrderCount} maxOrdersPerDay={maxOrdersPerDay} onDone={(quote) => { setActiveRequest({ ...activeRequest, ownQuote: quote }); setRequests((current) => current.map((item) => item.id === activeRequest.id ? { ...item, ownQuote: quote } : item)); void refreshWorkspace(); setScreen("requestDetails", { replace: true }); }} />;
+  if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
   if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} showDialog={setDialog} />;

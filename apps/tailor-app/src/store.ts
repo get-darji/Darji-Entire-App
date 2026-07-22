@@ -11,21 +11,26 @@ type Store = {
   user?: User;
   language: AppLanguage;
   hasSelectedLanguage: boolean;
+  sessionNotice?: string;
   setSession: (token: string, user: User, refreshToken?: string) => void;
   setAccessToken: (token: string) => void;
   setUser: (user: User) => void;
   setLanguagePreference: (language: AppLanguage) => void;
   signOut: () => void;
+  invalidateSession: (message: string) => void;
+  clearSessionNotice: () => void;
 };
 
 export const useAppStore = create<Store>()(persist((set) => ({
   language: "en",
   hasSelectedLanguage: false,
-  setSession: (token, user, refreshToken) => set({ token, user, refreshToken }),
+  setSession: (token, user, refreshToken) => set({ token, user, refreshToken, sessionNotice: undefined }),
   setAccessToken: (token) => set({ token }),
   setUser: (user) => set({ user }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
-  signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined })
+  signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined }),
+  invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, sessionNotice }),
+  clearSessionNotice: () => set({ sessionNotice: undefined })
 }), {
   name: "darzi-tailor-session",
   storage: createJSONStorage(() => AsyncStorage),

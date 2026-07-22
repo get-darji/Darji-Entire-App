@@ -24,6 +24,8 @@ export type SectionId =
   | "health"
   | "exports"
   | "platform"
+  | "serviceAreas"
+  | "launchRequests"
   | "settings";
 
 type AdminStore = {
@@ -32,8 +34,11 @@ type AdminStore = {
   sidebarOpen: boolean;
   theme: ThemeMode;
   token: string | null;
+  sessionNotice: string | null;
   supportSubTab: "customer" | "tailor" | "delivery" | "bugs";
   logout: () => void;
+  invalidateSession: (message: string) => void;
+  clearSessionNotice: () => void;
   setActiveSection: (section: SectionId) => void;
   setHydrated: (value: boolean) => void;
   setSidebarOpen: (value: boolean) => void;
@@ -50,12 +55,15 @@ export const useAdminStore = create<AdminStore>()(
       sidebarOpen: false,
       theme: "light",
       token: null,
+      sessionNotice: null,
       supportSubTab: "customer",
       logout: () => set({ token: null, activeSection: "dashboard", sidebarOpen: false, supportSubTab: "customer" }),
+      invalidateSession: (sessionNotice) => set({ token: null, sessionNotice, activeSection: "dashboard", sidebarOpen: false }),
+      clearSessionNotice: () => set({ sessionNotice: null }),
       setActiveSection: (activeSection) => set({ activeSection }),
       setHydrated: (hydrated) => set({ hydrated }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-      setToken: (token) => set({ token }),
+      setToken: (token) => set({ token, sessionNotice: null }),
       toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
       setSupportSubTab: (supportSubTab) => set({ supportSubTab })
     }),

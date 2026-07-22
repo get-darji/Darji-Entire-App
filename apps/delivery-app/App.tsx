@@ -35,7 +35,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
+import { api, checkServiceArea as checkServiceAreaAvailability, getPlatformStatus, refreshAccessToken, requestServiceAreaLaunch, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
 import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
@@ -51,6 +51,8 @@ import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
+import { useServiceAreaAccess } from "../../shared/src/use-service-area-access";
+import { OutsideServiceAreaScreen, ServiceAreaLoadingScreen } from "../../shared/src/service-area-screen";
 import {
   emptyPartnerWallet,
   isSameLocalDate,
@@ -516,7 +518,7 @@ configureForegroundNotificationHandler();
 
 function isSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
+  return /authentication required|invalid session|invalid or expired token|session expired|signed in on another device/i.test(message);
 }
 
 function shortId(id?: string) {
@@ -3430,13 +3432,30 @@ function VerificationPendingScreen({
 
 export default function App() {
   const token = useAppStore((state) => state.token);
+  const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
+  const sessionNotice = useAppStore((state) => state.sessionNotice);
+  const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
   const platform = usePlatformStatus(getPlatformStatus, token);
+  const loadServiceCoordinates = useCallback(async () => {
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== "granted") throw new Error("Allow location access to check whether Darji serves your current area.");
+    const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    return { latitude: current.coords.latitude, longitude: current.coords.longitude };
+  }, []);
+  const serviceArea = useServiceAreaAccess({ enabled: Boolean(token), getCoordinates: loadServiceCoordinates, check: checkServiceAreaAvailability });
+  const [serviceAreaNotifying, setServiceAreaNotifying] = useState(false);
+  const [serviceAreaNotified, setServiceAreaNotified] = useState(false);
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
   const [dialog, setDialog] = useState<DialogState>();
   const skipLoadingScreenRef = useRef(false);
+
+  useEffect(() => {
+    if (!sessionNotice) return;
+    Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
+  }, [clearSessionNotice, sessionNotice]);
 
   const handleSessionExpired = useCallback(() => {
     signOut();
@@ -3519,6 +3538,10 @@ export default function App() {
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       </>
     );
+  }
+  if (serviceArea.checking && !serviceArea.status) return <ServiceAreaLoadingScreen />;
+  if (!serviceArea.status?.available || serviceArea.error) {
+    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} onProfile={() => Alert.alert("Profile", `${sessionUser?.name ?? "Darji Delivery Partner"}\n${sessionUser?.phone ?? ""}`)} onSupport={() => Alert.alert("Darji Support", "Contact support from your registered mobile number for account assistance.")} onAbout={() => Alert.alert("About Darji", "Darji connects customers, verified tailors, and delivery partners through one managed platform.")} />;
   }
   if (stage === "loading") {
     return (

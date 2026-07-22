@@ -14,10 +14,13 @@ type Store = {
   cart: CartItem[];
   language: AppLanguage;
   hasSelectedLanguage: boolean;
+  sessionNotice?: string;
   setSession: (token: string, user: User, refreshToken?: string) => void;
   setAccessToken: (token: string) => void;
   setLanguagePreference: (language: AppLanguage) => void;
   signOut: () => void;
+  invalidateSession: (message: string) => void;
+  clearSessionNotice: () => void;
   addToCart: (service: ServiceItem) => void;
   clearCart: () => void;
 };
@@ -26,10 +29,12 @@ export const useAppStore = create<Store>()(persist((set) => ({
   cart: [],
   language: "en",
   hasSelectedLanguage: false,
-  setSession: (token, user, refreshToken) => set({ token, user, refreshToken }),
+  setSession: (token, user, refreshToken) => set({ token, user, refreshToken, sessionNotice: undefined }),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [] }),
+  invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [], sessionNotice }),
+  clearSessionNotice: () => set({ sessionNotice: undefined }),
   addToCart: (service) =>
     set((state) => {
       const existing = state.cart.find((item) => item.service.id === service.id);

@@ -66,6 +66,7 @@ const userSchema = new Schema(
     moderationReason: String,
     moderatedAt: Date,
     refreshTokenHash: String,
+    activeSessionId: { type: String, index: true },
     fcmToken: String,
     fcmTokens: [
       {
@@ -609,7 +610,7 @@ const tailorQuoteSchema = new Schema(
     estimatedHours: Number,
     message: String,
     pickupIncluded: { type: Boolean, default: true },
-    status: { type: String, enum: ["SUBMITTED", "RESERVED", "ACCEPTED", "REJECTED"], default: "SUBMITTED", index: true }
+    status: { type: String, enum: ["SUBMITTED", "RESERVED", "ACCEPTED", "REJECTED", "EXPIRED"], default: "SUBMITTED", index: true }
   },
   baseOptions
 );
@@ -734,6 +735,43 @@ const settingSchema = new Schema(
   baseOptions
 );
 
+const coordinateSchema = new Schema(
+  {
+    longitude: { type: Number, required: true, min: -180, max: 180 },
+    latitude: { type: Number, required: true, min: -90, max: 90 }
+  },
+  { _id: false, versionKey: false }
+);
+
+const serviceAreaSchema = new Schema(
+  {
+    _id: stringId,
+    name: { type: String, required: true, trim: true, unique: true },
+    isActive: { type: Boolean, default: true, index: true },
+    polygon: { type: [coordinateSchema], required: true, validate: [(value: unknown[]) => value.length >= 3, "A service area needs at least three points"] },
+    edgeToleranceMeters: { type: Number, default: 100, min: 0, max: 5000 },
+    createdBy: String,
+    updatedBy: String
+  },
+  baseOptions
+);
+
+const launchRequestSchema = new Schema(
+  {
+    _id: stringId,
+    userId: { type: String, required: true, index: true },
+    phone: { type: String, required: true, index: true },
+    role: { type: String, enum: roles, required: true, index: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    areaLabel: String,
+    locationKey: { type: String, required: true, index: true },
+    lastRequestedAt: { type: Date, default: Date.now }
+  },
+  baseOptions
+);
+launchRequestSchema.index({ userId: 1, locationKey: 1 }, { unique: true });
+
 export const UserModel = mongoose.model("User", userSchema);
 export const AddressModel = mongoose.model("Address", addressSchema);
 export const ServiceCategoryModel = mongoose.model("ServiceCategory", serviceCategorySchema);
@@ -758,6 +796,8 @@ export const TailorQuoteModel = mongoose.model("TailorQuote", tailorQuoteSchema)
 export const DeliveryRequestModel = mongoose.model("DeliveryTask", deliveryRequestSchema, "delivery_tasks");
 export const DeliveryBatchModel = mongoose.model("DeliveryBatch", deliveryBatchSchema, "delivery_batches");
 export const SettingModel = mongoose.model("Setting", settingSchema);
+export const ServiceAreaModel = mongoose.model("ServiceArea", serviceAreaSchema);
+export const LaunchRequestModel = mongoose.model("LaunchRequest", launchRequestSchema);
 
 export type UserDoc = InferSchemaType<typeof userSchema> & { id: string; _id: string };
 

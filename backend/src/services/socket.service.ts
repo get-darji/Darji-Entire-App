@@ -49,8 +49,11 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
   if (!rawToken) throw new Error("Authentication required");
 
   const payload = verifyAccessToken(String(rawToken));
-  const user = await UserModel.findById(payload.sub).select("role");
+  const user = await UserModel.findById(payload.sub).select("role activeSessionId");
   if (!user) throw new Error("Invalid session");
+  if (!payload.sid || !user.activeSessionId || payload.sid !== user.activeSessionId) {
+    throw new Error("Your account has been signed in on another device.");
+  }
   if (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
     const platformStatus = await getPlatformStatus();
     if (platformStatus.maintenanceMode) throw new Error(platformStatus.title);

@@ -26,9 +26,12 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
   try {
     const payload = verifyAccessToken(token);
-    const user = await UserModel.findById(payload.sub).select("role accountStatus suspendedUntil moderationReason").lean();
+    const user = await UserModel.findById(payload.sub).select("role accountStatus suspendedUntil moderationReason activeSessionId").lean();
     if (!user) {
       return next(new AppError(401, "Invalid session"));
+    }
+    if (!payload.sid || !user.activeSessionId || payload.sid !== user.activeSessionId) {
+      return next(new AppError(401, "Your account has been signed in on another device."));
     }
     if (user.accountStatus === "BANNED") {
       return next(new AppError(403, user.moderationReason ? `Account banned: ${user.moderationReason}` : "Account banned"));

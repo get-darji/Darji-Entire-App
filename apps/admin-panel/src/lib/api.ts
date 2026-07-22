@@ -21,10 +21,13 @@ import type {
   TailoringRequest,
   BugReport,
   AccountChangeRequest,
-  SupportStats
-  , WalletPayoutRow,
+  SupportStats,
+  WalletPayoutRow,
   WalletDetail,
-  DeliveryFareSettings
+  DeliveryFareSettings,
+  ServiceArea,
+  LaunchRequest,
+  LaunchRequestGroup
 } from "@/src/types/admin";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
@@ -48,7 +51,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
-      useAdminStore.getState().logout();
+      const message = String(error.response?.data?.message ?? "Session expired");
+      if (/signed in on another device/i.test(message)) useAdminStore.getState().invalidateSession(message);
+      else useAdminStore.getState().logout();
     }
     return Promise.reject(error);
   }
@@ -193,6 +198,26 @@ export async function getPlatformStatus() {
 
 export async function updatePlatformStatus(payload: PlatformStatus) {
   return unwrap<PlatformStatus>(api.put("/admin/platform-status", payload));
+}
+
+export async function getServiceAreas() {
+  return unwrap<ServiceArea[]>(api.get("/service-areas"));
+}
+
+export async function createServiceArea(payload: Omit<ServiceArea, "id" | "createdAt" | "updatedAt">) {
+  return unwrap<ServiceArea>(api.post("/service-areas", payload));
+}
+
+export async function updateServiceArea(id: string, payload: Omit<ServiceArea, "id" | "createdAt" | "updatedAt">) {
+  return unwrap<ServiceArea>(api.put(`/service-areas/${id}`, payload));
+}
+
+export async function deleteServiceArea(id: string) {
+  return unwrap<{ deleted: boolean; id: string }>(api.delete(`/service-areas/${id}`));
+}
+
+export async function getLaunchRequests() {
+  return unwrap<{ requests: LaunchRequest[]; grouped: LaunchRequestGroup[] }>(api.get("/admin/launch-requests"));
 }
 
 export async function assignOrder(payload: { orderId: string; tailorId?: string; deliveryPartnerId?: string; mode?: "pickup" | "delivery" }) {

@@ -81,6 +81,15 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { notificationRoutes } from "./notificationRoutes.js";
 import {
+  checkServiceAreaController,
+  createLaunchRequestController,
+  createServiceAreaController,
+  deleteServiceAreaController,
+  listLaunchRequestsController,
+  listServiceAreasController,
+  updateServiceAreaController
+} from "../controllers/service-area.controller.js";
+import {
   createTailoringRequestController,
   acceptDeliveryRequestController,
   cancelTailoringRequestController,
@@ -118,11 +127,18 @@ export const router = Router();
 
 router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend" } }));
 router.get("/platform-status", platformStatusController);
+router.get("/service-areas", listServiceAreasController);
 router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
 router.post("/auth/refresh", refreshController);
 router.get("/auth/me", requireAuth, meController);
 router.patch("/auth/me", requireAuth, updateMeController);
+router.post("/service-areas/check", requireAuth, checkServiceAreaController);
+router.post("/service-areas/notify", requireAuth, createLaunchRequestController);
+router.post("/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), createServiceAreaController);
+router.put("/service-areas/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateServiceAreaController);
+router.delete("/service-areas/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteServiceAreaController);
+router.get("/admin/launch-requests", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listLaunchRequestsController);
 
 router.get("/catalog", catalogController);
 

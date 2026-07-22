@@ -1,6 +1,8 @@
 import Constants from "expo-constants";
 import { useAppStore } from "./store";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
+import type { DeviceCoordinates } from "../../../shared/src/use-service-area-access";
+import type { ServiceAreaCheck } from "../../../shared/src/service-area";
 
 const apiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
@@ -8,6 +10,7 @@ const apiUrl =
   "https://backend-production-5a7e4.up.railway.app/api";
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
+const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
 
 async function performAccessTokenRefresh() {
   const refreshToken = useAppStore.getState().refreshToken;
@@ -23,8 +26,10 @@ async function performAccessTokenRefresh() {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    useAppStore.getState().signOut();
-    throw new Error(body.message ?? "Session expired");
+    const message = String(body.message ?? "Session expired");
+    if (/signed in on another device/i.test(message)) useAppStore.getState().invalidateSession(message);
+    else useAppStore.getState().signOut();
+    throw new Error(message);
   }
 
   const data = body.data as RefreshResponse;
@@ -54,6 +59,14 @@ export async function getPlatformStatus() {
   }
 }
 
+export function checkServiceArea(coordinates: DeviceCoordinates) {
+  return api<ServiceAreaCheck>("/service-areas/check", { method: "POST", body: JSON.stringify(coordinates) });
+}
+
+export function requestServiceAreaLaunch(coordinates: DeviceCoordinates) {
+  return api("/service-areas/notify", { method: "POST", body: JSON.stringify(coordinates) });
+}
+
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
@@ -74,7 +87,11 @@ export async function api<T>(path: string, options: RequestInit = {}, token?: st
   try {
     return await requestJson<T>(path, options, currentToken);
   } catch (error) {
-    if (!/invalid or expired token|authentication required|invalid session/i.test(error instanceof Error ? error.message : "")) throw error;
+    if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
+    if (/signed in on another device/i.test(error instanceof Error ? error.message : "")) {
+      useAppStore.getState().invalidateSession((error as Error).message);
+      throw error;
+    }
     const nextToken = await refreshAccessToken();
     if (!nextToken) throw error;
     return requestJson<T>(path, options, nextToken);
@@ -114,7 +131,7 @@ export async function uploadDeliveryMedia(files: { uri: string; name: string }[]
   try {
     return await sendMediaUpload(files, currentToken);
   } catch (error) {
-    if (!/invalid or expired token|authentication required|invalid session/i.test(error instanceof Error ? error.message : "")) throw error;
+    if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
     const nextToken = await refreshAccessToken();
     if (!nextToken) throw error;
     return sendMediaUpload(files, nextToken);
@@ -163,7 +180,7 @@ export async function uploadDeliveryAvatar(file: { uri: string; name: string }, 
   try {
     return await sendSingleImageUpload("/delivery-partners/me/avatar", "avatar", file, currentToken);
   } catch (error) {
-    if (!/invalid or expired token|authentication required|invalid session/i.test(error instanceof Error ? error.message : "")) throw error;
+    if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
     const nextToken = await refreshAccessToken();
     if (!nextToken) throw error;
     return sendSingleImageUpload("/delivery-partners/me/avatar", "avatar", file, nextToken);
@@ -176,7 +193,7 @@ export async function uploadDeliveryVerificationDocs(files: { uri: string; name:
   try {
     return await sendVerificationUpload("/delivery-partners/me/verification-media", files, currentToken);
   } catch (error) {
-    if (!/invalid or expired token|authentication required|invalid session/i.test(error instanceof Error ? error.message : "")) throw error;
+    if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
     const nextToken = await refreshAccessToken();
     if (!nextToken) throw error;
     return sendVerificationUpload("/delivery-partners/me/verification-media", files, nextToken);

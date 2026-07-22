@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { requestOtpSchema, verifyOtpSchema } from "@darzi/shared";
 import { DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
@@ -162,9 +163,10 @@ export async function verifyOtpController(req: Request, res: Response) {
     await resetAutoVerifiedDeliveryProfile(user.id, input.phone);
   }
 
-  const accessToken = signAccessToken({ sub: user.id, role: user.role });
-  const refreshToken = signRefreshToken({ sub: user.id, role: user.role });
-  await UserModel.findByIdAndUpdate(user.id, { refreshTokenHash: await bcrypt.hash(refreshToken, 10) });
+  const sessionId = randomUUID();
+  const accessToken = signAccessToken({ sub: user.id, role: user.role, sid: sessionId });
+  const refreshToken = signRefreshToken({ sub: user.id, role: user.role, sid: sessionId });
+  await UserModel.findByIdAndUpdate(user.id, { activeSessionId: sessionId, refreshTokenHash: await bcrypt.hash(refreshToken, 10) });
 
   res.json({ data: { user, accessToken, refreshToken } });
 }
@@ -177,7 +179,10 @@ export async function refreshController(req: Request, res: Response) {
 
   const payload = verifyRefreshToken(refreshToken);
   const user = await UserModel.findById(payload.sub);
-  if (!user?.refreshTokenHash || !(await bcrypt.compare(refreshToken, user.refreshTokenHash))) {
+  if (!user?.activeSessionId || user.activeSessionId !== payload.sid) {
+    throw new AppError(401, "Your account has been signed in on another device.");
+  }
+  if (!user.refreshTokenHash || !(await bcrypt.compare(refreshToken, user.refreshTokenHash))) {
     throw new AppError(401, "Invalid refresh token");
   }
   await clearExpiredSuspension(user);
@@ -185,7 +190,7 @@ export async function refreshController(req: Request, res: Response) {
 
   res.json({
     data: {
-      accessToken: signAccessToken({ sub: user.id, role: user.role }),
+      accessToken: signAccessToken({ sub: user.id, role: user.role, sid: payload.sid }),
       refreshToken
     }
   });
@@ -303,4 +308,3 @@ export async function updateMeController(req: Request, res: Response) {
   }
   res.json({ data: user });
 }
-

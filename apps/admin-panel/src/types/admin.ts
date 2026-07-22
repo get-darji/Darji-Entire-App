@@ -539,3 +539,28 @@ export type AuthSession = {
   accessToken: string;
   refreshToken: string;
 };
+
+export type ServiceArea = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  polygon: Array<[number, number]>;
+  edgeToleranceMeters: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type LaunchRequest = {
+  id: string;
+  userId: string;
+  phone: string;
+  role: string;
+  latitude: number;
+  longitude: number;
+  areaLabel?: string;
+  locationKey: string;
+  lastRequestedAt?: string;
+  createdAt?: string;
+};
+
+export type LaunchRequestGroup = { _id: string; count: number; latestRequestAt: string; areaLabel?: string };

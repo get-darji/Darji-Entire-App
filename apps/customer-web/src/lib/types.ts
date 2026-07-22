@@ -30,7 +30,7 @@ export type TailorQuote = {
   estimatedHours?: number;
   message?: string;
   pickupIncluded?: boolean;
-  status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED";
+  status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
   tailor?: {
     id: string;
     shopName?: string;

@@ -209,3 +209,4 @@ export function getSmallOrderFee(orderValue: number) {
 
 export * from "./localization.js";
 export * from "./platform-status.js";
+export * from "./service-area.js";

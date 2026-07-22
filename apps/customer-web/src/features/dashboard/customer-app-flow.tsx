@@ -554,10 +554,18 @@ async function openRazorpay(
 
 function AuthPanel() {
   const setSession = useAuthStore((state) => state.setSession);
+  const sessionNotice = useAuthStore((state) => state.sessionNotice);
+  const clearSessionNotice = useAuthStore((state) => state.clearSessionNotice);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [notice, setNotice] = useState<string>();
+
+  useEffect(() => {
+    if (!sessionNotice) return;
+    setNotice(sessionNotice);
+    clearSessionNotice();
+  }, [clearSessionNotice, sessionNotice]);
 
   const requestOtp = useMutation({
     mutationFn: async () => {

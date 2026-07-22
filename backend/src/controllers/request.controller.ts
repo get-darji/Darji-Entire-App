@@ -713,7 +713,7 @@ async function finalizeTailoringRequestConfirmation(
   const quote = await TailorQuoteModel.findOne({ _id: quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
   const itemCount = requestItemCount(request);
-  await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id } }, { status: "REJECTED" });
+  await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id } }, { status: "EXPIRED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "ACCEPTED" });
 
   const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
@@ -1859,9 +1859,12 @@ export async function createTailorQuoteController(req: Request, res: Response) {
     { upsert: true, returnDocument: "after" }
   );
 
-  const quote = await TailorQuoteModel.findOneAndUpdate(
-    { requestId: request.id, tailorId: tailor.id },
-    {
+  const existingQuote = await TailorQuoteModel.exists({ requestId: request.id, tailorId: tailor.id });
+  if (existingQuote) throw new AppError(409, "Quote already submitted.");
+
+  let quote;
+  try {
+    quote = await TailorQuoteModel.create({
       requestId: request.id,
       tailorId: tailor.id,
       price: input.price,
@@ -1869,9 +1872,13 @@ export async function createTailorQuoteController(req: Request, res: Response) {
       estimatedHours: input.estimatedHours,
       message: input.message,
       status: "SUBMITTED"
-    },
-    { upsert: true, returnDocument: "after" }
-  );
+    });
+  } catch (error: unknown) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+      throw new AppError(409, "Quote already submitted.");
+    }
+    throw error;
+  }
 
   await sendQuoteReceivedNotification({
     userId: request.customerId,

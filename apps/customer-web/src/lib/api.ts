@@ -29,7 +29,7 @@ async function refreshAccessToken() {
 
 function shouldRefresh(error: unknown) {
   const message = error instanceof AxiosError ? String(error.response?.data?.message ?? error.message) : error instanceof Error ? error.message : "";
-  return /invalid or expired token|authentication required|invalid session|jwt expired/i.test(message);
+  return /invalid or expired token|authentication required|invalid session|jwt expired|signed in on another device/i.test(message);
 }
 
 async function request<T>(config: AxiosRequestConfig, retry = true): Promise<T> {
@@ -44,6 +44,11 @@ async function request<T>(config: AxiosRequestConfig, retry = true): Promise<T> 
     });
     return response.data.data;
   } catch (error) {
+    const message = error instanceof AxiosError ? String(error.response?.data?.message ?? error.message) : error instanceof Error ? error.message : "";
+    if (/signed in on another device/i.test(message)) {
+      useAuthStore.getState().invalidateSession(message);
+      throw error;
+    }
     if (!retry || !shouldRefresh(error)) throw error;
     refreshPromise ??= refreshAccessToken().finally(() => {
       refreshPromise = undefined;
