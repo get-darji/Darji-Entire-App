@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { ActivityIndicator, Animated, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
 import { api, uploadTailorAvatar, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -78,7 +78,19 @@ type PullToRefreshState = {
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
 
-const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScrollView({ refreshControl, horizontal, ...props }, ref) {
+function PullRefreshReveal({ visible }: { visible: boolean }) {
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(progress, { duration: visible ? 220 : 160, toValue: visible ? 1 : 0, useNativeDriver: false }).start();
+  }, [progress, visible]);
+  return (
+    <Animated.View style={{ alignItems: "center", height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 54] }), justifyContent: "center", opacity: progress, overflow: "hidden" }}>
+      <ActivityIndicator color={BRAND_ORANGE} />
+    </Animated.View>
+  );
+}
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
   const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
   return (
@@ -87,17 +99,18 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScr
       horizontal={horizontal}
       refreshControl={canRefresh ? (
         <RefreshControl
-          colors={[BRAND_ORANGE]}
-          progressBackgroundColor="#fffaf0"
+          colors={["transparent"]}
+          progressBackgroundColor="transparent"
           refreshing={pullToRefresh.refreshing}
-          tintColor={BRAND_ORANGE}
-          title="Refreshing Darji..."
-          titleColor={BRAND_DEEP}
+          tintColor="transparent"
           onRefresh={pullToRefresh.onRefresh}
         />
       ) : refreshControl}
       {...props}
-    />
+    >
+      {canRefresh ? <PullRefreshReveal visible={pullToRefresh.refreshing} /> : null}
+      {children}
+    </RNScrollView>
   );
 });
 
@@ -295,12 +308,12 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       return;
     }
     if (!token) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Permission needed", message: "Allow photo access to update your profile picture.", icon: "images-outline" });
+      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a new profile picture.", icon: "camera-outline" });
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.85 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.85 });
     if (result.canceled || !result.assets.length) return;
     try {
       setUploadingAvatar(true);
@@ -930,14 +943,13 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
   }, [view]);
 
   async function pickAttachmentImage() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to upload photos.");
+      Alert.alert("Camera permission needed", "Allow camera access to take a live attachment photo.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: false,
       quality: 0.8
     });
     if (result.canceled || !result.assets.length) return;
@@ -1562,14 +1574,13 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   const [submitting, setSubmitting] = useState(false);
 
   async function pickDocumentImage() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to upload documents.");
+      Alert.alert("Camera permission needed", "Allow camera access to take a live document photo.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: false,
       quality: 0.8
     });
     if (result.canceled || !result.assets.length) return;

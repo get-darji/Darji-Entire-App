@@ -16,6 +16,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   BackHandler,
   Image,
   Linking,
@@ -48,6 +49,16 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
+import {
+  emptyPartnerWallet,
+  isSameLocalDate,
+  partnerTransactionDate,
+  partnerTransactionLabel,
+  partnerWalletMetrics,
+  proofForPartnerTransaction,
+  type PartnerWalletSummary,
+  type PartnerWalletTransaction
+} from "../../shared/src/partner-wallet";
 
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();
@@ -258,7 +269,33 @@ type PullToRefreshState = {
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
 
-const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ refreshControl, horizontal, ...props }, ref) {
+function PullRefreshReveal({ visible }: { visible: boolean }) {
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      duration: visible ? 220 : 160,
+      toValue: visible ? 1 : 0,
+      useNativeDriver: false
+    }).start();
+  }, [progress, visible]);
+
+  return (
+    <Animated.View
+      style={{
+        alignItems: "center",
+        height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 54] }),
+        justifyContent: "center",
+        opacity: progress,
+        overflow: "hidden"
+      }}
+    >
+      <ActivityIndicator color={BRAND_ORANGE} />
+    </Animated.View>
+  );
+}
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
   const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
   return (
@@ -267,17 +304,18 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollV
       horizontal={horizontal}
       refreshControl={canRefresh ? (
         <RefreshControl
-          colors={[BRAND_ORANGE]}
-          progressBackgroundColor="#fffaf0"
+          colors={["transparent"]}
+          progressBackgroundColor="transparent"
           refreshing={pullToRefresh.refreshing}
-          tintColor={BRAND_ORANGE}
-          title="Refreshing Darji..."
-          titleColor={BRAND_DEEP}
+          tintColor="transparent"
           onRefresh={pullToRefresh.onRefresh}
         />
       ) : refreshControl}
       {...props}
-    />
+    >
+      {canRefresh ? <PullRefreshReveal visible={pullToRefresh.refreshing} /> : null}
+      {children}
+    </RNScrollView>
   );
 });
 
@@ -1206,9 +1244,7 @@ function ProofBlock({
   media,
   limitText,
   loadingCamera = false,
-  loadingLibrary = false,
   onCamera = () => {},
-  onLibrary = () => {},
   onOpen,
   onDelete,
   readOnly = false
@@ -1218,9 +1254,7 @@ function ProofBlock({
   media: MediaItem[];
   limitText: string;
   loadingCamera?: boolean;
-  loadingLibrary?: boolean;
   onCamera?: () => void;
-  onLibrary?: () => void;
   onOpen: (media: MediaItem) => void;
   onDelete?: (media: MediaItem) => void;
   readOnly?: boolean;
@@ -1276,13 +1310,9 @@ function ProofBlock({
       )}
       {!readOnly ? (
         <View style={styles.proofActions}>
-          <Pressable style={styles.proofButton} onPress={onCamera} disabled={loadingCamera || loadingLibrary}>
+          <Pressable style={styles.proofButton} onPress={onCamera} disabled={loadingCamera}>
             {loadingCamera ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="camera-outline" size={17} color={BRAND_ORANGE} />}
-            <Text style={styles.proofButtonText}>Camera</Text>
-          </Pressable>
-          <Pressable style={styles.proofButton} onPress={onLibrary} disabled={loadingCamera || loadingLibrary}>
-            {loadingLibrary ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="images-outline" size={17} color={BRAND_ORANGE} />}
-            <Text style={styles.proofButtonText}>Gallery</Text>
+            <Text style={styles.proofButtonText}>Take live photo</Text>
           </Pressable>
         </View>
       ) : null}
@@ -1403,7 +1433,7 @@ function OrderDetailsScreen({
 }) {
   const [savingStatus, setSavingStatus] = useState<string>();
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
-  const [uploadingProof, setUploadingProof] = useState<{ stage: "RECEIVED" | "STITCHED"; source: "camera" | "library" }>();
+  const [uploadingProof, setUploadingProof] = useState<{ stage: "RECEIVED" | "STITCHED" }>();
   const acceptedRequest = order.request;
   const requiredProofCount = acceptedRequest ? requestItemCount(acceptedRequest) : Math.max(1, order.items.length);
   const receivedProofCount = acceptedRequest?.receivedMedia?.length ?? 0;
@@ -1414,7 +1444,7 @@ function OrderDetailsScreen({
     ? ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
     : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "WORKING", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
 
-  async function uploadProof(stage: "RECEIVED" | "STITCHED", source: "camera" | "library") {
+  async function uploadProof(stage: "RECEIVED" | "STITCHED") {
     if (!acceptedRequest || !token) return;
     const existingCount = stage === "RECEIVED" ? acceptedRequest.receivedMedia?.length ?? 0 : acceptedRequest.stitchedMedia?.length ?? 0;
     const maxCount = requiredProofCount;
@@ -1428,16 +1458,13 @@ function OrderDetailsScreen({
       return;
     }
 
-    const permission = source === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       showDialog({ title: "Permission needed", message: "Allow photo access to upload order proof.", icon: "camera-outline" });
       return;
     }
 
-    const result =
-      source === "camera"
-        ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: remaining, quality: 0.82 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 });
 
     if (result.canceled || !result.assets.length) return;
     const files = result.assets.slice(0, remaining).map((asset, index) => ({
@@ -1446,7 +1473,7 @@ function OrderDetailsScreen({
     }));
 
     try {
-      setUploadingProof({ stage, source });
+      setUploadingProof({ stage });
       await uploadAuditMedia(acceptedRequest.id, stage, files, token);
       showDialog({
         title: "Photos saved",
@@ -1634,10 +1661,8 @@ function OrderDetailsScreen({
                     copy={`Required before starting work: ${receivedProofCount}/${requiredProofCount} item photos.`}
                     media={acceptedRequest.receivedMedia ?? []}
                     limitText={`${receivedProofCount}/${requiredProofCount} items`}
-                    loadingCamera={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "camera"}
-                    loadingLibrary={uploadingProof?.stage === "RECEIVED" && uploadingProof.source === "library"}
-                    onCamera={() => uploadProof("RECEIVED", "camera")}
-                    onLibrary={() => uploadProof("RECEIVED", "library")}
+                    loadingCamera={uploadingProof?.stage === "RECEIVED"}
+                    onCamera={() => uploadProof("RECEIVED")}
                     onOpen={setSelectedMedia}
                     onDelete={(item) => deleteProof("RECEIVED", item)}
                   />
@@ -1667,10 +1692,8 @@ function OrderDetailsScreen({
                     copy={`Required before delivery: ${stitchedProofCount}/${requiredProofCount} item photos.`}
                     media={acceptedRequest.stitchedMedia ?? []}
                     limitText={`${stitchedProofCount}/${requiredProofCount} items`}
-                    loadingCamera={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "camera"}
-                    loadingLibrary={uploadingProof?.stage === "STITCHED" && uploadingProof.source === "library"}
-                    onCamera={() => uploadProof("STITCHED", "camera")}
-                    onLibrary={() => uploadProof("STITCHED", "library")}
+                    loadingCamera={uploadingProof?.stage === "STITCHED"}
+                    onCamera={() => uploadProof("STITCHED")}
                     onOpen={setSelectedMedia}
                     onDelete={(item) => deleteProof("STITCHED", item)}
                   />
@@ -1728,98 +1751,149 @@ function OrderDetailsScreen({
   );
 }
 
-function EarningsScreen({ orders, me }: { orders: Order[]; me?: MeResponse }) {
-  const completed = orders.filter((order) => ["READY", "DELIVERED", "STITCHING_COMPLETED"].includes(order.status));
-  const earned = useMemo(() => completed.reduce((sum, order) => sum + tailorOrderEarning(order), 0), [completed]);
-  const displayedEarnings = completed.length ? earned : Number(me?.tailorProfile?.earnings ?? 0);
-  const [wallet, setWallet] = useState<any>(null);
-  const [loadingWallet, setLoadingWallet] = useState(false);
+async function openWalletProof(url: string, showDialog: (dialog: DialogState) => void) {
+  try {
+    if (!(await Linking.canOpenURL(url))) throw new Error("Unsupported proof link");
+    await Linking.openURL(url);
+  } catch {
+    showDialog({ title: "Proof unavailable", message: "This payment proof could not be opened. Ask Darji support to upload it again.", icon: "image-outline" });
+  }
+}
 
-  useEffect(() => {
-    let mounted = true;
-    setLoadingWallet(true);
-    api<any>("/wallet")
-      .then((data) => {
-        if (mounted) setWallet(data);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (mounted) setLoadingWallet(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
+function WalletTransactionCard({ transaction, payments, onOpenOrder, showDialog }: {
+  transaction: PartnerWalletTransaction;
+  payments: PartnerWalletSummary["payments"];
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const proofUrl = proofForPartnerTransaction(transaction, payments);
+  const createdAt = partnerTransactionDate(transaction);
+  const isCredit = transaction.transactionType === "CREDIT";
+  const canOpenOrder = Boolean(transaction.orderId);
   return (
-    <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header title="Earnings" subtitle="Completed tailoring payouts" />
-      <View style={styles.earningsCard}>
-        <Text style={styles.heroLabel}>WALLET BALANCE</Text>
-        <Text style={styles.earningsValue}>{money(wallet?.balance ?? displayedEarnings)}</Text>
-        <Text style={styles.heroCopy}>Payments are settled weekly.</Text>
+    <Pressable
+      accessibilityRole={canOpenOrder ? "button" : undefined}
+      disabled={!canOpenOrder}
+      onPress={() => transaction.orderId && onOpenOrder(transaction.orderId)}
+      style={({ pressed }) => [styles.walletTransactionCard, pressed && canOpenOrder && styles.walletTransactionCardPressed]}
+    >
+      <View style={styles.walletTransactionIcon}>
+        <Ionicons name={transaction.category === "WEEKLY_PAYOUT" ? "wallet-outline" : "bag-check-outline"} size={20} color={isCredit ? SUCCESS : BRAND_ORANGE} />
       </View>
-      <View style={styles.whiteCard}>
-        <DetailRow icon="calendar-outline" label="Current week earnings" value={money(wallet?.currentWeekEarnings ?? 0)} />
-        <DetailRow icon="wallet-outline" label="Pending amount" value={money(wallet?.pendingAmount ?? wallet?.balance ?? 0)} />
-        <DetailRow icon="time-outline" label="Last payment" value={wallet?.lastPayment?.paidAt ? new Date(wallet.lastPayment.paidAt).toLocaleString("en-IN") : "Not paid yet"} />
+      <View style={styles.walletTransactionMain}>
+        <Text style={styles.walletTransactionTitle} numberOfLines={1}>
+          {transaction.orderId ? `Order ${shortId(transaction.orderId)}` : partnerTransactionLabel(transaction)}
+        </Text>
+        <Text style={styles.walletTransactionMeta} numberOfLines={2}>{transaction.remarks ?? partnerTransactionLabel(transaction)}</Text>
+        <Text style={styles.walletTransactionDate}>{createdAt ? createdAt.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Date unavailable"}</Text>
       </View>
-      {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : null}
-      <Text style={styles.sectionTitle}>Wallet History</Text>
-      {(wallet?.transactions ?? []).length === 0 ? <EmptyState icon="wallet-outline" title="No wallet history" copy="Completed order earnings and weekly payouts will appear here." /> : null}
-      {(wallet?.transactions ?? []).map((transaction: any) => (
-        <View key={transaction.id} style={styles.earningRow}>
-          <View>
-            <Text style={styles.cardTitle}>{formatStatus(transaction.category)}</Text>
-            <Text style={styles.cardMeta}>{transaction.remarks ?? transaction.orderId ?? "Wallet transaction"}</Text>
-          </View>
-          <Text style={styles.priceText}>{transaction.transactionType === "DEBIT" ? "-" : "+"}{money(transaction.amount)}</Text>
+      <View style={styles.walletTransactionSide}>
+        <Text style={[styles.walletTransactionAmount, { color: isCredit ? SUCCESS : "#b91c1c" }]}>{isCredit ? "+" : "-"}{money(transaction.amount)}</Text>
+        {proofUrl ? (
+          <Pressable
+            style={styles.walletProofChip}
+            onPress={(event) => {
+              event.stopPropagation();
+              void openWalletProof(proofUrl, showDialog);
+            }}
+          >
+            <Ionicons name="image-outline" size={14} color={BRAND_ORANGE} />
+            <Text style={styles.walletProofChipText}>View Proof</Text>
+          </Pressable>
+        ) : transaction.category === "ORDER_EARNING" ? <Text style={styles.walletPendingText}>Pending payout</Text> : null}
+      </View>
+      {canOpenOrder ? <Ionicons name="chevron-forward" size={17} color="#94a3b8" /> : null}
+    </Pressable>
+  );
+}
+
+function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDialog }: {
+  wallet: PartnerWalletSummary;
+  loadingWallet: boolean;
+  onViewAll: () => void;
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const metrics = useMemo(() => partnerWalletMetrics(wallet), [wallet]);
+  const recentTransactions = wallet.transactions.slice(0, 4);
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <Header title="Earnings" subtitle="Your verified tailoring payouts" />
+      <View style={styles.walletHeroCard}>
+        <View style={styles.walletHeroIcon}><Ionicons name="wallet-outline" size={28} color={BRAND_ORANGE} /></View>
+        <View style={styles.walletHeroMain}>
+          <Text style={styles.walletHeroLabel}>WALLET BALANCE</Text>
+          <Text style={styles.walletHeroValue}>{money(metrics.balance)}</Text>
+          <Text style={styles.walletHeroCopy}>Available in the next recorded payout.</Text>
         </View>
-      ))}
-      <Text style={styles.sectionTitle}>Previous Payments</Text>
-      {(wallet?.payments ?? []).map((payment: any) => (
-        <View key={payment.id} style={styles.earningRow}>
-          <View>
-            <Text style={styles.cardTitle}>{money(payment.amount)}</Text>
-            <Text style={styles.cardMeta}>{payment.notes ?? payment.referenceNumber ?? "Weekly payout"}</Text>
-            {payment.receiptUrl ? (
-              <Pressable style={[styles.proofButton, { marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 14 }]} onPress={() => Linking.openURL(payment.receiptUrl)}>
-                <Ionicons name="image-outline" size={15} color={BRAND_ORANGE} />
-                <Text style={styles.proofButtonText}>View Payment Proof</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <Text style={styles.cardMeta}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : ""}</Text>
+        {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="shield-checkmark-outline" size={23} color="#dbeafe" />}
+      </View>
+
+      <View style={styles.walletSummaryCard}>
+        <View style={styles.walletSectionHeading}>
+          <Ionicons name="calendar-outline" size={21} color={BRAND_ORANGE} />
+          <Text style={styles.walletSectionTitle}>Earnings summary</Text>
         </View>
-      ))}
+        <View style={styles.walletMetricGrid}>
+          <View style={styles.walletMetricCard}><Ionicons name="time-outline" size={21} color="#f97316" /><Text style={styles.walletMetricLabel}>Pending amount</Text><Text style={[styles.walletMetricValue, { color: "#f97316" }]}>{money(metrics.pendingAmount)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="calendar-number-outline" size={21} color="#0284c7" /><Text style={styles.walletMetricLabel}>This week</Text><Text style={[styles.walletMetricValue, { color: "#0284c7" }]}>{money(metrics.currentWeekEarnings)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="trending-up-outline" size={21} color={SUCCESS} /><Text style={styles.walletMetricLabel}>Monthly earned</Text><Text style={[styles.walletMetricValue, { color: SUCCESS }]}>{money(metrics.monthlyEarned)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="bag-check-outline" size={21} color="#7c3aed" /><Text style={styles.walletMetricLabel}>Orders completed</Text><Text style={[styles.walletMetricValue, { color: "#7c3aed" }]}>{metrics.completedJobs}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="cash-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletMetricLabel}>Average per order</Text><Text style={styles.walletMetricValue}>{money(metrics.averagePerJob)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="receipt-outline" size={21} color="#475569" /><Text style={styles.walletMetricLabel}>Last payment</Text><Text style={styles.walletMetricSmallValue}>{metrics.lastPayment?.paidAt ? new Date(metrics.lastPayment.paidAt).toLocaleDateString("en-IN") : "Not paid yet"}</Text></View>
+        </View>
+      </View>
+
+      <View style={styles.walletSectionHeadingBetween}>
+        <View style={styles.walletSectionHeading}><Ionicons name="time-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletSectionTitle}>Transaction History</Text></View>
+        <Pressable onPress={onViewAll}><Text style={styles.walletViewAll}>View all</Text></Pressable>
+      </View>
+      {recentTransactions.length ? (
+        <View style={styles.walletHistoryCard}>
+          {recentTransactions.map((transaction) => <WalletTransactionCard key={transaction.id} transaction={transaction} payments={wallet.payments} onOpenOrder={onOpenOrder} showDialog={showDialog} />)}
+          <Pressable style={styles.walletViewAllButton} onPress={onViewAll}><Text style={styles.walletViewAllButtonText}>View all history</Text><Ionicons name="arrow-forward" size={16} color={BRAND_ORANGE} /></Pressable>
+        </View>
+      ) : <EmptyState icon="wallet-outline" title="No transactions yet" copy="Completed order earnings and weekly payouts will appear here." />}
+
+      <View style={styles.walletHistoryCard}>
+        <View style={styles.walletSectionHeading}><Ionicons name="card-outline" size={21} color={BRAND_DEEP} /><Text style={styles.walletSectionTitle}>Previous Payments</Text></View>
+        {wallet.payments.length ? wallet.payments.slice(0, 3).map((payment) => (
+          <Pressable key={payment.id} style={styles.walletPaymentRow} onPress={() => void openWalletProof(payment.receiptUrl, showDialog)}>
+            <View><Text style={styles.walletTransactionTitle}>{money(payment.amount)}</Text><Text style={styles.walletTransactionMeta}>{payment.referenceNumber ?? "Weekly payout"}</Text></View>
+            <View style={styles.walletTransactionSide}><Text style={styles.walletTransactionDate}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}</Text><Text style={styles.walletViewAll}>View proof</Text></View>
+          </Pressable>
+        )) : <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text>}
+      </View>
     </ScrollView>
   );
 }
 
-function TransactionHistoryScreen({ orders }: { orders: Order[] }) {
-  const entries = [...orders]
-    .filter((order) => ["READY", "DELIVERED", "STITCHING_COMPLETED", "CANCELLED"].includes(order.status))
-    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
-
+function TransactionHistoryScreen({ wallet, onOpenOrder, showDialog }: {
+  wallet: PartnerWalletSummary;
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const [selectedDate, setSelectedDate] = useState<Date>();
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const today = useMemo(() => new Date(), []);
+  const entries = useMemo(
+    () => wallet.transactions.filter((transaction) => isSameLocalDate(partnerTransactionDate(transaction), selectedDate)),
+    [selectedDate, wallet.transactions]
+  );
   return (
-    <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header title="Transactions" subtitle="Completed and cancelled tailoring activity" />
-      {entries.length === 0 ? <EmptyState icon="receipt-outline" title="No transactions yet" copy="Completed order payouts will appear here." /> : null}
-      {entries.map((order) => (
-        <View key={order.id} style={styles.whiteCard}>
-          <View style={styles.rowBetween}>
-            <View style={styles.cardMain}>
-              <Text style={styles.cardTitle}>{order.orderNumber}</Text>
-              <Text style={styles.cardMeta}>{order.customer?.name ?? "Customer"} - {formatStatus(order.status)}</Text>
-            </View>
-            <Text style={styles.priceText}>{order.status === "CANCELLED" ? money(0) : money(tailorOrderEarning(order))}</Text>
-          </View>
-          <View style={styles.cardDivider} />
-          <DetailRow icon="checkmark-circle-outline" label="Status" value={formatStatus(order.status)} />
-          <DetailRow icon="cash-outline" label="Order value" value={money(order.totalAmount)} />
-          <DetailRow icon="time-outline" label="Created" value={order.createdAt ? new Date(order.createdAt).toLocaleString("en-IN") : "Not available"} />
-        </View>
-      ))}
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <Header title="Transaction History" subtitle="Every wallet credit and payout" />
+      <View style={styles.walletDateFilter}>
+        <Pressable style={styles.walletDateButton} onPress={() => setCalendarOpen(true)}>
+          <Ionicons name="calendar-outline" size={18} color={BRAND_ORANGE} />
+          <Text style={styles.walletDateButtonText}>{selectedDate ? selectedDate.toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "All dates"}</Text>
+          <Ionicons name="chevron-down" size={16} color={MUTED} />
+        </Pressable>
+        {selectedDate ? <Pressable style={styles.walletClearDate} onPress={() => setSelectedDate(undefined)}><Ionicons name="close" size={17} color={BRAND_DEEP} /></Pressable> : null}
+      </View>
+      {calendarOpen ? <DateTimePicker value={selectedDate ?? today} mode="date" maximumDate={today} onChange={(_, date) => { setCalendarOpen(false); if (date) setSelectedDate(date); }} /> : null}
+      <Text style={styles.walletResultCount}>{entries.length} transaction{entries.length === 1 ? "" : "s"}</Text>
+      {entries.length ? <View style={styles.walletHistoryCard}>{entries.map((transaction) => <WalletTransactionCard key={transaction.id} transaction={transaction} payments={wallet.payments} onOpenOrder={onOpenOrder} showDialog={showDialog} />)}</View> : <EmptyState icon="receipt-outline" title="No transactions on this date" copy="Choose another date or clear the calendar filter." />}
     </ScrollView>
   );
 }
@@ -2257,15 +2331,13 @@ function TailorVerificationFlow({
     );
   }
 
-  async function pickDoc(setter: (media: VerificationMediaDraft) => void, camera = false, scan?: "ocr" | "face") {
-    const permission = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+  async function pickDoc(setter: (media: VerificationMediaDraft) => void, scan?: "ocr" | "face") {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Permission needed", message: camera ? "Allow camera access to take verification photos." : "Allow photo access to upload verification photos.", icon: "images-outline" });
+      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a live verification photo.", icon: "camera-outline" });
       return;
     }
-    const result = camera
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const media = { uri: asset.uri, name: asset.fileName ?? `tailor-verification-${Date.now()}.jpg` };
@@ -2279,12 +2351,12 @@ function TailorVerificationFlow({
       showDialog({ title: "Shop photos limit", message: "You can upload up to 3 shop photos.", icon: "images-outline" });
       return;
     }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Permission needed", message: "Allow photo access to upload shop photos.", icon: "images-outline" });
+      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a live shop photo.", icon: "camera-outline" });
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
@@ -2526,12 +2598,12 @@ function TailorVerificationFlow({
     }
 
     async function pickReplacementShopPhoto() {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        showDialog({ title: "Permission needed", message: "Allow photo access to upload shop photos.", icon: "images-outline" });
+        showDialog({ title: "Camera permission needed", message: "Allow camera access to take a replacement shop photo.", icon: "camera-outline" });
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
       if (result.canceled || !result.assets.length) return;
       const asset = result.assets[0];
       const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
@@ -2539,10 +2611,10 @@ function TailorVerificationFlow({
     }
 
     async function pickReuploadField(field: TailorReuploadField) {
-      if (field === "aadhaarFront") return pickDoc(setAadhaarFront, false, "ocr");
-      if (field === "aadhaarBack") return pickDoc(setAadhaarBack, false, "ocr");
-      if (field === "panPhoto") return pickDoc(setPanPhoto, false, "ocr");
-      if (field === "facePhoto") return pickDoc(setFacePhoto, true, "face");
+      if (field === "aadhaarFront") return pickDoc(setAadhaarFront, "ocr");
+      if (field === "aadhaarBack") return pickDoc(setAadhaarBack, "ocr");
+      if (field === "panPhoto") return pickDoc(setPanPhoto, "ocr");
+      if (field === "facePhoto") return pickDoc(setFacePhoto, "face");
       return pickReplacementShopPhoto();
     }
 
@@ -2787,11 +2859,11 @@ function TailorVerificationFlow({
             />
             {idType === "Aadhaar" ? (
               <View style={styles.docGrid}>
-                <VerificationDocBox label="Aadhaar Front" media={aadhaarFront} onPick={() => !isLocked && pickDoc(setAadhaarFront, false, "ocr")} disabled={isLocked} />
-                <VerificationDocBox label="Aadhaar Back" media={aadhaarBack} onPick={() => !isLocked && pickDoc(setAadhaarBack, false, "ocr")} disabled={isLocked} />
+                <VerificationDocBox label="Aadhaar Front" media={aadhaarFront} onPick={() => !isLocked && pickDoc(setAadhaarFront, "ocr")} disabled={isLocked} />
+                <VerificationDocBox label="Aadhaar Back" media={aadhaarBack} onPick={() => !isLocked && pickDoc(setAadhaarBack, "ocr")} disabled={isLocked} />
               </View>
             ) : (
-              <VerificationDocBox label={idType === "PAN" ? "PAN Card" : "Driving Licence"} media={panPhoto} onPick={() => !isLocked && pickDoc(setPanPhoto, false, "ocr")} disabled={isLocked} />
+              <VerificationDocBox label={idType === "PAN" ? "PAN Card" : "Driving Licence"} media={panPhoto} onPick={() => !isLocked && pickDoc(setPanPhoto, "ocr")} disabled={isLocked} />
             )}
             <View style={styles.faceVerificationPanel}>
               <View style={[styles.faceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" || faceLiveness === "captured" ? styles.faceCircleReady : styles.faceCircleWaiting]}>
@@ -2807,7 +2879,7 @@ function TailorVerificationFlow({
               <Ionicons name="camera-outline" size={18} color={BRAND_DEEP} />
               <Text style={styles.secondaryButtonText}>{facePhoto ? "Retake Face Verification" : "Start Face Verification"}</Text>
             </Pressable>
-            <VerificationDocBox label="Upload Face Photo Manually" media={facePhoto} onPick={() => confirmFaceProfilePhoto(() => pickDoc(setFacePhoto, true, "face"))} />
+            <VerificationDocBox label="Take Face Photo" media={facePhoto} onPick={() => confirmFaceProfilePhoto(() => pickDoc(setFacePhoto, "face"))} />
             {faceModeOpen ? (
               <Modal visible animationType="slide" onRequestClose={() => setFaceModeOpen(false)}>
                 <SafeAreaView style={styles.cameraSafe}>
@@ -3041,13 +3113,13 @@ function ProfileScreen({
       return;
     }
     if (!token) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Permission needed", message: "Allow photo access to update your profile picture.", icon: "images-outline" });
+      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a new profile picture.", icon: "camera-outline" });
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.82 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.82 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
 
@@ -3390,6 +3462,8 @@ export default function App() {
   }, []);
   const [requests, setRequests] = useState<TailoringRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [wallet, setWallet] = useState<PartnerWalletSummary>(emptyPartnerWallet);
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const [activeRequest, setActiveRequest] = useState<TailoringRequest>();
   const [activeOrder, setActiveOrder] = useState<Order>();
   const [loading, setLoading] = useState(false);
@@ -3499,6 +3573,7 @@ export default function App() {
     setDialog({ title: "Session expired", message: "Please log in again to continue managing requests.", icon: "lock-closed-outline" });
     setRequests([]);
     setOrders([]);
+    setWallet(emptyPartnerWallet());
     setMe(undefined);
     setActiveRequest(undefined);
     setActiveOrder(undefined);
@@ -3517,6 +3592,34 @@ export default function App() {
     }
     setCancellationAlert(undefined);
     setScreen("orders");
+  }
+
+  async function openWalletOrder(orderId: string) {
+    const order = orders.find((item) => item.id === orderId || item.request?.id === orderId || item.id === `accepted-${orderId}`);
+    if (order) {
+      setActiveOrder(order);
+      setScreen("orderDetails");
+      return;
+    }
+    try {
+      const loadedOrder = await api<Order>(`/orders/${orderId}`, {}, token);
+      setOrders((current) => [loadedOrder, ...current.filter((item) => item.id !== loadedOrder.id)]);
+      setActiveOrder(loadedOrder);
+      setScreen("orderDetails");
+      return;
+    } catch {
+      // Some tailoring earnings reference the tailoring request rather than
+      // the generated order, so resolve that shape as the second source.
+    }
+    try {
+      const request = await api<TailoringRequest>(`/tailoring-requests/${orderId}`, {}, token);
+      const loadedOrder = orderFromAcceptedRequest(request);
+      setOrders((current) => [loadedOrder, ...current.filter((item) => item.id !== loadedOrder.id)]);
+      setActiveOrder(loadedOrder);
+      setScreen("orderDetails");
+    } catch (error) {
+      setDialog({ title: "Order unavailable", message: error instanceof Error ? error.message : "This transaction is valid, but its order details could not be loaded.", icon: "receipt-outline" });
+    }
   }
 
   function processWorkspaceEvents(requestData: TailoringRequest[]) {
@@ -3589,11 +3692,14 @@ export default function App() {
     if (!token) return;
     try {
       if (showLoader) setLoading(true);
-      const [profile, openRequestData, selectedRequestData, orderData] = await Promise.all([
+      setLoadingWallet(true);
+      const [profile, openRequestData, selectedRequestData, orderData, walletData, transactionData] = await Promise.all([
         api<MeResponse>("/auth/me", {}, token),
         api<TailoringRequest[]>("/tailoring-requests", {}, token),
         api<TailoringRequest[]>("/tailoring-requests?status=TAILOR_SELECTED", {}, token),
-        api<Order[]>("/orders", {}, token)
+        api<Order[]>("/orders", {}, token),
+        api<PartnerWalletSummary>("/wallet", {}, token),
+        api<PartnerWalletTransaction[]>("/transactions", {}, token)
       ]);
       const acceptedRequests = selectedRequestData.filter((request) => request.ownQuote?.status === "ACCEPTED");
       const requestData = [
@@ -3605,6 +3711,7 @@ export default function App() {
       setMe(profile);
       setRequests(openRequestData);
       setOrders(workspaceOrders);
+      setWallet({ ...walletData, transactions: transactionData, payments: walletData.payments ?? [] });
       setActiveRequest((current) => requestData.find((request) => request.id === current?.id) ?? current);
       setActiveOrder((current) => workspaceOrders.find((order) => order.id === current?.id) ?? current);
       processWorkspaceEvents(requestData);
@@ -3618,6 +3725,7 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+      setLoadingWallet(false);
     }
   }
 
@@ -3793,8 +3901,8 @@ export default function App() {
   if (screen === "quote" && activeRequest) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} activeOrderCount={activeTailorOrderCount} maxOrdersPerDay={maxOrdersPerDay} onDone={() => { void refreshWorkspace(); setScreen("requestDetails"); }} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
-  if (screen === "earnings") body = <EarningsScreen orders={orders} me={me} />;
-  if (screen === "transactions") body = <TransactionHistoryScreen orders={orders} />;
+  if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
+  if (screen === "transactions") body = <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
   if (screen === "profile") {
     body = (
       <TailorProfileScreen
@@ -4166,5 +4274,42 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
   loadingOverlay: { flex: 1, backgroundColor: "rgba(7,13,24,0.22)", alignItems: "center", justifyContent: "center" },
   loadingCard: { minWidth: 210, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 20, alignItems: "center" },
-  loadingText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 10 }
+  loadingText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 10 },
+  walletHeroCard: { minHeight: 148, borderRadius: 24, backgroundColor: "#111827", padding: 20, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden" },
+  walletHeroIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: "rgba(246,163,19,0.13)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(246,163,19,0.25)" },
+  walletHeroMain: { flex: 1, minWidth: 0 },
+  walletHeroLabel: { color: "#aeb9ca", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
+  walletHeroValue: { color: BRAND_ORANGE, fontSize: 32, lineHeight: 39, fontWeight: "900", marginTop: 4 },
+  walletHeroCopy: { color: "#d5dce7", fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 3 },
+  walletSummaryCard: { borderRadius: 22, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 15, marginBottom: 20 },
+  walletSectionHeading: { flexDirection: "row", alignItems: "center", gap: 8 },
+  walletSectionHeadingBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 2 },
+  walletSectionTitle: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  walletMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 },
+  walletMetricCard: { width: "48%", minHeight: 112, flexGrow: 1, borderRadius: 17, borderWidth: 1, borderColor: "#e4e9f1", backgroundColor: "#fbfdff", padding: 13, justifyContent: "center" },
+  walletMetricLabel: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 8 },
+  walletMetricValue: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900", marginTop: 3 },
+  walletMetricSmallValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900", marginTop: 4 },
+  walletHistoryCard: { borderRadius: 22, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 14, marginBottom: 20 },
+  walletTransactionCard: { minHeight: 92, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#edf1f6", paddingVertical: 13 },
+  walletTransactionCardPressed: { backgroundColor: "#fffaf0" },
+  walletTransactionIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#eefbf4", alignItems: "center", justifyContent: "center" },
+  walletTransactionMain: { flex: 1, minWidth: 0 },
+  walletTransactionTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  walletTransactionMeta: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 2 },
+  walletTransactionDate: { color: "#7b8796", fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 4 },
+  walletTransactionSide: { alignItems: "flex-end", gap: 6 },
+  walletTransactionAmount: { fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  walletProofChip: { minHeight: 32, borderRadius: 10, borderWidth: 1, borderColor: BRAND_ORANGE, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  walletProofChipText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900" },
+  walletPendingText: { color: "#9a6700", backgroundColor: "#fff7d6", overflow: "hidden", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 5, fontSize: 9, fontWeight: "900" },
+  walletViewAll: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  walletViewAllButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingTop: 10 },
+  walletViewAllButtonText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
+  walletPaymentRow: { minHeight: 70, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderTopWidth: 1, borderTopColor: "#edf1f6", marginTop: 11, paddingTop: 11 },
+  walletDateFilter: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  walletDateButton: { flex: 1, minHeight: 50, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14 },
+  walletDateButtonText: { flex: 1, color: BRAND_DEEP, fontSize: 13, fontWeight: "900" },
+  walletClearDate: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
+  walletResultCount: { color: MUTED, fontSize: 11, fontWeight: "800", marginBottom: 10 }
 });

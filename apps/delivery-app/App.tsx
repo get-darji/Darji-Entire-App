@@ -13,6 +13,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   BackHandler,
   FlatList,
   Image,
@@ -48,6 +49,16 @@ import { playAppSound } from "./src/services/soundService";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
+import {
+  emptyPartnerWallet,
+  isSameLocalDate,
+  partnerTransactionDate,
+  partnerTransactionLabel,
+  partnerWalletMetrics,
+  proofForPartnerTransaction,
+  type PartnerWalletSummary,
+  type PartnerWalletTransaction
+} from "../../shared/src/partner-wallet";
 import type { NotificationDestination } from "./src/utils/deepLinking";
 
 type AuthStep = "login" | "otp";
@@ -344,7 +355,33 @@ type PullToRefreshState = {
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
 
-const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ refreshControl, horizontal, ...props }, ref) {
+function PullRefreshReveal({ visible }: { visible: boolean }) {
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      duration: visible ? 220 : 160,
+      toValue: visible ? 1 : 0,
+      useNativeDriver: false
+    }).start();
+  }, [progress, visible]);
+
+  return (
+    <Animated.View
+      style={{
+        alignItems: "center",
+        height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 54] }),
+        justifyContent: "center",
+        opacity: progress,
+        overflow: "hidden"
+      }}
+    >
+      <ActivityIndicator color={BRAND_ORANGE} />
+    </Animated.View>
+  );
+}
+
+const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
   const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
   return (
@@ -353,17 +390,18 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollV
       horizontal={horizontal}
       refreshControl={canRefresh ? (
         <RefreshControl
-          colors={[BRAND_ORANGE]}
-          progressBackgroundColor="#fffaf0"
+          colors={["transparent"]}
+          progressBackgroundColor="transparent"
           refreshing={pullToRefresh.refreshing}
-          tintColor={BRAND_ORANGE}
-          title="Refreshing Darji..."
-          titleColor={BRAND_DEEP}
+          tintColor="transparent"
           onRefresh={pullToRefresh.onRefresh ?? (() => undefined)}
         />
       ) : refreshControl}
       {...props}
-    />
+    >
+      {canRefresh ? <PullRefreshReveal visible={pullToRefresh.refreshing} /> : null}
+      {children}
+    </RNScrollView>
   );
 });
 
@@ -1050,20 +1088,17 @@ function OnboardingScreen({
     }
   }
 
-  async function pickMedia(target: keyof OnboardingData, source: "gallery" | "camera", scan?: "identity" | "license" | "face") {
-    const permission = source === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+  async function pickMedia(target: keyof OnboardingData, scan?: "identity" | "license" | "face") {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       showDialog({
-        title: source === "camera" ? "Camera permission needed" : "Gallery permission needed",
-        message: source === "camera" ? "Allow camera access to take this photo." : "Allow gallery access to upload this photo.",
-        icon: source === "camera" ? "camera-outline" : "images-outline"
+        title: "Camera permission needed",
+        message: "Allow camera access to take this live photo.",
+        icon: "camera-outline"
       });
       return;
     }
-    const result =
-      source === "camera"
-        ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const media = { uri: asset.uri, name: asset.fileName ?? `delivery-${String(target)}-${Date.now()}.jpg` };
@@ -1312,17 +1347,17 @@ function OnboardingScreen({
             />
             {data.identityType === "Aadhaar" ? (
               <>
-                <DocumentBox label="Aadhaar front" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "camera", "identity")} onGallery={() => void pickMedia("identityFront", "gallery", "identity")} disabled={isLocked} />
-                <DocumentBox label="Aadhaar back" media={data.identityBack} loading={uploadingMediaKey === "identityBack"} onCamera={() => void pickMedia("identityBack", "camera", "identity")} onGallery={() => void pickMedia("identityBack", "gallery", "identity")} disabled={isLocked} />
+                <DocumentBox label="Aadhaar front" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "identity")} disabled={isLocked} />
+                <DocumentBox label="Aadhaar back" media={data.identityBack} loading={uploadingMediaKey === "identityBack"} onCamera={() => void pickMedia("identityBack", "identity")} disabled={isLocked} />
                 <Field label="Aadhaar number" keyboardType="number-pad" onChange={(value) => update("aadhaarNumber", value.replace(/\D/g, "").slice(0, 12))} value={data.aadhaarNumber} readOnly={isLocked} />
               </>
             ) : (
               <>
-                <DocumentBox label="PAN card" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "camera", "identity")} onGallery={() => void pickMedia("identityFront", "gallery", "identity")} disabled={isLocked} />
+                <DocumentBox label="PAN card" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "identity")} disabled={isLocked} />
                 <Field label="PAN number" onChange={(value) => update("panNumber", value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))} value={data.panNumber} readOnly={isLocked} />
               </>
             )}
-            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "camera", "face"))} onGallery={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "gallery", "face"))} disabled={isLocked} />
+            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "face"))} disabled={isLocked} />
             <View style={styles.mlKitPanel}>
               {scanning ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="scan-outline" size={18} color={BRAND_ORANGE} />}
               <View style={styles.flexOne}>
@@ -1335,8 +1370,8 @@ function OnboardingScreen({
 
         {step.key === "license" ? (
           <Card>
-            <DocumentBox label="License front" media={data.licenseFront} loading={uploadingMediaKey === "licenseFront"} onCamera={() => void pickMedia("licenseFront", "camera", "license")} onGallery={() => void pickMedia("licenseFront", "gallery", "license")} disabled={isLocked} />
-            <DocumentBox label="License back" media={data.licenseBack} loading={uploadingMediaKey === "licenseBack"} onCamera={() => void pickMedia("licenseBack", "camera", "license")} onGallery={() => void pickMedia("licenseBack", "gallery", "license")} disabled={isLocked} />
+            <DocumentBox label="License front" media={data.licenseFront} loading={uploadingMediaKey === "licenseFront"} onCamera={() => void pickMedia("licenseFront", "license")} disabled={isLocked} />
+            <DocumentBox label="License back" media={data.licenseBack} loading={uploadingMediaKey === "licenseBack"} onCamera={() => void pickMedia("licenseBack", "license")} disabled={isLocked} />
             <Field label="License number" onChange={(value) => update("licenseNumber", value.toUpperCase())} value={data.licenseNumber} readOnly={isLocked} />
             <DateField label="Expiry date" minimumDate={new Date()} onChange={(value) => update("licenseExpiry", value)} value={data.licenseExpiry} disabled={isLocked} />
           </Card>
@@ -1348,8 +1383,8 @@ function OnboardingScreen({
             <ChoiceGroup onChange={(value) => update("vehicleType", value)} options={["Bicycle", "Scooter", "Motorcycle", "Car"]} value={data.vehicleType} disabled={isLocked} />
             <Field label="Vehicle number" onChange={(value) => update("vehicleNumber", value.toUpperCase())} value={data.vehicleNumber} readOnly={isLocked} />
             <Field label="Vehicle model" onChange={(value) => update("vehicleModel", value)} value={data.vehicleModel} readOnly={isLocked} />
-            <DocumentBox label="RC image" media={data.rcPhoto} loading={uploadingMediaKey === "rcPhoto"} onCamera={() => void pickMedia("rcPhoto", "camera")} onGallery={() => void pickMedia("rcPhoto", "gallery")} disabled={isLocked} />
-            <DocumentBox label="Insurance image" media={data.insurancePhoto} loading={uploadingMediaKey === "insurancePhoto"} onCamera={() => void pickMedia("insurancePhoto", "camera")} onGallery={() => void pickMedia("insurancePhoto", "gallery")} disabled={isLocked} />
+            <DocumentBox label="RC image" media={data.rcPhoto} loading={uploadingMediaKey === "rcPhoto"} onCamera={() => void pickMedia("rcPhoto")} disabled={isLocked} />
+            <DocumentBox label="Insurance image" media={data.insurancePhoto} loading={uploadingMediaKey === "insurancePhoto"} onCamera={() => void pickMedia("insurancePhoto")} disabled={isLocked} />
           </Card>
         ) : null}
 
@@ -1432,7 +1467,7 @@ function OnboardingScreen({
   );
 }
 
-function DocumentBox({ label, media, onGallery, onCamera, loading = false, disabled = false }: { label: string; media?: MediaDraft; onGallery: () => void; onCamera: () => void; loading?: boolean; disabled?: boolean }) {
+function DocumentBox({ label, media, onCamera, loading = false, disabled = false }: { label: string; media?: MediaDraft; onCamera: () => void; loading?: boolean; disabled?: boolean }) {
   return (
     <View style={styles.documentBox}>
       <View style={styles.documentPreview}>
@@ -1443,13 +1478,9 @@ function DocumentBox({ label, media, onGallery, onCamera, loading = false, disab
         <Text numberOfLines={1} style={styles.cardMeta}>{loading ? "Uploading..." : media ? media.name : "No photo selected"}</Text>
         {!disabled ? (
           <View style={styles.docActions}>
-            <Pressable style={styles.docButton} onPress={onGallery} disabled={loading}>
-              <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
-              <Text style={styles.docButtonText}>Gallery</Text>
-            </Pressable>
             <Pressable style={styles.docButton} onPress={onCamera} disabled={loading}>
               {loading ? <ActivityIndicator color={BRAND_ORANGE} size="small" /> : <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />}
-              <Text style={styles.docButtonText}>{loading ? "Uploading" : "Camera"}</Text>
+              <Text style={styles.docButtonText}>{loading ? "Uploading" : "Take live photo"}</Text>
             </Pressable>
           </View>
         ) : (
@@ -1881,12 +1912,25 @@ function OrdersScreen({
   accepting: boolean;
   deliveryType?: string;
 }) {
-  const [queue, setQueue] = useState<"active" | "history" | "cancelled">("active");
+  const [queue, setQueue] = useState<"requested" | "accepted" | "history" | "cancelled">("requested");
   const pullToRefresh = useContext(PullToRefreshContext);
+  const requestedCount = batches.filter((batch) => batch.status === "offered").length;
+  const acceptedCount = batches.filter((batch) => batch.status === "active").length;
+  const previousRequestedCount = useRef(requestedCount);
+
+  useEffect(() => {
+    if (requestedCount > 0 && previousRequestedCount.current === 0) {
+      setQueue("requested");
+    } else if (requestedCount === 0 && queue === "requested") {
+      setQueue("accepted");
+    }
+    previousRequestedCount.current = requestedCount;
+  }, [queue, requestedCount]);
 
   const visibleBatches = useMemo(() => {
     return batches.filter((b) => {
-      if (queue === "active") return b.status === "active" || b.status === "offered";
+      if (queue === "requested") return b.status === "offered";
+      if (queue === "accepted") return b.status === "active";
       if (queue === "history") return b.status === "completed";
       return b.status === "cancelled";
     });
@@ -1899,22 +1943,21 @@ function OrdersScreen({
       keyExtractor={(item) => item.batchId}
       refreshControl={
         <RefreshControl
-          colors={[BRAND_ORANGE]}
-          progressBackgroundColor="#fffaf0"
+          colors={["transparent"]}
+          progressBackgroundColor="transparent"
           refreshing={pullToRefresh.refreshing}
-          tintColor={BRAND_ORANGE}
-          title="Refreshing Darji..."
-          titleColor={BRAND_DEEP}
+          tintColor="transparent"
           onRefresh={pullToRefresh.onRefresh}
         />
       }
       ListHeaderComponent={<>
+        <PullRefreshReveal visible={pullToRefresh.refreshing} />
         <Header subtitle={`${deliveryType || "PICKUP"} batch pickup and delivery workflow`} title="Delivery Batches" />
         <View style={styles.segmentRow}>
-          {(["active", "history", "cancelled"] as const).map((item) => (
+          {(["requested", "accepted", "history", "cancelled"] as const).map((item) => (
             <Pressable key={item} style={[styles.segment, queue === item && styles.segmentActive, item === "cancelled" && queue === item && styles.cancelledSegmentActive]} onPress={() => setQueue(item)}>
               <Text style={[styles.segmentText, queue === item && styles.segmentTextActive, item === "cancelled" && queue === item && styles.cancelledSegmentText]}>
-                {item === "active" ? "Active Batches" : item === "history" ? "History" : "Cancelled"}
+                {item === "requested" ? `Requested${requestedCount ? ` (${requestedCount})` : ""}` : item === "accepted" ? `Accepted${acceptedCount ? ` (${acceptedCount})` : ""}` : item === "history" ? "History" : "Cancelled"}
               </Text>
             </Pressable>
           ))}
@@ -1929,7 +1972,7 @@ function OrdersScreen({
         }
         
         const isInstant = item.isInstant || item.requests.some((request) => request.serviceLevel === "INSTANT");
-        const isActiveTime = queue === "active" && !isInstant && item.deliveryRound === expectedRound;
+        const isActiveTime = queue === "accepted" && !isInstant && item.deliveryRound === expectedRound;
 
         return (
         <Pressable 
@@ -2044,25 +2087,29 @@ function ActiveOrderScreenView({
   const pickupChecklistComplete = pickupOtpVerified && (order.type === "tailor_to_customer" || (clothPhotosUploaded && samplePhotosUploaded));
   const needsCashCollection = order.type === "tailor_to_customer" && order.paymentMethod === "COD" && order.cashCollectionRequired === true && !order.cashCollected;
   const deliveryChecklistComplete = dropOtpVerified && !needsCashCollection && deliveryPhotosUploaded;
+  const headingToPickup = order.taskStatus === "accepted";
+  const destinationIsCustomer = headingToPickup ? order.type === "customer_to_tailor" : order.type === "tailor_to_customer";
+  const routeDestination = destinationIsCustomer
+    ? (order.type === "customer_to_tailor" ? order.pickupAddress : order.dropAddress)
+    : (order.type === "customer_to_tailor" ? order.dropAddress : order.pickupAddress);
+  const routeDestinationLabel = destinationIsCustomer ? "Customer" : "Tailor";
+  const routeOrigin = currentLocation ? `${currentLocation.latitude},${currentLocation.longitude}` : undefined;
 
-  async function addProof(kind: "cloth" | "sample" | "delivery", source: "camera" | "gallery") {
+  async function addProof(kind: "cloth" | "sample" | "delivery") {
     if (kind === "delivery" ? !dropOtpVerified : !pickupOtpVerified) {
       showDialog({ title: "OTP required", message: kind === "delivery" ? "Verify the delivery OTP first." : "Verify the pickup OTP first.", icon: "shield-checkmark-outline" });
       return;
     }
-    const permission = source === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       showDialog({
-        title: source === "camera" ? "Camera permission needed" : "Gallery permission needed",
-        message: source === "camera" ? "Allow camera access to capture proof." : "Allow gallery access to upload proof.",
-        icon: source === "camera" ? "camera-outline" : "images-outline"
+        title: "Camera permission needed",
+        message: "Allow camera access to capture a live proof photo.",
+        icon: "camera-outline"
       });
       return;
     }
-    const result =
-      source === "camera"
-        ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 })
-        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const update = kind === "cloth" ? setClothProofs : kind === "sample" ? setSampleProofs : setDeliveryProofs;
@@ -2242,7 +2289,7 @@ function ActiveOrderScreenView({
             {order.routePosition && order.routeTotal ? <StatusRow label="Priority" value={`${order.routePosition} of ${order.routeTotal}`} /> : null}
             <View style={styles.navRow}>
               <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call pickup" onPress={() => Linking.openURL(`tel:${order.leg === "CUSTOMER_TO_TAILOR" ? order.customerPhone ?? "" : order.tailorPhone ?? ""}`)} variant="secondary" /></View>
-              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Route" onPress={() => openDirections(order.pickupAddress)} /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label={`Go to ${routeDestinationLabel}`} onPress={() => openDirections(routeDestination, routeOrigin)} /></View>
             </View>
             {order.taskStatus === "accepted" || order.taskStatus === "picked_up" ? (
               <PrimaryButton icon="alert-circle-outline" label="Mark Failed" variant="danger" loading={updating} onPress={() => setFailureModalOpen(true)} />
@@ -2252,14 +2299,10 @@ function ActiveOrderScreenView({
 
         {screen === "route" ? (
           <Card accent>
-            <Text style={styles.cardTitle}>Best route</Text>
-            <Text style={styles.helperText}>Use Google Maps for live navigation. The in-app OpenStreetMap preview has been removed to avoid broken route loading.</Text>
-            <StatusRow label="Customer Address" value={order.type === "customer_to_tailor" ? order.pickupAddress : order.dropAddress} />
-            <StatusRow label="Tailor Address" value={order.type === "customer_to_tailor" ? order.dropAddress : order.pickupAddress} />
-            <View style={styles.navRow}>
-              <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Go to Customer" onPress={() => openDirections(order.type === "customer_to_tailor" ? order.pickupAddress : order.dropAddress)} variant="secondary" /></View>
-              <View style={styles.flexOne}><PrimaryButton icon="flag-outline" label="Go to Tailor" onPress={() => openDirections(order.type === "customer_to_tailor" ? order.dropAddress : order.pickupAddress)} /></View>
-            </View>
+            <Text style={styles.cardTitle}>Next destination: {routeDestinationLabel}</Text>
+            <Text style={styles.helperText}>{headingToPickup ? "Navigate to the pickup point first." : "Pickup is complete. Continue only to the drop point."}</Text>
+            <StatusRow label={`${routeDestinationLabel} Address`} value={routeDestination} />
+            <PrimaryButton icon={destinationIsCustomer ? "navigate-outline" : "flag-outline"} label={`Go to ${routeDestinationLabel}`} onPress={() => openDirections(routeDestination, routeOrigin)} />
           </Card>
         ) : null}
 
@@ -2268,13 +2311,9 @@ function ActiveOrderScreenView({
             <Text style={styles.cardTitle}>Cloth photos</Text>
             <Text style={styles.helperText}>Upload one clear pickup photo per clothing item: {Math.min(clothProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
             <View style={styles.docActions}>
-              <Pressable style={styles.docButton} onPress={() => addProof("cloth", "gallery")}>
-                <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
-                <Text style={styles.docButtonText}>Gallery</Text>
-              </Pressable>
-              <Pressable style={styles.docButton} onPress={() => addProof("cloth", "camera")}>
+              <Pressable style={styles.docButton} onPress={() => addProof("cloth")}>
                 <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />
-                <Text style={styles.docButtonText}>Camera</Text>
+                <Text style={styles.docButtonText}>Take live photo</Text>
               </Pressable>
             </View>
             <View style={styles.mediaGrid}>
@@ -2286,8 +2325,7 @@ function ActiveOrderScreenView({
                 <Text style={styles.cardTitle}>Sample photos required</Text>
                 <Text style={styles.cardMeta}>{order.sampleMedia.length} customer sample reference file(s) exist.</Text>
                 <View style={styles.docActions}>
-                  <Pressable style={styles.docButton} onPress={() => addProof("sample", "gallery")}><Ionicons name="images-outline" size={15} color={BRAND_ORANGE} /><Text style={styles.docButtonText}>Gallery</Text></Pressable>
-                  <Pressable style={styles.docButton} onPress={() => addProof("sample", "camera")}><Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} /><Text style={styles.docButtonText}>Camera</Text></Pressable>
+                  <Pressable style={styles.docButton} onPress={() => addProof("sample")}><Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} /><Text style={styles.docButtonText}>Take live photo</Text></Pressable>
                 </View>
                 <View style={styles.mediaGrid}>{sampleProofs.map((proof) => <Image key={proof.uri} source={{ uri: proof.uri }} style={styles.proofImage} />)}</View>
                 {!samplePhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label="Complete Sample Photo Upload" loading={uploadingPhotos} disabled={!sampleProofs.length} onPress={() => savePhotos("sample")} /> : <ChecklistRow label="Sample photos uploaded" complete />}
@@ -2301,13 +2339,9 @@ function ActiveOrderScreenView({
             <Text style={styles.cardTitle}>Final delivery photos</Text>
             <Text style={styles.helperText}>Upload one final handover photo per clothing item: {Math.min(deliveryProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
             <View style={styles.docActions}>
-              <Pressable style={styles.docButton} onPress={() => addProof("delivery", "gallery")}>
-                <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
-                <Text style={styles.docButtonText}>Gallery</Text>
-              </Pressable>
-              <Pressable style={styles.docButton} onPress={() => addProof("delivery", "camera")}>
+              <Pressable style={styles.docButton} onPress={() => addProof("delivery")}>
                 <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />
-                <Text style={styles.docButtonText}>Camera</Text>
+                <Text style={styles.docButtonText}>Take live photo</Text>
               </Pressable>
             </View>
             <View style={styles.mediaGrid}>
@@ -2373,143 +2407,150 @@ function EmptyState({ title, copy }: { title: string; copy: string }) {
   );
 }
 
-function EarningsScreen({ requests, me }: { requests: DeliveryRequest[]; me?: MeResponse }) {
-  const [wallet, setWallet] = useState<any>(null);
-  const [loadingWallet, setLoadingWallet] = useState(false);
-  const delivered = useMemo(() => requests.filter((request) => request.taskStatus === "delivered"), [requests]);
-  const today = useMemo(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  }, []);
-  const week = useMemo(() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const day = start.getDay();
-    start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
-    return start;
-  }, []);
-  const month = useMemo(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  }, []);
-  const todayEarnings = useMemo(
-    () => delivered.reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), today) ? requestEarning(request) : 0), 0),
-    [delivered, today]
-  );
-  const weeklyEarnings = useMemo(
-    () => delivered.reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), week) ? requestEarning(request) : 0), 0),
-    [delivered, week]
-  );
-  const monthlyEarnings = useMemo(
-    () => delivered.reduce((sum, request) => sum + (isAfterDate(taskCompletedAt(request), month) ? requestEarning(request) : 0), 0),
-    [delivered, month]
-  );
-  const totalEarnings = useMemo(() => delivered.reduce((sum, request) => sum + requestEarning(request), 0), [delivered]);
-  const pickupJobs = delivered.filter((request) => request.type === "customer_to_tailor");
-  const dropJobs = delivered.filter((request) => request.type === "tailor_to_customer");
-  const averagePerJob = delivered.length ? totalEarnings / delivered.length : 0;
-  const withdrawableBalance = Number(me?.deliveryProfile?.withdrawableBalance ?? totalEarnings);
+function walletMoney(value: number | string | undefined) {
+  return `Rs ${Number(value ?? 0).toFixed(0)}`;
+}
 
-  useEffect(() => {
-    let mounted = true;
-    setLoadingWallet(true);
-    api<any>("/wallet")
-      .then((data) => {
-        if (mounted) setWallet(data);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (mounted) setLoadingWallet(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+async function openWalletProof(url: string, showDialog: (dialog: DialogState) => void) {
+  try {
+    if (!(await Linking.canOpenURL(url))) throw new Error("Unsupported proof link");
+    await Linking.openURL(url);
+  } catch {
+    showDialog({ title: "Proof unavailable", message: "This payment proof could not be opened. Ask Darji support to upload it again.", icon: "image-outline" });
+  }
+}
 
+function WalletTransactionCard({ transaction, payments, onOpenOrder, showDialog }: {
+  transaction: PartnerWalletTransaction;
+  payments: PartnerWalletSummary["payments"];
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const proofUrl = proofForPartnerTransaction(transaction, payments);
+  const createdAt = partnerTransactionDate(transaction);
+  const isCredit = transaction.transactionType === "CREDIT";
+  const canOpenOrder = Boolean(transaction.orderId);
   return (
-    <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header subtitle="Completed delivery payouts" title="Earnings" />
-      <View style={styles.statsRow}>
-        <Stat label="Wallet" value={`Rs ${Number(wallet?.balance ?? withdrawableBalance).toFixed(0)}`} />
-        <Stat label="Weekly" value={`Rs ${Number(wallet?.currentWeekEarnings ?? weeklyEarnings).toFixed(0)}`} tone="green" />
+    <Pressable
+      accessibilityRole={canOpenOrder ? "button" : undefined}
+      disabled={!canOpenOrder}
+      onPress={() => transaction.orderId && onOpenOrder(transaction.orderId)}
+      style={({ pressed }) => [styles.walletTransactionCard, pressed && canOpenOrder && styles.walletTransactionCardPressed]}
+    >
+      <View style={styles.walletTransactionIcon}>
+        <Ionicons name={transaction.category === "WEEKLY_PAYOUT" ? "wallet-outline" : "bag-check-outline"} size={20} color={isCredit ? SUCCESS : BRAND_ORANGE} />
       </View>
-      <Card>
-        <Text style={styles.cardTitle}>Weekly Settlement</Text>
-        <StatusRow label="Pending amount" value={`Rs ${Number(wallet?.pendingAmount ?? wallet?.balance ?? withdrawableBalance).toFixed(0)}`} />
-        <StatusRow label="Last payment" value={wallet?.lastPayment?.paidAt ? new Date(wallet.lastPayment.paidAt).toLocaleString("en-IN") : "Not paid yet"} />
-        <StatusRow label="Monthly earned" value={`Rs ${monthlyEarnings.toFixed(0)}`} />
-        <StatusRow label="Pickup jobs" value={String(pickupJobs.length)} />
-        <StatusRow label="Drop jobs" value={String(dropJobs.length)} />
-        <StatusRow label="Average per job" value={`Rs ${averagePerJob.toFixed(0)}`} />
-        <StatusRow label="Completed jobs" value={String(delivered.length)} />
-      </Card>
-      <Card accent>
-        <Text style={styles.cardMeta}>Wallet balance</Text>
-        <Text style={styles.walletValue}>Rs {Number(wallet?.balance ?? withdrawableBalance).toFixed(0)}</Text>
-        <Text style={styles.cardMeta}>Payments are settled weekly.</Text>
-      </Card>
-      {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : null}
-      <Card>
-        <Text style={styles.cardTitle}>Wallet History</Text>
-        {(wallet?.transactions ?? []).length === 0 ? <Text style={styles.cardMeta}>No wallet transactions yet.</Text> : null}
-        {(wallet?.transactions ?? []).map((transaction: any) => (
-          <StatusRow
-            key={transaction.id}
-            label={`${transaction.transactionType === "DEBIT" ? "-" : "+"} Rs ${Number(transaction.amount ?? 0).toFixed(0)}`}
-            value={transaction.remarks ?? transaction.category}
-          />
-        ))}
-      </Card>
-      <Card>
-        <Text style={styles.cardTitle}>Previous Payments</Text>
-        {(wallet?.payments ?? []).length === 0 ? <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text> : null}
-        {(wallet?.payments ?? []).map((payment: any) => (
-          <View key={payment.id} style={styles.paymentProofRow}>
-            <StatusRow
-              label={`Rs ${Number(payment.amount ?? 0).toFixed(0)}`}
-              value={payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}
-            />
-            {payment.receiptUrl ? (
-              <PrimaryButton icon="image-outline" label="View Payment Proof" variant="secondary" onPress={() => Linking.openURL(payment.receiptUrl)} />
-            ) : null}
-          </View>
-        ))}
-      </Card>
+      <View style={styles.walletTransactionMain}>
+        <Text style={styles.walletTransactionTitle} numberOfLines={1}>
+          {transaction.orderId ? `Order ${shortId(transaction.orderId)}` : partnerTransactionLabel(transaction)}
+        </Text>
+        <Text style={styles.walletTransactionMeta} numberOfLines={2}>{transaction.remarks ?? partnerTransactionLabel(transaction)}</Text>
+        <Text style={styles.walletTransactionDate}>{createdAt ? createdAt.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Date unavailable"}</Text>
+      </View>
+      <View style={styles.walletTransactionSide}>
+        <Text style={[styles.walletTransactionAmount, { color: isCredit ? SUCCESS : "#b91c1c" }]}>{isCredit ? "+" : "-"}{walletMoney(transaction.amount)}</Text>
+        {proofUrl ? (
+          <Pressable
+            style={styles.walletProofChip}
+            onPress={(event) => {
+              event.stopPropagation();
+              void openWalletProof(proofUrl, showDialog);
+            }}
+          >
+            <Ionicons name="image-outline" size={14} color={BRAND_ORANGE} />
+            <Text style={styles.walletProofChipText}>View Proof</Text>
+          </Pressable>
+        ) : transaction.category === "ORDER_EARNING" ? <Text style={styles.walletPendingText}>Pending payout</Text> : null}
+      </View>
+      {canOpenOrder ? <Ionicons name="chevron-forward" size={17} color="#94a3b8" /> : null}
+    </Pressable>
+  );
+}
+
+function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDialog }: {
+  wallet: PartnerWalletSummary;
+  loadingWallet: boolean;
+  onViewAll: () => void;
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const metrics = useMemo(() => partnerWalletMetrics(wallet), [wallet]);
+  const recentTransactions = wallet.transactions.slice(0, 4);
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <Header subtitle="Your verified delivery earnings" title="Earnings" />
+      <View style={styles.walletHeroCard}>
+        <View style={styles.walletHeroIcon}><Ionicons name="wallet-outline" size={28} color={BRAND_ORANGE} /></View>
+        <View style={styles.walletHeroMain}>
+          <Text style={styles.walletHeroLabel}>WALLET BALANCE</Text>
+          <Text style={styles.walletHeroValue}>{walletMoney(metrics.balance)}</Text>
+          <Text style={styles.walletHeroCopy}>Available in the next recorded payout.</Text>
+        </View>
+        {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="shield-checkmark-outline" size={23} color="#dbeafe" />}
+      </View>
+
+      <View style={styles.walletSummaryCard}>
+        <View style={styles.walletSectionHeading}><Ionicons name="calendar-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletSectionTitle}>Earnings summary</Text></View>
+        <View style={styles.walletMetricGrid}>
+          <View style={styles.walletMetricCard}><Ionicons name="time-outline" size={21} color="#f97316" /><Text style={styles.walletMetricLabel}>Pending amount</Text><Text style={[styles.walletMetricValue, { color: "#f97316" }]}>{walletMoney(metrics.pendingAmount)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="calendar-number-outline" size={21} color="#0284c7" /><Text style={styles.walletMetricLabel}>This week</Text><Text style={[styles.walletMetricValue, { color: "#0284c7" }]}>{walletMoney(metrics.currentWeekEarnings)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="trending-up-outline" size={21} color={SUCCESS} /><Text style={styles.walletMetricLabel}>Monthly earned</Text><Text style={[styles.walletMetricValue, { color: SUCCESS }]}>{walletMoney(metrics.monthlyEarned)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="bag-check-outline" size={21} color="#7c3aed" /><Text style={styles.walletMetricLabel}>Jobs completed</Text><Text style={[styles.walletMetricValue, { color: "#7c3aed" }]}>{metrics.completedJobs}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="cash-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletMetricLabel}>Average per job</Text><Text style={styles.walletMetricValue}>{walletMoney(metrics.averagePerJob)}</Text></View>
+          <View style={styles.walletMetricCard}><Ionicons name="receipt-outline" size={21} color="#475569" /><Text style={styles.walletMetricLabel}>Last payment</Text><Text style={styles.walletMetricSmallValue}>{metrics.lastPayment?.paidAt ? new Date(metrics.lastPayment.paidAt).toLocaleDateString("en-IN") : "Not paid yet"}</Text></View>
+        </View>
+      </View>
+
+      <View style={styles.walletSectionHeadingBetween}>
+        <View style={styles.walletSectionHeading}><Ionicons name="time-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletSectionTitle}>Transaction History</Text></View>
+        <Pressable onPress={onViewAll}><Text style={styles.walletViewAll}>View all</Text></Pressable>
+      </View>
+      {recentTransactions.length ? (
+        <View style={styles.walletHistoryCard}>
+          {recentTransactions.map((transaction) => <WalletTransactionCard key={transaction.id} transaction={transaction} payments={wallet.payments} onOpenOrder={onOpenOrder} showDialog={showDialog} />)}
+          <Pressable style={styles.walletViewAllButton} onPress={onViewAll}><Text style={styles.walletViewAllButtonText}>View all history</Text><Ionicons name="arrow-forward" size={16} color={BRAND_ORANGE} /></Pressable>
+        </View>
+      ) : <EmptyState title="No transactions yet" copy="Completed delivery earnings and weekly payouts will appear here." />}
+
+      <View style={styles.walletHistoryCard}>
+        <View style={styles.walletSectionHeading}><Ionicons name="card-outline" size={21} color={BRAND_DEEP} /><Text style={styles.walletSectionTitle}>Previous Payments</Text></View>
+        {wallet.payments.length ? wallet.payments.slice(0, 3).map((payment) => (
+          <Pressable key={payment.id} style={styles.walletPaymentRow} onPress={() => void openWalletProof(payment.receiptUrl, showDialog)}>
+            <View><Text style={styles.walletTransactionTitle}>{walletMoney(payment.amount)}</Text><Text style={styles.walletTransactionMeta}>{payment.referenceNumber ?? "Weekly payout"}</Text></View>
+            <View style={styles.walletTransactionSide}><Text style={styles.walletTransactionDate}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}</Text><Text style={styles.walletViewAll}>View proof</Text></View>
+          </Pressable>
+        )) : <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text>}
+      </View>
     </ScrollView>
   );
 }
 
-function TransactionHistoryScreen({ requests }: { requests: DeliveryRequest[] }) {
-  const entries = [...requests]
-    .filter((request) => request.taskStatus === "delivered" || request.taskStatus === "cancelled")
-    .sort((a, b) => new Date(taskCompletedAt(b) ?? b.createdAt ?? 0).getTime() - new Date(taskCompletedAt(a) ?? a.createdAt ?? 0).getTime());
-
+function TransactionHistoryScreen({ wallet, onOpenOrder, showDialog }: {
+  wallet: PartnerWalletSummary;
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const [selectedDate, setSelectedDate] = useState<Date>();
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const today = useMemo(() => new Date(), []);
+  const entries = useMemo(
+    () => wallet.transactions.filter((transaction) => isSameLocalDate(partnerTransactionDate(transaction), selectedDate)),
+    [selectedDate, wallet.transactions]
+  );
   return (
-    <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header subtitle="Completed and cancelled delivery activity" title="Transactions" />
-      {entries.length === 0 ? <EmptyState title="No transactions yet" copy="Delivered jobs and payout entries will appear here." /> : null}
-      {entries.map((request) => (
-        <Card key={request.id}>
-          <View style={styles.cardTopRow}>
-            <View style={styles.iconTile}>
-              <Ionicons name={request.taskStatus === "cancelled" ? "close-circle-outline" : "receipt-outline"} size={21} color={BRAND_ORANGE} />
-            </View>
-            <View style={styles.cardMain}>
-              <Text style={styles.cardTitle}>{shortId(request.id)} - {requestTitle(request)}</Text>
-              <Text style={styles.cardMeta}>{request.clothType ?? "Cloth"} / {request.workType ?? "Delivery"}</Text>
-              {request.createdAt ? (
-                <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
-                  Confirmed: {new Date(request.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-                </Text>
-              ) : null}
-            </View>
-            <Text style={styles.priceText}>Rs {request.taskStatus === "cancelled" ? "0" : requestEarning(request).toFixed(0)}</Text>
-          </View>
-          <StatusRow label="Status" value={request.taskStatus.replace("_", " ").toUpperCase()} />
-          <StatusRow label="Order" value={shortId(request.orderId)} />
-          <StatusRow label="Completed" value={taskCompletedAt(request)?.toLocaleString("en-IN") ?? "Pending"} />
-        </Card>
-      ))}
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <Header subtitle="Every wallet credit and payout" title="Transaction History" />
+      <View style={styles.walletDateFilter}>
+        <Pressable style={styles.walletDateButton} onPress={() => setCalendarOpen(true)}>
+          <Ionicons name="calendar-outline" size={18} color={BRAND_ORANGE} />
+          <Text style={styles.walletDateButtonText}>{selectedDate ? selectedDate.toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "All dates"}</Text>
+          <Ionicons name="chevron-down" size={16} color={MUTED} />
+        </Pressable>
+        {selectedDate ? <Pressable style={styles.walletClearDate} onPress={() => setSelectedDate(undefined)}><Ionicons name="close" size={17} color={BRAND_DEEP} /></Pressable> : null}
+      </View>
+      {calendarOpen ? <DateTimePicker value={selectedDate ?? today} mode="date" maximumDate={today} onChange={(_, date) => { setCalendarOpen(false); if (date) setSelectedDate(date); }} /> : null}
+      <Text style={styles.walletResultCount}>{entries.length} transaction{entries.length === 1 ? "" : "s"}</Text>
+      {entries.length ? <View style={styles.walletHistoryCard}>{entries.map((transaction) => <WalletTransactionCard key={transaction.id} transaction={transaction} payments={wallet.payments} onOpenOrder={onOpenOrder} showDialog={showDialog} />)}</View> : <EmptyState title="No transactions on this date" copy="Choose another date or clear the calendar filter." />}
     </ScrollView>
   );
 }
@@ -2585,6 +2626,8 @@ function MainApp({
   const [tabStack, setTabStack] = useState<Tab[]>([]);
   const [online, setOnline] = useState(Boolean(me?.deliveryProfile?.isAvailable ?? false));
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
+  const [wallet, setWallet] = useState<PartnerWalletSummary>(emptyPartnerWallet);
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const [activeBatchId, setActiveBatchId] = useState<string | undefined>();
   const [requestVisible, setRequestVisible] = useState(false);
   const [popupRequest, setPopupRequest] = useState<DeliveryRequest>();
@@ -2788,6 +2831,26 @@ function MainApp({
     setActiveOrderScreen("summary");
   }
 
+  async function openWalletOrder(orderId: string) {
+    const request = requests.find((item) => item.id === orderId || item.orderId === orderId);
+    if (request) {
+      setActiveOrder(request);
+      setActiveOrderScreen("summary");
+      setTab("orders");
+      return;
+    }
+    try {
+      const payload = await api<DeliveryTaskPayload>(`/delivery-requests/${orderId}`, {}, token);
+      const loadedRequest = normalizeDeliveryTask(payload);
+      setRequests((current) => mergeDeliveryRequests(current, [loadedRequest]));
+      setActiveOrder(loadedRequest);
+      setActiveOrderScreen("summary");
+      setTab("orders");
+    } catch (error) {
+      showDialog({ title: "Order unavailable", message: error instanceof Error ? error.message : "This transaction is valid, but its delivery details could not be loaded.", icon: "receipt-outline" });
+    }
+  }
+
   function openNotification(notification: DeliveryNotification) {
     const request = requests.find((item) => item.id === notification.taskId || item.orderId === notification.orderId);
     if (request) {
@@ -2873,22 +2936,40 @@ function MainApp({
     }
   }, [token]);
 
+  const loadWallet = useCallback(async () => {
+    if (!token) return;
+    setLoadingWallet(true);
+    try {
+      const [walletData, transactionData] = await Promise.all([
+        api<PartnerWalletSummary>("/wallet", {}, token),
+        api<PartnerWalletTransaction[]>("/transactions", {}, token)
+      ]);
+      setWallet({ ...walletData, transactions: transactionData, payments: walletData.payments ?? [] });
+    } catch (error) {
+      if (isSessionError(error)) onSessionExpired();
+    } finally {
+      setLoadingWallet(false);
+    }
+  }, [onSessionExpired, token]);
+
   const refreshVisibleDeliveryScreen = useCallback(async () => {
     if (pullRefreshing) return;
     setPullRefreshing(true);
     try {
       await Promise.all([
         loadRequests(false),
+        loadWallet(),
         Promise.resolve(onRefreshProfile())
       ]);
     } finally {
       setPullRefreshing(false);
     }
-  }, [loadRequests, onRefreshProfile, pullRefreshing]);
+  }, [loadRequests, loadWallet, onRefreshProfile, pullRefreshing]);
 
   useEffect(() => {
     void loadRequests(true);
-  }, [loadRequests]);
+    void loadWallet();
+  }, [loadRequests, loadWallet]);
 
   useEffect(() => {
     if (!token) return;
@@ -3259,8 +3340,8 @@ function MainApp({
           }}
           deliveryType={me?.deliveryProfile?.deliveryType}
         /> : null}
-        {tab === "earnings" ? <EarningsScreen me={me} requests={requests} /> : null}
-        {tab === "transactions" ? <TransactionHistoryScreen requests={requests} /> : null}
+        {tab === "earnings" ? <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setTab("transactions")} onOpenOrder={openWalletOrder} showDialog={showDialog} /> : null}
+        {tab === "transactions" ? <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={showDialog} /> : null}
         {tab === "notifications" ? <NotificationsScreen notifications={notificationsFromRequests} onOpen={openNotification} /> : null}
         {tab === "profile" ? (
           <DeliveryProfileScreen
@@ -3667,5 +3748,42 @@ const styles = StyleSheet.create({
   tabItem: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabText: { color: "#111827", fontSize: 10, fontWeight: "800", marginTop: 4 },
   activeTabText: { color: BRAND_ORANGE },
-  stopNumber: { fontSize: 14, fontWeight: "900", color: BRAND_DEEP }
+  stopNumber: { fontSize: 14, fontWeight: "900", color: BRAND_DEEP },
+  walletHeroCard: { minHeight: 148, borderRadius: 24, backgroundColor: "#111827", padding: 20, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 14, overflow: "hidden" },
+  walletHeroIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: "rgba(246,163,19,0.13)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(246,163,19,0.25)" },
+  walletHeroMain: { flex: 1, minWidth: 0 },
+  walletHeroLabel: { color: "#aeb9ca", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
+  walletHeroValue: { color: BRAND_ORANGE, fontSize: 32, lineHeight: 39, fontWeight: "900", marginTop: 4 },
+  walletHeroCopy: { color: "#d5dce7", fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 3 },
+  walletSummaryCard: { borderRadius: 22, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 15, marginBottom: 20 },
+  walletSectionHeading: { flexDirection: "row", alignItems: "center", gap: 8 },
+  walletSectionHeadingBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 2 },
+  walletSectionTitle: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  walletMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 },
+  walletMetricCard: { width: "48%", minHeight: 112, flexGrow: 1, borderRadius: 17, borderWidth: 1, borderColor: "#e4e9f1", backgroundColor: "#fbfdff", padding: 13, justifyContent: "center" },
+  walletMetricLabel: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 8 },
+  walletMetricValue: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900", marginTop: 3 },
+  walletMetricSmallValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900", marginTop: 4 },
+  walletHistoryCard: { borderRadius: 22, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 14, marginBottom: 20 },
+  walletTransactionCard: { minHeight: 92, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#edf1f6", paddingVertical: 13 },
+  walletTransactionCardPressed: { backgroundColor: "#fffaf0" },
+  walletTransactionIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#eefbf4", alignItems: "center", justifyContent: "center" },
+  walletTransactionMain: { flex: 1, minWidth: 0 },
+  walletTransactionTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  walletTransactionMeta: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 2 },
+  walletTransactionDate: { color: "#7b8796", fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 4 },
+  walletTransactionSide: { alignItems: "flex-end", gap: 6 },
+  walletTransactionAmount: { fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  walletProofChip: { minHeight: 32, borderRadius: 10, borderWidth: 1, borderColor: BRAND_ORANGE, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  walletProofChipText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900" },
+  walletPendingText: { color: "#9a6700", backgroundColor: "#fff7d6", overflow: "hidden", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 5, fontSize: 9, fontWeight: "900" },
+  walletViewAll: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  walletViewAllButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingTop: 10 },
+  walletViewAllButtonText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
+  walletPaymentRow: { minHeight: 70, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderTopWidth: 1, borderTopColor: "#edf1f6", marginTop: 11, paddingTop: 11 },
+  walletDateFilter: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  walletDateButton: { flex: 1, minHeight: 50, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 14 },
+  walletDateButtonText: { flex: 1, color: BRAND_DEEP, fontSize: 13, fontWeight: "900" },
+  walletClearDate: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
+  walletResultCount: { color: MUTED, fontSize: 11, fontWeight: "800", marginBottom: 10 }
 });

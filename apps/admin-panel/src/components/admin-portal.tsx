@@ -4629,6 +4629,25 @@ function PayoutDialog({
   row: WalletPayoutRow | null;
   setOpen: (open: boolean) => void;
 }) {
+  const [uploadingProof, setUploadingProof] = useState(false);
+
+  async function handleProofUpload(file: File) {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Upload a PNG, JPG, or WEBP payment screenshot");
+      return;
+    }
+    try {
+      setUploadingProof(true);
+      const uploaded = await uploadAdminMedia(file);
+      onChange({ ...draft, receiptUrl: uploaded.url, notes: file.name });
+      toast.success("Payment proof uploaded");
+    } catch (error) {
+      toast.error(extractError(error));
+    } finally {
+      setUploadingProof(false);
+    }
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={(next) => {
       if (pending && !next) return;
@@ -4662,36 +4681,30 @@ function PayoutDialog({
                 </div>
               </div>
             </div>
-            <Field label="Amount to pay">
-              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.amount} onChange={(event) => onChange({ ...draft, amount: event.target.value })} />
+            <Field label="Payout amount">
+              <input className="w-full cursor-not-allowed rounded-2xl border border-[var(--panel-border)] bg-slate-100 px-4 py-3 font-semibold text-[var(--foreground)]" value={draft.amount} readOnly />
+              <p className="mt-1 text-xs text-[var(--muted)]">The full pending wallet balance is paid to avoid partially settled order proofs.</p>
             </Field>
-            <Field label="Payment proof URL">
-              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.receiptUrl} onChange={(event) => onChange({ ...draft, receiptUrl: event.target.value })} placeholder="https://..." />
-            </Field>
-            <Field label="Upload proof (PNG, JPG, PDF)">
+            <Field label="Payment proof screenshot">
               <input
-                accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+                accept="image/png,image/jpeg,image/webp"
                 className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
                 type="file"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (!file) return;
-                  if (!["image/png", "image/jpeg", "application/pdf"].includes(file.type)) {
-                    toast.error("Upload PNG, JPG, JPEG, or PDF proof only");
-                    return;
-                  }
-                  const reader = new FileReader();
-                  reader.onload = () => onChange({ ...draft, receiptUrl: String(reader.result ?? ""), notes: draft.notes || file.name });
-                  reader.readAsDataURL(file);
+                  void handleProofUpload(file);
                 }}
               />
+              {uploadingProof ? <p className="mt-2 flex items-center gap-2 text-xs font-semibold text-[var(--accent)]"><LoaderCircle className="h-4 w-4 animate-spin" />Uploading proof...</p> : null}
+              {draft.receiptUrl ? <img alt="Uploaded payment proof" className="mt-3 max-h-44 w-full rounded-2xl border border-[var(--panel-border)] bg-white object-contain" src={draft.receiptUrl} /> : null}
             </Field>
-            <Field label="Reference number">
-              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.referenceNumber} onChange={(event) => onChange({ ...draft, referenceNumber: event.target.value })} />
+            <Field label="Bank / UPI reference (optional)">
+              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]" value={draft.referenceNumber} onChange={(event) => onChange({ ...draft, referenceNumber: event.target.value })} placeholder="UTR or transaction ID" />
             </Field>
             <div className="flex justify-end gap-2">
               <Dialog.Close asChild><ActionButton disabled={pending} variant="secondary">Cancel</ActionButton></Dialog.Close>
-              <ActionButton disabled={pending || !draft.receiptUrl.trim() || Number(draft.amount) <= 0} onClick={onSubmit}>
+              <ActionButton disabled={pending || uploadingProof || !draft.receiptUrl.trim() || Number(draft.amount) <= 0} onClick={onSubmit}>
                 {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                 Save payout
               </ActionButton>
