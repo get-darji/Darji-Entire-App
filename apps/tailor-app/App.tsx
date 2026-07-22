@@ -3373,7 +3373,7 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
-  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
+  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(true, "tailor");
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
@@ -3745,6 +3745,7 @@ export default function App() {
       <>
         <AuthScreen />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }

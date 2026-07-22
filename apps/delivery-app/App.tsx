@@ -3348,7 +3348,7 @@ function VerificationPendingScreen({
 export default function App() {
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
-  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
+  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(true, "delivery");
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
   const [dialog, setDialog] = useState<DialogState>();
@@ -3420,6 +3420,7 @@ export default function App() {
       <>
         <AuthScreen onAuthenticated={() => { skipLoadingScreenRef.current = false; setStage("loading"); }} showDialog={setDialog} />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
       </>
     );
   }

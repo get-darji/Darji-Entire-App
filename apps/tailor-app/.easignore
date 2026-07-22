@@ -1,9 +1,7 @@
 /node_modules
 /.expo
-/android
 /ios
 /dist
 /build
-modules/incoming-alert/android/build
-modules/incoming-alert/android/.gradle
+apps/tailor-app/android/
 *.log

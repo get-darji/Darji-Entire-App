@@ -81,8 +81,18 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
             </View>
             <View style={styles.stepRow}>
               <Text style={styles.stepNumber}>2</Text>
-              <Text style={styles.stepText}>Turn on the switch for {appName}.</Text>
+              <Text style={styles.stepText}>
+                {isOverlay
+                  ? "If the switch is disabled, go back to App info, tap the three-dot menu, and choose Allow restricted settings."
+                  : `Allow full-screen alerts for ${appName}.`}
+              </Text>
             </View>
+            {isOverlay ? (
+              <View style={styles.stepRow}>
+                <Text style={styles.stepNumber}>3</Text>
+                <Text style={styles.stepText}>Return here and turn on the switch for {appName}.</Text>
+              </View>
+            ) : null}
           </View>
           <View style={styles.actions}>
             <Pressable
