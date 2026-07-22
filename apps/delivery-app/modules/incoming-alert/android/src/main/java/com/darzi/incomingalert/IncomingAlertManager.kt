@@ -179,8 +179,10 @@ internal object IncomingAlertManager {
     val acceptIntent = actionPendingIntent(context, id, ACTION_ACCEPT, acceptAction, payloadString)
     val declineIntent = actionPendingIntent(context, id, ACTION_DECLINE, "DECLINE", payloadString)
     val viewIntent = actionPendingIntent(context, id, ACTION_VIEW, "VIEW_DETAILS", payloadString)
+    val fallbackIconId = context.applicationInfo.icon.takeIf { it != 0 }
+      ?: android.R.drawable.stat_notify_more
     val iconId = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
-      .takeIf { it != 0 } ?: context.applicationInfo.icon
+      .takeIf { it != 0 } ?: fallbackIconId
 
     val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(context, CHANNEL_ID) else Notification.Builder(context)
     builder
@@ -198,9 +200,9 @@ internal object IncomingAlertManager {
       .setOnlyAlertOnce(true)
       .setWhen(System.currentTimeMillis())
       .setShowWhen(true)
-      .addAction(Notification.Action.Builder(0, acceptLabel, acceptIntent).build())
-      .addAction(Notification.Action.Builder(0, "View details", viewIntent).build())
-      .addAction(Notification.Action.Builder(0, "Reject", declineIntent).build())
+      .addAction(Notification.Action.Builder(iconId, acceptLabel, acceptIntent).build())
+      .addAction(Notification.Action.Builder(iconId, "View details", viewIntent).build())
+      .addAction(Notification.Action.Builder(iconId, "Reject", declineIntent).build())
 
     if (canUseFullScreenIntent(context)) {
       builder.setFullScreenIntent(activityPendingIntent, true)

@@ -37,6 +37,7 @@ class IncomingAlertOverlayService : Service() {
       return START_NOT_STICKY
     }
 
+    IncomingAlertManager.createChannel(this)
     val id = IncomingAlertManager.notificationId(IncomingAlertManager.requestKey(payload))
     val notification = IncomingAlertManager.buildNotification(this, payload)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
