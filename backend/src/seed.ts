@@ -106,6 +106,23 @@ export async function seedDatabase() {
     { upsert: true }
   );
   await SettingModel.findOneAndUpdate(
+    { key: "platform_status" },
+    {
+      $setOnInsert: {
+        key: "platform_status",
+        value: {
+          maintenanceMode: false,
+          title: "We'll Be Back Soon",
+          description: "We're improving Darji to serve you better. Please check back shortly.",
+          estimatedCompletion: null,
+          showEstimatedCompletion: false,
+          allowAdminAccess: true
+        }
+      }
+    },
+    { upsert: true }
+  );
+  await SettingModel.findOneAndUpdate(
     { key: "delivery_rounds" },
     {
       key: "delivery_rounds",

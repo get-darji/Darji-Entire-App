@@ -36,7 +36,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
@@ -49,6 +49,8 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
+import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
+import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   emptyPartnerWallet,
   isSameLocalDate,
@@ -3446,6 +3448,7 @@ export default function App() {
   const sessionUser = useAppStore((state) => state.user);
   const signOut = useAppStore((state) => state.signOut);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
+  const platform = usePlatformStatus(getPlatformStatus, token);
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
@@ -3847,6 +3850,19 @@ export default function App() {
       clearTimeout(stopFlashTimer);
     };
   }, [newRequestPopup?.id, soundAlertsEnabled]);
+
+  if (platform.checking) return <PlatformStatusLoadingScreen />;
+  if (platform.status.maintenanceMode) {
+    return (
+      <PlatformMaintenanceScreen
+        status={platform.status}
+        audienceMessage="Going online, receiving requests, and submitting quotes are temporarily unavailable."
+        refreshing={platform.refreshing}
+        error={platform.error}
+        onRefresh={() => void platform.refresh(true)}
+      />
+    );
+  }
 
   if (!token) {
     return (

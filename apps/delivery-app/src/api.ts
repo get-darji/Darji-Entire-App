@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import { useAppStore } from "./store";
+import type { PlatformStatus } from "../../../shared/src/platform-status";
 
 const apiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
@@ -38,6 +39,19 @@ export function refreshAccessToken() {
     });
   }
   return refreshPromise;
+}
+
+export async function getPlatformStatus() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    return await requestJson<PlatformStatus>("/platform-status", { signal: controller.signal }, undefined);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error("Platform status check timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {

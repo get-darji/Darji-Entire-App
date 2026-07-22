@@ -3,6 +3,8 @@ import { Server, type Socket } from "socket.io";
 import type { Role } from "@darzi/shared";
 import { DeliveryPartnerModel, DeliveryRequestModel, TailorModel, UserModel, SupportTicketModel, BugReportModel, AccountChangeRequestModel } from "../models.js";
 import { verifyAccessToken } from "../utils/tokens.js";
+import { getPlatformStatus } from "./platform-status.service.js";
+import type { PlatformStatus } from "@darzi/shared";
 
 type SocketUser = {
   id: string;
@@ -49,6 +51,10 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
   const payload = verifyAccessToken(String(rawToken));
   const user = await UserModel.findById(payload.sub).select("role");
   if (!user) throw new Error("Invalid session");
+  if (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
+    const platformStatus = await getPlatformStatus();
+    if (platformStatus.maintenanceMode) throw new Error(platformStatus.title);
+  }
 
   const [tailor, partner] = await Promise.all([
     user.role === "TAILOR" ? TailorModel.findOne({ userId: user.id }).select("_id") : null,
@@ -302,4 +308,15 @@ export function emitToDeliveryPartner(partnerId: string, event: string, payload:
 
 export function emitToAdmins(event: string, payload: unknown) {
   io?.to(roleRoom("ADMIN")).emit(event, payload);
+}
+
+export function publishPlatformStatus(status: PlatformStatus) {
+  io?.emit("platform:status_changed", status);
+  if (!status.maintenanceMode || !io) return;
+  for (const socket of io.sockets.sockets.values()) {
+    const user = socket.data.user as SocketUser | undefined;
+    if (user && user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
+      socket.disconnect(true);
+    }
+  }
 }

@@ -2,6 +2,7 @@
 
 import axios, { type AxiosRequestConfig } from "axios";
 import { useAdminStore } from "@/src/store/admin-store";
+import type { PlatformStatus } from "@darzi/shared";
 import type {
   AdminUser,
   AnalyticsSummary,
@@ -184,6 +185,14 @@ export async function getSupportTickets() {
 
 export async function getSettings() {
   return unwrap<SettingRecord[]>(api.get("/settings"));
+}
+
+export async function getPlatformStatus() {
+  return unwrap<PlatformStatus>(api.get("/platform-status"));
+}
+
+export async function updatePlatformStatus(payload: PlatformStatus) {
+  return unwrap<PlatformStatus>(api.put("/admin/platform-status", payload));
 }
 
 export async function assignOrder(payload: { orderId: string; tailorId?: string; deliveryPartnerId?: string; mode?: "pickup" | "delivery" }) {

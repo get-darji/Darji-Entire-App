@@ -38,7 +38,7 @@ import {
   TouchableOpacity
 } from "react-native";
 import { z } from "zod";
-import { api, refreshAccessToken, uploadMedia, type UploadedMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, uploadMedia, type UploadedMedia } from "./src/api";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
 import { configureForegroundNotificationHandler } from "./src/notifications/handlers";
@@ -46,6 +46,8 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
+import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
+import { usePlatformStatus } from "../../shared/src/use-platform-status";
 
 type Screen =
   | "home"
@@ -7661,6 +7663,7 @@ export default function App() {
   const signOut = useAppStore((state) => state.signOut);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
+  const platform = usePlatformStatus(getPlatformStatus, token);
   const [screen, setScreenState] = useState<Screen>("home");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [customerDataByPhone, setCustomerDataByPhone] = useState<Record<string, CustomerData>>({});
@@ -8553,6 +8556,18 @@ export default function App() {
     }
   }
 
+  if (platform.checking) return <PlatformStatusLoadingScreen />;
+  if (platform.status.maintenanceMode) {
+    return (
+      <PlatformMaintenanceScreen
+        status={platform.status}
+        audienceMessage="Creating orders, active-order access, and payments are temporarily unavailable."
+        refreshing={platform.refreshing}
+        error={platform.error}
+        onRefresh={() => void platform.refresh(true)}
+      />
+    );
+  }
   if (!token) return <AuthScreen />;
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} />);

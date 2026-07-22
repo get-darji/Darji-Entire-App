@@ -39,8 +39,9 @@ import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
 import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow } from "../services/hybrid-delivery.service.js";
-import { emitToCustomer, emitToAdmins } from "../services/socket.service.js";
+import { emitToCustomer, emitToAdmins, publishPlatformStatus } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
+import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -1535,6 +1536,18 @@ export async function analyticsController(_req: Request, res: Response) {
 export async function settingsController(_req: Request, res: Response) {
   const settings = await SettingModel.find().sort({ key: 1 });
   res.json({ data: settings });
+}
+
+export async function platformStatusController(_req: Request, res: Response) {
+  const status = await getPlatformStatus();
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: status });
+}
+
+export async function updatePlatformStatusController(req: Request, res: Response) {
+  const status = await savePlatformStatus(req.body);
+  publishPlatformStatus(status);
+  res.json({ data: status });
 }
 
 export async function updateSettingController(req: Request, res: Response) {

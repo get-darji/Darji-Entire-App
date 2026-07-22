@@ -35,7 +35,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
 import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
@@ -49,6 +49,8 @@ import { playAppSound } from "./src/services/soundService";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
+import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
+import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   emptyPartnerWallet,
   isSameLocalDate,
@@ -3430,6 +3432,7 @@ export default function App() {
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
+  const platform = usePlatformStatus(getPlatformStatus, token);
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
   const [dialog, setDialog] = useState<DialogState>();
@@ -3495,6 +3498,19 @@ export default function App() {
     skipLoadingScreenRef.current = false;
     void refreshProfile();
   }, [token, refreshProfile]);
+
+  if (platform.checking) return <PlatformStatusLoadingScreen />;
+  if (platform.status.maintenanceMode) {
+    return (
+      <PlatformMaintenanceScreen
+        status={platform.status}
+        audienceMessage="Going online, receiving batches, and accepting deliveries are temporarily unavailable."
+        refreshing={platform.refreshing}
+        error={platform.error}
+        onRefresh={() => void platform.refresh(true)}
+      />
+    );
+  }
 
   if (stage === "auth") {
     return (

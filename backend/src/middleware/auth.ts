@@ -3,6 +3,7 @@ import type { Role } from "@darzi/shared";
 import { UserModel } from "../models.js";
 import { AppError } from "./error.js";
 import { verifyAccessToken } from "../utils/tokens.js";
+import { getPlatformStatus } from "../services/platform-status.service.js";
 
 declare global {
   namespace Express {
@@ -55,8 +56,17 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       }
     }
     req.user = { id: String(user._id), role: user.role as Role };
+    const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+    const isProfileBootstrap = req.method === "GET" && req.path === "/auth/me";
+    if (!isAdmin && !isProfileBootstrap) {
+      const platformStatus = await getPlatformStatus();
+      if (platformStatus.maintenanceMode) {
+        return next(new AppError(503, platformStatus.title));
+      }
+    }
     return next();
-  } catch {
+  } catch (error) {
+    if (error instanceof AppError) return next(error);
     return next(new AppError(401, "Invalid or expired token"));
   }
 }

@@ -23,6 +23,7 @@ export type SectionId =
   | "roles"
   | "health"
   | "exports"
+  | "platform"
   | "settings";
 
 type AdminStore = {

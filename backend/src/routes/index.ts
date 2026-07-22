@@ -44,6 +44,7 @@ import {
   markPaymentPaidController,
   moderateUserController,
   paymentsController,
+  platformStatusController,
   reassignDeliveryBatchTaskController,
   reviewDeliveryVerificationController,
   reviewTailorVerificationController,
@@ -58,6 +59,7 @@ import {
   updateDeliveryFareSettingsController,
   updateDeliveryProfileController,
   updateOrderStatusController,
+  updatePlatformStatusController,
   updateSettingController,
   updateTailorAvailabilityController,
   updateTailorProfileController,
@@ -115,6 +117,7 @@ import {
 export const router = Router();
 
 router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend" } }));
+router.get("/platform-status", platformStatusController);
 router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
 router.post("/auth/refresh", refreshController);
@@ -210,6 +213,7 @@ router.get("/transactions", requireAuth, transactionsController);
 router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
 router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletDetailController);
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
+router.put("/admin/platform-status", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updatePlatformStatusController);
 router.get("/settings/delivery-fares", requireAuth, getDeliveryFareSettingsController);
 router.put("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateDeliveryFareSettingsController);
 router.post("/admin/media", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), uploadAdminMedia, uploadAdminMediaController);

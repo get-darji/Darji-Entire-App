@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { orderStatuses } from "@darzi/shared";
+import { defaultPlatformStatus, orderStatuses, type PlatformStatus } from "@darzi/shared";
 import Image from "next/image";
 import {
   useMutation,
@@ -101,6 +101,7 @@ import {
   getMe,
   getOrders,
   getPayments,
+  getPlatformStatus,
   getWalletPayouts,
   getWalletDetail,
   createWalletPayout,
@@ -119,6 +120,7 @@ import {
   reviewDeliveryVerification,
   reviewTailorVerification,
   updateOrderStatus,
+  updatePlatformStatus,
   updateSetting,
   verifyOtp,
   replyToSupportTicket,
@@ -328,6 +330,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "roles", icon: ShieldCheck, label: "Roles", description: "Role and permission management" },
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
   { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
+  { id: "platform", icon: AlertTriangle, label: "Platform Settings", description: "Live and maintenance controls" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
@@ -419,6 +422,7 @@ export function AdminPortal() {
   });
   const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
   const [batchSettingsDraft, setBatchSettingsDraft] = useState<DeliveryBatchSettingsDraft>({ lockMinutes: 45, maxOrdersPerBatch: 10 });
+  const [platformStatusDraft, setPlatformStatusDraft] = useState<PlatformStatus>(defaultPlatformStatus);
   const [tailorTutorialDraft, setTailorTutorialDraft] = useState<TailorTutorialMediaDraft>(() => defaultTailorTutorialMediaDraft());
   const [uploadingTutorialMedia, setUploadingTutorialMedia] = useState<"video" | "thumbnail" | "image" | null>(null);
   const queryClient = useQueryClient();
@@ -516,6 +520,12 @@ export function AdminPortal() {
     queryFn: getSettings,
     enabled: isAuthed
   });
+  const platformStatusQuery = useQuery({
+    queryKey: ["admin", "platform-status"],
+    queryFn: getPlatformStatus,
+    enabled: isAuthed,
+    refetchInterval: 60_000
+  });
   const supportStatsQuery = useQuery({
     queryKey: ["admin", "support-stats"],
     queryFn: getSupportStats,
@@ -578,6 +588,10 @@ export function AdminPortal() {
       setBatchSettingsDraft(normalizeDeliveryBatchSettings(batchSetting?.value));
     }
   }, [settingsQuery.data]);
+
+  useEffect(() => {
+    if (platformStatusQuery.data) setPlatformStatusDraft(platformStatusQuery.data);
+  }, [platformStatusQuery.data]);
 
   useEffect(() => {
     try {
@@ -770,6 +784,17 @@ export function AdminPortal() {
     mutationFn: updateSetting,
     onSuccess: async () => {
       toast.success("Setting saved");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const platformStatusMutation = useMutation({
+    mutationFn: updatePlatformStatus,
+    onSuccess: async (status) => {
+      setPlatformStatusDraft(status);
+      toast.success(status.maintenanceMode ? "Maintenance mode enabled" : "Darji is live");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "platform-status"] });
       await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
     },
     onError: (error) => toast.error(extractError(error))
@@ -2337,6 +2362,21 @@ export function AdminPortal() {
           />
         ) : null}
 
+        {activeSection === "platform" ? (
+          <div className="space-y-6">
+            <SectionIntro
+              title="Platform Settings"
+              description="Pause customer and partner workflows immediately without publishing a new app version. Admin access always remains available."
+            />
+            <PlatformStatusCard
+              draft={platformStatusDraft}
+              pending={platformStatusMutation.isPending || platformStatusQuery.isLoading}
+              onChange={setPlatformStatusDraft}
+              onSave={(status) => platformStatusMutation.mutate(status)}
+            />
+          </div>
+        ) : null}
+
         {activeSection === "settings" ? (
           <div className="space-y-6">
             <SectionIntro
@@ -2380,7 +2420,7 @@ export function AdminPortal() {
               onResetEverything={() => resetEverythingMutation.mutate()}
             />
             <div className="grid gap-4 xl:grid-cols-2">
-              {settings.filter((setting) => setting.key !== "delivery_batch_settings").map((setting) => (
+              {settings.filter((setting) => setting.key !== "delivery_batch_settings" && setting.key !== "platform_status").map((setting) => (
                 <Panel key={setting.id}>
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
@@ -4844,6 +4884,114 @@ function normalizeTailorTutorialDraft(value: unknown): TailorTutorialMediaDraft 
     durationSeconds: Number.isFinite(Number(raw.durationSeconds)) ? Number(raw.durationSeconds) : base.durationSeconds,
     images: Array.isArray(raw.images) ? raw.images.filter((item): item is string => typeof item === "string") : []
   };
+}
+
+function PlatformStatusCard({
+  draft,
+  pending,
+  onChange,
+  onSave
+}: {
+  draft: PlatformStatus;
+  pending: boolean;
+  onChange: (value: PlatformStatus) => void;
+  onSave: (value: PlatformStatus) => void;
+}) {
+  const valid = draft.title.trim().length >= 2 && draft.description.trim().length >= 2;
+  const toggleMode = () => {
+    if (!valid || pending) return;
+    const next = { ...draft, maintenanceMode: !draft.maintenanceMode, allowAdminAccess: true as const };
+    onChange(next);
+    onSave(next);
+  };
+
+  return (
+    <Panel>
+      <div className="flex flex-col gap-5">
+        <div className={cn("rounded-3xl border p-5", draft.maintenanceMode ? "border-rose-300 bg-rose-50" : "border-emerald-300 bg-emerald-50")}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={cn("h-3 w-3 rounded-full", draft.maintenanceMode ? "bg-rose-600" : "bg-emerald-600")} />
+                <h3 className={cn("text-xl font-bold", draft.maintenanceMode ? "text-rose-900" : "text-emerald-900")}>
+                  {draft.maintenanceMode ? "Maintenance Mode" : "Platform Live"}
+                </h3>
+              </div>
+              <p className={cn("mt-2 text-sm", draft.maintenanceMode ? "text-rose-700" : "text-emerald-700")}>
+                {draft.maintenanceMode
+                  ? "Customer, tailor, and delivery workflows are paused."
+                  : "All Darji customer and partner workflows are available."}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-pressed={draft.maintenanceMode}
+              className={cn("inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60", draft.maintenanceMode ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700")}
+              disabled={pending || !valid}
+              onClick={toggleMode}
+            >
+              {pending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : draft.maintenanceMode ? <ToggleLeft size={22} /> : <ToggleRight size={22} />}
+              {draft.maintenanceMode ? "Set Platform Live" : "Enable Maintenance"}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Field label="Maintenance title">
+            <input
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+              maxLength={120}
+              value={draft.title}
+              onChange={(event) => onChange({ ...draft, title: event.target.value })}
+              placeholder="We'll Be Back Soon"
+            />
+          </Field>
+          <Field label="Estimated completion (optional)">
+            <input
+              className="w-full rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)] disabled:opacity-50"
+              disabled={!draft.showEstimatedCompletion}
+              maxLength={160}
+              value={draft.estimatedCompletion ?? ""}
+              onChange={(event) => onChange({ ...draft, estimatedCompletion: event.target.value || null })}
+              placeholder="Approximately 30 minutes"
+            />
+          </Field>
+        </div>
+
+        <Field label="Maintenance description">
+          <textarea
+            className="min-h-32 w-full resize-y rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+            maxLength={600}
+            value={draft.description}
+            onChange={(event) => onChange({ ...draft, description: event.target.value })}
+            placeholder="We're improving Darji to serve you better. Please check back shortly."
+          />
+        </Field>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <button
+            type="button"
+            className="flex items-center justify-between rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-4 text-left"
+            onClick={() => onChange({ ...draft, showEstimatedCompletion: !draft.showEstimatedCompletion })}
+          >
+            <span><span className="block font-semibold">Show estimated completion</span><span className="mt-1 block text-xs text-[var(--muted)]">Display the ETA on mobile maintenance screens.</span></span>
+            {draft.showEstimatedCompletion ? <ToggleRight className="text-emerald-600" /> : <ToggleLeft className="text-[var(--muted)]" />}
+          </button>
+          <div className="flex items-center justify-between rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-4">
+            <span><span className="block font-semibold">Allow Admin Access</span><span className="mt-1 block text-xs text-[var(--muted)]">Always enabled so the platform can be restored.</span></span>
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-600"><ShieldCheck size={20} />Enabled</div>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <ActionButton disabled={pending || !valid} onClick={() => onSave({ ...draft, allowAdminAccess: true })}>
+            {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            Save message settings
+          </ActionButton>
+        </div>
+      </div>
+    </Panel>
+  );
 }
 
 function defaultDeliveryBatchSettingsDraft(): DeliveryBatchSettingsDraft {
