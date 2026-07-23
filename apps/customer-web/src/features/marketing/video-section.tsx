@@ -35,10 +35,8 @@ export function VideoSection() {
     );
     observer.observe(video);
 
-    const reducedMobileMotion = window.matchMedia(
-      "(max-width: 1023px), (pointer: coarse), (prefers-reduced-motion: reduce)"
-    ).matches;
-    if (reducedMobileMotion) {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) {
       return () => {
         observer.disconnect();
         video.pause();
