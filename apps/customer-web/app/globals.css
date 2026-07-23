@@ -671,6 +671,11 @@ button:disabled {
 }
 
 @media (max-width: 1023px) {
+  #loader,
+  #curtain2 {
+    display: none !important;
+  }
+
   .download-banner {
     grid-template-columns: 1fr;
     text-align: center;

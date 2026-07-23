@@ -1,11 +1,17 @@
 "use client";
 
 import { ArrowRight, Clock3, LockKeyhole, MapPin, Phone, ShieldCheck, Sparkles, Star } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { heroTrustItems } from "./hero-config";
-import { HeroScene } from "./hero-scene";
+
+const HeroScene = dynamic(
+  () => import("./hero-scene").then((module) => module.HeroScene),
+  { ssr: false }
+);
 
 type PremiumHeroProps = {
   heroRef: RefObject<HTMLElement | null>;
@@ -15,6 +21,19 @@ type PremiumHeroProps = {
 const trustIcons = [ShieldCheck, MapPin, Clock3, LockKeyhole];
 
 export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
+  const [showInteractiveHero, setShowInteractiveHero] = useState(false);
+
+  useEffect(() => {
+    const desktopMedia = window.matchMedia(
+      "(min-width: 1024px) and (pointer: fine) and (prefers-reduced-motion: no-preference)"
+    );
+    const updateInteractiveHero = () => setShowInteractiveHero(desktopMedia.matches);
+
+    updateInteractiveHero();
+    desktopMedia.addEventListener("change", updateInteractiveHero);
+    return () => desktopMedia.removeEventListener("change", updateInteractiveHero);
+  }, []);
+
   return (
     <section ref={heroRef} className="hero-shell relative min-h-screen overflow-hidden bg-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_24%,rgba(255,112,0,0.12),transparent_30rem),linear-gradient(180deg,#ffffff_0%,#fffaf5_48%,#ffffff_100%)]" />
@@ -101,8 +120,8 @@ export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
             </div>
           </div>
 
-          <div className="darji-hero-image relative min-h-[520px] lg:min-h-[680px]">
-            <HeroScene heroRef={heroRef} onModelReady={onModelReady} />
+          <div className="darji-hero-image relative hidden min-h-[680px] lg:block">
+            {showInteractiveHero ? <HeroScene heroRef={heroRef} onModelReady={onModelReady} /> : null}
           </div>
         </div>
       </div>

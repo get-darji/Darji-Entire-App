@@ -8,7 +8,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { SectionEyebrow } from "@/src/components/ui";
 import BorderGlow from "@/src/components/border-glow";
-import FlowingMenu from "@/src/components/flowing-menu";
 import TiltedCard from "@/src/components/tilted-card";
 import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
@@ -47,29 +46,6 @@ const serviceCards = [
   }
 ];
 
-const flowMenuItems = [
-  {
-    link: "/dashboard",
-    text: "Doorstep Convenience : We come to you. No travel. No waiting.",
-    image: "/flow-icons/doorstep-convenience.png"
-  },
-  {
-    link: "/dashboard",
-    text: "Expert Craftsmanship : Skilled tailors. Precise craftsmanship.",
-    image: "/flow-icons/expert-craftsmanship.png"
-  },
-  {
-    link: "/dashboard",
-    text: "Transparent Pricing : Know the price before the work begins.",
-    image: "/flow-icons/transparent-pricing.png"
-  },
-  {
-    link: "/dashboard",
-    text: "Quality Checked : Every order is checked before it reaches you.",
-    image: "/flow-icons/quality-checked.png"
-  }
-];
-
 const testimonials = [
   { quote: "Amazing stitching and perfect fitting. Super quick delivery too!", name: "Rohan Verma", initials: "RV", color: "#f97316" },
   { quote: "Very neat press and packaging. Clothes look brand new!", name: "Neha Singh", initials: "NS", color: "#0b2241" },
@@ -82,8 +58,10 @@ function SmoothScroll() {
     window.history.scrollRestoration = "manual";
     window.scrollTo(0, 0);
 
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reducedMotion) return;
+    const desktopMotion = window.matchMedia(
+      "(min-width: 1024px) and (pointer: fine) and (prefers-reduced-motion: no-preference)"
+    );
+    if (!desktopMotion.matches) return;
 
     const lenis = new Lenis({
       duration: 1.12,
@@ -119,6 +97,15 @@ function IntroReveal() {
     const fill = document.querySelector<HTMLDivElement>("#loader .fill");
     const percent = document.getElementById("percent");
     if (!fill || !percent) return;
+
+    const skipIntro = window.matchMedia(
+      "(max-width: 1023px), (pointer: coarse), (prefers-reduced-motion: reduce)"
+    ).matches;
+    if (skipIntro) {
+      gsap.set(["#loader", "#curtain2"], { display: "none" });
+      document.body.style.overflow = "";
+      return;
+    }
 
     document.body.style.overflow = "hidden";
 
