@@ -10,6 +10,8 @@ const apiUrl =
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
 const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
+const sessionReplacedMessage =
+  "You were signed out because this phone number was used to sign in on another device or on the Darji website. Sign in again to continue.";
 
 async function performAccessTokenRefresh() {
   const refreshToken = useAppStore.getState().refreshToken;
@@ -26,7 +28,7 @@ async function performAccessTokenRefresh() {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = String(body.message ?? "Session expired");
-    if (/signed in on another device/i.test(message)) useAppStore.getState().invalidateSession(message);
+    if (/signed in on another device/i.test(message)) useAppStore.getState().invalidateSession(sessionReplacedMessage);
     else useAppStore.getState().signOut();
     throw new Error(message);
   }
@@ -82,7 +84,7 @@ export async function api<T>(path: string, options: RequestInit = {}, token?: st
   } catch (error) {
     if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
     if (/signed in on another device/i.test(error instanceof Error ? error.message : "")) {
-      useAppStore.getState().invalidateSession((error as Error).message);
+      useAppStore.getState().invalidateSession(sessionReplacedMessage);
       throw error;
     }
     const nextToken = await refreshAccessToken();
