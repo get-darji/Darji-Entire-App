@@ -1,0 +1,32 @@
+.git
+.codex
+.expo
+**/.expo
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+build
+**/build
+**/.gradle
+coverage
+**/coverage
+*.log
+*.apk
+*.aab
+
+# Web and server workspaces are not needed by mobile EAS builds.
+apps/admin-panel
+apps/customer-web
+backend
+darji-web
+
+# Expo prebuild regenerates these application-native folders.
+apps/customer-app/android
+apps/customer-app/ios
+apps/tailor-app/android
+apps/tailor-app/ios
+apps/delivery-app/android
+apps/delivery-app/ios
