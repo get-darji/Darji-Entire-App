@@ -742,6 +742,7 @@ export default function SupportCommandCenter({
   // Active viewer in this conversation
   const viewerKey = `${activeType}:${activeId}`;
   const otherViewer = viewersMap[viewerKey];
+  const exitCommandCenter = onExit ?? (isFullScreen ? () => setIsFullScreen(false) : undefined);
 
   return (
     <div className={`darji-support-shell flex w-full min-w-0 flex-col gap-3 overflow-hidden text-[var(--foreground)] md:grid md:grid-cols-[300px_minmax(0,1fr)] md:grid-rows-[auto_minmax(0,1fr)] md:gap-4 lg:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[220px_340px_minmax(0,1fr)] 2xl:grid-rows-1 min-[1900px]:grid-cols-[220px_340px_minmax(0,1fr)_320px] ${
@@ -749,48 +750,62 @@ export default function SupportCommandCenter({
         ? "fixed inset-0 z-[9999] bg-[var(--background)] p-1.5 animate-slide-up-fade sm:p-3"
         : "h-[calc(100dvh-146px)] min-h-[540px] animate-slide-up-fade lg:h-[calc(100dvh-126px)]"
     }`}>
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto rounded-[20px] border border-[var(--panel-border)] bg-[var(--panel)] p-2 shadow-sm md:col-span-2 2xl:hidden">
-        {([
-          ["customer", "Customers"],
-          ["tailor", "Tailors"],
-          ["delivery", "Delivery"],
-          ["bugs", "Bugs"]
-        ] as const).map(([stream, label]) => (
+      <div className="flex shrink-0 items-center gap-2 rounded-[20px] border border-[var(--panel-border)] bg-[var(--panel)] p-2 shadow-sm md:col-span-2 2xl:hidden">
+        {exitCommandCenter ? (
           <button
-            key={stream}
-            className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${
-              supportSubTab === stream ? "bg-[var(--accent)] text-white" : "bg-[var(--panel-strong)] text-[var(--muted)]"
-            }`}
-            onClick={() => {
-              setSupportSubTab(stream);
-              setActiveFilterTab("chats");
-              setActiveId(null);
-              setActiveType(null);
-              setShowContextPanel(false);
-            }}
+            aria-label="Exit Support Center"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-xs font-bold text-[var(--accent-strong)] transition hover:bg-[var(--accent)] hover:text-white"
+            onClick={exitCommandCenter}
             type="button"
           >
-            {label}
+            <ArrowLeft size={14} />
+            <span className="sm:hidden">Exit</span>
+            <span className="hidden sm:inline">Exit Support</span>
           </button>
-        ))}
-        {supportSubTab === "tailor" || supportSubTab === "delivery" ? (
-          <select
-            aria-label="Support request type"
-            className="ml-auto min-w-[145px] shrink-0 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-xs font-semibold"
-            onChange={(event) => {
-              setActiveFilterTab(event.target.value);
-              setActiveId(null);
-              setActiveType(null);
-              setShowContextPanel(false);
-            }}
-            value={activeFilterTab}
-          >
-            <option value="chats">Chats</option>
-            {supportSubTab === "tailor" ? <option value="shop_changes">Shop changes</option> : null}
-            {supportSubTab === "delivery" ? <option value="vehicle_changes">Vehicle updates</option> : null}
-            <option value="payment_changes">Bank/UPI changes</option>
-          </select>
         ) : null}
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+          {([
+            ["customer", "Customers"],
+            ["tailor", "Tailors"],
+            ["delivery", "Delivery"],
+            ["bugs", "Bugs"]
+          ] as const).map(([stream, label]) => (
+            <button
+              key={stream}
+              className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${
+                supportSubTab === stream ? "bg-[var(--accent)] text-white" : "bg-[var(--panel-strong)] text-[var(--muted)]"
+              }`}
+              onClick={() => {
+                setSupportSubTab(stream);
+                setActiveFilterTab("chats");
+                setActiveId(null);
+                setActiveType(null);
+                setShowContextPanel(false);
+              }}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+          {supportSubTab === "tailor" || supportSubTab === "delivery" ? (
+            <select
+              aria-label="Support request type"
+              className="ml-auto min-w-[145px] shrink-0 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-xs font-semibold"
+              onChange={(event) => {
+                setActiveFilterTab(event.target.value);
+                setActiveId(null);
+                setActiveType(null);
+                setShowContextPanel(false);
+              }}
+              value={activeFilterTab}
+            >
+              <option value="chats">Chats</option>
+              {supportSubTab === "tailor" ? <option value="shop_changes">Shop changes</option> : null}
+              {supportSubTab === "delivery" ? <option value="vehicle_changes">Vehicle updates</option> : null}
+              <option value="payment_changes">Bank/UPI changes</option>
+            </select>
+          ) : null}
+        </div>
       </div>
       
       {/* COLUMN 1: Category Sidebar (240px) */}
@@ -800,9 +815,9 @@ export default function SupportCommandCenter({
           <h3 className="mt-2 text-lg font-semibold tracking-tight">Support Streams</h3>
         </div>
 
-        {onExit && (
+        {exitCommandCenter && (
           <button
-            onClick={onExit}
+            onClick={exitCommandCenter}
             className="w-full flex items-center gap-2 mb-1 px-4 py-3 text-xs font-bold text-[var(--muted)] hover:text-[var(--foreground)] transition bg-[var(--panel-strong)] border border-[var(--panel-border)] hover:border-[var(--accent)] rounded-[18px]"
           >
             <ArrowLeft size={14} />
