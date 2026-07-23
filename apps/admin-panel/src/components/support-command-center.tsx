@@ -114,6 +114,7 @@ export default function SupportCommandCenter({
 
   // Full-screen toggle state
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showContextPanel, setShowContextPanel] = useState(false);
 
   // View state
   // We can view a ticket, bug, or request
@@ -743,14 +744,57 @@ export default function SupportCommandCenter({
   const otherViewer = viewersMap[viewerKey];
 
   return (
-    <div className={`darji-support-shell flex w-full gap-4 overflow-hidden text-[var(--foreground)] ${
+    <div className={`darji-support-shell flex w-full min-w-0 flex-col gap-3 overflow-hidden text-[var(--foreground)] md:grid md:grid-cols-[300px_minmax(0,1fr)] md:grid-rows-[auto_minmax(0,1fr)] md:gap-4 lg:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[220px_340px_minmax(0,1fr)] 2xl:grid-rows-1 min-[1900px]:grid-cols-[220px_340px_minmax(0,1fr)_320px] ${
       (onExit != null || isFullScreen)
-        ? "fixed inset-0 z-[9999] p-3 bg-[var(--background)] animate-slide-up-fade"
-        : "h-[calc(100vh-170px)] animate-slide-up-fade"
+        ? "fixed inset-0 z-[9999] bg-[var(--background)] p-1.5 animate-slide-up-fade sm:p-3"
+        : "h-[calc(100dvh-146px)] min-h-[540px] animate-slide-up-fade lg:h-[calc(100dvh-126px)]"
     }`}>
+      <div className="flex shrink-0 items-center gap-2 overflow-x-auto rounded-[20px] border border-[var(--panel-border)] bg-[var(--panel)] p-2 shadow-sm md:col-span-2 2xl:hidden">
+        {([
+          ["customer", "Customers"],
+          ["tailor", "Tailors"],
+          ["delivery", "Delivery"],
+          ["bugs", "Bugs"]
+        ] as const).map(([stream, label]) => (
+          <button
+            key={stream}
+            className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${
+              supportSubTab === stream ? "bg-[var(--accent)] text-white" : "bg-[var(--panel-strong)] text-[var(--muted)]"
+            }`}
+            onClick={() => {
+              setSupportSubTab(stream);
+              setActiveFilterTab("chats");
+              setActiveId(null);
+              setActiveType(null);
+              setShowContextPanel(false);
+            }}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+        {supportSubTab === "tailor" || supportSubTab === "delivery" ? (
+          <select
+            aria-label="Support request type"
+            className="ml-auto min-w-[145px] shrink-0 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-xs font-semibold"
+            onChange={(event) => {
+              setActiveFilterTab(event.target.value);
+              setActiveId(null);
+              setActiveType(null);
+              setShowContextPanel(false);
+            }}
+            value={activeFilterTab}
+          >
+            <option value="chats">Chats</option>
+            {supportSubTab === "tailor" ? <option value="shop_changes">Shop changes</option> : null}
+            {supportSubTab === "delivery" ? <option value="vehicle_changes">Vehicle updates</option> : null}
+            <option value="payment_changes">Bank/UPI changes</option>
+          </select>
+        ) : null}
+      </div>
       
       {/* COLUMN 1: Category Sidebar (240px) */}
-      <div className="w-[240px] flex shrink-0 flex-col gap-3 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-xl">
+      <div className="hidden w-[220px] shrink-0 flex-col gap-3 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-xl 2xl:flex">
         <div className="px-1 py-1">
           <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--muted)]">Command Center</p>
           <h3 className="mt-2 text-lg font-semibold tracking-tight">Support Streams</h3>
@@ -970,7 +1014,7 @@ export default function SupportCommandCenter({
       </div>
 
       {/* COLUMN 2: Conversation List (340px) */}
-      <div className="w-[340px] flex shrink-0 flex-col gap-3 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel)] shadow-xl overflow-hidden">
+      <div className={`${activeId ? "hidden md:flex" : "flex"} min-h-0 w-full flex-1 flex-col gap-3 overflow-hidden rounded-[20px] border border-[var(--panel-border)] bg-[var(--panel)] shadow-xl md:w-[300px] md:flex-none md:shrink-0 md:rounded-[24px] lg:w-[320px] 2xl:w-[340px]`}>
         {/* Search Header */}
         <div className="p-4 border-b border-[var(--panel-border)] flex flex-col gap-3">
           <div className="relative">
@@ -1085,6 +1129,7 @@ export default function SupportCommandCenter({
                   onClick={() => {
                     setActiveId(item.id);
                     setActiveType(item.type);
+                    setShowContextPanel(false);
                   }}
                   className={`w-full flex flex-col gap-2 p-3 text-left rounded-[16px] border transition ${
                     isSelected
@@ -1134,14 +1179,27 @@ export default function SupportCommandCenter({
       </div>
 
       {/* COLUMN 3: Chat Workspace Area (Flex) */}
-      <div className="flex-1 flex flex-col rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel-strong)] shadow-xl overflow-hidden relative">
+      <div className={`${activeId ? "flex" : "hidden md:flex"} relative min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden rounded-[20px] border border-[var(--panel-border)] bg-[var(--panel-strong)] shadow-xl md:rounded-[24px]`}>
         {activeId ? (
           <>
             {/* Chat Area Header */}
-            <div className="px-6 py-4 border-b border-[var(--panel-border)] flex justify-between items-center bg-[var(--panel)] shrink-0">
-              <div className="flex flex-col gap-1">
+            <div className="flex shrink-0 flex-col gap-3 border-b border-[var(--panel-border)] bg-[var(--panel)] px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:px-6 lg:py-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  aria-label="Back to conversations"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] text-[var(--muted)] md:hidden"
+                  onClick={() => {
+                    setActiveId(null);
+                    setActiveType(null);
+                    setShowContextPanel(false);
+                  }}
+                  type="button"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+                <div className="min-w-0 flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-base text-[var(--foreground)]">
+                  <h4 className="truncate text-sm font-bold text-[var(--foreground)] sm:text-base">
                     {currentChatUser?.name || "Support Conversation"}
                   </h4>
                   {isUserOnline && (
@@ -1153,10 +1211,11 @@ export default function SupportCommandCenter({
                 <p className="text-xs text-[var(--muted)] max-w-[400px] truncate">
                   {activeTicket?.subject || activeBug?.title || activeRequest?.type || ""}
                 </p>
+                </div>
               </div>
 
               {/* Header Actions */}
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 lg:gap-3 lg:pb-0">
                 {/* Active Viewer marker */}
                 {otherViewer && (
                   <span className="text-xs bg-[var(--accent-soft)] border border-[var(--accent)]/30 text-[var(--accent)] px-2 py-1 rounded-[12px] flex items-center gap-1.5 animate-pulse">
@@ -1192,6 +1251,15 @@ export default function SupportCommandCenter({
                     )}
                   </select>
                 )}
+
+                <button
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--foreground)] min-[1900px]:hidden"
+                  onClick={() => setShowContextPanel(true)}
+                  type="button"
+                >
+                  <MoreVertical size={14} />
+                  Details
+                </button>
 
                 {/* Priority Selector (Tickets only) */}
                 {activeType === "ticket" && (
@@ -1243,7 +1311,7 @@ export default function SupportCommandCenter({
             </div>
 
             {/* Message History Grid */}
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4 bg-[var(--background)]">
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-[var(--background)] p-3 sm:p-4 lg:p-6">
               {/* Show initial description for bugs/requests */}
               {activeType === "bug" && activeBug && (
                 <div className="p-4 bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-[18px] text-sm text-[var(--foreground)]">
@@ -1302,7 +1370,7 @@ export default function SupportCommandCenter({
                 return (
                   <div
                     key={i}
-                    className={`flex flex-col gap-1 max-w-[70%] ${
+                    className={`flex max-w-[88%] flex-col gap-1 sm:max-w-[76%] xl:max-w-[70%] ${
                       isClient ? "self-start" : "self-end"
                     }`}
                   >
@@ -1399,7 +1467,7 @@ export default function SupportCommandCenter({
 
               {/* Typing indicators */}
               {typingUsers[viewerKey]?.isTyping && (
-                <div className="self-start flex flex-col gap-1 max-w-[70%]">
+                <div className="self-start flex max-w-[88%] flex-col gap-1 sm:max-w-[76%] xl:max-w-[70%]">
                   <span className="text-[10px] text-[var(--muted)] px-1 font-semibold">
                     {typingUsers[viewerKey].senderName}
                   </span>
@@ -1418,7 +1486,7 @@ export default function SupportCommandCenter({
             </div>
 
             {/* Composer Box */}
-            <div className="p-4 border-t border-[var(--panel-border)] bg-[var(--panel)] flex flex-col gap-3 shrink-0 relative">
+            <div className="relative flex shrink-0 flex-col gap-2 border-t border-[var(--panel-border)] bg-[var(--panel)] p-3 sm:gap-3 sm:p-4">
               {/* Attachment summary */}
               {attachment && (
                 <div className="flex items-center justify-between p-2.5 bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-[14px]">
@@ -1442,8 +1510,8 @@ export default function SupportCommandCenter({
               )}
 
               {/* Composer tools */}
-              <div className="flex items-center justify-between">
-                <div className="flex gap-3 items-center">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
                   {/* File Upload button */}
                   <label className="text-[var(--muted)] hover:text-[var(--foreground)] cursor-pointer transition">
                     <Paperclip size={18} />
@@ -1465,7 +1533,7 @@ export default function SupportCommandCenter({
                 </div>
 
                 {/* Info status info */}
-                <span className="text-[10px] text-[var(--muted)]">
+                <span className="hidden text-[10px] text-[var(--muted)] sm:inline">
                   Type <span className="font-mono text-[var(--accent)] bg-[var(--panel-strong)] px-1 py-0.5 rounded">/</span> for quick templates
                 </span>
               </div>
@@ -1494,7 +1562,7 @@ export default function SupportCommandCenter({
                   
                   {/* Quick canned template floating menu */}
                   {showCanned && (
-                    <div className="absolute bottom-full left-0 mb-2 w-80 bg-[var(--panel-strong)] border border-[var(--panel-border)] rounded-[18px] shadow-2xl p-2 z-50 flex flex-col gap-1 max-h-60 overflow-y-auto">
+                    <div className="absolute bottom-full left-0 z-50 mb-2 flex max-h-60 w-[min(320px,calc(100vw-48px))] flex-col gap-1 overflow-y-auto rounded-[18px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-2 shadow-2xl">
                       <div className="px-3 py-1.5 text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider border-b border-[var(--panel-border)]">
                         Canned Responses
                       </div>
@@ -1550,7 +1618,7 @@ export default function SupportCommandCenter({
               </button>
             )}
 
-            <div className="grid grid-cols-3 gap-6 max-w-xl w-full border-t border-[var(--panel-border)] pt-8">
+            <div className="grid w-full max-w-xl grid-cols-1 gap-3 border-t border-[var(--panel-border)] pt-6 sm:grid-cols-3 sm:gap-4 lg:gap-6 lg:pt-8">
               <div className="p-4 bg-[var(--panel)] rounded-[20px] border border-[var(--panel-border)]">
                 <p className="text-2xl font-bold text-[var(--accent)]">{supportStats?.openTickets ?? 0}</p>
                 <p className="text-[10px] text-[var(--muted)] font-bold uppercase tracking-wider mt-1">Open Tickets</p>
@@ -1573,8 +1641,30 @@ export default function SupportCommandCenter({
       </div>
 
       {/* COLUMN 4: Context / Audit Panel (320px) */}
+      {activeId && showContextPanel ? (
+        <button
+          aria-label="Close conversation details"
+          className="fixed inset-0 z-[9999] bg-black/45 backdrop-blur-[2px] min-[1900px]:hidden"
+          onClick={() => setShowContextPanel(false)}
+          type="button"
+        />
+      ) : null}
       {activeId && (
-        <div className="w-[320px] flex shrink-0 flex-col gap-4 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel)] p-5 shadow-xl overflow-y-auto">
+        <div className={`${showContextPanel ? "flex" : "hidden"} fixed inset-y-2 right-2 z-[10000] w-[min(360px,calc(100vw-16px))] shrink-0 flex-col gap-4 overflow-y-auto rounded-[22px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-2xl min-[1900px]:static min-[1900px]:z-auto min-[1900px]:flex min-[1900px]:w-[320px] min-[1900px]:rounded-[24px] min-[1900px]:p-5 min-[1900px]:shadow-xl`}>
+          <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-3 min-[1900px]:hidden">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--muted)]">Conversation</p>
+              <p className="mt-1 text-sm font-bold">Details and audit</p>
+            </div>
+            <button
+              aria-label="Close conversation details"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--panel-border)]"
+              onClick={() => setShowContextPanel(false)}
+              type="button"
+            >
+              <X size={16} />
+            </button>
+          </div>
           {/* User profile details */}
           {currentChatUser && (
             <div className="flex flex-col items-center text-center pb-4 border-b border-[var(--panel-border)]">

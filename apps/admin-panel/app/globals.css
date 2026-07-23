@@ -205,21 +205,8 @@ textarea {
   pointer-events: none;
 }
 
-@media (min-width: 1280px) {
-  .darji-dashboard-scale {
-    zoom: 0.74;
-  }
-}
-
-@supports not (zoom: 1) {
-  @media (min-width: 1280px) {
-    .darji-dashboard-scale {
-      transform: scale(0.74);
-      transform-origin: top left;
-      width: 136%;
-      min-height: 136vh;
-    }
-  }
+.darji-dashboard-scale {
+  width: 100%;
 }
 
 @keyframes float-gentle {

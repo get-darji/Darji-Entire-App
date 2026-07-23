@@ -2690,7 +2690,7 @@ function LoginPanel({
   const [rememberDevice, setRememberDevice] = useState(true);
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.18),transparent_20%),radial-gradient(circle_at_bottom_right,rgba(246,163,19,0.12),transparent_24%),linear-gradient(180deg,#fffdf8_0%,#fff6e8_100%)]">
+    <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.18),transparent_20%),radial-gradient(circle_at_bottom_right,rgba(246,163,19,0.12),transparent_24%),linear-gradient(180deg,#fffdf8_0%,#fff6e8_100%)]">
       <div className="pointer-events-none absolute inset-0 opacity-70">
         <div className="absolute -left-10 top-0 h-60 w-60 rounded-full border border-dashed border-[#f0cf88]" />
         <div className="absolute left-[28%] top-10 text-[#efdeb7]"><GhostSewIcon type="button" /></div>
@@ -2699,14 +2699,14 @@ function LoginPanel({
         <div className="absolute left-[46%] top-1/2 text-[#efdeb7]"><GhostSewIcon type="button" /></div>
       </div>
 
-      <section className="mx-auto grid min-h-screen max-w-[1540px] items-center gap-8 px-5 py-8 xl:grid-cols-[1fr_0.92fr] xl:px-10">
-        <div className="relative flex min-h-[760px] flex-col justify-between overflow-hidden rounded-[42px] bg-[radial-gradient(circle_at_top,rgba(255,213,94,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.4),rgba(255,248,231,0.72))] p-8 lg:p-12">
+      <section className="mx-auto grid min-h-[100dvh] max-w-[1540px] items-center gap-4 px-3 py-3 sm:gap-6 sm:px-5 sm:py-6 xl:grid-cols-[1fr_0.92fr] xl:gap-8 xl:px-10 xl:py-8">
+        <div className="relative order-2 flex min-h-0 flex-col justify-between overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_top,rgba(255,213,94,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.4),rgba(255,248,231,0.72))] p-5 sm:rounded-[36px] sm:p-8 xl:order-1 xl:min-h-[760px] xl:rounded-[42px] xl:p-12">
           <div>
-            <Image alt="Darji" className="h-auto w-[240px]" height={146} priority src="/darji-logo.png" width={240} style={{ height: "auto" }} />
+            <Image alt="Darji" className="h-auto w-[170px] sm:w-[210px] xl:w-[240px]" height={146} priority src="/darji-logo.png" width={240} style={{ height: "auto" }} />
             <p className="mt-3 pl-2 text-[15px] font-medium text-[#59483a]">Stitching Made Simple</p>
 
-            <div className="mt-12 max-w-[520px]">
-              <h1 className="text-[3.35rem] font-semibold leading-[1.08] tracking-[-0.05em] text-[#4f3115]">
+            <div className="mt-7 max-w-[520px] sm:mt-10 xl:mt-12">
+              <h1 className="text-[clamp(2.15rem,7vw,3.35rem)] font-semibold leading-[1.08] tracking-[-0.05em] text-[#4f3115]">
                 Welcome to <span className="text-[#f2a600]">Darji</span>
                 <br />
                 Admin Portal
@@ -2717,7 +2717,7 @@ function LoginPanel({
               <div className="mt-7 h-[3px] w-[72px] rounded-full bg-[#f2a600]" />
             </div>
 
-            <div className="mt-10 grid max-w-[520px] gap-6">
+            <div className="mt-10 hidden max-w-[520px] gap-6 md:grid">
               <LoginFeature
                 icon={BarChart3}
                 title="Real-time Analytics"
@@ -2736,26 +2736,26 @@ function LoginPanel({
             </div>
           </div>
 
-          <div className="mt-10">
+          <div className="mt-10 hidden lg:block">
             <SewingMachineIllustration />
           </div>
         </div>
 
-        <div className="relative">
+        <div className="relative order-1 min-w-0 xl:order-2">
           <div className="absolute inset-x-10 top-10 h-36 rounded-full bg-[rgba(246,163,19,0.12)] blur-3xl" />
-          <div className="relative overflow-hidden rounded-[38px] border border-[#ead6ad] bg-[linear-gradient(180deg,#ffffff_0%,#fffdf8_100%)] p-7 shadow-[0_28px_80px_rgba(181,135,37,0.14)] sm:p-10">
+          <div className="relative overflow-hidden rounded-[26px] border border-[#ead6ad] bg-[linear-gradient(180deg,#ffffff_0%,#fffdf8_100%)] p-5 shadow-[0_28px_80px_rgba(181,135,37,0.14)] sm:rounded-[34px] sm:p-8 lg:p-10 xl:rounded-[38px]">
             <div className="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top,rgba(246,163,19,0.12),transparent_65%)]" />
             <div className="relative z-10">
-              <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full bg-[linear-gradient(180deg,#fff7de,#ffe9a4)] text-[#8f5d12] shadow-[0_16px_32px_rgba(246,163,19,0.16)]">
-                <ShieldCheck size={44} strokeWidth={1.8} />
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[linear-gradient(180deg,#fff7de,#ffe9a4)] text-[#8f5d12] shadow-[0_16px_32px_rgba(246,163,19,0.16)] sm:h-24 sm:w-24 xl:h-28 xl:w-28">
+                <ShieldCheck className="h-8 w-8 sm:h-10 sm:w-10 xl:h-11 xl:w-11" strokeWidth={1.8} />
               </div>
 
-              <div className="mt-8 text-center">
-                <h2 className="text-[3rem] font-semibold tracking-[-0.04em] text-[#1f1f1f]">Welcome Back!</h2>
-                <p className="mt-3 text-[1.12rem] text-[#6f6f79]">Login to access your Darji Admin Dashboard</p>
+              <div className="mt-5 text-center sm:mt-7 xl:mt-8">
+                <h2 className="text-[clamp(2rem,8vw,3rem)] font-semibold tracking-[-0.04em] text-[#1f1f1f]">Welcome Back!</h2>
+                <p className="mt-2 text-[0.98rem] text-[#6f6f79] sm:mt-3 sm:text-[1.12rem]">Login to access your Darji Admin Dashboard</p>
               </div>
 
-              <div className="mt-10 space-y-6">
+              <div className="mt-7 space-y-5 sm:mt-9 sm:space-y-6 xl:mt-10">
                 <Field label="Phone Number">
                   <div className="flex h-[58px] items-center gap-4 rounded-[18px] border border-[#e7e3d8] bg-white px-5 shadow-[inset_0_0_0_1px_rgba(255,248,232,0.5)]">
                     <Users size={20} className="text-[#8f8f95]" />
@@ -2784,7 +2784,7 @@ function LoginPanel({
                   </Field>
                 ) : null}
 
-                <div className="flex items-center justify-between gap-4 text-sm">
+                <div className="flex flex-col items-start gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                   <label className="inline-flex items-center gap-3 text-[#6a6460]">
                     <input
                       checked={rememberDevice}
@@ -2837,7 +2837,7 @@ function LoginPanel({
                 </ActionButton>
               </div>
 
-              <div className="mt-10 flex items-center gap-4 text-[#8c8781]">
+              <div className="mt-7 flex items-center gap-4 text-[#8c8781] sm:mt-10">
                 <div className="h-px flex-1 bg-[#ece5d7]" />
                 <span className="text-sm">Need help?</span>
                 <div className="h-px flex-1 bg-[#ece5d7]" />
@@ -2847,7 +2847,7 @@ function LoginPanel({
                 Contact Darji support for admin access assistance.
               </div>
 
-              <div className="mt-10 text-center text-sm text-[#8c8781]">Â© 2024 Darji. All rights reserved.</div>
+              <div className="mt-7 text-center text-sm text-[#8c8781] sm:mt-10">© {new Date().getFullYear()} Darji. All rights reserved.</div>
             </div>
           </div>
         </div>
@@ -3030,7 +3030,7 @@ function PortalFrame({
         <div className={cn("fixed inset-0 z-40 bg-black/55 backdrop-blur-sm transition lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")} onClick={() => setSidebarOpen(false)} />
         <aside
           className={cn(
-            "darji-sidebar fixed inset-y-3 left-3 z-50 flex w-[252px] flex-col rounded-[30px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:translate-x-0",
+            "darji-sidebar fixed inset-y-3 left-3 z-50 flex w-[min(300px,calc(100vw-24px))] flex-col rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:w-[252px] lg:translate-x-0 lg:rounded-[30px]",
             sidebarOpen ? "translate-x-0" : "-translate-x-[120%]"
           )}
         >
@@ -3041,7 +3041,7 @@ function PortalFrame({
             </button>
           </div>
 
-          <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-320px)] pr-1">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {sidebarSections.map((section) => {
               const Icon = section.icon;
               const isActive = section.id === activeSection;
@@ -3157,7 +3157,7 @@ function PortalFrame({
           </div>
         </aside>
 
-        <div className="lg:pl-[278px]">
+        <div className="min-w-0 lg:pl-[278px]">
           <div className="sticky top-0 z-20 px-3 pt-3 lg:px-6 lg:pt-4">
             <header className="darji-topbar relative rounded-[28px] border border-[#e8d2a7] bg-[linear-gradient(180deg,rgba(255,253,248,0.98),rgba(255,249,241,0.98))] px-4 py-4 shadow-[var(--shadow)] backdrop-blur sm:px-5">
               <div className="darji-topbar-overlay pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_55%_120%,rgba(246,163,19,0.14),transparent_24%),radial-gradient(circle_at_78%_30%,rgba(246,163,19,0.12),transparent_20%),linear-gradient(90deg,transparent_0%,rgba(246,163,19,0.04)_34%,rgba(255,255,255,0)_70%)]" />
@@ -3165,16 +3165,16 @@ function PortalFrame({
                 <div className="absolute inset-0 bg-[radial-gradient(circle,#efc871_1px,transparent_1px)] [background-size:12px_12px]" />
                 <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(246,190,73,0.12)_28%,transparent_46%,rgba(246,190,73,0.08)_62%,transparent_84%)]" />
               </div>
-              <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex items-center gap-3">
+              <div className="relative flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between xl:gap-4">
+                <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                   <button className="rounded-2xl border border-[var(--panel-border)] p-3 text-[var(--foreground)] lg:hidden" onClick={onOpenSidebar}>
                     <Menu size={18} />
                   </button>
                   <div className="darji-header-control hidden h-12 w-12 items-center justify-center rounded-2xl border border-[#f0dcc0] bg-[#fff6e3] text-[#c78309] lg:flex">
                     <Menu size={18} />
                   </div>
-                  <div className="relative">
-                    <div className="darji-header-control flex min-w-0 items-center gap-3 rounded-2xl border border-[#e8cf9d] bg-white px-4 py-3 shadow-[inset_0_0_0_1px_rgba(255,245,224,0.55)] sm:min-w-[340px]">
+                  <div className="relative min-w-0 flex-1 xl:flex-none">
+                    <div className="darji-header-control flex w-full min-w-0 items-center gap-2 rounded-2xl border border-[#e8cf9d] bg-white px-3 py-3 shadow-[inset_0_0_0_1px_rgba(255,245,224,0.55)] sm:min-w-[340px] sm:gap-3 sm:px-4">
                       <Search size={18} className="text-[var(--muted)]" />
                       <input
                         className="w-full bg-transparent outline-none"
@@ -3217,7 +3217,7 @@ function PortalFrame({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                   <div className="darji-header-control hidden items-center gap-2 rounded-2xl border border-[#f0dcc0] bg-white px-4 py-3 text-sm font-medium text-[var(--deep)] lg:inline-flex">
                     <CalendarDays size={17} className="text-[var(--accent)]" />
                     {buildDashboardDateRangeLabel("monthly")}
@@ -3261,7 +3261,7 @@ function PortalFrame({
 
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger asChild>
-                      <button className="darji-header-control flex items-center gap-3 rounded-2xl border border-[#f0dcc0] bg-white px-3 py-2.5 transition hover:border-[var(--accent)]">
+                      <button className="darji-header-control flex min-w-0 items-center gap-2 rounded-2xl border border-[#f0dcc0] bg-white px-2.5 py-2.5 transition hover:border-[var(--accent)] sm:gap-3 sm:px-3">
                         <AvatarBadge me={profileMe} size="sm" />
                         <div className="hidden text-left sm:block">
                           <p className="text-sm font-semibold">{displayName}</p>
@@ -3292,7 +3292,7 @@ function PortalFrame({
             </header>
           </div>
 
-          <div className="px-3 py-4 lg:px-6 lg:pb-8">{children}</div>
+          <div className="min-w-0 px-3 py-3 sm:py-4 lg:px-6 lg:pb-8">{children}</div>
         </div>
       </div>
     </main>
