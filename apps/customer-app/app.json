@@ -2,7 +2,7 @@
   "expo": {
     "name": "Darji",
     "slug": "darzi-customer",
-    "owner": "getdarjis-team",
+    "owner": "usauske860",
     "scheme": "darzicustomer",
     "icon": "./app-icon.png",
     "version": "0.1.0",
@@ -31,7 +31,7 @@
     "extra": {
       "apiUrl": "https://backend-production-5a7e4.up.railway.app/api",
       "eas": {
-        "projectId": "97bb70dd-f20c-4131-88f3-c5be3f4eb3fc"
+        "projectId": "1b0c3e4d-4e0f-4c5b-ab58-f90f732877c4"
       }
     },
     "plugins": [
@@ -56,7 +56,7 @@
     },
     "ios": {},
     "updates": {
-      "url": "https://u.expo.dev/97bb70dd-f20c-4131-88f3-c5be3f4eb3fc"
+      "url": "https://u.expo.dev/1b0c3e4d-4e0f-4c5b-ab58-f90f732877c4"
     }
   }
 }
