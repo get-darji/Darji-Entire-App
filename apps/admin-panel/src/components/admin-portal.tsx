@@ -3027,10 +3027,10 @@ function PortalFrame({
     <>
     <main className="min-h-screen">
       <div className="darji-dashboard-scale darji-shell relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.16),transparent_22%),radial-gradient(circle_at_top_right,rgba(246,163,19,0.08),transparent_18%)] bg-[var(--background)]">
-        <div className={cn("fixed inset-0 z-40 bg-black/55 backdrop-blur-sm transition lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")} onClick={() => setSidebarOpen(false)} />
+        <div className={cn("fixed inset-0 z-[1000] bg-black/55 backdrop-blur-sm transition lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")} onClick={() => setSidebarOpen(false)} />
         <aside
           className={cn(
-            "darji-sidebar fixed inset-y-3 left-3 z-50 flex w-[min(300px,calc(100vw-24px))] flex-col rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:w-[252px] lg:translate-x-0 lg:rounded-[30px]",
+            "darji-sidebar fixed inset-y-3 left-3 z-[1010] flex w-[min(300px,calc(100vw-24px))] flex-col overflow-hidden rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel)] p-4 shadow-[var(--shadow)] backdrop-blur transition lg:inset-y-4 lg:left-4 lg:z-30 lg:w-[252px] lg:translate-x-0 lg:rounded-[30px]",
             sidebarOpen ? "translate-x-0" : "-translate-x-[120%]"
           )}
         >

@@ -13,7 +13,7 @@ function ClickToDraw({ onAdd }: { onAdd: (point: Point) => void }) {
 export default function ServiceAreaMap({ points, onChange, existingAreas = [] }: { points: Point[]; onChange: (points: Point[]) => void; existingAreas?: ServiceArea[] }) {
   const latLngs = points.map(([longitude, latitude]) => [latitude, longitude] as [number, number]);
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200">
+    <div className="relative z-0 min-w-0 isolate overflow-hidden rounded-2xl border border-slate-200">
       <MapContainer center={[28.6219, 77.075]} zoom={13} scrollWheelZoom style={{ height: 430, width: "100%" }}>
         <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <ClickToDraw onAdd={(point) => onChange([...points, point])} />
