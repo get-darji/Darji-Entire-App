@@ -27,10 +27,11 @@ import type {
   DeliveryFareSettings,
   ServiceArea,
   LaunchRequest,
-  LaunchRequestGroup
+  LaunchRequestGroup,
+  AdminMapSnapshot
 } from "@/src/types/admin";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -141,6 +142,10 @@ export async function getTailors() {
 
 export async function getDeliveryPartners() {
   return unwrap<DeliveryPartnerProfile[]>(api.get("/delivery-partners"));
+}
+
+export async function getAdminMapSnapshot() {
+  return unwrap<AdminMapSnapshot>(api.get("/admin/maps/snapshot"));
 }
 
 export async function getUsers() {

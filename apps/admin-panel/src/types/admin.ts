@@ -23,6 +23,53 @@ export type BasicUser = {
   updatedAt?: string;
 };
 
+export type AdminMapLocation = {
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  speed?: number;
+  updatedAt?: string;
+};
+
+export type AdminMapSnapshot = {
+  deliveryPartners: Array<{
+    id: string;
+    name: string;
+    phone?: string;
+    online: boolean;
+    currentOrder?: string;
+    lastUpdated?: string;
+    location: AdminMapLocation;
+  }>;
+  customers: Array<{
+    id: string;
+    name: string;
+    phone?: string;
+    address: string;
+    currentOrder?: string;
+    location: AdminMapLocation;
+  }>;
+  tailors: Array<{
+    id: string;
+    shopName?: string;
+    name?: string;
+    phone?: string;
+    rating?: number;
+    pendingOrders: number;
+    location: AdminMapLocation;
+  }>;
+  activeOrders: Array<{
+    id: string;
+    taskId: string;
+    status: string;
+    type: string;
+    customerName?: string;
+    tailorName?: string;
+    location: AdminMapLocation;
+  }>;
+  generatedAt: string;
+};
+
 export type AnalyticsSummary = {
   totalOrders: number;
   activeOrders: number;

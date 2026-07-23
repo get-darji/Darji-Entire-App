@@ -26,6 +26,7 @@ export type SectionId =
   | "platform"
   | "serviceAreas"
   | "launchRequests"
+  | "operationsMap"
   | "settings";
 
 type AdminStore = {
