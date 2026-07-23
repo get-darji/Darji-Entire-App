@@ -26,12 +26,12 @@ import type {
   WalletDetail,
   DeliveryFareSettings,
   ServiceArea,
+  ServiceAreaCheck,
   LaunchRequest,
-  LaunchRequestGroup,
-  AdminMapSnapshot
+  LaunchRequestGroup
 } from "@/src/types/admin";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -144,10 +144,6 @@ export async function getDeliveryPartners() {
   return unwrap<DeliveryPartnerProfile[]>(api.get("/delivery-partners"));
 }
 
-export async function getAdminMapSnapshot() {
-  return unwrap<AdminMapSnapshot>(api.get("/admin/maps/snapshot"));
-}
-
 export async function getUsers() {
   return unwrap<AdminUser[]>(api.get("/users"));
 }
@@ -207,6 +203,10 @@ export async function updatePlatformStatus(payload: PlatformStatus) {
 
 export async function getServiceAreas() {
   return unwrap<ServiceArea[]>(api.get("/service-areas"));
+}
+
+export async function checkServiceArea(latitude: number, longitude: number) {
+  return unwrap<ServiceAreaCheck>(api.post("/service-areas/check", { latitude, longitude }));
 }
 
 export async function createServiceArea(payload: Omit<ServiceArea, "id" | "createdAt" | "updatedAt">) {

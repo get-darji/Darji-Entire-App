@@ -48,11 +48,11 @@ import {
   type LucideIcon
 } from "lucide-react";
 import Link from "next/link";
-import { type Dispatch, type SetStateAction, useEffect, useMemo, useState, useRef } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { z } from "zod";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { Button, EmptyState, FieldShell, inputClass } from "@/src/components/ui";
-import { customerApi, errorMessage } from "@/src/lib/api";
+import { customerApi, errorMessage, type ServiceAreaCheck, type ServiceAreaCoordinates } from "@/src/lib/api";
 import { couponDiscount, couponLabel, deliveryFeeForUrgency, HOME_MEASUREMENT_FEE, getPlatformFee, getSmallOrderFee, quoteEta } from "@/src/lib/pricing";
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailoringRequestItem, TailorQuote, UploadedMedia, WalletSummary } from "@/src/lib/types";
 import { useAuthStore } from "@/src/store/auth-store";
@@ -62,6 +62,7 @@ type PaymentMethod = "ONLINE" | "UPI" | "COD";
 type SaveAction = "another" | "summary";
 type OrderFilter = "all" | "active" | "waiting" | "completed" | "cancelled";
 type OrderSuccess = { code: string; total?: number; paymentMethod?: string };
+const ORDER_CREATION_SCREENS = new Set<CustomerScreen>(["newRequest", "clothIssue", "summary", "quotes", "confirm"]);
 
 type LocalMedia = {
   id: string;
@@ -4025,9 +4026,126 @@ function SupportBox() {
   );
 }
 
+function useWebServiceArea(enabled: boolean) {
+  const [status, setStatus] = useState<ServiceAreaCheck>();
+  const [coordinates, setCoordinates] = useState<ServiceAreaCoordinates>();
+  const [checking, setChecking] = useState(enabled);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const refresh = useCallback(async (manual = false) => {
+    if (!enabled) {
+      setChecking(false);
+      return;
+    }
+    if (!navigator.geolocation) {
+      setError("Location is not supported by this browser.");
+      setChecking(false);
+      return;
+    }
+    manual ? setRefreshing(true) : setChecking(true);
+    setError(undefined);
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          maximumAge: 60_000,
+          timeout: 10_000
+        });
+      });
+      const nextCoordinates = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude
+      };
+      const nextStatus = await customerApi.checkServiceArea(nextCoordinates);
+      setCoordinates(nextCoordinates);
+      setStatus(nextStatus);
+    } catch (caught) {
+      const denied = typeof caught === "object" && caught !== null && "code" in caught && Number(caught.code) === 1;
+      setError(denied ? "Allow location access to check whether Darji serves your current area." : errorMessage(caught));
+      setStatus(undefined);
+    } finally {
+      setChecking(false);
+      setRefreshing(false);
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) {
+      setStatus(undefined);
+      setCoordinates(undefined);
+      setError(undefined);
+      setChecking(false);
+      return;
+    }
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5 * 60 * 1000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [enabled, refresh]);
+
+  return { status, coordinates, checking, refreshing, error, refresh };
+}
+
+function WebServiceAreaScreen({
+  error,
+  refreshing,
+  notifying,
+  notified,
+  onRefresh,
+  onNotify,
+  onExplore
+}: {
+  error?: string;
+  refreshing: boolean;
+  notifying: boolean;
+  notified: boolean;
+  onRefresh: () => void;
+  onNotify: () => void;
+  onExplore: () => void;
+}) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f6f8fb] px-4 py-10">
+      <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-lg rounded-[2rem] border border-[#e6edf5] bg-white px-6 py-9 text-center shadow-[0_28px_80px_rgba(15,35,63,0.12)] sm:px-10">
+        <BrandLogo imageClassName="h-20 w-auto" />
+        <div className="mx-auto mt-5 grid h-20 w-20 place-items-center rounded-full bg-[#fff3dc] text-[var(--darji-orange)]">
+          <LocateFixed className="h-9 w-9" />
+        </div>
+        <h1 className="mt-6 text-3xl font-black tracking-tight text-[var(--darji-ink)] sm:text-4xl">
+          {error ? "We need your location" : "Darji isn't available here yet"}
+        </h1>
+        <p className="mx-auto mt-4 max-w-md text-sm font-semibold leading-6 text-[var(--darji-muted)] sm:text-base">
+          {error ?? "We're expanding quickly. Tell us you're interested and we'll let you know as soon as Darji reaches your area."}
+        </p>
+        <div className="mt-7 grid gap-3">
+          <button disabled={notifying || notified || Boolean(error)} onClick={onNotify} className="min-h-14 rounded-2xl bg-[var(--darji-orange)] px-5 font-black text-white shadow-[0_10px_24px_rgba(242,140,0,0.28)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50">
+            {notifying ? "Saving your request..." : notified ? "You're on the list" : "Notify me when Darji launches here"}
+          </button>
+          <button onClick={onExplore} className="min-h-14 rounded-2xl bg-[var(--darji-ink)] px-5 font-black text-white shadow-lg transition hover:-translate-y-0.5">
+            Explore the app
+          </button>
+          <button disabled={refreshing} onClick={onRefresh} className="mx-auto min-h-10 px-4 text-sm font-black text-[var(--darji-orange)] disabled:opacity-50">
+            {refreshing ? "Checking location..." : error ? "Try location again" : "Refresh location"}
+          </button>
+        </div>
+      </motion.section>
+    </main>
+  );
+}
+
 export function CustomerDashboard() {
   const { accessToken, signOut, setUser } = useAuthStore();
   const [screen, setScreen] = useState<CustomerScreen>("home");
+  const [serviceAreaExploring, setServiceAreaExploring] = useState(false);
+  const [serviceAreaNotifying, setServiceAreaNotifying] = useState(false);
+  const [serviceAreaNotified, setServiceAreaNotified] = useState(false);
+  const serviceArea = useWebServiceArea(Boolean(accessToken));
   const [draft, setDraft] = useState<RequestDraft>(() => makeEmptyDraft());
   const [selectedQuote, setSelectedQuote] = useState<TailorQuote>();
   const [selectedOrderId, setSelectedOrderId] = useState<string>();
@@ -4045,6 +4163,11 @@ export function CustomerDashboard() {
   const notificationRows = notifications.data ?? [];
   const syncing = requests.isLoading || coupons.isLoading || wallet.isLoading || notifications.isLoading || addresses.isLoading || meQuery.isLoading;
   const selectedOrder = useMemo(() => requestRows.find((request) => request.id === selectedOrderId), [requestRows, selectedOrderId]);
+
+  useEffect(() => {
+    setServiceAreaExploring(false);
+    setServiceAreaNotified(false);
+  }, [accessToken]);
 
   useEffect(() => {
     if (meQuery.data) {
@@ -4100,6 +4223,10 @@ export function CustomerDashboard() {
   }
 
   function setAppScreen(nextScreen: CustomerScreen) {
+    if (ORDER_CREATION_SCREENS.has(nextScreen) && (!serviceArea.status?.available || Boolean(serviceArea.error))) {
+      setServiceAreaExploring(false);
+      return;
+    }
     if (nextScreen === "newRequest" && draft.backendRequestId) {
       window.location.hash = "quotes";
       return;
@@ -4116,6 +4243,36 @@ export function CustomerDashboard() {
   }
 
   if (!accessToken) return <AuthPanel />;
+
+  if (serviceArea.checking && !serviceArea.status) {
+    return <LoadingScreen label="Finding your Darji service area" />;
+  }
+
+  const outsideServiceArea = !serviceArea.status?.available || Boolean(serviceArea.error);
+  if (outsideServiceArea && (!serviceAreaExploring || ORDER_CREATION_SCREENS.has(screen))) {
+    return (
+      <WebServiceAreaScreen
+        error={serviceArea.error}
+        refreshing={serviceArea.refreshing}
+        notifying={serviceAreaNotifying}
+        notified={serviceAreaNotified}
+        onRefresh={() => void serviceArea.refresh(true)}
+        onNotify={() => {
+          if (!serviceArea.coordinates) return;
+          setServiceAreaNotifying(true);
+          void customerApi.requestServiceAreaLaunch(serviceArea.coordinates)
+            .then(() => setServiceAreaNotified(true))
+            .catch((caught) => window.alert(errorMessage(caught)))
+            .finally(() => setServiceAreaNotifying(false));
+        }}
+        onExplore={() => {
+          window.location.hash = "";
+          setScreen("home");
+          setServiceAreaExploring(true);
+        }}
+      />
+    );
+  }
 
   const sharedError = requests.error ?? coupons.error ?? wallet.error ?? notifications.error ?? addresses.error;
   const initialLoading = syncing && !requests.data && !coupons.data && !wallet.data && !notifications.data && !addresses.data && !sharedError;

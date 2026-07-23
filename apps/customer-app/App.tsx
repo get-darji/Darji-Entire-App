@@ -7677,6 +7677,7 @@ export default function App() {
   const serviceArea = useServiceAreaAccess({ enabled: Boolean(token), getCoordinates: loadServiceCoordinates, check: checkServiceAreaAvailability });
   const [serviceAreaNotifying, setServiceAreaNotifying] = useState(false);
   const [serviceAreaNotified, setServiceAreaNotified] = useState(false);
+  const [serviceAreaExploring, setServiceAreaExploring] = useState(false);
   const [screen, setScreenState] = useState<Screen>("home");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [customerDataByPhone, setCustomerDataByPhone] = useState<Record<string, CustomerData>>({});
@@ -7700,6 +7701,11 @@ export default function App() {
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
+
+  useEffect(() => {
+    setServiceAreaExploring(false);
+    setServiceAreaNotified(false);
+  }, [token]);
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -7739,6 +7745,10 @@ export default function App() {
   }, [cancellingOrderId, dialog, paymentSheet, screen, screenStack, verifyingPayment]);
 
   function setScreen(nextScreen: Screen, options?: { replace?: boolean; resetStack?: boolean }) {
+    if (nextScreen === "newRequest" && (!serviceArea.status?.available || Boolean(serviceArea.error))) {
+      setServiceAreaExploring(false);
+      return;
+    }
     let resolvedScreen = nextScreen;
     if (nextScreen === "newRequest" && !REQUEST_FLOW_SCREENS.has(screen) && (hasRequestDraftData(draft) || draft.backendRequestId || selectedQuote)) {
       resolvedScreen = requestProgressScreen;
@@ -8587,10 +8597,10 @@ export default function App() {
     );
   }
   if (!token) return <AuthScreen />;
-  const outsideAllowedScreen = screen === "profile" || screen === "contactSupport" || screen === "aboutDarji";
   if (serviceArea.checking && !serviceArea.status) return <ServiceAreaLoadingScreen />;
-  if ((!serviceArea.status?.available || serviceArea.error) && !outsideAllowedScreen) {
-    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} onProfile={() => setScreen("profile")} onSupport={() => setScreen("contactSupport")} onAbout={() => setScreen("aboutDarji")} />;
+  const outsideServiceArea = !serviceArea.status?.available || Boolean(serviceArea.error);
+  if (outsideServiceArea && (!serviceAreaExploring || REQUEST_FLOW_SCREENS.has(screen))) {
+    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} onExplore={() => { setScreenState("home"); setScreenStack([]); setServiceAreaExploring(true); }} />;
   }
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} />);

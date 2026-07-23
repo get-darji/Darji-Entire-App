@@ -3894,7 +3894,7 @@ export default function App() {
   }
   if (serviceArea.checking && !serviceArea.status) return <ServiceAreaLoadingScreen />;
   if (!serviceArea.status?.available || serviceArea.error) {
-    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} onProfile={() => Alert.alert("Profile", `${sessionUser?.name ?? "Darji Tailor"}\n${sessionUser?.phone ?? ""}`)} onSupport={() => Alert.alert("Darji Support", "Contact support from your registered mobile number for account assistance.")} onAbout={() => Alert.alert("About Darji", "Darji connects customers, verified tailors, and delivery partners through one managed platform.")} />;
+    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} />;
   }
 
   if (!me) {

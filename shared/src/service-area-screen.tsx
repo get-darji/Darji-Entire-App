@@ -2,7 +2,18 @@ import React from "react";
 import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 export function ServiceAreaLoadingScreen() {
-  return <SafeAreaView style={styles.safe}><View style={styles.center}><ActivityIndicator size="large" color="#f28c00" /><Text style={styles.helper}>Checking service availability…</Text></View></SafeAreaView>;
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.center}>
+        <View style={styles.logo}>
+          <Text style={styles.logoText}>D</Text>
+        </View>
+        <ActivityIndicator size="large" color="#f59e0b" />
+        <Text style={styles.loadingTitle}>Finding your Darji service area</Text>
+        <Text style={styles.helper}>This should only take a moment.</Text>
+      </View>
+    </SafeAreaView>
+  );
 }
 
 export function OutsideServiceAreaScreen({
@@ -12,9 +23,7 @@ export function OutsideServiceAreaScreen({
   notified,
   onRefresh,
   onNotify,
-  onProfile,
-  onSupport,
-  onAbout
+  onExplore
 }: {
   error?: string;
   refreshing: boolean;
@@ -22,27 +31,46 @@ export function OutsideServiceAreaScreen({
   notified: boolean;
   onRefresh: () => void;
   onNotify: () => void;
-  onProfile?: () => void;
-  onSupport?: () => void;
-  onAbout?: () => void;
+  onExplore?: () => void;
 }) {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.center}>
-        <View style={styles.icon}><Text style={styles.iconText}>⌖</Text></View>
-        <Text style={styles.title}>{error ? "Location access required" : "Darji isn't available here yet"}</Text>
-        <Text style={styles.copy}>{error ?? "We're currently serving Janakpuri and Uttam Nagar. Your live GPS location is used only to check service availability."}</Text>
-        <Pressable style={styles.primary} disabled={refreshing} onPress={onRefresh}>
-          {refreshing ? <ActivityIndicator color="#111827" /> : <Text style={styles.primaryText}>Refresh location</Text>}
-        </Pressable>
-        <Pressable style={styles.secondary} disabled={notifying || notified || Boolean(error)} onPress={onNotify}>
-          {notifying ? <ActivityIndicator color="#f28c00" /> : <Text style={styles.secondaryText}>{notified ? "We'll notify you" : "Notify me when Darji launches here"}</Text>}
-        </Pressable>
-        <View style={styles.links}>
-          {onProfile ? <Pressable onPress={onProfile}><Text style={styles.link}>Profile</Text></Pressable> : null}
-          {onSupport ? <Pressable onPress={onSupport}><Text style={styles.link}>Support</Text></Pressable> : null}
-          {onAbout ? <Pressable onPress={onAbout}><Text style={styles.link}>About</Text></Pressable> : null}
+        <View style={styles.locationIcon}>
+          <View style={styles.locationDot} />
+          <View style={styles.locationRing} />
         </View>
+        <Text style={styles.title}>{error ? "We need your location" : "Darji isn't available here yet"}</Text>
+        <Text style={styles.copy}>
+          {error ?? "We're expanding quickly. Tell us you're interested and we'll let you know as soon as Darji reaches your area."}
+        </Text>
+
+        <Pressable
+          accessibilityRole="button"
+          disabled={notifying || notified || Boolean(error)}
+          onPress={onNotify}
+          style={({ pressed }) => [styles.notifyButton, pressed && styles.pressed, (notifying || notified || Boolean(error)) && styles.disabled]}
+        >
+          {notifying ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.notifyText}>{notified ? "You're on the list" : "Notify me when Darji launches here"}</Text>
+          )}
+        </Pressable>
+
+        {onExplore ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onExplore}
+            style={({ pressed }) => [styles.exploreButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.exploreText}>Explore the app</Text>
+          </Pressable>
+        ) : null}
+
+        <Pressable accessibilityRole="button" disabled={refreshing} onPress={onRefresh} style={styles.refreshButton}>
+          {refreshing ? <ActivityIndicator size="small" color="#d97706" /> : <Text style={styles.refreshText}>{error ? "Try location again" : "Refresh location"}</Text>}
+        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -50,16 +78,50 @@ export function OutsideServiceAreaScreen({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#f8fafc" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 16 },
-  icon: { width: 76, height: 76, borderRadius: 38, backgroundColor: "#fff0d7", alignItems: "center", justifyContent: "center" },
-  iconText: { fontSize: 38, color: "#f28c00", fontWeight: "800" },
-  title: { color: "#10233f", fontSize: 26, fontWeight: "800", textAlign: "center" },
-  copy: { color: "#64748b", fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 390 },
-  helper: { color: "#64748b", fontSize: 15 },
-  primary: { minHeight: 52, width: "100%", borderRadius: 16, backgroundColor: "#f6a313", alignItems: "center", justifyContent: "center", marginTop: 8 },
-  primaryText: { color: "#111827", fontWeight: "800", fontSize: 16 },
-  secondary: { minHeight: 52, width: "100%", borderRadius: 16, borderWidth: 1, borderColor: "#f6a313", alignItems: "center", justifyContent: "center" },
-  secondaryText: { color: "#c96e00", fontWeight: "700", fontSize: 15, textAlign: "center" },
-  links: { flexDirection: "row", gap: 24, marginTop: 8 },
-  link: { color: "#315d96", fontWeight: "700" }
+  center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 36, gap: 16 },
+  logo: { width: 82, height: 82, borderRadius: 24, backgroundColor: "#10233f", alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  logoText: { color: "#f59e0b", fontSize: 46, fontWeight: "900", fontStyle: "italic" },
+  loadingTitle: { color: "#10233f", fontSize: 24, lineHeight: 31, fontWeight: "900", textAlign: "center", marginTop: 4 },
+  helper: { color: "#64748b", fontSize: 15, lineHeight: 22, textAlign: "center" },
+  locationIcon: { width: 92, height: 92, borderRadius: 46, backgroundColor: "#fff2d8", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  locationDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: "#f59e0b", position: "absolute" },
+  locationRing: { width: 40, height: 40, borderRadius: 20, borderWidth: 4, borderColor: "#f59e0b" },
+  title: { color: "#10233f", fontSize: 28, lineHeight: 35, fontWeight: "900", textAlign: "center" },
+  copy: { color: "#64748b", fontSize: 16, lineHeight: 24, textAlign: "center", maxWidth: 410, marginBottom: 10 },
+  notifyButton: {
+    minHeight: 56,
+    width: "100%",
+    maxWidth: 430,
+    borderRadius: 18,
+    backgroundColor: "#f59e0b",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    shadowColor: "#d97706",
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.28,
+    shadowRadius: 11,
+    elevation: 6
+  },
+  notifyText: { color: "#ffffff", fontWeight: "900", fontSize: 16, textAlign: "center" },
+  exploreButton: {
+    minHeight: 54,
+    width: "100%",
+    maxWidth: 430,
+    borderRadius: 18,
+    backgroundColor: "#10233f",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    shadowColor: "#10233f",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 9,
+    elevation: 4
+  },
+  exploreText: { color: "#ffffff", fontWeight: "900", fontSize: 16 },
+  refreshButton: { minHeight: 38, alignItems: "center", justifyContent: "center", paddingHorizontal: 14, marginTop: 2 },
+  refreshText: { color: "#d97706", fontSize: 14, fontWeight: "800" },
+  pressed: { transform: [{ scale: 0.985 }], opacity: 0.92 },
+  disabled: { opacity: 0.58 }
 });

@@ -156,7 +156,6 @@ import {
 import { type SectionId, useAdminStore } from "@/src/store/admin-store";
 import SupportCommandCenter from "./support-command-center";
 import { LaunchRequestsAdmin, ServiceAreasAdmin } from "./service-areas-admin";
-import { OperationsMap } from "./operations-map";
 import type {
   AdminUser,
   AnalyticsSummary,
@@ -334,7 +333,6 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
   { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
   { id: "platform", icon: AlertTriangle, label: "Platform Settings", description: "Live and maintenance controls" },
-  { id: "operationsMap", icon: MapPinned, label: "Live Operations Map", description: "Track partners, orders, customers, and tailors" },
   { id: "serviceAreas", icon: MapPinned, label: "Service Areas", description: "Draw GPS delivery polygons" },
   { id: "launchRequests", icon: MapPin, label: "Launch Requests", description: "Demand outside active areas" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
@@ -2391,9 +2389,6 @@ export function AdminPortal() {
           </div>
         ) : null}
 
-        {activeSection === "operationsMap" ? (
-          <OperationsMap onExit={() => setActiveSection("dashboard")} />
-        ) : null}
         {activeSection === "serviceAreas" ? <ServiceAreasAdmin /> : null}
         {activeSection === "launchRequests" ? <LaunchRequestsAdmin /> : null}
 

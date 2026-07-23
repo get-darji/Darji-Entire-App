@@ -15,6 +15,12 @@ export const apiClient = axios.create({
 
 type ApiEnvelope<T> = { data: T; message?: string };
 type AuthSession = { accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string; name?: string; email?: string } };
+export type ServiceAreaCoordinates = { latitude: number; longitude: number; areaLabel?: string };
+export type ServiceAreaCheck = {
+  available: boolean;
+  serviceArea: { id: string; name: string; isActive: boolean; polygon: Array<[number, number]>; edgeToleranceMeters: number } | null;
+  checkedAt: string;
+};
 
 let refreshPromise: Promise<string | undefined> | undefined;
 
@@ -67,6 +73,8 @@ export const customerApi = {
   verifyOtp: (phone: string, otp: string) => request<AuthSession>({ method: "POST", url: "/auth/verify-otp", data: { phone, otp, role: "CUSTOMER" } }),
   me: () => request<AuthSession["user"] & { wallet?: { balance?: number } }>({ method: "GET", url: "/auth/me" }),
   updateProfile: (data: unknown) => request<AuthSession["user"]>({ method: "PATCH", url: "/auth/me", data }),
+  checkServiceArea: (coordinates: ServiceAreaCoordinates) => request<ServiceAreaCheck>({ method: "POST", url: "/service-areas/check", data: coordinates }),
+  requestServiceAreaLaunch: (coordinates: ServiceAreaCoordinates) => request<unknown>({ method: "POST", url: "/service-areas/notify", data: coordinates }),
   uploadMedia: async (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("media", file));
