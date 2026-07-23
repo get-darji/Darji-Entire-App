@@ -38,7 +38,7 @@ import {
   TouchableOpacity
 } from "react-native";
 import { z } from "zod";
-import { api, checkServiceArea as checkServiceAreaAvailability, getPlatformStatus, refreshAccessToken, requestServiceAreaLaunch, uploadMedia, type UploadedMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, uploadMedia, type UploadedMedia } from "./src/api";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
 import { configureForegroundNotificationHandler } from "./src/notifications/handlers";
@@ -48,8 +48,6 @@ import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
-import { useServiceAreaAccess } from "../../shared/src/use-service-area-access";
-import { OutsideServiceAreaScreen, ServiceAreaLoadingScreen } from "../../shared/src/service-area-screen";
 
 type Screen =
   | "home"
@@ -7668,23 +7666,12 @@ export default function App() {
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const platform = usePlatformStatus(getPlatformStatus, token);
-  const loadServiceCoordinates = useCallback(async () => {
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (permission.status !== "granted") throw new Error("Allow location access to check whether Darji serves your current area.");
-    const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-    return { latitude: current.coords.latitude, longitude: current.coords.longitude };
-  }, []);
-  const serviceArea = useServiceAreaAccess({ enabled: Boolean(token), getCoordinates: loadServiceCoordinates, check: checkServiceAreaAvailability });
-  const [serviceAreaNotifying, setServiceAreaNotifying] = useState(false);
-  const [serviceAreaNotified, setServiceAreaNotified] = useState(false);
-  const [serviceAreaExploring, setServiceAreaExploring] = useState(false);
   const [screen, setScreenState] = useState<Screen>("home");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [customerDataByPhone, setCustomerDataByPhone] = useState<Record<string, CustomerData>>({});
   const [hasLoadedCustomerData, setHasLoadedCustomerData] = useState(false);
   const [activeOrder, setActiveOrder] = useState<CustomerOrder | undefined>();
   const [pendingCancellationOrder, setPendingCancellationOrder] = useState<CustomerOrder | undefined>();
-  const [isCapturingLocation, setIsCapturingLocation] = useState(false);
   const [dialog, setDialog] = useState<AppDialogState | undefined>();
   const [draft, setDraft] = useState<RequestDraft>(() => makeEmptyDraft());
   const [selectedQuote, setSelectedQuote] = useState<Quote | undefined>();
@@ -7701,11 +7688,6 @@ export default function App() {
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
-
-  useEffect(() => {
-    setServiceAreaExploring(false);
-    setServiceAreaNotified(false);
-  }, [token]);
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -7745,10 +7727,6 @@ export default function App() {
   }, [cancellingOrderId, dialog, paymentSheet, screen, screenStack, verifyingPayment]);
 
   function setScreen(nextScreen: Screen, options?: { replace?: boolean; resetStack?: boolean }) {
-    if (nextScreen === "newRequest" && (!serviceArea.status?.available || Boolean(serviceArea.error))) {
-      setServiceAreaExploring(false);
-      return;
-    }
     let resolvedScreen = nextScreen;
     if (nextScreen === "newRequest" && !REQUEST_FLOW_SCREENS.has(screen) && (hasRequestDraftData(draft) || draft.backendRequestId || selectedQuote)) {
       resolvedScreen = requestProgressScreen;
@@ -8341,7 +8319,6 @@ export default function App() {
     let cancelled = false;
 
     async function captureCurrentAddress() {
-      setIsCapturingLocation(true);
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
         if (!permission.granted) {
@@ -8377,8 +8354,6 @@ export default function App() {
         setDraft((currentDraft) => (hasRequestDraftData(currentDraft) ? currentDraft : { ...currentDraft, pickup: resolvedAddress }));
       } catch {
         updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
-      } finally {
-        if (!cancelled) setIsCapturingLocation(false);
       }
     }
 
@@ -8597,11 +8572,6 @@ export default function App() {
     );
   }
   if (!token) return <AuthScreen />;
-  if (serviceArea.checking && !serviceArea.status) return <ServiceAreaLoadingScreen />;
-  const outsideServiceArea = !serviceArea.status?.available || Boolean(serviceArea.error);
-  if (outsideServiceArea && (!serviceAreaExploring || REQUEST_FLOW_SCREENS.has(screen))) {
-    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} onExplore={() => { setScreenState("home"); setScreenStack([]); setServiceAreaExploring(true); }} />;
-  }
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} />);
 

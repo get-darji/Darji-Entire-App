@@ -24,8 +24,6 @@ export type SectionId =
   | "health"
   | "exports"
   | "platform"
-  | "serviceAreas"
-  | "launchRequests"
   | "settings";
 
 type AdminStore = {
@@ -70,6 +68,15 @@ export const useAdminStore = create<AdminStore>()(
     {
       name: "darzi-admin-store",
       storage: createJSONStorage(() => localStorage),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AdminStore>;
+        const retiredSection = persisted.activeSection === ("serviceAreas" as SectionId) || persisted.activeSection === ("launchRequests" as SectionId);
+        return {
+          ...currentState,
+          ...persisted,
+          activeSection: retiredSection ? "dashboard" : persisted.activeSection ?? currentState.activeSection
+        };
+      },
       partialize: (state) => ({
         activeSection: state.activeSection,
         theme: state.theme,

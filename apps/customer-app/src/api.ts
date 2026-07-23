@@ -1,8 +1,6 @@
 import Constants from "expo-constants";
 import { useAppStore } from "./store";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
-import type { DeviceCoordinates } from "../../../shared/src/use-service-area-access";
-import type { ServiceAreaCheck } from "../../../shared/src/service-area";
 
 const apiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
@@ -58,14 +56,6 @@ export async function getPlatformStatus() {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export function checkServiceArea(coordinates: DeviceCoordinates) {
-  return api<ServiceAreaCheck>("/service-areas/check", { method: "POST", body: JSON.stringify(coordinates) });
-}
-
-export function requestServiceAreaLaunch(coordinates: DeviceCoordinates) {
-  return api("/service-areas/notify", { method: "POST", body: JSON.stringify(coordinates) });
 }
 
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {

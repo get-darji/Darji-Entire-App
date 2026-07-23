@@ -51,8 +51,6 @@ import {
   MoreHorizontal,
   Menu,
   MessageSquareText,
-  MapPin,
-  MapPinned,
   Mail,
   PackageCheck,
   PencilLine,
@@ -155,7 +153,6 @@ import {
 } from "@/src/lib/utils";
 import { type SectionId, useAdminStore } from "@/src/store/admin-store";
 import SupportCommandCenter from "./support-command-center";
-import { LaunchRequestsAdmin, ServiceAreasAdmin } from "./service-areas-admin";
 import type {
   AdminUser,
   AnalyticsSummary,
@@ -333,8 +330,6 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
   { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
   { id: "platform", icon: AlertTriangle, label: "Platform Settings", description: "Live and maintenance controls" },
-  { id: "serviceAreas", icon: MapPinned, label: "Service Areas", description: "Draw GPS delivery polygons" },
-  { id: "launchRequests", icon: MapPin, label: "Launch Requests", description: "Demand outside active areas" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
@@ -2388,9 +2383,6 @@ export function AdminPortal() {
             />
           </div>
         ) : null}
-
-        {activeSection === "serviceAreas" ? <ServiceAreasAdmin /> : null}
-        {activeSection === "launchRequests" ? <LaunchRequestsAdmin /> : null}
 
         {activeSection === "settings" ? (
           <div className="space-y-6">

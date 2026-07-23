@@ -12,7 +12,6 @@ import { backfillDarjiIds } from "./models.js";
 import { setupSocketServer } from "./services/socket.service.js";
 import { lockAndDispatchDueBatches } from "./services/hybrid-delivery.service.js";
 import { getPlatformStatus } from "./services/platform-status.service.js";
-import { ensureDefaultServiceAreas } from "./services/service-area.service.js";
 
 const app = express();
 
@@ -30,7 +29,6 @@ if (env.AUTO_SEED || env.NODE_ENV !== "production") {
   await seedDatabase();
 }
 await backfillDarjiIds();
-await ensureDefaultServiceAreas();
 initFirebaseAdmin();
 
 async function processDueDeliveryBatches() {

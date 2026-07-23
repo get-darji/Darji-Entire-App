@@ -36,7 +36,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, checkServiceArea as checkServiceAreaAvailability, getPlatformStatus, refreshAccessToken, requestServiceAreaLaunch, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
@@ -51,8 +51,6 @@ import { useAppStore } from "./src/store";
 import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
 import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
-import { useServiceAreaAccess } from "../../shared/src/use-service-area-access";
-import { OutsideServiceAreaScreen, ServiceAreaLoadingScreen } from "../../shared/src/service-area-screen";
 import {
   emptyPartnerWallet,
   isSameLocalDate,
@@ -3455,15 +3453,6 @@ export default function App() {
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
   const platform = usePlatformStatus(getPlatformStatus, token);
-  const loadServiceCoordinates = useCallback(async () => {
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (permission.status !== "granted") throw new Error("Allow location access to check whether Darji serves your current area.");
-    const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-    return { latitude: current.coords.latitude, longitude: current.coords.longitude };
-  }, []);
-  const serviceArea = useServiceAreaAccess({ enabled: Boolean(token), getCoordinates: loadServiceCoordinates, check: checkServiceAreaAvailability });
-  const [serviceAreaNotifying, setServiceAreaNotifying] = useState(false);
-  const [serviceAreaNotified, setServiceAreaNotified] = useState(false);
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
@@ -3892,11 +3881,6 @@ export default function App() {
       </>
     );
   }
-  if (serviceArea.checking && !serviceArea.status) return <ServiceAreaLoadingScreen />;
-  if (!serviceArea.status?.available || serviceArea.error) {
-    return <OutsideServiceAreaScreen error={serviceArea.error} refreshing={serviceArea.refreshing} notifying={serviceAreaNotifying} notified={serviceAreaNotified} onRefresh={() => void serviceArea.refresh(true)} onNotify={() => { if (!serviceArea.coordinates) return; setServiceAreaNotifying(true); void requestServiceAreaLaunch(serviceArea.coordinates).then(() => setServiceAreaNotified(true)).catch((error) => Alert.alert("Could not save request", error instanceof Error ? error.message : "Try again")).finally(() => setServiceAreaNotifying(false)); }} />;
-  }
-
   if (!me) {
     return (
       <SafeAreaView style={styles.safe}>

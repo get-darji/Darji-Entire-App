@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Providers } from "@/src/components/providers";
 import "./globals.css";
-import "leaflet/dist/leaflet.css";
 
 export const metadata: Metadata = {
   title: "Darzi Admin",
