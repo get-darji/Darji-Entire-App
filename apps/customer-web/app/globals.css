@@ -701,6 +701,26 @@ button:disabled {
   .stats-strip > div {
     border-right: 0;
   }
+
+  .testimonial-group {
+    will-change: transform;
+    backface-visibility: hidden;
+    transform: translateZ(0);
+  }
+
+  .testimonial-card {
+    will-change: auto;
+  }
+}
+
+@media (max-width: 1023px) and (hover: none) {
+  .testimonial-marquee-track:hover .testimonial-group {
+    animation-play-state: running;
+  }
+
+  .testimonial-card:hover {
+    transform: none;
+  }
 }
 
 @media (min-width: 1024px) {

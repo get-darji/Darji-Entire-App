@@ -18,6 +18,7 @@ type ScrollAnimationProps = {
 export function ScrollAnimation({ heroRef, modelRef, cameraRef, sceneShellRef, ready }: ScrollAnimationProps) {
   useEffect(() => {
     if (!ready) return;
+    if (window.matchMedia("(max-width: 1023px)").matches) return;
 
     gsap.registerPlugin(ScrollTrigger);
 

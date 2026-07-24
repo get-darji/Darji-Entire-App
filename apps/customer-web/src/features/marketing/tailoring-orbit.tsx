@@ -124,6 +124,8 @@ export function TailoringOrbit() {
   const stringRefs = useRef<Array<SVGPathElement | null>>([]);
 
   useEffect(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) return;
+
     let frame = 0;
     const startedAt = performance.now();
 

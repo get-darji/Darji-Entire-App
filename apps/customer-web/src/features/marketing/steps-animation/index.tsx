@@ -20,13 +20,33 @@ export function HowItWorksSection() {
   const [revealedSteps, setRevealedSteps] = useState<boolean[]>(() => STEPS.map(() => false));
   const [connectorProgress, setConnectorProgress] = useState<number[]>(() => Array(connectorCount).fill(0));
   const [mounted, setMounted] = useState(false);
+  const [mobileInView, setMobileInView] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!mounted || !inView) return;
+    if (!mounted || !window.matchMedia("(max-width: 1023px)").matches) return;
+
+    const section = sectionRef.current;
+    if (!section) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setMobileInView(true);
+        observer.disconnect();
+      },
+      { threshold: 0.08, rootMargin: "0px 0px -12% 0px" }
+    );
+
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted || (!inView && !mobileInView)) return;
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reducedMotion) {
@@ -34,6 +54,37 @@ export function HowItWorksSection() {
       setRevealedSteps(STEPS.map(() => true));
       setConnectorProgress(Array(connectorCount).fill(1));
       return;
+    }
+
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      let rafId = 0;
+      let previousStep = -2;
+      const startedAt = performance.now();
+
+      setCurrentStep(-1);
+      setRevealedSteps(STEPS.map(() => false));
+      setConnectorProgress(Array(connectorCount).fill(0));
+
+      const advance = (now: number) => {
+        const elapsed = now - startedAt;
+        const nextStep = elapsed < 160
+          ? -1
+          : Math.min(STEPS.length - 1, Math.floor((elapsed - 160) / 520));
+
+        if (nextStep !== previousStep) {
+          previousStep = nextStep;
+          setCurrentStep(nextStep);
+          setRevealedSteps(STEPS.map((_, index) => index <= nextStep));
+          setConnectorProgress(Array.from({ length: connectorCount }, (_, index) => index < nextStep ? 1 : 0));
+        }
+
+        if (nextStep < STEPS.length - 1) {
+          rafId = window.requestAnimationFrame(advance);
+        }
+      };
+
+      rafId = window.requestAnimationFrame(advance);
+      return () => window.cancelAnimationFrame(rafId);
     }
 
     const timeouts: number[] = [];
@@ -71,7 +122,7 @@ export function HowItWorksSection() {
     return () => {
       timeouts.forEach((timeout) => window.clearTimeout(timeout));
     };
-  }, [inView, mounted]);
+  }, [inView, mobileInView, mounted]);
 
   return (
     <motion.section

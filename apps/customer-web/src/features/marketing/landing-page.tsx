@@ -82,6 +82,8 @@ function SmoothScroll() {
     window.history.scrollRestoration = "manual";
     window.scrollTo(0, 0);
 
+    if (window.matchMedia("(max-width: 1023px)").matches) return;
+
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reducedMotion) return;
 
@@ -119,6 +121,7 @@ function IntroReveal() {
     const fill = document.querySelector<HTMLDivElement>("#loader .fill");
     const percent = document.getElementById("percent");
     if (!fill || !percent) return;
+    const mobileIntro = window.matchMedia("(max-width: 1023px)").matches;
 
     document.body.style.overflow = "hidden";
 
@@ -149,6 +152,9 @@ function IntroReveal() {
 
           tl.to("#loader", { yPercent: -100, duration: 0.9, ease: "expo.inOut", force3D: true })
             .to("#curtain2", { yPercent: -100, duration: 1, ease: "expo.inOut", force3D: true }, "-=0.72")
+            .add(() => {
+              if (mobileIntro) document.body.style.overflow = "auto";
+            })
             .fromTo("#site .darji-navbar", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.2")
             .fromTo("#site .darji-hero-kicker", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.4")
             .fromTo("#site .darji-hero-title", { y: 50, opacity: 0, filter: "blur(8px)" }, { y: 0, opacity: 1, filter: "blur(0px)", duration: 0.8 }, "-=0.2")

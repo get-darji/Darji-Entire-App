@@ -3,7 +3,7 @@
 import { ContactShadows } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { Clock3, PackageCheck, Ruler, Sparkles } from "lucide-react";
-import { Suspense, useCallback, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type { Group, PerspectiveCamera } from "three";
 import { ACESFilmicToneMapping, SRGBColorSpace } from "three";
@@ -96,10 +96,20 @@ export function HeroScene({ heroRef, onModelReady }: HeroSceneProps) {
   const modelRef = useRef<Group>(null);
   const cameraRef = useRef<PerspectiveCamera>(null);
   const [modelReady, setModelReady] = useState(false);
+  const [renderInteractiveScene, setRenderInteractiveScene] = useState(true);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setRenderInteractiveScene(false);
+    }
+  }, []);
+
   const handleModelReady = useCallback(() => {
     setModelReady(true);
     onModelReady?.();
   }, [onModelReady]);
+
+  if (!renderInteractiveScene) return null;
 
   return (
     <div ref={sceneShellRef} className="hero-scene absolute inset-0 overflow-visible">

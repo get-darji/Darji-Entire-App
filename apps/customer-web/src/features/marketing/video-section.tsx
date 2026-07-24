@@ -123,8 +123,8 @@ export function VideoSection() {
   };
 
   return (
-    <section ref={sectionRef} className="relative min-h-screen bg-[#f7f7f3]">
-      <div ref={stageRef} className="grid min-h-screen w-full place-items-center overflow-hidden bg-[#f7f7f3] px-3 py-4 sm:px-6 sm:py-6">
+    <section ref={sectionRef} className="relative bg-[#f7f7f3] lg:min-h-screen">
+      <div ref={stageRef} className="grid w-full place-items-center overflow-hidden bg-[#f7f7f3] px-3 py-10 sm:px-6 lg:min-h-screen lg:py-6">
         <div
           ref={frameRef}
           className="relative aspect-video w-[min(92vw,1440px)] overflow-hidden rounded-[34px] bg-[#090909] shadow-[0_34px_110px_rgba(0,0,0,0.26)] will-change-transform"

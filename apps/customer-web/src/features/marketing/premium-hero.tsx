@@ -101,7 +101,7 @@ export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
             </div>
           </div>
 
-          <div className="darji-hero-image relative min-h-[520px] lg:min-h-[680px]">
+          <div className="darji-hero-image relative hidden min-h-[680px] lg:block">
             <HeroScene heroRef={heroRef} onModelReady={onModelReady} />
           </div>
         </div>
