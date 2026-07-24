@@ -376,6 +376,8 @@ export function AdminPortal() {
   const [orderFilter, setOrderFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [deliveryPartnerFilter, setDeliveryPartnerFilter] = useState("");
+  const [tailorVerificationFilter, setTailorVerificationFilter] = useState<"submitted" | "not_submitted" | "all">("submitted");
+  const [deliveryVerificationFilter, setDeliveryVerificationFilter] = useState<"submitted" | "not_submitted" | "all">("submitted");
   const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
@@ -1577,24 +1579,36 @@ export function AdminPortal() {
       .includes(searchTerm)
   );
 
-  const filteredTailors = tailors.filter((tailor) =>
-    !searchTerm ||
-    [tailor.shopName, tailor.darjiTailorId, tailor.user?.name, tailor.user?.phone, tailor.verificationStatus, formatList(tailor.specialization)]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(searchTerm)
-  );
+  const filteredTailors = tailors.filter((tailor) => {
+    const status = tailor.verificationStatus ?? "NOT_SUBMITTED";
+    const matchesVerification =
+      tailorVerificationFilter === "all" ||
+      (tailorVerificationFilter === "not_submitted" ? status === "NOT_SUBMITTED" : status !== "NOT_SUBMITTED");
+    const matchesSearch =
+      !searchTerm ||
+      [tailor.shopName, tailor.darjiTailorId, tailor.user?.name, tailor.user?.phone, status, formatList(tailor.specialization)]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(searchTerm);
+    return matchesVerification && matchesSearch;
+  });
   const rejectedTailors = filteredTailors.filter((tailor) => tailor.verificationStatus === "REJECTED");
 
-  const filteredPartners = partners.filter((partner) =>
-    !searchTerm ||
-    [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, getPartnerVehicleNumber(partner), getPartnerRoleLabel(partner), partner.verificationStatus]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(searchTerm)
-  );
+  const filteredPartners = partners.filter((partner) => {
+    const status = partner.verificationStatus ?? "NOT_SUBMITTED";
+    const matchesVerification =
+      deliveryVerificationFilter === "all" ||
+      (deliveryVerificationFilter === "not_submitted" ? status === "NOT_SUBMITTED" : status !== "NOT_SUBMITTED");
+    const matchesSearch =
+      !searchTerm ||
+      [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, getPartnerVehicleNumber(partner), getPartnerRoleLabel(partner), status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(searchTerm);
+    return matchesVerification && matchesSearch;
+  });
 
   const filteredUsers = customerUsers.filter((user) =>
     !searchTerm ||
@@ -2163,17 +2177,35 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Tailor network"
-              description="Availability, ratings, earnings, and verification state for tailoring partners."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>}
+              description="Submitted verification records are shown by default. Login-only profiles remain available under Not submitted."
+              action={
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <select
+                    aria-label="Filter tailor verification records"
+                    className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] outline-none"
+                    value={tailorVerificationFilter}
+                    onChange={(event) => setTailorVerificationFilter(event.target.value as "submitted" | "not_submitted" | "all")}
+                  >
+                    <option value="submitted">Submitted ({tailors.filter((tailor) => (tailor.verificationStatus ?? "NOT_SUBMITTED") !== "NOT_SUBMITTED").length})</option>
+                    <option value="not_submitted">Not submitted ({tailors.filter((tailor) => (tailor.verificationStatus ?? "NOT_SUBMITTED") === "NOT_SUBMITTED").length})</option>
+                    <option value="all">All profiles ({tailors.length})</option>
+                  </select>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>
+                </div>
+              }
             />
-            <div className="space-y-3">
+            {tailorVerificationFilter !== "not_submitted" ? <div className="space-y-3">
               <div>
                 <h3 className="text-xl font-semibold text-[var(--foreground)]">Rejected tailors</h3>
                 <p className="text-sm text-[var(--muted)]">Approve from here to immediately bypass and clear the 15 day reapply limit.</p>
               </div>
               <DataTable columns={tailorColumns} data={rejectedTailors} emptyMessage="No rejected tailors match the current search." />
-            </div>
-            <DataTable columns={tailorColumns} data={filteredTailors} emptyMessage="No tailor profiles match the current search." />
+            </div> : null}
+            <DataTable
+              columns={tailorColumns}
+              data={tailorVerificationFilter === "not_submitted" ? filteredTailors : filteredTailors.filter((tailor) => tailor.verificationStatus !== "REJECTED")}
+              emptyMessage={tailorVerificationFilter === "not_submitted" ? "No login-only tailor profiles match the current search." : "No submitted tailor verifications match the current search."}
+            />
           </div>
         ) : null}
 
@@ -2181,10 +2213,28 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Delivery partner network"
-              description="Operational availability and rating visibility for delivery partners."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-delivery-partners.csv", filteredPartners.map(partnerToCsv))}>Export CSV</ActionButton>}
+              description="Submitted verification records are shown by default. Login-only profiles remain available under Not submitted."
+              action={
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <select
+                    aria-label="Filter delivery verification records"
+                    className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] outline-none"
+                    value={deliveryVerificationFilter}
+                    onChange={(event) => setDeliveryVerificationFilter(event.target.value as "submitted" | "not_submitted" | "all")}
+                  >
+                    <option value="submitted">Submitted ({partners.filter((partner) => (partner.verificationStatus ?? "NOT_SUBMITTED") !== "NOT_SUBMITTED").length})</option>
+                    <option value="not_submitted">Not submitted ({partners.filter((partner) => (partner.verificationStatus ?? "NOT_SUBMITTED") === "NOT_SUBMITTED").length})</option>
+                    <option value="all">All profiles ({partners.length})</option>
+                  </select>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-delivery-partners.csv", filteredPartners.map(partnerToCsv))}>Export CSV</ActionButton>
+                </div>
+              }
             />
-            <DataTable columns={partnerColumns} data={filteredPartners} emptyMessage="No delivery partner profiles match the current search." />
+            <DataTable
+              columns={partnerColumns}
+              data={filteredPartners}
+              emptyMessage={deliveryVerificationFilter === "not_submitted" ? "No login-only delivery profiles match the current search." : "No submitted delivery verifications match the current search."}
+            />
           </div>
         ) : null}
 

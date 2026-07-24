@@ -491,6 +491,16 @@ export async function assignOrderController(req: Request, res: Response) {
 }
 
 export async function listTailorsController(_req: Request, res: Response) {
+  await TailorModel.updateMany(
+    {
+      verificationStatus: "NOT_SUBMITTED",
+      $or: [
+        { verificationSubmittedAt: { $exists: true, $ne: null } },
+        { verification: { $exists: true, $ne: null } }
+      ]
+    },
+    { $set: { verificationStatus: "PENDING" } }
+  );
   const tailors = await TailorModel.find().sort({ createdAt: -1 });
   res.json({ data: await Promise.all(tailors.map((tailor) => withUser(tailor))) });
 }
@@ -665,6 +675,16 @@ export async function getTailorTutorialMediaController(_req: Request, res: Respo
 }
 
 export async function listDeliveryPartnersController(_req: Request, res: Response) {
+  await DeliveryPartnerModel.updateMany(
+    {
+      verificationStatus: "NOT_SUBMITTED",
+      $or: [
+        { verificationSubmittedAt: { $exists: true, $ne: null } },
+        { verification: { $exists: true, $ne: null } }
+      ]
+    },
+    { $set: { verificationStatus: "PENDING" } }
+  );
   const partners = await DeliveryPartnerModel.find().sort({ createdAt: -1 });
   await Promise.all(partners.map((partner) => ensureDeliveryPartnerRoleId(partner)));
   const refreshed = await DeliveryPartnerModel.find().sort({ createdAt: -1 });
