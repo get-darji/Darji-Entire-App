@@ -47,12 +47,5 @@ export const useAppStore = create<Store>()(persist((set) => ({
 }), {
   name: "darzi-customer-session",
   storage: createJSONStorage(() => AsyncStorage),
-  partialize: (state) => ({
-    token: state.token,
-    refreshToken: state.refreshToken,
-    user: state.user,
-    language: state.language,
-    hasSelectedLanguage: state.hasSelectedLanguage,
-    sessionNotice: state.sessionNotice
-  })
+  partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage })
 }));

@@ -16,6 +16,7 @@ import {
   Clock,
   CreditCard,
   Edit3,
+  Filter,
   Headphones,
   HelpCircle,
   Home,
@@ -34,7 +35,6 @@ import {
   Ruler,
   RefreshCw,
   Send,
-  ShieldCheck,
   Shirt,
   Sparkles,
   Star,
@@ -618,7 +618,6 @@ function AuthPanel() {
               <input
                 type="tel"
                 inputMode="tel"
-                autoComplete="tel"
                 maxLength={10}
                 placeholder="Enter mobile number"
                 value={phone}
@@ -633,19 +632,12 @@ function AuthPanel() {
                 <input
                   type="tel"
                   inputMode="numeric"
-                  autoComplete="one-time-code"
                   maxLength={6}
                   placeholder="0 0 0 0 0 0"
                   value={otp}
                   onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
                   className="w-full border-none px-4 py-4 text-center text-lg font-black tracking-[0.2em] text-[#08111f] placeholder-slate-300 focus:outline-none focus:ring-0 bg-transparent"
                 />
-              </div>
-              <div className="flex items-start gap-3 rounded-2xl border border-[#ffe0bf] bg-[#fff8ef] px-4 py-3.5 text-left">
-                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--darji-orange)]" />
-                <p className="text-xs font-semibold leading-5 text-[#80502d]">
-                  For your security, confirming this OTP signs this number out of any other Darji customer app or browser session.
-                </p>
               </div>
             </div>
           )}
@@ -686,7 +678,7 @@ function AuthPanel() {
                   onClick={() => verifyOtp.mutate()}
                   className="h-14 flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#ffae3c] to-[#ff8c23] hover:from-[#e59424] hover:to-[#e57710] text-[#08111f] font-black text-base shadow-[0_4px_16px_rgba(255,112,0,0.18)] transition-all duration-200 cursor-pointer disabled:opacity-50"
                 >
-                  {verifyOtp.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : "Verify & Sign In"}
+                  {verifyOtp.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : "Verify"}
                 </button>
                 <button
                   onClick={() => setStep("phone")}
@@ -847,18 +839,9 @@ function BottomNav({ screen, setScreen }: { screen: CustomerScreen; setScreen: (
           const Icon = item.icon;
           const active = item.screen === screen || (item.screen === "newRequest" && ["clothIssue", "summary", "quotes", "confirm"].includes(screen));
           return (
-            <button
-              key={item.screen}
-              onClick={() => setScreen(item.screen)}
-              aria-current={active ? "page" : undefined}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl border text-[11px] font-black transition-all duration-200 ${
-                active
-                  ? "border-[var(--darji-ink)] bg-[var(--darji-ink)] text-white shadow-[0_10px_24px_rgba(8,17,31,0.18)]"
-                  : "border-transparent text-[var(--darji-muted)] active:bg-[#f3f6fa]"
-              }`}
-            >
-              <Icon className={`h-5 w-5 ${active ? "stroke-[2.5]" : ""}`} />
-              <span>{item.label}</span>
+            <button key={item.screen} onClick={() => setScreen(item.screen)} className={`grid min-h-14 place-items-center rounded-2xl text-xs font-black ${active ? "bg-[var(--darji-ink)] text-white" : "text-[var(--darji-muted)]"}`}>
+              <Icon className="h-5 w-5" />
+              {item.label}
             </button>
           );
         })}
@@ -2372,8 +2355,8 @@ function OrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringR
   });
 
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
-      <section className="min-w-0 rounded-[1.75rem] border border-[#e6edf5] bg-white p-4 shadow-[0_18px_60px_rgba(8,17,31,0.06)] sm:rounded-[2rem] sm:p-5">
+    <div className="grid gap-5">
+      <section className="rounded-[2rem] border border-[#e6edf5] bg-white p-5 shadow-[0_18px_60px_rgba(8,17,31,0.06)]">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
           <div>
             <h1 className="text-3xl font-black">My Orders</h1>
@@ -2394,15 +2377,15 @@ function OrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringR
           </div>
         </div>
 
-        <div className="-mx-4 mt-7 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:-mx-5 sm:px-5 md:mx-0 md:grid md:grid-cols-2 md:px-0 xl:grid-cols-4">
-          <OrderStatCard title="Active Orders" value={active.length} helper="In progress" icon={PackageCheck} tone="orange" active={filter === "active"} onClick={() => setFilter("active")} />
-          <OrderStatCard title="Waiting for Pickup" value={waiting.length} helper="Scheduled" icon={CalendarCheck} tone="amber" active={filter === "waiting"} onClick={() => setFilter("waiting")} />
-          <OrderStatCard title="Completed Orders" value={completed.length} helper="All time" icon={CheckCircle2} tone="green" active={filter === "completed"} onClick={() => setFilter("completed")} />
-          <OrderStatCard title="Canceled Orders" value={cancelled.length} helper="Canceled" icon={XCircle} tone="red" active={filter === "cancelled"} onClick={() => setFilter("cancelled")} />
+        <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <OrderStatCard title="Active Orders" value={active.length} helper="In progress" icon={PackageCheck} tone="orange" />
+          <OrderStatCard title="Waiting for Pickup" value={waiting.length} helper="Scheduled" icon={CalendarCheck} tone="amber" />
+          <OrderStatCard title="Completed Orders" value={completed.length} helper="All time" icon={CheckCircle2} tone="green" />
+          <OrderStatCard title="Canceled Orders" value={cancelled.length} helper="Canceled" icon={XCircle} tone="red" />
         </div>
 
         <div className="mt-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-          <div role="group" aria-label="Filter orders by status" className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex flex-wrap rounded-2xl border border-[#e6edf5] bg-white p-1">
             {[
               ["all", "All Orders"],
               ["active", "Active"],
@@ -2410,23 +2393,16 @@ function OrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringR
               ["completed", "Completed"],
               ["cancelled", "Canceled"]
             ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={filter === id}
-                onClick={() => setFilter(id as OrderFilter)}
-                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 text-sm font-black transition-all duration-200 ${
-                  filter === id
-                    ? "border-[var(--darji-orange)] bg-[var(--darji-orange)] text-white shadow-[0_8px_20px_rgba(255,112,0,0.22)]"
-                    : "border-[#dce4ef] bg-[#f8fafc] text-[var(--darji-muted)] shadow-sm hover:border-[#ffc68f] hover:bg-[#fffaf5] hover:text-[var(--darji-ink)]"
-                }`}
-              >
+              <button key={id} onClick={() => setFilter(id as OrderFilter)} className={`rounded-xl px-4 py-2 text-sm font-black transition ${filter === id ? "bg-[#fff7e8] text-[var(--darji-orange)] shadow-sm" : "text-[var(--darji-muted)] hover:text-[var(--darji-ink)]"}`}>
                 {label}
               </button>
             ))}
           </div>
-          <div className="flex min-w-0 lg:w-auto">
-            <button onClick={() => setLatestFirst((current) => !current)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#dce4ef] bg-white px-4 text-sm font-black text-[var(--darji-muted)] shadow-sm transition hover:border-[#ffc68f] hover:text-[var(--darji-ink)] sm:w-auto">
+          <div className="flex gap-3">
+            <button className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#e6edf5] bg-white px-4 text-sm font-black text-[var(--darji-muted)]">
+              <Filter className="h-4 w-4" /> Filter
+            </button>
+            <button onClick={() => setLatestFirst((current) => !current)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#e6edf5] bg-white px-4 text-sm font-black text-[var(--darji-muted)]">
               <ArrowUpDown className="h-4 w-4" /> {latestFirst ? "Sort Latest" : "Sort Oldest"}
             </button>
           </div>
@@ -2446,34 +2422,18 @@ function OrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringR
               <p className="text-sm font-semibold text-[var(--darji-muted)]">Our support team is here to help you.</p>
             </div>
           </div>
-          <div className="grid min-w-0 w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:gap-3">
-            <Button variant="secondary" className="min-h-11 w-full whitespace-nowrap px-3 text-xs sm:w-auto sm:px-6 sm:text-sm" onClick={() => setScreen("support")}>Chat with us</Button>
-            <Button variant="secondary" className="min-h-11 w-full whitespace-nowrap px-3 text-xs sm:w-auto sm:px-6 sm:text-sm" onClick={() => { window.location.href = "tel:+919876543210"; }}>Call Support</Button>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="min-h-11">Chat with us</Button>
+            <Button variant="secondary" className="min-h-11">Call Support</Button>
           </div>
         </div>
       </section>
-      <Button className="w-full sm:w-fit" onClick={() => setScreen("newRequest")}><Plus className="h-4 w-4" /> New Order</Button>
+      <Button className="w-fit" onClick={() => setScreen("newRequest")}><Plus className="h-4 w-4" /> New Order</Button>
     </div>
   );
 }
 
-function OrderStatCard({
-  title,
-  value,
-  helper,
-  icon: Icon,
-  tone,
-  active,
-  onClick
-}: {
-  title: string;
-  value: number;
-  helper: string;
-  icon: LucideIcon;
-  tone: "orange" | "amber" | "green" | "red";
-  active: boolean;
-  onClick: () => void;
-}) {
+function OrderStatCard({ title, value, helper, icon: Icon, tone }: { title: string; value: number; helper: string; icon: LucideIcon; tone: "orange" | "amber" | "green" | "red" }) {
   const toneClass = {
     orange: "bg-[#fff7e8] text-[var(--darji-orange)]",
     amber: "bg-[#fffbeb] text-[#f59e0b]",
@@ -2481,28 +2441,17 @@ function OrderStatCard({
     red: "bg-[#fff1f2] text-[#dc2626]"
   }[tone];
   return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`min-w-[76vw] max-w-[290px] snap-start rounded-2xl border p-5 text-left transition-all duration-200 md:min-w-0 md:max-w-none ${
-        active
-          ? "border-[var(--darji-orange)] shadow-[0_12px_30px_rgba(255,112,0,0.15)] ring-2 ring-[#ffedd5]"
-          : "border-[#f1e4d6] shadow-sm hover:-translate-y-0.5 hover:border-[#ffc68f] hover:shadow-md"
-      } ${tone === "red" ? "bg-[#fff8f8]" : tone === "green" ? "bg-[#fbfffc]" : "bg-[#fffaf5]"}`}
-    >
+    <div className={`rounded-2xl border border-[#f1e4d6] p-5 ${tone === "red" ? "bg-[#fff8f8]" : tone === "green" ? "bg-[#fbfffc]" : "bg-[#fffaf5]"}`}>
       <div className="flex items-center justify-between gap-4">
         <div className={`grid h-12 w-12 place-items-center rounded-2xl ${toneClass}`}>
           <Icon className="h-6 w-6" />
         </div>
-        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${active ? "bg-[var(--darji-orange)] text-white" : "bg-white/80 text-[var(--darji-muted)]"}`}>
-          {active ? "Selected" : "View"} <ChevronRight className="h-3 w-3" />
-        </span>
+        <ChevronRight className="h-4 w-4 text-[var(--darji-muted)]" />
       </div>
       <p className="mt-5 text-xs font-black text-[var(--darji-muted)]">{title}</p>
       <p className="mt-1 text-3xl font-black">{value}</p>
       <p className="mt-1 text-xs font-bold text-[var(--darji-muted)]">{helper}</p>
-    </button>
+    </div>
   );
 }
 

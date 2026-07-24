@@ -7691,7 +7691,7 @@ export default function App() {
 
   useEffect(() => {
     if (!sessionNotice) return;
-    Alert.alert("Signed out for security", sessionNotice, [{ text: "Sign in again", onPress: clearSessionNotice }]);
+    Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
   }, [clearSessionNotice, sessionNotice]);
 
   const customerPhone = user?.phone ?? (user?.id ? `user-${user.id}` : "guest");

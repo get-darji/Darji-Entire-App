@@ -41,12 +41,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "darji.customer-web.auth.v1",
-      partialize: (state) => ({
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-        user: state.user,
-        sessionNotice: state.sessionNotice
-      })
+      partialize: (state) => ({ accessToken: state.accessToken, refreshToken: state.refreshToken, user: state.user })
     }
   )
 );

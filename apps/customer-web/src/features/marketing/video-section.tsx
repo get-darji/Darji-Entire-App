@@ -23,26 +23,6 @@ export function VideoSection() {
       return;
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          video.play().catch(() => undefined);
-        } else {
-          video.pause();
-        }
-      },
-      { threshold: 0.35 }
-    );
-    observer.observe(video);
-
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reducedMotion) {
-      return () => {
-        observer.disconnect();
-        video.pause();
-      };
-    }
-
     const ctx = gsap.context(() => {
       gsap.set(frame, {
         scale: 0.82,
@@ -61,6 +41,14 @@ export function VideoSection() {
       gsap.set(stage, {
         backgroundColor: "#f7f7f3"
       });
+
+      const playVideo = () => {
+        video.play().catch(() => undefined);
+      };
+
+      const pauseVideo = () => {
+        video.pause();
+      };
 
       const expandTimeline = gsap.timeline({
         paused: true,
@@ -88,9 +76,19 @@ export function VideoSection() {
         start: "top 72%",
         end: "bottom 35%",
         invalidateOnRefresh: true,
-        onEnter: () => expandTimeline.play(),
-        onEnterBack: () => expandTimeline.play(),
-        onLeaveBack: () => expandTimeline.reverse()
+        onEnter: () => {
+          playVideo();
+          expandTimeline.play();
+        },
+        onEnterBack: () => {
+          playVideo();
+          expandTimeline.play();
+        },
+        onLeave: playVideo,
+        onLeaveBack: () => {
+          expandTimeline.reverse();
+          pauseVideo();
+        }
       });
 
       const refresh = () => ScrollTrigger.refresh();
@@ -103,11 +101,7 @@ export function VideoSection() {
       };
     }, section);
 
-    return () => {
-      observer.disconnect();
-      video.pause();
-      ctx.revert();
-    };
+    return () => ctx.revert();
   }, []);
 
   const toggleVolume = () => {
@@ -129,27 +123,19 @@ export function VideoSection() {
   };
 
   return (
-    <section ref={sectionRef} className="relative bg-[#f7f7f3] lg:min-h-screen">
-      <div ref={stageRef} className="grid w-full place-items-center overflow-hidden bg-[#f7f7f3] px-3 py-10 sm:px-6 lg:min-h-screen lg:py-6">
+    <section ref={sectionRef} className="relative min-h-screen bg-[#f7f7f3]">
+      <div ref={stageRef} className="grid min-h-screen w-full place-items-center overflow-hidden bg-[#f7f7f3] px-3 py-4 sm:px-6 sm:py-6">
         <div
           ref={frameRef}
-          className="relative aspect-video w-[min(92vw,1440px)] overflow-hidden rounded-[24px] bg-[#090909] shadow-[0_24px_70px_rgba(0,0,0,0.2)] lg:rounded-[34px] lg:shadow-[0_34px_110px_rgba(0,0,0,0.26)] lg:will-change-transform"
+          className="relative aspect-video w-[min(92vw,1440px)] overflow-hidden rounded-[34px] bg-[#090909] shadow-[0_34px_110px_rgba(0,0,0,0.26)] will-change-transform"
           style={{
+            transform: "translate3d(0, 0, 0) scale(0.82)",
             backfaceVisibility: "hidden"
           }}
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-black/45 via-black/10 to-transparent" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-black/55 via-black/12 to-transparent" />
-          <video
-            ref={videoRef}
-            className="h-full w-full object-cover lg:will-change-transform"
-            src="/video.mp4"
-            poster="/hero-tailor-visual.png"
-            muted={isMuted}
-            playsInline
-            preload="metadata"
-            loop
-          />
+          <video ref={videoRef} className="h-full w-full object-cover will-change-transform" src="/video.mp4" muted={isMuted} playsInline preload="auto" loop />
 
           <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/88 backdrop-blur-md sm:left-6 sm:top-6">
             Doorstep tailoring in motion

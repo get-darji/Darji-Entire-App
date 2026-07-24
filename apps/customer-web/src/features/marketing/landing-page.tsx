@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { SectionEyebrow } from "@/src/components/ui";
 import BorderGlow from "@/src/components/border-glow";
+import FlowingMenu from "@/src/components/flowing-menu";
 import TiltedCard from "@/src/components/tilted-card";
 import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
@@ -46,6 +47,29 @@ const serviceCards = [
   }
 ];
 
+const flowMenuItems = [
+  {
+    link: "/dashboard",
+    text: "Doorstep Convenience : We come to you. No travel. No waiting.",
+    image: "/flow-icons/doorstep-convenience.png"
+  },
+  {
+    link: "/dashboard",
+    text: "Expert Craftsmanship : Skilled tailors. Precise craftsmanship.",
+    image: "/flow-icons/expert-craftsmanship.png"
+  },
+  {
+    link: "/dashboard",
+    text: "Transparent Pricing : Know the price before the work begins.",
+    image: "/flow-icons/transparent-pricing.png"
+  },
+  {
+    link: "/dashboard",
+    text: "Quality Checked : Every order is checked before it reaches you.",
+    image: "/flow-icons/quality-checked.png"
+  }
+];
+
 const testimonials = [
   { quote: "Amazing stitching and perfect fitting. Super quick delivery too!", name: "Rohan Verma", initials: "RV", color: "#f97316" },
   { quote: "Very neat press and packaging. Clothes look brand new!", name: "Neha Singh", initials: "NS", color: "#0b2241" },
@@ -58,10 +82,8 @@ function SmoothScroll() {
     window.history.scrollRestoration = "manual";
     window.scrollTo(0, 0);
 
-    const desktopMotion = window.matchMedia(
-      "(min-width: 1024px) and (pointer: fine) and (prefers-reduced-motion: no-preference)"
-    );
-    if (!desktopMotion.matches) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return;
 
     const lenis = new Lenis({
       duration: 1.12,
@@ -91,7 +113,6 @@ function SmoothScroll() {
 function IntroReveal() {
   const intervalRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
-  const failsafeRef = useRef<number | null>(null);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
 
   useLayoutEffect(() => {
@@ -99,19 +120,7 @@ function IntroReveal() {
     const percent = document.getElementById("percent");
     if (!fill || !percent) return;
 
-    const skipIntro = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (skipIntro) {
-      gsap.set(["#loader", "#curtain2"], { display: "none" });
-      document.body.style.overflow = "";
-      return;
-    }
-
     document.body.style.overflow = "hidden";
-    failsafeRef.current = window.setTimeout(() => {
-      timelineRef.current?.kill();
-      gsap.set(["#loader", "#curtain2"], { display: "none" });
-      document.body.style.overflow = "auto";
-    }, 8000);
 
     gsap.set("#loader", { yPercent: 0, force3D: true });
     gsap.set("#curtain2", { yPercent: 0, force3D: true });
@@ -149,9 +158,6 @@ function IntroReveal() {
             .fromTo("#site .darji-hero-social", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5 }, "-=0.35")
             .fromTo("#site .darji-hero-image", { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.8 }, "-=0.45")
             .add(() => {
-              if (failsafeRef.current !== null) window.clearTimeout(failsafeRef.current);
-              failsafeRef.current = null;
-              gsap.set(["#loader", "#curtain2"], { display: "none" });
               document.body.style.overflow = "auto";
             });
         }, 250);
@@ -161,7 +167,6 @@ function IntroReveal() {
     return () => {
       if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
       if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
-      if (failsafeRef.current !== null) window.clearTimeout(failsafeRef.current);
       timelineRef.current?.kill();
       document.body.style.overflow = "";
     };
@@ -172,7 +177,7 @@ function IntroReveal() {
       <div id="curtain2" />
       <div id="loader">
         <div className="logo"><img src="/darji-loader-transparent.png" alt="Darji" className="loader-logo-image loader-logo-black" /></div>
-        <p className="loader-tagline">stitching your web experience</p>
+        <p className="loader-tagline">stitching you web experience </p>
         <div className="bar"><div className="fill" /></div>
         <div id="percent">0%</div>
       </div>
@@ -260,18 +265,7 @@ const faqList = [
 
 export function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-  const [activeTestimonial, setActiveTestimonial] = useState(0);
   const heroRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    const interval = window.setInterval(() => {
-      setActiveTestimonial((current) => (current + 1) % testimonials.length);
-    }, 4200);
-
-    return () => window.clearInterval(interval);
-  }, []);
 
   const organizationSchema = {
     "@context": "https://schema.org",
@@ -544,76 +538,22 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="bg-white pb-6 pt-12 sm:py-24">
+        <section className="bg-white py-16 sm:py-24">
           <div className="shell text-center">
             <SectionEyebrow>What Our Customers Say</SectionEyebrow>
-            <h2 className="mx-auto max-w-4xl text-[1.75rem] font-extrabold leading-[1.16] text-[var(--color-text-primary)] sm:text-5xl sm:leading-tight">
+            <h2 className="mx-auto max-w-4xl text-3xl font-extrabold leading-tight text-[var(--color-text-primary)] sm:text-5xl">
               Loved by thousands,<br />stitched with <span className="text-[var(--color-primary)]">trust.</span>
             </h2>
-            <div className="mt-4 flex items-center justify-center gap-3 sm:mt-5 sm:gap-4">
-              <div className="h-px w-9 bg-gradient-to-r from-transparent to-[#eee4dc] sm:w-12" />
-              <svg className="h-4 w-4 text-[#ff7000] sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <div className="flex items-center justify-center gap-4 mt-5">
+              <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-[#eee4dc]" />
+              <svg className="h-5 w-5 text-[#ff7000]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2C12 2 8 6 8 10C8 14.5 12 16 12 22" />
                 <path d="M12 22C12 22 16 18 16 14C16 9.5 12 8 12 2" />
               </svg>
-              <div className="h-px w-9 bg-gradient-to-l from-transparent to-[#eee4dc] sm:w-12" />
+              <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-[#eee4dc]" />
             </div>
-
-            <div className="mx-auto mt-7 max-w-sm sm:hidden">
-              <div className="relative min-h-[188px] overflow-hidden">
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.article
-                    key={testimonials[activeTestimonial].name}
-                    initial={{ opacity: 0, x: 22, scale: 0.98 }}
-                    animate={{ opacity: 1, x: 0, scale: 1 }}
-                    exit={{ opacity: 0, x: -22, scale: 0.98 }}
-                    transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
-                    className="absolute inset-0 flex flex-col justify-between overflow-hidden rounded-[1.25rem] border border-[#eee4dc] bg-white p-4 text-left shadow-[0_14px_34px_rgba(8,17,31,0.07)]"
-                  >
-                    <span className="pointer-events-none absolute right-3 top-2 select-none font-serif text-5xl text-[#ff7000]/10">&rdquo;</span>
-                    <div>
-                      <div className="flex gap-0.5 text-[var(--darji-orange)]">
-                        {Array.from({ length: 5 }).map((_, starIndex) => (
-                          <Star key={`mobile-${starIndex}`} className="h-3.5 w-3.5 fill-current" />
-                        ))}
-                      </div>
-                      <p className="mt-3 text-[13px] font-semibold leading-5 text-[#08111f]">
-                        &quot;{testimonials[activeTestimonial].quote}&quot;
-                      </p>
-                    </div>
-                    <div className="mt-4 flex items-center gap-2.5">
-                      <span
-                        className="grid h-9 w-9 place-items-center rounded-full border-2 border-white text-[10px] font-black text-white shadow-[0_8px_18px_rgba(8,17,31,0.12)]"
-                        style={{ backgroundColor: testimonials[activeTestimonial].color }}
-                      >
-                        {testimonials[activeTestimonial].initials}
-                      </span>
-                      <span>
-                        <span className="block text-[13px] font-black text-[#08111f]">{testimonials[activeTestimonial].name}</span>
-                        <span className="block text-[11px] font-semibold text-[var(--darji-muted)]">Customer</span>
-                      </span>
-                    </div>
-                  </motion.article>
-                </AnimatePresence>
-              </div>
-              <div className="mt-4 flex items-center justify-center gap-2" aria-label="Testimonial progress">
-                {testimonials.map((testimonial, index) => (
-                  <button
-                    key={testimonial.name}
-                    type="button"
-                    aria-label={`Show testimonial from ${testimonial.name}`}
-                    aria-current={activeTestimonial === index}
-                    onClick={() => setActiveTestimonial(index)}
-                    className={`h-2 rounded-full transition-all duration-300 ${
-                      activeTestimonial === index ? "w-6 bg-[var(--darji-orange)]" : "w-2 bg-[#dbe2ea]"
-                    }`}
-                  />
-                ))}
-              </div>
-              <p className="mt-3 text-[9px] font-bold uppercase tracking-[0.18em] text-[#687589]">Changes automatically</p>
-            </div>
-
-            <div className="testimonial-marquee-wrapper mt-10 hidden sm:block">
+            
+            <div className="testimonial-marquee-wrapper mt-10">
               <div className="testimonial-marquee-track">
                 {/* First set for scrolling */}
                 <div className="testimonial-group">
@@ -672,7 +612,7 @@ export function LandingPage() {
               </div>
             </div>
 
-            <div className="mt-8 hidden flex-col items-center justify-center gap-3 sm:flex">
+            <div className="mt-8 flex flex-col items-center justify-center gap-3">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#687589]">
                 <span className="text-[#ff7000]">&larr;</span>
                 <span>Scrolls automatically</span>
@@ -689,7 +629,7 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section id="faq" className="relative shell py-12 overflow-visible sm:py-20">
+        <section id="faq" className="relative shell py-20 overflow-visible">
           {/* Background Dotted Thread Trails & Spool Decor */}
           <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden select-none">
             {/* Left Thread Trail */}

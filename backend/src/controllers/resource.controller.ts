@@ -413,6 +413,10 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
   }));
 }
 
+function createDarjiTailorId() {
+  return `DRJ-TLR-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
 export async function catalogController(_req: Request, res: Response) {
   const services = await ServiceModel.find({ isActive: true }).sort({ name: 1 });
   if (services.length > 0) {
@@ -549,7 +553,7 @@ export async function updateTailorProfileController(req: Request, res: Response)
 export async function submitTailorVerificationController(req: Request, res: Response) {
   const input = tailorVerificationSchema.parse(req.body);
   const specialization = input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
-  const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("verificationStatus verificationRejectedUntil");
+  const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("darjiTailorId verificationStatus verificationRejectedUntil");
   if (
     existingTailor?.verificationStatus === "REJECTED" &&
     existingTailor.verificationRejectedUntil &&
@@ -564,6 +568,7 @@ export async function submitTailorVerificationController(req: Request, res: Resp
       { userId: req.user!.id },
       {
         shopName: input.shop.shopName,
+        darjiTailorId: existingTailor?.darjiTailorId ?? createDarjiTailorId(),
         specialization,
         verificationStatus: "PENDING",
         verificationSubmittedAt: new Date(),
