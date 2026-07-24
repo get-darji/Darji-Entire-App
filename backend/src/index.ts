@@ -49,7 +49,7 @@ void processDueDeliveryBatches().catch((error) => {
 });
 
 const server = app.listen(env.PORT, () => {
-  console.log(`Darzi backend running on port ${env.PORT}`);
+  console.log(`Darji backend running on port ${env.PORT}`);
 });
 setupSocketServer(server);
 

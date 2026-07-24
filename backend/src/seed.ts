@@ -20,7 +20,7 @@ async function upsertUser(phone: string, data: { name: string; role: string }) {
 }
 
 export async function seedDatabase() {
-  const admin = await upsertUser("9999999999", { name: "Darzi Admin", role: "ADMIN" });
+  const admin = await upsertUser("9999999999", { name: "Darji Admin", role: "ADMIN" });
   const customer = await upsertUser("9876543210", { name: "Aarav Sharma", role: "CUSTOMER" });
   const tailorUser = await upsertUser("9876500001", { name: "Imran Khan", role: "TAILOR" });
   const deliveryUser = await upsertUser("9876500002", { name: "Rohit Verma", role: "DELIVERY_PARTNER" });

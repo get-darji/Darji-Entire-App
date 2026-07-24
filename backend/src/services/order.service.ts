@@ -264,7 +264,7 @@ export async function createOrder(customerId: string, payload: unknown) {
     userId: customerId,
     orderId: order.id,
     title: "Order placed",
-    body: "Your Darzi pickup request has been created."
+    body: "Your Darji pickup request has been created."
   });
 
   const updatedOrder = await OrderModel.findById(order.id);

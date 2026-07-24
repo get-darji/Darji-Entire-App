@@ -115,6 +115,9 @@ type TailoringRequestItem = {
   gender?: string;
   clothType: string;
   workType: string;
+  serviceCategory?: string;
+  selectedWorkItems?: string[];
+  otherWorkDescription?: string;
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
   media?: MediaItem[];
@@ -128,6 +131,9 @@ type TailoringRequest = {
   gender?: string;
   clothType: string;
   workType: string;
+  serviceCategory?: string;
+  selectedWorkItems?: string[];
+  otherWorkDescription?: string;
   urgency: string;
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
@@ -258,7 +264,7 @@ const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
-const tailorLogo = require("./darji-notification.png");
+const tailorAppIcon = require("./app-icon.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
@@ -449,6 +455,9 @@ function requestItems(request: TailoringRequest): TailoringRequestItem[] {
       gender: request.gender,
       clothType: request.clothType,
       workType: request.workType,
+      serviceCategory: request.serviceCategory,
+      selectedWorkItems: request.selectedWorkItems,
+      otherWorkDescription: request.otherWorkDescription,
       measurement: request.measurement,
       measurementNotes: request.measurementNotes,
       media: request.media ?? []
@@ -484,7 +493,13 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
   const items = requestItems(request).map((item) => ({
     service: { name: `${item.clothType || "Cloth"} - ${item.workType || "Tailoring"}` },
     measurement: item.measurement,
-    instructions: [item.gender, item.description, item.measurementNotes].filter(Boolean).join(" - "),
+    instructions: [
+      item.gender,
+      item.serviceCategory,
+      item.selectedWorkItems?.length ? item.selectedWorkItems.join(", ") : item.otherWorkDescription,
+      item.description,
+      item.measurementNotes
+    ].filter(Boolean).join(" - "),
     media: item.media ?? [],
     sampleMedia: item.sampleMedia ?? [],
     price: request.ownQuote?.price
@@ -586,7 +601,7 @@ function AuthScreen() {
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.authLogoWrap}>
-          <Image source={tailorLogo} resizeMode="contain" style={styles.authLogo} />
+          <Image source={tailorAppIcon} resizeMode="contain" style={styles.authLogo} />
         </View>
         <Text style={styles.authTitle}>Darji Tailor</Text>
         <Text style={styles.authCopy}>{localize(language, "Manage requests, quotes, stitching progress, and earnings from one workspace.", "अनुरोध, कोटेशन, सिलाई की प्रगति और कमाई एक ही जगह से संभालें।")}</Text>
@@ -864,8 +879,25 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
           {items.map((item, index) => (
             <View key={item.id ?? `${request.id}-${index}`} style={styles.itemBlock}>
               <Text style={styles.cardTitle}>Item {index + 1}: {item.clothType}</Text>
-              <Text style={styles.cardMeta}>{[item.gender, item.workType, measurementStatus(item)].filter(Boolean).join(" - ")}</Text>
+              <Text style={styles.cardMeta}>{[item.gender, item.serviceCategory ?? item.workType, measurementStatus(item)].filter(Boolean).join(" - ")}</Text>
               <Text style={styles.cardCopy}>{item.description}</Text>
+              {item.selectedWorkItems?.length ? (
+                <View style={styles.requestWorkBlock}>
+                  <Text style={styles.detailLabel}>Requested work</Text>
+                  <View style={styles.chipWrap}>
+                    {item.selectedWorkItems.map((workItem) => (
+                      <View key={workItem} style={[styles.suggestionChip, styles.suggestionChipActive]}>
+                        <Text style={[styles.suggestionChipText, styles.suggestionChipTextActive]}>{workItem}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : item.otherWorkDescription ? (
+                <View style={styles.requestWorkBlock}>
+                  <Text style={styles.detailLabel}>Requested work</Text>
+                  <Text style={styles.cardCopy}>{item.otherWorkDescription}</Text>
+                </View>
+              ) : null}
               {item.measurement?.imageUrl ? (
                 <View style={styles.sampleReferenceBlock}>
                   <Image source={{ uri: item.measurement.imageUrl }} style={styles.sampleReferenceImage} />
@@ -4124,7 +4156,7 @@ const styles = StyleSheet.create({
   authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 26, paddingBottom: 28, paddingTop: 70 },
   authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
   authLogoWrap: { alignItems: "flex-start", justifyContent: "center", marginBottom: 14 },
-  authLogo: { width: 184, height: 82 },
+  authLogo: { width: 82, height: 82, borderRadius: 24 },
   logoMark: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 20 },
   authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 15, lineHeight: 23, marginTop: 8, marginBottom: 34 },
@@ -4251,6 +4283,7 @@ const styles = StyleSheet.create({
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 16 },
   toggleChoiceRow: { minHeight: 70, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginTop: 12 },
   itemBlock: { borderRadius: 16, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#efcf92", padding: 14, marginTop: 12 },
+  requestWorkBlock: { gap: 8, marginTop: 12 },
   measureRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#f3dfb9", marginTop: 8 },
   proofBlock: { borderRadius: 18, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#efcf92", padding: 14, marginTop: 14 },
   proofCount: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },

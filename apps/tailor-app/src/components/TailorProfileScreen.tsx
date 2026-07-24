@@ -199,7 +199,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
-  const [shopName, setShopName] = useState(profile?.shopName ?? "Darzi Tailor");
+  const [shopName, setShopName] = useState(profile?.shopName ?? "Darji Tailor");
   const [email, setEmail] = useState(me?.email ?? "");
   const [available, setAvailable] = useState(Boolean(profile?.isAvailable ?? true));
   const [vacationMode, setVacationMode] = useState(false);
@@ -233,7 +233,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   useEffect(() => {
     setName(me?.name ?? "");
-    setShopName(profile?.shopName ?? "Darzi Tailor");
+    setShopName(profile?.shopName ?? "Darji Tailor");
     setEmail(me?.email ?? "");
     setAvailable(Boolean(profile?.isAvailable ?? true));
     setNotifications((current) => ({ ...current, newOrderAlerts: settingsFromServer.notifications ?? true, sound: settingsFromServer.soundAlerts ?? true }));
@@ -1829,9 +1829,9 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   },
   chat: {
     title: "Chat Support",
-    subtitle: "Contact Darzi support",
+    subtitle: "Contact Darji support",
     icon: "chatbubble-outline",
-    copy: "Use this when an order, payment, or customer request needs help from Darzi support.",
+    copy: "Use this when an order, payment, or customer request needs help from Darji support.",
     points: ["Share the order ID.", "Do not share customer personal details outside the app.", "Support replies will be connected in a future live chat flow."],
     action: { label: "Start Chat" }
   },
@@ -1845,9 +1845,9 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   },
   email: {
     title: "Email Support",
-    subtitle: "Write to Darzi",
+    subtitle: "Write to Darji",
     icon: "mail-outline",
-    copy: "Send a detailed message to the Darzi operations team.",
+    copy: "Send a detailed message to the Darji operations team.",
     points: ["Mention your registered mobile number.", "Add screenshots if needed.", "Expected reply time is 24-48 hours."],
     action: { label: "Open Email", url: "mailto:support@darzi.local?subject=Tailor%20Support" }
   },
@@ -1856,7 +1856,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "Report order problems",
     icon: "alert-circle-outline",
     copy: "Use complaints for delivery, proof photo, payment, or stitching dispute issues.",
-    points: ["Select the correct order before raising a complaint.", "Upload proof photos where possible.", "Darzi team will check request history and media."]
+    points: ["Select the correct order before raising a complaint.", "Upload proof photos where possible.", "Darji team will check request history and media."]
   },
   bug: {
     title: "Report Bug",
@@ -1876,15 +1876,15 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     title: "Privacy Policy",
     subtitle: "How data is handled",
     icon: "document-text-outline",
-    copy: "Darzi uses tailor profile, order, and proof photo data only to run the service and resolve order issues.",
-    points: ["Customer personal details are hidden unless required for delivery.", "Proof photos are linked to orders for dispute checks.", "Do not save or share customer data outside Darzi."]
+    copy: "Darji uses tailor profile, order, and proof photo data only to run the service and resolve order issues.",
+    points: ["Customer personal details are hidden unless required for delivery.", "Proof photos are linked to orders for dispute checks.", "Do not save or share customer data outside Darji."]
   },
   terms: {
     title: "Terms of Service",
     subtitle: "Tailor partner terms",
     icon: "reader-outline",
     copy: "These terms explain expected app use and order handling.",
-    points: ["Accept only work you can complete on time.", "Upload honest proof photos.", "Keep all customer communication inside Darzi channels."]
+    points: ["Accept only work you can complete on time.", "Upload honest proof photos.", "Keep all customer communication inside Darji channels."]
   },
   cancellation: {
     title: "Cancellation Policy",
@@ -1895,7 +1895,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   },
   version: {
     title: "App Version",
-    subtitle: "Darzi Tailor App",
+    subtitle: "Darji Tailor App",
     icon: "information-circle-outline",
     copy: "Version 0.1.0",
     points: ["Development build for local testing.", "Restart Metro after native or dependency changes.", "Keep backend running while testing customer and tailor flows."]

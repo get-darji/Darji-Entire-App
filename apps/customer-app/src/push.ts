@@ -6,7 +6,7 @@ import { api } from "./api";
 export async function registerPushToken(token: string, app: string) {
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("darzi-high-priority", {
-      name: "Darzi Customer Alerts",
+      name: "Darji Customer Alerts",
       description: "Order confirmations, tailoring updates, pickup and delivery alerts",
       importance: Notifications.AndroidImportance.MAX,
       sound: "default",

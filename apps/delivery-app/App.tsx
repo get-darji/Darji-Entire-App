@@ -348,6 +348,7 @@ const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
+const deliveryAppIcon = require("./app-icon.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 
@@ -900,9 +901,9 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.logoMark}>
-          <Ionicons name="bicycle-outline" size={34} color={BRAND_ORANGE} />
+          <Image source={deliveryAppIcon} resizeMode="contain" style={styles.authAppIcon} />
         </View>
-        <Text style={styles.authTitle}>Darzi Delivery</Text>
+        <Text style={styles.authTitle}>Darji Delivery</Text>
         <Text style={styles.authCopy}>{localize(language, "Accept pickup jobs, open Google Maps routes, and complete verified handoffs.", "पिकअप कार्य स्वीकार करें, Google Maps में रास्ता खोलें और सुरक्षित डिलीवरी पूरी करें।")}</Text>
         <Card>
           {step === "login" ? (
@@ -3645,8 +3646,9 @@ const styles = StyleSheet.create({
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
   authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingBottom: 28, paddingTop: 70 },
-  authLanguageCorner: { position: "absolute", right: 18, top: 12, zIndex: 20 },
+  authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
   logoMark: { width: 68, height: 68, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", marginBottom: 18 },
+  authAppIcon: { width: 66, height: 66, borderRadius: 23 },
   authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 8, marginBottom: 22 },
   pageContent: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 118 },
