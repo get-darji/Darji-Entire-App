@@ -100,7 +100,11 @@ export function attachDarjiIdPlugin(schema: Schema, options: DarjiIdPluginOption
       if (!this.getOptions().upsert) return;
       const update = this.getUpdate() ?? {};
       const setOnInsert = (update.$setOnInsert ??= {});
-      if (setOnInsert[field]) return;
+      const definesField =
+        Object.prototype.hasOwnProperty.call(update, field) ||
+        Object.prototype.hasOwnProperty.call(update.$set ?? {}, field) ||
+        Object.prototype.hasOwnProperty.call(setOnInsert, field);
+      if (definesField) return;
 
       const source = {
         ...(update.$set ?? {}),

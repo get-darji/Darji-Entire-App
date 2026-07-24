@@ -243,7 +243,6 @@ const deliveryVerificationSchema = z.object({
   }),
   preferences: z.object({
     availability: z.string().trim().min(2).max(40),
-    workingHours: z.string().trim().min(2).max(80),
     radius: z.string().trim().min(2).max(20),
     instantDeliveries: z.boolean()
   })
@@ -567,18 +566,22 @@ export async function submitTailorVerificationController(req: Request, res: Resp
     TailorModel.findOneAndUpdate(
       { userId: req.user!.id },
       {
-        shopName: input.shop.shopName,
-        darjiTailorId: existingTailor?.darjiTailorId ?? createDarjiTailorId(),
-        specialization,
-        verificationStatus: "PENDING",
-        verificationSubmittedAt: new Date(),
-        verificationReviewedAt: undefined,
-        verificationRejectionReason: undefined,
-        verificationReuploadFields: [],
-        verificationRejectedUntil: undefined,
-        verificationLastRejectedAt: undefined,
-        verification: input,
-        verificationDraft: undefined
+        $set: {
+          shopName: input.shop.shopName,
+          darjiTailorId: existingTailor?.darjiTailorId ?? createDarjiTailorId(),
+          specialization,
+          verificationStatus: "PENDING",
+          verificationSubmittedAt: new Date(),
+          verificationReuploadFields: [],
+          verification: input
+        },
+        $unset: {
+          verificationReviewedAt: "",
+          verificationRejectionReason: "",
+          verificationRejectedUntil: "",
+          verificationLastRejectedAt: "",
+          verificationDraft: ""
+        }
       },
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     )
@@ -932,7 +935,6 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
       { userId: req.user!.id },
       {
         vehicleNumber: input.vehicle.vehicleNumber,
-        workingHours: input.preferences.workingHours,
         settings: {
           availability: input.preferences.availability,
           radius: input.preferences.radius,
@@ -1715,17 +1717,41 @@ export async function updateBugReportController(req: Request, res: Response) {
 
 export async function createAccountChangeRequestController(req: Request, res: Response) {
   const input = accountChangeRequestSchema.parse(req.body);
+  if (req.user!.role !== "TAILOR" && req.user!.role !== "DELIVERY_PARTNER") {
+    throw new AppError(403, "Account change requests are available only to tailor and delivery partners");
+  }
 
   // Parse type for visual neatness
   const requestTypeNice = input.type.replace(/([A-Z])/g, ' $1').trim();
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || "User";
+  if (input.type === "AccountDeletion") {
+    const existingRequest = await AccountChangeRequestModel.findOne({
+      userId: req.user!.id,
+      type: "AccountDeletion",
+      status: "PENDING"
+    });
+    if (existingRequest) {
+      res.status(409).json({ message: "An account deletion request is already pending" });
+      return;
+    }
+  }
+  const requestedValues = input.type === "AccountDeletion"
+    ? {
+        ...input.requestedValues,
+        accountName: user?.name ?? "",
+        accountPhone: user?.phone ?? "",
+        requestedAt: new Date().toISOString()
+      }
+    : input.requestedValues;
 
   const initialMessage = {
     sender: "client",
     senderId: req.user!.id,
     senderName,
-    text: `Request: Change ${requestTypeNice}\n\nDetails: ${Object.entries(input.requestedValues || {}).map(([k, v]) => `\n- ${k}: ${v}`).join('')}`,
+    text: input.type === "AccountDeletion"
+      ? `Request: Delete partner account\n\nPartner: ${user?.name ?? "Partner"}\nPhone: ${user?.phone ?? "Unknown"}`
+      : `Request: Change ${requestTypeNice}\n\nDetails: ${Object.entries(requestedValues || {}).map(([k, v]) => `\n- ${k}: ${v}`).join('')}`,
     attachments: input.documents || [],
     type: "text",
     createdAt: new Date()
@@ -1733,6 +1759,7 @@ export async function createAccountChangeRequestController(req: Request, res: Re
 
   const request = await AccountChangeRequestModel.create({
     ...input,
+    requestedValues,
     userId: req.user!.id,
     userRole: req.user!.role as "TAILOR" | "DELIVERY_PARTNER",
     messages: [initialMessage]
@@ -1815,7 +1842,18 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
       return {
         ...requestJson,
         currentValues,
-        user: request.userId ? (await UserModel.findById(request.userId).select("phone name role"))?.toJSON() : undefined
+        user: request.userId
+          ? (await UserModel.findById(request.userId).select("phone name role"))?.toJSON() ?? (
+              request.type === "AccountDeletion"
+                ? {
+                    id: request.userId,
+                    name: request.requestedValues?.accountName,
+                    phone: request.requestedValues?.accountPhone,
+                    role: request.userRole
+                  }
+                : undefined
+            )
+          : undefined
       };
     })
   );
@@ -1839,7 +1877,14 @@ export async function approveAccountChangeRequestController(req: Request, res: R
   const userId = request.userId;
   const vals = request.requestedValues as Record<string, any>;
 
-  if (request.userRole === "TAILOR") {
+  if (request.type === "AccountDeletion") {
+    await Promise.all([
+      UserModel.findByIdAndDelete(userId),
+      request.userRole === "TAILOR"
+        ? TailorModel.deleteOne({ userId })
+        : DeliveryPartnerModel.deleteOne({ userId })
+    ]);
+  } else if (request.userRole === "TAILOR") {
     const tailor = await TailorModel.findOne({ userId });
     if (tailor) {
       const verification = (tailor.verification || {}) as Record<string, any>;

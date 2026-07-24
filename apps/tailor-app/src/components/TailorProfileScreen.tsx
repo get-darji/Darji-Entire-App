@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { ActivityIndicator, Animated, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
-import { api, uploadTailorAvatar, uploadTailorVerificationMedia } from "../api";
+import { api, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
+import { CompactLanguageToggle } from "../../../../shared/src/compact-language-toggle";
 
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();
@@ -51,9 +51,8 @@ function hashSeed(value: string) {
   return Array.from(value || "User").reduce((sum, char) => sum + char.charCodeAt(0), 0);
 }
 
-export function getFallbackAvatar(name?: string, gender?: string, preset?: AvatarPreset): ImageSourcePropType {
+export function getFallbackAvatar(name?: string, gender?: string): ImageSourcePropType {
   const str = name || "User";
-  if (preset) return avatarImages[preset];
   const selectedGender = normalizedAvatarGender(gender);
   if (selectedGender === "boy") return avatarImages[["boy", "youngMale", "blackMale", "tannedMale", "uncle", "oldMale"][hashSeed(str) % 6] as AvatarPreset];
   if (selectedGender === "girl") return avatarImages[["girl", "youngFemale", "blackFemale", "aunt", "aunt2"][hashSeed(str) % 5] as AvatarPreset];
@@ -174,6 +173,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const profile = me?.tailorProfile;
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const settingsFromServer = useMemo(() => profile?.settings ?? {}, [profile?.settings]);
   const maxOrdersPerDay = settingsFromServer.maxOrdersPerDay ?? 8;
   const activeOrders = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
@@ -196,14 +197,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [supportScreen, setSupportScreen] = useState<SupportScreen>();
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [avatarPreset, setAvatarPreset] = useState<AvatarPreset>();
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
   const [shopName, setShopName] = useState(profile?.shopName ?? "Darzi Tailor");
   const [email, setEmail] = useState(me?.email ?? "");
-  const [workingFrom, setWorkingFrom] = useState(profile?.workingHours?.from ?? "10:00");
-  const [workingTo, setWorkingTo] = useState(profile?.workingHours?.to ?? "20:00");
   const [available, setAvailable] = useState(Boolean(profile?.isAvailable ?? true));
   const [vacationMode, setVacationMode] = useState(false);
   const [acceptingOrders, setAcceptingOrders] = useState(true);
@@ -219,21 +216,13 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   const palette = general.darkMode ? darkPalette : lightPalette;
   const styles = useMemo(() => createStyles(palette), [palette]);
-  const avatarLocked = Boolean(profile?.verification?.idVerification?.facePhotoUrl) || profile?.verificationStatus === "VERIFIED";
+  const verificationAvatarUrl = profile?.verification?.idVerification?.facePhotoUrl;
+  const avatarLocked = Boolean(verificationAvatarUrl) || profile?.verificationStatus === "VERIFIED";
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
     showDialog({ title: t(nextLanguage, "languageUpdated"), message: t(nextLanguage, "languageUpdatedMessage"), icon: "checkmark-circle-outline" });
   }
-
-  useEffect(() => {
-    if (!me?.id) return;
-    AsyncStorage.getItem(`darji.tailor.avatarPreset.${me.id}`)
-      .then((stored) => {
-        if (stored && stored in avatarImages) setAvatarPreset(stored as AvatarPreset);
-      })
-      .catch(() => undefined);
-  }, [me?.id]);
 
   useEffect(() => {
     if (initialSupportScreen === "support_center") {
@@ -246,8 +235,6 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     setName(me?.name ?? "");
     setShopName(profile?.shopName ?? "Darzi Tailor");
     setEmail(me?.email ?? "");
-    setWorkingFrom(profile?.workingHours?.from ?? "10:00");
-    setWorkingTo(profile?.workingHours?.to ?? "20:00");
     setAvailable(Boolean(profile?.isAvailable ?? true));
     setNotifications((current) => ({ ...current, newOrderAlerts: settingsFromServer.notifications ?? true, sound: settingsFromServer.soundAlerts ?? true }));
     setGeneral((current) => ({ ...current, darkMode: settingsFromServer.darkMode ?? false }));
@@ -280,7 +267,6 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
           body: JSON.stringify({
             name: name.trim(),
             shopName: shopName.trim(),
-            workingHours: { from: workingFrom.trim(), to: workingTo.trim() },
             settings: {
               notifications: notifications.newOrderAlerts,
               soundAlerts: notifications.sound,
@@ -300,42 +286,6 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     } finally {
       setSavingProfile(false);
     }
-  }
-
-  async function pickAvatar() {
-    if (avatarLocked) {
-      showDialog({ title: "Photo locked", message: "Your verification selfie is your permanent profile photo.", icon: "lock-closed-outline" });
-      return;
-    }
-    if (!token) return;
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a new profile picture.", icon: "camera-outline" });
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.85 });
-    if (result.canceled || !result.assets.length) return;
-    try {
-      setUploadingAvatar(true);
-      await uploadTailorAvatar({ uri: result.assets[0].uri, name: result.assets[0].fileName ?? `tailor-avatar-${Date.now()}.jpg` }, token);
-      showDialog({ title: "Photo updated", message: "Your profile photo has been saved.", icon: "person-circle-outline" });
-      refresh();
-    } catch (error) {
-      if (isSessionError(error)) return onSessionExpired();
-      showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not upload profile photo.", icon: "alert-circle-outline" });
-    } finally {
-      setUploadingAvatar(false);
-    }
-  }
-
-  async function chooseAvatarPreset(preset: AvatarPreset) {
-    if (avatarLocked) {
-      showDialog({ title: "Photo locked", message: "Your verification selfie is your permanent profile photo.", icon: "lock-closed-outline" });
-      return;
-    }
-    setAvatarPreset(preset);
-    if (me?.id) await AsyncStorage.setItem(`darji.tailor.avatarPreset.${me.id}`, preset);
-    showDialog({ title: "Avatar selected", message: "Your default avatar has been updated on this device.", icon: "person-circle-outline" });
   }
 
   async function submitShopChangeRequest() {
@@ -388,6 +338,35 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     }
   }
 
+  async function submitAccountDeletionRequest() {
+    if (!token || submittingDeletion) return;
+    try {
+      setSubmittingDeletion(true);
+      await api("/support/change-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "AccountDeletion",
+          requestedValues: { reason: "Tailor requested account deletion from profile settings" }
+        })
+      }, token);
+      setShowDeleteModal(false);
+      showDialog({
+        title: language === "hi" ? "अनुरोध जमा हो गया" : "Request submitted",
+        message: language === "hi" ? "आपका अकाउंट हटाने का अनुरोध एडमिन सपोर्ट सेंटर को भेज दिया गया है।" : "Your account deletion request has been sent to the admin support center.",
+        icon: "checkmark-circle-outline"
+      });
+    } catch (error) {
+      if (isSessionError(error)) return onSessionExpired();
+      showDialog({
+        title: language === "hi" ? "अनुरोध जमा नहीं हुआ" : "Request failed",
+        message: error instanceof Error ? error.message : "Could not submit the account deletion request.",
+        icon: "alert-circle-outline"
+      });
+    } finally {
+      setSubmittingDeletion(false);
+    }
+  }
+
   async function refreshProfileScreen() {
     if (pullRefreshing) return;
     setPullRefreshing(true);
@@ -410,10 +389,9 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     <View style={styles.root}>
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
-        <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar || avatarLocked}>
-          <Image source={me?.avatarUrl ? { uri: me.avatarUrl } : getFallbackAvatar(name || shopName, undefined, avatarPreset)} style={styles.avatarImage} />
-          {!avatarLocked ? <View style={styles.cameraBadge}>{uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}</View> : null}
-        </Pressable>
+        <View style={styles.avatar}>
+          <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)} style={styles.avatarImage} />
+        </View>
         <View style={styles.headerMain}>
           <Text style={styles.title}>{shopName}</Text>
           <Text style={styles.meta}>{avatarLocked ? `${name || "Tailor Partner"} - verification photo locked` : name || "Tailor Partner"}</Text>
@@ -424,8 +402,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </View>
 
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
-        <InfoRow icon="create-outline" title="Edit Profile" value="Update name, shop details, and hours" styles={styles} onPress={() => setEditing(true)} noBorder />
-        <InfoRow icon="storefront-outline" title="Shop Details" value={`${shopName} (Open: ${workingFrom} - ${workingTo})`} styles={styles} onPress={() => setShowShopDetails(true)} />
+        <InfoRow icon="create-outline" title="Edit Profile" value="Update name and shop details" styles={styles} onPress={() => setEditing(true)} noBorder />
+        <InfoRow icon="storefront-outline" title="Shop Details" value={shopName} styles={styles} onPress={() => setShowShopDetails(true)} />
 
       </Section>
 
@@ -445,19 +423,6 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <Input label="Tailor Name" value={name} onChangeText={setName} styles={styles} />
               <Input label="Shop Name" value={shopName} onChangeText={setShopName} styles={styles} />
               <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
-              <View style={styles.inlineInputs}>
-                <View style={styles.inlineInput}><Input label="Open From" value={workingFrom} onChangeText={setWorkingFrom} styles={styles} /></View>
-                <View style={styles.inlineInput}><Input label="Open Until" value={workingTo} onChangeText={setWorkingTo} styles={styles} /></View>
-              </View>
-              <Text style={styles.inputLabel}>Choose Avatar</Text>
-              <View style={styles.avatarPickerGrid}>
-                {avatarOptions.map((option) => (
-                  <Pressable key={option.key} style={[styles.avatarOption, avatarPreset === option.key && styles.avatarOptionSelected, avatarLocked && styles.avatarOptionDisabled]} onPress={() => chooseAvatarPreset(option.key)} disabled={avatarLocked}>
-                    <Image source={avatarImages[option.key]} style={styles.avatarOptionImage} />
-                    <Text style={styles.avatarOptionLabel}>{option.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
               <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
                 {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
               </Pressable>
@@ -486,19 +451,21 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </View>
               <InfoRow icon="storefront-outline" title="Shop Name" value={shopName} styles={styles} />
               <InfoRow icon="time-outline" title="Stitching Capacity" value={`${maxOrdersPerDay} orders limit per day`} styles={styles} />
-              <InfoRow icon="calendar-outline" title="Working Hours" value={`${workingFrom} to ${workingTo}`} styles={styles} />
               <InfoRow icon="ribbon-outline" title="Specializations" value={profile?.specialization?.join(", ") || "Custom tailoring"} styles={styles} />
             </View>
 
-            <View style={styles.section}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>REQUEST DETAILS CHANGE</Text>
+            <View style={styles.requestCard}>
+              <View style={styles.requestHero}>
+                <View style={styles.requestIcon}><Ionicons name="create-outline" size={22} color={BRAND_ORANGE} /></View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.requestTitle}>Request shop update</Text>
+                  <Text style={styles.requestSubtitle}>Admin verification required</Text>
+                </View>
               </View>
-              <Text style={styles.rowCopy}>To update your address, category, or capacity limits, please raise a change request ticket for admin verification.</Text>
+              <Text style={styles.requestCopy}>Tell us exactly what should change—address, category, capacity, or registration details. You can track the request in Support Center.</Text>
               <View style={styles.inputBlock}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.requestInput]}
                   value={shopChangeRequest}
                   onChangeText={setShopChangeRequest}
                   placeholder="Describe your requested shop changes..."
@@ -538,15 +505,18 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <InfoRow icon="wallet-outline" title="Status" value="Verified for weekly payouts" styles={styles} />
             </View>
 
-            <View style={styles.section}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>REQUEST BANK DETAILS CHANGE</Text>
+            <View style={styles.requestCard}>
+              <View style={styles.requestHero}>
+                <View style={styles.requestIcon}><Ionicons name="card-outline" size={22} color={BRAND_ORANGE} /></View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.requestTitle}>Request payout update</Text>
+                  <Text style={styles.requestSubtitle}>Finance verification required</Text>
+                </View>
               </View>
-              <Text style={styles.rowCopy}>Submit your new bank account number, IFSC code, and holder name. Our finance team will update it after validation.</Text>
+              <Text style={styles.requestCopy}>Enter the new account holder name, bank name, account number and IFSC. The current payout account stays active until approval.</Text>
               <View style={styles.inputBlock}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.requestInput]}
                   value={bankChangeRequest}
                   onChangeText={setBankChangeRequest}
                   placeholder="New bank name, IFSC, account number..."
@@ -564,7 +534,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
       <Section title={t(language, "performance")} icon="bar-chart-outline" styles={styles}>
         <InfoRow icon="wallet-outline" title={t(language, "earnings")} value={t(language, "transactionHistoryPayouts")} styles={styles} onPress={onOpenTransactions} noBorder />
-        <InfoRow icon="cube-outline" title={t(language, "orderHistory")} value={language === "hi" ? `${completedOrders} ????, ${activeOrders} ?????? ???` : `${completedOrders} completed, ${activeOrders} in progress`} styles={styles} onPress={onOpenOrders} />
+        <InfoRow icon="cube-outline" title={t(language, "orderHistory")} value={language === "hi" ? `${completedOrders} पूरे, ${activeOrders} प्रगति पर` : `${completedOrders} completed, ${activeOrders} in progress`} styles={styles} onPress={onOpenOrders} />
         <InfoRow icon="star-outline" title="Average Rating & Reviews" value={`${averageRating ? averageRating.toFixed(1) : "0.0"} rating (${ratingCount} reviews)`} styles={styles} onPress={() => showDialog({ title: "Average Rating & Reviews", message: `Your average customer rating is ${averageRating ? averageRating.toFixed(1) : "0.0"} based on ${ratingCount} customer reviews.`, icon: "star-outline" })} />
       </Section>
 
@@ -578,14 +548,14 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Section title={t(language, "support")} icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title={t(language, "helpCenter")} value={language === "hi" ? "????-???? ?? ?? ????" : "Faqs and app guides"} styles={styles} onPress={() => setSupportScreen("faqs")} noBorder />
-        <InfoRow icon="chatbubble-outline" title={t(language, "supportCenter")} value={language === "hi" ? "??? ????, ??? ???? ?? ?????? ????? ?? ?????? ????" : "Chat, call, or request account updates"} styles={styles} onPress={() => setSupportScreen("support_center")} />
+        <InfoRow icon="help-buoy-outline" title={t(language, "helpCenter")} value={language === "hi" ? "सवाल-जवाब और ऐप गाइड" : "Faqs and app guides"} styles={styles} onPress={() => setSupportScreen("faqs")} noBorder />
+        <InfoRow icon="chatbubble-outline" title={t(language, "supportCenter")} value={language === "hi" ? "चैट, कॉल या अकाउंट बदलाव के लिए सहायता लें" : "Chat, call, or request account updates"} styles={styles} onPress={() => setSupportScreen("support_center")} />
       </Section>
 
       <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
-        <InfoRow icon="information-circle-outline" title={t(language, "aboutDarji")} value={language === "hi" ? "Darji Tailor Partner ?? ?? ???? ??? ?????" : "Learn about Darji Tailor Partner app"} styles={styles} onPress={() => setSupportScreen("about")} noBorder />
-        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "???? ????????? ???? ???? ?????? ???? ??" : "How your personal data is handled"} styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "???? ????? ?? ??????" : "Terms of service agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
+        <InfoRow icon="information-circle-outline" title={t(language, "aboutDarji")} value={language === "hi" ? "Darji Tailor Partner ऐप के बारे में जानें" : "Learn about Darji Tailor Partner app"} styles={styles} onPress={() => setSupportScreen("about")} noBorder />
+        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "जानें आपकी निजी जानकारी कैसे सुरक्षित रखी जाती है" : "How your personal data is handled"} styles={styles} onPress={() => setSupportScreen("privacy")} />
+        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of service agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
@@ -599,7 +569,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Section title={t(language, "accountSettings")} icon="settings-outline" styles={styles}>
-        <InfoRow icon="trash-outline" title={t(language, "deleteAccount")} value={t(language, "permanentlyRemoveAccount")} styles={styles} danger onPress={() => showDialog({ title: language === "hi" ? "?????? ????? ????" : "Delete account", message: language === "hi" ? "?????? ????? ?? ?????? ????? ??? ?? ??? ???? ??? ???" : "Account deletion request has been submitted to the admin team.", icon: "trash-outline" })} noBorder />
+        <InfoRow icon="trash-outline" title={t(language, "deleteAccount")} value={language === "hi" ? "एडमिन को अकाउंट हटाने का अनुरोध भेजें" : "Request account deletion from admin"} styles={styles} danger onPress={() => setShowDeleteModal(true)} noBorder />
         <InfoRow
           icon="log-out-outline"
           title={t(language, "logout")}
@@ -619,6 +589,26 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       ) : supportScreen ? (
         <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} showDialog={showDialog} />
       ) : null}
+    </Modal>
+
+    <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => !submittingDeletion && setShowDeleteModal(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
+        <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
+          <View style={{ alignItems: "center", marginBottom: 20 }}>
+            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+              <Ionicons name="trash-outline" size={28} color="#ef4444" />
+            </View>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: "#0b2241", marginBottom: 8 }}>{language === "hi" ? "अकाउंट हटाने का अनुरोध?" : "Request account deletion?"}</Text>
+            <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{language === "hi" ? "आपका अनुरोध एडमिन को भेजा जाएगा। मंजूरी मिलने तक अकाउंट चालू रहेगा।" : "Your request will be sent to admin. Your account remains active until it is approved."}</Text>
+          </View>
+          <Pressable style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
+            {submittingDeletion ? <ActivityIndicator color="#ffffff" /> : <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{language === "hi" ? "हाँ, अनुरोध भेजें" : "Yes, submit request"}</Text>}
+          </Pressable>
+          <Pressable style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
+            <Text style={{ color: "#0b2241", fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
     </Modal>
 
     {/* Custom Logout Confirmation Modal */}
@@ -676,27 +666,9 @@ function Input({ label, value, onChangeText, styles }: { label: string; value: s
 
 function LanguageChoiceRow({ language, onChange }: { language: AppLanguage; onChange: (language: AppLanguage) => void }) {
   return (
-    <View style={{ borderTopWidth: 0, paddingVertical: 4 }}>
-      <Text style={{ color: MUTED, fontSize: 13, marginBottom: 12 }}>{t(language, "currentLanguage")}: {getLanguageLabel(language)}</Text>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        {(["en", "hi"] as const).map((option) => (
-          <Pressable
-            key={option}
-            style={{
-              flex: 1,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: language === option ? BRAND_ORANGE : BORDER,
-              backgroundColor: language === option ? "#fff4db" : SURFACE,
-              paddingVertical: 12,
-              alignItems: "center"
-            }}
-            onPress={() => onChange(option)}
-          >
-            <Text style={{ color: language === option ? BRAND_DEEP : MUTED, fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
-          </Pressable>
-        ))}
-      </View>
+    <View style={{ borderTopWidth: 0, paddingVertical: 4, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <Text style={{ color: MUTED, fontSize: 13, flex: 1 }}>{t(language, "currentLanguage")}: {getLanguageLabel(language)}</Text>
+      <CompactLanguageToggle language={language} onSelect={onChange} />
     </View>
   );
 }
@@ -1971,6 +1943,13 @@ function createStyles(palette: typeof lightPalette) {
     sectionIcon: { width: 34, height: 34, borderRadius: 13, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     sectionTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
     inputBlock: { marginTop: 10 },
+    requestCard: { borderRadius: 22, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: palette.surface, padding: 16, marginBottom: 16 },
+    requestHero: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
+    requestIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
+    requestTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
+    requestSubtitle: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.5 },
+    requestCopy: { color: palette.muted, fontSize: 13, lineHeight: 20, fontWeight: "600" },
+    requestInput: { minHeight: 118, textAlignVertical: "top", paddingTop: 14 },
     inputLabel: { color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 7 },
     input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text, paddingHorizontal: 13, fontSize: 14, fontWeight: "700" },
     inlineInputs: { flexDirection: "row", gap: 10 },

@@ -48,8 +48,9 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useAppStore } from "./src/store";
-import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
-import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
+import { localize, t } from "../../shared/src/localization";
+import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   emptyPartnerWallet,
@@ -66,7 +67,8 @@ import type { NotificationDestination } from "./src/utils/deepLinking";
 type AuthStep = "login" | "otp";
 type AppStage = "auth" | "loading" | "onboarding" | "pending" | "main";
 type OnboardingStep = "personal" | "identity" | "license" | "vehicle" | "bank" | "preferences" | "tutorial" | "review";
-type Tab = "home" | "orders" | "earnings" | "notifications" | "profile" | "transactions";
+type Tab = "home" | "orders" | "earnings" | "earningDetails" | "notifications" | "profile" | "transactions";
+type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
 type ActiveOrderScreen = "summary" | "route" | "confirmations";
 type DialogState = {
   title: string;
@@ -335,7 +337,6 @@ type OnboardingData = {
   ifsc: string;
   upi: string;
   availability: string;
-  workingHours: string;
   radius: string;
   instantDeliveries: boolean;
 };
@@ -443,7 +444,6 @@ const defaultOnboarding: OnboardingData = {
   ifsc: "",
   upi: "",
   availability: "Full time",
-  workingHours: "9:00 AM - 8:00 PM",
   radius: "5 km",
   instantDeliveries: true
 };
@@ -497,7 +497,6 @@ function onboardingFromProfile(profile?: DeliveryProfile): OnboardingData {
     ifsc: String(bank.ifsc ?? draft.ifsc ?? ""),
     upi: String(bank.upi ?? draft.upi ?? ""),
     availability: String(preferences.availability ?? draft.availability ?? profile?.settings?.availability ?? defaultOnboarding.availability),
-    workingHours: String(preferences.workingHours ?? draft.workingHours ?? profile?.workingHours ?? defaultOnboarding.workingHours),
     radius: String(preferences.radius ?? draft.radius ?? profile?.settings?.radius ?? defaultOnboarding.radius),
     instantDeliveries: Boolean(preferences.instantDeliveries ?? draft.instantDeliveries ?? profile?.settings?.instantDeliveries ?? defaultOnboarding.instantDeliveries)
   };
@@ -779,12 +778,12 @@ function DateField({
   );
 }
 
-function ChoiceGroup({ options, value, onChange, disabled = false }: { options: string[]; value: string; onChange: (value: string) => void; disabled?: boolean }) {
+function ChoiceGroup({ options, value, onChange, labels, disabled = false }: { options: string[]; value: string; onChange: (value: string) => void; labels?: Record<string, string>; disabled?: boolean }) {
   return (
     <View style={styles.choiceRow}>
       {options.map((option) => (
         <Pressable style={[styles.choiceChip, value === option && styles.choiceChipActive, disabled && styles.choiceChipDisabled]} key={option} onPress={() => !disabled && onChange(option)} disabled={disabled}>
-          <Text style={[styles.choiceText, value === option && styles.choiceTextActive]}>{option}</Text>
+          <Text style={[styles.choiceText, value === option && styles.choiceTextActive]}>{labels?.[option] ?? option}</Text>
         </Pressable>
       ))}
     </View>
@@ -848,7 +847,6 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
   const [loading, setLoading] = useState(false);
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
-  const hasSelectedLanguage = useAppStore((state) => state.hasSelectedLanguage);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
@@ -867,7 +865,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
       setTimer(30);
       setStep("otp");
     } catch (error) {
-      showDialog({ title: "OTP failed", message: error instanceof Error ? error.message : "Could not send OTP.", icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Could not send OTP.", "ओटीपी भेजा नहीं जा सका।"), icon: "alert-circle-outline" });
     } finally {
       setLoading(false);
     }
@@ -883,7 +881,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
       setSession(session.accessToken, session.user, session.refreshToken);
       onAuthenticated();
     } catch (error) {
-      showDialog({ title: "Login failed", message: error instanceof Error ? error.message : "Could not verify login.", icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "Login failed", "लॉगिन नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Could not verify login.", "ओटीपी सत्यापित नहीं हो सका।"), icon: "alert-circle-outline" });
     } finally {
       setLoading(false);
     }
@@ -891,13 +889,21 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
 
   return (
     <Screen>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.authContent}>
+      <View style={styles.authLanguageCorner}>
+        <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
+      </View>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.mainArea}>
+        <ScrollView
+          contentContainerStyle={styles.authContent}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.logoMark}>
           <Ionicons name="bicycle-outline" size={34} color={BRAND_ORANGE} />
         </View>
         <Text style={styles.authTitle}>Darzi Delivery</Text>
-        <Text style={styles.authCopy}>Accept pickup jobs, open Google Maps routes, and complete verified handoffs.</Text>
-        {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
+        <Text style={styles.authCopy}>{localize(language, "Accept pickup jobs, open Google Maps routes, and complete verified handoffs.", "पिकअप कार्य स्वीकार करें, Google Maps में रास्ता खोलें और सुरक्षित डिलीवरी पूरी करें।")}</Text>
         <Card>
           {step === "login" ? (
             <>
@@ -921,7 +927,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                   </View>
                 )}
               />
-              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={loading} onPress={requestForm.handleSubmit(requestOtp, () => showDialog({ title: "Invalid number", message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={loading} onPress={requestForm.handleSubmit(requestOtp, () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
             </>
           ) : (
             <>
@@ -941,44 +947,16 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                   />
                 )}
               />
-              <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={loading} onPress={verifyForm.handleSubmit(verify, () => showDialog({ title: "OTP required", message: t(language, "otpRequired"), icon: "shield-checkmark-outline" }))} />
+              <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={loading} onPress={verifyForm.handleSubmit(verify, () => showDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "shield-checkmark-outline" }))} />
               <Pressable style={styles.textButton} disabled={timer > 0} onPress={() => requestForm.handleSubmit(requestOtp)()}>
-                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? `Resend OTP in ${timer}s` : t(language, "sendOtp")}</Text>
+                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : t(language, "sendOtp")}</Text>
               </Pressable>
             </>
           )}
         </Card>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
-  );
-}
-
-function LanguageSelectorCard({ language, onSelect }: { language: AppLanguage; onSelect: (language: AppLanguage) => void }) {
-  return (
-    <Card>
-      <Text style={styles.formLabel}>{t(language, "chooseLanguage")}</Text>
-      <Text style={[styles.mutedText, { marginBottom: 14 }]}>{t(language, "chooseLanguageCopy")}</Text>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        {(["en", "hi"] as const).map((option) => (
-          <Pressable
-            key={option}
-            style={{
-              flex: 1,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: language === option ? BRAND_ORANGE : BORDER,
-              backgroundColor: language === option ? "#fff4db" : SURFACE,
-              paddingVertical: 12,
-              alignItems: "center"
-            }}
-            onPress={() => onSelect(option)}
-          >
-            <Text style={{ color: language === option ? BRAND_DEEP : MUTED, fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={[styles.mutedText, { marginTop: 10 }]}>{t(language, "languagePreferenceSaved")}</Text>
-    </Card>
   );
 }
 
@@ -996,6 +974,7 @@ function OnboardingScreen({
   showDialog: (dialog: DialogState) => void;
 }) {
   const verificationStatus = me?.deliveryProfile?.verificationStatus;
+  const language = useAppStore((state) => state.language);
   const isLocked = verificationStatus === "PENDING" || verificationStatus === "VERIFIED";
   const profile = me?.deliveryProfile;
   const rejectionReason = profile?.verificationRejectionReason;
@@ -1010,6 +989,18 @@ function OnboardingScreen({
   const [locatingAddress, setLocatingAddress] = useState(false);
   const step = onboardingSteps[stepIndex];
   const progress = `${stepIndex + 1}/${onboardingSteps.length}`;
+  const localizedStep = language === "hi"
+    ? ({
+        personal: { title: "व्यक्तिगत जानकारी", subtitle: "अपनी मूल जानकारी दर्ज करें" },
+        identity: { title: "पहचान सत्यापन", subtitle: "आधार या पैन में से कोई एक अपलोड करें" },
+        license: { title: "ड्राइविंग लाइसेंस", subtitle: "लाइसेंस नंबर, वैधता और फोटो" },
+        vehicle: { title: "वाहन की जानकारी", subtitle: "वाहन और बीमा दस्तावेज़" },
+        bank: { title: "बैंक की जानकारी", subtitle: "भुगतान पाने के लिए बैंक विवरण" },
+        preferences: { title: "कार्य प्राथमिकताएँ", subtitle: "समय, दूरी और उपलब्धता" },
+        tutorial: { title: "डिलीवरी ट्यूटोरियल", subtitle: "सुरक्षित डिलीवरी प्रक्रिया समझें" },
+        review: { title: "समीक्षा और जमा करें", subtitle: "सभी जानकारी जाँचें" }
+      } satisfies Record<OnboardingStep, { title: string; subtitle: string }>)[step.key]
+    : step;
 
   useEffect(() => {
     setData(initialData);
@@ -1090,17 +1081,23 @@ function OnboardingScreen({
     }
   }
 
-  async function pickMedia(target: keyof OnboardingData, scan?: "identity" | "license" | "face") {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
+  async function pickMedia(target: keyof OnboardingData, scan?: "identity" | "license" | "face", source: "camera" | "gallery" = "camera") {
+    const permission = source === "camera"
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       showDialog({
-        title: "Camera permission needed",
-        message: "Allow camera access to take this live photo.",
-        icon: "camera-outline"
+        title: source === "camera" ? localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है") : localize(language, "Gallery permission needed", "गैलरी अनुमति आवश्यक है"),
+        message: source === "camera"
+          ? localize(language, "Allow camera access for secure verification. Your information is safe with Darji and is used only for verification.", "सुरक्षित सत्यापन के लिए कैमरा अनुमति दें। आपकी जानकारी Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
+          : localize(language, "Allow gallery access to select a verification document. Darji receives only the photo you choose, and your information stays safe.", "सत्यापन दस्तावेज़ चुनने के लिए गैलरी अनुमति दें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
+        icon: source === "camera" ? "camera-outline" : "images-outline"
       });
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    const result = source === "camera"
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86, selectionLimit: 1 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const media = { uri: asset.uri, name: asset.fileName ?? `delivery-${String(target)}-${Date.now()}.jpg` };
@@ -1113,11 +1110,11 @@ function OnboardingScreen({
 
   function confirmFaceProfilePhoto(action: () => void) {
     Alert.alert(
-      "Profile photo notice",
-      "This face verification photo will become your permanent Darji profile photo. Make sure your face is clear and well lit.",
+      localize(language, "Profile photo notice", "प्रोफाइल फोटो की सूचना"),
+      localize(language, "This face verification photo will become your permanent Darji profile photo. Make sure your face is clear and well lit.", "चेहरा सत्यापन की यह फोटो आपकी स्थायी Darji प्रोफाइल फोटो बनेगी। सुनिश्चित करें कि चेहरा साफ और पर्याप्त रोशनी में दिखे।"),
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "Continue", onPress: action }
+        { text: t(language, "cancel"), style: "cancel" },
+        { text: t(language, "continue"), onPress: action }
       ]
     );
   }
@@ -1128,8 +1125,8 @@ function OnboardingScreen({
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
         showDialog({
-          title: "Location permission needed",
-          message: "Allow location access to fill your current address automatically.",
+          title: localize(language, "Location permission needed", "स्थान की अनुमति आवश्यक है"),
+          message: localize(language, "Allow location access to fill your current address automatically. Your location is safe with Darji and is used only for verification and delivery work.", "वर्तमान पता अपने आप भरने के लिए स्थान की अनुमति दें। आपका स्थान Darji के पास सुरक्षित है और केवल सत्यापन व डिलीवरी कार्य के लिए उपयोग होता है।"),
           icon: "location-outline"
         });
         return;
@@ -1143,8 +1140,8 @@ function OnboardingScreen({
 
       if (!place) {
         showDialog({
-          title: "Address not found",
-          message: "We could not read your current address. Enter it manually.",
+          title: localize(language, "Address not found", "पता नहीं मिला"),
+          message: localize(language, "We could not read your current address. Enter it manually.", "वर्तमान पता नहीं मिल सका। कृपया इसे स्वयं दर्ज करें।"),
           icon: "location-outline"
         });
         return;
@@ -1160,8 +1157,8 @@ function OnboardingScreen({
       }));
     } catch (error) {
       showDialog({
-        title: "Location failed",
-        message: error instanceof Error ? error.message : "Could not fetch your current location.",
+        title: localize(language, "Location failed", "स्थान नहीं मिल सका"),
+        message: error instanceof Error ? error.message : localize(language, "Could not fetch your current location.", "आपका वर्तमान स्थान नहीं मिल सका।"),
         icon: "alert-circle-outline"
       });
     } finally {
@@ -1172,25 +1169,25 @@ function OnboardingScreen({
   function validateCurrentStep() {
     if (step.key === "personal") {
       if (!data.fullName.trim() || !data.dob || !data.gender || !data.emergencyContact.trim() || !data.address.trim() || !data.city.trim() || !data.state.trim() || !data.pincode.trim()) {
-        return "Complete all personal details.";
+        return localize(language, "Complete all personal details.", "सभी व्यक्तिगत जानकारी पूरी करें।");
       }
     }
     if (step.key === "identity") {
-      if (!data.identityFront || !data.facePhoto) return "Upload your ID and selfie.";
-      if (data.identityType === "Aadhaar" && (!data.identityBack || !data.aadhaarNumber.trim())) return "Upload both Aadhaar photos and enter Aadhaar number.";
-      if (data.identityType === "PAN" && !data.panNumber.trim()) return "Upload PAN card and enter PAN number.";
+      if (!data.identityFront || !data.facePhoto) return localize(language, "Upload your ID and selfie.", "अपना पहचान पत्र और सेल्फी अपलोड करें।");
+      if (data.identityType === "Aadhaar" && (!data.identityBack || !data.aadhaarNumber.trim())) return localize(language, "Upload both Aadhaar photos and enter Aadhaar number.", "आधार की दोनों फोटो अपलोड करें और आधार नंबर दर्ज करें।");
+      if (data.identityType === "PAN" && !data.panNumber.trim()) return localize(language, "Upload PAN card and enter PAN number.", "पैन कार्ड अपलोड करें और पैन नंबर दर्ज करें।");
     }
     if (step.key === "license") {
-      if (!data.licenseFront || !data.licenseBack || !data.licenseNumber.trim() || !data.licenseExpiry) return "Complete driving license details.";
+      if (!data.licenseFront || !data.licenseBack || !data.licenseNumber.trim() || !data.licenseExpiry) return localize(language, "Complete driving license details.", "ड्राइविंग लाइसेंस की जानकारी पूरी करें।");
     }
     if (step.key === "vehicle") {
-      if (!data.vehicleType || !data.vehicleNumber.trim() || !data.vehicleModel.trim() || !data.rcPhoto || !data.insurancePhoto) return "Complete vehicle details and uploads.";
+      if (!data.vehicleType || !data.vehicleNumber.trim() || !data.vehicleModel.trim() || !data.rcPhoto || !data.insurancePhoto) return localize(language, "Complete vehicle details and uploads.", "वाहन की जानकारी और दस्तावेज़ पूरे करें।");
     }
     if (step.key === "bank") {
-      if (!data.accountHolder.trim() || !data.accountNumber.trim() || !data.ifsc.trim()) return "Complete bank details.";
+      if (!data.accountHolder.trim() || !data.accountNumber.trim() || !data.ifsc.trim()) return localize(language, "Complete bank details.", "बैंक की जानकारी पूरी करें।");
     }
     if (step.key === "preferences") {
-      if (!data.availability || !data.workingHours.trim() || !data.radius) return "Complete delivery preferences.";
+      if (!data.availability || !data.radius) return localize(language, "Complete delivery preferences.", "डिलीवरी की प्राथमिकताएँ पूरी करें।");
     }
     return undefined;
   }
@@ -1206,7 +1203,7 @@ function OnboardingScreen({
     if (!token) return;
     const currentError = validateCurrentStep();
     if (currentError) {
-      showDialog({ title: "Step incomplete", message: currentError, icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "Step incomplete", "चरण अधूरा है"), message: currentError, icon: "alert-circle-outline" });
       return;
     }
 
@@ -1267,7 +1264,6 @@ function OnboardingScreen({
             },
             preferences: {
               availability: data.availability,
-              workingHours: data.workingHours.trim(),
               radius: data.radius,
               instantDeliveries: data.instantDeliveries
             }
@@ -1278,7 +1274,7 @@ function OnboardingScreen({
       await onSubmitted();
     } catch (error) {
       if (isSessionError(error)) return onSessionExpired();
-      showDialog({ title: "Submission failed", message: error instanceof Error ? error.message : "Could not submit verification.", icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "Submission failed", "जमा नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Could not submit verification.", "सत्यापन जमा नहीं हो सका।"), icon: "alert-circle-outline" });
     } finally {
       setSubmitting(false);
     }
@@ -1291,7 +1287,7 @@ function OnboardingScreen({
     }
     const error = validateCurrentStep();
     if (error) {
-      showDialog({ title: "Step incomplete", message: error, icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "Step incomplete", "चरण अधूरा है"), message: error, icon: "alert-circle-outline" });
       return;
     }
     setStepIndex((value) => value + 1);
@@ -1303,44 +1299,52 @@ function OnboardingScreen({
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
-        <Header title={step.title} subtitle={`${step.subtitle} - ${progress}`} />
+        <Header title={localizedStep.title} subtitle={`${localizedStep.subtitle} - ${progress}`} />
         {isLocked ? (
           <View style={styles.lockedBanner}>
             <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
-            <Text style={styles.lockedBannerText}>Submitted – awaiting admin review. Details are read-only.</Text>
+            <Text style={styles.lockedBannerText}>{localize(language, "Submitted – awaiting admin review. Details are read-only.", "जमा हो चुका है – एडमिन समीक्षा की प्रतीक्षा है। जानकारी केवल पढ़ने के लिए है।")}</Text>
           </View>
         ) : null}
         {!isLocked && (profile?.verificationStatus === "REJECTED" || profile?.verificationStatus === "REUPLOAD_REQUIRED") ? (
           <Text style={styles.noticeText}>
-            Document reupload required. {rejectionReason ?? "Darji admin requested clearer documents. Please review your details and submit again."}
+            {localize(language, "Document reupload required.", "दस्तावेज़ दोबारा अपलोड करना आवश्यक है।")} {rejectionReason ?? localize(language, "Darji admin requested clearer documents. Please review your details and submit again.", "Darji एडमिन ने अधिक साफ दस्तावेज़ माँगे हैं। अपनी जानकारी जाँचकर दोबारा जमा करें।")}
           </Text>
         ) : null}
-        {!isLocked && currentStepError && step.key !== "review" ? <Text style={styles.helperWarning}>Complete this step to continue.</Text> : null}
+        {!isLocked && currentStepError && step.key !== "review" ? <Text style={styles.helperWarning}>{localize(language, "Complete this step to continue.", "आगे बढ़ने के लिए यह चरण पूरा करें।")}</Text> : null}
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${((stepIndex + 1) / onboardingSteps.length) * 100}%` }]} />
+        </View>
+        <View style={styles.privacyTrustBanner}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
+          <Text style={styles.privacyTrustText}>{localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")}</Text>
         </View>
 
         {step.key === "personal" ? (
           <Card>
-            <Field label="Full name" onChange={(value) => update("fullName", value)} value={data.fullName} readOnly={isLocked} />
-            <DateField label="Date of birth" maximumDate={new Date()} onChange={(value) => update("dob", value)} value={data.dob} disabled={isLocked} />
-            <Text style={styles.formLabel}>Gender</Text>
-            <ChoiceGroup onChange={(value) => update("gender", value)} options={["Male", "Female", "Other"]} value={data.gender} disabled={isLocked} />
-            <Field label="Email" keyboardType="email-address" onChange={(value) => update("email", value)} value={data.email} readOnly={isLocked} />
-            <Field label="Emergency contact" keyboardType="phone-pad" onChange={(value) => update("emergencyContact", value.replace(/\D/g, "").slice(0, 10))} value={data.emergencyContact} readOnly={isLocked} />
-            <Field label="Address" multiline onChange={(value) => update("address", value)} value={data.address} readOnly={isLocked} />
-            {!isLocked ? <PrimaryButton icon="location-outline" label="Use Current Location" loading={locatingAddress} disabled={locatingAddress} onPress={() => void fillCurrentLocation()} variant="secondary" /> : null}
+            <Field label={t(language, "fullName")} onChange={(value) => update("fullName", value)} value={data.fullName} readOnly={isLocked} />
+            <DateField label={t(language, "dateOfBirth")} maximumDate={new Date()} onChange={(value) => update("dob", value)} value={data.dob} disabled={isLocked} />
+            <Text style={styles.formLabel}>{t(language, "gender")}</Text>
+            <ChoiceGroup onChange={(value) => update("gender", value)} options={["Male", "Female", "Other"]} labels={language === "hi" ? { Male: "पुरुष", Female: "महिला", Other: "अन्य" } : undefined} value={data.gender} disabled={isLocked} />
+            <Field label={localize(language, "Email", "ईमेल")} keyboardType="email-address" onChange={(value) => update("email", value)} value={data.email} readOnly={isLocked} />
+            <Field label={localize(language, "Emergency contact", "आपातकालीन संपर्क")} keyboardType="phone-pad" onChange={(value) => update("emergencyContact", value.replace(/\D/g, "").slice(0, 10))} value={data.emergencyContact} readOnly={isLocked} />
+            <Field label={localize(language, "Address", "पता")} multiline onChange={(value) => update("address", value)} value={data.address} readOnly={isLocked} />
+            {!isLocked ? <PrimaryButton icon="location-outline" label={localize(language, "Use Current Location", "वर्तमान स्थान उपयोग करें")} loading={locatingAddress} disabled={locatingAddress} onPress={() => void fillCurrentLocation()} variant="secondary" /> : null}
             <View style={styles.twoCol}>
-              <View style={styles.flexOne}><Field label="City" onChange={(value) => update("city", value)} value={data.city} readOnly={isLocked} /></View>
-              <View style={styles.flexOne}><Field label="State" onChange={(value) => update("state", value)} value={data.state} readOnly={isLocked} /></View>
+              <View style={styles.flexOne}><Field label={localize(language, "City", "शहर")} onChange={(value) => update("city", value)} value={data.city} readOnly={isLocked} /></View>
+              <View style={styles.flexOne}><Field label={localize(language, "State", "राज्य")} onChange={(value) => update("state", value)} value={data.state} readOnly={isLocked} /></View>
             </View>
-            <Field label="Pincode" keyboardType="number-pad" onChange={(value) => update("pincode", value.replace(/\D/g, "").slice(0, 6))} value={data.pincode} readOnly={isLocked} />
+            <Field label={localize(language, "Pincode", "पिन कोड")} keyboardType="number-pad" onChange={(value) => update("pincode", value.replace(/\D/g, "").slice(0, 6))} value={data.pincode} readOnly={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "identity" ? (
           <Card>
-            <Text style={styles.formLabel}>Choose one ID</Text>
+            <Text style={styles.formLabel}>{localize(language, "Choose one ID", "एक पहचान पत्र चुनें")}</Text>
+            <View style={styles.singleIdNotice}>
+              <Ionicons name="information-circle-outline" size={18} color={BRAND_ORANGE} />
+              <Text style={styles.singleIdNoticeText}>{localize(language, "Only one identity document is required. Choose either Aadhaar or PAN. Your driving licence is collected separately.", "केवल एक पहचान दस्तावेज़ चाहिए। आधार या पैन में से कोई एक चुनें। ड्राइविंग लाइसेंस अलग से लिया जाएगा।")}</Text>
+            </View>
             <ChoiceGroup
               onChange={(value) => setData((current) => ({ ...current, identityType: value as IdentityType, identityFront: undefined, identityBack: undefined, ocrStatus: "Waiting for document" }))}
               options={["Aadhaar", "PAN"]}
@@ -1349,17 +1353,17 @@ function OnboardingScreen({
             />
             {data.identityType === "Aadhaar" ? (
               <>
-                <DocumentBox label="Aadhaar front" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "identity")} disabled={isLocked} />
-                <DocumentBox label="Aadhaar back" media={data.identityBack} loading={uploadingMediaKey === "identityBack"} onCamera={() => void pickMedia("identityBack", "identity")} disabled={isLocked} />
-                <Field label="Aadhaar number" keyboardType="number-pad" onChange={(value) => update("aadhaarNumber", value.replace(/\D/g, "").slice(0, 12))} value={data.aadhaarNumber} readOnly={isLocked} />
+                <DocumentBox label={localize(language, "Aadhaar front", "आधार सामने")} media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "identity", "camera")} onGallery={() => void pickMedia("identityFront", "identity", "gallery")} disabled={isLocked} />
+                <DocumentBox label={localize(language, "Aadhaar back", "आधार पीछे")} media={data.identityBack} loading={uploadingMediaKey === "identityBack"} onCamera={() => void pickMedia("identityBack", "identity", "camera")} onGallery={() => void pickMedia("identityBack", "identity", "gallery")} disabled={isLocked} />
+                <Field label={localize(language, "Aadhaar number", "आधार नंबर")} keyboardType="number-pad" onChange={(value) => update("aadhaarNumber", value.replace(/\D/g, "").slice(0, 12))} value={data.aadhaarNumber} readOnly={isLocked} />
               </>
             ) : (
               <>
-                <DocumentBox label="PAN card" media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "identity")} disabled={isLocked} />
-                <Field label="PAN number" onChange={(value) => update("panNumber", value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))} value={data.panNumber} readOnly={isLocked} />
+                <DocumentBox label={localize(language, "PAN card", "पैन कार्ड")} media={data.identityFront} loading={uploadingMediaKey === "identityFront"} onCamera={() => void pickMedia("identityFront", "identity", "camera")} onGallery={() => void pickMedia("identityFront", "identity", "gallery")} disabled={isLocked} />
+                <Field label={localize(language, "PAN number", "पैन नंबर")} onChange={(value) => update("panNumber", value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))} value={data.panNumber} readOnly={isLocked} />
               </>
             )}
-            <DocumentBox label="Selfie" media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "face"))} disabled={isLocked} />
+            <DocumentBox label={localize(language, "Selfie", "सेल्फी")} media={data.facePhoto} loading={uploadingMediaKey === "facePhoto"} onCamera={() => confirmFaceProfilePhoto(() => void pickMedia("facePhoto", "face", "camera"))} disabled={isLocked} />
             <View style={styles.mlKitPanel}>
               {scanning ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="scan-outline" size={18} color={BRAND_ORANGE} />}
               <View style={styles.flexOne}>
@@ -1372,42 +1376,41 @@ function OnboardingScreen({
 
         {step.key === "license" ? (
           <Card>
-            <DocumentBox label="License front" media={data.licenseFront} loading={uploadingMediaKey === "licenseFront"} onCamera={() => void pickMedia("licenseFront", "license")} disabled={isLocked} />
-            <DocumentBox label="License back" media={data.licenseBack} loading={uploadingMediaKey === "licenseBack"} onCamera={() => void pickMedia("licenseBack", "license")} disabled={isLocked} />
-            <Field label="License number" onChange={(value) => update("licenseNumber", value.toUpperCase())} value={data.licenseNumber} readOnly={isLocked} />
-            <DateField label="Expiry date" minimumDate={new Date()} onChange={(value) => update("licenseExpiry", value)} value={data.licenseExpiry} disabled={isLocked} />
+            <DocumentBox label={localize(language, "License front", "लाइसेंस सामने")} media={data.licenseFront} loading={uploadingMediaKey === "licenseFront"} onCamera={() => void pickMedia("licenseFront", "license", "camera")} onGallery={() => void pickMedia("licenseFront", "license", "gallery")} disabled={isLocked} />
+            <DocumentBox label={localize(language, "License back", "लाइसेंस पीछे")} media={data.licenseBack} loading={uploadingMediaKey === "licenseBack"} onCamera={() => void pickMedia("licenseBack", "license", "camera")} onGallery={() => void pickMedia("licenseBack", "license", "gallery")} disabled={isLocked} />
+            <Field label={localize(language, "License number", "लाइसेंस नंबर")} onChange={(value) => update("licenseNumber", value.toUpperCase())} value={data.licenseNumber} readOnly={isLocked} />
+            <DateField label={localize(language, "Expiry date", "समाप्ति तिथि")} minimumDate={new Date()} onChange={(value) => update("licenseExpiry", value)} value={data.licenseExpiry} disabled={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "vehicle" ? (
           <Card>
-            <Text style={styles.formLabel}>Vehicle type</Text>
-            <ChoiceGroup onChange={(value) => update("vehicleType", value)} options={["Bicycle", "Scooter", "Motorcycle", "Car"]} value={data.vehicleType} disabled={isLocked} />
-            <Field label="Vehicle number" onChange={(value) => update("vehicleNumber", value.toUpperCase())} value={data.vehicleNumber} readOnly={isLocked} />
-            <Field label="Vehicle model" onChange={(value) => update("vehicleModel", value)} value={data.vehicleModel} readOnly={isLocked} />
-            <DocumentBox label="RC image" media={data.rcPhoto} loading={uploadingMediaKey === "rcPhoto"} onCamera={() => void pickMedia("rcPhoto")} disabled={isLocked} />
-            <DocumentBox label="Insurance image" media={data.insurancePhoto} loading={uploadingMediaKey === "insurancePhoto"} onCamera={() => void pickMedia("insurancePhoto")} disabled={isLocked} />
+            <Text style={styles.formLabel}>{localize(language, "Vehicle type", "वाहन का प्रकार")}</Text>
+            <ChoiceGroup onChange={(value) => update("vehicleType", value)} options={["Bicycle", "Scooter", "Motorcycle", "Car"]} labels={language === "hi" ? { Bicycle: "साइकिल", Scooter: "स्कूटर", Motorcycle: "मोटरसाइकिल", Car: "कार" } : undefined} value={data.vehicleType} disabled={isLocked} />
+            <Field label={localize(language, "Vehicle number", "वाहन नंबर")} onChange={(value) => update("vehicleNumber", value.toUpperCase())} value={data.vehicleNumber} readOnly={isLocked} />
+            <Field label={localize(language, "Vehicle model", "वाहन मॉडल")} onChange={(value) => update("vehicleModel", value)} value={data.vehicleModel} readOnly={isLocked} />
+            <DocumentBox label={localize(language, "RC image", "आरसी की फोटो")} media={data.rcPhoto} loading={uploadingMediaKey === "rcPhoto"} onCamera={() => void pickMedia("rcPhoto", undefined, "camera")} onGallery={() => void pickMedia("rcPhoto", undefined, "gallery")} disabled={isLocked} />
+            <DocumentBox label={localize(language, "Insurance image", "बीमा की फोटो")} media={data.insurancePhoto} loading={uploadingMediaKey === "insurancePhoto"} onCamera={() => void pickMedia("insurancePhoto", undefined, "camera")} onGallery={() => void pickMedia("insurancePhoto", undefined, "gallery")} disabled={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "bank" ? (
           <Card>
-            <Field label="Account holder name" onChange={(value) => update("accountHolder", value)} value={data.accountHolder} readOnly={isLocked} />
-            <Field label="Account number" keyboardType="number-pad" onChange={(value) => update("accountNumber", value.replace(/\D/g, ""))} value={data.accountNumber} readOnly={isLocked} />
-            <Field label="IFSC code" onChange={(value) => update("ifsc", value.toUpperCase())} value={data.ifsc} readOnly={isLocked} />
-            <Field label="UPI ID" onChange={(value) => update("upi", value)} value={data.upi} readOnly={isLocked} />
+            <Field label={localize(language, "Account holder name", "खाताधारक का नाम")} onChange={(value) => update("accountHolder", value)} value={data.accountHolder} readOnly={isLocked} />
+            <Field label={localize(language, "Account number", "खाता नंबर")} keyboardType="number-pad" onChange={(value) => update("accountNumber", value.replace(/\D/g, ""))} value={data.accountNumber} readOnly={isLocked} />
+            <Field label={localize(language, "IFSC code", "आईएफएससी कोड")} onChange={(value) => update("ifsc", value.toUpperCase())} value={data.ifsc} readOnly={isLocked} />
+            <Field label={localize(language, "UPI ID", "यूपीआई आईडी")} onChange={(value) => update("upi", value)} value={data.upi} readOnly={isLocked} />
           </Card>
         ) : null}
 
         {step.key === "preferences" ? (
           <Card>
-            <Text style={styles.formLabel}>Availability</Text>
-            <ChoiceGroup onChange={(value) => update("availability", value)} options={["Full time", "Part time"]} value={data.availability} disabled={isLocked} />
-            <Field label="Working hours" onChange={(value) => update("workingHours", value)} value={data.workingHours} readOnly={isLocked} />
-            <Text style={styles.formLabel}>Preferred radius</Text>
+            <Text style={styles.formLabel}>{localize(language, "Availability", "उपलब्धता")}</Text>
+            <ChoiceGroup onChange={(value) => update("availability", value)} options={["Full time", "Part time"]} labels={language === "hi" ? { "Full time": "पूर्णकालिक", "Part time": "अंशकालिक" } : undefined} value={data.availability} disabled={isLocked} />
+            <Text style={styles.formLabel}>{localize(language, "Preferred radius", "पसंदीदा दूरी")}</Text>
             <ChoiceGroup onChange={(value) => update("radius", value)} options={["2 km", "5 km", "10 km"]} value={data.radius} disabled={isLocked} />
             <View style={styles.switchRow}>
-              <Text style={styles.cardTitle}>Instant deliveries</Text>
+              <Text style={styles.cardTitle}>{localize(language, "Instant deliveries", "तुरंत डिलीवरी")}</Text>
               <Switch value={data.instantDeliveries} onValueChange={(value) => { if (!isLocked) update("instantDeliveries", value); }} disabled={isLocked} />
             </View>
           </Card>
@@ -1426,24 +1429,24 @@ function OnboardingScreen({
 
         {step.key === "review" ? (
           <Card>
-            <StatusRow label="Personal details" value={data.fullName ? "Ready" : "Missing"} />
-            <StatusRow label={data.identityType} value={data.identityType === "Aadhaar" ? data.aadhaarNumber ? "Ready" : "Missing" : data.panNumber ? "Ready" : "Missing"} />
-            <StatusRow label="OCR check" value={data.ocrStatus} />
-            <StatusRow label="Face check" value={data.faceStatus} />
-            <StatusRow label="Driving license" value={data.licenseNumber ? "Ready" : "Missing"} />
-            <StatusRow label="Vehicle details" value={data.vehicleNumber ? "Ready" : "Missing"} />
-            <StatusRow label="Bank details" value={data.accountNumber ? "Ready" : "Missing"} />
-            <Text style={styles.noticeText}>After submission the app stays locked until Darji admins verify this partner account.</Text>
+            <StatusRow label={localize(language, "Personal details", "व्यक्तिगत जानकारी")} value={data.fullName ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
+            <StatusRow label={data.identityType} value={data.identityType === "Aadhaar" ? data.aadhaarNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा") : data.panNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
+            <StatusRow label={localize(language, "OCR check", "दस्तावेज़ जाँच")} value={data.ocrStatus} />
+            <StatusRow label={localize(language, "Face check", "चेहरा जाँच")} value={data.faceStatus} />
+            <StatusRow label={localize(language, "Driving license", "ड्राइविंग लाइसेंस")} value={data.licenseNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
+            <StatusRow label={localize(language, "Vehicle details", "वाहन की जानकारी")} value={data.vehicleNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
+            <StatusRow label={localize(language, "Bank details", "बैंक की जानकारी")} value={data.accountNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
+            <Text style={styles.noticeText}>{localize(language, "After submission the app stays locked until Darji admins verify this partner account.", "जमा करने के बाद Darji एडमिन द्वारा सत्यापन होने तक ऐप लॉक रहेगा।")}</Text>
           </Card>
         ) : null}
 
         <View style={styles.navRow}>
           <View style={styles.flexOne}>
-            <PrimaryButton disabled={stepIndex === 0 || submitting} label="Back" onPress={() => setStepIndex((value) => Math.max(0, value - 1))} variant="secondary" />
+              <PrimaryButton disabled={stepIndex === 0 || submitting} label={localize(language, "Back", "पीछे")} onPress={() => setStepIndex((value) => Math.max(0, value - 1))} variant="secondary" />
           </View>
           {!isLocked ? (
             <View style={styles.flexOne}>
-              <PrimaryButton label={step.key === "review" ? "Submit Verification" : "Next"} disabled={nextDisabled} loading={submitting} onPress={next} />
+              <PrimaryButton label={step.key === "review" ? localize(language, "Submit Verification", "सत्यापन जमा करें") : localize(language, "Next", "आगे")} disabled={nextDisabled} loading={submitting} onPress={next} />
             </View>
           ) : null}
         </View>
@@ -1451,17 +1454,17 @@ function OnboardingScreen({
           style={{ alignItems: "center", marginTop: 20, paddingVertical: 10 }}
           onPress={() => {
             Alert.alert(
-              "Login Confirmation",
-              "Do you want to sign out and log in with another mobile number?",
+              localize(language, "Login Confirmation", "लॉगिन की पुष्टि"),
+              localize(language, "Do you want to sign out and log in with another mobile number?", "क्या आप लॉगआउट करके दूसरे मोबाइल नंबर से लॉगिन करना चाहते हैं?"),
               [
-                { text: "Cancel", style: "cancel" },
-                { text: "Yes, Logout", style: "destructive", onPress: onSessionExpired }
+                { text: t(language, "cancel"), style: "cancel" },
+                { text: localize(language, "Yes, Logout", "हाँ, लॉगआउट करें"), style: "destructive", onPress: onSessionExpired }
               ]
             );
           }}
         >
           <Text style={{ color: "#64748b", fontSize: 13, fontWeight: "800", textDecorationLine: "underline" }}>
-            Login with another number
+            {localize(language, "Login with another number", "दूसरे नंबर से लॉगिन करें")}
           </Text>
         </Pressable>
       </ScrollView>
@@ -1469,7 +1472,8 @@ function OnboardingScreen({
   );
 }
 
-function DocumentBox({ label, media, onCamera, loading = false, disabled = false }: { label: string; media?: MediaDraft; onCamera: () => void; loading?: boolean; disabled?: boolean }) {
+function DocumentBox({ label, media, onCamera, onGallery, loading = false, disabled = false }: { label: string; media?: MediaDraft; onCamera: () => void; onGallery?: () => void; loading?: boolean; disabled?: boolean }) {
+  const language = useAppStore((state) => state.language);
   return (
     <View style={styles.documentBox}>
       <View style={styles.documentPreview}>
@@ -1477,16 +1481,22 @@ function DocumentBox({ label, media, onCamera, loading = false, disabled = false
       </View>
       <View style={styles.documentBody}>
         <Text style={styles.cardTitle}>{label}</Text>
-        <Text numberOfLines={1} style={styles.cardMeta}>{loading ? "Uploading..." : media ? media.name : "No photo selected"}</Text>
+        <Text numberOfLines={1} style={styles.cardMeta}>{loading ? localize(language, "Uploading...", "अपलोड हो रहा है...") : media ? media.name : localize(language, "No photo selected", "कोई फोटो नहीं चुनी")}</Text>
         {!disabled ? (
           <View style={styles.docActions}>
             <Pressable style={styles.docButton} onPress={onCamera} disabled={loading}>
               {loading ? <ActivityIndicator color={BRAND_ORANGE} size="small" /> : <Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} />}
-              <Text style={styles.docButtonText}>{loading ? "Uploading" : "Take live photo"}</Text>
+              <Text style={styles.docButtonText}>{loading ? localize(language, "Uploading", "अपलोड हो रहा है") : localize(language, "Camera", "कैमरा")}</Text>
             </Pressable>
+            {onGallery ? (
+              <Pressable style={styles.docButton} onPress={onGallery} disabled={loading}>
+                <Ionicons name="images-outline" size={15} color={BRAND_ORANGE} />
+                <Text style={styles.docButtonText}>{localize(language, "Gallery", "गैलरी")}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
-          <Text style={styles.docLockedText}>Read-only</Text>
+          <Text style={styles.docLockedText}>{localize(language, "Read-only", "केवल देखने योग्य")}</Text>
         )}
       </View>
     </View>
@@ -1914,20 +1924,18 @@ function OrdersScreen({
   accepting: boolean;
   deliveryType?: string;
 }) {
-  const [queue, setQueue] = useState<"requested" | "accepted" | "history" | "cancelled">("requested");
-  const pullToRefresh = useContext(PullToRefreshContext);
   const requestedCount = batches.filter((batch) => batch.status === "offered").length;
   const acceptedCount = batches.filter((batch) => batch.status === "active").length;
+  const [queue, setQueue] = useState<"requested" | "accepted" | "history" | "cancelled">(() => requestedCount > 0 ? "requested" : "accepted");
+  const pullToRefresh = useContext(PullToRefreshContext);
   const previousRequestedCount = useRef(requestedCount);
 
   useEffect(() => {
     if (requestedCount > 0 && previousRequestedCount.current === 0) {
       setQueue("requested");
-    } else if (requestedCount === 0 && queue === "requested") {
-      setQueue("accepted");
     }
     previousRequestedCount.current = requestedCount;
-  }, [queue, requestedCount]);
+  }, [requestedCount]);
 
   const visibleBatches = useMemo(() => {
     return batches.filter((b) => {
@@ -2106,7 +2114,7 @@ function ActiveOrderScreenView({
     if (!permission.granted) {
       showDialog({
         title: "Camera permission needed",
-        message: "Allow camera access to capture a live proof photo.",
+        message: "Allow camera access to capture a live proof photo. Your photo is safe with Darji and is used only to verify the handoff.",
         icon: "camera-outline"
       });
       return;
@@ -2255,7 +2263,11 @@ function ActiveOrderScreenView({
         </View>
       </Modal>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Active job" subtitle={`${shortId(order.id)} - ${order.status}`} onBack={onBack} />
+        <Header
+          title={order.taskStatus === "delivered" ? "Completed job" : order.taskStatus === "cancelled" ? "Cancelled job" : "Active job"}
+          subtitle={`${shortId(order.id)} - ${order.status}`}
+          onBack={onBack}
+        />
         <Text style={styles.activeOrderId}>REQ-{order.orderId.slice(0, 8).toUpperCase()}</Text>
         {order.taskStatus === "cancelled" || order.status === "CANCELLED" ? (
           <Card>
@@ -2356,7 +2368,7 @@ function ActiveOrderScreenView({
         {screen === "confirmations" ? (
           <Card>
             <Text style={styles.cardTitle}>Sequential checklist</Text>
-            <View style={styles.progressTrack}><View style={[styles.progressFill, { width: order.taskStatus === "picked_up" ? (dropOtpVerified ? "70%" : "50%") : pickupChecklistComplete ? "45%" : pickupOtpVerified ? "25%" : "8%" }]} /></View>
+            <View style={styles.progressTrack}><View style={[styles.progressFill, { width: order.taskStatus === "delivered" ? "100%" : order.taskStatus === "picked_up" ? (dropOtpVerified ? "70%" : "50%") : pickupChecklistComplete ? "45%" : pickupOtpVerified ? "25%" : "8%" }]} /></View>
             {order.taskStatus === "accepted" ? (
               <>
                 <ChecklistRow label={order.type === "customer_to_tailor" ? "Verify Pickup OTP" : "Verify Tailor Handover OTP"} complete={pickupOtpVerified} current={!pickupOtpVerified} />
@@ -2469,11 +2481,12 @@ function WalletTransactionCard({ transaction, payments, onOpenOrder, showDialog 
   );
 }
 
-function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDialog }: {
+function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, onOpenMetric, showDialog }: {
   wallet: PartnerWalletSummary;
   loadingWallet: boolean;
   onViewAll: () => void;
   onOpenOrder: (orderId: string) => void;
+  onOpenMetric: (metric: EarningDetailKey) => void;
   showDialog: (dialog: DialogState) => void;
 }) {
   const metrics = useMemo(() => partnerWalletMetrics(wallet), [wallet]);
@@ -2494,12 +2507,12 @@ function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDia
       <View style={styles.walletSummaryCard}>
         <View style={styles.walletSectionHeading}><Ionicons name="calendar-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletSectionTitle}>Earnings summary</Text></View>
         <View style={styles.walletMetricGrid}>
-          <View style={styles.walletMetricCard}><Ionicons name="time-outline" size={21} color="#f97316" /><Text style={styles.walletMetricLabel}>Pending amount</Text><Text style={[styles.walletMetricValue, { color: "#f97316" }]}>{walletMoney(metrics.pendingAmount)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="calendar-number-outline" size={21} color="#0284c7" /><Text style={styles.walletMetricLabel}>This week</Text><Text style={[styles.walletMetricValue, { color: "#0284c7" }]}>{walletMoney(metrics.currentWeekEarnings)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="trending-up-outline" size={21} color={SUCCESS} /><Text style={styles.walletMetricLabel}>Monthly earned</Text><Text style={[styles.walletMetricValue, { color: SUCCESS }]}>{walletMoney(metrics.monthlyEarned)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="bag-check-outline" size={21} color="#7c3aed" /><Text style={styles.walletMetricLabel}>Jobs completed</Text><Text style={[styles.walletMetricValue, { color: "#7c3aed" }]}>{metrics.completedJobs}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="cash-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletMetricLabel}>Average per job</Text><Text style={styles.walletMetricValue}>{walletMoney(metrics.averagePerJob)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="receipt-outline" size={21} color="#475569" /><Text style={styles.walletMetricLabel}>Last payment</Text><Text style={styles.walletMetricSmallValue}>{metrics.lastPayment?.paidAt ? new Date(metrics.lastPayment.paidAt).toLocaleDateString("en-IN") : "Not paid yet"}</Text></View>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("pending")}><Ionicons name="time-outline" size={21} color="#f97316" /><Text style={styles.walletMetricLabel}>Pending amount</Text><Text style={[styles.walletMetricValue, { color: "#f97316" }]}>{walletMoney(metrics.pendingAmount)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("week")}><Ionicons name="calendar-number-outline" size={21} color="#0284c7" /><Text style={styles.walletMetricLabel}>This week</Text><Text style={[styles.walletMetricValue, { color: "#0284c7" }]}>{walletMoney(metrics.currentWeekEarnings)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("month")}><Ionicons name="trending-up-outline" size={21} color={SUCCESS} /><Text style={styles.walletMetricLabel}>Monthly earned</Text><Text style={[styles.walletMetricValue, { color: SUCCESS }]}>{walletMoney(metrics.monthlyEarned)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("jobs")}><Ionicons name="bag-check-outline" size={21} color="#7c3aed" /><Text style={styles.walletMetricLabel}>Jobs completed</Text><Text style={[styles.walletMetricValue, { color: "#7c3aed" }]}>{metrics.completedJobs}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("average")}><Ionicons name="cash-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletMetricLabel}>Average per job</Text><Text style={styles.walletMetricValue}>{walletMoney(metrics.averagePerJob)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("payments")}><Ionicons name="receipt-outline" size={21} color="#475569" /><Text style={styles.walletMetricLabel}>Last payment</Text><Text style={styles.walletMetricSmallValue}>{metrics.lastPayment?.paidAt ? new Date(metrics.lastPayment.paidAt).toLocaleDateString("en-IN") : "Not paid yet"}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
         </View>
       </View>
 
@@ -2523,6 +2536,53 @@ function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDia
           </Pressable>
         )) : <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text>}
       </View>
+    </ScrollView>
+  );
+}
+
+function EarningDetailsScreen({ detail, wallet, onBack, onOpenOrder, showDialog }: {
+  detail: EarningDetailKey;
+  wallet: PartnerWalletSummary;
+  onBack: () => void;
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - 7);
+  const earnings = wallet.transactions.filter((transaction) => transaction.category === "ORDER_EARNING" && transaction.transactionType === "CREDIT");
+  const entries = detail === "month"
+    ? earnings.filter((transaction) => (partnerTransactionDate(transaction)?.getTime() ?? 0) >= monthStart.getTime())
+    : detail === "week"
+      ? earnings.filter((transaction) => (partnerTransactionDate(transaction)?.getTime() ?? 0) >= weekStart.getTime())
+      : detail === "payments"
+        ? []
+        : detail === "pending"
+          ? earnings
+          : earnings;
+  const title = detail === "pending" ? "Pending earnings" : detail === "week" ? "This week" : detail === "month" ? "Monthly earnings" : detail === "jobs" ? "Completed jobs" : detail === "average" ? "Average per job" : "Payment history";
+  const metrics = partnerWalletMetrics(wallet);
+  const value = detail === "pending" ? walletMoney(metrics.pendingAmount) : detail === "week" ? walletMoney(metrics.currentWeekEarnings) : detail === "month" ? walletMoney(metrics.monthlyEarned) : detail === "jobs" ? `${metrics.completedJobs} jobs` : detail === "average" ? walletMoney(metrics.averagePerJob) : `${wallet.payments.length} payments`;
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <Header title={title} subtitle="Earnings details" onBack={onBack} />
+      <View style={styles.walletHeroCard}>
+        <View style={styles.walletHeroIcon}><Ionicons name={detail === "payments" ? "receipt-outline" : "analytics-outline"} size={28} color={BRAND_ORANGE} /></View>
+        <View style={styles.walletHeroMain}><Text style={styles.walletHeroLabel}>{title.toUpperCase()}</Text><Text style={styles.walletHeroValue}>{value}</Text></View>
+      </View>
+      {detail === "payments" ? (
+        <View style={styles.walletHistoryCard}>
+          {wallet.payments.length ? wallet.payments.map((payment) => (
+            <Pressable key={payment.id} style={styles.walletPaymentRow} onPress={() => void openWalletProof(payment.receiptUrl, showDialog)}>
+              <View><Text style={styles.walletTransactionTitle}>{walletMoney(payment.amount)}</Text><Text style={styles.walletTransactionMeta}>{payment.referenceNumber ?? "Weekly payout"}</Text></View>
+              <View style={styles.walletTransactionSide}><Text style={styles.walletTransactionDate}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}</Text><Text style={styles.walletViewAll}>View proof</Text></View>
+            </Pressable>
+          )) : <Text style={styles.cardMeta}>No payments recorded yet.</Text>}
+        </View>
+      ) : entries.length ? (
+        <View style={styles.walletHistoryCard}>{entries.map((transaction) => <WalletTransactionCard key={transaction.id} transaction={transaction} payments={wallet.payments} onOpenOrder={onOpenOrder} showDialog={showDialog} />)}</View>
+      ) : <EmptyState title="No matching earnings" copy="Completed job earnings will appear here." />}
     </ScrollView>
   );
 }
@@ -2596,7 +2656,7 @@ function TabBar({ current, onChange }: { current: Tab; onChange: (tab: Tab) => v
   return (
     <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
       {tabs.map((tab) => {
-        const active = current === tab.key;
+        const active = current === tab.key || ((current === "earningDetails" || current === "transactions") && tab.key === "earnings");
         return (
           <Pressable style={styles.tabItem} key={tab.key} onPress={() => onChange(tab.key)}>
             <Ionicons color={active ? BRAND_ORANGE : "#7b8796"} name={tab.icon} size={21} />
@@ -2629,6 +2689,7 @@ function MainApp({
   const [online, setOnline] = useState(Boolean(me?.deliveryProfile?.isAvailable ?? false));
   const [requests, setRequests] = useState<DeliveryRequest[]>([]);
   const [wallet, setWallet] = useState<PartnerWalletSummary>(emptyPartnerWallet);
+  const [earningDetail, setEarningDetail] = useState<EarningDetailKey>("pending");
   const [loadingWallet, setLoadingWallet] = useState(false);
   const [activeBatchId, setActiveBatchId] = useState<string | undefined>();
   const [requestVisible, setRequestVisible] = useState(false);
@@ -3342,7 +3403,8 @@ function MainApp({
           }}
           deliveryType={me?.deliveryProfile?.deliveryType}
         /> : null}
-        {tab === "earnings" ? <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setTab("transactions")} onOpenOrder={openWalletOrder} showDialog={showDialog} /> : null}
+        {tab === "earnings" ? <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setTab("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setTab("earningDetails"); }} showDialog={showDialog} /> : null}
+        {tab === "earningDetails" ? <EarningDetailsScreen detail={earningDetail} wallet={wallet} onBack={goBack} onOpenOrder={openWalletOrder} showDialog={showDialog} /> : null}
         {tab === "transactions" ? <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={showDialog} /> : null}
         {tab === "notifications" ? <NotificationsScreen notifications={notificationsFromRequests} onOpen={openNotification} /> : null}
         {tab === "profile" ? (
@@ -3507,7 +3569,6 @@ export default function App() {
     void refreshProfile();
   }, [token, refreshProfile]);
 
-  if (platform.checking) return <PlatformStatusLoadingScreen />;
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
@@ -3583,7 +3644,8 @@ const styles = StyleSheet.create({
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
-  authContent: { flex: 1, justifyContent: "center", paddingHorizontal: 20, paddingBottom: 20 },
+  authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingBottom: 28, paddingTop: 70 },
+  authLanguageCorner: { position: "absolute", right: 18, top: 12, zIndex: 20 },
   logoMark: { width: 68, height: 68, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", marginBottom: 18 },
   authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 8, marginBottom: 22 },
@@ -3650,6 +3712,10 @@ const styles = StyleSheet.create({
   flexOne: { flex: 1, minWidth: 0 },
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: "#111111", overflow: "hidden", marginTop: 14, marginBottom: 4 },
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
+  privacyTrustBanner: { minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, paddingVertical: 10, marginTop: 12, marginBottom: 2 },
+  privacyTrustText: { flex: 1, color: "#166534", fontSize: 12, lineHeight: 18, fontWeight: "800" },
+  singleIdNotice: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 10 },
+  singleIdNoticeText: { flex: 1, color: "#9a3412", fontSize: 12, lineHeight: 17, fontWeight: "800" },
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 },
   inputReadOnly: { backgroundColor: "#f1f5f9", opacity: 0.75 },
   lockedBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fef3c7", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8, borderWidth: 1, borderColor: "#fcd34d" },

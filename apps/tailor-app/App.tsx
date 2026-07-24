@@ -19,6 +19,7 @@ import {
   Animated,
   BackHandler,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -36,7 +37,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, uploadAuditMedia, uploadTailorAvatar, uploadTailorVerificationMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, uploadAuditMedia, uploadTailorVerificationMedia } from "./src/api";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
@@ -48,8 +49,9 @@ import { configureForegroundNotificationHandler } from "./src/notifications/hand
 import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
-import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
-import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
+import { localize, t, type AppLanguage } from "../../shared/src/localization";
+import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   emptyPartnerWallet,
@@ -84,7 +86,8 @@ export function getFallbackAvatar(name?: string, gender?: string) {
     : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
 }
 
-type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "earnings" | "profile" | "transactions";
+type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "earnings" | "earningDetails" | "profile" | "transactions";
+type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: string; bytes?: number };
@@ -255,6 +258,7 @@ const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
+const tailorLogo = require("./darji-notification.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
@@ -536,7 +540,6 @@ function AuthScreen() {
   const [dialog, setDialog] = useState<DialogState>();
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
-  const hasSelectedLanguage = useAppStore((state) => state.hasSelectedLanguage);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "TAILOR" } });
@@ -548,7 +551,7 @@ function AuthScreen() {
       verifyForm.reset({ phone: values.phone, role: "TAILOR", otp: result.otp ?? "123456" });
       setOtpRequested(true);
     } catch (error) {
-      setDialog({ title: "OTP failed", message: error instanceof Error ? error.message : "Check backend connection.", icon: "alert-circle-outline" });
+      setDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Check backend connection.", "इंटरनेट कनेक्शन जाँचें।"), icon: "alert-circle-outline" });
     } finally {
       setIsRequesting(false);
     }
@@ -563,7 +566,7 @@ function AuthScreen() {
       });
       setSession(session.accessToken, session.user, session.refreshToken);
     } catch (error) {
-      setDialog({ title: "Login failed", message: error instanceof Error ? error.message : "Check OTP and try again.", icon: "alert-circle-outline" });
+      setDialog({ title: localize(language, "Login failed", "लॉगिन नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Check OTP and try again.", "ओटीपी जाँचकर दोबारा कोशिश करें।"), icon: "alert-circle-outline" });
     } finally {
       setIsVerifying(false);
     }
@@ -572,18 +575,26 @@ function AuthScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent={false} />
-      <View style={styles.authContent}>
-        <View style={styles.logoMark}>
-          <Ionicons name="cut-outline" size={34} color={BRAND_ORANGE} />
+      <View style={styles.authLanguageCorner}>
+        <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
+      </View>
+      <KeyboardAvoidingView style={styles.screenHost} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <ScrollView
+          contentContainerStyle={styles.authContent}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+        <View style={styles.authLogoWrap}>
+          <Image source={tailorLogo} resizeMode="contain" style={styles.authLogo} />
         </View>
         <Text style={styles.authTitle}>Darji Tailor</Text>
-        <Text style={styles.authCopy}>Manage requests, quotes, stitching progress, and earnings from one workspace.</Text>
-        {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
+        <Text style={styles.authCopy}>{localize(language, "Manage requests, quotes, stitching progress, and earnings from one workspace.", "अनुरोध, कोटेशन, सिलाई की प्रगति और कमाई एक ही जगह से संभालें।")}</Text>
         {!otpRequested ? (
           <>
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
-            <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder="Enter tailor mobile number" />} />
-            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} onPress={requestForm.handleSubmit(requestOtp, () => setDialog({ title: "Check phone number", message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+            <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder={localize(language, "Enter tailor mobile number", "दर्जी का मोबाइल नंबर दर्ज करें")} />} />
+            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} onPress={requestForm.handleSubmit(requestOtp, () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
           </>
         ) : (
           <>
@@ -595,44 +606,16 @@ function AuthScreen() {
                 <TextInput style={styles.input} value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} />
               )}
             />
-            <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: "Enter OTP", message: t(language, "otpRequired"), icon: "keypad-outline" }))} />
+            <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" }))} />
             <Pressable style={styles.textButton} onPress={() => setOtpRequested(false)}>
               <Text style={styles.textButtonText}>{t(language, "changeNumber")}</Text>
             </Pressable>
           </>
         )}
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
       <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
     </SafeAreaView>
-  );
-}
-
-function LanguageSelectorCard({ language, onSelect }: { language: AppLanguage; onSelect: (language: AppLanguage) => void }) {
-  return (
-    <View style={{ backgroundColor: SURFACE, borderRadius: 22, borderWidth: 1, borderColor: BORDER, padding: 18, marginBottom: 18 }}>
-      <Text style={styles.cardTitle}>{t(language, "chooseLanguage")}</Text>
-      <Text style={styles.cardMeta}>{t(language, "chooseLanguageCopy")}</Text>
-      <View style={{ flexDirection: "row", gap: 10, marginTop: 12, marginBottom: 10 }}>
-        {(["en", "hi"] as const).map((option) => (
-          <Pressable
-            key={option}
-            style={{
-              flex: 1,
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: language === option ? BRAND_ORANGE : BORDER,
-              backgroundColor: language === option ? "#fff4db" : SURFACE,
-              paddingVertical: 12,
-              alignItems: "center"
-            }}
-            onPress={() => onSelect(option)}
-          >
-            <Text style={{ color: language === option ? BRAND_DEEP : MUTED, fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={styles.cardMeta}>{t(language, "languagePreferenceSaved")}</Text>
-    </View>
   );
 }
 
@@ -1464,7 +1447,7 @@ function OrderDetailsScreen({
 
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Permission needed", message: "Allow photo access to upload order proof.", icon: "camera-outline" });
+      showDialog({ title: "Permission needed", message: "Allow camera access to upload live order proof. Your photo is safe with Darji and is used only to verify the order.", icon: "camera-outline" });
       return;
     }
 
@@ -1811,11 +1794,12 @@ function WalletTransactionCard({ transaction, payments, onOpenOrder, showDialog 
   );
 }
 
-function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDialog }: {
+function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, onOpenMetric, showDialog }: {
   wallet: PartnerWalletSummary;
   loadingWallet: boolean;
   onViewAll: () => void;
   onOpenOrder: (orderId: string) => void;
+  onOpenMetric: (metric: EarningDetailKey) => void;
   showDialog: (dialog: DialogState) => void;
 }) {
   const metrics = useMemo(() => partnerWalletMetrics(wallet), [wallet]);
@@ -1839,12 +1823,12 @@ function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDia
           <Text style={styles.walletSectionTitle}>Earnings summary</Text>
         </View>
         <View style={styles.walletMetricGrid}>
-          <View style={styles.walletMetricCard}><Ionicons name="time-outline" size={21} color="#f97316" /><Text style={styles.walletMetricLabel}>Pending amount</Text><Text style={[styles.walletMetricValue, { color: "#f97316" }]}>{money(metrics.pendingAmount)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="calendar-number-outline" size={21} color="#0284c7" /><Text style={styles.walletMetricLabel}>This week</Text><Text style={[styles.walletMetricValue, { color: "#0284c7" }]}>{money(metrics.currentWeekEarnings)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="trending-up-outline" size={21} color={SUCCESS} /><Text style={styles.walletMetricLabel}>Monthly earned</Text><Text style={[styles.walletMetricValue, { color: SUCCESS }]}>{money(metrics.monthlyEarned)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="bag-check-outline" size={21} color="#7c3aed" /><Text style={styles.walletMetricLabel}>Orders completed</Text><Text style={[styles.walletMetricValue, { color: "#7c3aed" }]}>{metrics.completedJobs}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="cash-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletMetricLabel}>Average per order</Text><Text style={styles.walletMetricValue}>{money(metrics.averagePerJob)}</Text></View>
-          <View style={styles.walletMetricCard}><Ionicons name="receipt-outline" size={21} color="#475569" /><Text style={styles.walletMetricLabel}>Last payment</Text><Text style={styles.walletMetricSmallValue}>{metrics.lastPayment?.paidAt ? new Date(metrics.lastPayment.paidAt).toLocaleDateString("en-IN") : "Not paid yet"}</Text></View>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("pending")}><Ionicons name="time-outline" size={21} color="#f97316" /><Text style={styles.walletMetricLabel}>Pending amount</Text><Text style={[styles.walletMetricValue, { color: "#f97316" }]}>{money(metrics.pendingAmount)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("week")}><Ionicons name="calendar-number-outline" size={21} color="#0284c7" /><Text style={styles.walletMetricLabel}>This week</Text><Text style={[styles.walletMetricValue, { color: "#0284c7" }]}>{money(metrics.currentWeekEarnings)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("month")}><Ionicons name="trending-up-outline" size={21} color={SUCCESS} /><Text style={styles.walletMetricLabel}>Monthly earned</Text><Text style={[styles.walletMetricValue, { color: SUCCESS }]}>{money(metrics.monthlyEarned)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("jobs")}><Ionicons name="bag-check-outline" size={21} color="#7c3aed" /><Text style={styles.walletMetricLabel}>Orders completed</Text><Text style={[styles.walletMetricValue, { color: "#7c3aed" }]}>{metrics.completedJobs}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("average")}><Ionicons name="cash-outline" size={21} color={BRAND_ORANGE} /><Text style={styles.walletMetricLabel}>Average per order</Text><Text style={styles.walletMetricValue}>{money(metrics.averagePerJob)}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
+          <Pressable style={styles.walletMetricCard} onPress={() => onOpenMetric("payments")}><Ionicons name="receipt-outline" size={21} color="#475569" /><Text style={styles.walletMetricLabel}>Last payment</Text><Text style={styles.walletMetricSmallValue}>{metrics.lastPayment?.paidAt ? new Date(metrics.lastPayment.paidAt).toLocaleDateString("en-IN") : "Not paid yet"}</Text><Ionicons name="chevron-forward" size={15} color="#94a3b8" /></Pressable>
         </View>
       </View>
 
@@ -1868,6 +1852,51 @@ function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, showDia
           </Pressable>
         )) : <Text style={styles.cardMeta}>No weekly payments recorded yet.</Text>}
       </View>
+    </ScrollView>
+  );
+}
+
+function EarningDetailsScreen({ detail, wallet, onBack, onOpenOrder, showDialog }: {
+  detail: EarningDetailKey;
+  wallet: PartnerWalletSummary;
+  onBack: () => void;
+  onOpenOrder: (orderId: string) => void;
+  showDialog: (dialog: DialogState) => void;
+}) {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - 7);
+  const earnings = wallet.transactions.filter((transaction) => transaction.category === "ORDER_EARNING" && transaction.transactionType === "CREDIT");
+  const entries = detail === "month"
+    ? earnings.filter((transaction) => (partnerTransactionDate(transaction)?.getTime() ?? 0) >= monthStart.getTime())
+    : detail === "week"
+      ? earnings.filter((transaction) => (partnerTransactionDate(transaction)?.getTime() ?? 0) >= weekStart.getTime())
+      : detail === "payments"
+        ? []
+        : earnings;
+  const title = detail === "pending" ? "Pending earnings" : detail === "week" ? "This week" : detail === "month" ? "Monthly earnings" : detail === "jobs" ? "Completed orders" : detail === "average" ? "Average per order" : "Payment history";
+  const metrics = partnerWalletMetrics(wallet);
+  const value = detail === "pending" ? money(metrics.pendingAmount) : detail === "week" ? money(metrics.currentWeekEarnings) : detail === "month" ? money(metrics.monthlyEarned) : detail === "jobs" ? `${metrics.completedJobs} orders` : detail === "average" ? money(metrics.averagePerJob) : `${wallet.payments.length} payments`;
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <Header title={title} subtitle="Earnings details" onBack={onBack} />
+      <View style={styles.walletHeroCard}>
+        <View style={styles.walletHeroIcon}><Ionicons name={detail === "payments" ? "receipt-outline" : "analytics-outline"} size={28} color={BRAND_ORANGE} /></View>
+        <View style={styles.walletHeroMain}><Text style={styles.walletHeroLabel}>{title.toUpperCase()}</Text><Text style={styles.walletHeroValue}>{value}</Text></View>
+      </View>
+      {detail === "payments" ? (
+        <View style={styles.walletHistoryCard}>
+          {wallet.payments.length ? wallet.payments.map((payment) => (
+            <Pressable key={payment.id} style={styles.walletPaymentRow} onPress={() => void openWalletProof(payment.receiptUrl, showDialog)}>
+              <View><Text style={styles.walletTransactionTitle}>{money(payment.amount)}</Text><Text style={styles.walletTransactionMeta}>{payment.referenceNumber ?? "Weekly payout"}</Text></View>
+              <View style={styles.walletTransactionSide}><Text style={styles.walletTransactionDate}>{payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("en-IN") : "Paid"}</Text><Text style={styles.walletViewAll}>View proof</Text></View>
+            </Pressable>
+          )) : <Text style={styles.cardMeta}>No payments recorded yet.</Text>}
+        </View>
+      ) : entries.length ? (
+        <View style={styles.walletHistoryCard}>{entries.map((transaction) => <WalletTransactionCard key={transaction.id} transaction={transaction} payments={wallet.payments} onOpenOrder={onOpenOrder} showDialog={showDialog} />)}</View>
+      ) : <EmptyState icon="wallet-outline" title="No matching earnings" copy="Completed order earnings will appear here." />}
     </ScrollView>
   );
 }
@@ -1980,11 +2009,11 @@ function normalizeTailorIdNumber(idType: TailorIdType, value: string) {
   return value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
 }
 
-function validateTailorIdNumber(idType: TailorIdType, value: string) {
+function validateTailorIdNumber(idType: TailorIdType, value: string, language: AppLanguage) {
   const normalized = value.trim().toUpperCase();
-  if (idType === "Aadhaar" && !/^\d{12}$/.test(normalized)) return "Enter a valid 12 digit Aadhaar number.";
-  if (idType === "PAN" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(normalized)) return "Enter a valid PAN number, for example ABCDE1234F.";
-  if (idType === "License" && !/^[A-Z0-9-]{8,16}$/.test(normalized)) return "Enter a valid driving licence number.";
+  if (idType === "Aadhaar" && !/^\d{12}$/.test(normalized)) return localize(language, "Enter a valid 12 digit Aadhaar number.", "सही 12 अंकों का आधार नंबर दर्ज करें।");
+  if (idType === "PAN" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(normalized)) return localize(language, "Enter a valid PAN number, for example ABCDE1234F.", "सही पैन नंबर दर्ज करें, जैसे ABCDE1234F।");
+  if (idType === "License" && !/^[A-Z0-9-]{8,16}$/.test(normalized)) return localize(language, "Enter a valid driving licence number.", "सही ड्राइविंग लाइसेंस नंबर दर्ज करें।");
   return "";
 }
 
@@ -2043,12 +2072,39 @@ function PickSuggestions({ options, value, onChange }: { options: string[]; valu
   );
 }
 
-function VerificationDocBox({ label, media, onPick, disabled = false }: { label: string; media?: VerificationMediaDraft; onPick: () => void; disabled?: boolean }) {
+function VerificationDocBox({
+  label,
+  media,
+  onCamera,
+  onGallery,
+  disabled = false
+}: {
+  label: string;
+  media?: VerificationMediaDraft;
+  onCamera: () => void;
+  onGallery?: () => void;
+  disabled?: boolean;
+}) {
+  const language = useAppStore((state) => state.language);
   return (
-    <Pressable style={[styles.verificationDocBox, disabled && styles.inputReadOnly]} onPress={onPick} disabled={disabled}>
+    <View style={[styles.verificationDocBox, disabled && styles.inputReadOnly]}>
       {media ? <Image source={{ uri: media.uri }} style={styles.verificationDocImage} /> : <Ionicons name="cloud-upload-outline" size={24} color={disabled ? "#9aa6b8" : BRAND_ORANGE} />}
-      <Text style={styles.verificationDocText}>{media ? label : disabled ? label : `Upload ${label}`}</Text>
-    </Pressable>
+      <Text style={styles.verificationDocText}>{label}</Text>
+      {!disabled ? (
+        <View style={styles.verificationDocActions}>
+          <Pressable style={styles.verificationDocAction} onPress={onCamera}>
+            <Ionicons name="camera-outline" size={14} color={BRAND_ORANGE} />
+            <Text style={styles.verificationDocActionText}>{localize(language, "Camera", "कैमरा")}</Text>
+          </Pressable>
+          {onGallery ? (
+            <Pressable style={styles.verificationDocAction} onPress={onGallery}>
+              <Ionicons name="images-outline" size={14} color={BRAND_ORANGE} />
+              <Text style={styles.verificationDocActionText}>{localize(language, "Gallery", "गैलरी")}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -2068,6 +2124,7 @@ function TailorVerificationFlow({
   const status = me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
   const isLocked = status === "PENDING" || status === "VERIFIED";
   const { signOut } = useAppStore();
+  const language = useAppStore((state) => state.language);
   const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? VERIFICATION_STATUS_STEP : 1);
   const [saving, setSaving] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
@@ -2131,7 +2188,7 @@ function TailorVerificationFlow({
     if (draft.category) setCategory(draft.category);
     if (draft.rows?.length) setRows(draft.rows);
     if (typeof draft.confirmedRows === "boolean") setConfirmedRows(draft.confirmedRows);
-    if (draft.idType) setIdType(draft.idType);
+    if (draft.idType) setIdType(draft.idType === "License" ? "PAN" : draft.idType);
     if (draft.idNumber) setIdNumber(draft.idNumber);
     if (draft.aadhaarFront) setAadhaarFront(draft.aadhaarFront);
     if (draft.aadhaarBack) setAadhaarBack(draft.aadhaarBack);
@@ -2175,7 +2232,7 @@ function TailorVerificationFlow({
       setCategory(verification.specializationRows[0]?.gender ?? "Both");
       setConfirmedRows(true);
     }
-    setIdType(verification.idVerification.idType);
+    setIdType(verification.idVerification.idType === "License" ? "PAN" : verification.idVerification.idType);
     setIdNumber(verification.idVerification.idNumber ?? "");
     setAadhaarFront(mediaDraftFromUrl(verification.idVerification.aadhaarFrontUrl, "Aadhaar front"));
     setAadhaarBack(mediaDraftFromUrl(verification.idVerification.aadhaarBackUrl, "Aadhaar back"));
@@ -2251,7 +2308,11 @@ function TailorVerificationFlow({
       setLocating(true);
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
-        showDialog({ title: "Permission needed", message: "Allow location access to fetch your current address.", icon: "location-outline" });
+        showDialog({
+          title: localize(language, "Location permission needed", "स्थान की अनुमति आवश्यक है"),
+          message: localize(language, "Allow location access to fetch your current address. Your location is safe with Darji and is used only for verification.", "वर्तमान पता लेने के लिए स्थान की अनुमति दें। आपका स्थान Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होता है।"),
+          icon: "location-outline"
+        });
         return;
       }
       const position = await Location.getCurrentPositionAsync({});
@@ -2300,7 +2361,11 @@ function TailorVerificationFlow({
     if (!cameraPermission?.granted) {
       const permission = await requestCameraPermission();
       if (!permission.granted) {
-        showDialog({ title: "Camera needed", message: "Allow camera access for face verification.", icon: "camera-outline" });
+        showDialog({
+          title: localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है"),
+          message: localize(language, "Allow camera access for face verification. Your photo is safe with Darji and is used only for verification.", "चेहरे के सत्यापन के लिए कैमरा अनुमति दें। आपकी फोटो Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।"),
+          icon: "camera-outline"
+        });
         return;
       }
     }
@@ -2335,13 +2400,23 @@ function TailorVerificationFlow({
     );
   }
 
-  async function pickDoc(setter: (media: VerificationMediaDraft) => void, scan?: "ocr" | "face") {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
+  async function pickDoc(setter: (media: VerificationMediaDraft) => void, scan?: "ocr" | "face", source: "camera" | "gallery" = "camera") {
+    const permission = source === "camera"
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a live verification photo.", icon: "camera-outline" });
+      showDialog({
+        title: source === "camera" ? localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है") : localize(language, "Gallery permission needed", "गैलरी अनुमति आवश्यक है"),
+        message: source === "camera"
+          ? localize(language, "Allow camera access for secure verification. Your information is safe with Darji and is used only for verification.", "सुरक्षित सत्यापन के लिए कैमरा अनुमति दें। आपकी जानकारी Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
+          : localize(language, "Allow gallery access to select a verification document. Darji receives only the photo you choose, and your information stays safe.", "सत्यापन दस्तावेज़ चुनने के लिए गैलरी अनुमति दें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
+        icon: source === "camera" ? "camera-outline" : "images-outline"
+      });
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    const result = source === "camera"
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86, selectionLimit: 1 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const media = { uri: asset.uri, name: asset.fileName ?? `tailor-verification-${Date.now()}.jpg` };
@@ -2350,17 +2425,27 @@ function TailorVerificationFlow({
     if (scan === "face") void runFaceDetection(media);
   }
 
-  async function pickShopPhoto() {
+  async function pickShopPhoto(source: "camera" | "gallery" = "camera") {
     if (shop.shopPhotos.length >= 3) {
       showDialog({ title: "Shop photos limit", message: "You can upload up to 3 shop photos.", icon: "images-outline" });
       return;
     }
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    const permission = source === "camera"
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a live shop photo.", icon: "camera-outline" });
+      showDialog({
+        title: source === "camera" ? localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है") : localize(language, "Gallery permission needed", "गैलरी अनुमति आवश्यक है"),
+        message: source === "camera"
+          ? localize(language, "Allow camera access to photograph your shop. Your information is safe with Darji and is used only for verification.", "दुकान की फोटो लेने के लिए कैमरा अनुमति दें। आपकी जानकारी Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
+          : localize(language, "Allow gallery access to select a shop photo. Darji receives only the photo you choose, and your information stays safe.", "दुकान की फोटो चुनने के लिए गैलरी अनुमति दें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
+        icon: source === "camera" ? "camera-outline" : "images-outline"
+      });
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
+    const result = source === "camera"
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86, selectionLimit: 1 });
     if (result.canceled || !result.assets.length) return;
     const asset = result.assets[0];
     const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
@@ -2376,33 +2461,33 @@ function TailorVerificationFlow({
       const dob = new Date(personal.dob);
       const validDob = personal.dob.trim().length >= 6 && !Number.isNaN(dob.getTime()) && dob <= new Date();
       const validEmail = !personal.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personal.email.trim());
-      if (personal.name.trim().length < 2) return "Enter your full name.";
-      if (!validDob) return "Enter a valid date of birth.";
-      if (personal.address.trim().length < 8) return "Enter your full address.";
-      if (!validEmail) return "Enter a valid email address or leave it blank.";
+      if (personal.name.trim().length < 2) return localize(language, "Enter your full name.", "अपना पूरा नाम दर्ज करें।");
+      if (!validDob) return localize(language, "Enter a valid date of birth.", "सही जन्म तिथि दर्ज करें।");
+      if (personal.address.trim().length < 8) return localize(language, "Enter your full address.", "अपना पूरा पता दर्ज करें।");
+      if (!validEmail) return localize(language, "Enter a valid email address or leave it blank.", "सही ईमेल पता दर्ज करें या इसे खाली छोड़ दें।");
       return "";
     }
     if (targetStep === 2) {
-      if (shop.shopName.trim().length < 2) return "Enter your shop or workshop name.";
-      if (shop.shopAddress.trim().length < 8) return "Enter your shop or home workshop address.";
-      if (!shop.employeeCount.trim() || !Number.isFinite(Number(shop.employeeCount))) return "Enter the number of employees.";
-      if (!shop.yearsExperience.trim() || !Number.isFinite(Number(shop.yearsExperience))) return "Enter your years of experience.";
-      if (shop.shopPhotos.length < 1) return "Upload at least 1 shop photo.";
-      if (shop.shopPhotos.length > 3) return "Upload no more than 3 shop photos.";
+      if (shop.shopName.trim().length < 2) return localize(language, "Enter your shop or workshop name.", "अपनी दुकान या कार्यशाला का नाम दर्ज करें।");
+      if (shop.shopAddress.trim().length < 8) return localize(language, "Enter your shop or home workshop address.", "अपनी दुकान या घर की कार्यशाला का पूरा पता दर्ज करें।");
+      if (!shop.employeeCount.trim() || !Number.isFinite(Number(shop.employeeCount))) return localize(language, "Enter the number of employees.", "कर्मचारियों की संख्या दर्ज करें।");
+      if (!shop.yearsExperience.trim() || !Number.isFinite(Number(shop.yearsExperience))) return localize(language, "Enter your years of experience.", "अपने अनुभव के वर्ष दर्ज करें।");
+      if (shop.shopPhotos.length < 1) return localize(language, "Upload at least 1 shop photo.", "दुकान की कम से कम 1 फोटो अपलोड करें।");
+      if (shop.shopPhotos.length > 3) return localize(language, "Upload no more than 3 shop photos.", "दुकान की अधिकतम 3 फोटो ही अपलोड करें।");
       return "";
     }
     if (targetStep === 3) {
-      const idMessage = validateTailorIdNumber(idType, idNumber);
+      const idMessage = validateTailorIdNumber(idType, idNumber, language);
       if (idMessage) return idMessage;
-      if (idType === "Aadhaar" && !aadhaarFront) return "Upload Aadhaar front photo.";
-      if (idType === "Aadhaar" && !aadhaarBack) return "Upload Aadhaar back photo.";
-      if (idType === "PAN" && !panPhoto) return "Upload PAN card photo.";
-      if (idType === "License" && !panPhoto) return "Upload driving licence photo.";
-      if (!facePhoto) return "Complete face verification.";
+      if (idType === "Aadhaar" && !aadhaarFront) return localize(language, "Upload Aadhaar front photo.", "आधार कार्ड के सामने की फोटो अपलोड करें।");
+      if (idType === "Aadhaar" && !aadhaarBack) return localize(language, "Upload Aadhaar back photo.", "आधार कार्ड के पीछे की फोटो अपलोड करें।");
+      if (idType === "PAN" && !panPhoto) return localize(language, "Upload PAN card photo.", "पैन कार्ड की फोटो अपलोड करें।");
+      if (idType === "License" && !panPhoto) return localize(language, "Upload driving licence photo.", "ड्राइविंग लाइसेंस की फोटो अपलोड करें।");
+      if (!facePhoto) return localize(language, "Complete face verification.", "चेहरे का सत्यापन पूरा करें।");
       return "";
     }
     if (targetStep === 4) {
-      if (!tutorialWatched) return "Watch the complete tutorial before submitting.";
+      if (!tutorialWatched) return localize(language, "Watch the complete tutorial before submitting.", "जमा करने से पहले पूरा ट्यूटोरियल देखें।");
       return "";
     }
     return "";
@@ -2423,7 +2508,7 @@ function TailorVerificationFlow({
   function continueToNextStep() {
     const message = validationMessageForStep(step);
     if (message) {
-      showDialog({ title: "Complete this step", message, icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "Complete this step", "यह चरण पूरा करें"), message, icon: "alert-circle-outline" });
       return;
     }
     setStep((current) => current + 1);
@@ -2489,7 +2574,7 @@ function TailorVerificationFlow({
   async function submitVerification() {
     const validationMessage = fullValidationMessage();
     if (!token || validationMessage) {
-      if (validationMessage) showDialog({ title: "Verification incomplete", message: validationMessage, icon: "alert-circle-outline" });
+      if (validationMessage) showDialog({ title: localize(language, "Verification incomplete", "सत्यापन अधूरा है"), message: validationMessage, icon: "alert-circle-outline" });
       return;
     }
     try {
@@ -2497,6 +2582,12 @@ function TailorVerificationFlow({
       const uploaded = (await uploadMissingPhotos()) ?? {};
       const uploadedShopPhotos = Array.isArray(uploaded.shopPhotos) ? uploaded.shopPhotos.filter((url): url is string => typeof url === "string") : [];
       const existingShopPhotoUrls = shop.shopPhotos.map((photo) => photo.uploadedUrl).filter((url): url is string => Boolean(url));
+      const specializationRows = rows.map((row) => ({
+        gender: row.gender,
+        clothType: row.clothType.trim() || "Kurta",
+        stitchingType: row.stitchingType.trim() || "New Stitching",
+        price: Number(row.price) || 0
+      }));
       const payload: TailorVerificationPayload = {
         personal: {
           name: personal.name.trim(),
@@ -2515,7 +2606,9 @@ function TailorVerificationFlow({
           machinery: shop.machinery,
           shopPhotos: uploadedShopPhotos.length ? uploadedShopPhotos : existingShopPhotoUrls
         },
-        specializationRows: rows.map((row) => ({ gender: row.gender, clothType: row.clothType.trim(), stitchingType: row.stitchingType.trim(), price: Number(row.price) || 0 })),
+        specializationRows: specializationRows.length
+          ? specializationRows
+          : [{ gender: "Both", clothType: "Kurta", stitchingType: "New Stitching", price: 0 }],
         idVerification: {
           idType,
           idNumber: idNumber.trim(),
@@ -2530,24 +2623,31 @@ function TailorVerificationFlow({
       };
       await api("/tailors/me/verification", { method: "POST", body: JSON.stringify(payload) }, token);
       await AsyncStorage.removeItem(storageKey).catch(() => undefined);
-      showDialog({ title: "Verification submitted", message: "Your details reached the Darji team for review.", icon: "checkmark-circle-outline" });
+      showDialog({ title: localize(language, "Verification submitted", "सत्यापन जमा हो गया"), message: localize(language, "Your details reached the Darji team for review.", "आपकी जानकारी समीक्षा के लिए Darji टीम तक पहुँच गई है।"), icon: "checkmark-circle-outline" });
       onRefresh();
       setStep(VERIFICATION_STATUS_STEP);
     } catch (error) {
       if (isSessionError(error)) return onSessionExpired();
-      showDialog({ title: "Submit failed", message: error instanceof Error ? error.message : "Could not submit verification.", icon: "alert-circle-outline" });
+      showDialog({ title: localize(language, "Submit failed", "जमा नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Could not submit verification.", "सत्यापन जमा नहीं हो सका।"), icon: "alert-circle-outline" });
     } finally {
       setSaving(false);
     }
   }
 
   if (infoPage) {
-    const content = {
-      tutorial: ["How to use Darji Tailor", ...tutorialSlides.map(([title, copy], index) => `${index + 1}. ${title}: ${copy}`)],
-      privacy: ["Privacy Policy", "We store your verification details for Darji admin review.", "ID photos are used only for tailor verification and safety checks.", "Your customer request data is used to complete tailoring orders."],
-      terms: ["Terms of Use", "Use accurate profile and shop details.", "Only accept work you can complete on time.", "Darji can pause accounts with unclear documents or repeated service issues."],
-      about: ["About Darji", "Darji connects customers with local tailors for doorstep stitching, alteration, pickup, proof, and delivery workflows."]
-    }[infoPage];
+    const content = language === "hi"
+      ? {
+          tutorial: ["Darji Tailor का उपयोग कैसे करें", "1. नए अनुरोध: ग्राहक का अनुरोध खोलें और उसकी जानकारी देखें।", "2. ऑर्डर स्वीकार करना: कीमत और अनुमानित समय भेजें।", "3. सिलाई प्रक्रिया: कपड़ा मिलने, फोटो प्रमाण और काम की प्रगति अपडेट करें।", "4. पैकेजिंग और डिलीवरी: तैयार कपड़ों को पैक करें और स्थिति अपडेट करें।", "5. सहायता: दस्तावेज़, ऑर्डर या भुगतान में मदद के लिए सपोर्ट से संपर्क करें।"],
+          privacy: ["गोपनीयता नीति", "हम सत्यापन जानकारी केवल Darji एडमिन समीक्षा के लिए रखते हैं।", "आईडी फोटो केवल दर्जी सत्यापन और सुरक्षा जाँच के लिए उपयोग होती हैं।", "ग्राहक अनुरोध की जानकारी केवल सिलाई ऑर्डर पूरा करने के लिए उपयोग होती है।"],
+          terms: ["उपयोग की शर्तें", "सही प्रोफाइल और दुकान की जानकारी दें।", "केवल वही काम स्वीकार करें जिसे समय पर पूरा कर सकते हैं।", "अस्पष्ट दस्तावेज़ या बार-बार सेवा समस्या होने पर Darji खाता रोक सकता है।"],
+          about: ["Darji के बारे में", "Darji ग्राहकों को स्थानीय दर्जियों से जोड़ता है और घर से पिकअप, सिलाई, बदलाव, प्रमाण तथा डिलीवरी की सुविधा देता है।"]
+        }[infoPage]
+      : {
+          tutorial: ["How to use Darji Tailor", ...tutorialSlides.map(([title, copy], index) => `${index + 1}. ${title}: ${copy}`)],
+          privacy: ["Privacy Policy", "We store your verification details for Darji admin review.", "ID photos are used only for tailor verification and safety checks.", "Your customer request data is used to complete tailoring orders."],
+          terms: ["Terms of Use", "Use accurate profile and shop details.", "Only accept work you can complete on time.", "Darji can pause accounts with unclear documents or repeated service issues."],
+          about: ["About Darji", "Darji connects customers with local tailors for doorstep stitching, alteration, pickup, proof, and delivery workflows."]
+        }[infoPage];
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.pageContent}>
@@ -2576,12 +2676,16 @@ function TailorVerificationFlow({
             : (["panPhoto", "facePhoto"] as TailorReuploadField[])
           : []
     ).filter((field, index, list): field is TailorReuploadField => Boolean(field) && list.indexOf(field) === index);
-    const statusTitle = needsReupload ? "Re-upload Documents" : isRejected ? "Verification not approved" : "Verification under review";
-    const statusCopy = needsReupload
-      ? "Please upload only the documents requested by the Darji admin team."
+    const statusTitle = needsReupload
+      ? localize(language, "Re-upload Documents", "दस्तावेज़ दोबारा अपलोड करें")
       : isRejected
-        ? "Unfortunately, we cannot verify your profile right now. You can apply again after the waiting period with clearer, original documents."
-        : "Your application has been submitted. The Darji team is reviewing your details and you will be notified soon.";
+        ? localize(language, "Verification not approved", "सत्यापन स्वीकृत नहीं हुआ")
+        : localize(language, "Verification under review", "सत्यापन की समीक्षा जारी है");
+    const statusCopy = needsReupload
+      ? localize(language, "Please upload only the documents requested by the Darji admin team.", "केवल Darji एडमिन द्वारा माँगे गए दस्तावेज़ अपलोड करें।")
+      : isRejected
+        ? localize(language, "Unfortunately, we cannot verify your profile right now. You can apply again after the waiting period with clearer, original documents.", "अभी आपकी प्रोफाइल सत्यापित नहीं हो सकी। प्रतीक्षा अवधि के बाद साफ और मूल दस्तावेज़ों के साथ दोबारा आवेदन करें।")
+        : localize(language, "Your application has been submitted. The Darji team is reviewing your details and you will be notified soon.", "आपका आवेदन जमा हो गया है। Darji टीम आपकी जानकारी की समीक्षा कर रही है और जल्द सूचना देगी।");
 
     async function refreshVerificationStatus() {
       if (refreshingStatus) return;
@@ -2601,44 +2705,54 @@ function TailorVerificationFlow({
       return shop.shopPhotos;
     }
 
-    async function pickReplacementShopPhoto() {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        showDialog({ title: "Camera permission needed", message: "Allow camera access to take a replacement shop photo.", icon: "camera-outline" });
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 });
-      if (result.canceled || !result.assets.length) return;
-      const asset = result.assets[0];
-      const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
-      setShop((current) => ({ ...current, shopPhotos: [media] }));
+    function chooseReplacementShopPhoto() {
+      Alert.alert(
+        localize(language, "Choose shop photo", "दुकान की फोटो चुनें"),
+        localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
+        [
+          { text: localize(language, "Camera", "कैमरा"), onPress: () => void pickShopPhoto("camera") },
+          { text: localize(language, "Gallery", "गैलरी"), onPress: () => void pickShopPhoto("gallery") },
+          { text: t(language, "cancel"), style: "cancel" }
+        ]
+      );
     }
 
-    async function pickReuploadField(field: TailorReuploadField) {
-      if (field === "aadhaarFront") return pickDoc(setAadhaarFront, "ocr");
-      if (field === "aadhaarBack") return pickDoc(setAadhaarBack, "ocr");
-      if (field === "panPhoto") return pickDoc(setPanPhoto, "ocr");
+    function pickReuploadField(field: TailorReuploadField) {
       if (field === "facePhoto") return pickDoc(setFacePhoto, "face");
-      return pickReplacementShopPhoto();
+      if (field === "shopPhotos") return chooseReplacementShopPhoto();
+      const setter = field === "aadhaarFront" ? setAadhaarFront : field === "aadhaarBack" ? setAadhaarBack : setPanPhoto;
+      Alert.alert(
+        localize(language, "Choose document photo", "दस्तावेज़ की फोटो चुनें"),
+        localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
+        [
+          { text: localize(language, "Camera", "कैमरा"), onPress: () => void pickDoc(setter, "ocr", "camera") },
+          { text: localize(language, "Gallery", "गैलरी"), onPress: () => void pickDoc(setter, "ocr", "gallery") },
+          { text: t(language, "cancel"), style: "cancel" }
+        ]
+      );
     }
 
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.pageContent}>
-          <Header title={statusTitle} subtitle={needsReupload ? "Please upload the requested documents again." : undefined} />
+          <Header title={statusTitle} subtitle={needsReupload ? localize(language, "Please upload the requested documents again.", "माँगे गए दस्तावेज़ दोबारा अपलोड करें।") : undefined} />
+          <View style={styles.privacyTrustBanner}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
+            <Text style={styles.privacyTrustText}>{localize(language, "Your information and documents remain safe with Darji.", "आपकी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं।")}</Text>
+          </View>
           <View style={[styles.verificationHero, isRejected && styles.rejectedHero]}>
             <Ionicons name={needsReupload || isRejected ? "alert-circle-outline" : "hourglass-outline"} size={38} color={isRejected ? "#dc2626" : BRAND_ORANGE} />
             <Text style={styles.verificationTitle}>{statusTitle}</Text>
             <Text style={styles.verificationCopy}>{statusCopy}</Text>
           </View>
           <View style={needsReupload ? styles.reuploadAlertCard : styles.statusReviewCard}>
-            <Text style={styles.cardLabel}>{needsReupload ? "ACTION REQUIRED" : "STATUS"}</Text>
-            <Text style={styles.cardTitle}>{needsReupload ? "Admin requested updated documents" : isRejected ? "Application rejected" : "Pending verification"}</Text>
-            {me?.tailorProfile?.darjiTailorId ? <Text style={styles.cardMeta}>Tailor ID: {me.tailorProfile.darjiTailorId}</Text> : null}
+            <Text style={styles.cardLabel}>{needsReupload ? localize(language, "ACTION REQUIRED", "कार्रवाई आवश्यक") : localize(language, "STATUS", "स्थिति")}</Text>
+            <Text style={styles.cardTitle}>{needsReupload ? localize(language, "Admin requested updated documents", "एडमिन ने नए दस्तावेज़ माँगे हैं") : isRejected ? localize(language, "Application rejected", "आवेदन अस्वीकार हुआ") : localize(language, "Pending verification", "सत्यापन लंबित है")}</Text>
+            {me?.tailorProfile?.darjiTailorId ? <Text style={styles.cardMeta}>{localize(language, "Tailor ID", "दर्जी आईडी")}: {me.tailorProfile.darjiTailorId}</Text> : null}
             {me?.tailorProfile?.verificationRejectionReason ? (
-              <Text style={styles.reuploadReasonText}>Admin Feedback: {me.tailorProfile.verificationRejectionReason}</Text>
+              <Text style={styles.reuploadReasonText}>{localize(language, "Admin Feedback", "एडमिन की प्रतिक्रिया")}: {me.tailorProfile.verificationRejectionReason}</Text>
             ) : null}
-            {isRejected && rejectedUntil && !canApplyAgain ? <Text style={styles.cardMeta}>You can apply again after {rejectedUntil.toLocaleDateString()}.</Text> : null}
+            {isRejected && rejectedUntil && !canApplyAgain ? <Text style={styles.cardMeta}>{localize(language, `You can apply again after ${rejectedUntil.toLocaleDateString()}.`, `${rejectedUntil.toLocaleDateString("hi-IN")} के बाद दोबारा आवेदन कर सकते हैं।`)}</Text> : null}
           </View>
           {needsReupload ? (
             <>
@@ -2651,7 +2765,7 @@ function TailorVerificationFlow({
                     </View>
                     <View style={styles.cardMain}>
                       <Text style={styles.cardTitle}>{reuploadFieldLabels[field]}</Text>
-                      <Text style={styles.cardMeta}>Upload a clear, uncropped, original image.</Text>
+                      <Text style={styles.cardMeta}>{localize(language, "Upload a clear, uncropped, original image.", "साफ, बिना कटी हुई मूल फोटो अपलोड करें।")}</Text>
                       {previews.length ? (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reuploadPreviewRow}>
                           {previews.map((media, index) => (
@@ -2662,44 +2776,44 @@ function TailorVerificationFlow({
                     </View>
                     <Pressable style={styles.reuploadUploadButton} onPress={() => pickReuploadField(field)}>
                       <Ionicons name="cloud-upload-outline" size={16} color={BRAND_ORANGE} />
-                      <Text style={styles.docActionText}>{previews.length ? "Change" : "Upload"}</Text>
+                      <Text style={styles.docActionText}>{previews.length ? localize(language, "Change", "बदलें") : localize(language, "Upload", "अपलोड करें")}</Text>
                     </Pressable>
                   </View>
                 );
               })}
-              <Text style={styles.verificationNotice}>Only the documents listed here need to be updated. Other saved details will remain attached to your application.</Text>
+              <Text style={styles.verificationNotice}>{localize(language, "Only the documents listed here need to be updated. Other saved details will remain attached to your application.", "केवल यहाँ दिए गए दस्तावेज़ बदलने हैं। बाकी सुरक्षित जानकारी आपके आवेदन में बनी रहेगी।")}</Text>
               <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
-                {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit All Documents</Text>}
+                {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>{localize(language, "Submit All Documents", "सभी दस्तावेज़ जमा करें")}</Text>}
               </Pressable>
             </>
           ) : null}
           {isRejected ? (
             <Pressable style={[styles.primaryButton, !canApplyAgain && styles.disabledButton]} disabled={!canApplyAgain} onPress={() => setStep(1)}>
-              <Text style={styles.primaryButtonText}>{canApplyAgain ? "Apply Again" : "Apply Again After 15 Days"}</Text>
+              <Text style={styles.primaryButtonText}>{canApplyAgain ? localize(language, "Apply Again", "दोबारा आवेदन करें") : localize(language, "Apply Again After 15 Days", "15 दिन बाद दोबारा आवेदन करें")}</Text>
             </Pressable>
           ) : null}
           <Pressable style={styles.secondaryButton} onPress={refreshVerificationStatus} disabled={refreshingStatus}>
             {refreshingStatus ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh" size={18} color={BRAND_DEEP} />}
-            <Text style={styles.secondaryButtonText}>Refresh Status</Text>
+            <Text style={styles.secondaryButtonText}>{localize(language, "Refresh Status", "स्थिति रीफ्रेश करें")}</Text>
           </Pressable>
           <Pressable style={styles.primaryButton} onPress={() => setInfoPage("tutorial")}>
             <Ionicons name="play-circle-outline" size={18} color="#111111" />
-            <Text style={styles.primaryButtonText}>Watch Tutorial</Text>
+            <Text style={styles.primaryButtonText}>{localize(language, "Watch Tutorial", "ट्यूटोरियल देखें")}</Text>
           </Pressable>
           <Pressable
             style={styles.smallLogoutButton}
             onPress={() => {
               Alert.alert(
-                "Logout Confirmation",
-                "Are you sure you want to logout?",
+                localize(language, "Logout Confirmation", "लॉगआउट की पुष्टि"),
+                localize(language, "Are you sure you want to logout?", "क्या आप वाकई लॉगआउट करना चाहते हैं?"),
                 [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Yes, Logout", style: "destructive", onPress: signOut }
+                  { text: t(language, "cancel"), style: "cancel" },
+                  { text: localize(language, "Yes, Logout", "हाँ, लॉगआउट करें"), style: "destructive", onPress: signOut }
                 ]
               );
             }}
           >
-            <Text style={styles.smallLogoutText}>logout</Text>
+            <Text style={styles.smallLogoutText}>{localize(language, "Logout", "लॉगआउट")}</Text>
           </Pressable>
         </ScrollView>
         <LoadingOverlay visible={refreshingStatus} />
@@ -2710,31 +2824,38 @@ function TailorVerificationFlow({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Tailor Verification" subtitle={`Step ${Math.min(step, VERIFICATION_TOTAL_STEPS)} of ${VERIFICATION_TOTAL_STEPS}`} />
+        <Header
+          title={localize(language, "Tailor Verification", "दर्जी सत्यापन")}
+          subtitle={localize(language, `Step ${Math.min(step, VERIFICATION_TOTAL_STEPS)} of ${VERIFICATION_TOTAL_STEPS}`, `चरण ${Math.min(step, VERIFICATION_TOTAL_STEPS)} / ${VERIFICATION_TOTAL_STEPS}`)}
+        />
         <View style={styles.verificationSteps}>
-          {verificationStepLabels.map((label, index) => (
+          {(language === "hi" ? ["व्यक्तिगत", "दुकान", "पहचान", "ट्यूटोरियल", "जमा करें"] : verificationStepLabels).map((label, index) => (
             <Text key={label} style={[styles.verificationStepPill, Math.min(step, VERIFICATION_TOTAL_STEPS) === index + 1 && styles.verificationStepPillActive]}>{label}</Text>
           ))}
         </View>
         <View style={styles.verificationProgressTrack}>
           <View style={[styles.verificationProgressFill, { width: `${(Math.min(step, VERIFICATION_TOTAL_STEPS) / VERIFICATION_TOTAL_STEPS) * 100}%` }]} />
         </View>
+        <View style={styles.privacyTrustBanner}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
+          <Text style={styles.privacyTrustText}>{localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")}</Text>
+        </View>
         {isLocked ? (
           <View style={styles.lockedNoticeBanner}>
             <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
-            <Text style={styles.lockedNoticeText}>Submitted – awaiting admin review. Details are read-only.</Text>
+            <Text style={styles.lockedNoticeText}>{localize(language, "Submitted – awaiting admin review. Details are read-only.", "जमा हो चुका है – एडमिन समीक्षा की प्रतीक्षा है। जानकारी केवल पढ़ने के लिए है।")}</Text>
           </View>
         ) : null}
 
         {step === 1 ? (
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>PERSONAL DETAILS</Text>
-            <Text style={styles.verificationNotice}>Name and DOB should match Aadhaar or PAN.</Text>
-            <Text style={styles.formLabel}>Name</Text>
-            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.name} onChangeText={(name) => !isLocked && setPersonal((current) => ({ ...current, name }))} placeholder="Full name" placeholderTextColor="#9aa6b8" editable={!isLocked} />
-            <Text style={styles.formLabel}>Date of Birth</Text>
+            <Text style={styles.cardLabel}>{localize(language, "PERSONAL DETAILS", "व्यक्तिगत जानकारी")}</Text>
+            <Text style={styles.verificationNotice}>{localize(language, "Name and DOB should match Aadhaar or PAN.", "नाम और जन्म तिथि आधार या पैन से मेल खानी चाहिए।")}</Text>
+            <Text style={styles.formLabel}>{t(language, "fullName")}</Text>
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.name} onChangeText={(name) => !isLocked && setPersonal((current) => ({ ...current, name }))} placeholder={t(language, "enterYourName")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <Text style={styles.formLabel}>{t(language, "dateOfBirth")}</Text>
             <Pressable style={[styles.inputButton, isLocked && styles.inputReadOnly]} onPress={() => !isLocked && setShowDobPicker(true)}>
-              <Text style={[styles.inputButtonText, !personal.dob && styles.placeholderText]}>{personal.dob || "Select date of birth"}</Text>
+              <Text style={[styles.inputButtonText, !personal.dob && styles.placeholderText]}>{personal.dob || localize(language, "Select date of birth", "जन्म तिथि चुनें")}</Text>
               <Ionicons name="calendar-outline" size={18} color={isLocked ? "#9aa6b8" : BRAND_ORANGE} />
             </Pressable>
             {showDobPicker && !isLocked ? (
@@ -2749,14 +2870,14 @@ function TailorVerificationFlow({
                 }}
               />
             ) : null}
-            <Text style={styles.formLabel}>Email (optional)</Text>
+            <Text style={styles.formLabel}>{localize(language, "Email (optional)", "ईमेल (वैकल्पिक)")}</Text>
             <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.email} onChangeText={(email) => !isLocked && setPersonal((current) => ({ ...current, email }))} placeholder="name@example.com" placeholderTextColor="#9aa6b8" keyboardType="email-address" editable={!isLocked} />
-            <Text style={styles.formLabel}>Address</Text>
-            <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={personal.address} onChangeText={(address) => !isLocked && setPersonal((current) => ({ ...current, address }))} placeholder="Home address" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <Text style={styles.formLabel}>{localize(language, "Address", "पता")}</Text>
+            <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={personal.address} onChangeText={(address) => !isLocked && setPersonal((current) => ({ ...current, address }))} placeholder={localize(language, "Home address", "घर का पता")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
             {!isLocked ? (
               <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("personal")} disabled={locating}>
                 {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
-                <Text style={styles.secondaryButtonText}>Fetch Current Location</Text>
+                <Text style={styles.secondaryButtonText}>{localize(language, "Fetch Current Location", "वर्तमान स्थान लें")}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -2764,37 +2885,37 @@ function TailorVerificationFlow({
 
         {step === 2 ? (
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>SHOP DETAILS</Text>
+            <Text style={styles.cardLabel}>{localize(language, "SHOP DETAILS", "दुकान की जानकारी")}</Text>
             <Pressable style={styles.toggleChoiceRow} onPress={() => !isLocked && setShop((current) => ({ ...current, workFromHome: !current.workFromHome, shopName: !current.workFromHome && !current.shopName ? "Home" : current.shopName }))} disabled={isLocked}>
               <Ionicons name={shop.workFromHome ? "checkbox" : "square-outline"} size={21} color={isLocked ? "#9aa6b8" : BRAND_ORANGE} />
               <View style={styles.cardMain}>
-                <Text style={styles.cardTitle}>I work from home</Text>
-                <Text style={styles.cardMeta}>Use this if you do not have a separate shop.</Text>
+                <Text style={styles.cardTitle}>{localize(language, "I work from home", "मैं घर से काम करता/करती हूँ")}</Text>
+                <Text style={styles.cardMeta}>{localize(language, "Use this if you do not have a separate shop.", "यदि आपकी अलग दुकान नहीं है तो इसे चुनें।")}</Text>
               </View>
             </Pressable>
-            <Text style={styles.formLabel}>{shop.workFromHome ? "Home Workshop Name" : "Shop Name"}</Text>
+            <Text style={styles.formLabel}>{shop.workFromHome ? localize(language, "Home Workshop Name", "घर की कार्यशाला का नाम") : localize(language, "Shop Name", "दुकान का नाम")}</Text>
             <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.shopName} onChangeText={(shopName) => !isLocked && setShop((current) => ({ ...current, shopName }))} placeholder={shop.workFromHome ? "Home" : "Shop or studio name"} placeholderTextColor="#9aa6b8" editable={!isLocked} />
-            <Text style={styles.formLabel}>{shop.workFromHome ? "Home Address" : "Shop/Home Address"}</Text>
+            <Text style={styles.formLabel}>{shop.workFromHome ? localize(language, "Home Address", "घर का पता") : localize(language, "Shop/Home Address", "दुकान/घर का पता")}</Text>
             <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={shop.shopAddress} onChangeText={(shopAddress) => !isLocked && setShop((current) => ({ ...current, shopAddress }))} placeholder="Home address if no shop" placeholderTextColor="#9aa6b8" editable={!isLocked} />
             {!isLocked ? (
               <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("shop")} disabled={locating}>
                 {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
-                <Text style={styles.secondaryButtonText}>Use Current Location</Text>
+                <Text style={styles.secondaryButtonText}>{localize(language, "Use Current Location", "वर्तमान स्थान उपयोग करें")}</Text>
               </Pressable>
             ) : null}
-            <Text style={styles.formLabel}>GST No. (optional)</Text>
+            <Text style={styles.formLabel}>{localize(language, "GST No. (optional)", "जीएसटी नंबर (वैकल्पिक)")}</Text>
             <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.gstNumber} onChangeText={(gstNumber) => !isLocked && setShop((current) => ({ ...current, gstNumber }))} placeholder="GSTIN" placeholderTextColor="#9aa6b8" editable={!isLocked} />
             <View style={styles.twoFieldRow}>
               <View style={styles.twoFieldItem}>
-                <Text style={styles.formLabel}>No. of Employees</Text>
+                <Text style={styles.formLabel}>{localize(language, "No. of Employees", "कर्मचारियों की संख्या")}</Text>
                 <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.employeeCount} onChangeText={(employeeCount) => !isLocked && setShop((current) => ({ ...current, employeeCount }))} keyboardType="number-pad" placeholder="1" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               </View>
               <View style={styles.twoFieldItem}>
-                <Text style={styles.formLabel}>Years Experience</Text>
+                <Text style={styles.formLabel}>{localize(language, "Years Experience", "अनुभव के वर्ष")}</Text>
                 <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.yearsExperience} onChangeText={(yearsExperience) => !isLocked && setShop((current) => ({ ...current, yearsExperience }))} keyboardType="number-pad" placeholder="5" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               </View>
             </View>
-            <Text style={styles.formLabel}>Machinery</Text>
+            <Text style={styles.formLabel}>{localize(language, "Machinery", "मशीनें")}</Text>
             <View style={styles.chipWrap}>
               {machineryOptions.map((item) => {
                 const selected = shop.machinery.includes(item);
@@ -2806,7 +2927,7 @@ function TailorVerificationFlow({
               })}
             </View>
             <View style={styles.rowBetween}>
-              <Text style={styles.formLabel}>Shop Photos</Text>
+              <Text style={styles.formLabel}>{localize(language, "Shop Photos", "दुकान की फोटो")}</Text>
               <Text style={styles.cardMeta}>{shop.shopPhotos.length}/3</Text>
             </View>
             <View style={styles.shopPhotoGrid}>
@@ -2821,22 +2942,37 @@ function TailorVerificationFlow({
                 </View>
               ))}
               {!isLocked && shop.shopPhotos.length < 3 ? (
-                <Pressable style={styles.shopPhotoUpload} onPress={pickShopPhoto}>
+                <Pressable
+                  style={styles.shopPhotoUpload}
+                  onPress={() => Alert.alert(
+                    localize(language, "Add shop photo", "दुकान की फोटो जोड़ें"),
+                    localize(language, "Choose Camera or Gallery. Darji receives only the photo you select.", "कैमरा या गैलरी चुनें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी।"),
+                    [
+                      { text: localize(language, "Camera", "कैमरा"), onPress: () => void pickShopPhoto("camera") },
+                      { text: localize(language, "Gallery", "गैलरी"), onPress: () => void pickShopPhoto("gallery") },
+                      { text: t(language, "cancel"), style: "cancel" }
+                    ]
+                  )}
+                >
                   <Ionicons name="camera-outline" size={22} color={BRAND_ORANGE} />
-                  <Text style={styles.verificationDocText}>Upload Photo</Text>
+                  <Text style={styles.verificationDocText}>{localize(language, "Camera / Gallery", "कैमरा / गैलरी")}</Text>
                 </Pressable>
               ) : null}
             </View>
-            <Text style={styles.cardMeta}>Upload 1 to 3 clear photos of your shop, board, or home workshop.</Text>
+            <Text style={styles.cardMeta}>{localize(language, "Upload 1 to 3 clear photos of your shop, board, or home workshop.", "दुकान, बोर्ड या घर की कार्यशाला की 1 से 3 साफ फोटो अपलोड करें।")}</Text>
           </View>
         ) : null}
 
         {step === 3 ? (
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>ID VERIFICATION</Text>
-            <Text style={styles.verificationNotice}>Upload clear photos. Blurry or cropped documents can be rejected.</Text>
+            <Text style={styles.cardLabel}>{localize(language, "ID VERIFICATION", "पहचान सत्यापन")}</Text>
+            <View style={styles.singleIdNotice}>
+              <Ionicons name="information-circle-outline" size={18} color={BRAND_ORANGE} />
+              <Text style={styles.singleIdNoticeText}>{localize(language, "Only one identity document is required. Choose either Aadhaar or PAN.", "केवल एक पहचान दस्तावेज़ चाहिए। आधार या पैन में से कोई एक चुनें।")}</Text>
+            </View>
+            <Text style={styles.verificationNotice}>{localize(language, "Upload clear photos. Blurry or cropped documents can be rejected.", "साफ फोटो अपलोड करें। धुंधले या कटे हुए दस्तावेज़ अस्वीकार हो सकते हैं।")}</Text>
             <View style={styles.genderRow}>
-              {(["Aadhaar", "PAN", "License"] as const).map((item) => (
+              {(["Aadhaar", "PAN"] as const).map((item) => (
                 <Pressable
                   key={item}
                   style={[styles.genderChip, idType === item && styles.genderChipActive, isLocked && styles.inputReadOnly]}
@@ -2851,39 +2987,39 @@ function TailorVerificationFlow({
                 </Pressable>
               ))}
             </View>
-            <Text style={styles.formLabel}>{tailorIdNumberLabel(idType)}</Text>
+            <Text style={styles.formLabel}>{language === "hi" ? idType === "Aadhaar" ? "आधार नंबर" : "पैन नंबर" : tailorIdNumberLabel(idType)}</Text>
             <TextInput
               style={[styles.input, isLocked && styles.inputReadOnly]}
               value={idNumber}
               onChangeText={(value) => !isLocked && setIdNumber(normalizeTailorIdNumber(idType, value))}
-              placeholder={tailorIdPlaceholder(idType)}
+              placeholder={language === "hi" ? idType === "Aadhaar" ? "12 अंकों का आधार नंबर" : "ABCDE1234F" : tailorIdPlaceholder(idType)}
               placeholderTextColor="#9aa6b8"
               keyboardType={idType === "Aadhaar" ? "number-pad" : "default"}
               editable={!isLocked}
             />
             {idType === "Aadhaar" ? (
               <View style={styles.docGrid}>
-                <VerificationDocBox label="Aadhaar Front" media={aadhaarFront} onPick={() => !isLocked && pickDoc(setAadhaarFront, "ocr")} disabled={isLocked} />
-                <VerificationDocBox label="Aadhaar Back" media={aadhaarBack} onPick={() => !isLocked && pickDoc(setAadhaarBack, "ocr")} disabled={isLocked} />
+                <VerificationDocBox label={localize(language, "Aadhaar Front", "आधार सामने")} media={aadhaarFront} onCamera={() => !isLocked && pickDoc(setAadhaarFront, "ocr", "camera")} onGallery={() => !isLocked && pickDoc(setAadhaarFront, "ocr", "gallery")} disabled={isLocked} />
+                <VerificationDocBox label={localize(language, "Aadhaar Back", "आधार पीछे")} media={aadhaarBack} onCamera={() => !isLocked && pickDoc(setAadhaarBack, "ocr", "camera")} onGallery={() => !isLocked && pickDoc(setAadhaarBack, "ocr", "gallery")} disabled={isLocked} />
               </View>
             ) : (
-              <VerificationDocBox label={idType === "PAN" ? "PAN Card" : "Driving Licence"} media={panPhoto} onPick={() => !isLocked && pickDoc(setPanPhoto, "ocr")} disabled={isLocked} />
+              <VerificationDocBox label={localize(language, "PAN Card", "पैन कार्ड")} media={panPhoto} onCamera={() => !isLocked && pickDoc(setPanPhoto, "ocr", "camera")} onGallery={() => !isLocked && pickDoc(setPanPhoto, "ocr", "gallery")} disabled={isLocked} />
             )}
             <View style={styles.faceVerificationPanel}>
               <View style={[styles.faceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" || faceLiveness === "captured" ? styles.faceCircleReady : styles.faceCircleWaiting]}>
                 {facePhoto ? <Image source={{ uri: facePhoto.uri }} style={styles.facePreviewImage} /> : <Ionicons name="person-outline" size={42} color={faceLiveness === "aligned" || faceLiveness === "blink-detected" ? SUCCESS : "#b91c1c"} />}
               </View>
               <View style={styles.cardMain}>
-                <Text style={styles.cardTitle}>Face Verification</Text>
-                <Text style={styles.cardMeta}>Place your face inside the circle, wait for green, then blink. Photo captures automatically.</Text>
+                <Text style={styles.cardTitle}>{localize(language, "Face Verification", "चेहरे का सत्यापन")}</Text>
+                <Text style={styles.cardMeta}>{localize(language, "Place your face inside the circle, wait for green, then blink. Photo captures automatically.", "चेहरा गोले के अंदर रखें, हरा होने की प्रतीक्षा करें, फिर पलक झपकाएँ। फोटो अपने आप ली जाएगी।")}</Text>
                 <Text style={styles.faceStatusText}>{faceLiveness === "idle" ? "Not started" : faceLiveness === "aligning" ? "Aligning face..." : faceLiveness === "aligned" ? "Green circle: blink now" : faceLiveness === "blink-detected" ? "Blink detected, capturing..." : "Selfie captured"}</Text>
               </View>
             </View>
             <Pressable style={styles.secondaryButton} onPress={() => confirmFaceProfilePhoto(() => setFaceModeOpen(true))}>
               <Ionicons name="camera-outline" size={18} color={BRAND_DEEP} />
-              <Text style={styles.secondaryButtonText}>{facePhoto ? "Retake Face Verification" : "Start Face Verification"}</Text>
+              <Text style={styles.secondaryButtonText}>{facePhoto ? localize(language, "Retake Face Verification", "चेहरे की फोटो दोबारा लें") : localize(language, "Start Face Verification", "चेहरा सत्यापन शुरू करें")}</Text>
             </Pressable>
-            <VerificationDocBox label="Take Face Photo" media={facePhoto} onPick={() => confirmFaceProfilePhoto(() => pickDoc(setFacePhoto, "face"))} />
+            <VerificationDocBox label={localize(language, "Take Face Photo", "चेहरे की फोटो लें")} media={facePhoto} onCamera={() => confirmFaceProfilePhoto(() => pickDoc(setFacePhoto, "face", "camera"))} />
             {faceModeOpen ? (
               <Modal visible animationType="slide" onRequestClose={() => setFaceModeOpen(false)}>
                 <SafeAreaView style={styles.cameraSafe}>
@@ -2922,25 +3058,25 @@ function TailorVerificationFlow({
 
         {step === 4 ? (
           <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>TUTORIAL</Text>
+            <Text style={styles.cardLabel}>{localize(language, "TUTORIAL", "ट्यूटोरियल")}</Text>
             <Pressable style={styles.tutorialVideoCard} onPress={startTutorialWatch} disabled={tutorialWatching}>
               <Image source={{ uri: tutorialMedia?.thumbnailUrl || DEFAULT_TUTORIAL_THUMBNAIL }} style={styles.tutorialThumbnail} />
               <View style={styles.tutorialPlayButton}>
                 <Ionicons name={tutorialWatched ? "checkmark" : "play"} size={28} color="#111111" />
               </View>
             </Pressable>
-            <Text style={styles.verificationTitle}>{tutorialMedia?.title ?? "How Darji Works for Tailors"}</Text>
-            <Text style={styles.verificationCopy}>{tutorialMedia?.description ?? "Watch the complete tutorial before submitting your verification."}</Text>
+            <Text style={styles.verificationTitle}>{language === "hi" ? "दर्जियों के लिए Darji कैसे काम करता है" : tutorialMedia?.title ?? "How Darji Works for Tailors"}</Text>
+            <Text style={styles.verificationCopy}>{language === "hi" ? "अपना सत्यापन जमा करने से पहले पूरा ट्यूटोरियल देखें।" : tutorialMedia?.description ?? "Watch the complete tutorial before submitting your verification."}</Text>
             <View style={styles.tutorialProgressPanel}>
               <Ionicons name={tutorialWatched ? "checkmark-circle-outline" : tutorialWatching ? "time-outline" : "play-circle-outline"} size={20} color={tutorialWatched ? SUCCESS : BRAND_ORANGE} />
               <View style={styles.cardMain}>
-                <Text style={styles.cardTitle}>{tutorialWatched ? "Tutorial completed" : tutorialWatching ? "Watching tutorial..." : "Tutorial required"}</Text>
+                <Text style={styles.cardTitle}>{tutorialWatched ? localize(language, "Tutorial completed", "ट्यूटोरियल पूरा हुआ") : tutorialWatching ? localize(language, "Watching tutorial...", "ट्यूटोरियल चल रहा है...") : localize(language, "Tutorial required", "ट्यूटोरियल आवश्यक है")}</Text>
                 <Text style={styles.cardMeta}>
                   {tutorialWatched
-                    ? "You can submit your verification now."
+                    ? localize(language, "You can submit your verification now.", "अब आप सत्यापन जमा कर सकते हैं।")
                     : tutorialWatching
-                      ? `${formatTutorialDuration(tutorialSecondsLeft)} remaining`
-                      : `${formatTutorialDuration(tutorialDurationSeconds())} tutorial`}
+                      ? localize(language, `${formatTutorialDuration(tutorialSecondsLeft)} remaining`, `${formatTutorialDuration(tutorialSecondsLeft)} बाकी`)
+                      : localize(language, `${formatTutorialDuration(tutorialDurationSeconds())} tutorial`, `${formatTutorialDuration(tutorialDurationSeconds())} का ट्यूटोरियल`)}
                 </Text>
                 {tutorialWatching ? (
                   <View style={styles.progressTrack}>
@@ -2952,7 +3088,7 @@ function TailorVerificationFlow({
             <View style={styles.tutorialControls}>
               <Pressable style={styles.docActionButton} onPress={startTutorialWatch} disabled={tutorialWatching}>
                 <Ionicons name={tutorialMedia?.videoUrl ? "open-outline" : "play-circle-outline"} size={16} color={BRAND_ORANGE} />
-                <Text style={styles.docActionText}>{tutorialWatching ? "Playing" : tutorialWatched ? "Watch Again" : "Start Tutorial"}</Text>
+                <Text style={styles.docActionText}>{tutorialWatching ? localize(language, "Playing", "चल रहा है") : tutorialWatched ? localize(language, "Watch Again", "फिर से देखें") : localize(language, "Start Tutorial", "ट्यूटोरियल शुरू करें")}</Text>
               </Pressable>
             </View>
             {tutorialMedia?.images?.length ? (
@@ -2968,16 +3104,16 @@ function TailorVerificationFlow({
         <View style={styles.verificationNav}>
           {step > 1 && step <= VERIFICATION_FORM_STEPS ? (
             <Pressable style={styles.secondaryButton} onPress={() => setStep((current) => Math.max(1, current - 1))}>
-              <Text style={styles.secondaryButtonText}>Back</Text>
+              <Text style={styles.secondaryButtonText}>{localize(language, "Back", "पीछे")}</Text>
             </Pressable>
           ) : null}
           {!isLocked && step < VERIFICATION_FORM_STEPS ? (
             <Pressable style={[styles.primaryButton, !validateCurrentStep() && styles.disabledButton]} onPress={continueToNextStep}>
-              <Text style={styles.primaryButtonText}>Continue</Text>
+              <Text style={styles.primaryButtonText}>{t(language, "continue")}</Text>
             </Pressable>
           ) : !isLocked && step >= VERIFICATION_FORM_STEPS ? (
             <Pressable style={[styles.primaryButton, (saving || !validateCurrentStep()) && styles.disabledButton]} onPress={submitVerification} disabled={saving}>
-              {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Final Submit</Text>}
+              {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>{localize(language, "Final Submit", "अंतिम रूप से जमा करें")}</Text>}
             </Pressable>
           ) : null}
         </View>
@@ -2985,12 +3121,12 @@ function TailorVerificationFlow({
           style={{ alignItems: "center", marginTop: 25, paddingVertical: 10, marginBottom: 20 }}
           onPress={() => {
             Alert.alert(
-              "Login Confirmation",
-              "Do you want to sign out and log in with another mobile number?",
+              localize(language, "Login Confirmation", "लॉगिन की पुष्टि"),
+              localize(language, "Do you want to sign out and log in with another mobile number?", "क्या आप लॉगआउट करके दूसरे मोबाइल नंबर से लॉगिन करना चाहते हैं?"),
               [
-                { text: "Cancel", style: "cancel" },
+                { text: t(language, "cancel"), style: "cancel" },
                 {
-                  text: "Yes, Logout",
+                  text: localize(language, "Yes, Logout", "हाँ, लॉगआउट करें"),
                   style: "destructive",
                   onPress: () => {
                     signOut();
@@ -3002,7 +3138,7 @@ function TailorVerificationFlow({
           }}
         >
           <Text style={{ color: "#64748b", fontSize: 13, fontWeight: "800", textDecorationLine: "underline" }}>
-            Login with another number
+            {localize(language, "Login with another number", "दूसरे नंबर से लॉगिन करें")}
           </Text>
         </Pressable>
       </ScrollView>
@@ -3027,12 +3163,9 @@ function ProfileScreen({
   const [available, setAvailable] = useState(Boolean(me?.tailorProfile?.isAvailable ?? true));
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
   const [shopName, setShopName] = useState(me?.tailorProfile?.shopName ?? "Darji Tailor");
   const [specialization, setSpecialization] = useState((me?.tailorProfile?.specialization ?? ["Alteration", "Stitching"]).join(", "));
-  const [workingFrom, setWorkingFrom] = useState(me?.tailorProfile?.workingHours?.from ?? "10:00");
-  const [workingTo, setWorkingTo] = useState(me?.tailorProfile?.workingHours?.to ?? "20:00");
   const [settings, setSettings] = useState({
     notifications: me?.tailorProfile?.settings?.notifications ?? true,
     soundAlerts: me?.tailorProfile?.settings?.soundAlerts ?? true,
@@ -3045,8 +3178,6 @@ function ProfileScreen({
     setName(me?.name ?? "");
     setShopName(me?.tailorProfile?.shopName ?? "Darji Tailor");
     setSpecialization((me?.tailorProfile?.specialization ?? ["Alteration", "Stitching"]).join(", "));
-    setWorkingFrom(me?.tailorProfile?.workingHours?.from ?? "10:00");
-    setWorkingTo(me?.tailorProfile?.workingHours?.to ?? "20:00");
     setSettings({
       notifications: me?.tailorProfile?.settings?.notifications ?? true,
       soundAlerts: me?.tailorProfile?.settings?.soundAlerts ?? true,
@@ -3092,7 +3223,6 @@ function ProfileScreen({
             name: name.trim(),
             shopName: shopName.trim(),
             specialization: specializationList,
-            workingHours: { from: workingFrom.trim(), to: workingTo.trim() },
             settings
           })
         },
@@ -3111,38 +3241,6 @@ function ProfileScreen({
     }
   }
 
-  async function pickAvatar() {
-    if (me?.tailorProfile?.verification?.idVerification?.facePhotoUrl || me?.tailorProfile?.verificationStatus === "VERIFIED") {
-      showDialog({ title: "Photo locked", message: "Your verification selfie is your permanent profile photo.", icon: "lock-closed-outline" });
-      return;
-    }
-    if (!token) return;
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      showDialog({ title: "Camera permission needed", message: "Allow camera access to take a new profile picture.", icon: "camera-outline" });
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.82 });
-    if (result.canceled || !result.assets.length) return;
-    const asset = result.assets[0];
-
-    try {
-      setUploadingAvatar(true);
-      await uploadTailorAvatar({ uri: asset.uri, name: asset.fileName ?? `tailor-avatar-${Date.now()}.jpg` }, token);
-      showDialog({ title: "Photo updated", message: "Your profile picture was updated.", icon: "person-circle-outline" });
-      refresh();
-    } catch (error) {
-      if (isSessionError(error)) {
-        onSessionExpired();
-        return;
-      }
-      showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not upload profile photo.", icon: "alert-circle-outline" });
-    } finally {
-      setUploadingAvatar(false);
-    }
-  }
-
   function toggleSetting(key: keyof typeof settings, value: boolean) {
     setSettings((current) => ({ ...current, [key]: value }));
   }
@@ -3151,17 +3249,12 @@ function ProfileScreen({
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header title="Profile" subtitle={me?.phone ? `+91 ${me.phone}` : "Tailor account"} />
       <View style={styles.profileCard}>
-        <Pressable style={styles.avatar} onPress={pickAvatar} disabled={uploadingAvatar || Boolean(me?.tailorProfile?.verification?.idVerification?.facePhotoUrl) || me?.tailorProfile?.verificationStatus === "VERIFIED"}>
+        <View style={styles.avatar}>
           <Image source={{ uri: me?.avatarUrl || getFallbackAvatar(me?.name || me?.tailorProfile?.shopName) }} style={styles.avatarImage} />
-          {me?.tailorProfile?.verification?.idVerification?.facePhotoUrl || me?.tailorProfile?.verificationStatus === "VERIFIED" ? null : (
-            <View style={styles.avatarEditBadge}>
-              {uploadingAvatar ? <ActivityIndicator color="#111111" size="small" /> : <Ionicons name="camera-outline" size={14} color="#111111" />}
-            </View>
-          )}
-        </Pressable>
+        </View>
         <View style={styles.cardMain}>
           <Text style={styles.bigTitle}>{me?.tailorProfile?.shopName ?? "Darji Tailor"}</Text>
-          <Text style={styles.cardMeta}>{me?.tailorProfile?.verification?.idVerification?.facePhotoUrl || me?.tailorProfile?.verificationStatus === "VERIFIED" ? `${me?.name ?? "Tailor Partner"} - verification photo locked` : `${me?.name ?? "Tailor Partner"} - tap photo to change`}</Text>
+          <Text style={styles.cardMeta}>{me?.name ?? "Tailor Partner"} - verification profile photo</Text>
         </View>
       </View>
 
@@ -3173,16 +3266,6 @@ function ProfileScreen({
         <TextInput style={styles.input} value={shopName} onChangeText={setShopName} placeholder="Shop or studio name" placeholderTextColor="#9aa6b8" />
         <Text style={styles.formLabel}>Specialization</Text>
         <TextInput style={styles.input} value={specialization} onChangeText={setSpecialization} placeholder="Alteration, Stitching, Blouse" placeholderTextColor="#9aa6b8" />
-        <View style={styles.twoFieldRow}>
-          <View style={styles.twoFieldItem}>
-            <Text style={styles.formLabel}>Open From</Text>
-            <TextInput style={styles.input} value={workingFrom} onChangeText={setWorkingFrom} placeholder="10:00" placeholderTextColor="#9aa6b8" />
-          </View>
-          <View style={styles.twoFieldItem}>
-            <Text style={styles.formLabel}>Open Until</Text>
-            <TextInput style={styles.input} value={workingTo} onChangeText={setWorkingTo} placeholder="20:00" placeholderTextColor="#9aa6b8" />
-          </View>
-        </View>
         <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
           {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
         </Pressable>
@@ -3206,7 +3289,6 @@ function ProfileScreen({
       <View style={styles.whiteCard}>
         <Text style={styles.cardLabel}>PROFILE SUMMARY</Text>
         <DetailRow icon="star-outline" label="Rating" value={`${me?.tailorProfile?.rating ?? 0} / 5`} />
-        <DetailRow icon="time-outline" label="Working Hours" value={`${me?.tailorProfile?.workingHours?.from ?? "10:00"} - ${me?.tailorProfile?.workingHours?.to ?? "20:00"}`} />
         <DetailRow icon="ribbon-outline" label="Specialization" value={(me?.tailorProfile?.specialization ?? ["Alteration", "Stitching"]).join(", ")} />
       </View>
 
@@ -3256,7 +3338,11 @@ function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen:
   return (
     <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
       {tabs.map((tab) => {
-        const active = screen === tab.key || (screen === "requestDetails" && tab.key === "requests") || (screen === "quote" && tab.key === "requests") || (screen === "orderDetails" && tab.key === "orders");
+        const active = screen === tab.key
+          || (screen === "requestDetails" && tab.key === "requests")
+          || (screen === "quote" && tab.key === "requests")
+          || (screen === "orderDetails" && tab.key === "orders")
+          || ((screen === "earningDetails" || screen === "transactions") && tab.key === "earnings");
         return (
           <Pressable key={tab.key} style={styles.tabItem} onPress={() => setScreen(tab.key)}>
             <Ionicons name={active ? tab.icon.replace("-outline", "") as keyof typeof Ionicons.glyphMap : tab.icon} size={22} color={active ? BRAND_ORANGE : "#111827"} />
@@ -3475,6 +3561,7 @@ export default function App() {
   const [requests, setRequests] = useState<TailoringRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [wallet, setWallet] = useState<PartnerWalletSummary>(emptyPartnerWallet);
+  const [earningDetail, setEarningDetail] = useState<EarningDetailKey>("pending");
   const [loadingWallet, setLoadingWallet] = useState(false);
   const [activeRequest, setActiveRequest] = useState<TailoringRequest>();
   const [activeOrder, setActiveOrder] = useState<Order>();
@@ -3860,7 +3947,6 @@ export default function App() {
     };
   }, [newRequestPopup?.id, soundAlertsEnabled]);
 
-  if (platform.checking) return <PlatformStatusLoadingScreen />;
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
@@ -3926,7 +4012,8 @@ export default function App() {
   if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
-  if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
+  if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setScreen("earningDetails"); }} showDialog={setDialog} />;
+  if (screen === "earningDetails") body = <EarningDetailsScreen detail={earningDetail} wallet={wallet} onBack={goBack} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
   if (screen === "transactions") body = <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
   if (screen === "profile") {
     body = (
@@ -4034,7 +4121,10 @@ const styles = StyleSheet.create({
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, marginTop: 8, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
-  authContent: { flex: 1, justifyContent: "center", paddingHorizontal: 26 },
+  authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 26, paddingBottom: 28, paddingTop: 70 },
+  authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
+  authLogoWrap: { alignItems: "flex-start", justifyContent: "center", marginBottom: 14 },
+  authLogo: { width: 184, height: 82 },
   logoMark: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 20 },
   authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 15, lineHeight: 23, marginTop: 8, marginBottom: 34 },
@@ -4179,7 +4269,6 @@ const styles = StyleSheet.create({
   profileCard: { borderRadius: 22, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 14 },
   avatar: { width: 64, height: 64, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   avatarImage: { width: "100%", height: "100%", borderRadius: 22 },
-  avatarEditBadge: { position: "absolute", right: -4, bottom: -4, width: 26, height: 26, borderRadius: 13, backgroundColor: BRAND_ORANGE, borderWidth: 2, borderColor: SURFACE, alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#111111", fontSize: 18, fontWeight: "900" },
   twoFieldRow: { flexDirection: "row", gap: 10 },
   twoFieldItem: { flex: 1, minWidth: 0 },
@@ -4226,9 +4315,16 @@ const styles = StyleSheet.create({
   previewCell: { flex: 1, minWidth: 0, color: MUTED, fontSize: 11, fontWeight: "800", paddingHorizontal: 8 },
   previewPrice: { width: 72, color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textAlign: "right", paddingHorizontal: 8 },
   docGrid: { flexDirection: "row", gap: 10, marginTop: 12 },
-  verificationDocBox: { flex: 1, minHeight: 112, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 10, marginTop: 12, overflow: "hidden" },
+  verificationDocBox: { flex: 1, minHeight: 148, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 10, marginTop: 12, overflow: "hidden" },
   verificationDocImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   verificationDocText: { color: BRAND_ORANGE, backgroundColor: "rgba(255,255,255,0.88)", overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5, fontSize: 11, fontWeight: "900", textAlign: "center" },
+  verificationDocActions: { width: "100%", flexDirection: "row", gap: 6, marginTop: 9 },
+  verificationDocAction: { flex: 1, minHeight: 32, borderRadius: 10, borderWidth: 1, borderColor: "#efbd65", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 4 },
+  verificationDocActionText: { color: BRAND_ORANGE, fontSize: 9, fontWeight: "900" },
+  privacyTrustBanner: { minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, paddingVertical: 10, marginBottom: 14 },
+  privacyTrustText: { flex: 1, color: "#166534", fontSize: 12, lineHeight: 18, fontWeight: "800" },
+  singleIdNotice: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11, paddingVertical: 9, marginTop: 10 },
+  singleIdNoticeText: { flex: 1, color: "#9a3412", fontSize: 12, lineHeight: 17, fontWeight: "800" },
   shopPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
   shopPhotoTile: { width: 94, height: 86, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: BORDER, backgroundColor: "#fff4dc" },
   shopPhotoImage: { width: "100%", height: "100%" },

@@ -45,9 +45,17 @@ import { configureForegroundNotificationHandler } from "./src/notifications/hand
 import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
-import { getLanguageLabel, t, type AppLanguage } from "../../shared/src/localization";
-import { PlatformMaintenanceScreen, PlatformStatusLoadingScreen } from "../../shared/src/platform-maintenance-screen";
+import { getLanguageLabel, localize, t, type AppLanguage } from "../../shared/src/localization";
+import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
+import {
+  GENDER_FIT_OPTIONS,
+  SERVICE_CATEGORIES,
+  getGarmentsForGender,
+  getServiceCategory,
+  type GenderFitType
+} from "./src/config/clothDetails";
 
 type Screen =
   | "home"
@@ -110,6 +118,9 @@ type ClothingItemDraft = {
   gender?: string;
   clothType?: string;
   workType?: string;
+  serviceCategory?: string;
+  selectedWorkItems?: string[];
+  otherWorkDescription?: string;
   measurements?: Record<string, string>;
   measurementNotes?: string;
   sampleProvided?: boolean;
@@ -308,6 +319,9 @@ type RequestDraft = {
   gender?: string;
   clothType?: string;
   workType?: string;
+  serviceCategory?: string;
+  selectedWorkItems?: string[];
+  otherWorkDescription?: string;
   urgency?: string;
   measurements?: Record<string, string>;
   measurementNotes?: string;
@@ -477,8 +491,8 @@ const quotes: Quote[] = [
 
 const homeMediaFeatures = [
   {
-    title: "Cloth Press Doorstep",
-    text: "Steam press pickup and delivery at home",
+    title: "Doorstep Ironing Service",
+    text: "Professional ironing with pickup and doorstep delivery",
     tag: "Launching soon",
     image: ironingImage,
     soon: true
@@ -578,7 +592,25 @@ const measurementGuides: Record<string, MeasurementGuide> = {
 };
 
 function guideForClothType(clothType?: string) {
-  return measurementGuides[clothType ?? ""] ?? measurementGuides.Others;
+  const aliases: Record<string, keyof typeof measurementGuides> = {
+    Kurta: "Kurta / Salwar",
+    "Kurta Pajama": "Kurta / Salwar",
+    Kurti: "Kurta / Salwar",
+    "Salwar Suit": "Kurta / Salwar",
+    Anarkali: "Kurta / Salwar",
+    Blouse: "Saree / Blouse",
+    Lehenga: "Saree / Blouse",
+    Shirt: "Shirt / Pants",
+    Trousers: "Shirt / Pants",
+    Pants: "Shirt / Pants",
+    Shorts: "Shirt / Pants",
+    Suit: "Suit / Blazer",
+    Blazer: "Suit / Blazer",
+    Waistcoat: "Suit / Blazer",
+    Sherwani: "Suit / Blazer"
+  };
+  const key = clothType ? aliases[clothType] ?? clothType : "";
+  return measurementGuides[key] ?? measurementGuides.Others;
 }
 
 function formatCmValue(value: string) {
@@ -660,6 +692,9 @@ function hasActiveItemDraftData(draft: RequestDraft) {
       draft.gender ||
       draft.clothType ||
       draft.workType ||
+      draft.serviceCategory ||
+      draft.selectedWorkItems?.length ||
+      draft.otherWorkDescription?.trim() ||
       draft.urgency ||
       hasMeasurements ||
       draft.measurementNotes?.trim() ||
@@ -680,6 +715,9 @@ function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?
     gender: draft.gender,
     clothType: draft.clothType,
     workType: draft.workType,
+    serviceCategory: draft.serviceCategory,
+    selectedWorkItems: draft.selectedWorkItems,
+    otherWorkDescription: draft.otherWorkDescription,
     measurements: draft.measurements,
     measurementNotes: draft.measurementNotes,
     sampleProvided: draft.sampleProvided,
@@ -707,6 +745,9 @@ function loadClothingItemIntoDraft(draft: RequestDraft, item: ClothingItemDraft)
     gender: item.gender,
     clothType: item.clothType,
     workType: item.workType,
+    serviceCategory: item.serviceCategory,
+    selectedWorkItems: item.selectedWorkItems,
+    otherWorkDescription: item.otherWorkDescription,
     measurements: item.measurements,
     measurementNotes: item.measurementNotes,
     sampleProvided: item.sampleProvided,
@@ -742,6 +783,13 @@ function clothingItemSummary(item: Pick<ClothingItemDraft, "clothType" | "workTy
   return [item.clothType, item.workType].filter(Boolean).join(" - ") || "Tailoring";
 }
 
+function clothingItemWorkDetails(item: Pick<ClothingItemDraft, "selectedWorkItems" | "otherWorkDescription">) {
+  if (item.selectedWorkItems?.length) {
+    return `${item.selectedWorkItems.length} work${item.selectedWorkItems.length === 1 ? "" : "s"} selected: ${item.selectedWorkItems.join(", ")}`;
+  }
+  return item.otherWorkDescription?.trim() || "";
+}
+
 function clothingItemThumbnail(item: ClothingItemDraft) {
   const firstLocalPhoto = item.media.find((media) => media.type === "image")?.uri;
   return firstLocalPhoto ?? item.uploadedMedia.find((media) => media.resourceType === "image")?.url;
@@ -754,8 +802,10 @@ function measurementStatusForItem(item: Pick<ClothingItemDraft, "sampleProvided"
   return "Not added";
 }
 
-function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" | "sampleProvided" | "homeMeasurementBooked">) {
+function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" | "sampleProvided" | "homeMeasurementBooked" | "selectedWorkItems" | "otherWorkDescription">) {
   return [
+    item.selectedWorkItems?.length ? `Requested work: ${item.selectedWorkItems.join(", ")}.` : undefined,
+    item.otherWorkDescription?.trim() ? `Requested work: ${item.otherWorkDescription.trim()}` : undefined,
     item.measurementNotes?.trim(),
     item.sampleProvided ? "Customer will provide a non-stretch sample garment as a reference." : undefined,
     item.homeMeasurementBooked ? `Customer requested an at-home measurement visit. Fee: Rs${HOME_MEASUREMENT_FEE}.` : undefined
@@ -1197,7 +1247,6 @@ function AuthScreen() {
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
-  const hasSelectedLanguage = useAppStore((state) => state.hasSelectedLanguage);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "CUSTOMER" } });
@@ -1209,7 +1258,7 @@ function AuthScreen() {
       verifyForm.reset({ phone: values.phone, role: "CUSTOMER", otp: result.otp ?? "123456" });
       setOtpRequested(true);
     } catch (error) {
-      Alert.alert("OTP failed", error instanceof Error ? error.message : "Check backend connection");
+      Alert.alert(localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), error instanceof Error ? error.message : localize(language, "Check backend connection", "इंटरनेट कनेक्शन जाँचें"));
     } finally {
       setIsRequestingOtp(false);
     }
@@ -1224,7 +1273,7 @@ function AuthScreen() {
       });
       setSession(session.accessToken, session.user, session.refreshToken);
     } catch (error) {
-      Alert.alert("Login failed", error instanceof Error ? error.message : "Check OTP and try again");
+      Alert.alert(localize(language, "Login failed", "लॉगिन नहीं हो सका"), error instanceof Error ? error.message : localize(language, "Check OTP and try again", "ओटीपी जाँचकर दोबारा कोशिश करें"));
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -1232,16 +1281,22 @@ function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={styles.authLayout}>
+      <View style={styles.authLanguageCorner}>
+        <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
+      </View>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <ScrollView
+          contentContainerStyle={styles.authLayout}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <DarjiLogoMark />
           <View style={styles.trustRow}>
             <TrustItem icon="shield-outline" label={t(language, "safeSecure")} />
             <TrustItem icon="flash-outline" label={t(language, "fast")} />
             <TrustItem icon="star-outline" label={t(language, "bestServices")} />
           </View>
-
-          {!hasSelectedLanguage ? <LanguageSelectorCard language={language} onSelect={setLanguagePreference} /> : null}
 
           <View style={styles.authForm}>
             <Text style={styles.sectionTitle}>{otpRequested ? t(language, "verifyOtp") : t(language, "login")}</Text>
@@ -1260,10 +1315,14 @@ function AuthScreen() {
               </>
             )}
             <Text style={styles.termsText}>
-              By continuing, you agree to our <Text style={styles.orangeText}>Terms of Service</Text> and <Text style={styles.orangeText}>Privacy Policy</Text>
+              {localize(language, "By continuing, you agree to our ", "आगे बढ़कर आप हमारी ")}
+              <Text style={styles.orangeText}>{localize(language, "Terms of Service", "सेवा की शर्तों")}</Text>
+              {localize(language, " and ", " और ")}
+              <Text style={styles.orangeText}>{localize(language, "Privacy Policy", "गोपनीयता नीति")}</Text>
+              {localize(language, "", " से सहमत होते हैं।")}
             </Text>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1287,21 +1346,12 @@ function Header({ title, onBack, right }: { title?: string; onBack?: () => void;
 
 function LanguageSelectorCard({ language, onSelect }: { language: AppLanguage; onSelect: (language: AppLanguage) => void }) {
   return (
-    <View style={[styles.whiteCard, { marginBottom: 18 }]}>
-      <Text style={styles.addressTitle}>{t(language, "chooseLanguage")}</Text>
-      <Text style={[styles.mutedSmall, { marginTop: 6, marginBottom: 14 }]}>{t(language, "chooseLanguageCopy")}</Text>
-      <View style={styles.twoCol}>
-        {(["en", "hi"] as const).map((option) => (
-          <Pressable
-            key={option}
-            style={[styles.optionButton, language === option ? { borderColor: BRAND_ORANGE, backgroundColor: "#fff4db" } : null]}
-            onPress={() => onSelect(option)}
-          >
-            <Text style={{ color: language === option ? BRAND_DEEP : "#42536a", fontWeight: "800" }}>{getLanguageLabel(option)}</Text>
-          </Pressable>
-        ))}
+    <View style={[styles.whiteCard, { marginBottom: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }]}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.addressTitle}>{t(language, "appLanguage")}</Text>
+        <Text style={[styles.mutedSmall, { marginTop: 4 }]}>{t(language, "currentLanguage")}: {getLanguageLabel(language)}</Text>
       </View>
-      <Text style={[styles.mutedSmall, { marginTop: 10 }]}>{t(language, "languagePreferenceSaved")}</Text>
+      <CompactLanguageToggle language={language} onSelect={onSelect} />
     </View>
   );
 }
@@ -1447,8 +1497,8 @@ function LegacyHomeScreen({
         <View style={styles.featureCard}>
           <View style={styles.featureOrb} />
           <Text style={styles.featureLabel}>TAILORING REQUEST</Text>
-          <Text style={styles.featureTitle}>Get Tailor Quotes{"\n"}at Your Door</Text>
-          <Text style={styles.featureSub}>Upload photos & get quotes in minutes</Text>
+          <Text style={styles.featureTitle}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
+          <Text style={styles.featureSub}>Upload photos, share your needs, and get started in minutes.</Text>
           <Pressable style={styles.featureButton} onPress={() => setScreen("newRequest")}>
             <Ionicons name="cut-outline" size={16} color="#111111" />
             <Text style={styles.featureButtonText}>Stitch It Now</Text>
@@ -1608,7 +1658,7 @@ function HomeScreen({
     { label: "Alteration", icon: "cut-outline" },
     { label: "Repair", icon: "construct-outline" },
     { label: "Restyle", icon: "sparkles-outline" },
-    { label: "Custom", icon: "shirt-outline" }
+    { label: "Custom Stitching", icon: "shirt-outline" }
   ] as const;
   const howItWorks = [
     ["camera-outline", "Upload", "Add cloth photos"],
@@ -1663,8 +1713,8 @@ function HomeScreen({
         <View style={styles.featureCard}>
           <View style={styles.featureOrb} />
           <Text style={styles.featureLabel}>TAILORING REQUEST</Text>
-          <Text style={styles.featureTitle}>Get Tailor Quotes{"\n"}at Your Door</Text>
-          <Text style={styles.featureSub}>Upload photos and get quotes in minutes</Text>
+          <Text style={styles.featureTitle}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
+          <Text style={styles.featureSub}>Upload photos, share your needs, and get started in minutes.</Text>
           <Pressable style={styles.featureButton} onPress={() => setScreen("newRequest")}>
             <Ionicons name="cut-outline" size={16} color="#111111" />
             <Text style={styles.featureButtonText}>Stitch It Now</Text>
@@ -1718,8 +1768,8 @@ function HomeScreen({
         <View style={styles.launchBand}>
           <View style={styles.launchTextBlock}>
             <Text style={styles.launchBadge}>COMING SOON</Text>
-            <Text style={styles.launchBandTitle}>Press Clothes Service is Launching Soon!</Text>
-            <Text style={styles.launchBandCopy}>Get your clothes perfectly pressed and delivered to your doorstep.</Text>
+            <Text style={styles.launchBandTitle}>Ironing Service is Launching Soon!</Text>
+            <Text style={styles.launchBandCopy}>Get your clothes picked up, professionally ironed, quality checked, and delivered to your doorstep.</Text>
             <Pressable style={styles.launchNotifyButton} onPress={() => setScreen("featureSoon")}>
               <Text style={styles.launchNotifyText}>Notify Me</Text>
             </Pressable>
@@ -2025,24 +2075,24 @@ function FeatureSoonScreen({ setScreen, onNotify }: { setScreen: (screen: Screen
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
         <Header title={t(useAppStore.getState().language, "launchingSoon")} onBack={() => setScreen("home")} />
-        <Image source={typeof feature.image === "string" ? { uri: feature.image } : feature.image} style={styles.launchImage} resizeMode="cover" />
+        <Image source={typeof feature.image === "string" ? { uri: feature.image } : feature.image} style={styles.launchImage} resizeMode="contain" />
         <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>UPCOMING FEATURE</Text>
+          <Text style={styles.cardLabel}>UPCOMING SERVICE</Text>
           <Text style={styles.launchTitle}>{feature.title}</Text>
           <Text style={styles.infoCopy}>
-            Book doorstep cloth pressing with pickup and delivery. We are preparing routing, pricing, and service partner availability before launch.
+            Get your clothes picked up, professionally ironed, and delivered back to your doorstep. We are getting everything ready to bring this service to you soon.
           </Text>
           <View style={styles.launchPointRow}>
             <Ionicons name="shirt-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.workflowText}>Doorstep pickup for pressing</Text>
+            <Text style={styles.workflowText}>Doorstep pickup for ironing</Text>
+          </View>
+          <View style={styles.launchPointRow}>
+            <Ionicons name="sparkles-outline" size={18} color={BRAND_ORANGE} />
+            <Text style={styles.workflowText}>Professionally ironed and quality checked</Text>
           </View>
           <View style={styles.launchPointRow}>
             <Ionicons name="bicycle-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.workflowText}>Delivery after quality check</Text>
-          </View>
-          <View style={styles.launchPointRow}>
-            <Ionicons name="notifications-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.workflowText}>Launch notification for your area</Text>
+            <Text style={styles.workflowText}>Delivered back to your doorstep</Text>
           </View>
         </View>
         <Pressable style={styles.primaryWideButton} onPress={onNotify}>
@@ -2265,7 +2315,7 @@ function NewRequestScreen({
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission needed", "Allow photo library access to upload photos.");
+        Alert.alert("Permission needed", "Allow photo library access to upload photos. Darji receives only the photos you choose, and your information stays safe.");
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -2288,7 +2338,7 @@ function NewRequestScreen({
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission needed", "Allow camera access to capture photos.");
+        Alert.alert("Permission needed", "Allow camera access to capture photos. Your photos are safe with Darji and are used only for your tailoring request.");
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -2311,7 +2361,7 @@ function NewRequestScreen({
       setLocating(true);
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission needed", "Allow location access to select your current pickup address.");
+        Alert.alert("Permission needed", "Allow location access to select your current pickup address. Your location is safe with Darji and is used only for pickup and delivery.");
         return;
       }
       const position = await Location.getCurrentPositionAsync({});
@@ -2337,11 +2387,13 @@ function NewRequestScreen({
           right={<Text style={styles.stepBadge}>1/2</Text>}
         />
         <RequestProgressBar step={1} />
-        <View style={styles.requestHintCard}>
-          <Ionicons name="sparkles-outline" size={18} color={BRAND_ORANGE} />
+        <View style={styles.requestSafetyCard}>
+          <View style={styles.requestSafetyIcon}>
+            <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
+          </View>
           <View style={styles.profileRowText}>
-            <Text style={styles.requestHintTitle}>Get accurate quotes</Text>
-            <Text style={styles.requestHintCopy}>Provide clear details and photos of the issue.</Text>
+            <Text style={styles.requestHintTitle}>We've Got You</Text>
+            <Text style={styles.requestHintCopy}>Your details are safe with us and will only be used to process your request.</Text>
           </View>
         </View>
         {savedItemCount > 0 ? (
@@ -2351,7 +2403,7 @@ function NewRequestScreen({
           </View>
         ) : null}
 
-        <Text style={styles.formLabel}>Upload Photos / Video</Text>
+        <Text style={styles.formLabel}>Add Photos or Video</Text>
         <View style={styles.uploadRow}>
           {[
             ["camera-outline", "Camera", openCamera],
@@ -2386,14 +2438,12 @@ function NewRequestScreen({
           </ScrollView>
         ) : null}
 
-        <Text style={styles.formLabel}>Describe the Issue</Text>
-        <Text style={styles.fieldDisclaimer}>
-          Required. Describe the issue in at least {REQUEST_DESCRIPTION_MIN} characters so tailors can quote correctly.
-        </Text>
+        <Text style={styles.formLabel}>Tell Us What You Need</Text>
+        <Text style={styles.requestSectionHelper}>The more details you share, the more accurate the price will be.</Text>
         <TextInput
           multiline
           style={styles.descriptionInput}
-          placeholder="e.g. My kurta needs the sleeve length reduced by 5 cm and side seams taken in..."
+          placeholder="e.g. Need to shorten the sleeves of my shirt by 2 cm and take in the sides a little."
           placeholderTextColor="#98a4b6"
           value={draft.description}
           onChangeText={(description) => setDraft({ ...draft, description })}
@@ -2424,12 +2474,11 @@ function NewRequestScreen({
                   </>
                 )}
               </View>
+              <Pressable style={styles.addressInlineEdit} onPress={() => setEditingAddress((value) => !value)}>
+                <Ionicons name={editingAddress ? "checkmark-outline" : "create-outline"} size={17} color={BRAND_ORANGE} />
+              </Pressable>
             </View>
             <View style={styles.addressActions}>
-              <Pressable style={styles.addressActionButton} onPress={() => setEditingAddress((value) => !value)}>
-                <Ionicons name={editingAddress ? "checkmark-outline" : "create-outline"} size={15} color={BRAND_ORANGE} />
-                <Text style={styles.addPhotoText}>{editingAddress ? "Done" : "Edit address"}</Text>
-              </Pressable>
               <Pressable style={styles.addressActionButton} onPress={useCurrentLocation} disabled={locating}>
                 {locating ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={15} color={BRAND_ORANGE} />}
                 <Text style={styles.addPhotoText}>Use current location</Text>
@@ -2462,14 +2511,17 @@ function NewRequestScreen({
           </View>
         )}
 
-        <Text style={styles.fieldDisclaimer}>Photos and description are required before continuing{needsPickupAddress ? ", along with pickup address" : ""}.</Text>
+        <View style={styles.requestRequirementBanner}>
+          <Ionicons name="information-circle-outline" size={17} color="#b45309" />
+          <Text style={styles.requestRequirementText}>Photos, work details and pickup address are needed to continue.</Text>
+        </View>
         {isAddingAnotherItem ? (
           <Pressable style={styles.secondaryWideButton} onPress={leaveCurrentItem} disabled={uploading}>
             <Ionicons name="close-circle-outline" size={18} color={BRAND_DEEP} />
             <Text style={styles.secondaryWideButtonText}>Cancel This Item</Text>
           </Pressable>
         ) : null}
-        <Pressable style={[styles.primaryWideButton, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={uploading}>
+        <Pressable style={[styles.primaryWideButton, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={!canContinueRequest || uploading}>
           {uploading ? (
             <ActivityIndicator color="#111111" />
           ) : (
@@ -3299,7 +3351,7 @@ function MeasurementGuideScreen({ setScreen }: { setScreen: (screen: Screen) => 
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
         <Header title={t(useAppStore.getState().language, "howToMeasure")} onBack={() => setScreen("home")} />
-        <Text style={styles.helperText}>Use this guide before creating a request. Accurate measurements help tailors quote faster and stitch closer to your preferred fit.</Text>
+        <Text style={styles.helperText}>Use this guide before creating a request. Accurate measurements help tailors understand your fit and price the work correctly.</Text>
         <MeasurementOverviewGuide />
         <Text style={styles.formLabel}>Cloth-wise measurement checklist</Text>
         {Object.entries(measurementGuides).map(([clothType, guide]) => (
@@ -3322,19 +3374,32 @@ function MeasurementGuideScreen({ setScreen }: { setScreen: (screen: Screen) => 
 
 function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void }) {
   const [savingAction, setSavingAction] = useState<"summary" | "another" | undefined>();
+  const [garmentSearch, setGarmentSearch] = useState("");
   const [showSizeChart, setShowSizeChart] = useState(false);
   const [showHomeMeasurementModal, setShowHomeMeasurementModal] = useState(false);
   const [showClothGuideModal, setShowClothGuideModal] = useState(false);
   const [stitchingWarningDismissed, setStitchingWarningDismissed] = useState(Boolean(draft.editingItemId));
+  const [clothWarningAccepted, setClothWarningAccepted] = useState(false);
   const token = useAppStore((state) => state.token);
   const measurementGuide = guideForClothType(draft.clothType);
   const measurements = draft.measurements ?? {};
   const hasManualMeasurements = Object.values(measurements).some((value) => value.trim()) || Boolean(draft.measurementNotes?.trim());
   const [showManualMeasurements, setShowManualMeasurements] = useState(hasManualMeasurements);
+  const selectedService = getServiceCategory(draft.serviceCategory ?? draft.workType);
+  const selectedWorkItems = draft.selectedWorkItems ?? [];
+  const garments = getGarmentsForGender(draft.gender);
+  const normalizedGarmentSearch = garmentSearch.trim().toLowerCase();
+  const filteredGarments = normalizedGarmentSearch
+    ? garments.filter((garment) => garment.toLowerCase().includes(normalizedGarmentSearch))
+    : garments;
+  const hasWorkSelection = selectedService?.label === "Other"
+    ? Boolean(draft.otherWorkDescription?.trim())
+    : selectedWorkItems.length > 0;
   const canContinue = Boolean(
     draft.gender &&
     draft.clothType &&
-    draft.workType &&
+    selectedService &&
+    hasWorkSelection &&
     draft.urgency &&
     (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked)
   );
@@ -3346,6 +3411,37 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
     setDraft({ ...draft, clothType, measurements: {}, measurementNotes: "" });
   }
 
+  function selectGender(gender: GenderFitType) {
+    setGarmentSearch("");
+    setShowManualMeasurements(false);
+    setDraft({
+      ...draft,
+      gender,
+      clothType: undefined,
+      measurements: {},
+      measurementNotes: ""
+    });
+  }
+
+  function selectServiceCategory(serviceCategory: string) {
+    setDraft({
+      ...draft,
+      serviceCategory,
+      workType: serviceCategory,
+      selectedWorkItems: [],
+      otherWorkDescription: ""
+    });
+    setClothWarningAccepted(false);
+    setStitchingWarningDismissed(serviceCategory !== "New Stitching");
+  }
+
+  function toggleWorkItem(workItem: string) {
+    const nextItems = selectedWorkItems.includes(workItem)
+      ? selectedWorkItems.filter((item) => item !== workItem)
+      : [...selectedWorkItems, workItem];
+    setDraft({ ...draft, selectedWorkItems: nextItems });
+  }
+
   function setMeasurement(field: string, value: string) {
     setDraft({ ...draft, measurements: { ...measurements, [field]: value } });
   }
@@ -3353,7 +3449,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
   async function pickSampleImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to upload a sample garment photo.");
+      Alert.alert("Permission needed", "Allow photo library access to upload a sample garment photo. Darji receives only the photo you choose, and your information stays safe.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -3443,40 +3539,20 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
   return (
     <SafeAreaView style={styles.safe}>
-      {draft.workType === "Stitching New" && !stitchingWarningDismissed ? (
+      {selectedService?.label === "New Stitching" && !stitchingWarningDismissed ? (
         <ScrollView contentContainerStyle={styles.pageContent}>
-          <Header title="New Stitching" onBack={() => { setDraft({ ...draft, workType: undefined }); }} />
-          
-          {/* Progress Steps Bar */}
-          <View style={styles.warningStepsBar}>
-            <View style={styles.warningStepItem}>
-              <View style={[styles.warningStepIconCircle, styles.warningActiveStepIconCircle]}>
-                <Ionicons name="shirt-outline" size={16} color="#ffffff" />
-              </View>
-              <Text style={styles.warningActiveStepText}>Select Type</Text>
-            </View>
-            <View style={styles.warningStepConnector} />
-            <View style={styles.warningStepItem}>
-              <View style={styles.warningStepIconCircle}>
-                <Ionicons name="git-commit-outline" size={16} color="#94a3b8" />
-              </View>
-              <Text style={styles.warningStepText}>Add Details</Text>
-            </View>
-            <View style={styles.warningStepConnector} />
-            <View style={styles.warningStepItem}>
-              <View style={styles.warningStepIconCircle}>
-                <Ionicons name="cloud-upload-outline" size={16} color="#94a3b8" />
-              </View>
-              <Text style={styles.warningStepText}>Upload</Text>
-            </View>
-            <View style={styles.warningStepConnector} />
-            <View style={styles.warningStepItem}>
-              <View style={styles.warningStepIconCircle}>
-                <Ionicons name="checkbox-outline" size={16} color="#94a3b8" />
-              </View>
-              <Text style={styles.warningStepText}>Review</Text>
-            </View>
-          </View>
+          <Header
+            title="New Stitching"
+            onBack={() => {
+              setDraft({
+                ...draft,
+                serviceCategory: undefined,
+                workType: undefined,
+                selectedWorkItems: [],
+                otherWorkDescription: ""
+              });
+            }}
+          />
 
           {/* Warning Card */}
           <View style={styles.warningCard}>
@@ -3526,11 +3602,17 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
             </View>
           </View>
 
-          <View style={{ height: 20 }} />
+          <Pressable style={styles.warningAgreementRow} onPress={() => setClothWarningAccepted((current) => !current)}>
+            <Ionicons name={clothWarningAccepted ? "checkbox" : "square-outline"} size={20} color={BRAND_ORANGE} />
+            <Text style={styles.warningAgreementText}>I have checked my fabric and understand the information above.</Text>
+          </Pressable>
 
-          {/* Continue Button */}
-          <Pressable style={styles.primaryWideButton} onPress={() => setStitchingWarningDismissed(true)}>
-            <Text style={styles.primaryWideButtonText}>Continue</Text>
+          <Pressable
+            disabled={!clothWarningAccepted}
+            style={[styles.primaryWideButton, !clothWarningAccepted && styles.disabledDarkButton]}
+            onPress={() => setStitchingWarningDismissed(true)}
+          >
+            <Text style={[styles.primaryWideButtonText, !clothWarningAccepted && styles.disabledText]}>Continue</Text>
           </Pressable>
         </ScrollView>
       ) : (
@@ -3546,18 +3628,116 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
         <Text style={styles.formLabel}>Gender / Fit Type</Text>
         <View style={styles.twoCol}>
-          {["Men", "Women", "Kids", "Unisex"].map((label) => (
-            <OptionButton key={label} icon={label === "Women" ? "woman-outline" : label === "Men" ? "man-outline" : "person-outline"} label={label} selected={draft.gender === label} onPress={() => setDraft({ ...draft, gender: label })} />
+          {GENDER_FIT_OPTIONS.map((option) => (
+            <OptionButton
+              key={option.value}
+              icon={option.icon}
+              label={option.label}
+              selected={draft.gender === option.value}
+              onPress={() => selectGender(option.value)}
+            />
           ))}
         </View>
 
-        <Text style={styles.formLabel}>Cloth Type</Text>
-        <View style={styles.twoCol}>
-          {["Kurta / Salwar", "Saree / Blouse", "Shirt / Pants", "Suit / Blazer", "Dress", "Others"].map((label) => (
-            <OptionButton key={label} icon="shirt-outline" label={label} selected={draft.clothType === label} onPress={() => selectClothType(label)} />
-          ))}
-        </View>
+        {draft.gender ? (
+          <>
+            <Text style={styles.formLabel}>Select Garment</Text>
+            <View style={styles.garmentSearchBox}>
+              <Ionicons name="search-outline" size={17} color="#6a788d" />
+              <TextInput
+                style={styles.garmentSearchInput}
+                value={garmentSearch}
+                onChangeText={setGarmentSearch}
+                placeholder="Search garment..."
+                placeholderTextColor="#98a4b6"
+              />
+              {garmentSearch ? (
+                <Pressable onPress={() => setGarmentSearch("")}>
+                  <Ionicons name="close-circle" size={17} color="#98a4b6" />
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.twoCol}>
+              {filteredGarments.map((garment) => (
+                <OptionButton
+                  key={garment}
+                  icon="shirt-outline"
+                  label={garment}
+                  selected={draft.clothType === garment}
+                  onPress={() => selectClothType(garment)}
+                />
+              ))}
+            </View>
+            {!filteredGarments.length ? (
+              <View style={styles.infoBanner}>
+                <Ionicons name="search-outline" size={17} color={BRAND_ORANGE} />
+                <Text style={styles.infoBannerText}>No garments match “{garmentSearch.trim()}”.</Text>
+              </View>
+            ) : null}
+          </>
+        ) : null}
 
+        {draft.clothType ? (
+          <>
+            <Text style={styles.formLabel}>Select Service Category</Text>
+            <View style={styles.serviceCategoryList}>
+              {SERVICE_CATEGORIES.map((category) => {
+                const selected = selectedService?.label === category.label;
+                return (
+                  <Pressable
+                    key={category.id}
+                    style={[styles.serviceCategoryCard, selected && styles.selectedOptionButton]}
+                    onPress={() => selectServiceCategory(category.label)}
+                  >
+                    <View style={styles.serviceCategoryIcon}>
+                      <Ionicons name={category.icon} size={18} color={selected ? BRAND_ORANGE : "#7d8491"} />
+                    </View>
+                    <View style={styles.serviceCategoryText}>
+                      <Text style={[styles.optionText, styles.serviceCategoryTitle, selected && styles.selectedOptionText]}>{category.label}</Text>
+                      <Text style={styles.serviceCategorySubtitle}>{category.subtitle}</Text>
+                    </View>
+                    <Ionicons name={selected ? "checkmark-circle" : "chevron-forward"} size={18} color={selected ? BRAND_ORANGE : "#98a4b6"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        {selectedService ? (
+          <>
+            <Text style={styles.formLabel}>Select Work</Text>
+            <Text style={styles.workSelectionHelper}>You can select multiple</Text>
+            {selectedService.label === "Other" ? (
+              <TextInput
+                multiline
+                style={styles.otherWorkInput}
+                value={draft.otherWorkDescription ?? ""}
+                onChangeText={(otherWorkDescription) => setDraft({ ...draft, otherWorkDescription })}
+                placeholder="Describe the work needed..."
+                placeholderTextColor="#98a4b6"
+              />
+            ) : (
+              <View style={styles.workSelectionList}>
+                {selectedService.workItems.map((workItem) => {
+                  const selected = selectedWorkItems.includes(workItem);
+                  return (
+                    <Pressable
+                      key={workItem}
+                      style={[styles.workSelectionChip, selected && styles.workSelectionChipSelected]}
+                      onPress={() => toggleWorkItem(workItem)}
+                    >
+                      <Ionicons name={selected ? "checkbox" : "square-outline"} size={19} color={selected ? BRAND_ORANGE : "#98a4b6"} />
+                      <Text style={[styles.workSelectionText, selected && styles.selectedOptionText]}>{workItem}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        ) : null}
+
+        <Text style={styles.measurementChoiceHeading}>How would you like to provide measurements?</Text>
         {!showManualMeasurements ? (
           <Pressable style={styles.manualMeasureLink} onPress={() => setShowManualMeasurements(true)}>
             <Text style={styles.manualMeasureText}>Enter measurement manually?</Text>
@@ -3722,16 +3902,9 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           <Ionicons name="chevron-forward" size={18} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} />
         </Pressable>
 
-        <Text style={styles.formLabel}>Type of Work</Text>
-        <View style={styles.twoCol}>
-          {["Stitching New", "Alteration", "Repair / Mending", "Embroidery", "Blouse Work", "Hemming"].map((label) => (
-            <OptionButton key={label} label={label} selected={draft.workType === label} onPress={() => { setDraft({ ...draft, workType: label }); if (label === "Stitching New") setStitchingWarningDismissed(false); }} />
-          ))}
-        </View>
-
         {showUrgencyPicker ? (
           <>
-            <Text style={styles.formLabel}>Urgency</Text>
+            <Text style={styles.formLabel}>When Do You Need It?</Text>
             <View style={styles.urgencyRow}>
               {urgencyOptions.map((option) => (
                 <Pressable key={option.label} style={[styles.urgencyButton, draft.urgency === option.label && styles.selectedUrgency]} onPress={() => setDraft({ ...draft, urgency: option.label })}>
@@ -3745,7 +3918,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
         ) : (
           <View style={styles.infoBanner}>
             <Ionicons name="flash-outline" size={17} color={BRAND_ORANGE} />
-            <Text style={styles.infoBannerText}>Shared urgency: {draft.urgency}</Text>
+            <Text style={styles.infoBannerText}>Shared delivery timing: {draft.urgency}</Text>
           </View>
         )}
 
@@ -3754,7 +3927,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
             <ActivityIndicator color="#777777" />
           ) : (
             <>
-              <Text style={[styles.primaryWideButtonText, !canContinue && styles.disabledText]}>Get Quotes</Text>
+              <Text style={[styles.primaryWideButtonText, !canContinue && styles.disabledText]}>Continue to Pricing</Text>
               <Ionicons name="chevron-forward" size={18} color={canContinue ? "#111111" : "#777777"} />
             </>
           )}
@@ -3850,6 +4023,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       gender: item.gender,
       clothType: item.clothType,
       workType: item.workType,
+      serviceCategory: getServiceCategory(item.workType)?.label,
       measurements: Object.fromEntries(Object.entries(item.measurement?.fields ?? {}).map(([key, value]) => [key, String(value)])),
       measurementNotes: item.measurementNotes,
       sampleProvided: item.sampleProvided,
@@ -3867,6 +4041,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       gender: request.gender,
       clothType: request.clothType,
       workType: request.workType,
+      serviceCategory: getServiceCategory(request.workType)?.label,
       measurements: Object.fromEntries(Object.entries(request.measurement?.fields ?? {}).map(([key, value]) => [key, String(value)])),
       measurementNotes: request.measurementNotes,
       sampleProvided: request.sampleProvided,
@@ -3899,6 +4074,9 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     gender: primaryItem?.gender ?? request.gender,
     clothType: primaryItem?.clothType ?? request.clothType,
     workType: primaryItem?.workType ?? request.workType,
+    serviceCategory: primaryItem?.serviceCategory ?? getServiceCategory(primaryItem?.workType ?? request.workType)?.label,
+    selectedWorkItems: primaryItem?.selectedWorkItems,
+    otherWorkDescription: primaryItem?.otherWorkDescription,
     urgency: request.urgency,
     pickup: request.pickupAddress,
     measurements: primaryItem?.measurements,
@@ -3949,7 +4127,7 @@ function payloadForClothingItem(item: ClothingItemDraft) {
     description: item.description,
     gender: item.gender,
     clothType: item.clothType,
-    workType: item.workType,
+    workType: item.serviceCategory ?? item.workType,
     measurement: item.clothType
       ? {
           label: item.clothType,
@@ -4015,12 +4193,12 @@ function OrderSummaryScreen({
       return;
     }
     if (!draft.urgency || draft.pickup.trim().length < 8) {
-      showDialog({ title: "Shared details missing", message: "Pickup address and urgency are required for the order.", actions: [{ label: "OK" }] });
+      showDialog({ title: "Shared details missing", message: "Pickup address and delivery timing are required for the order.", actions: [{ label: "OK" }] });
       return;
     }
     const incomplete = items.find((item) => !item.description.trim() || !item.clothType || !item.workType || !item.uploadedMedia.length);
     if (incomplete) {
-      showDialog({ title: "Item incomplete", message: `${clothingItemTitle(incomplete)} needs photos, description, cloth type, and work type.`, actions: [{ label: "OK" }] });
+      showDialog({ title: "Item incomplete", message: `${clothingItemTitle(incomplete)} needs photos, description, a garment, and service/work selection.`, actions: [{ label: "OK" }] });
       return;
     }
 
@@ -4047,6 +4225,9 @@ function OrderSummaryScreen({
         gender: items[0].gender,
         clothType: items[0].clothType,
         workType: items[0].workType,
+        serviceCategory: items[0].serviceCategory,
+        selectedWorkItems: items[0].selectedWorkItems,
+        otherWorkDescription: items[0].otherWorkDescription,
         measurements: items[0].measurements,
         measurementNotes: items[0].measurementNotes,
         sampleProvided: items[0].sampleProvided,
@@ -4074,7 +4255,7 @@ function OrderSummaryScreen({
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>ORDER CART</Text>
           <SummaryRow label="Clothing items" value={`${items.length}`} strong />
-          <SummaryRow label="Urgency" value={draft.urgency ?? "Not selected"} />
+          <SummaryRow label="Delivery Timing" value={draft.urgency ?? "Not selected"} />
           <SummaryRow label="Pickup address" value={draft.pickup || "Not selected"} />
         </View>
 
@@ -4090,6 +4271,7 @@ function OrderSummaryScreen({
                   <Text style={styles.cardLabel}>ITEM {index + 1}</Text>
                   <Text style={styles.addressTitle}>{clothingItemTitle(item)}</Text>
                   <Text style={styles.mutedSmall}>{clothingItemSummary(item)}</Text>
+                  {clothingItemWorkDetails(item) ? <Text style={styles.mutedSmall} numberOfLines={2}>{clothingItemWorkDetails(item)}</Text> : null}
                   <Text style={styles.mutedSmall} numberOfLines={2}>{item.description}</Text>
                   <Text style={styles.orderSummaryStatus}>{measurementStatusForItem(item)}</Text>
                 </View>
@@ -4113,7 +4295,7 @@ function OrderSummaryScreen({
           <Text style={styles.secondaryWideButtonText}>Add Another Cloth</Text>
         </Pressable>
         <Pressable style={[styles.primaryWideButton, (items.length === 0 || submitting) && styles.disabledDarkButton]} onPress={requestQuotes} disabled={items.length === 0 || submitting}>
-          {submitting ? <ActivityIndicator color="#111111" /> : <Text style={[styles.primaryWideButtonText, items.length === 0 && styles.disabledText]}>Get Quotes</Text>}
+          {submitting ? <ActivityIndicator color="#111111" /> : <Text style={[styles.primaryWideButtonText, items.length === 0 && styles.disabledText]}>Continue to Pricing</Text>}
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -4333,6 +4515,7 @@ function QuotesScreen({
                   <Text style={styles.cardLabel}>ITEM {index + 1}</Text>
                   <Text style={styles.addressTitle}>{clothingItemTitle(item)}</Text>
                   <Text style={styles.mutedSmall}>{clothingItemSummary(item)}</Text>
+                  {clothingItemWorkDetails(item) ? <Text style={styles.mutedSmall}>{clothingItemWorkDetails(item)}</Text> : null}
                   <Text style={styles.infoCopy}>{item.description}</Text>
                   {previews.length ? (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.requestDetailPreviewRow}>
@@ -4351,7 +4534,7 @@ function QuotesScreen({
                 </View>
               );
             })}
-            <SummaryRow label="Urgency" value={draft.urgency ?? "Not selected"} />
+            <SummaryRow label="Delivery Timing" value={draft.urgency ?? "Not selected"} />
             <SummaryRow label="Pickup" value={draft.pickup || "Not selected"} />
           </View>
         </View>
@@ -4480,7 +4663,7 @@ function ConfirmOrderScreen({
               <Text style={styles.checkoutSummaryStatValue}>{itemCount}</Text>
             </View>
             <View style={[styles.checkoutSummaryStat, styles.checkoutSummaryStatCool]}>
-              <Text style={styles.checkoutSummaryStatLabel}>Urgency</Text>
+              <Text style={styles.checkoutSummaryStatLabel}>Delivery Timing</Text>
               <Text style={styles.checkoutSummaryStatValue} numberOfLines={1}>{draft.urgency ?? "Normal"}</Text>
             </View>
           </View>
@@ -4720,7 +4903,7 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <SummaryRow label="Service" value={order.draft.workType ?? "Tailoring"} />
           <SummaryRow label="Gender" value={order.draft.gender ?? "Not selected"} />
           <SummaryRow label="Cloth Type" value={order.draft.clothType ?? "Cloth"} />
-          <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
+          <SummaryRow label="Delivery Timing" value={order.draft.urgency ?? "Normal"} />
           <SummaryRow label="Pickup" value={order.pickupWindow} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
@@ -4895,11 +5078,11 @@ function OnboardingScreen({ profile, setProfile, language }: { profile: ProfileD
 
   function save() {
     if (name.trim().length < 2) {
-      Alert.alert("Name required", language === "hi" ? "??? ????? ?? ??? ???? ??? ???? ?????" : "Enter your name to continue.");
+      Alert.alert(language === "hi" ? "नाम आवश्यक है" : "Name required", language === "hi" ? "आगे बढ़ने के लिए अपना नाम दर्ज करें।" : "Enter your name to continue.");
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth.trim())) {
-      Alert.alert("Date of birth required", language === "hi" ? "???? ???? YYYY-MM-DD ??????? ??? ???? ?????" : "Enter date of birth in YYYY-MM-DD format.");
+      Alert.alert(language === "hi" ? "जन्म तिथि आवश्यक है" : "Date of birth required", language === "hi" ? "जन्म तिथि YYYY-MM-DD प्रारूप में दर्ज करें।" : "Enter date of birth in YYYY-MM-DD format.");
       return;
     }
     setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), hasCompletedOnboarding: true });
@@ -4991,7 +5174,7 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="language-outline" label={t(language, "appLanguage")} value={getLanguageLabel(language)} onPress={() => setScreen("settings")} styles={profileStyles} noBorder />
-          <ProfileRow icon="notifications-outline" label={t(language, "notifications")} value={language === "hi" ? "????? ????? ?? ??? ??? ????" : "Configure order alerts & promos"} onPress={() => setScreen("settings")} styles={profileStyles} />
+          <ProfileRow icon="notifications-outline" label={t(language, "notifications")} value={language === "hi" ? "ऑर्डर अलर्ट और ऑफर सेट करें" : "Configure order alerts & promos"} onPress={() => setScreen("settings")} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
@@ -5127,7 +5310,7 @@ function EditProfileScreen({
   async function pickAvatar() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to choose a profile picture.");
+      Alert.alert("Permission needed", "Allow photo library access to choose a profile picture. Darji receives only the photo you choose, and your information stays safe.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -5339,7 +5522,7 @@ function AddAddressScreen({
   async function useCurrentLocation() {
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow location access to save your current address.");
+      Alert.alert("Permission needed", "Allow location access to save your current address. Your location is safe with Darji and is used only for pickup and delivery.");
       return;
     }
     setLocating(true);
@@ -5750,7 +5933,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   async function pickAttachmentImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to upload photos.");
+      Alert.alert("Permission needed", "Allow photo library access to upload photos. Darji receives only the photo you choose, and your information stays safe.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -5776,7 +5959,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   async function pickBugScreenshot() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to upload screenshots.");
+      Alert.alert("Permission needed", "Allow photo library access to upload screenshots. Darji receives only the screenshot you choose, and your information stays safe.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -6550,7 +6733,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
   async function pickReviewPhotos() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to add review photos.");
+      Alert.alert("Permission needed", "Allow photo library access to add review photos. Darji receives only the photos you choose, and your information stays safe.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -7117,7 +7300,7 @@ function LegacyOrderDetailsScreenV2({
           <SummaryRow label="Service" value={order.draft.workType ?? "Tailoring"} />
           <SummaryRow label="Gender" value={order.draft.gender ?? "Not selected"} />
           <SummaryRow label="Cloth Type" value={order.draft.clothType ?? "Cloth"} />
-          <SummaryRow label="Urgency" value={order.draft.urgency ?? "Normal"} />
+          <SummaryRow label="Delivery Timing" value={order.draft.urgency ?? "Normal"} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
           <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}`} tone="positive" />
@@ -8559,7 +8742,6 @@ export default function App() {
     }
   }
 
-  if (platform.checking) return <PlatformStatusLoadingScreen />;
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
@@ -8715,7 +8897,8 @@ function createStyles(isDark = false) {
   flex: { flex: 1 },
   safe: { flex: 1, backgroundColor: pageBg, paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0 },
   center: { alignItems: "center" },
-  authLayout: { flex: 1, justifyContent: "center", paddingHorizontal: 28, paddingBottom: 32, paddingTop: 32 },
+  authLayout: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingBottom: 32, paddingTop: 72 },
+  authLanguageCorner: { position: "absolute", right: 18, top: 12, zIndex: 20 },
   logoImage: {
     shadowColor: BRAND_ORANGE,
     shadowOffset: { width: 0, height: 10 },
@@ -8912,7 +9095,7 @@ function createStyles(isDark = false) {
   mediaFeatureText: { position: "absolute", left: 12, right: 12, bottom: 12 },
   mediaFeatureTitle: { color: "#ffffff", fontSize: 17, fontWeight: "900" },
   mediaFeatureCopy: { color: "#d6deea", fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 4 },
-  launchImage: { width: "100%", height: 210, borderRadius: 22, marginBottom: 16 },
+  launchImage: { width: "100%", height: 210, borderRadius: 22, marginBottom: 16, backgroundColor: surface },
   launchTitle: { color: text, fontSize: 28, fontWeight: "900", lineHeight: 34, marginBottom: 10 },
   launchPointRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14 },
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
@@ -8947,11 +9130,14 @@ function createStyles(isDark = false) {
   smallDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: BRAND_ORANGE, marginTop: 10, marginLeft: 8 },
   stepBadge: { overflow: "hidden", borderRadius: 15, backgroundColor: "#fff2d8", color: BRAND_ORANGE, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: "900" },
   requestHintCard: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14 },
+  requestSafetyCard: { minHeight: 68, borderRadius: 14, borderWidth: 1, borderColor: isDark ? "#14532d" : "#bbf7d0", backgroundColor: isDark ? "#0d2416" : "#f0fdf4", flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14 },
+  requestSafetyIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: "#86efac", backgroundColor: isDark ? "#12351f" : "#dcfce7", alignItems: "center", justifyContent: "center" },
   requestHintTitle: { color: text, fontSize: 13, fontWeight: "900" },
   requestHintCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 2 },
   helperText: { color: muted, fontSize: 14, lineHeight: 22, marginBottom: 18 },
   formLabel: { color: muted, fontSize: 13, fontWeight: "900", marginTop: 20, marginBottom: 10 },
   fieldDisclaimer: { color: "#8a5600", fontSize: 12, fontWeight: "800", lineHeight: 18, marginTop: 8 },
+  requestSectionHelper: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 17, marginTop: -6, marginBottom: 8 },
   descriptionCounter: { textAlign: "right", marginTop: 6 },
   uploadRow: { flexDirection: "row", gap: 10 },
   uploadBox: { flex: 1, height: 98, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", alignItems: "center", justifyContent: "center", backgroundColor: inputSurface },
@@ -8966,6 +9152,7 @@ function createStyles(isDark = false) {
   descriptionInput: { minHeight: 92, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 16, color: text, textAlignVertical: "top", fontSize: 14, lineHeight: 20 },
   addressCard: { minHeight: 74, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12 },
   addressTextWrap: { flex: 1, marginLeft: 14 },
+  addressInlineEdit: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   addressInput: { minHeight: 46, color: text, fontSize: 13, lineHeight: 19, padding: 0, textAlignVertical: "top" },
   addressActions: { flexDirection: "row", gap: 10, marginTop: 12 },
   addressActionButton: { flex: 1, minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
@@ -8975,6 +9162,8 @@ function createStyles(isDark = false) {
   savedAddressChoiceText: { flex: 1, minWidth: 0 },
   savedAddressChoiceTitle: { color: text, fontSize: 13, fontWeight: "900" },
   addressTitle: { color: text, fontSize: 15, fontWeight: "900" },
+  requestRequirementBanner: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#fde3b0", backgroundColor: isDark ? "#2a1d0a" : "#fff8e8", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, marginTop: 14 },
+  requestRequirementText: { flex: 1, minWidth: 0, color: "#8a5600", fontSize: 11, fontWeight: "800", lineHeight: 17 },
   primaryWideButton: { height: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 24 },
   primaryWideButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
   emptyActionButton: { alignSelf: "stretch", paddingHorizontal: 18 },
@@ -8983,6 +9172,21 @@ function createStyles(isDark = false) {
   selectedOptionButton: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
   optionText: { color: muted, fontSize: 12, fontWeight: "900", textAlign: "center" },
   selectedOptionText: { color: text },
+  garmentSearchBox: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 13, marginBottom: 12 },
+  garmentSearchInput: { flex: 1, minWidth: 0, color: text, fontSize: 13, fontWeight: "700", paddingVertical: 0 },
+  serviceCategoryList: { gap: 10 },
+  serviceCategoryCard: { minHeight: 64, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  serviceCategoryIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
+  serviceCategoryText: { flex: 1, minWidth: 0 },
+  serviceCategoryTitle: { textAlign: "left" },
+  serviceCategorySubtitle: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 3 },
+  workSelectionHelper: { color: muted, fontSize: 11, fontWeight: "700", marginTop: -6, marginBottom: 10 },
+  workSelectionList: { gap: 8 },
+  workSelectionChip: { minHeight: 48, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, paddingVertical: 9 },
+  workSelectionChipSelected: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  workSelectionText: { flex: 1, minWidth: 0, color: muted, fontSize: 12, fontWeight: "900", lineHeight: 17 },
+  otherWorkInput: { minHeight: 96, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 13, color: text, textAlignVertical: "top", fontSize: 13, lineHeight: 19 },
+  measurementChoiceHeading: { color: text, fontSize: 15, fontWeight: "900", lineHeight: 21, marginTop: 22, marginBottom: 2 },
   manualMeasureLink: { alignSelf: "flex-start", minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, marginTop: 12, marginBottom: 2 },
   manualMeasureText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   measurementCard: { borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 16, marginTop: 16 },
@@ -9106,7 +9310,7 @@ function createStyles(isDark = false) {
   sizeChartHeaderCell: { color: text, backgroundColor: surfaceAlt, fontWeight: "900" },
   sizeChartSizeCell: { color: BRAND_ORANGE, fontWeight: "900" },
   urgencyRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  urgencyButton: { width: "47.8%", minHeight: 64, borderRadius: 14, borderWidth: 1.2, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, paddingVertical: 10 },
+  urgencyButton: { width: "30.8%", minHeight: 82, borderRadius: 14, borderWidth: 1.2, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 6, paddingVertical: 10 },
   selectedUrgency: { backgroundColor: surfaceAlt, borderWidth: 1.5, borderColor: BRAND_ORANGE },
   urgencyText: { color: muted, fontSize: 11, fontWeight: "900", textAlign: "center" },
   urgencyHelper: { color: subtle, fontSize: 10, fontWeight: "800", textAlign: "center", marginTop: 4 },
@@ -9418,6 +9622,8 @@ function createStyles(isDark = false) {
   warningBulletItem: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
   warningBulletIconContainer: { width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? "#2a1e12" : "#ffedd5", alignItems: "center", justifyContent: "center" },
   warningBulletText: { fontSize: 13, color: isDark ? "#e2e8f0" : "#334155", fontWeight: "700" },
+  warningAgreementRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 16, paddingHorizontal: 2 },
+  warningAgreementText: { flex: 1, minWidth: 0, color: muted, fontSize: 11, fontWeight: "800", lineHeight: 16 },
 
   // Guide styles
   guideHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 56, borderBottomWidth: 1, borderBottomColor: border, paddingHorizontal: 16 },

@@ -470,3 +470,7 @@ export type TranslationKey = keyof typeof translations;
 export function t(language: AppLanguage, key: TranslationKey) {
   return translations[key][language] ?? translations[key].en;
 }
+
+export function localize(language: AppLanguage, english: string, hindi: string) {
+  return language === "hi" ? hindi : english;
+}

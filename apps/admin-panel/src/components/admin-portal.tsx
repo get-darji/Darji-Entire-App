@@ -6113,6 +6113,7 @@ function supportTicketTypeLabel(ticket: SupportTicket) {
 }
 
 function accountRequestTypeLabel(request: AccountChangeRequest) {
+  if (request.type === "AccountDeletion") return "Account Deletion";
   if (request.type === "Vehicle" || request.type === "RC" || request.type === "DrivingLicense") return "Vehicle Update";
   if (request.type === "BankAccount" || request.type === "UPI") return "Payment Change";
   if (request.type === "ShopName") return "Shop Name Change";
@@ -7848,7 +7849,7 @@ function InspectChangeRequestDialog({
           <div className="flex items-center justify-between border-b border-[var(--panel-border)] pb-4">
             <div>
               <Dialog.Title className="text-xl font-bold text-[var(--foreground)]">
-                Account Update Request
+                {request.type === "AccountDeletion" ? "Account Deletion Request" : "Account Update Request"}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
                 From {getUserDisplayName(request.user, "Partner")} ({request.user?.phone ?? "No phone"}) - Role: <strong>{request.user?.role}</strong>
@@ -7932,9 +7933,16 @@ function InspectChangeRequestDialog({
                     >
                       Reject Request
                     </button>
-                    <ActionButton onClick={() => onApprove(request.id)} disabled={pending}>
+                    <ActionButton
+                      onClick={() => {
+                        if (request.type !== "AccountDeletion" || window.confirm("Permanently delete this partner account? This action cannot be undone.")) {
+                          onApprove(request.id);
+                        }
+                      }}
+                      disabled={pending}
+                    >
                       {pending ? <LoaderCircle className="h-4 w-4 animate-spin mr-1.5" /> : null}
-                      Approve & Write-back Profile
+                      {request.type === "AccountDeletion" ? "Approve & Delete Account" : "Approve & Write-back Profile"}
                     </ActionButton>
                   </div>
                 )}

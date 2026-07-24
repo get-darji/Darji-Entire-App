@@ -10,6 +10,7 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.darzi.tailor",
+      "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
@@ -57,6 +58,13 @@
       ],
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Darji accesses only the verification photos you choose. Your information is safe with us.",
+          "cameraPermission": "Darji uses the camera for secure verification and live order proof. Your information is safe with us."
+        }
+      ],
       "../../scripts/withFirebaseMessagingManifestFix.js",
       [
         "expo-notifications",
