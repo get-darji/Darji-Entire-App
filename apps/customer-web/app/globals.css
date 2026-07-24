@@ -765,7 +765,19 @@ button:disabled {
   }
 
   .testimonial-card {
-    min-width: calc(100vw - 48px);
+    min-width: min(252px, calc(100vw - 88px));
+    min-height: 168px;
+    border-radius: 16px;
+    padding: 14px;
+  }
+
+  .testimonial-marquee-wrapper {
+    padding-block: 0.375rem;
+  }
+
+  .testimonial-marquee-track,
+  .testimonial-group {
+    gap: 0.625rem;
   }
 }
 
@@ -926,6 +938,41 @@ button:disabled {
 .store-button-name {
   font-size: 0.92rem;
   font-weight: 900;
+}
+
+@media (max-width: 639px) {
+  .store-button-glow {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .store-button-glow > div,
+  .store-button {
+    width: 100%;
+  }
+
+  .store-button {
+    min-height: 44px;
+    gap: 0.45rem;
+    padding: 0.5rem 0.55rem;
+  }
+
+  .store-button svg {
+    height: 1.05rem;
+    width: 1.05rem;
+    flex: 0 0 auto;
+  }
+
+  .store-button-kicker {
+    font-size: 0.48rem;
+    letter-spacing: 0.05em;
+  }
+
+  .store-button-name {
+    font-size: 0.72rem;
+    line-height: 1rem;
+    white-space: nowrap;
+  }
 }
 
 .download-banner {

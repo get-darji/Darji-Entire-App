@@ -76,9 +76,9 @@ export const STATS: Stat[] = [
   {
     icon: Star,
     label: "Customer Rating",
-    defaultValue: "4.9*",
+    defaultValue: "4.9 ★",
     targetValue: 4.9,
     step: 0.1,
-    format: (v) => `${v.toFixed(1)}*`,
+    format: (v) => `${v.toFixed(1)} ★`,
   },
 ];

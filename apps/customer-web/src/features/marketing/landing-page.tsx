@@ -425,7 +425,7 @@ export function LandingPage() {
         </section>
 
 
-        <section className="bg-white py-16 sm:py-24">
+        <section id="about" className="bg-white py-16 sm:py-24">
           <div className="mx-auto w-[min(1120px,calc(100%-28px))]">
             <div className="mb-6 text-center">
               <SectionEyebrow>Why Choose Darji ?</SectionEyebrow>
@@ -461,31 +461,33 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section id="download-app" className="bg-white py-16 sm:py-24">
+        <section id="download-app" className="bg-white py-8 sm:py-24">
           <div className="shell">
-            <div className="relative overflow-hidden rounded-[32px] bg-[#0c101a] px-6 py-12 shadow-xl sm:px-12 sm:py-16 md:px-16 lg:grid lg:grid-cols-[1.2fr_0.8fr] lg:gap-12 lg:items-center">
+            <div className="relative overflow-hidden rounded-[24px] bg-[#0c101a] px-4 py-7 shadow-xl sm:rounded-[32px] sm:px-12 sm:py-16 md:px-16 lg:grid lg:grid-cols-[1.2fr_0.8fr] lg:gap-12 lg:items-center">
               {/* Decorative radial glows */}
               <div className="pointer-events-none absolute -right-20 -top-20 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(255,112,0,0.15),transparent_70%)]" />
               <div className="pointer-events-none absolute -left-20 -bottom-20 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(255,112,0,0.08),transparent_70%)]" />
 
               <div className="relative z-10 flex flex-col justify-center text-left">
-                <span className="text-xs font-extrabold uppercase tracking-[0.2em] text-[var(--color-primary)]">
+                <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[var(--color-primary)] sm:text-xs sm:tracking-[0.2em]">
                   Darji Mobile Experience
                 </span>
-                <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-5xl leading-[1.1]">
-                  Download the Darji app and manage every tailoring order in one place.
+                <h2 className="mt-3 text-2xl font-extrabold leading-[1.15] tracking-tight text-white sm:mt-4 sm:text-5xl sm:leading-[1.1]">
+                  <span className="sm:hidden">Manage every order in the Darji app.</span>
+                  <span className="hidden sm:inline">Download the Darji app and manage every tailoring order in one place.</span>
                 </h2>
-                <p className="mt-4 max-w-lg text-base leading-relaxed text-slate-400">
-                  Book pickups, track progress, chat with your tailor, and reorder your favorite services without leaving the app.
+                <p className="mt-3 max-w-lg text-sm leading-6 text-slate-400 sm:mt-4 sm:text-base sm:leading-relaxed">
+                  <span className="sm:hidden">Book pickups, track progress, and chat with your tailor—all in one place.</span>
+                  <span className="hidden sm:inline">Book pickups, track progress, chat with your tailor, and reorder your favorite services without leaving the app.</span>
                 </p>
-                <div className="mt-8 flex flex-wrap gap-4">
+                <div className="mt-5 flex flex-nowrap gap-2 sm:mt-8 sm:flex-wrap sm:gap-4">
                   <StoreButton type="play" />
                   <StoreButton type="apple" />
                 </div>
               </div>
 
               {/* Right side: Mock iPhone */}
-              <div className="relative z-10 mt-12 flex justify-center lg:mt-0">
+              <div className="relative z-10 mt-12 hidden justify-center sm:flex lg:mt-0">
                 <div className="relative h-[460px] w-[250px] shrink-0 overflow-hidden rounded-[36px] border-[6px] border-[#222222] bg-[#0c101a] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)]">
                   {/* Phone notch */}
                   <div className="absolute left-1/2 top-0 h-4 w-28 -translate-x-1/2 rounded-b-xl bg-[#222222] z-30" />
@@ -544,10 +546,10 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="bg-white py-16 sm:py-24">
+        <section className="bg-white py-10 sm:py-24">
           <div className="shell text-center">
             <SectionEyebrow>What Our Customers Say</SectionEyebrow>
-            <h2 className="mx-auto max-w-4xl text-3xl font-extrabold leading-tight text-[var(--color-text-primary)] sm:text-5xl">
+            <h2 className="mx-auto max-w-4xl text-[1.75rem] font-extrabold leading-tight text-[var(--color-text-primary)] sm:text-5xl">
               Loved by thousands,<br />stitched with <span className="text-[var(--color-primary)]">trust.</span>
             </h2>
             <div className="flex items-center justify-center gap-4 mt-5">
@@ -559,30 +561,30 @@ export function LandingPage() {
               <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-[#eee4dc]" />
             </div>
             
-            <div className="testimonial-marquee-wrapper mt-10">
+            <div className="testimonial-marquee-wrapper mt-7 sm:mt-10">
               <div className="testimonial-marquee-track">
                 {/* First set for scrolling */}
                 <div className="testimonial-group">
                   {[...testimonials, ...testimonials].map((testimonial, index) => (
                     <article key={`t1-${testimonial.name}-${index}`} className="reference-testimonial-card testimonial-card relative flex flex-col justify-between overflow-hidden">
-                      <span className="absolute top-4 right-4 text-7xl font-serif text-[#ff7000]/12 select-none pointer-events-none">&rdquo;</span>
+                      <span className="absolute right-3 top-3 select-none font-serif text-5xl text-[#ff7000]/12 pointer-events-none sm:right-4 sm:top-4 sm:text-7xl">&rdquo;</span>
                       <div>
                         <div className="flex gap-1 text-[var(--darji-orange)]">
                           {Array.from({ length: 5 }).map((_, starIndex) => (
-                            <Star key={`s1-${starIndex}`} className="h-4 w-4 fill-current" />
+                            <Star key={`s1-${starIndex}`} className="h-3.5 w-3.5 fill-current sm:h-4 sm:w-4" />
                           ))}
                         </div>
-                        <p className="mt-4 text-sm font-semibold leading-7 text-[#08111f]">
+                        <p className="mt-2.5 text-xs font-semibold leading-[1.15rem] text-[#08111f] sm:mt-4 sm:text-sm sm:leading-7">
                           &quot;{testimonial.quote}&quot;
                         </p>
                       </div>
-                      <div className="mt-5 flex items-center gap-3">
-                        <span className="grid h-11 w-11 place-items-center rounded-full border-2 border-white text-xs font-black text-white shadow-[0_12px_24px_rgba(8,17,31,0.12)]" style={{ backgroundColor: testimonial.color }}>
+                      <div className="mt-3 flex items-center gap-2 sm:mt-5 sm:gap-3">
+                        <span className="grid h-8 w-8 place-items-center rounded-full border-2 border-white text-[9px] font-black text-white shadow-[0_12px_24px_rgba(8,17,31,0.12)] sm:h-11 sm:w-11 sm:text-xs" style={{ backgroundColor: testimonial.color }}>
                           {testimonial.initials}
                         </span>
                         <span className="text-left">
-                          <span className="block text-sm font-black text-[#08111f]">{testimonial.name}</span>
-                          <span className="block text-xs font-semibold text-[var(--darji-muted)]">Customer</span>
+                          <span className="block text-xs font-black text-[#08111f] sm:text-sm">{testimonial.name}</span>
+                          <span className="block text-[10px] font-semibold text-[var(--darji-muted)] sm:text-xs">Customer</span>
                         </span>
                       </div>
                     </article>
@@ -592,24 +594,24 @@ export function LandingPage() {
                 <div className="testimonial-group" aria-hidden="true">
                   {[...testimonials, ...testimonials].map((testimonial, index) => (
                     <article key={`t2-${testimonial.name}-${index}`} className="reference-testimonial-card testimonial-card relative flex flex-col justify-between overflow-hidden">
-                      <span className="absolute top-4 right-4 text-7xl font-serif text-[#ff7000]/12 select-none pointer-events-none">&rdquo;</span>
+                      <span className="absolute right-3 top-3 select-none font-serif text-5xl text-[#ff7000]/12 pointer-events-none sm:right-4 sm:top-4 sm:text-7xl">&rdquo;</span>
                       <div>
                         <div className="flex gap-1 text-[var(--darji-orange)]">
                           {Array.from({ length: 5 }).map((_, starIndex) => (
-                            <Star key={`s2-${starIndex}`} className="h-4 w-4 fill-current" />
+                            <Star key={`s2-${starIndex}`} className="h-3.5 w-3.5 fill-current sm:h-4 sm:w-4" />
                           ))}
                         </div>
-                        <p className="mt-4 text-sm font-semibold leading-7 text-[#08111f]">
+                        <p className="mt-2.5 text-xs font-semibold leading-[1.15rem] text-[#08111f] sm:mt-4 sm:text-sm sm:leading-7">
                           &quot;{testimonial.quote}&quot;
                         </p>
                       </div>
-                      <div className="mt-5 flex items-center gap-3">
-                        <span className="grid h-11 w-11 place-items-center rounded-full border-2 border-white text-xs font-black text-white shadow-[0_12px_24px_rgba(8,17,31,0.12)]" style={{ backgroundColor: testimonial.color }}>
+                      <div className="mt-3 flex items-center gap-2 sm:mt-5 sm:gap-3">
+                        <span className="grid h-8 w-8 place-items-center rounded-full border-2 border-white text-[9px] font-black text-white shadow-[0_12px_24px_rgba(8,17,31,0.12)] sm:h-11 sm:w-11 sm:text-xs" style={{ backgroundColor: testimonial.color }}>
                           {testimonial.initials}
                         </span>
                         <span className="text-left">
-                          <span className="block text-sm font-black text-[#08111f]">{testimonial.name}</span>
-                          <span className="block text-xs font-semibold text-[var(--darji-muted)]">Customer</span>
+                          <span className="block text-xs font-black text-[#08111f] sm:text-sm">{testimonial.name}</span>
+                          <span className="block text-[10px] font-semibold text-[var(--darji-muted)] sm:text-xs">Customer</span>
                         </span>
                       </div>
                     </article>
@@ -771,8 +773,28 @@ export function LandingPage() {
         <footer className="border-t-2 border-[var(--darji-orange)] bg-[var(--darji-ink)] py-12">
           <div className="shell grid gap-8 text-white md:grid-cols-[1.2fr_1fr_1fr_1fr]">
             <div><BrandLogo imageClassName="h-[72px] w-auto" /><p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-white/70">Your trusted tailoring partner. Picked up from your doorstep, delivered with perfection.</p></div>
-            <div><h3 className="font-black">Quick Links</h3><div className="mt-4 grid gap-2 text-sm font-bold text-white/70">{["Home", "Services", "FAQs", "About Us"].map((item) => <a key={item} href="#" className="transition hover:text-white">{item}</a>)}</div></div>
-            <div><h3 className="font-black">Support</h3><div className="mt-4 grid gap-2 text-sm font-bold text-white/70">{["Help Center", "Contact Us", "Privacy Policy", "Terms & Conditions"].map((item) => <a key={item} href="#" className="transition hover:text-white">{item}</a>)}</div></div>
+            <div>
+              <h3 className="font-black">Quick Links</h3>
+              <div className="mt-4 grid gap-2 text-sm font-bold text-white/70">
+                {[
+                  { label: "Home", href: "#site" },
+                  { label: "Services", href: "#services" },
+                  { label: "FAQs", href: "#faq" },
+                  { label: "About Us", href: "#about" }
+                ].map((item) => <a key={item.label} href={item.href} className="transition hover:text-white">{item.label}</a>)}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-black">Support</h3>
+              <div className="mt-4 grid gap-2 text-sm font-bold text-white/70">
+                {[
+                  { label: "Help Center", href: "/dashboard?screen=helpCenter&tab=faq" },
+                  { label: "Contact Us", href: "/dashboard?screen=support" },
+                  { label: "Privacy Policy", href: "/dashboard?screen=helpCenter&tab=privacy" },
+                  { label: "Terms & Conditions", href: "/dashboard?screen=helpCenter&tab=terms" }
+                ].map((item) => <a key={item.label} href={item.href} className="transition hover:text-white">{item.label}</a>)}
+              </div>
+            </div>
             <div><h3 className="font-black">Contact Us</h3><div className="mt-4 grid gap-3 text-sm font-bold text-white/70">{[[Phone, "+91 98765 43210"], [MapPin, "New Delhi, India"], [Clock3, "Pickup in 30 min average"]].map(([Icon, item]) => { const ContactIcon = Icon as typeof Phone; return <span key={String(item)} className="flex items-center gap-2"><ContactIcon className="h-4 w-4 text-[var(--darji-orange)]" />{String(item)}</span>; })}</div></div>
           </div>
           <div className="shell mt-8 border-t border-white/10 pt-5 text-center text-xs font-bold text-white/50">&copy; 2026 Darji. All rights reserved.</div>

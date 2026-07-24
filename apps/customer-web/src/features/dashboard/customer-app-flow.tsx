@@ -3237,7 +3237,11 @@ function WalletScreen({ setScreen }: { setScreen: (s: CustomerScreen) => void })
 }
 
 function HelpCenterScreen({ setScreen }: { setScreen: (s: CustomerScreen) => void }) {
-  const [tab, setTab] = useState<"faq" | "terms" | "privacy">("faq");
+  const [tab, setTab] = useState<"faq" | "terms" | "privacy">(() => {
+    if (typeof window === "undefined") return "faq";
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    return requestedTab === "terms" || requestedTab === "privacy" ? requestedTab : "faq";
+  });
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const faqs = [
@@ -4064,8 +4068,14 @@ export function CustomerDashboard() {
     const params = new URLSearchParams(window.location.search);
     const targetScreen = params.get("screen") as CustomerScreen;
     if (targetScreen) {
+      params.delete("screen");
+      const remainingQuery = params.toString();
       window.location.hash = targetScreen;
-      window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+      window.history.replaceState(
+        {},
+        document.title,
+        `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ""}${window.location.hash}`
+      );
     }
 
     const handleHashChange = () => {
