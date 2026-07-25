@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { UserModel } from "../models.js";
 import { saveDeviceTokens } from "../services/push.service.js";
 import { sendOtpNotification } from "../services/notificationService.js";
 
@@ -13,6 +14,16 @@ const deviceTokenSchema = z.object({
 const testNotificationSchema = z.object({
   title: z.string().trim().min(1).max(120).default("Darji notification test"),
   body: z.string().trim().min(1).max(500).default("Push notifications are configured correctly.")
+});
+
+const notificationPreferencesSchema = z.object({
+  notifications: z.boolean().optional(),
+  orderUpdates: z.boolean().optional(),
+  offersPromotions: z.boolean().optional(),
+  pickupReminders: z.boolean().optional(),
+  deliveryUpdates: z.boolean().optional(),
+  quietHours: z.boolean().optional(),
+  receivingNotifications: z.boolean().optional()
 });
 
 export async function registerDeviceTokenController(req: Request, res: Response) {
@@ -30,4 +41,13 @@ export async function sendTestNotificationController(req: Request, res: Response
     data: { type: "NOTIFICATION_TEST", screen: "notifications" }
   });
   res.json({ data: { ok: true } });
+}
+
+export async function updateNotificationPreferencesController(req: Request, res: Response) {
+  const input = notificationPreferencesSchema.parse(req.body ?? {});
+  const $set = Object.fromEntries(
+    Object.entries(input).map(([key, value]) => [`notificationPreferences.customer.${key}`, value])
+  );
+  const user = await UserModel.findByIdAndUpdate(req.user!.id, { $set }, { returnDocument: "after" }).select("notificationPreferences");
+  res.json({ data: user?.toJSON().notificationPreferences?.customer ?? input });
 }

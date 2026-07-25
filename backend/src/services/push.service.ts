@@ -52,6 +52,24 @@ function isIncomingRequestType(type?: string) {
   return /incoming|new_request|request_created|assignment|delivery_batch_ready|task_created|pickup_assigned/i.test(type ?? "");
 }
 
+function customerPreferenceKind(payload: PushPayload, data: Record<string, string>) {
+  const haystack = `${payload.channelId ?? ""} ${data.type ?? ""} ${data.event ?? ""} ${data.status ?? ""} ${payload.title} ${payload.body}`.toLowerCase();
+  if (payload.channelId === "customer-offers-v2" || /offer|promo|coupon|discount/.test(haystack)) return "offersPromotions";
+  if (/pickup/.test(haystack)) return "pickupReminders";
+  if (/delivery|delivered|out_for_delivery/.test(haystack)) return "deliveryUpdates";
+  return "orderUpdates";
+}
+
+function customerPushAllowed(preferences: unknown, payload: PushPayload, data: Record<string, string>) {
+  const customerPrefs = (preferences as { customer?: Record<string, unknown> } | undefined)?.customer;
+  if (!customerPrefs) return true;
+  if (customerPrefs.notifications === false || customerPrefs.receivingNotifications === false) return false;
+  const istHour = (new Date().getUTCHours() + 5 + (new Date().getUTCMinutes() >= 30 ? 1 : 0)) % 24;
+  const quietCritical = /payment|security|account|otp|verification/i.test(`${payload.channelId ?? ""} ${data.type ?? ""} ${data.event ?? ""} ${payload.title} ${payload.body}`);
+  if (customerPrefs.quietHours !== false && !quietCritical && (istHour >= 22 || istHour < 8)) return false;
+  return customerPrefs[customerPreferenceKind(payload, data)] !== false;
+}
+
 function firebaseCredential() {
   if (env.FCM_SERVICE_ACCOUNT_JSON) {
     return admin.credential.cert(JSON.parse(env.FCM_SERVICE_ACCOUNT_JSON.replace(/\\n/g, "\n")));
@@ -174,12 +192,17 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
   if (!userIds.length) return;
   const targetApps = resolveTargetApps(payload);
   const shouldFilterByApp = targetApps.length > 0;
+  const normalizedPayloadData = normalizeData(payload.data);
+  const targetsCustomer = !shouldFilterByApp || targetApps.includes("customer");
   const matchesTargetApp = (app?: string) => !shouldFilterByApp || targetApps.includes(normalizeAppName(app) ?? "");
 
-  const users = await UserModel.find({ _id: { $in: userIds } }).select("fcmToken fcmTokens expoPushTokens");
+  const users = await UserModel.find({ _id: { $in: userIds } }).select("fcmToken fcmTokens expoPushTokens notificationPreferences");
+  const eligibleUsers = targetsCustomer
+    ? users.filter((user) => customerPushAllowed((user.toJSON() as { notificationPreferences?: unknown }).notificationPreferences, payload, normalizedPayloadData))
+    : users;
   const tokens = [
     ...new Set(
-      users.flatMap((user) => {
+      eligibleUsers.flatMap((user) => {
         const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string }> };
         const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app)).map((item) => item.token!);
         const legacyToken = !shouldFilterByApp && json.fcmToken ? [json.fcmToken] : [];
@@ -188,7 +211,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
     )
   ];
   const expoTokens = [
-    ...new Set(users.flatMap((user) => {
+    ...new Set(eligibleUsers.flatMap((user) => {
       const json = user.toJSON() as {
         fcmToken?: string;
         fcmTokens?: Array<{ token?: string; app?: string }>;
@@ -209,7 +232,6 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
   }
 
   try {
-    const normalizedPayloadData = normalizeData(payload.data);
     const isIncomingRequest = payload.channelId === "darji-incoming-orders-v3" ||
       payload.channelId === "darji-incoming-requests-v1" ||
       isIncomingRequestType(normalizedPayloadData.type) ||

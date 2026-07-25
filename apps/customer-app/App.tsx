@@ -65,6 +65,8 @@ type Screen =
   | "profile"
   | "editProfile"
   | "settings"
+  | "appLanguage"
+  | "notificationPreferences"
   | "services"
   | "savedAddresses"
   | "addAddress"
@@ -73,6 +75,8 @@ type Screen =
   | "coupons"
   | "helpCenter"
   | "contactSupport"
+  | "helpTopic"
+  | "faq"
   | "reportBug"
   | "cancellationPolicy"
   | "rateApp"
@@ -276,7 +280,19 @@ type PaymentSheetState = {
 };
 type ProfileGender = "Male" | "Female" | "Other" | "";
 type ProfileData = { name: string; phone: string; gender?: ProfileGender; dateOfBirth?: string; avatarUri?: string; avatarPreset?: AvatarPreset; hasCompletedOnboarding?: boolean };
-type AppSettings = { notifications: boolean; orderUpdates: boolean; darkMode: boolean; compactCards: boolean; locationAccess: boolean; saveMedia: boolean };
+type AppSettings = {
+  notifications: boolean;
+  orderUpdates: boolean;
+  offersPromotions: boolean;
+  pickupReminders: boolean;
+  deliveryUpdates: boolean;
+  quietHours: boolean;
+  receivingNotifications: boolean;
+  darkMode: boolean;
+  compactCards: boolean;
+  locationAccess: boolean;
+  saveMedia: boolean;
+};
 type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number };
 type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
 type HandoffOtp = {
@@ -420,6 +436,7 @@ const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const REQUEST_DESCRIPTION_MIN = 10;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
+const CUSTOMER_NOTIFICATION_PREFS_KEY = "darji.customerNotificationPreferences.v1";
 const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "orderSummary", "quotes", "confirmOrder"]);
 function getPlatformFee(orderValue: number) {
   if (orderValue <= 0) return 0;
@@ -474,11 +491,158 @@ const cancellationSpecialCases = [
 const defaultSettings: AppSettings = {
   notifications: true,
   orderUpdates: true,
+  offersPromotions: true,
+  pickupReminders: true,
+  deliveryUpdates: true,
+  quietHours: true,
+  receivingNotifications: true,
   darkMode: false,
   compactCards: false,
   locationAccess: true,
   saveMedia: true
 };
+
+const helpTopics = [
+  {
+    id: "pickup",
+    icon: "shirt-outline",
+    title: "How pickup works",
+    subtitle: "Schedule a slot and our partner collects your garment.",
+    details: [
+      "Choose pickup address and preferred service while creating a request.",
+      "Darji assigns a pickup partner and shares live status updates.",
+      "Keep clothes packed and ready. The partner verifies the request before handover.",
+      "After pickup, your garment is delivered to the selected tailor."
+    ]
+  },
+  {
+    id: "quotes",
+    icon: "document-text-outline",
+    title: "How quotes work",
+    subtitle: "Tailors respond after reviewing uploaded photos.",
+    details: [
+      "Upload clear cloth photos and describe the work needed.",
+      "Nearby tailors review the request and submit price and timeline.",
+      "Compare quotes, ratings, and expected completion time.",
+      "Select one quote to confirm and move to payment."
+    ]
+  },
+  {
+    id: "delivery",
+    icon: "bicycle-outline",
+    title: "How delivery works",
+    subtitle: "We deliver your stitched order back to your doorstep.",
+    details: [
+      "Darji tracks pickup, tailor handover, stitching, and final delivery.",
+      "You receive status updates when the order is dispatched.",
+      "Delivery OTP may be used to complete secure handover.",
+      "Report any delivery issue from Contact Support."
+    ]
+  },
+  {
+    id: "payments",
+    icon: "wallet-outline",
+    title: "Payments and refunds",
+    subtitle: "UPI, cards and cash on delivery are supported.",
+    details: [
+      "You can pay online through Razorpay or use COD when available.",
+      "Refunds follow the cancellation and rescheduling rules.",
+      "Failed online payments can be retried from the order screen.",
+      "Payment support can help with duplicate debit or refund delays."
+    ]
+  },
+  {
+    id: "pricing",
+    icon: "receipt-outline",
+    title: "Pricing and charges",
+    subtitle: "Understand pricing, additional charges and payment details.",
+    details: [
+      "Tailors set the stitching or alteration quote after reviewing your request.",
+      "Darji may add delivery, platform, small-order, or home-measurement fees.",
+      "The final amount is shown before you confirm payment.",
+      "Any cancellation charges are shown in the cancellation policy."
+    ]
+  },
+  {
+    id: "account",
+    icon: "person-circle-outline",
+    title: "My account",
+    subtitle: "Update profile, addresses and manage your account.",
+    details: [
+      "Edit your name, gender, date of birth, and avatar from Profile.",
+      "Saved addresses can be added, deleted, or selected during requests.",
+      "Language and notification settings are separated under Preferences.",
+      "Account deletion permanently clears the local profile data from this device."
+    ]
+  },
+  {
+    id: "orders",
+    icon: "cube-outline",
+    title: "My orders",
+    subtitle: "Track your order status and view order details.",
+    details: [
+      "Open Orders to see active, pending, delivered, and cancelled requests.",
+      "Track Order shows pickup, tailor handover, stitching, and delivery progress.",
+      "Incomplete requests can be resumed from Orders.",
+      "Invoices are available after eligible delivered orders."
+    ]
+  }
+] as const;
+
+const faqItems = [
+  {
+    id: "pickup",
+    question: "How does pickup work?",
+    answer: "Schedule a slot and our partner will pick up your clothes from your address."
+  },
+  {
+    id: "time",
+    question: "How long does stitching take?",
+    answer: "It usually takes 2-5 days depending on the service, fabric work, tailor availability, and delivery distance."
+  },
+  {
+    id: "pricing",
+    question: "How do I get pricing?",
+    answer: "Upload your requirements and you will receive quotes from verified tailors before confirming the order."
+  },
+  {
+    id: "payments",
+    question: "What payment methods are available?",
+    answer: "We support UPI, cards, online payment options, and cash on delivery where available."
+  },
+  {
+    id: "tracking",
+    question: "Can I track my order?",
+    answer: "Yes. You can track pickup, stitching, and delivery from the order tracking screen."
+  },
+  {
+    id: "satisfaction",
+    question: "What if I am not satisfied with the order?",
+    answer: "Contact support from the order or help section. We will help with a resolution."
+  },
+  {
+    id: "cancellation",
+    question: "Order cancellation",
+    answer: "Cancellation is free before pickup. After pickup, delivery charges and cancellation fee may apply. After tailor handover, cancellation is not allowed."
+  }
+] as const;
+
+const searchCategories = [
+  { title: "Men Ethnic", subtitle: "Kurta, Sherwani & more", icon: "shirt-outline" },
+  { title: "Men Formal", subtitle: "Shirts, Pants & Blazers", icon: "business-outline" },
+  { title: "Women Ethnic", subtitle: "Saree, Suit & Lehenga", icon: "woman-outline" },
+  { title: "Women Western", subtitle: "Dresses, Tops & more", icon: "sparkles-outline" },
+  { title: "Kids", subtitle: "Boys & Girls Wear", icon: "happy-outline" },
+  { title: "Uniforms", subtitle: "School & College Wear", icon: "school-outline" },
+  { title: "Home & More", subtitle: "Curtains, Cushion & more", icon: "home-outline" },
+  { title: "Alterations", subtitle: "Repairs & Alterations", icon: "construct-outline" }
+] as const;
+
+const searchTailors = [
+  { name: "Rohit Tailors", rating: "4.8", reviews: 128, location: "Janakpuri, Delhi", specialty: "Men Ethnic, Formal Wear", initials: "RT" },
+  { name: "Sharma Tailors", rating: "4.7", reviews: 96, location: "Uttam Nagar, Delhi", specialty: "Women Ethnic, Alterations", initials: "ST" },
+  { name: "Style Stitch", rating: "4.6", reviews: 78, location: "Tilak Nagar, Delhi", specialty: "Men Formal, Casual Wear", initials: "SS" }
+] as const;
 
 const services = [
   { icon: "cut-outline", title: "Stitching", count: "24 tailors" },
@@ -821,6 +985,11 @@ function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" |
 function isSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   return /authentication required|invalid session|invalid or expired token|session expired|signed in on another device/i.test(message);
+}
+
+function isInQuietHoursNow(date = new Date()) {
+  const hour = date.getHours();
+  return hour >= 22 || hour < 8;
 }
 
 function makeDefaultAddresses(): SavedAddress[] {
@@ -1227,17 +1396,21 @@ function AuthButton({ label, loading, onPress }: { label: string; loading: boole
 function DarjiLogoMark() {
   return (
     <View style={styles.center}>
-      <Image source={customerAppIcon} resizeMode="contain" style={styles.loginAppIcon} />
-      <Text style={styles.authTagline}>On-demand tailoring at your doorstep</Text>
+      <Text style={styles.authBrandText}>Darji</Text>
+      <Text style={styles.authTagline}>We bring doorstep tailoring,{"\n"}so you never have to step outside.</Text>
+      <View style={styles.authUnderline} />
     </View>
   );
 }
 
-function TrustItem({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: string }) {
+function TrustItem({ icon, label, helper }: { icon: keyof typeof Ionicons.glyphMap; label: string; helper: string }) {
   return (
     <View style={styles.trustItem}>
-      <Ionicons name={icon} size={26} color={BRAND_ORANGE} />
+      <View style={styles.trustIconBubble}>
+        <Ionicons name={icon} size={24} color={BRAND_ORANGE} />
+      </View>
       <Text style={styles.trustLabel}>{label}</Text>
+      <Text style={styles.trustHelper}>{helper}</Text>
     </View>
   );
 }
@@ -1293,11 +1466,13 @@ function AuthScreen() {
           showsVerticalScrollIndicator={false}
         >
           <DarjiLogoMark />
-          <View style={styles.trustRow}>
-            <TrustItem icon="shield-outline" label={t(language, "safeSecure")} />
-            <TrustItem icon="flash-outline" label={t(language, "fast")} />
-            <TrustItem icon="star-outline" label={t(language, "bestServices")} />
-          </View>
+          {!otpRequested ? (
+            <View style={styles.trustRow}>
+              <TrustItem icon="shield-checkmark-outline" label="Kapde Aapke" helper="Zimmedari Hamari" />
+              <TrustItem icon="bicycle-outline" label="Pickup Se Delivery" helper="Sab Easy" />
+              <TrustItem icon="shirt-outline" label="Perfect Fit" helper="Har Baar" />
+            </View>
+          ) : null}
 
           <View style={styles.authForm}>
             <Text style={styles.sectionTitle}>{otpRequested ? t(language, "verifyOtp") : t(language, "login")}</Text>
@@ -5098,85 +5273,130 @@ function TrackOrderScreen({ order, setScreen }: { order: CustomerOrder; setScree
 
 function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"categories" | "tailors">("categories");
   const normalizedQuery = query.trim().toLowerCase();
-  const serviceResults = services.filter((service) => service.title.toLowerCase().includes(normalizedQuery));
-  const tailorResults = quotes.filter((tailor) => tailor.name.toLowerCase().includes(normalizedQuery));
-  const hasQuery = Boolean(normalizedQuery);
+  const categoryResults = searchCategories.filter((category) => [category.title, category.subtitle].join(" ").toLowerCase().includes(normalizedQuery));
+  const tailorResults = searchTailors.filter((tailor) => [tailor.name, tailor.location, tailor.specialty].join(" ").toLowerCase().includes(normalizedQuery));
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title={t(useAppStore.getState().language, "search")} />
-        <View style={styles.searchInputWrap}>
-          <Ionicons name="search-outline" size={21} color="#6a788d" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search stitching, blouse, repairs..."
-            placeholderTextColor="#8fa0b8"
-            value={query}
-            onChangeText={setQuery}
-          />
-          {query ? (
-            <Pressable onPress={() => setQuery("")}>
-              <Ionicons name="close-circle" size={20} color="#9aa6b6" />
-            </Pressable>
-          ) : null}
-        </View>
-
-        <View style={styles.quickRequestCard}>
-          <View style={styles.quickRequestTextBlock}>
-            <Text style={styles.quickRequestTitle}>Need custom tailoring?</Text>
-            <Text style={styles.quickRequestCopy}>Upload photos and get quotes from nearby tailors.</Text>
+      <ScrollView contentContainerStyle={styles.searchPageContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.searchHeroHeader}>
+          <View style={styles.profileRowTextNoMargin}>
+            <Text style={styles.searchHeroTitle}>Search</Text>
+            <Text style={styles.searchHeroSubtitle}>Find categories, tailors and services near you</Text>
           </View>
-          <Pressable style={styles.quickRequestButton} onPress={() => setScreen("newRequest")}>
-            <Ionicons name="add" size={18} color="#111111" />
+          <Pressable style={styles.searchNotificationButton} onPress={() => setScreen("notifications")}>
+            <Ionicons name="notifications-outline" size={24} color="#111827" />
+            <View style={styles.notificationDot} />
           </Pressable>
         </View>
 
-        <Text style={styles.listTitle}>Popular Services</Text>
-        <View style={styles.searchChips}>
-          {services.map((service) => (
-            <Pressable key={service.title} style={styles.searchChip} onPress={() => setQuery(service.title)}>
-              <Ionicons name={service.icon} size={16} color={BRAND_ORANGE} />
-              <Text style={styles.searchChipText}>{service.title}</Text>
+        <View style={styles.searchControlRow}>
+          <View style={[styles.searchInputWrap, { flex: 1, marginBottom: 0 }]}>
+            <Ionicons name="search-outline" size={23} color="#111827" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search categories, tailors or services..."
+              placeholderTextColor="#7b8493"
+              value={query}
+              onChangeText={setQuery}
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery("")}>
+                <Ionicons name="close-circle" size={20} color="#9aa6b6" />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable style={styles.filterButton}>
+            <Ionicons name="options-outline" size={21} color="#111827" />
+            <Text style={styles.filterButtonText}>Filter</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.searchSegment}>
+          <Pressable style={[styles.searchSegmentOption, mode === "categories" && styles.searchSegmentActive]} onPress={() => setMode("categories")}>
+            <Ionicons name="grid-outline" size={18} color={mode === "categories" ? BRAND_ORANGE : "#5f6673"} />
+            <Text style={[styles.searchSegmentText, mode === "categories" && styles.searchSegmentTextActive]}>Categories</Text>
+          </Pressable>
+          <Pressable style={[styles.searchSegmentOption, mode === "tailors" && styles.searchSegmentActive]} onPress={() => setMode("tailors")}>
+            <Ionicons name="person-outline" size={18} color={mode === "tailors" ? BRAND_ORANGE : "#5f6673"} />
+            <Text style={[styles.searchSegmentText, mode === "tailors" && styles.searchSegmentTextActive]}>Tailors</Text>
+          </Pressable>
+        </View>
+
+        {mode === "categories" ? (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.listTitle}>Browse by Category</Text>
+              <Text style={styles.seeAll}>View all</Text>
+            </View>
+            <View style={styles.searchCategoryGrid}>
+              {(query ? categoryResults : searchCategories).map((category) => (
+                <Pressable key={category.title} style={styles.searchCategoryCard} onPress={() => setScreen("newRequest")}>
+                  <View style={styles.searchCategoryImage}>
+                    <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={42} color={BRAND_ORANGE} />
+                  </View>
+                  <Text style={styles.searchCategoryTitle}>{category.title}</Text>
+                  <Text style={styles.searchCategorySubtitle}>{category.subtitle}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.listTitle}>Top Tailors Near You</Text>
+          <Text style={styles.seeAll}>View all</Text>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchTailorRow}>
+          {(query ? tailorResults : searchTailors).map((tailor) => (
+            <Pressable key={tailor.name} style={styles.searchTailorCard} onPress={() => setScreen("newRequest")}>
+              <View style={styles.searchTailorHeader}>
+                <View style={styles.smallQuoteAvatar}>
+                  <Text style={styles.smallAvatarText}>{tailor.initials}</Text>
+                </View>
+                <View style={styles.profileRowTextNoMargin}>
+                  <Text style={styles.addressTitle}>{tailor.name} <Ionicons name="checkmark-circle" size={14} color={BRAND_ORANGE} /></Text>
+                  <Text style={styles.ratingLine}>★ {tailor.rating} <Text style={styles.mutedSmall}>({tailor.reviews})</Text></Text>
+                </View>
+              </View>
+              <Text style={styles.searchTailorLocation}>{tailor.location}</Text>
+              <View style={styles.summaryDivider} />
+              <Text style={styles.mutedSmall}>Specializes in</Text>
+              <Text style={styles.searchTailorSpecialty}>{tailor.specialty}</Text>
+              <View style={styles.searchProfileButton}>
+                <Text style={styles.searchProfileButtonText}>View Profile</Text>
+                <Ionicons name="arrow-forward" size={18} color={BRAND_ORANGE} />
+              </View>
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.listTitle}>{hasQuery ? "Services" : "Recommended"}</Text>
-          <Text style={styles.mutedSmall}>{hasQuery ? serviceResults.length : services.length} found</Text>
-        </View>
+        <Text style={styles.listTitle}>Popular Services</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularServiceRow}>
+          {[
+            ["Custom Stitching", "shirt-outline"],
+            ["Alterations", "cut-outline"],
+            ["Repairs", "construct-outline"],
+            ["Press & Iron", "sparkles-outline"],
+            ["Pickup & Delivery", "bicycle-outline"]
+          ].map(([label, icon]) => (
+            <Pressable key={label} style={styles.searchPopularCard} onPress={() => setScreen("newRequest")}>
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={28} color={BRAND_ORANGE} />
+              <Text style={styles.popularServiceText}>{label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
 
-        {(hasQuery ? serviceResults : services).map((service) => (
-          <Pressable key={service.title} style={styles.searchResultCard} onPress={() => setScreen("newRequest")}>
-            <View style={styles.searchResultIcon}>
-              <Ionicons name={service.icon} size={24} color={BRAND_ORANGE} />
-            </View>
-            <View style={styles.searchResultBody}>
-              <Text style={styles.addressTitle}>{service.title}</Text>
-              <Text style={styles.mutedSmall}>{service.count} available near you</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#6b7890" />
-          </Pressable>
-        ))}
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.listTitle}>Tailors</Text>
-          <Text style={styles.mutedSmall}>{hasQuery ? tailorResults.length : quotes.length} found</Text>
-        </View>
-        {(hasQuery ? tailorResults : quotes).map((tailor) => (
-          <Pressable key={tailor.id} style={styles.searchResultCard} onPress={() => setScreen("newRequest")}>
-            <View style={styles.smallQuoteAvatar}>
-              <Text style={styles.smallAvatarText}>{tailor.initials}</Text>
-            </View>
-            <View style={styles.searchResultBody}>
-              <Text style={styles.addressTitle}>{tailor.name}</Text>
-              <Text style={styles.mutedSmall}>{tailor.rating} rating - Est. {tailor.eta}</Text>
-            </View>
-            <Text style={styles.orderPrice}>Rs{tailor.price}</Text>
-          </Pressable>
-        ))}
+        <Pressable style={styles.searchTrustBanner} onPress={() => setScreen("helpCenter")}>
+          <Ionicons name="shield-checkmark-outline" size={34} color={BRAND_ORANGE} />
+          <View style={styles.profileRowText}>
+            <Text style={styles.addressTitle}>Trusted tailors. Quality stitching.</Text>
+            <Text style={styles.mutedSmall}>Verified professionals - On-time delivery - 100% satisfaction</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#111827" />
+        </Pressable>
       </ScrollView>
       <BottomTabs active="search" setScreen={setScreen} />
     </SafeAreaView>
@@ -5285,8 +5505,8 @@ function ProfileScreen({
           <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "preferences")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="language-outline" label={t(language, "appLanguage")} value={getLanguageLabel(language)} onPress={() => setScreen("settings")} styles={profileStyles} noBorder />
-          <ProfileRow icon="notifications-outline" label={t(language, "notifications")} value={language === "hi" ? "ऑर्डर अलर्ट और ऑफर सेट करें" : "Configure order alerts & promos"} onPress={() => setScreen("settings")} styles={profileStyles} />
+          <ProfileRow icon="language-outline" label={t(language, "appLanguage")} value={getLanguageLabel(language)} onPress={() => setScreen("appLanguage")} styles={profileStyles} noBorder />
+          <ProfileRow icon="notifications-outline" label={t(language, "notifications")} value="Order alerts, offers and reminders" onPress={() => setScreen("notificationPreferences")} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
@@ -5295,6 +5515,7 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="help-circle-outline" label={t(language, "helpCenter")} value={t(language, "faqWorkflows")} onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
+          <ProfileRow icon="document-text-outline" label="FAQs" value="Common questions and cancellation rules" onPress={() => setScreen("faq")} styles={profileStyles} />
           <ProfileRow icon="chatbubble-ellipses-outline" label={t(language, "contactSupport")} value={t(language, "chatWithSupportTeam")} onPress={() => setScreen("contactSupport")} styles={profileStyles} />
           <ProfileRow icon="bug-outline" label={t(language, "reportBug")} value={t(language, "submitBugReport")} onPress={() => setScreen("reportBug")} styles={profileStyles} />
         </View>
@@ -5351,7 +5572,7 @@ function ProfileScreen({
                 <Ionicons name="log-out-outline" size={28} color="#ef4444" />
               </View>
               <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>{t(language, "signOut")}</Text>
-              <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{t(language, "logoutConfirm")}</Text>
+              <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>Ready to leave Darji for now? You can sign back in anytime.</Text>
             </View>
             <Pressable
               style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
@@ -5363,7 +5584,7 @@ function ProfileScreen({
               style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
               onPress={() => setShowLogoutModal(false)}
             >
-              <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
+              <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>Stay Logged In</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -5539,6 +5760,99 @@ function SettingsScreen({
   );
 }
 
+function AppLanguageScreen({
+  language,
+  setLanguagePreference,
+  setScreen
+}: {
+  language: AppLanguage;
+  setLanguagePreference: (language: AppLanguage) => void;
+  setScreen: (screen: Screen) => void;
+}) {
+  const [selected, setSelected] = useState<AppLanguage>(language);
+
+  function saveLanguage() {
+    setLanguagePreference(selected);
+    Alert.alert(t(selected, "languageUpdated"), t(selected, "languageUpdatedMessage"));
+    setScreen("profile");
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <Header title={t(language, "appLanguage")} onBack={() => setScreen("profile")} />
+        <Text style={styles.preferenceIntro}>Choose your preferred language for the Darji app.</Text>
+        <View style={styles.languageOptionList}>
+          {([
+            { value: "en" as const, title: "English", subtitle: "Default", badge: "EN" },
+            { value: "hi" as const, title: "Hindi", subtitle: "\u0939\u093f\u0902\u0926\u0940", badge: "\u0939\u093f\u0902" }
+          ]).map((item) => {
+            const active = selected === item.value;
+            return (
+              <Pressable key={item.value} style={[styles.languageChoiceCard, active && styles.languageChoiceActive]} onPress={() => setSelected(item.value)}>
+                <View style={styles.languageBadge}>
+                  <Text style={styles.languageBadgeText}>{item.badge}</Text>
+                </View>
+                <View style={styles.profileRowText}>
+                  <Text style={styles.addressTitle}>{item.title}</Text>
+                  <Text style={styles.mutedSmall}>{item.subtitle}</Text>
+                </View>
+                <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={22} color={active ? BRAND_ORANGE : "#b8c2d0"} />
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+      <View style={styles.fixedBottomAction}>
+        <Pressable style={styles.primaryWideButton} onPress={saveLanguage}>
+          <Ionicons name="save-outline" size={18} color="#111111" />
+          <Text style={styles.primaryWideButtonText}>Save Language</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function NotificationPreferencesScreen({
+  settings,
+  setSettings,
+  setScreen
+}: {
+  settings: AppSettings;
+  setSettings: (settings: AppSettings) => void;
+  setScreen: (screen: Screen) => void;
+}) {
+  function toggle(key: keyof AppSettings) {
+    setSettings({ ...settings, [key]: !settings[key] });
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <Header title="Notifications" onBack={() => setScreen("profile")} />
+        <Text style={styles.preferenceIntro}>Choose what updates you want to receive and when.</Text>
+        <Text style={styles.preferenceSectionLabel}>NOTIFICATION ALERTS</Text>
+        <View style={styles.whiteCard}>
+          <SettingRow icon="notifications-outline" label="Order updates" value="Get notified about your order status, pickup, delivery and more." enabled={settings.orderUpdates && settings.notifications} onPress={() => toggle("orderUpdates")} />
+          <SettingRow icon="megaphone-outline" label="Offers & promotions" value="Receive alerts on exciting offers and discounts." enabled={settings.offersPromotions && settings.notifications} onPress={() => toggle("offersPromotions")} />
+          <SettingRow icon="cube-outline" label="Pickup reminders" value="Get reminded when your tailor is on the way for pickup." enabled={settings.pickupReminders && settings.notifications} onPress={() => toggle("pickupReminders")} />
+          <SettingRow icon="checkmark-circle-outline" label="Delivery updates" value="Get notified when your order is dispatched and delivered." enabled={settings.deliveryUpdates && settings.notifications} onPress={() => toggle("deliveryUpdates")} />
+        </View>
+
+        <Text style={styles.preferenceSectionLabel}>NOTIFICATION TIMING</Text>
+        <View style={styles.whiteCard}>
+          <SettingRow icon="time-outline" label="Quiet hours" value="No notifications during this time  10:00 PM - 8:00 AM" enabled={settings.quietHours} onPress={() => toggle("quietHours")} />
+          <SettingRow icon="notifications-circle-outline" label="Receiving notifications" value={settings.receivingNotifications ? "Always" : "Paused"} enabled={settings.receivingNotifications && settings.notifications} onPress={() => toggle("receivingNotifications")} />
+        </View>
+        <View style={styles.infoBanner}>
+          <Ionicons name="information-circle-outline" size={17} color={BRAND_ORANGE} />
+          <Text style={styles.infoBannerText}>You will still receive critical account and payment safety updates.</Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 function SettingRow({
   icon,
   label,
@@ -5626,7 +5940,7 @@ function AddAddressScreen({
   setAddresses: (addresses: SavedAddress[]) => void;
   setScreen: (screen: Screen) => void;
 }) {
-  const [label, setLabel] = useState("");
+  const [label, setLabel] = useState("Home");
   const [address, setAddress] = useState("");
   const [location, setLocation] = useState<{ lat?: number; lng?: number }>({});
   const [locating, setLocating] = useState(false);
@@ -5672,9 +5986,29 @@ function AddAddressScreen({
 
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "addAddress")} setScreen={setScreen} backScreen="savedAddresses">
+      <View style={styles.addressHintCard}>
+        <Ionicons name="ribbon-outline" size={22} color={BRAND_ORANGE} />
+        <Text style={styles.addressHintText}>Add your address so our tailors can reach you with ease.</Text>
+      </View>
       <Text style={styles.formLabel}>Address Label</Text>
-      <TextInput style={styles.profileInput} value={label} onChangeText={setLabel} placeholder="Home, Work, Studio..." placeholderTextColor="#98a4b6" />
+      <View style={styles.addressLabelGrid}>
+        {[
+          ["Home", "home-outline"],
+          ["Work", "briefcase-outline"],
+          ["Studio", "storefront-outline"],
+          ["Other", "ellipsis-horizontal"]
+        ].map(([itemLabel, icon]) => {
+          const active = label === itemLabel;
+          return (
+            <Pressable key={itemLabel} style={[styles.addressLabelCard, active && styles.addressLabelActive]} onPress={() => setLabel(itemLabel)}>
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={22} color={active ? BRAND_ORANGE : "#6b7890"} />
+              <Text style={[styles.addressLabelText, active && styles.addressLabelTextActive]}>{itemLabel}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <Text style={styles.formLabel}>Full Address</Text>
+      <Text style={[styles.mutedSmall, { marginBottom: 8 }]}>Include house / flat no., street, city & pincode</Text>
       <TextInput
         style={styles.descriptionInput}
         value={address}
@@ -5690,6 +6024,7 @@ function AddAddressScreen({
         </Pressable>
       </View>
       <Pressable style={styles.primaryWideButton} onPress={saveAddress}>
+        <Ionicons name="save-outline" size={18} color="#111111" />
         <Text style={styles.primaryWideButtonText}>Save Address</Text>
       </Pressable>
     </ProfileSubPage>
@@ -5771,22 +6106,131 @@ function CouponsScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   );
 }
 
-function HelpCenterScreen({ setScreen, onOpenCancellationPolicy }: { setScreen: (screen: Screen) => void; onOpenCancellationPolicy: () => void }) {
-  const topics = [
-    ["How pickup works", "Schedule a slot and our partner collects your garment."],
-    ["How quotes work", "Tailors respond after reviewing your uploaded photos."],
-    ["Payments and refunds", "UPI, cards and cash on delivery are supported."],
-    ["Order cancellation", "Read refund rules and cancellation charges."]
+function HelpCenterScreen({
+  setScreen,
+  onOpenTopic,
+  onOpenCancellationPolicy
+}: {
+  setScreen: (screen: Screen) => void;
+  onOpenTopic: (topicId: string) => void;
+  onOpenCancellationPolicy: () => void;
+}) {
+  const groups = [
+    { title: "GET STARTED", topics: helpTopics.slice(0, 3) },
+    { title: "PAYMENTS", topics: helpTopics.slice(3, 5) },
+    { title: "ACCOUNT & ORDERS", topics: helpTopics.slice(5, 7) }
   ];
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "helpCenter")} setScreen={setScreen}>
-      {topics.map(([title, text]) => (
-        <Pressable key={title} style={styles.infoCard} onPress={() => title === "Order cancellation" ? onOpenCancellationPolicy() : undefined}>
-          <Text style={styles.addressTitle}>{title}</Text>
-          <Text style={styles.infoCopy}>{text}</Text>
-          {title === "Order cancellation" ? <Text style={styles.orangeSmall}>View policy</Text> : null}
-        </Pressable>
+      <Text style={styles.preferenceIntro}>Find answers and get the help you need.</Text>
+      <Pressable style={styles.searchInputWrap}>
+        <Ionicons name="search-outline" size={19} color="#8fa0b8" />
+        <Text style={styles.searchPlaceholder}>Search for help...</Text>
+      </Pressable>
+      {groups.map((group) => (
+        <View key={group.title}>
+          <Text style={styles.preferenceSectionLabel}>{group.title}</Text>
+          <View style={styles.whiteCard}>
+            {group.topics.map((topic, index) => (
+              <Pressable
+                key={topic.id}
+                style={[styles.profileRow, index === 0 ? { borderTopWidth: 0 } : null]}
+                onPress={() => onOpenTopic(topic.id)}
+              >
+                <View style={styles.profileRowIcon}>
+                  <Ionicons name={topic.icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.profileRowText}>
+                  <Text style={styles.addressTitle}>{topic.title}</Text>
+                  <Text style={styles.mutedSmall}>{topic.subtitle}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#6b7890" />
+              </Pressable>
+            ))}
+          </View>
+        </View>
       ))}
+      <Pressable style={styles.helpContactCard} onPress={() => setScreen("contactSupport")}>
+        <View style={styles.profileRowIcon}>
+          <Ionicons name="headset-outline" size={18} color={BRAND_ORANGE} />
+        </View>
+        <View style={styles.profileRowText}>
+          <Text style={styles.addressTitle}>Still need help?</Text>
+          <Text style={styles.mutedSmall}>Our support team is available 9 AM - 9 PM, every day.</Text>
+        </View>
+        <View style={styles.helpContactButton}>
+          <Text style={styles.orangeSmall}>Contact us</Text>
+        </View>
+      </Pressable>
+      <Pressable style={styles.secondaryWideButton} onPress={onOpenCancellationPolicy}>
+        <Ionicons name="document-text-outline" size={18} color={BRAND_ORANGE} />
+        <Text style={styles.secondaryWideButtonText}>View Cancellation Policy</Text>
+      </Pressable>
+    </ProfileSubPage>
+  );
+}
+
+function HelpTopicScreen({ topicId, setScreen }: { topicId: string; setScreen: (screen: Screen) => void }) {
+  const topic = helpTopics.find((item) => item.id === topicId) ?? helpTopics[0];
+  return (
+    <ProfileSubPage title={topic.title} setScreen={setScreen} backScreen="helpCenter">
+      <View style={styles.policyHero}>
+        <Ionicons name={topic.icon as keyof typeof Ionicons.glyphMap} size={26} color={BRAND_ORANGE} />
+        <View style={styles.policyHeroText}>
+          <Text style={styles.addressTitle}>{topic.title}</Text>
+          <Text style={styles.infoCopy}>{topic.subtitle}</Text>
+        </View>
+      </View>
+      <View style={styles.whiteCard}>
+        {topic.details.map((detail, index) => (
+          <View key={detail} style={[styles.policyCaseRow, index === 0 ? { borderTopWidth: 0, marginTop: 0, paddingTop: 0 } : null]}>
+            <View style={styles.topicNumber}>
+              <Text style={styles.topicNumberText}>{index + 1}</Text>
+            </View>
+            <Text style={styles.topicDetailText}>{detail}</Text>
+          </View>
+        ))}
+      </View>
+      <Pressable style={styles.primaryWideButton} onPress={() => setScreen("contactSupport")}>
+        <Ionicons name="chatbubble-ellipses-outline" size={18} color="#111111" />
+        <Text style={styles.primaryWideButtonText}>Still Need Help?</Text>
+      </Pressable>
+    </ProfileSubPage>
+  );
+}
+
+function FaqScreen({ setScreen, onOpenCancellationPolicy }: { setScreen: (screen: Screen) => void; onOpenCancellationPolicy: () => void }) {
+  const [expanded, setExpanded] = useState<string | undefined>("pickup");
+
+  return (
+    <ProfileSubPage title="FAQs" setScreen={setScreen} backScreen="profile">
+      <Text style={styles.preferenceIntro}>Find quick answers to common questions about using Darji.</Text>
+      {faqItems.map((item) => {
+        const open = expanded === item.id;
+        return (
+          <Pressable
+            key={item.id}
+            style={[styles.faqCard, item.id === "cancellation" && styles.faqCancellationCard]}
+            onPress={() => {
+              if (item.id === "cancellation" && open) {
+                onOpenCancellationPolicy();
+                return;
+              }
+              setExpanded(open ? undefined : item.id);
+            }}
+          >
+            <View style={styles.faqQuestionRow}>
+              <View style={styles.faqIcon}>
+                <Ionicons name={item.id === "cancellation" ? "document-text-outline" : "help-circle-outline"} size={15} color={BRAND_ORANGE} />
+              </View>
+              <Text style={styles.faqQuestion}>{item.question}</Text>
+              <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color="#6b7890" />
+            </View>
+            {open ? <Text style={styles.faqAnswer}>{item.answer}</Text> : null}
+            {item.id === "cancellation" && open ? <Text style={styles.orangeSmall}>Tap again to read full policy</Text> : null}
+          </Pressable>
+        );
+      })}
     </ProfileSubPage>
   );
 }
@@ -6068,6 +6512,29 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
     }
   }
 
+  async function captureAttachmentImage() {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow camera access to capture a support photo. Darji receives only the photo you choose.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8
+    });
+    if (result.canceled || !result.assets.length) return;
+    try {
+      setUploading(true);
+      const asset = result.assets[0];
+      const uploaded = await uploadMedia([{ uri: asset.uri, type: "image", name: asset.fileName || "support-photo.jpg" }], token);
+      if (uploaded.length) setAttachments((prev) => [...prev, uploaded[0].url]);
+    } catch {
+      Alert.alert("Upload failed", "Could not upload the camera photo.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function pickBugScreenshot() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -6099,6 +6566,10 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
       Alert.alert("Select Category", "Please select the help category related to your issue.");
       return;
     }
+    if (description.trim().length < 10) {
+      Alert.alert("Describe your issue", "Please describe your issue in at least 10 characters.");
+      return;
+    }
     if (!token) return;
     try {
       setSending(true);
@@ -6106,7 +6577,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
         method: "POST",
         body: JSON.stringify({
           subject: selectedCategory,
-          message: `I need support regarding: ${selectedCategory}`,
+          message: description.trim(),
           orderId: selectedOrder?._id || selectedOrder?.id || undefined,
           category: selectedCategory,
           attachments: attachments
@@ -6114,6 +6585,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
       }, token);
 
       setAttachments([]);
+      setDescription("");
       await loadTickets();
       const createdTicket = res.data || res;
       setActiveTicket(createdTicket);
@@ -6495,6 +6967,19 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 </View>
               </View>
 
+              <View>
+                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Describe your issue</Text>
+                <TextInput
+                  style={{ minHeight: 96, backgroundColor: cardBg, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 14, paddingVertical: 12, color: text, fontSize: 13, fontWeight: "700", textAlignVertical: "top" }}
+                  value={description}
+                  onChangeText={(value) => value.length <= 500 && setDescription(value)}
+                  placeholder="Tell us more about your issue..."
+                  placeholderTextColor={mutedText}
+                  multiline
+                />
+                <Text style={{ color: mutedText, fontSize: 10, fontWeight: "800", textAlign: "right", marginTop: 4 }}>{description.length}/500</Text>
+              </View>
+
               {/* Attachments */}
               <View>
                 <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Attach Image Reference (Optional)</Text>
@@ -6529,8 +7014,8 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
               {/* Start Conversation button */}
               <TouchableOpacity 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }, (!selectedCategory || sending) && { opacity: 0.6 }]}
-                disabled={!selectedCategory || sending}
+                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }, (!selectedCategory || description.trim().length < 10 || sending) && { opacity: 0.6 }]}
+                disabled={!selectedCategory || description.trim().length < 10 || sending}
                 onPress={handleStartChat}
                 activeOpacity={0.8}
               >
@@ -6675,8 +7160,13 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   </View>
                 )}
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Pressable onPress={pickAttachmentImage} style={{ padding: 8 }}>
-                    <Ionicons name="attach-outline" size={24} color={BRAND_ORANGE} />
+                  <Pressable onPress={pickAttachmentImage} style={{ alignItems: "center", justifyContent: "center", width: 38, height: 42 }}>
+                    <Ionicons name="image-outline" size={20} color={BRAND_ORANGE} />
+                    <Text style={{ color: mutedText, fontSize: 8, fontWeight: "800", marginTop: 2 }}>Gallery</Text>
+                  </Pressable>
+                  <Pressable onPress={captureAttachmentImage} style={{ alignItems: "center", justifyContent: "center", width: 38, height: 42 }}>
+                    <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
+                    <Text style={{ color: mutedText, fontSize: 8, fontWeight: "800", marginTop: 2 }}>Camera</Text>
                   </Pressable>
                   <TextInput
                     style={{ flex: 1, minHeight: 46, maxHeight: 100, backgroundColor: cardBg, borderWidth: 1, borderColor: border, borderRadius: 23, paddingHorizontal: 16, color: text, fontSize: 14, fontWeight: "700" }}
@@ -7978,11 +8468,11 @@ export default function App() {
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<string | undefined>();
   const [cancellingOrderId, setCancellingOrderId] = useState<string | undefined>();
+  const [selectedHelpTopicId, setSelectedHelpTopicId] = useState<string>("pickup");
   const [isFetchingOrders, setIsFetchingOrders] = useState(true);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
-  useRegisterPushNotifications({ authToken: token, app: "customer", userId: user?.id });
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -7995,6 +8485,27 @@ export default function App() {
   const defaultAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
   const unreadCount = notifications.filter((item) => !item.read).length;
   const activeOrderForCustomer = activeOrder && orders.some((order) => order.id === activeOrder.id) ? activeOrder : undefined;
+  const pushNotificationsEnabled = settings.notifications && settings.receivingNotifications;
+  useRegisterPushNotifications({ authToken: pushNotificationsEnabled ? token : undefined, app: "customer", userId: user?.id });
+
+  useEffect(() => {
+    configureForegroundNotificationHandler({ shouldShow: pushNotificationsEnabled });
+    AsyncStorage.setItem(CUSTOMER_NOTIFICATION_PREFS_KEY, JSON.stringify(settings)).catch(() => undefined);
+    if (token) {
+      void api("/notifications/preferences", {
+        method: "PATCH",
+        body: JSON.stringify({
+          notifications: settings.notifications,
+          orderUpdates: settings.orderUpdates,
+          offersPromotions: settings.offersPromotions,
+          pickupReminders: settings.pickupReminders,
+          deliveryUpdates: settings.deliveryUpdates,
+          quietHours: settings.quietHours,
+          receivingNotifications: settings.receivingNotifications
+        })
+      }, token).catch(() => undefined);
+    }
+  }, [pushNotificationsEnabled, settings, token]);
 
   const goBack = useCallback(() => {
     if (cancellingOrderId) {
@@ -8164,6 +8675,22 @@ export default function App() {
     updateCustomerData((data) => ({ ...data, notifications: nextNotifications }));
   }
 
+  function addCustomerNotification(kind: "order" | "pickup" | "delivery" | "offer", notification: AppNotification) {
+    const allowed =
+      settings.notifications &&
+      settings.receivingNotifications &&
+      (!settings.quietHours || !isInQuietHoursNow()) &&
+      (kind === "order"
+        ? settings.orderUpdates
+        : kind === "pickup"
+          ? settings.pickupReminders
+          : kind === "delivery"
+            ? settings.deliveryUpdates
+            : settings.offersPromotions);
+    if (!allowed) return;
+    updateCustomerData((data) => ({ ...data, notifications: [notification, ...data.notifications] }));
+  }
+
   function updateOrder(nextOrder: CustomerOrder) {
     setCustomerOrders((current) => current.map((order) => (order.id === nextOrder.id ? nextOrder : order)));
     setActiveOrder(nextOrder);
@@ -8237,13 +8764,14 @@ export default function App() {
         actions: [{ label: "OK" }]
       });
     }
-    updateCustomerData((data) => ({
-      ...data,
-      notifications: [
-        { id: `rt-${requestId}-${status}-${Date.now()}`, icon: "notifications-outline", title: "Order update", text: nextStatus, time: "Now", read: false },
-        ...data.notifications
-      ]
-    }));
+    addCustomerNotification(nextStatus.includes("Delivery") || nextStatus === "On the Way" || nextStatus === "Delivered" ? "delivery" : nextStatus.includes("Pickup") ? "pickup" : "order", {
+      id: `rt-${requestId}-${status}-${Date.now()}`,
+      icon: "notifications-outline",
+      title: "Order update",
+      text: nextStatus,
+      time: "Now",
+      read: false
+    });
   }
 
   function markNotificationsRead() {
@@ -8313,7 +8841,7 @@ export default function App() {
   function requestDeleteCustomerAccount() {
     setDialog({
       title: "Delete account?",
-      message: "This removes this customer's local profile, addresses, orders, reviews, and saved app data from this phone.",
+      message: "This will permanently remove your profile, saved addresses, order history, reviews, and app data from this device. This action cannot be undone.",
       actions: [
         { label: "Keep Account" },
         { label: "Delete Account", destructive: true, onPress: deleteCustomerAccount }
@@ -8689,17 +9217,14 @@ export default function App() {
       const filtered = current.filter((order) => order.backendOrderId !== request.id && order.id !== request.id);
       return [nextOrder, ...filtered];
     });
-    setCustomerNotifications([
-      {
-        id: `order-${request.id}-${Date.now()}`,
-        icon: "cube-outline",
-        title: nextOrder.status === "Awaiting Payment" ? "Payment pending" : "Order confirmed",
-        text: `${nextOrder.orderNumber} is now ${nextOrder.status.toLowerCase()}.`,
-        time: "Now",
-        read: false
-      },
-      ...notifications
-    ]);
+    addCustomerNotification("order", {
+      id: `order-${request.id}-${Date.now()}`,
+      icon: "cube-outline",
+      title: nextOrder.status === "Awaiting Payment" ? "Payment pending" : "Order confirmed",
+      text: `${nextOrder.orderNumber} is now ${nextOrder.status.toLowerCase()}.`,
+      time: "Now",
+      read: false
+    });
     setActiveOrder(nextOrder);
     void playAppSound("confirmation");
   }
@@ -8888,12 +9413,16 @@ export default function App() {
   const PROFILE_SUBSCREENS = new Set([
     "editProfile",
     "settings",
+    "appLanguage",
+    "notificationPreferences",
     "savedAddresses",
     "addAddress",
     "walletPayments",
     "transactionHistory",
     "coupons",
     "helpCenter",
+    "helpTopic",
+    "faq",
     "cancellationPolicy",
     "contactSupport",
     "reportBug",
@@ -8917,6 +9446,14 @@ export default function App() {
         <Modal visible={screen === "settings"} onRequestClose={goBack} animationType="slide">
           <SettingsScreen settings={settings} setSettings={setCustomerSettings} setScreen={setScreen} language={language} setLanguagePreference={setLanguagePreference} />
         </Modal>
+
+        <Modal visible={screen === "appLanguage"} onRequestClose={goBack} animationType="slide">
+          <AppLanguageScreen language={language} setLanguagePreference={setLanguagePreference} setScreen={setScreen} />
+        </Modal>
+
+        <Modal visible={screen === "notificationPreferences"} onRequestClose={goBack} animationType="slide">
+          <NotificationPreferencesScreen settings={settings} setSettings={setCustomerSettings} setScreen={setScreen} />
+        </Modal>
         
         <Modal visible={screen === "savedAddresses"} onRequestClose={goBack} animationType="slide">
           <SavedAddressesScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />
@@ -8939,7 +9476,22 @@ export default function App() {
         </Modal>
         
         <Modal visible={screen === "helpCenter"} onRequestClose={goBack} animationType="slide">
-          <HelpCenterScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />
+          <HelpCenterScreen
+            setScreen={setScreen}
+            onOpenTopic={(topicId) => {
+              setSelectedHelpTopicId(topicId);
+              setScreen("helpTopic");
+            }}
+            onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }}
+          />
+        </Modal>
+
+        <Modal visible={screen === "helpTopic"} onRequestClose={goBack} animationType="slide">
+          <HelpTopicScreen topicId={selectedHelpTopicId} setScreen={setScreen} />
+        </Modal>
+
+        <Modal visible={screen === "faq"} onRequestClose={goBack} animationType="slide">
+          <FaqScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />
         </Modal>
         
         <Modal visible={screen === "cancellationPolicy"} onRequestClose={goBack} animationType="slide">
@@ -9009,8 +9561,8 @@ function createStyles(isDark = false) {
   flex: { flex: 1 },
   safe: { flex: 1, backgroundColor: pageBg, paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0 },
   center: { alignItems: "center" },
-  authLayout: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingBottom: 32, paddingTop: 72 },
-  authLanguageCorner: { position: "absolute", right: 18, top: (Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0) + 12, zIndex: 20 },
+  authLayout: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 26, paddingBottom: 38, paddingTop: 92 },
+  authLanguageCorner: { position: "absolute", right: 18, top: (Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0) + 18, zIndex: 20 },
   loginAppIcon: {
     width: 86,
     height: 86,
@@ -9021,11 +9573,15 @@ function createStyles(isDark = false) {
     shadowRadius: 24,
     elevation: 3
   },
-  authTagline: { marginTop: 18, color: text, fontSize: 14, textAlign: "center", fontWeight: "500" },
-  trustRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 34, paddingHorizontal: 30 },
-  trustItem: { alignItems: "center", width: 76 },
-  trustLabel: { marginTop: 8, color: muted, fontSize: 11, textAlign: "center" },
-  authForm: { marginTop: 34 },
+  authBrandText: { color: BRAND_ORANGE, fontSize: 34, fontWeight: "900", fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
+  authTagline: { marginTop: 14, color: text, fontSize: 15, lineHeight: 24, textAlign: "center", fontWeight: "800" },
+  authUnderline: { width: 74, height: 2, borderRadius: 1, backgroundColor: BRAND_ORANGE, marginTop: 12 },
+  trustRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: 34 },
+  trustItem: { flex: 1, minHeight: 108, borderRadius: 16, borderWidth: 1, borderColor: "#eef2f7", backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 8 },
+  trustIconBubble: { width: 44, height: 44, borderRadius: 16, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  trustLabel: { color: text, fontSize: 10, lineHeight: 14, fontWeight: "900", textAlign: "center" },
+  trustHelper: { color: muted, fontSize: 9, lineHeight: 13, fontWeight: "700", textAlign: "center", marginTop: 4 },
+  authForm: { marginTop: 32 },
   sectionTitle: { color: text, fontSize: 13, fontWeight: "900", letterSpacing: 0.2, marginBottom: 14 },
   phoneField: {
     height: 48,
@@ -9729,6 +10285,61 @@ function createStyles(isDark = false) {
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
   liveMapCard: { minHeight: 138, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 },
+  preferenceIntro: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: -8, marginBottom: 18, maxWidth: 260 },
+  preferenceSectionLabel: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900", marginTop: 8, marginBottom: 8 },
+  languageOptionList: { gap: 14, marginTop: 10 },
+  languageChoiceCard: { minHeight: 86, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 14 },
+  languageChoiceActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  languageBadge: { width: 48, height: 48, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  languageBadgeText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
+  fixedBottomAction: { position: "absolute", left: 20, right: 20, bottom: 22 },
+  addressHintCard: { minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: "#ffedd5", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, marginBottom: 20 },
+  addressHintText: { flex: 1, minWidth: 0, color: text, fontSize: 12, fontWeight: "800", lineHeight: 18 },
+  addressLabelGrid: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 22 },
+  addressLabelCard: { flex: 1, minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 7, padding: 8 },
+  addressLabelActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  addressLabelText: { color: muted, fontSize: 11, fontWeight: "900" },
+  addressLabelTextActive: { color: BRAND_ORANGE },
+  helpContactCard: { minHeight: 72, borderRadius: 16, borderWidth: 1, borderColor: "#ffedd5", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginTop: 4, marginBottom: 12 },
+  helpContactButton: { minHeight: 34, borderRadius: 12, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  topicNumber: { width: 28, height: 28, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  topicNumberText: { color: "#111111", fontSize: 12, fontWeight: "900" },
+  topicDetailText: { flex: 1, minWidth: 0, color: text, fontSize: 13, lineHeight: 20, fontWeight: "800" },
+  faqCard: { borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginBottom: 10 },
+  faqCancellationCard: { borderColor: "#efcf92", backgroundColor: surfaceAlt },
+  faqQuestionRow: { flexDirection: "row", alignItems: "center", gap: 9 },
+  faqIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  faqQuestion: { flex: 1, minWidth: 0, color: text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
+  faqAnswer: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 10, paddingLeft: 33 },
+  searchPageContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 122 },
+  searchHeroHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
+  profileRowTextNoMargin: { flex: 1, minWidth: 0 },
+  searchHeroTitle: { color: text, fontSize: 38, fontWeight: "900", lineHeight: 44 },
+  searchHeroSubtitle: { color: muted, fontSize: 16, fontWeight: "700", lineHeight: 22, marginTop: 5 },
+  searchNotificationButton: { width: 56, height: 56, borderRadius: 28, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", marginLeft: 12 },
+  searchControlRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 24 },
+  filterButton: { height: 54, borderRadius: 27, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  filterButtonText: { color: text, fontSize: 15, fontWeight: "800" },
+  searchSegment: { height: 66, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 4, marginBottom: 24 },
+  searchSegmentOption: { flex: 1, height: "100%", borderRadius: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  searchSegmentActive: { backgroundColor: surface, borderWidth: 1, borderColor: "#eef2f7", shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 10, elevation: 2 },
+  searchSegmentText: { color: muted, fontSize: 15, fontWeight: "900" },
+  searchSegmentTextActive: { color: BRAND_ORANGE },
+  searchCategoryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 24 },
+  searchCategoryCard: { width: "48%", minHeight: 168, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 12, marginBottom: 14 },
+  searchCategoryImage: { width: 82, height: 82, borderRadius: 41, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  searchCategoryTitle: { color: text, fontSize: 15, fontWeight: "900", textAlign: "center" },
+  searchCategorySubtitle: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, textAlign: "center", marginTop: 6 },
+  searchTailorRow: { gap: 12, paddingBottom: 20 },
+  searchTailorCard: { width: 248, minHeight: 224, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14 },
+  searchTailorHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  ratingLine: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", marginTop: 5 },
+  searchTailorLocation: { color: muted, fontSize: 12, fontWeight: "700", marginTop: 14 },
+  searchTailorSpecialty: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 19, marginTop: 5 },
+  searchProfileButton: { height: 42, borderRadius: 21, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 15, marginTop: 14 },
+  searchProfileButtonText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
+  searchPopularCard: { width: 110, minHeight: 82, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  searchTrustBanner: { minHeight: 76, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginTop: 8 },
 
   // Warning screen styles
   warningStepsBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 20, paddingHorizontal: 10 },
@@ -9778,3 +10389,4 @@ function createStyles(isDark = false) {
 }
 
 let styles = createStyles(false);
+

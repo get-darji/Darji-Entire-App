@@ -83,7 +83,18 @@ const userSchema = new Schema(
         app: String,
         updatedAt: { type: Date, default: Date.now }
       }
-    ]
+    ],
+    notificationPreferences: {
+      customer: {
+        notifications: { type: Boolean, default: true },
+        orderUpdates: { type: Boolean, default: true },
+        offersPromotions: { type: Boolean, default: true },
+        pickupReminders: { type: Boolean, default: true },
+        deliveryUpdates: { type: Boolean, default: true },
+        quietHours: { type: Boolean, default: true },
+        receivingNotifications: { type: Boolean, default: true }
+      }
+    }
   },
   baseOptions
 );
