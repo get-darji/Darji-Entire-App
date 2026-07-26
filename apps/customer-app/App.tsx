@@ -3753,11 +3753,6 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
       setScreen("newRequest");
       return undefined;
     }
-    if (draft.sampleProvided && !draft.sampleMedia && !draft.uploadedSampleMedia) {
-      Alert.alert("Sample photo needed", "Upload one photo of the sample garment or turn off the sample option.");
-      return undefined;
-    }
-
     try {
       const uploadedSampleMedia = draft.sampleProvided && draft.sampleMedia && !draft.uploadedSampleMedia ? (await uploadMedia([draft.sampleMedia], token))[0] : draft.uploadedSampleMedia;
       const item = draftToClothingItem({ ...draft, uploadedSampleMedia });
@@ -3873,7 +3868,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
       ) : (
         <ScrollView contentContainerStyle={styles.pageContent}>
           <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} right={<Text style={styles.stepBadge}>2/2</Text>} />
-        <RequestProgressBar step={2} />
+        <RequestProgressBar step={3} total={3} />
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
@@ -3881,7 +3876,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           </View>
         ) : null}
 
-        <Text style={styles.formLabel}>Gender / Fit Type</Text>
+        <Text style={styles.formLabel}>1. Gender / Fit Type</Text>
         <View style={styles.twoCol}>
           {GENDER_FIT_OPTIONS.map((option) => (
             <OptionButton
@@ -3896,86 +3891,86 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
 
         {draft.gender ? (
           <>
-            <Text style={styles.formLabel}>Select Garment</Text>
-            {draft.clothType ? (
-              <SelectedFlowChoice icon="shirt-outline" label={draft.clothType} onClear={clearClothType} />
-            ) : (
-              <>
-                <View style={styles.garmentSearchBox}>
-                  <Ionicons name="search-outline" size={17} color="#6a788d" />
-                  <TextInput
-                    style={styles.garmentSearchInput}
-                    value={garmentSearch}
-                    onChangeText={setGarmentSearch}
-                    placeholder="Search garment..."
-                    placeholderTextColor="#98a4b6"
-                  />
-                  {garmentSearch ? (
-                    <Pressable onPress={() => setGarmentSearch("")}>
-                      <Ionicons name="close-circle" size={17} color="#98a4b6" />
-                    </Pressable>
-                  ) : null}
-                </View>
-                <View style={styles.twoCol}>
-                  {filteredGarments.map((garment) => (
-                    <OptionButton
-                      key={garment}
-                      icon="shirt-outline"
-                      label={garment}
-                      selected={false}
-                      onPress={() => selectClothType(garment)}
-                    />
-                  ))}
-                </View>
-                {!filteredGarments.length ? (
-                  <View style={styles.infoBanner}>
-                    <Ionicons name="search-outline" size={17} color={BRAND_ORANGE} />
-                    <Text style={styles.infoBannerText}>No garments match “{garmentSearch.trim()}”.</Text>
-                  </View>
-                ) : null}
-              </>
-            )}
+            <Text style={styles.formLabel}>2. Select Garment</Text>
+            <View style={styles.garmentSearchBox}>
+              <Ionicons name="search-outline" size={17} color="#6a788d" />
+              <TextInput
+                style={styles.garmentSearchInput}
+                value={garmentSearch}
+                onChangeText={setGarmentSearch}
+                placeholder="Search garment..."
+                placeholderTextColor="#98a4b6"
+              />
+              {garmentSearch ? (
+                <Pressable onPress={() => setGarmentSearch("")}>
+                  <Ionicons name="close-circle" size={17} color="#98a4b6" />
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.twoCol}>
+              {filteredGarments.map((garment) => (
+                <OptionButton
+                  key={garment}
+                  icon={garment === "Other" ? "ellipsis-horizontal" : "shirt-outline"}
+                  label={garment}
+                  selected={draft.clothType === garment}
+                  onPress={() => selectClothType(garment)}
+                />
+              ))}
+            </View>
+            {!filteredGarments.length ? (
+              <View style={styles.infoBanner}>
+                <Ionicons name="search-outline" size={17} color={BRAND_ORANGE} />
+                <Text style={styles.infoBannerText}>No garments match “{garmentSearch.trim()}”.</Text>
+              </View>
+            ) : null}
+            <View style={styles.clothTipBanner}>
+              <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
+              <View style={styles.clothTipTextBlock}>
+                <Text style={styles.clothTipTitle}>Can't find your garment?</Text>
+                <Text style={styles.clothTipCopy}>Search to find more options.</Text>
+              </View>
+            </View>
           </>
         ) : null}
 
         {draft.clothType ? (
           <>
-            <Text style={styles.formLabel}>Select Service Category</Text>
-            {selectedService ? (
-              <SelectedFlowChoice
-                icon={selectedService.icon}
-                label={selectedService.label}
-                subtitle={selectedService.subtitle}
-                onClear={clearServiceCategory}
-              />
-            ) : (
-              <View style={styles.serviceCategoryList}>
-                {SERVICE_CATEGORIES.map((category) => (
+            <Text style={styles.formLabel}>3. Select Service Category</Text>
+            <View style={styles.serviceCategoryList}>
+              {SERVICE_CATEGORIES.map((category) => {
+                const selected = selectedService?.id === category.id;
+                return (
                   <Pressable
                     key={category.id}
-                    style={styles.serviceCategoryCard}
+                    style={[styles.serviceCategoryCard, selected && styles.serviceCategoryCardSelected]}
                     onPress={() => selectServiceCategory(category.label)}
                   >
                     <View style={styles.serviceCategoryIcon}>
-                      <Ionicons name={category.icon} size={18} color="#7d8491" />
+                      <Ionicons name={category.icon} size={19} color={selected ? BRAND_ORANGE : "#7d8491"} />
                     </View>
                     <View style={styles.serviceCategoryText}>
-                      <Text style={[styles.optionText, styles.serviceCategoryTitle]}>{category.label}</Text>
+                      <Text style={[styles.serviceCategoryTitle, selected && styles.selectedOptionText]}>{category.label}</Text>
                       <Text style={styles.serviceCategorySubtitle}>{category.subtitle}</Text>
                     </View>
+                    {selected ? (
+                      <View style={styles.serviceCategoryCheck}>
+                        <Ionicons name="checkmark" size={13} color="#ffffff" />
+                      </View>
+                    ) : (
+                      <Ionicons name="chevron-forward" size={17} color="#7d8491" />
+                    )}
                   </Pressable>
-                ))}
-              </View>
-            )}
+                );
+              })}
+            </View>
           </>
         ) : null}
 
         {selectedService ? (
           <>
-            <Text style={styles.formLabel}>Select Work</Text>
-            <Text style={styles.workSelectionHelper}>
-              {selectedWorkItems.length ? `${selectedWorkItems.length} selected` : "You can select multiple"}
-            </Text>
+            <Text style={styles.formLabel}>4. Select Work</Text>
+            <Text style={styles.workSelectionHelper}>You can select multiple</Text>
             {selectedService.label === "Other" ? (
               <TextInput
                 multiline
@@ -3986,92 +3981,93 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
                 placeholderTextColor="#98a4b6"
               />
             ) : (
-              <>
-                <View style={styles.workSelectionList}>
-                  {(showAllWorkOptions ? selectedService.workItems : selectedWorkItems).map((workItem) => {
-                    const selected = selectedWorkItems.includes(workItem);
-                    return (
-                      <Pressable
-                        key={workItem}
-                        style={[styles.workSelectionChip, selected && styles.workSelectionChipSelected]}
-                        onPress={() => toggleWorkItem(workItem)}
-                      >
-                        <Ionicons name={selected ? "checkbox" : "square-outline"} size={19} color={selected ? BRAND_ORANGE : "#98a4b6"} />
-                        <Text style={[styles.workSelectionText, selected && styles.selectedOptionText]}>{workItem}</Text>
-                        {selected && !showAllWorkOptions ? <Ionicons name="close" size={17} color={BRAND_DEEP} /> : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                {!showAllWorkOptions && selectedWorkItems.length < selectedService.workItems.length ? (
-                  <Pressable style={styles.addWorkButton} onPress={() => setShowAllWorkOptions(true)}>
-                    <Ionicons name="add-circle-outline" size={17} color={BRAND_ORANGE} />
-                    <Text style={styles.addWorkButtonText}>Add another work</Text>
-                  </Pressable>
-                ) : null}
-              </>
+              <View style={styles.workSelectionList}>
+                {selectedService.workItems.map((workItem) => {
+                  const selected = selectedWorkItems.includes(workItem);
+                  return (
+                    <Pressable
+                      key={workItem}
+                      style={[styles.workSelectionChip, selected && styles.workSelectionChipSelected]}
+                      onPress={() => toggleWorkItem(workItem)}
+                    >
+                      <Ionicons name={selected ? "checkbox" : "square-outline"} size={19} color={selected ? BRAND_ORANGE : "#98a4b6"} />
+                      <Text style={[styles.workSelectionText, selected && styles.selectedOptionText]}>{workItem}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             )}
+            <View style={styles.clothTipBanner}>
+              <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
+              <Text style={styles.clothTipCopy}>You can select multiple works in this category.</Text>
+            </View>
           </>
         ) : null}
 
-        <View style={styles.measurementChoiceHeader}>
-          <View style={styles.measurementChoiceAccent} />
-          <Text style={styles.measurementChoiceHeading}>How would you like to provide measurements?</Text>
-        </View>
-        {!showManualMeasurements ? (
-          <Pressable style={styles.manualMeasureLink} onPress={() => setShowManualMeasurements(true)}>
-            <Text style={styles.manualMeasureText}>Enter measurement manually?</Text>
-            <Ionicons name="create-outline" size={16} color={BRAND_ORANGE} />
-          </Pressable>
-        ) : null}
+        {selectedService ? (
+          <>
+            <View style={styles.measurementChoiceHeader}>
+              <Text style={styles.measurementChoiceHeading}>How would you like to provide measurements?</Text>
+            </View>
+            <Pressable style={styles.manualMeasureLink} onPress={() => setShowManualMeasurements((current) => !current)}>
+              <Text style={styles.manualMeasureText}>Enter measurement manually?</Text>
+              <Ionicons name="create-outline" size={18} color={BRAND_ORANGE} />
+            </Pressable>
 
-        <View style={[styles.sampleReferenceCard, draft.sampleProvided && styles.sampleReferenceCardSelected]}>
-          <Pressable style={styles.sampleReferenceHeader} onPress={toggleSampleProvided}>
-            <View style={styles.sampleReferenceIcon}>
-              <Ionicons name={draft.sampleProvided ? "checkbox" : "square-outline"} size={21} color={BRAND_ORANGE} />
-            </View>
-            <View style={styles.sampleReferenceText}>
-              <Text style={styles.addressTitle}>I will send a sample with my clothes</Text>
-              <Text style={styles.sampleReferenceCopy}>
-                {draft.sampleProvided ? "Sample selected. Upload a photo so the tailor can check the reference." : "Safer than only typing measurements: one wrong number can affect the fit."}
-              </Text>
-            </View>
-          </Pressable>
-          <View style={styles.sampleBulletList}>
-            <View style={styles.sampleBulletRow}>
-              <Text style={styles.sampleBulletDot}>-</Text>
-              <Text style={styles.sampleBulletText}>Best for matching your preferred fit.</Text>
-            </View>
-            <View style={styles.sampleBulletRow}>
-              <Text style={styles.sampleBulletDot}>-</Text>
-              <Text style={styles.sampleBulletText}>Do not send stretchable samples like rayon.</Text>
-            </View>
-            <View style={styles.sampleBulletRow}>
-              <Text style={styles.sampleBulletDot}>-</Text>
-              <Text style={styles.sampleBulletText}>Readymade S/M/L/XL samples are stitched to that garment size only.</Text>
-            </View>
-          </View>
-          {draft.sampleProvided ? (
-            <>
-              <Pressable style={styles.sampleUploadButton} onPress={pickSampleImage}>
-                <Ionicons name={draft.sampleMedia || draft.uploadedSampleMedia ? "image" : "cloud-upload-outline"} size={17} color={BRAND_ORANGE} />
-                <Text style={styles.sampleUploadText}>{draft.sampleMedia || draft.uploadedSampleMedia ? "Change Sample Photo" : "Upload Sample Photo"}</Text>
-              </Pressable>
-              {draft.sampleMedia || draft.uploadedSampleMedia ? (
-                <View style={styles.samplePreviewRow}>
-                  <Image source={{ uri: draft.sampleMedia?.uri ?? draft.uploadedSampleMedia?.url ?? "" }} resizeMode="cover" style={styles.samplePreviewImage} />
-                  <View style={styles.samplePreviewText}>
-                    <Text style={styles.addressTitle}>Sample photo added</Text>
-                    <Text style={styles.mutedSmall}>Tailor can use this with your measurements.</Text>
+            <View style={styles.measurementMethodPanel}>
+              <View style={styles.rowBetween}>
+                <Text style={styles.measurementMethodTitle}>Please select at least one option</Text>
+                <Text style={styles.requiredBadge}>Required</Text>
+              </View>
+              <View style={styles.measurementMethodGrid}>
+                <Pressable style={[styles.measurementMethodCard, draft.sampleProvided && styles.measurementMethodCardSelected]} onPress={toggleSampleProvided}>
+                  <Ionicons name={draft.sampleProvided ? "checkbox" : "square-outline"} size={23} color={draft.sampleProvided ? BRAND_ORANGE : "#7d8491"} style={styles.measurementMethodCheck} />
+                  <View style={styles.measurementMethodIcon}>
+                    <Ionicons name="shirt-outline" size={32} color={BRAND_ORANGE} />
                   </View>
-                  <Pressable style={styles.sampleRemoveButton} onPress={() => setDraft({ ...draft, sampleMedia: undefined, uploadedSampleMedia: undefined })}>
-                    <Ionicons name="close" size={15} color="#ffffff" />
+                  <Text style={styles.measurementMethodCardTitle}>I will send a sample with my clothes</Text>
+                  <Text style={styles.measurementMethodCopy}>Safer than typing measurements. We will stitch by matching your preferred fit.</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.measurementMethodCard, draft.homeMeasurementBooked && styles.measurementMethodCardSelected]}
+                  onPress={() => setDraft({ ...draft, homeMeasurementBooked: !draft.homeMeasurementBooked })}
+                >
+                  <Ionicons name={draft.homeMeasurementBooked ? "checkbox" : "square-outline"} size={23} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} style={styles.measurementMethodCheck} />
+                  <View style={styles.measurementMethodIcon}>
+                    <Ionicons name="home-outline" size={32} color={BRAND_ORANGE} />
+                  </View>
+                  <Text style={styles.measurementMethodCardTitle}>Get a tailor at home</Text>
+                  <Text style={styles.measurementMethodCopy}>A tailor will visit your home and take measurements accurately.</Text>
+                </Pressable>
+              </View>
+              <View style={styles.measurementInfoBanner}>
+                <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
+                <Text style={styles.measurementInfoText}>You can select one or both options</Text>
+                <Ionicons name="chevron-forward" size={18} color="#7d8491" />
+              </View>
+              {draft.sampleProvided ? (
+                <>
+                  <Pressable style={styles.sampleUploadButton} onPress={pickSampleImage}>
+                    <Ionicons name={draft.sampleMedia || draft.uploadedSampleMedia ? "image" : "cloud-upload-outline"} size={17} color={BRAND_ORANGE} />
+                    <Text style={styles.sampleUploadText}>{draft.sampleMedia || draft.uploadedSampleMedia ? "Change Optional Sample Photo" : "Add Optional Sample Photo"}</Text>
                   </Pressable>
-                </View>
+                  {draft.sampleMedia || draft.uploadedSampleMedia ? (
+                    <View style={styles.samplePreviewRow}>
+                      <Image source={{ uri: draft.sampleMedia?.uri ?? draft.uploadedSampleMedia?.url ?? "" }} resizeMode="cover" style={styles.samplePreviewImage} />
+                      <View style={styles.samplePreviewText}>
+                        <Text style={styles.addressTitle}>Sample photo added</Text>
+                        <Text style={styles.mutedSmall}>Tailor can use this with your sample garment.</Text>
+                      </View>
+                      <Pressable style={styles.sampleRemoveButton} onPress={() => setDraft({ ...draft, sampleMedia: undefined, uploadedSampleMedia: undefined })}>
+                        <Ionicons name="close" size={15} color="#ffffff" />
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </>
               ) : null}
-            </>
-          ) : null}
-        </View>
+            </View>
+          </>
+        ) : null}
 
         {showManualMeasurements ? (
           <View style={styles.measurementCard}>
@@ -9840,7 +9836,7 @@ function createStyles(isDark = false) {
   primaryWideButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
   emptyActionButton: { alignSelf: "stretch", paddingHorizontal: 18 },
   twoCol: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  optionButton: { width: "47.8%", minHeight: 54, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 9 },
+  optionButton: { width: "47.8%", minHeight: 64, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 10 },
   selectedOptionButton: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
   optionText: { flexShrink: 1, minWidth: 0, color: muted, fontSize: 12, fontWeight: "900", textAlign: "center" },
   selectedOptionText: { color: text },
@@ -9852,25 +9848,43 @@ function createStyles(isDark = false) {
   selectedFlowChoiceLabel: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
   selectedFlowChoiceSubtitle: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 2 },
   selectedFlowChoiceClear: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center" },
-  serviceCategoryList: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  serviceCategoryCard: { width: "47.8%", minHeight: 94, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8, paddingVertical: 10 },
-  serviceCategoryIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
-  serviceCategoryText: { minWidth: 0, alignItems: "center" },
-  serviceCategoryTitle: { textAlign: "center" },
-  serviceCategorySubtitle: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 3 },
+  clothTipBanner: { minHeight: 58, borderRadius: 13, backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10, marginTop: 12 },
+  clothTipTextBlock: { flex: 1, minWidth: 0 },
+  clothTipTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
+  clothTipCopy: { flex: 1, minWidth: 0, color: muted, fontSize: 12, fontWeight: "800", lineHeight: 18 },
+  serviceCategoryList: { gap: 9 },
+  serviceCategoryCard: { width: "100%", minHeight: 64, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12, paddingVertical: 10 },
+  serviceCategoryCardSelected: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  serviceCategoryIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
+  serviceCategoryText: { flex: 1, minWidth: 0 },
+  serviceCategoryTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
+  serviceCategorySubtitle: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 2 },
+  serviceCategoryCheck: { width: 20, height: 20, borderRadius: 10, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   workSelectionHelper: { color: muted, fontSize: 11, fontWeight: "700", marginTop: -6, marginBottom: 10 },
-  workSelectionList: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  workSelectionChip: { width: "47.8%", minHeight: 54, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 9, paddingVertical: 9 },
+  workSelectionList: { gap: 8 },
+  workSelectionChip: { width: "100%", minHeight: 42, borderRadius: 11, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11, paddingVertical: 8 },
   workSelectionChipSelected: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
   workSelectionText: { flex: 1, minWidth: 0, color: muted, fontSize: 11, fontWeight: "900", lineHeight: 16 },
   addWorkButton: { minHeight: 40, alignSelf: "flex-start", borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 12, marginTop: 10 },
   addWorkButtonText: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900" },
   otherWorkInput: { minHeight: 96, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 13, color: text, textAlignVertical: "top", fontSize: 13, lineHeight: 19 },
-  measurementChoiceHeader: { flexDirection: "row", alignItems: "center", gap: 9, marginTop: 24, marginBottom: 4 },
+  measurementChoiceHeader: { flexDirection: "row", alignItems: "center", gap: 9, marginTop: 26, marginBottom: 4 },
   measurementChoiceAccent: { width: 4, minHeight: 36, borderRadius: 2, backgroundColor: BRAND_ORANGE },
   measurementChoiceHeading: { flex: 1, minWidth: 0, color: text, fontSize: 17, fontWeight: "900", lineHeight: 22 },
   manualMeasureLink: { alignSelf: "flex-start", minHeight: 36, flexDirection: "row", alignItems: "center", gap: 7, marginTop: 12, marginBottom: 2 },
   manualMeasureText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
+  measurementMethodPanel: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginTop: 12 },
+  measurementMethodTitle: { flex: 1, minWidth: 0, color: text, fontSize: 15, fontWeight: "900", lineHeight: 20 },
+  requiredBadge: { overflow: "hidden", borderRadius: 9, backgroundColor: "#fff0d8", color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", paddingHorizontal: 10, paddingVertical: 7 },
+  measurementMethodGrid: { flexDirection: "row", gap: 10, marginTop: 16 },
+  measurementMethodCard: { flex: 1, minWidth: 0, minHeight: 174, borderRadius: 16, borderWidth: 1.2, borderColor: border, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 14 },
+  measurementMethodCardSelected: { borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  measurementMethodCheck: { position: "absolute", left: 12, top: 12 },
+  measurementMethodIcon: { width: 62, height: 62, borderRadius: 31, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  measurementMethodCardTitle: { color: text, fontSize: 14, fontWeight: "900", lineHeight: 19, textAlign: "center" },
+  measurementMethodCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, textAlign: "center", marginTop: 10 },
+  measurementInfoBanner: { minHeight: 52, borderRadius: 13, backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10, marginTop: 14 },
+  measurementInfoText: { flex: 1, minWidth: 0, color: muted, fontSize: 13, fontWeight: "800", lineHeight: 18 },
   measurementCard: { borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 16, marginTop: 16 },
   measurementTitleBlock: { flex: 1, minWidth: 0 },
   measurementHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
