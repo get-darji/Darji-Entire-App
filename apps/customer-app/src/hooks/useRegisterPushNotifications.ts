@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
+import { isRunningInExpoGo } from "expo";
+import * as Notifications from "../notifications/expoNotifications";
 import { Platform } from "react-native";
 import { api } from "../api";
 import { configureNotificationActions } from "../notifications/actions";
@@ -26,7 +27,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
   const [status, setStatus] = useState<RegistrationState>("idle");
 
   useEffect(() => {
-    if (!authToken || Platform.OS === "web") {
+    if (!authToken || Platform.OS === "web" || (Platform.OS === "android" && isRunningInExpoGo())) {
       setStatus("idle");
       return;
     }

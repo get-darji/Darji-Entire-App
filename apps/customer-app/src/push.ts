@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
+import * as Notifications from "./notifications/expoNotifications";
 import { Platform } from "react-native";
 import { api } from "./api";
 

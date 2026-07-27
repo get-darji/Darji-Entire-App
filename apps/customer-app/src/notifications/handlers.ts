@@ -1,4 +1,4 @@
-import * as Notifications from "expo-notifications";
+import * as Notifications from "./expoNotifications";
 
 export function configureForegroundNotificationHandler(options?: { shouldShow?: boolean }) {
   const shouldShow = options?.shouldShow ?? true;

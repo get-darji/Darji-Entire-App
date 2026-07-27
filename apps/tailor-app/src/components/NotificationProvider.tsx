@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import * as Notifications from "expo-notifications";
+import * as Notifications from "../notifications/expoNotifications";
 import { AppState } from "react-native";
 import { consumePendingIncomingAlertAction } from "@darzi/incoming-alert";
 import type { DarjiApp } from "../notifications/channels";

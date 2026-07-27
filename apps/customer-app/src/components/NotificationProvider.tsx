@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import * as Notifications from "expo-notifications";
+import * as Notifications from "../notifications/expoNotifications";
 import type { DarjiApp } from "../notifications/channels";
 import { resolveNotificationDestination, type NotificationData, type NotificationDestination } from "../utils/deepLinking";
 

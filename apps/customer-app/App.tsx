@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import * as Notifications from "expo-notifications";
+import * as Notifications from "./src/notifications/expoNotifications";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,6 +17,7 @@ import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
   Alert,
+  type AlertButton,
   AppState,
   BackHandler,
   Image,
@@ -88,13 +89,15 @@ type Screen =
   | "featureSoon"
   | "notifications"
   | "measurementGuide"
+  | "fabricCare"
   | "newRequest"
+  | "measurements"
   | "clothIssue"
   | "orderSummary"
   | "quotes"
   | "confirmOrder"
   | "trackOrder";
-type RequestFlowScreen = "newRequest" | "clothIssue" | "orderSummary" | "quotes" | "confirmOrder";
+type RequestFlowScreen = "newRequest" | "clothIssue" | "measurements" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
@@ -316,8 +319,9 @@ type HandoffOtp = {
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
-type DialogAction = { label: string; onPress?: () => void; destructive?: boolean };
+type DialogAction = { label: string; onPress?: () => void; destructive?: boolean; cancel?: boolean };
 type AppDialogState = { title: string; message: string; actions: DialogAction[] };
+type RequestPreset = Partial<Pick<RequestDraft, "gender" | "clothType" | "serviceCategory" | "workType" | "selectedWorkItems" | "otherWorkDescription">>;
 type RazorpayFailurePayload = {
   code?: string;
   description?: string;
@@ -366,8 +370,15 @@ const SCREEN_BG = "#f7faff";
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 const CARD_DARK = "#111111";
 const customerAppIcon = require("./app-icon.png");
+const darjiLogo = require("./darji transparent.png");
 const measurementsImage = require("./measurements.png");
 const ironingImage = require("./assets/icons/ironing.png");
+const doorstepConvenienceImage = require("./assets/icons/doorstep convinence.png");
+const expertCraftsmanshipImage = require("./assets/icons/expert craftsmanship.png");
+const qualityCheckedImage = require("./assets/icons/quality checked.png");
+const alterationImage = require("./assets/icons/alteration.png");
+const repairsImage = require("./assets/icons/repairs.png");
+const stitchingImage = require("./assets/icons/stitching.png");
 const avatarImages = {
   youngMale: require("./assets/icons/young male.png"),
   youngFemale: require("./assets/icons/young female.png"),
@@ -437,7 +448,7 @@ const REQUEST_DESCRIPTION_MIN = 10;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const CUSTOMER_NOTIFICATION_PREFS_KEY = "darji.customerNotificationPreferences.v1";
-const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "orderSummary", "quotes", "confirmOrder"]);
+const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "measurements", "orderSummary", "quotes", "confirmOrder"]);
 function getPlatformFee(orderValue: number) {
   if (orderValue <= 0) return 0;
   if (orderValue <= 199) return 5;
@@ -687,6 +698,24 @@ const homeMediaFeatures = [
   }
 ];
 
+const fabricCareTips = [
+  { title: "Cotton Care", copy: "Wash inside-out in cold water and dry in shade to keep colors fresh.", icon: "shirt-outline" },
+  { title: "Silk & Delicates", copy: "Use gentle wash or dry clean. Never wring silk, chiffon, or georgette.", icon: "sparkles-outline" },
+  { title: "Denim Life", copy: "Wash jeans less often, turn them inside-out, and skip high heat drying.", icon: "water-outline" },
+  { title: "White Clothes", copy: "Separate whites, treat stains early, and avoid mixing with bright fabrics.", icon: "sunny-outline" },
+  { title: "Storage Tip", copy: "Hang structured garments and fold knits so shoulders do not stretch.", icon: "cube-outline" },
+  { title: "Linen Finish", copy: "Steam linen while slightly damp and store it on broad hangers to reduce deep creases.", icon: "leaf-outline" },
+  { title: "Wool Safety", copy: "Air wool garments between wears and use dry clean for coats, blazers, and heavy suits.", icon: "snow-outline" },
+  { title: "Embroidery Care", copy: "Turn embellished clothes inside-out and use a laundry bag before gentle washing.", icon: "color-palette-outline" },
+  { title: "Saree Storage", copy: "Refold silk sarees every few months so permanent crease marks do not form.", icon: "ribbon-outline" },
+  { title: "Stain First Aid", copy: "Blot stains from the outside in. Avoid rubbing because it pushes marks deeper.", icon: "medical-outline" },
+  { title: "Color Bleed Check", copy: "Test a hidden corner with a damp white cloth before washing bright fabrics.", icon: "eyedrop-outline" },
+  { title: "Zipper Care", copy: "Close zippers and hooks before washing to protect delicate fabric surfaces.", icon: "construct-outline" },
+  { title: "Knitwear Shape", copy: "Dry sweaters flat on a towel. Hanging wet knits can stretch the shoulders.", icon: "resize-outline" },
+  { title: "Blazer Care", copy: "Brush after use, air it out, and avoid frequent washing unless there is visible dirt.", icon: "business-outline" },
+  { title: "Ironing Heat", copy: "Start with low heat for synthetics, medium for cotton blends, and steam only when safe.", icon: "flame-outline" }
+] as const;
+
 const urgencyOptions = [
   { label: "Normal", helper: "Delivery Rs30", icon: "calendar-outline", deliveryFee: 30 },
   { label: "Express", helper: "Delivery Rs40", icon: "flash-outline", deliveryFee: 40 },
@@ -876,6 +905,56 @@ function hasActiveItemDraftData(draft: RequestDraft) {
 
 function hasRequestDraftData(draft: RequestDraft) {
   return Boolean(hasActiveItemDraftData(draft) || draft.items?.length || draft.urgency);
+}
+
+function serviceCategoryLabelForEntry(label?: string) {
+  const value = label?.trim().toLowerCase() ?? "";
+  if (!value) return undefined;
+  if (value.includes("alter")) return "Alteration & Fitting";
+  if (value.includes("repair")) return "Repair & Mending";
+  if (value.includes("restyle") || value.includes("embroidery") || value.includes("custom work")) return "Embroidery & Custom Work";
+  if (value.includes("finish") || value.includes("press") || value.includes("iron")) return "Finishing Work";
+  if (value.includes("stitch") || value.includes("blouse") || value.includes("kurti")) return "New Stitching";
+  return undefined;
+}
+
+function requestPresetForService(label: string): RequestPreset {
+  const serviceCategory = serviceCategoryLabelForEntry(label);
+  return serviceCategory ? { serviceCategory, workType: serviceCategory, selectedWorkItems: [] } : {};
+}
+
+function requestPresetForSearchCategory(title: string): RequestPreset {
+  const base = requestPresetForService(title);
+  switch (title) {
+    case "Men Ethnic":
+      return { ...base, gender: "Men", clothType: "Kurta" };
+    case "Men Formal":
+      return { ...base, gender: "Men", clothType: "Shirt" };
+    case "Women Ethnic":
+      return { ...base, gender: "Women", clothType: "Salwar Suit" };
+    case "Women Western":
+      return { ...base, gender: "Women", clothType: "Dress" };
+    case "Kids":
+      return { ...base, gender: "Kids", clothType: "Dress" };
+    case "Uniforms":
+      return { ...base, gender: "Unisex / Uniform / Other", clothType: "School Uniform" };
+    case "Home & More":
+      return { ...base, gender: "Unisex / Uniform / Other", clothType: "Custom Garment" };
+    case "Alterations":
+      return { ...requestPresetForService("Alteration") };
+    default:
+      return base;
+  }
+}
+
+function applyRequestPreset(draft: RequestDraft, preset?: RequestPreset): RequestDraft {
+  if (!preset || Object.keys(preset).length === 0) return draft;
+  return {
+    ...draft,
+    ...preset,
+    selectedWorkItems: preset.selectedWorkItems ?? (preset.serviceCategory ? [] : draft.selectedWorkItems),
+    otherWorkDescription: preset.otherWorkDescription ?? (preset.serviceCategory ? "" : draft.otherWorkDescription)
+  };
 }
 
 function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?? makeClothingItemId()): ClothingItemDraft {
@@ -1378,6 +1457,12 @@ function DatePickerField({ value, onChange }: { value?: string; onChange: (value
   );
 }
 
+function formatDobDisplay(value?: string) {
+  if (!value) return "DD / MM / YYYY";
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day} / ${month} / ${year}` : value;
+}
+
 function AuthButton({ label, loading, onPress }: { label: string; loading: boolean; onPress: () => void }) {
   return (
     <Pressable disabled={loading} onPress={onPress} android_ripple={{ color: "#d88a05" }} style={[styles.authButton, loading && styles.buttonDisabled]}>
@@ -1396,18 +1481,98 @@ function AuthButton({ label, loading, onPress }: { label: string; loading: boole
 function DarjiLogoMark() {
   return (
     <View style={styles.center}>
-      <Text style={styles.authBrandText}>Darji</Text>
+      <Image source={darjiLogo} style={styles.authBrandLogo} resizeMode="contain" />
       <Text style={styles.authTagline}>We bring doorstep tailoring,{"\n"}so you never have to step outside.</Text>
       <View style={styles.authUnderline} />
     </View>
   );
 }
 
-function TrustItem({ icon, label, helper }: { icon: keyof typeof Ionicons.glyphMap; label: string; helper: string }) {
+function OnboardingTextField({ value, onChangeText, placeholder }: { value: string; onChangeText: (value: string) => void; placeholder: string }) {
+  return (
+    <View style={styles.onboardingInputShell}>
+      <Ionicons name="person-outline" size={19} color="#98a4b6" />
+      <TextInput
+        style={styles.onboardingTextInput}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#98a4b6"
+      />
+    </View>
+  );
+}
+
+function OnboardingGenderButton({
+  label,
+  icon,
+  selected,
+  onPress
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.onboardingGenderButton, selected && styles.onboardingGenderButtonSelected]} onPress={onPress}>
+      <Ionicons name={icon} size={19} color={selected ? BRAND_ORANGE : "#6b7890"} />
+      <Text numberOfLines={1} style={[styles.onboardingGenderText, selected && styles.onboardingGenderTextSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function OnboardingDateField({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const dateValue = parseDateInput(value);
+
+  return (
+    <>
+      <Pressable style={styles.onboardingInputShell} onPress={() => setShowPicker(true)}>
+        <Ionicons name="calendar-outline" size={19} color="#98a4b6" />
+        <Text style={[styles.onboardingDateText, !value && styles.placeholderText]}>{formatDobDisplay(value)}</Text>
+        <Ionicons name="calendar" size={19} color={BRAND_ORANGE} />
+      </Pressable>
+      {showPicker ? (
+        <DateTimePicker
+          value={dateValue}
+          mode="date"
+          display={Platform.OS === "ios" ? "spinner" : "calendar"}
+          maximumDate={new Date()}
+          onChange={(_, selectedDate) => {
+            if (Platform.OS !== "ios") setShowPicker(false);
+            if (selectedDate) onChange(formatDateInput(selectedDate));
+          }}
+        />
+      ) : null}
+      {showPicker && Platform.OS === "ios" ? (
+        <Pressable style={styles.dateDoneButton} onPress={() => setShowPicker(false)}>
+          <Text style={styles.orangeSmall}>Done</Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
+function dialogFromNativeAlert(title: string, message?: string, buttons?: AlertButton[]): AppDialogState {
+  const normalizedButtons = buttons?.length ? buttons : [{ text: "OK" }];
+  return {
+    title,
+    message: message ?? "",
+    actions: normalizedButtons.map((button) => ({
+      label: button.text ?? "OK",
+      onPress: button.onPress,
+      destructive: button.style === "destructive",
+      cancel: button.style === "cancel"
+    }))
+  };
+}
+
+function TrustItem({ icon, image, label, helper }: { icon: keyof typeof Ionicons.glyphMap; image?: ImageSourcePropType; label: string; helper: string }) {
   return (
     <View style={styles.trustItem}>
       <View style={styles.trustIconBubble}>
-        <Ionicons name={icon} size={24} color={BRAND_ORANGE} />
+        {image ? <Image source={image} style={styles.trustIconImage} resizeMode="contain" /> : <Ionicons name={icon} size={24} color={BRAND_ORANGE} />}
       </View>
       <Text style={styles.trustLabel}>{label}</Text>
       <Text style={styles.trustHelper}>{helper}</Text>
@@ -1419,6 +1584,7 @@ function AuthScreen() {
   const [otpRequested, setOtpRequested] = useState(false);
   const [isRequestingOtp, setIsRequestingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [dialog, setDialog] = useState<AppDialogState | undefined>();
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
@@ -1432,7 +1598,7 @@ function AuthScreen() {
       verifyForm.reset({ phone: values.phone, role: "CUSTOMER", otp: result.otp ?? "123456" });
       setOtpRequested(true);
     } catch (error) {
-      Alert.alert(localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), error instanceof Error ? error.message : localize(language, "Check backend connection", "इंटरनेट कनेक्शन जाँचें"));
+      setDialog(dialogFromNativeAlert(localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), error instanceof Error ? error.message : localize(language, "Check backend connection", "इंटरनेट कनेक्शन जाँचें")));
     } finally {
       setIsRequestingOtp(false);
     }
@@ -1447,7 +1613,7 @@ function AuthScreen() {
       });
       setSession(session.accessToken, session.user, session.refreshToken);
     } catch (error) {
-      Alert.alert(localize(language, "Login failed", "लॉगिन नहीं हो सका"), error instanceof Error ? error.message : localize(language, "Check OTP and try again", "ओटीपी जाँचकर दोबारा कोशिश करें"));
+      setDialog(dialogFromNativeAlert(localize(language, "Login failed", "लॉगिन नहीं हो सका"), error instanceof Error ? error.message : localize(language, "Check OTP and try again", "ओटीपी जाँचकर दोबारा कोशिश करें")));
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -1468,9 +1634,9 @@ function AuthScreen() {
           <DarjiLogoMark />
           {!otpRequested ? (
             <View style={styles.trustRow}>
-              <TrustItem icon="shield-checkmark-outline" label="Kapde Aapke" helper="Zimmedari Hamari" />
-              <TrustItem icon="bicycle-outline" label="Pickup Se Delivery" helper="Sab Easy" />
-              <TrustItem icon="shirt-outline" label="Perfect Fit" helper="Har Baar" />
+              <TrustItem icon="shield-checkmark-outline" image={qualityCheckedImage} label="Kapde Aapke" helper="Zimmedari Hamari" />
+              <TrustItem icon="bicycle-outline" image={doorstepConvenienceImage} label="Pickup Se Delivery" helper="Sab Easy" />
+              <TrustItem icon="shirt-outline" image={expertCraftsmanshipImage} label="Perfect Fit" helper="Har Baar" />
             </View>
           ) : null}
 
@@ -1479,12 +1645,12 @@ function AuthScreen() {
             {!otpRequested ? (
               <>
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label={t(language, "sendOtp")} loading={isRequestingOtp} onPress={requestForm.handleSubmit(requestOtp, () => Alert.alert(t(language, "invalidMobileNumber")))} />
+                <AuthButton label={t(language, "sendOtp")} loading={isRequestingOtp} onPress={requestForm.handleSubmit(requestOtp, () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
               </>
             ) : (
               <>
                 <Controller control={verifyForm.control} name="otp" render={({ field }) => <OtpField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => Alert.alert(t(language, "otpRequired")))} />
+                <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => setDialog(dialogFromNativeAlert(t(language, "otpRequired"))))} />
                 <Pressable style={styles.editPhoneButton} onPress={() => setOtpRequested(false)}>
                   <Text style={styles.orangeSmall}>{t(language, "changeNumber")}</Text>
                 </Pressable>
@@ -1500,6 +1666,17 @@ function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal visible={isVerifyingOtp} transparent animationType="fade" onRequestClose={() => undefined}>
+        <View style={styles.dialogOverlay}>
+          <View style={styles.gettingReadyCard}>
+            <Image source={darjiLogo} style={styles.gettingReadyLogo} resizeMode="contain" />
+            <ActivityIndicator color={BRAND_ORANGE} size="large" />
+            <Text style={styles.gettingReadyTitle}>Getting things ready</Text>
+            <Text style={styles.gettingReadyCopy}>We are verifying your OTP and setting up your Darji home.</Text>
+          </View>
+        </View>
+      </Modal>
+      <AppDialog dialog={dialog} onClose={() => setDialog(undefined)} />
     </SafeAreaView>
   );
 }
@@ -1566,14 +1743,14 @@ function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen:
   ];
 
   return (
-    <View style={[styles.tabs, { height: 78 + bottomInset, paddingBottom: 8 + bottomInset }]}>
+    <View style={[styles.tabs, { height: 70 + bottomInset, paddingBottom: 7 + bottomInset }]}>
       {items.map((item) => {
         const selected = active === item.key;
         const isCreate = item.key === "newRequest";
         return (
           <Pressable key={item.key} style={[styles.tabItem, isCreate && styles.createTabItem]} onPress={() => setScreen(item.key)}>
             <View style={isCreate ? styles.createTabButton : undefined}>
-              <Ionicons name={item.icon} size={isCreate ? 25 : 22} color={isCreate ? "#111111" : selected ? BRAND_ORANGE : "#151b27"} />
+              <Ionicons name={item.icon} size={isCreate ? 23 : 20} color={isCreate ? "#111111" : selected ? BRAND_ORANGE : "#151b27"} />
             </View>
             <Text style={[styles.tabText, isCreate && styles.createTabText, selected && styles.activeTabText]}>{item.label}</Text>
           </Pressable>
@@ -1790,6 +1967,7 @@ function LegacyHomeScreen({
 
 function HomeScreen({
   setScreen,
+  onStartRequest,
   profile,
   unreadCount,
   defaultAddress,
@@ -1797,6 +1975,7 @@ function HomeScreen({
   appReviews
 }: {
   setScreen: (screen: Screen) => void;
+  onStartRequest: (preset?: RequestPreset) => void;
   profile: ProfileData;
   unreadCount: number;
   defaultAddress?: SavedAddress;
@@ -1843,14 +2022,6 @@ function HomeScreen({
     ["cube-outline", "Pickup & Stitch", "We handle pickup"],
     ["checkmark-done-outline", "Delivered", "Get order delivered"]
   ] as const;
-  const fabricCareTips = [
-    { title: "Cotton Care", copy: "Wash inside-out in cold water and dry in shade to keep colors fresh.", icon: "shirt-outline" },
-    { title: "Silk & Delicates", copy: "Use gentle wash or dry clean. Never wring silk, chiffon, or georgette.", icon: "sparkles-outline" },
-    { title: "Denim Life", copy: "Wash jeans less often, turn them inside-out, and skip high heat drying.", icon: "water-outline" },
-    { title: "White Clothes", copy: "Separate whites, treat stains early, and avoid mixing with bright fabrics.", icon: "sunny-outline" },
-    { title: "Storage Tip", copy: "Hang structured garments and fold knits so shoulders do not stretch.", icon: "cube-outline" }
-  ] as const;
-
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
@@ -1891,13 +2062,13 @@ function HomeScreen({
           <Text style={styles.featureLabel}>TAILORING REQUEST</Text>
           <Text style={styles.featureTitle}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
           <Text style={styles.featureSub}>Upload photos, share your needs, and get started in minutes.</Text>
-          <Pressable style={styles.featureButton} onPress={() => setScreen("newRequest")}>
+          <Pressable style={styles.featureButton} onPress={() => onStartRequest(requestPresetForService("Custom Stitching"))}>
             <Ionicons name="cut-outline" size={16} color="#111111" />
             <Text style={styles.featureButtonText}>Stitch It Now</Text>
           </Pressable>
         </View>
 
-        <Pressable style={styles.homeOrderPreview} onPress={() => setScreen(activeOrder ? "orders" : "newRequest")}>
+        <Pressable style={styles.homeOrderPreview} onPress={() => activeOrder ? setScreen("orders") : onStartRequest()}>
           <View>
             <Text style={styles.cardLabel}>YOUR ORDERS</Text>
             <Text style={styles.addressTitle}>{activeOrder ? activeOrder.orderNumber : "No active orders"}</Text>
@@ -1934,7 +2105,7 @@ function HomeScreen({
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularServiceRow}>
           {popularServices.map((service) => (
-            <Pressable key={service.label} style={[styles.popularServiceCard, { width: popularCardWidth }]} onPress={() => setScreen("newRequest")}>
+            <Pressable key={service.label} style={[styles.popularServiceCard, { width: popularCardWidth }]} onPress={() => onStartRequest(requestPresetForService(service.label))}>
               <Ionicons name={service.icon} size={28} color={BRAND_ORANGE} />
               <Text style={styles.popularServiceText}>{service.label}</Text>
             </Pressable>
@@ -1960,7 +2131,7 @@ function HomeScreen({
         </View>
         <View style={styles.needList}>
           {needs.map((item) => (
-            <Pressable key={item.title} style={styles.needCard} onPress={() => setScreen("newRequest")}>
+            <Pressable key={item.title} style={styles.needCard} onPress={() => onStartRequest(requestPresetForService(item.title))}>
               <View style={styles.needIcon}>
                 <Ionicons name={item.icon} size={22} color={BRAND_ORANGE} />
               </View>
@@ -1975,13 +2146,13 @@ function HomeScreen({
 
         <View style={styles.sectionHeader}>
           <Text style={styles.listTitle}>Fabric & Care Tips</Text>
-          <Pressable onPress={() => setScreen("measurementGuide")}>
+          <Pressable onPress={() => setScreen("fabricCare")}>
             <Text style={styles.seeAll}>View all</Text>
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.fabricTipRow}>
           {fabricCareTips.map((tip) => (
-            <Pressable key={tip.title} style={styles.fabricTipCard} onPress={() => setScreen("measurementGuide")}>
+            <Pressable key={tip.title} style={styles.fabricTipCard} onPress={() => setScreen("fabricCare")}>
               <View style={styles.fabricTipIcon}>
                 <Ionicons name={tip.icon} size={22} color={BRAND_ORANGE} />
               </View>
@@ -2219,7 +2390,7 @@ function HomeScreen({
   );
 }
 
-function ServicesScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
+function ServicesScreen({ setScreen, onStartRequest }: { setScreen: (screen: Screen) => void; onStartRequest: (preset?: RequestPreset) => void }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
@@ -2229,7 +2400,7 @@ function ServicesScreen({ setScreen }: { setScreen: (screen: Screen) => void }) 
           <Text style={styles.infoBannerText}>Choose a service and upload photos to get quotes.</Text>
         </View>
         {services.map((service) => (
-          <Pressable key={service.title} style={styles.searchResultCard} onPress={() => setScreen("newRequest")}>
+          <Pressable key={service.title} style={styles.searchResultCard} onPress={() => onStartRequest(requestPresetForService(service.title))}>
             <View style={styles.searchResultIcon}>
               <Ionicons name={service.icon} size={24} color={BRAND_ORANGE} />
             </View>
@@ -3581,7 +3752,56 @@ function MeasurementGuideScreen({ setScreen }: { setScreen: (screen: Screen) => 
   );
 }
 
-function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void }) {
+function FabricCareScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+        <Header title="Fabric & Care Tips" onBack={() => setScreen("home")} />
+        <View style={styles.fabricCareHero}>
+          <View style={styles.fabricCareHeroIcon}>
+            <Ionicons name="shirt-outline" size={28} color={BRAND_ORANGE} />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.fabricCareHeroTitle}>Keep every garment looking new</Text>
+            <Text style={styles.fabricCareHeroCopy}>Quick care notes for washing, drying, ironing and storage.</Text>
+          </View>
+        </View>
+        <View style={styles.fabricCareGrid}>
+          {fabricCareTips.map((tip, index) => (
+            <View key={tip.title} style={styles.fabricCareCard}>
+              <View style={styles.fabricCareTopRow}>
+                <View style={styles.fabricCareNumber}>
+                  <Text style={styles.fabricCareNumberText}>{index + 1}</Text>
+                </View>
+                <View style={styles.fabricCareIcon}>
+                  <Ionicons name={tip.icon as keyof typeof Ionicons.glyphMap} size={21} color={BRAND_ORANGE} />
+                </View>
+              </View>
+              <Text style={styles.fabricCareTitle}>{tip.title}</Text>
+              <Text style={styles.fabricCareCopy}>{tip.copy}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function PendingRequestStep({ number, title, helper }: { number: number; title: string; helper: string }) {
+  return (
+    <View style={styles.pendingStepCard}>
+      <View style={styles.pendingStepNumber}>
+        <Text style={styles.pendingStepNumberText}>{number}</Text>
+      </View>
+      <View style={styles.profileRowText}>
+        <Text style={styles.pendingStepTitle}>{title}</Text>
+        <Text style={styles.pendingStepHelper}>{helper}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void; stage?: "work" | "measurements" }) {
   const [savingAction, setSavingAction] = useState<"summary" | "another" | undefined>();
   const [garmentSearch, setGarmentSearch] = useState("");
   const [showSizeChart, setShowSizeChart] = useState(false);
@@ -3613,6 +3833,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
     draft.urgency &&
     (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked)
   );
+  const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && selectedService && hasWorkSelection);
   const savedItemCount = draft.items?.length ?? 0;
   const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
 
@@ -3867,8 +4088,12 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.pageContent}>
-          <Header title="Cloth Details" onBack={() => setScreen(draft.editingItemId ? "orderSummary" : "newRequest")} right={<Text style={styles.stepBadge}>2/2</Text>} />
-        <RequestProgressBar step={3} total={3} />
+          <Header
+            title={stage === "measurements" ? "Measurements & Timing" : "Cloth Details"}
+            onBack={() => setScreen(stage === "measurements" ? "clothIssue" : draft.editingItemId ? "orderSummary" : "newRequest")}
+            right={<Text style={styles.stepBadge}>{stage === "measurements" ? "3/3" : "2/3"}</Text>}
+          />
+        <RequestProgressBar step={stage === "measurements" ? 3 : 2} total={3} />
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
@@ -3876,6 +4101,8 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           </View>
         ) : null}
 
+        {stage === "work" ? (
+          <>
         <Text style={styles.formLabel}>1. Gender / Fit Type</Text>
         <View style={styles.twoCol}>
           {GENDER_FIT_OPTIONS.map((option) => (
@@ -3932,7 +4159,9 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
               </View>
             </View>
           </>
-        ) : null}
+        ) : (
+          <PendingRequestStep number={2} title="Select Garment" helper="Choose gender / fit type first to unlock garment options." />
+        )}
 
         {draft.clothType ? (
           <>
@@ -3965,7 +4194,9 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
               })}
             </View>
           </>
-        ) : null}
+        ) : (
+          <PendingRequestStep number={3} title="Select Service Category" helper="Choose a garment first to continue." />
+        )}
 
         {selectedService ? (
           <>
@@ -4002,10 +4233,30 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
               <Text style={styles.clothTipCopy}>You can select multiple works in this category.</Text>
             </View>
           </>
+        ) : (
+          <PendingRequestStep number={4} title="Select Work" helper="Choose a service category to see work options." />
+        )}
+
+        <Pressable
+          disabled={!canContinueToMeasurements}
+          style={[styles.primaryWideButton, !canContinueToMeasurements && styles.disabledDarkButton]}
+          onPress={() => setScreen("measurements")}
+        >
+          <Text style={[styles.primaryWideButtonText, !canContinueToMeasurements && styles.disabledText]}>Continue to Measurements</Text>
+          <Ionicons name="chevron-forward" size={18} color={canContinueToMeasurements ? "#111111" : "#777777"} />
+        </Pressable>
+          </>
         ) : null}
 
-        {selectedService ? (
+        {stage === "measurements" ? (
           <>
+            <View style={styles.whiteCard}>
+              <Text style={styles.cardLabel}>SELECTED WORK</Text>
+              <SummaryRow label="Fit type" value={draft.gender ?? "Not selected"} />
+              <SummaryRow label="Garment" value={draft.clothType ?? "Not selected"} />
+              <SummaryRow label="Service" value={selectedService?.label ?? "Not selected"} />
+              <SummaryRow label="Work" value={selectedService?.label === "Other" ? draft.otherWorkDescription ?? "Not selected" : selectedWorkItems.join(", ") || "Not selected"} />
+            </View>
             <View style={styles.measurementChoiceHeader}>
               <Text style={styles.measurementChoiceHeading}>How would you like to provide measurements?</Text>
             </View>
@@ -4069,7 +4320,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           </>
         ) : null}
 
-        {showManualMeasurements ? (
+        {stage === "measurements" && showManualMeasurements ? (
           <View style={styles.measurementCard}>
             <View style={styles.rowBetween}>
               <View style={styles.measurementTitleBlock}>
@@ -4167,18 +4418,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
           </View>
         ) : null}
 
-        <Pressable style={[styles.homeMeasurementButton, draft.homeMeasurementBooked && styles.homeMeasurementButtonSelected]} onPress={() => setShowHomeMeasurementModal(true)}>
-          <View style={styles.homeMeasurementGlowIcon}>
-            <Ionicons name="help-circle-outline" size={21} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} />
-          </View>
-          <View style={styles.homeMeasurementTextBlock}>
-            <Text style={styles.homeMeasurementTitle}>Not sure about your measurement?</Text>
-            <Text style={styles.homeMeasurementCopy}>{draft.homeMeasurementBooked ? `Tailor visit added: Rs${HOME_MEASUREMENT_FEE}` : "Book a tailor to get measured at home"}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} />
-        </Pressable>
-
-        {showUrgencyPicker ? (
+        {stage === "measurements" && showUrgencyPicker ? (
           <>
             <Text style={styles.formLabel}>When Do You Need It?</Text>
             <View style={styles.urgencyRow}>
@@ -4191,13 +4431,15 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
               ))}
             </View>
           </>
-        ) : (
+        ) : stage === "measurements" ? (
           <View style={styles.infoBanner}>
             <Ionicons name="flash-outline" size={17} color={BRAND_ORANGE} />
             <Text style={styles.infoBannerText}>Shared delivery timing: {draft.urgency}</Text>
           </View>
-        )}
+        ) : null}
 
+        {stage === "measurements" ? (
+        <>
         <Pressable disabled={!canContinue || Boolean(savingAction)} style={[styles.primaryWideButton, (!canContinue || Boolean(savingAction)) && styles.disabledDarkButton]} onPress={continueToSummary}>
           {savingAction === "summary" ? (
             <ActivityIndicator color="#777777" />
@@ -4218,6 +4460,8 @@ function ClothIssueScreen({ draft, setDraft, setScreen }: { draft: RequestDraft;
             </>
           )}
         </Pressable>
+        </>
+        ) : null}
       </ScrollView>
       )}
       <SizeChartModal visible={showSizeChart} clothType={draft.clothType} guide={measurementGuide} onClose={() => setShowSizeChart(false)} />
@@ -4534,7 +4778,7 @@ function OrderSummaryScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title={t(useAppStore.getState().language, "orderSummary")} onBack={() => setScreen("newRequest")} />
+        <Header title={t(useAppStore.getState().language, "orderSummary")} onBack={() => setScreen("measurements")} />
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>ORDER CART</Text>
           <SummaryRow label="Clothing items" value={`${items.length}`} strong />
@@ -5267,12 +5511,17 @@ function TrackOrderScreen({ order, setScreen }: { order: CustomerOrder; setScree
   );
 }
 
-function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
+function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Screen) => void; onStartRequest: (preset?: RequestPreset) => void }) {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"categories" | "tailors">("categories");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [serviceFilter, setServiceFilter] = useState<string | undefined>();
   const normalizedQuery = query.trim().toLowerCase();
-  const categoryResults = searchCategories.filter((category) => [category.title, category.subtitle].join(" ").toLowerCase().includes(normalizedQuery));
-  const tailorResults = searchTailors.filter((tailor) => [tailor.name, tailor.location, tailor.specialty].join(" ").toLowerCase().includes(normalizedQuery));
+  const serviceFilters = ["Alteration", "Repair", "Custom Stitching", "Embroidery"] as const;
+  const matchesQuery = (value: string) => !normalizedQuery || value.toLowerCase().includes(normalizedQuery);
+  const matchesService = (value: string) => !serviceFilter || value.toLowerCase().includes(serviceFilter.toLowerCase().replace("custom stitching", "stitch"));
+  const categoryResults = searchCategories.filter((category) => matchesQuery([category.title, category.subtitle].join(" ")) && matchesService([category.title, category.subtitle].join(" ")));
+  const tailorResults = searchTailors.filter((tailor) => matchesQuery([tailor.name, tailor.location, tailor.specialty].join(" ")) && matchesService(tailor.specialty));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -5283,14 +5532,14 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
             <Text style={styles.searchHeroSubtitle}>Find categories, tailors and services near you</Text>
           </View>
           <Pressable style={styles.searchNotificationButton} onPress={() => setScreen("notifications")}>
-            <Ionicons name="notifications-outline" size={24} color="#111827" />
+            <Ionicons name="notifications-outline" size={20} color="#111827" />
             <View style={styles.notificationDot} />
           </Pressable>
         </View>
 
         <View style={styles.searchControlRow}>
           <View style={[styles.searchInputWrap, { flex: 1, marginBottom: 0 }]}>
-            <Ionicons name="search-outline" size={23} color="#111827" />
+            <Ionicons name="search-outline" size={20} color="#111827" />
             <TextInput
               style={styles.searchInput}
               placeholder="Search categories, tailors or services..."
@@ -5304,19 +5553,35 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
               </Pressable>
             ) : null}
           </View>
-          <Pressable style={styles.filterButton}>
-            <Ionicons name="options-outline" size={21} color="#111827" />
-            <Text style={styles.filterButtonText}>Filter</Text>
+          <Pressable style={[styles.filterButton, (filtersOpen || serviceFilter) && styles.filterButtonActive]} onPress={() => setFiltersOpen((value) => !value)}>
+            <Ionicons name="options-outline" size={18} color="#111827" />
+            <Text style={styles.filterButtonText}>{serviceFilter ?? "Filter"}</Text>
           </Pressable>
         </View>
 
+        {filtersOpen ? (
+          <View style={styles.searchFilterPanel}>
+            <Text style={styles.cardLabel}>FILTER SERVICES</Text>
+            <View style={styles.searchFilterChipRow}>
+              <Pressable style={[styles.searchFilterChip, !serviceFilter && styles.searchFilterChipActive]} onPress={() => setServiceFilter(undefined)}>
+                <Text style={[styles.searchFilterChipText, !serviceFilter && styles.searchFilterChipTextActive]}>All</Text>
+              </Pressable>
+              {serviceFilters.map((filter) => (
+                <Pressable key={filter} style={[styles.searchFilterChip, serviceFilter === filter && styles.searchFilterChipActive]} onPress={() => setServiceFilter(filter)}>
+                  <Text style={[styles.searchFilterChipText, serviceFilter === filter && styles.searchFilterChipTextActive]}>{filter}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.searchSegment}>
           <Pressable style={[styles.searchSegmentOption, mode === "categories" && styles.searchSegmentActive]} onPress={() => setMode("categories")}>
-            <Ionicons name="grid-outline" size={18} color={mode === "categories" ? BRAND_ORANGE : "#5f6673"} />
+            <Ionicons name="grid-outline" size={16} color={mode === "categories" ? BRAND_ORANGE : "#5f6673"} />
             <Text style={[styles.searchSegmentText, mode === "categories" && styles.searchSegmentTextActive]}>Categories</Text>
           </Pressable>
           <Pressable style={[styles.searchSegmentOption, mode === "tailors" && styles.searchSegmentActive]} onPress={() => setMode("tailors")}>
-            <Ionicons name="person-outline" size={18} color={mode === "tailors" ? BRAND_ORANGE : "#5f6673"} />
+            <Ionicons name="person-outline" size={16} color={mode === "tailors" ? BRAND_ORANGE : "#5f6673"} />
             <Text style={[styles.searchSegmentText, mode === "tailors" && styles.searchSegmentTextActive]}>Tailors</Text>
           </Pressable>
         </View>
@@ -5324,14 +5589,14 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
         {mode === "categories" ? (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.listTitle}>Browse by Category</Text>
+              <Text style={styles.searchSectionTitle}>Browse by Category</Text>
               <Text style={styles.seeAll}>View all</Text>
             </View>
             <View style={styles.searchCategoryGrid}>
               {(query ? categoryResults : searchCategories).map((category) => (
-                <Pressable key={category.title} style={styles.searchCategoryCard} onPress={() => setScreen("newRequest")}>
+                <Pressable key={category.title} style={styles.searchCategoryCard} onPress={() => onStartRequest(requestPresetForSearchCategory(category.title))}>
                   <View style={styles.searchCategoryImage}>
-                    <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={42} color={BRAND_ORANGE} />
+                    <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={31} color={BRAND_ORANGE} />
                   </View>
                   <Text style={styles.searchCategoryTitle}>{category.title}</Text>
                   <Text style={styles.searchCategorySubtitle}>{category.subtitle}</Text>
@@ -5342,12 +5607,12 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
         ) : null}
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.listTitle}>Top Tailors Near You</Text>
+          <Text style={styles.searchSectionTitle}>Top Tailors Near You</Text>
           <Text style={styles.seeAll}>View all</Text>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchTailorRow}>
           {(query ? tailorResults : searchTailors).map((tailor) => (
-            <Pressable key={tailor.name} style={styles.searchTailorCard} onPress={() => setScreen("newRequest")}>
+            <Pressable key={tailor.name} style={styles.searchTailorCard} onPress={() => onStartRequest()}>
               <View style={styles.searchTailorHeader}>
                 <View style={styles.smallQuoteAvatar}>
                   <Text style={styles.smallAvatarText}>{tailor.initials}</Text>
@@ -5369,7 +5634,7 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
           ))}
         </ScrollView>
 
-        <Text style={styles.listTitle}>Popular Services</Text>
+        <Text style={styles.searchSectionTitle}>Popular Services</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularServiceRow}>
           {[
             ["Custom Stitching", "shirt-outline"],
@@ -5378,15 +5643,15 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
             ["Press & Iron", "sparkles-outline"],
             ["Pickup & Delivery", "bicycle-outline"]
           ].map(([label, icon]) => (
-            <Pressable key={label} style={styles.searchPopularCard} onPress={() => setScreen("newRequest")}>
-              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={28} color={BRAND_ORANGE} />
+            <Pressable key={label} style={styles.searchPopularCard} onPress={() => onStartRequest(requestPresetForService(label))}>
+              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={22} color={BRAND_ORANGE} />
               <Text style={styles.popularServiceText}>{label}</Text>
             </Pressable>
           ))}
         </ScrollView>
 
         <Pressable style={styles.searchTrustBanner} onPress={() => setScreen("helpCenter")}>
-          <Ionicons name="shield-checkmark-outline" size={34} color={BRAND_ORANGE} />
+          <Ionicons name="shield-checkmark-outline" size={26} color={BRAND_ORANGE} />
           <View style={styles.profileRowText}>
             <Text style={styles.addressTitle}>Trusted tailors. Quality stitching.</Text>
             <Text style={styles.mutedSmall}>Verified professionals - On-time delivery - 100% satisfaction</Text>
@@ -5399,7 +5664,17 @@ function SearchScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   );
 }
 
-function OnboardingScreen({ profile, setProfile, language }: { profile: ProfileData; setProfile: (profile: ProfileData) => void; language: AppLanguage }) {
+function OnboardingScreen({
+  profile,
+  setProfile,
+  language,
+  setLanguagePreference
+}: {
+  profile: ProfileData;
+  setProfile: (profile: ProfileData) => void;
+  language: AppLanguage;
+  setLanguagePreference: (language: AppLanguage) => void;
+}) {
   const [name, setName] = useState(profile.name.startsWith("Customer ") ? "" : profile.name);
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
@@ -5420,25 +5695,37 @@ function OnboardingScreen({ profile, setProfile, language }: { profile: ProfileD
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.onboardingContent}>
-          <DarjiLogoMark />
-          <Text style={styles.onboardingTitle}>{t(language, "completeProfile")}</Text>
-          <Text style={styles.helperText}>{t(language, "onboardingCopy")}</Text>
+          <View style={styles.onboardingLanguageWrap}>
+            <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
+          </View>
+          <View style={styles.onboardingHero}>
+            <DarjiLogoMark />
+          </View>
           <Text style={styles.formLabel}>{t(language, "fullName")}</Text>
-          <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder={t(language, "enterYourName")} placeholderTextColor="#98a4b6" />
+          <OnboardingTextField value={name} onChangeText={setName} placeholder={t(language, "enterYourName")} />
           <Text style={styles.formLabel}>{t(language, "gender")}</Text>
-          <View style={styles.twoCol}>
+          <View style={styles.onboardingGenderRow}>
             {[
-              { value: "Male" as const, label: t(language, "male") },
-              { value: "Female" as const, label: t(language, "female") },
-              { value: "Other" as const, label: t(language, "other") }
+              { value: "Male" as const, label: t(language, "male"), icon: "male-outline" as const },
+              { value: "Female" as const, label: t(language, "female"), icon: "female-outline" as const },
+              { value: "Other" as const, label: t(language, "other"), icon: "people-outline" as const }
             ].map((item) => (
-              <OptionButton key={item.value} label={item.label} selected={gender === item.value} onPress={() => setGender(item.value)} />
+              <OnboardingGenderButton key={item.value} label={item.label} icon={item.icon} selected={gender === item.value} onPress={() => setGender(item.value)} />
             ))}
           </View>
           <Text style={styles.formLabel}>{t(language, "dateOfBirth")}</Text>
-          <DatePickerField value={dateOfBirth} onChange={setDateOfBirth} />
-          <Pressable style={styles.primaryWideButton} onPress={save}>
+          <OnboardingDateField value={dateOfBirth} onChange={setDateOfBirth} />
+          <View style={styles.onboardingSafetyBanner}>
+            <View style={styles.onboardingSafetyIcon}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.onboardingSafetyText}>
+              {language === "hi" ? "आपकी जानकारी Darji के साथ निजी और सुरक्षित रहती है।" : "Your details stay private & safe with Darji."}
+            </Text>
+          </View>
+          <Pressable style={styles.onboardingContinueButton} onPress={save}>
             <Text style={styles.primaryWideButtonText}>{t(language, "continue")}</Text>
+            <Ionicons name="arrow-forward" size={20} color="#111111" />
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -5522,6 +5809,7 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value={t(language, "refundAndCancellationRules")} onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} noBorder />
+          <ProfileRow icon="calendar-outline" label="Refund & Rescheduling Policy" value="Refunds, rescheduling and related rules" onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} />
           <ProfileRow icon="information-circle-outline" label={t(language, "aboutDarji")} value={t(language, "whoWeAreHowItWorks")} onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
           <ProfileRow icon="shield-checkmark-outline" label={t(language, "privacyPolicy")} value={t(language, "readPrivacyPolicy")} onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
           <ProfileRow icon="document-text-outline" label={t(language, "termsOfUse")} value={t(language, "readTermsOfService")} onPress={() => setScreen("termsService")} styles={profileStyles} />
@@ -5532,15 +5820,7 @@ function ProfileScreen({
           <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "app")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <View style={[profileStyles.profileRow, { borderTopWidth: 0 }]}>
-            <View style={profileStyles.profileRowIcon}>
-              <Ionicons name="phone-portrait-outline" size={18} color={BRAND_ORANGE} />
-            </View>
-            <View style={profileStyles.profileRowText}>
-              <Text style={profileStyles.addressTitle}>{t(language, "appVersion")}</Text>
-              <Text style={profileStyles.mutedSmall}>0.1.0 (Development)</Text>
-            </View>
-          </View>
+          <ProfileRow icon="phone-portrait-outline" label={t(language, "appVersion")} value="0.1.0 (Development)" onPress={() => setScreen("appInfo")} styles={profileStyles} noBorder />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
@@ -5633,33 +5913,13 @@ function EditProfileScreen({
   const [name, setName] = useState(profile.name);
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
-  const [avatarUri, setAvatarUri] = useState(profile.avatarUri);
-  const [avatarPreset, setAvatarPreset] = useState<AvatarPreset | undefined>(profile.avatarPreset);
-
-  async function pickAvatar() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to choose a profile picture. Darji receives only the photo you choose, and your information stays safe.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8
-    });
-    if (!result.canceled) {
-      setAvatarUri(result.assets[0]?.uri);
-      setAvatarPreset(undefined);
-    }
-  }
 
   function save() {
     if (name.trim().length < 2) {
       Alert.alert("Name required", "Enter your full name.");
       return;
     }
-    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri, avatarPreset, hasCompletedOnboarding: true });
+    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri: undefined, avatarPreset: undefined, hasCompletedOnboarding: true });
     setScreen("profile");
   }
 
@@ -5667,41 +5927,25 @@ function EditProfileScreen({
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title={t(useAppStore.getState().language, "editProfile")} onBack={() => setScreen("profile")} />
-        <View style={styles.editAvatarWrap}>
-          <Pressable onPress={pickAvatar}>
-            <Image source={avatarUri ? { uri: avatarUri } : getDefaultAvatarSource({ ...profile, name, gender, avatarPreset })} style={styles.editAvatarImage} />
-            <View style={styles.cameraBadge}>
-              <Ionicons name="camera" size={16} color="#111111" />
-            </View>
-          </Pressable>
-          <Text style={styles.mutedSmall}>Tap photo to change</Text>
-        </View>
         <Text style={styles.formLabel}>Full Name</Text>
         <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor="#98a4b6" />
         <Text style={styles.formLabel}>Gender</Text>
-        <View style={styles.twoCol}>
-          {(["Male", "Female", "Other"] as const).map((item) => (
-            <OptionButton key={item} label={item} selected={gender === item} onPress={() => setGender(item)} />
+        <View style={styles.profileGenderGrid}>
+          {([
+            { label: "Male" as const, icon: "man-outline" as const },
+            { label: "Female" as const, icon: "woman-outline" as const },
+            { label: "Other" as const, icon: "people-outline" as const }
+          ]).map((item) => (
+            <Pressable key={item.label} style={[styles.profileGenderCard, gender === item.label && styles.profileGenderCardSelected]} onPress={() => setGender(item.label)}>
+              <View style={[styles.profileGenderIcon, gender === item.label && styles.profileGenderIconSelected]}>
+                <Ionicons name={item.icon} size={20} color={gender === item.label ? BRAND_ORANGE : "#7d8491"} />
+              </View>
+              <Text style={[styles.profileGenderText, gender === item.label && styles.selectedOptionText]}>{item.label}</Text>
+            </Pressable>
           ))}
         </View>
         <Text style={styles.formLabel}>Date of Birth</Text>
         <DatePickerField value={dateOfBirth} onChange={setDateOfBirth} />
-        <Text style={styles.formLabel}>Choose Avatar</Text>
-        <View style={styles.avatarPickerGrid}>
-          {avatarOptions.map((option) => (
-            <Pressable
-              key={option.key}
-              style={[styles.avatarOption, avatarPreset === option.key && styles.avatarOptionActive]}
-              onPress={() => {
-                setAvatarPreset(option.key);
-                setAvatarUri(undefined);
-              }}
-            >
-              <Image source={avatarImages[option.key]} style={styles.avatarOptionImage} />
-              <Text style={styles.avatarOptionText}>{option.label}</Text>
-            </Pressable>
-          ))}
-        </View>
         <Text style={styles.formLabel}>Phone Number</Text>
         <View style={styles.readOnlyField}>
           <Text style={styles.addressTitle}>+91 {profile.phone}</Text>
@@ -5775,7 +6019,7 @@ function AppLanguageScreen({
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+      <ScrollView contentContainerStyle={styles.preferencePageContent}>
         <Header title={t(language, "appLanguage")} onBack={() => setScreen("profile")} />
         <Text style={styles.preferenceIntro}>Choose your preferred language for the Darji app.</Text>
         <View style={styles.languageOptionList}>
@@ -5800,7 +6044,7 @@ function AppLanguageScreen({
         </View>
       </ScrollView>
       <View style={styles.fixedBottomAction}>
-        <Pressable style={styles.primaryWideButton} onPress={saveLanguage}>
+        <Pressable style={styles.preferenceSaveButton} onPress={saveLanguage}>
           <Ionicons name="save-outline" size={18} color="#111111" />
           <Text style={styles.primaryWideButtonText}>Save Language</Text>
         </Pressable>
@@ -5824,28 +6068,89 @@ function NotificationPreferencesScreen({
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+      <ScrollView contentContainerStyle={styles.preferencePageContent}>
         <Header title="Notifications" onBack={() => setScreen("profile")} />
         <Text style={styles.preferenceIntro}>Choose what updates you want to receive and when.</Text>
         <Text style={styles.preferenceSectionLabel}>NOTIFICATION ALERTS</Text>
-        <View style={styles.whiteCard}>
-          <SettingRow icon="notifications-outline" label="Order updates" value="Get notified about your order status, pickup, delivery and more." enabled={settings.orderUpdates && settings.notifications} onPress={() => toggle("orderUpdates")} />
-          <SettingRow icon="megaphone-outline" label="Offers & promotions" value="Receive alerts on exciting offers and discounts." enabled={settings.offersPromotions && settings.notifications} onPress={() => toggle("offersPromotions")} />
-          <SettingRow icon="cube-outline" label="Pickup reminders" value="Get reminded when your tailor is on the way for pickup." enabled={settings.pickupReminders && settings.notifications} onPress={() => toggle("pickupReminders")} />
-          <SettingRow icon="checkmark-circle-outline" label="Delivery updates" value="Get notified when your order is dispatched and delivered." enabled={settings.deliveryUpdates && settings.notifications} onPress={() => toggle("deliveryUpdates")} />
+        <View style={styles.notificationPanel}>
+          <NotificationAlertRow icon="notifications-outline" label="Order updates" value="Get notified about your order status, pickup, delivery and more." enabled={settings.orderUpdates && settings.notifications} onPress={() => toggle("orderUpdates")} first />
+          <NotificationAlertRow icon="megaphone-outline" label="Offers & promotions" value="Receive alerts on exciting offers and discounts." enabled={settings.offersPromotions && settings.notifications} onPress={() => toggle("offersPromotions")} />
+          <NotificationAlertRow icon="cube-outline" label="Pickup reminders" value="Get reminded when your tailor is on the way for pickup." enabled={settings.pickupReminders && settings.notifications} onPress={() => toggle("pickupReminders")} />
+          <NotificationAlertRow icon="checkmark-circle-outline" label="Delivery updates" value="Get notified when your order is dispatched and delivered." enabled={settings.deliveryUpdates && settings.notifications} onPress={() => toggle("deliveryUpdates")} />
         </View>
 
         <Text style={styles.preferenceSectionLabel}>NOTIFICATION TIMING</Text>
-        <View style={styles.whiteCard}>
-          <SettingRow icon="time-outline" label="Quiet hours" value="No notifications during this time  10:00 PM - 8:00 AM" enabled={settings.quietHours} onPress={() => toggle("quietHours")} />
-          <SettingRow icon="notifications-circle-outline" label="Receiving notifications" value={settings.receivingNotifications ? "Always" : "Paused"} enabled={settings.receivingNotifications && settings.notifications} onPress={() => toggle("receivingNotifications")} />
+        <View style={styles.notificationPanel}>
+          <NotificationTimingRow icon="time-outline" label="Quiet hours" value="No notifications during this time" detail="10:00 PM - 8:00 AM" onPress={() => toggle("quietHours")} first />
+          <NotificationTimingRow icon="notifications-circle-outline" label="Receiving notifications" value="Choose how often you want to receive notifications" detail={settings.receivingNotifications ? "Always" : "Paused"} onPress={() => toggle("receivingNotifications")} />
         </View>
         <View style={styles.infoBanner}>
           <Ionicons name="information-circle-outline" size={17} color={BRAND_ORANGE} />
-          <Text style={styles.infoBannerText}>You will still receive critical account and payment safety updates.</Text>
+          <Text style={styles.infoBannerText}>You will still receive important updates during quiet hours.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function NotificationAlertRow({
+  icon,
+  label,
+  value,
+  enabled,
+  onPress,
+  first
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  enabled: boolean;
+  onPress: () => void;
+  first?: boolean;
+}) {
+  return (
+    <Pressable style={[styles.notificationRow, first && styles.notificationRowFirst]} onPress={onPress}>
+      <View style={styles.notificationRowIcon}>
+        <Ionicons name={icon} size={17} color={BRAND_ORANGE} />
+      </View>
+      <View style={styles.notificationRowText}>
+        <Text style={styles.notificationRowTitle}>{label}</Text>
+        <Text style={styles.notificationRowCopy}>{value}</Text>
+      </View>
+      <View style={[styles.toggleTrack, enabled && styles.toggleTrackOn]}>
+        <View style={[styles.toggleKnob, enabled && styles.toggleKnobOn]} />
+      </View>
+    </Pressable>
+  );
+}
+
+function NotificationTimingRow({
+  icon,
+  label,
+  value,
+  detail,
+  onPress,
+  first
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  detail: string;
+  onPress: () => void;
+  first?: boolean;
+}) {
+  return (
+    <Pressable style={[styles.notificationRow, first && styles.notificationRowFirst]} onPress={onPress}>
+      <View style={styles.notificationRowIcon}>
+        <Ionicons name={icon} size={17} color="#8fa0b8" />
+      </View>
+      <View style={styles.notificationRowText}>
+        <Text style={styles.notificationRowTitle}>{label}</Text>
+        <Text style={styles.notificationRowCopy}>{value}</Text>
+      </View>
+      <Text style={styles.notificationTimingValue}>{detail}</Text>
+      <Ionicons name="chevron-forward" size={16} color="#8fa0b8" />
+    </Pressable>
   );
 }
 
@@ -5983,7 +6288,7 @@ function AddAddressScreen({
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "addAddress")} setScreen={setScreen} backScreen="savedAddresses">
       <View style={styles.addressHintCard}>
-        <Ionicons name="ribbon-outline" size={22} color={BRAND_ORANGE} />
+        <Ionicons name="location-outline" size={26} color={BRAND_ORANGE} />
         <Text style={styles.addressHintText}>Add your address so our tailors can reach you with ease.</Text>
       </View>
       <Text style={styles.formLabel}>Address Label</Text>
@@ -6004,22 +6309,29 @@ function AddAddressScreen({
         })}
       </View>
       <Text style={styles.formLabel}>Full Address</Text>
-      <Text style={[styles.mutedSmall, { marginBottom: 8 }]}>Include house / flat no., street, city & pincode</Text>
-      <TextInput
-        style={styles.descriptionInput}
-        value={address}
-        onChangeText={setAddress}
-        multiline
-        placeholder="House / flat number, street, city, pincode"
-        placeholderTextColor="#98a4b6"
-      />
+      <View style={styles.addressHelperLine}>
+        <Ionicons name="location" size={10} color={BRAND_ORANGE} />
+        <Text style={styles.addressHelperText}>Include house / flat no., street, city & pincode</Text>
+      </View>
+      <View style={styles.addressInputShell}>
+        <Ionicons name="location-outline" size={20} color="#98a4b6" />
+        <TextInput
+          style={styles.addressFullInput}
+          value={address}
+          onChangeText={setAddress}
+          multiline
+          placeholder="Enter full address"
+          placeholderTextColor="#98a4b6"
+        />
+      </View>
       <View style={styles.addressActions}>
-        <Pressable style={styles.addressActionButton} onPress={useCurrentLocation} disabled={locating}>
+        <Pressable style={styles.currentLocationButton} onPress={useCurrentLocation} disabled={locating}>
           {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={17} color={BRAND_ORANGE} />}
-          <Text style={styles.addPhotoText}>{locating ? "Finding..." : "Use Current Location"}</Text>
+          <Text style={styles.currentLocationText}>{locating ? "Finding..." : "Use Current Location"}</Text>
+          <Ionicons name="chevron-forward" size={18} color="#98a4b6" />
         </Pressable>
       </View>
-      <Pressable style={styles.primaryWideButton} onPress={saveAddress}>
+      <Pressable style={styles.preferenceSaveButton} onPress={saveAddress}>
         <Ionicons name="save-outline" size={18} color="#111111" />
         <Text style={styles.primaryWideButtonText}>Save Address</Text>
       </Pressable>
@@ -6126,19 +6438,19 @@ function HelpCenterScreen({
       {groups.map((group) => (
         <View key={group.title}>
           <Text style={styles.preferenceSectionLabel}>{group.title}</Text>
-          <View style={styles.whiteCard}>
+          <View style={styles.helpGroupCard}>
             {group.topics.map((topic, index) => (
               <Pressable
                 key={topic.id}
-                style={[styles.profileRow, index === 0 ? { borderTopWidth: 0 } : null]}
+                style={[styles.helpTopicRow, index === 0 ? { borderTopWidth: 0 } : null]}
                 onPress={() => onOpenTopic(topic.id)}
               >
-                <View style={styles.profileRowIcon}>
+                <View style={styles.helpTopicIcon}>
                   <Ionicons name={topic.icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
                 </View>
-                <View style={styles.profileRowText}>
-                  <Text style={styles.addressTitle}>{topic.title}</Text>
-                  <Text style={styles.mutedSmall}>{topic.subtitle}</Text>
+                <View style={styles.helpTopicText}>
+                  <Text style={styles.helpTopicTitle}>{topic.title}</Text>
+                  <Text style={styles.helpTopicCopy}>{topic.subtitle}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#6b7890" />
               </Pressable>
@@ -6147,12 +6459,12 @@ function HelpCenterScreen({
         </View>
       ))}
       <Pressable style={styles.helpContactCard} onPress={() => setScreen("contactSupport")}>
-        <View style={styles.profileRowIcon}>
+        <View style={styles.helpTopicIcon}>
           <Ionicons name="headset-outline" size={18} color={BRAND_ORANGE} />
         </View>
-        <View style={styles.profileRowText}>
-          <Text style={styles.addressTitle}>Still need help?</Text>
-          <Text style={styles.mutedSmall}>Our support team is available 9 AM - 9 PM, every day.</Text>
+        <View style={styles.helpTopicText}>
+          <Text style={styles.helpTopicTitle}>Still need help?</Text>
+          <Text style={styles.helpTopicCopy}>Our support team is available 9 AM - 9 PM, every day.</Text>
         </View>
         <View style={styles.helpContactButton}>
           <Text style={styles.orangeSmall}>Contact us</Text>
@@ -6320,7 +6632,7 @@ function hasUnreadMessages(ticketOrBug: any): boolean {
 
 function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean; orders: any[]; socket: any }) {
   const token = useAppStore((state) => state.token);
-  const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "center");
+  const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "new_chat");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -6908,38 +7220,41 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
         )}
 
         {view === "new_chat" && (
-          <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
-            <Header title="Start Conversation" onBack={() => setView("center")} />
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
-              {/* Linked order selector */}
+          <View style={styles.supportPage}>
+            <Header title="Contact Support" onBack={() => setScreen("profile")} />
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.supportFormContent}>
+              <Text style={styles.supportIntro}>We're here to help. Tell us what's going on.</Text>
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Related Order (Optional)</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-                  <Pressable 
-                    style={{ minWidth: 100, height: 64, borderRadius: 14, borderWidth: 1, borderColor: !selectedOrder ? BRAND_ORANGE : border, backgroundColor: !selectedOrder ? (isDark ? "#2c2010" : "#fff5df") : cardBg, padding: 10, justifyContent: "center" }}
-                    onPress={() => setSelectedOrder(null)}
-                  >
-                    <Text style={{ color: !selectedOrder ? BRAND_ORANGE : text, fontSize: 12, fontWeight: "800", textAlign: "center" }}>No Linked Order</Text>
-                  </Pressable>
+                <Text style={styles.supportLabel}>Related Order (Optional)</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.supportOrderScroller}>
                   {orders.map((o) => {
                     const isSelected = selectedOrder && (selectedOrder._id || selectedOrder.id) === (o._id || o.id);
                     return (
-                      <Pressable 
+                      <Pressable
                         key={o._id || o.id}
-                        style={{ minWidth: 120, height: 64, borderRadius: 14, borderWidth: 1, borderColor: isSelected ? BRAND_ORANGE : border, backgroundColor: isSelected ? (isDark ? "#2c2010" : "#fff5df") : cardBg, padding: 10, justifyContent: "center" }}
+                        style={[styles.supportOrderCard, isSelected && styles.supportOrderCardActive]}
                         onPress={() => setSelectedOrder(o)}
                       >
-                        <Text style={{ color: isSelected ? BRAND_ORANGE : text, fontSize: 12, fontWeight: "800" }}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
-                        <Text style={{ color: mutedText, fontSize: 10, fontWeight: "700", marginTop: 2 }}>{o.status.replace(/_/g, " ")}</Text>
+                        <View style={styles.supportTinyIcon}>
+                          <Ionicons name="bag-handle-outline" size={15} color={BRAND_ORANGE} />
+                        </View>
+                        <View style={styles.supportOrderText}>
+                          <Text style={styles.supportOrderTitle}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
+                          <Text style={styles.supportOrderCopy}>{o.status.replace(/_/g, " ")}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={BRAND_ORANGE} />
                       </Pressable>
                     );
                   })}
                 </ScrollView>
+                <Pressable style={styles.supportNoOrderButton} onPress={() => setSelectedOrder(null)}>
+                  <Ionicons name="ban-outline" size={14} color={BRAND_ORANGE} />
+                  <Text style={styles.supportNoOrderText}>Continue without linking an order</Text>
+                </Pressable>
               </View>
-              {/* Category Grid */}
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                <Text style={styles.supportLabel}>What can we help you with?</Text>
+                <View style={styles.supportCategoryGrid}>
                   {[
                     { label: "Order Delay", icon: "time-outline" },
                     { label: "Pickup Issue", icon: "cube-outline" },
@@ -6952,11 +7267,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     return (
                       <Pressable 
                         key={cat.label}
-                        style={{ width: "48%", height: 72, borderRadius: 14, borderWidth: 1, borderColor: isSel ? BRAND_ORANGE : border, backgroundColor: cardBg, alignItems: "center", justifyContent: "center", gap: 6 }}
+                        style={[styles.supportCategoryCard, isSel && styles.supportCategoryCardActive]}
                         onPress={() => setSelectedCategory(cat.label)}
                       >
                         <Ionicons name={cat.icon as any} size={20} color={isSel ? BRAND_ORANGE : mutedText} />
-                        <Text style={{ color: isSel ? BRAND_ORANGE : text, fontSize: 12, fontWeight: "800" }}>{cat.label}</Text>
+                        <Text style={[styles.supportCategoryText, isSel && styles.supportCategoryTextActive]}>{cat.label}</Text>
                       </Pressable>
                     );
                   })}
@@ -6964,24 +7279,23 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               </View>
 
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Describe your issue</Text>
+                <Text style={styles.supportLabel}>Describe your issue</Text>
                 <TextInput
-                  style={{ minHeight: 96, backgroundColor: cardBg, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 14, paddingVertical: 12, color: text, fontSize: 13, fontWeight: "700", textAlignVertical: "top" }}
+                  style={styles.supportDescriptionInput}
                   value={description}
                   onChangeText={(value) => value.length <= 500 && setDescription(value)}
                   placeholder="Tell us more about your issue..."
                   placeholderTextColor={mutedText}
                   multiline
                 />
-                <Text style={{ color: mutedText, fontSize: 10, fontWeight: "800", textAlign: "right", marginTop: 4 }}>{description.length}/500</Text>
+                <Text style={styles.supportCounter}>{description.length}/500</Text>
               </View>
 
-              {/* Attachments */}
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Attach Image Reference (Optional)</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                <Text style={styles.supportLabel}>Add photos (Optional)</Text>
+                <View style={styles.supportAttachmentRow}>
                   <Pressable 
-                    style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: cardBg }}
+                    style={styles.supportPhotoButton}
                     onPress={pickAttachmentImage}
                     disabled={uploading}
                   >
@@ -6990,10 +7304,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     ) : (
                       <>
                         <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
-                        <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Add Photo</Text>
+                        <Text style={styles.supportPhotoButtonText}>Add Photo</Text>
                       </>
                     )}
                   </Pressable>
+                  <Text style={styles.supportPhotoHelper}>Add images if it helps us understand the issue better.</Text>
                   {attachments.map((url, index) => (
                     <View key={url} style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
                       <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
@@ -7008,38 +7323,41 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 </View>
               </View>
 
-              {/* Start Conversation button */}
               <TouchableOpacity 
-                style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }, (!selectedCategory || description.trim().length < 10 || sending) && { opacity: 0.6 }]}
+                style={[styles.supportPrimaryButton, (!selectedCategory || description.trim().length < 10 || sending) && { opacity: 0.6 }]}
                 disabled={!selectedCategory || description.trim().length < 10 || sending}
                 onPress={handleStartChat}
                 activeOpacity={0.8}
               >
-                {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Start Conversation</Text>}
+                {sending ? <ActivityIndicator color="#111111" /> : (
+                  <>
+                    <Ionicons name="chatbubble-ellipses-outline" size={17} color="#111111" />
+                    <Text style={styles.primaryWideButtonText}>Start Conversation</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </ScrollView>
           </View>
         )}
 
         {view === "chat" && activeTicket && (
-          <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
-            {/* Chat header */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: border, paddingBottom: 12, marginBottom: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+          <View style={styles.chatPage}>
+            <View style={styles.chatHeader}>
+              <View style={styles.chatHeaderLeft}>
                 <Pressable 
-                  style={{ width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: border, alignItems: "center", justifyContent: "center" }}
+                  style={styles.chatBackButton}
                   onPress={() => {
                     setActiveTicket(null);
-                    setView("center");
+                    setView("new_chat");
                   }}
                 >
                   <Ionicons name="chevron-back" size={20} color={text} />
                 </Pressable>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: text, fontSize: 15, fontWeight: "800" }}>
+                <View style={styles.chatTitleBlock}>
+                  <Text style={styles.chatTitle}>
                     {activeTicket.isDraft ? "Draft Conversation" : (activeTicket.deviceInfo ? `Bug: ${activeTicket.title}` : `#${(activeTicket._id || activeTicket.id || "").slice(-6).toUpperCase()}`)}
                   </Text>
-                  <Text style={{ color: mutedText, fontSize: 11, fontWeight: "700" }}>
+                  <Text style={styles.chatSubtitle}>
                     {activeTicket.deviceInfo ? `Status: ${activeTicket.status}` : activeTicket.subject}
                   </Text>
                 </View>
@@ -7048,10 +7366,10 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               {/* Close Ticket action */}
               {!activeTicket.isDraft && !activeTicket.deviceInfo && activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && (
                 <Pressable 
-                  style={{ backgroundColor: "#fee2e2", borderColor: "#fecaca", paddingHorizontal: 12, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
+                  style={styles.closeChatButton}
                   onPress={() => handleCloseChat(activeTicket._id || activeTicket.id)}
                 >
-                  <Text style={{ color: "#dc2626", fontSize: 11, fontWeight: "900" }}>Close Chat</Text>
+                  <Text style={styles.closeChatText}>Close Chat</Text>
                 </Pressable>
               )}
             </View>
@@ -7059,7 +7377,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
             {/* Bubble thread */}
             <ScrollView
               ref={scrollViewRef}
-              style={{ flex: 1, marginBottom: 8 }}
+              style={styles.chatThread}
               contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
               showsVerticalScrollIndicator={false}
             >
@@ -7075,7 +7393,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               {!activeTicket.messages || activeTicket.messages.length === 0 ? (
                 !activeTicket.isDraft && (
                   <View style={{ gap: 6 }}>
-                    <View style={{ alignSelf: "flex-end", maxWidth: "80%", backgroundColor: BRAND_ORANGE, borderRadius: 16, borderBottomRightRadius: 2, padding: 12 }}>
+                    <View style={styles.chatBubbleMine}>
                       <Text style={{ color: "#000000", fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
                       <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
                       {activeTicket.attachments && activeTicket.attachments.length > 0 && (
@@ -7090,7 +7408,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                       </Text>
                     </View>
                     {activeTicket.adminResponse && (
-                      <View style={{ alignSelf: "flex-start", maxWidth: "80%", backgroundColor: isDark ? "#1e293b" : "#f1f5f9", borderWidth: 1, borderColor: border, borderRadius: 16, borderBottomLeftRadius: 2, padding: 12 }}>
+                      <View style={styles.chatBubbleTheirs}>
                         <Text style={{ color: BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2 }}>Darji Support</Text>
                         <Text style={{ color: text, fontSize: 14, fontWeight: "700" }}>{activeTicket.adminResponse}</Text>
                         <Text style={{ color: mutedText, fontSize: 9, marginTop: 4, opacity: 0.7 }}>
@@ -7114,7 +7432,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   }
 
                   return (
-                    <View key={idx} style={{ alignSelf: isClient ? "flex-end" : "flex-start", maxWidth: "80%", backgroundColor: isClient ? BRAND_ORANGE : (isDark ? "#1e293b" : "#f1f5f9"), borderWidth: isClient ? 0 : 1, borderColor: border, borderRadius: 16, borderBottomRightRadius: isClient ? 2 : 16, borderBottomLeftRadius: isClient ? 16 : 2, padding: 12, marginVertical: 2 }}>
+                    <View key={idx} style={isClient ? styles.chatBubbleMine : styles.chatBubbleTheirs}>
                       <Text style={{ color: isClient ? "#000000" : BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: isClient ? 0.6 : 1 }}>
                         {isClient ? "You" : "Darji Support"}
                       </Text>
@@ -7139,7 +7457,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
             {/* Composer/Input bar */}
             {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && activeTicket.status !== "FIXED" ? (
-              <View style={{ borderTopWidth: 1, borderTopColor: border, paddingTop: 10, paddingBottom: 16 }}>
+              <View style={styles.chatComposerWrap}>
                 {attachments.length > 0 && (
                   <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
                     {attachments.map((url, idx) => (
@@ -7155,17 +7473,17 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     ))}
                   </View>
                 )}
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Pressable onPress={pickAttachmentImage} style={{ alignItems: "center", justifyContent: "center", width: 38, height: 42 }}>
+                <View style={styles.chatComposer}>
+                  <Pressable onPress={pickAttachmentImage} style={styles.chatMediaButton}>
                     <Ionicons name="image-outline" size={20} color={BRAND_ORANGE} />
-                    <Text style={{ color: mutedText, fontSize: 8, fontWeight: "800", marginTop: 2 }}>Gallery</Text>
+                    <Text style={styles.chatMediaText}>Gallery</Text>
                   </Pressable>
-                  <Pressable onPress={captureAttachmentImage} style={{ alignItems: "center", justifyContent: "center", width: 38, height: 42 }}>
+                  <Pressable onPress={captureAttachmentImage} style={styles.chatMediaButton}>
                     <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
-                    <Text style={{ color: mutedText, fontSize: 8, fontWeight: "800", marginTop: 2 }}>Camera</Text>
+                    <Text style={styles.chatMediaText}>Camera</Text>
                   </Pressable>
                   <TextInput
-                    style={{ flex: 1, minHeight: 46, maxHeight: 100, backgroundColor: cardBg, borderWidth: 1, borderColor: border, borderRadius: 23, paddingHorizontal: 16, color: text, fontSize: 14, fontWeight: "700" }}
+                    style={styles.chatInput}
                     value={chatMessage}
                     onChangeText={setChatMessage}
                     placeholder="Type a message..."
@@ -7173,7 +7491,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     multiline
                   />
                   <Pressable 
-                    style={[{ width: 46, height: 46, borderRadius: 23, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" }, (chatMessage.trim().length < 2 || sending) ? { opacity: 0.6 } : null]}
+                    style={[styles.chatSendButton, (chatMessage.trim().length < 2 || sending) ? { opacity: 0.6 } : null]}
                     disabled={chatMessage.trim().length < 2 || sending}
                     onPress={handleSendReply}
                   >
@@ -7196,39 +7514,40 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
         )}
 
         {view === "bug" && (
-          <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
-            <Header title={t(useAppStore.getState().language, "reportBug")} onBack={() => setScreen("profile")} />
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
-              <Text style={{ color: mutedText, fontSize: 13, fontWeight: "600" }}>Describe any glitches, slow load times, or layout bugs directly to our dev team.</Text>
+          <View style={styles.supportPage}>
+            <Header title="Report a Bug" onBack={() => setScreen("profile")} />
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.supportFormContent}>
+              <Text style={styles.supportIntro}>Found something that's not working right? Let us know and we'll fix it.</Text>
               
-              {/* Bug Title */}
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 6 }}>Bug Title</Text>
+                <Text style={styles.supportLabel}>Bug title</Text>
+                <Text style={styles.supportFieldHint}>Give a short title for the issue</Text>
                 <TextInput
-                  style={{ height: 50, backgroundColor: cardBg, borderRadius: 14, borderWidth: 1, borderColor: border, paddingHorizontal: 14, color: text, fontSize: 14, fontWeight: "700" }}
+                  style={styles.supportSingleInput}
                   value={bugTitle}
                   onChangeText={setBugTitle}
-                  placeholder="Short summary (e.g. Orders page crash)..."
+                  placeholder="Eg. App crashes on Orders page"
                   placeholderTextColor={mutedText}
                 />
               </View>
 
-              {/* Bug Description */}
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 6 }}>Detailed Description</Text>
+                <Text style={styles.supportLabel}>What happened?</Text>
+                <Text style={styles.supportFieldHint}>Describe the issue in simple words</Text>
                 <TextInput
-                  style={{ minHeight: 90, backgroundColor: cardBg, borderRadius: 14, borderWidth: 1, borderColor: border, padding: 12, color: text, fontSize: 14, fontWeight: "600" }}
+                  style={styles.supportDescriptionInput}
                   value={bugDescription}
-                  onChangeText={setBugDescription}
-                  placeholder="Explain exactly how to trigger the bug..."
+                  onChangeText={(value) => value.length <= 500 && setBugDescription(value)}
+                  placeholder="Tell us what went wrong and how we can see it"
                   placeholderTextColor={mutedText}
                   multiline
                 />
+                <Text style={styles.supportCounter}>{bugDescription.length}/500</Text>
               </View>
 
-              {/* Bug screenshot */}
               <View>
-                <Text style={{ color: text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Screenshot Reference</Text>
+                <Text style={styles.supportLabel}>Add screenshot (optional)</Text>
+                <Text style={styles.supportFieldHint}>You can add a screenshot to help us understand</Text>
                 {bugScreenshot ? (
                   <View style={{ width: 140, height: 140, borderRadius: 14, borderWidth: 1, borderColor: border, overflow: "hidden" }}>
                     <Image source={{ uri: bugScreenshot }} style={{ width: "100%", height: "100%" }} />
@@ -7241,7 +7560,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   </View>
                 ) : (
                   <Pressable 
-                    style={{ width: "100%", height: 60, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: cardBg, flexDirection: "row", gap: 8 }}
+                    style={styles.bugUploadButton}
                     onPress={pickBugScreenshot}
                     disabled={uploading}
                   >
@@ -7250,35 +7569,45 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     ) : (
                       <>
                         <Ionicons name="cloud-upload-outline" size={20} color={BRAND_ORANGE} />
-                        <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" }}>Upload Screenshot</Text>
+                        <Text style={styles.supportPhotoButtonText}>Upload screenshot</Text>
                       </>
                     )}
                   </Pressable>
                 )}
               </View>
 
-              {/* Readonly info */}
-              <View style={{ backgroundColor: cardBg, borderRadius: 14, borderWidth: 1, borderColor: border, padding: 12, gap: 6 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={{ color: mutedText, fontSize: 11, fontWeight: "800" }}>Device Info</Text>
-                  <Text style={{ color: text, fontSize: 11, fontWeight: "800" }}>{Platform.OS} {Platform.Version}</Text>
+              <View style={styles.bugInfoCard}>
+                <View style={styles.bugInfoRow}>
+                  <View style={styles.bugInfoIcon}>
+                    <Ionicons name="phone-portrait-outline" size={14} color="#8fa0b8" />
+                  </View>
+                  <Text style={styles.bugInfoLabel}>Your device</Text>
+                  <Text style={styles.bugInfoValue}>{Platform.OS} {Platform.Version}</Text>
                 </View>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: border, paddingTop: 6, marginTop: 4 }}>
-                  <Text style={{ color: mutedText, fontSize: 11, fontWeight: "800" }}>App Version</Text>
-                  <Text style={{ color: text, fontSize: 11, fontWeight: "800" }}>0.1.0 (Dev Build)</Text>
+                <View style={[styles.bugInfoRow, styles.bugInfoRowBorder]}>
+                  <View style={styles.bugInfoIcon}>
+                    <Ionicons name="information-circle-outline" size={14} color="#8fa0b8" />
+                  </View>
+                  <Text style={styles.bugInfoLabel}>App version</Text>
+                  <Text style={styles.bugInfoValue}>0.1.0 (Dev Build)</Text>
                 </View>
               </View>
 
               <Pressable 
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
                 style={({ pressed }) => [
-                  { backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 },
+                  styles.supportPrimaryButton,
                   sending ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
                 ]}
                 disabled={sending}
                 onPress={handleSubmitBug}
               >
-                {sending ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Submit Bug Report</Text>}
+                {sending ? <ActivityIndicator color="#111111" /> : (
+                  <>
+                    <Ionicons name="bug-outline" size={17} color="#111111" />
+                    <Text style={styles.primaryWideButtonText}>Submit Bug Report</Text>
+                  </>
+                )}
               </Pressable>
             </ScrollView>
           </View>
@@ -8471,6 +8800,16 @@ export default function App() {
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
 
   useEffect(() => {
+    const nativeAlert = Alert.alert;
+    Alert.alert = (title: string, message?: string, buttons?: AlertButton[]) => {
+      setDialog(dialogFromNativeAlert(title, message, buttons));
+    };
+    return () => {
+      Alert.alert = nativeAlert;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!sessionNotice) return;
     Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
   }, [clearSessionNotice, sessionNotice]);
@@ -8540,6 +8879,21 @@ export default function App() {
       setScreenStack((currentStack) => [...currentStack, screen].slice(-16));
     }
     setScreenState(resolvedScreen);
+  }
+
+  function startRequest(preset?: RequestPreset) {
+    setSelectedQuote(undefined);
+    setRequestProgressScreen("newRequest");
+    setDraft((current) => {
+      const shouldKeepActiveDraft = REQUEST_FLOW_SCREENS.has(screen) && hasRequestDraftData(current);
+      const base = shouldKeepActiveDraft ? current : makeEmptyDraft(defaultAddress?.address ?? current.pickup);
+      return applyRequestPreset(base, preset);
+    });
+    if (screen !== "newRequest") {
+      if (screen === "home") setScreenStack([]);
+      else setScreenStack((currentStack) => [...currentStack, screen].slice(-16));
+    }
+    setScreenState("newRequest");
   }
 
   useEffect(() => {
@@ -8837,7 +9191,7 @@ export default function App() {
   function requestDeleteCustomerAccount() {
     setDialog({
       title: "Delete account?",
-      message: "This will permanently remove your profile, saved addresses, order history, reviews, and app data from this device. This action cannot be undone.",
+      message: "This will remove your profile, saved addresses, order history, reviews, and Darji app data from this device. You will be signed out after deletion.",
       actions: [
         { label: "Keep Account" },
         { label: "Delete Account", destructive: true, onPress: deleteCustomerAccount }
@@ -9388,15 +9742,17 @@ export default function App() {
   }
   if (!token) return <AuthScreen />;
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
-  if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} />);
+  if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} setLanguagePreference={setLanguagePreference} />);
 
-  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} />);
-  if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} />);
+  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} onStartRequest={startRequest} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} />);
+  if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} onStartRequest={startRequest} />);
   if (screen === "featureSoon") return withAppChrome(<FeatureSoonScreen setScreen={setScreen} onNotify={notifyForPressLaunch} />);
   if (screen === "notifications") return withAppChrome(<NotificationsScreen notifications={notifications} onMarkAllRead={markNotificationsRead} setScreen={setScreen} />);
   if (screen === "measurementGuide") return withAppChrome(<MeasurementGuideScreen setScreen={setScreen} />);
+  if (screen === "fabricCare") return withAppChrome(<FabricCareScreen setScreen={setScreen} />);
   if (screen === "newRequest") return withAppChrome(<NewRequestScreen draft={draft} setDraft={setDraft} setScreen={setScreen} addresses={addresses} onExitRequest={exitRequestFlow} />);
-  if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} />);
+  if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} stage="work" />);
+  if (screen === "measurements") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} stage="measurements" />);
   if (screen === "orderSummary") return withAppChrome(<OrderSummaryScreen draft={draft} setDraft={setDraft} setScreen={setScreen} showDialog={setDialog} onCancelRequest={cancelRequest} />);
   if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => deleteIncompleteRequest(draft.backendRequestId)} />);
   if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
@@ -9537,7 +9893,7 @@ export default function App() {
     }
     return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
   }
-  return withAppChrome(<SearchScreen setScreen={setScreen} />);
+  return withAppChrome(<SearchScreen setScreen={setScreen} onStartRequest={startRequest} />);
 }
 
 function createStyles(isDark = false) {
@@ -9570,13 +9926,19 @@ function createStyles(isDark = false) {
     elevation: 3
   },
   authBrandText: { color: BRAND_ORANGE, fontSize: 34, fontWeight: "900", fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
-  authTagline: { marginTop: 14, color: text, fontSize: 15, lineHeight: 24, textAlign: "center", fontWeight: "800" },
-  authUnderline: { width: 74, height: 2, borderRadius: 1, backgroundColor: BRAND_ORANGE, marginTop: 12 },
+  authBrandLogo: { width: 132, height: 74 },
+  authTagline: { marginTop: 8, color: text, fontSize: 15, lineHeight: 25, textAlign: "center", fontWeight: "800", fontStyle: "italic" },
+  authUnderline: { width: 70, height: 2, borderRadius: 1, backgroundColor: BRAND_ORANGE, marginTop: 10 },
   trustRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: 34 },
   trustItem: { flex: 1, minHeight: 108, borderRadius: 16, borderWidth: 1, borderColor: "#eef2f7", backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 8 },
   trustIconBubble: { width: 44, height: 44, borderRadius: 16, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  trustIconImage: { width: 40, height: 40 },
   trustLabel: { color: text, fontSize: 10, lineHeight: 14, fontWeight: "900", textAlign: "center" },
   trustHelper: { color: muted, fontSize: 9, lineHeight: 13, fontWeight: "700", textAlign: "center", marginTop: 4 },
+  gettingReadyCard: { width: "100%", maxWidth: 330, borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, alignItems: "center", padding: 24 },
+  gettingReadyLogo: { width: 124, height: 72, marginBottom: 10 },
+  gettingReadyTitle: { color: text, fontSize: 20, fontWeight: "900", textAlign: "center", marginTop: 16 },
+  gettingReadyCopy: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, textAlign: "center", marginTop: 8 },
   authForm: { marginTop: 32 },
   sectionTitle: { color: text, fontSize: 13, fontWeight: "900", letterSpacing: 0.2, marginBottom: 14 },
   phoneField: {
@@ -9629,7 +9991,9 @@ function createStyles(isDark = false) {
   orangeText: { color: BRAND_ORANGE },
   orangeSmall: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "800" },
   termsText: { marginHorizontal: 8, marginTop: 30, color: muted, fontSize: 12, lineHeight: 20, textAlign: "center" },
-  onboardingContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingBottom: 36, paddingTop: 36 },
+  onboardingContent: { flexGrow: 1, paddingHorizontal: 16, paddingBottom: 28, paddingTop: 12 },
+  onboardingLanguageWrap: { alignSelf: "flex-end", minHeight: 44, justifyContent: "center", marginBottom: 18 },
+  onboardingHero: { alignItems: "center", justifyContent: "center", paddingTop: 12, paddingBottom: 20 },
   onboardingTitle: { color: text, fontSize: 24, fontWeight: "900", marginTop: 34, marginBottom: 8 },
   locationLoadingContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 34 },
   locationLoadingIcon: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
@@ -9704,6 +10068,18 @@ function createStyles(isDark = false) {
   fabricTipText: { flex: 1, minWidth: 0 },
   fabricTipTitle: { color: text, fontSize: 17, fontWeight: "900" },
   fabricTipCopy: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 8 },
+  fabricCareHero: { minHeight: 94, borderRadius: 20, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", gap: 12, padding: 16, marginBottom: 16 },
+  fabricCareHeroIcon: { width: 56, height: 56, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: surface, alignItems: "center", justifyContent: "center" },
+  fabricCareHeroTitle: { color: text, fontSize: 17, fontWeight: "900", lineHeight: 22 },
+  fabricCareHeroCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
+  fabricCareGrid: { gap: 12 },
+  fabricCareCard: { minHeight: 126, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 15 },
+  fabricCareTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  fabricCareNumber: { minWidth: 32, height: 32, borderRadius: 16, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  fabricCareNumberText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
+  fabricCareIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  fabricCareTitle: { color: text, fontSize: 16, fontWeight: "900" },
+  fabricCareCopy: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 7 },
   offerRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 22 },
   offerCard: { flex: 1, minWidth: "30%", minHeight: 118, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, padding: 14 },
   offerCardWide: { width: "100%", minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
@@ -9769,12 +10145,12 @@ function createStyles(isDark = false) {
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
   workflowItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
-  tabs: { height: 78, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 8, paddingHorizontal: 4 },
+  tabs: { height: 70, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 7, paddingHorizontal: 4 },
   tabItem: { alignItems: "center", justifyContent: "center", flex: 1 },
-  tabText: { marginTop: 4, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700" },
+  tabText: { marginTop: 3, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700", lineHeight: 13 },
   activeTabText: { color: BRAND_ORANGE },
-  createTabItem: { marginTop: -22 },
-  createTabButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.24, shadowRadius: 10, elevation: 5 },
+  createTabItem: { marginTop: -17 },
+  createTabButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.22, shadowRadius: 9, elevation: 5 },
   createTabText: { marginTop: 2, fontSize: 9 },
   header: { height: 52, flexDirection: "row", alignItems: "center", marginBottom: 14 },
   headerTitle: { color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
@@ -9804,6 +10180,55 @@ function createStyles(isDark = false) {
   requestHintCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 2 },
   helperText: { color: muted, fontSize: 14, lineHeight: 22, marginBottom: 18 },
   formLabel: { color: muted, fontSize: 13, fontWeight: "900", marginTop: 20, marginBottom: 10 },
+  onboardingInputShell: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#dce2ea",
+    backgroundColor: inputSurface,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    shadowColor: "#0b2241",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+    elevation: 1
+  },
+  onboardingTextInput: { flex: 1, height: 50, color: text, fontSize: 13, fontWeight: "800", paddingVertical: 0 },
+  onboardingGenderRow: { flexDirection: "row", gap: 10 },
+  onboardingGenderButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 40,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#dce2ea",
+    backgroundColor: surface,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 6
+  },
+  onboardingGenderButtonSelected: { borderColor: BRAND_ORANGE, backgroundColor: "#fffdf9" },
+  onboardingGenderText: { flexShrink: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "900", textAlign: "center" },
+  onboardingGenderTextSelected: { color: BRAND_DEEP },
+  onboardingDateText: { flex: 1, minWidth: 0, color: text, fontSize: 13, fontWeight: "900" },
+  onboardingSafetyBanner: {
+    minHeight: 36,
+    borderRadius: 10,
+    backgroundColor: "#fff8ec",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 20
+  },
+  onboardingSafetyIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: "#fff3da", alignItems: "center", justifyContent: "center" },
+  onboardingSafetyText: { flex: 1, minWidth: 0, color: "#4c5868", fontSize: 11, fontWeight: "800", lineHeight: 16 },
   fieldDisclaimer: { color: "#8a5600", fontSize: 12, fontWeight: "800", lineHeight: 18, marginTop: 8 },
   requestSectionHelper: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 17, marginTop: -6, marginBottom: 8 },
   descriptionCounter: { textAlign: "right", marginTop: 6 },
@@ -9834,6 +10259,7 @@ function createStyles(isDark = false) {
   requestRequirementText: { flex: 1, minWidth: 0, color: "#8a5600", fontSize: 11, fontWeight: "800", lineHeight: 17 },
   primaryWideButton: { height: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 24 },
   primaryWideButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
+  onboardingContinueButton: { height: 48, borderRadius: 9, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 16, marginTop: 14 },
   emptyActionButton: { alignSelf: "stretch", paddingHorizontal: 18 },
   twoCol: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   optionButton: { width: "47.8%", minHeight: 64, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 10 },
@@ -10173,8 +10599,8 @@ function createStyles(isDark = false) {
   emptyState: { minHeight: 360, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
   emptyTitle: { color: text, fontSize: 20, fontWeight: "900", marginTop: 12, marginBottom: 6 },
   mutedCenter: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, textAlign: "center" },
-  searchInputWrap: { height: 54, borderRadius: 18, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10, marginBottom: 16 },
-  searchInput: { flex: 1, height: 52, color: text, fontSize: 15, fontWeight: "700" },
+  searchInputWrap: { height: 46, borderRadius: 15, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 9, marginBottom: 14 },
+  searchInput: { flex: 1, height: 44, color: text, fontSize: 13, fontWeight: "700" },
   quickRequestCard: { borderRadius: 20, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 22 },
   quickRequestTextBlock: { flex: 1, minWidth: 0 },
   quickRequestTitle: { color: text, fontSize: 17, fontWeight: "900" },
@@ -10299,61 +10725,211 @@ function createStyles(isDark = false) {
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
   liveMapCard: { minHeight: 138, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 },
-  preferenceIntro: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: -8, marginBottom: 18, maxWidth: 260 },
-  preferenceSectionLabel: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900", marginTop: 8, marginBottom: 8 },
-  languageOptionList: { gap: 14, marginTop: 10 },
-  languageChoiceCard: { minHeight: 86, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 14 },
-  languageChoiceActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
-  languageBadge: { width: 48, height: 48, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  languageBadgeText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
-  fixedBottomAction: { position: "absolute", left: 20, right: 20, bottom: 22 },
-  addressHintCard: { minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: "#ffedd5", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, marginBottom: 20 },
-  addressHintText: { flex: 1, minWidth: 0, color: text, fontSize: 12, fontWeight: "800", lineHeight: 18 },
-  addressLabelGrid: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 22 },
-  addressLabelCard: { flex: 1, minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 7, padding: 8 },
-  addressLabelActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  preferencePageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 132 },
+  preferenceIntro: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 19, marginTop: -8, marginBottom: 18, maxWidth: 268 },
+  preferenceSectionLabel: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", marginTop: 10, marginBottom: 8, letterSpacing: 0.3 },
+  languageOptionList: { gap: 12, marginTop: 28 },
+  languageChoiceCard: {
+    minHeight: 74,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: border,
+    backgroundColor: surface,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: "#0b2241",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.04,
+    shadowRadius: 18,
+    elevation: 1
+  },
+  languageChoiceActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fffaf1" },
+  languageBadge: { width: 42, height: 42, borderRadius: 12, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  languageBadgeText: { color: BRAND_ORANGE, fontSize: 15, fontWeight: "900" },
+  fixedBottomAction: { position: "absolute", left: 28, right: 28, bottom: 60 },
+  preferenceSaveButton: {
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: BRAND_ORANGE,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 13,
+    marginTop: 20,
+    shadowColor: "#c47a00",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 5
+  },
+  notificationPanel: {
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#edf1f5",
+    backgroundColor: surface,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    shadowColor: "#0b2241",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.04,
+    shadowRadius: 18,
+    elevation: 1
+  },
+  notificationRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: "#edf1f5" },
+  notificationRowFirst: { borderTopWidth: 0 },
+  notificationRowIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  notificationRowText: { flex: 1, minWidth: 0 },
+  notificationRowTitle: { color: text, fontSize: 12, fontWeight: "900", lineHeight: 17 },
+  notificationRowCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 2 },
+  notificationTimingValue: { maxWidth: 92, color: text, fontSize: 9, fontWeight: "900", textAlign: "right" },
+  addressHintCard: { minHeight: 60, borderRadius: 9, backgroundColor: "#fff7ea", flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20 },
+  addressHintText: { flex: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "800", lineHeight: 17, fontStyle: "italic" },
+  addressLabelGrid: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 20 },
+  addressLabelCard: { flex: 1, height: 64, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 6, padding: 7 },
+  addressLabelActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fffdf9" },
   addressLabelText: { color: muted, fontSize: 11, fontWeight: "900" },
   addressLabelTextActive: { color: BRAND_ORANGE },
-  helpContactCard: { minHeight: 72, borderRadius: 16, borderWidth: 1, borderColor: "#ffedd5", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginTop: 4, marginBottom: 12 },
-  helpContactButton: { minHeight: 34, borderRadius: 12, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  addressHelperLine: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: -5, marginBottom: 10 },
+  addressHelperText: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 14 },
+  addressInputShell: {
+    minHeight: 58,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#dce2ea",
+    backgroundColor: inputSurface,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 15
+  },
+  addressFullInput: { flex: 1, minHeight: 28, maxHeight: 88, color: text, fontSize: 12, fontWeight: "800", lineHeight: 18, padding: 0, textAlignVertical: "top" },
+  currentLocationButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#efbd65",
+    backgroundColor: inputSurface,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 13
+  },
+  currentLocationText: { flex: 1, minWidth: 0, color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  helpGroupCard: {
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#edf1f5",
+    backgroundColor: surface,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    shadowColor: "#0b2241",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.04,
+    shadowRadius: 18,
+    elevation: 1
+  },
+  helpTopicRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: "#edf1f5" },
+  helpTopicIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  helpTopicText: { flex: 1, minWidth: 0 },
+  helpTopicTitle: { color: text, fontSize: 11, fontWeight: "900", lineHeight: 15 },
+  helpTopicCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, marginTop: 2 },
+  helpContactCard: { minHeight: 62, borderRadius: 9, backgroundColor: "#fff7ea", flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginTop: 4, marginBottom: 12 },
+  helpContactButton: { minHeight: 30, borderRadius: 9, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  supportPage: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
+  supportFormContent: { gap: 14, paddingBottom: 32 },
+  supportIntro: { color: muted, fontSize: 11, fontWeight: "800", lineHeight: 17, marginTop: -8, marginBottom: 4, fontStyle: "italic" },
+  supportLabel: { color: text, fontSize: 12, fontWeight: "900", marginBottom: 7 },
+  supportFieldHint: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, marginTop: -4, marginBottom: 7 },
+  supportOrderScroller: { gap: 10, paddingBottom: 8 },
+  supportOrderCard: { width: 252, minHeight: 54, borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12 },
+  supportOrderCardActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fffaf1" },
+  supportTinyIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  supportOrderText: { flex: 1, minWidth: 0 },
+  supportOrderTitle: { color: text, fontSize: 11, fontWeight: "900" },
+  supportOrderCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, marginTop: 2 },
+  supportNoOrderButton: { height: 32, borderRadius: 6, borderWidth: 1, borderColor: BRAND_ORANGE, backgroundColor: "#fffdf9", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  supportNoOrderText: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900" },
+  supportCategoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  supportCategoryCard: { width: "48.5%", height: 39, borderRadius: 7, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8 },
+  supportCategoryCardActive: { borderColor: "#efbd65", backgroundColor: "#fff7ea" },
+  supportCategoryText: { flexShrink: 1, minWidth: 0, color: text, fontSize: 10, fontWeight: "900" },
+  supportCategoryTextActive: { color: BRAND_ORANGE },
+  supportSingleInput: { height: 42, borderRadius: 8, borderWidth: 1, borderColor: "#dce2ea", backgroundColor: inputSurface, paddingHorizontal: 13, color: text, fontSize: 12, fontWeight: "800" },
+  supportDescriptionInput: { minHeight: 72, borderRadius: 10, borderWidth: 1, borderColor: "#dce2ea", backgroundColor: inputSurface, paddingHorizontal: 13, paddingVertical: 12, color: text, fontSize: 11, fontWeight: "800", textAlignVertical: "top" },
+  supportCounter: { color: muted, fontSize: 9, fontWeight: "800", textAlign: "right", marginTop: -20, marginRight: 10 },
+  supportAttachmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" },
+  supportPhotoButton: { width: 64, height: 58, borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface },
+  supportPhotoButtonText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", marginTop: 4 },
+  supportPhotoHelper: { flex: 1, minWidth: 0, color: muted, fontSize: 9, fontWeight: "800", lineHeight: 13 },
+  supportPrimaryButton: { height: 46, borderRadius: 8, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 12, marginTop: 4, shadowColor: "#c47a00", shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 5 },
+  chatPage: { flex: 1, paddingHorizontal: 14, paddingTop: 8 },
+  chatHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#edf1f5", paddingBottom: 10, marginBottom: 8 },
+  chatHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 9, flex: 1, minWidth: 0 },
+  chatBackButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: surface, alignItems: "center", justifyContent: "center", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 12, elevation: 1 },
+  chatTitleBlock: { flex: 1, minWidth: 0 },
+  chatTitle: { color: text, fontSize: 14, fontWeight: "900" },
+  chatSubtitle: { color: muted, fontSize: 10, fontWeight: "800", marginTop: 2 },
+  closeChatButton: { backgroundColor: "#fee2e2", paddingHorizontal: 12, height: 30, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  closeChatText: { color: "#dc2626", fontSize: 10, fontWeight: "900" },
+  chatThread: { flex: 1, marginBottom: 8 },
+  chatBubbleMine: { alignSelf: "flex-end", maxWidth: "78%", backgroundColor: BRAND_ORANGE, borderRadius: 10, borderTopRightRadius: 5, padding: 12, marginVertical: 2 },
+  chatBubbleTheirs: { alignSelf: "flex-start", maxWidth: "78%", backgroundColor: surface, borderWidth: 1, borderColor: "#edf1f5", borderRadius: 10, borderTopLeftRadius: 5, padding: 12, marginVertical: 2 },
+  chatComposerWrap: { paddingTop: 8, paddingBottom: 16 },
+  chatComposer: { minHeight: 58, borderRadius: 15, backgroundColor: surface, borderWidth: 1, borderColor: "#edf1f5", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 7, shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 12, elevation: 2 },
+  chatMediaButton: { alignItems: "center", justifyContent: "center", width: 36, height: 44 },
+  chatMediaText: { color: muted, fontSize: 8, fontWeight: "800", marginTop: 1 },
+  chatInput: { flex: 1, minHeight: 40, maxHeight: 92, borderWidth: 1, borderColor: "#edf1f5", borderRadius: 20, paddingHorizontal: 14, color: text, fontSize: 12, fontWeight: "800" },
+  chatSendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#ffc45c", alignItems: "center", justifyContent: "center" },
+  bugUploadButton: { width: "100%", height: 46, borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface, flexDirection: "row", gap: 8 },
+  bugInfoCard: { borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, paddingHorizontal: 12 },
+  bugInfoRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 },
+  bugInfoRowBorder: { borderTopWidth: 1, borderTopColor: "#edf1f5" },
+  bugInfoIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: "#f7f9fc", alignItems: "center", justifyContent: "center" },
+  bugInfoLabel: { flex: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "900" },
+  bugInfoValue: { color: text, fontSize: 10, fontWeight: "900" },
   topicNumber: { width: 28, height: 28, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   topicNumberText: { color: "#111111", fontSize: 12, fontWeight: "900" },
   topicDetailText: { flex: 1, minWidth: 0, color: text, fontSize: 13, lineHeight: 20, fontWeight: "800" },
-  faqCard: { borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginBottom: 10 },
-  faqCancellationCard: { borderColor: "#efcf92", backgroundColor: surfaceAlt },
+  faqCard: { borderRadius: 9, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, paddingHorizontal: 12, paddingVertical: 11, marginBottom: 10, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.04, shadowRadius: 14, elevation: 1 },
+  faqCancellationCard: { borderColor: "#efcf92", backgroundColor: "#fffaf1" },
   faqQuestionRow: { flexDirection: "row", alignItems: "center", gap: 9 },
-  faqIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  faqQuestion: { flex: 1, minWidth: 0, color: text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
-  faqAnswer: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 10, paddingLeft: 33 },
-  searchPageContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 122 },
-  searchHeroHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
+  faqIcon: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  faqQuestion: { flex: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "900", lineHeight: 16 },
+  faqAnswer: { color: muted, fontSize: 10, fontWeight: "800", lineHeight: 15, marginTop: 8, paddingLeft: 31 },
+  searchPageContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 104 },
+  searchHeroHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
   profileRowTextNoMargin: { flex: 1, minWidth: 0 },
-  searchHeroTitle: { color: text, fontSize: 38, fontWeight: "900", lineHeight: 44 },
-  searchHeroSubtitle: { color: muted, fontSize: 16, fontWeight: "700", lineHeight: 22, marginTop: 5 },
-  searchNotificationButton: { width: 56, height: 56, borderRadius: 28, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", marginLeft: 12 },
-  searchControlRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 24 },
-  filterButton: { height: 54, borderRadius: 27, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
-  filterButtonText: { color: text, fontSize: 15, fontWeight: "800" },
-  searchSegment: { height: 66, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 4, marginBottom: 24 },
-  searchSegmentOption: { flex: 1, height: "100%", borderRadius: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
-  searchSegmentActive: { backgroundColor: surface, borderWidth: 1, borderColor: "#eef2f7", shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 10, elevation: 2 },
-  searchSegmentText: { color: muted, fontSize: 15, fontWeight: "900" },
+  searchHeroTitle: { color: text, fontSize: 29, fontWeight: "900", lineHeight: 34 },
+  searchHeroSubtitle: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 19, marginTop: 4, maxWidth: 280 },
+  searchNotificationButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", marginLeft: 12 },
+  searchControlRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 18 },
+  filterButton: { height: 46, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14 },
+  filterButtonText: { color: text, fontSize: 13, fontWeight: "800" },
+  searchSegment: { height: 52, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 4, marginBottom: 18 },
+  searchSegmentOption: { flex: 1, height: "100%", borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
+  searchSegmentActive: { backgroundColor: surface, borderWidth: 1, borderColor: "#eef2f7", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
+  searchSegmentText: { color: muted, fontSize: 13, fontWeight: "800" },
   searchSegmentTextActive: { color: BRAND_ORANGE },
-  searchCategoryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 24 },
-  searchCategoryCard: { width: "48%", minHeight: 168, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 12, marginBottom: 14 },
-  searchCategoryImage: { width: 82, height: 82, borderRadius: 41, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  searchCategoryTitle: { color: text, fontSize: 15, fontWeight: "900", textAlign: "center" },
-  searchCategorySubtitle: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, textAlign: "center", marginTop: 6 },
-  searchTailorRow: { gap: 12, paddingBottom: 20 },
-  searchTailorCard: { width: 248, minHeight: 224, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14 },
+  searchSectionTitle: { color: text, fontSize: 17, fontWeight: "900", lineHeight: 22 },
+  searchCategoryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 18 },
+  searchCategoryCard: { width: "48%", minHeight: 132, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 10, marginBottom: 12 },
+  searchCategoryImage: { width: 60, height: 60, borderRadius: 30, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 9 },
+  searchCategoryTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18, textAlign: "center" },
+  searchCategorySubtitle: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 15, textAlign: "center", marginTop: 4 },
+  searchTailorRow: { gap: 12, paddingBottom: 18 },
+  searchTailorCard: { width: 224, minHeight: 188, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 13 },
   searchTailorHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  ratingLine: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", marginTop: 5 },
-  searchTailorLocation: { color: muted, fontSize: 12, fontWeight: "700", marginTop: 14 },
-  searchTailorSpecialty: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 19, marginTop: 5 },
-  searchProfileButton: { height: 42, borderRadius: 21, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 15, marginTop: 14 },
-  searchProfileButtonText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
-  searchPopularCard: { width: 110, minHeight: 82, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
-  searchTrustBanner: { minHeight: 76, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginTop: 8 },
+  ratingLine: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "800", marginTop: 4 },
+  searchTailorLocation: { color: muted, fontSize: 11, fontWeight: "700", marginTop: 11 },
+  searchTailorSpecialty: { color: text, fontSize: 12, fontWeight: "800", lineHeight: 17, marginTop: 4 },
+  searchProfileButton: { height: 36, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 13, marginTop: 12 },
+  searchProfileButtonText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  searchPopularCard: { width: 96, minHeight: 72, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  searchTrustBanner: { minHeight: 66, borderRadius: 15, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 11, padding: 12, marginTop: 6 },
 
   // Warning screen styles
   warningStepsBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 20, paddingHorizontal: 10 },

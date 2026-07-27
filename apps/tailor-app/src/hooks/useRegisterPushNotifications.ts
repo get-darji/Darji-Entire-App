@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
-import messaging from "@react-native-firebase/messaging";
+import { isRunningInExpoGo } from "expo";
+import * as Notifications from "../notifications/expoNotifications";
+import type messaging from "@react-native-firebase/messaging";
 import { Platform } from "react-native";
 import { api } from "../api";
 import { configureNotificationActions } from "../notifications/actions";
 import { configureNotificationChannels, type DarjiApp } from "../notifications/channels";
+
+declare const require: (moduleName: string) => { default?: typeof messaging };
 
 type RegistrationState = "idle" | "registering" | "registered" | "denied" | "error";
 
@@ -18,16 +21,22 @@ type Options = {
 
 const completedRegistrations = new Set<string>();
 const pendingRegistrations = new Map<string, Promise<unknown>>();
+let firebaseMessaging: typeof messaging | undefined;
 
 function easProjectId() {
   return (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? Constants.easConfig?.projectId;
+}
+
+function getFirebaseMessaging() {
+  if (!firebaseMessaging) firebaseMessaging = require("@react-native-firebase/messaging").default;
+  return firebaseMessaging;
 }
 
 export function useRegisterPushNotifications({ authToken, app, userId }: Options) {
   const [status, setStatus] = useState<RegistrationState>("idle");
 
   useEffect(() => {
-    if (!authToken || Platform.OS === "web") {
+    if (!authToken || Platform.OS === "web" || (Platform.OS === "android" && isRunningInExpoGo())) {
       setStatus("idle");
       return;
     }
@@ -35,7 +44,8 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     let cancelled = false;
     async function getNativePushToken() {
       try {
-        const firebaseToken = await messaging().getToken();
+        const messagingModule = getFirebaseMessaging();
+        const firebaseToken = await messagingModule?.().getToken();
         if (firebaseToken) return firebaseToken;
       } catch (error) {
         console.warn("Firebase push token registration failed", error);
@@ -106,7 +116,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
           if (!cancelled) setStatus("denied");
           return;
         }
-        await messaging().requestPermission().catch(() => undefined);
+        await getFirebaseMessaging()?.().requestPermission().catch(() => undefined);
 
         await saveTokens();
         if (cancelled) return;
