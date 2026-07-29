@@ -68,7 +68,15 @@ async function requestJson<T>(path: string, options: RequestInit, token?: string
     }
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message ?? "Request failed");
+  if (!response.ok) {
+    const issues = body.issues?.fieldErrors;
+    const issueMessage = issues && typeof issues === "object"
+      ? Object.entries(issues)
+          .flatMap(([field, messages]) => Array.isArray(messages) ? messages.map((message) => `${field}: ${message}`) : [])
+          .join("\n")
+      : "";
+    throw new Error(issueMessage || body.message || "Request failed");
+  }
   return body.data as T;
 }
 

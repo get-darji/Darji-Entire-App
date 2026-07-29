@@ -1,5 +1,8 @@
-import messaging, { type FirebaseMessagingTypes } from "@react-native-firebase/messaging";
+import type messaging from "@react-native-firebase/messaging";
+import type { FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { displayIncomingRequestNotification } from "./NotificationService";
+
+declare const require: (moduleName: string) => { default?: typeof messaging };
 
 export function isIncomingRequestData(data: Record<string, unknown>) {
   if (String(data.darjiIncomingRequest).toLowerCase() === "true") return true;
@@ -23,19 +26,35 @@ async function displayForegroundMessage(message: FirebaseMessagingTypes.RemoteMe
 
 let registered = false;
 let backgroundHandlerRegistered = false;
+let firebaseMessaging: typeof messaging | null | undefined;
+
+function getFirebaseMessaging() {
+  if (firebaseMessaging !== undefined) return firebaseMessaging;
+  try {
+    firebaseMessaging = require("@react-native-firebase/messaging").default ?? null;
+  } catch (error) {
+    console.warn("Firebase messaging native module unavailable", error);
+    firebaseMessaging = null;
+  }
+  return firebaseMessaging;
+}
 
 function registerBackgroundHandler() {
   if (backgroundHandlerRegistered) return;
+  const messagingModule = getFirebaseMessaging();
+  if (!messagingModule) return;
   backgroundHandlerRegistered = true;
   // Native Android owns background display; headless JS intentionally does not
   // create another alert when RNFirebase wakes the process.
-  messaging().setBackgroundMessageHandler(async () => undefined);
+  messagingModule().setBackgroundMessageHandler(async () => undefined);
 }
 
 registerBackgroundHandler();
 
 export function registerIncomingRequestMessaging() {
   if (registered) return () => undefined;
+  const messagingModule = getFirebaseMessaging();
+  if (!messagingModule) return () => undefined;
   registered = true;
-  return messaging().onMessage(displayForegroundMessage);
+  return messagingModule().onMessage(displayForegroundMessage);
 }

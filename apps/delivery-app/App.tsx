@@ -348,7 +348,7 @@ const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
-const deliveryAppIcon = require("./app-icon.png");
+const darziLogo = require("./darji transparent.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 
@@ -503,13 +503,13 @@ function onboardingFromProfile(profile?: DeliveryProfile): OnboardingData {
   };
 }
 
-const tutorialItems = [
-  "Accept jobs before the timer ends.",
-  "Customer-to-tailor and tailor-to-customer are separate delivery jobs.",
-  "Open route after accepting and complete each job within 12 hours.",
-  "Capture package photos before every handoff.",
-  "Seal the package and verify the order reference.",
-  "Collect COD only when the order requires it."
+const tutorialItems: Array<{ title: string; copy: string; icon: keyof typeof Ionicons.glyphMap }> = [
+  { title: "Accept jobs before the timer ends.", copy: "Accept on time to avoid auto cancel.", icon: "timer-outline" },
+  { title: "Customer-to-tailor and tailor-to-customer are separate delivery jobs.", copy: "Handle both jobs separately.", icon: "people-outline" },
+  { title: "Open route after accepting and complete each job within 12 hours.", copy: "Keep the route active and finish on time.", icon: "git-branch-outline" },
+  { title: "Capture package photos before every handoff.", copy: "Clear photos keep deliveries safe.", icon: "camera-outline" },
+  { title: "Seal the package and verify the order reference.", copy: "Check details to avoid mistakes.", icon: "shield-checkmark-outline" },
+  { title: "Collect COD only when the order requires it.", copy: "Follow instructions in the app.", icon: "wallet-outline" }
 ];
 
 configureForegroundNotificationHandler();
@@ -649,8 +649,8 @@ function Header({ title, subtitle, right, onBack }: { title: string; subtitle?: 
         </Pressable>
       ) : null}
       <View style={styles.headerText}>
-        <Text style={styles.headerTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
+        <Text maxFontSizeMultiplier={1.08} style={styles.headerTitle}>{title}</Text>
+        {subtitle ? <Text maxFontSizeMultiplier={1.08} style={styles.headerSubtitle}>{subtitle}</Text> : null}
       </View>
       {right}
     </View>
@@ -693,7 +693,7 @@ function PrimaryButton({
       onPress={onPress}
     >
       {loading ? <ActivityIndicator color={variant === "primary" ? "#111111" : BRAND_ORANGE} /> : icon ? <Ionicons color={variant === "primary" ? "#111111" : variant === "danger" ? "#b91c1c" : BRAND_DEEP} name={icon} size={18} /> : null}
-      {!loading ? <Text style={[styles.buttonText, variant !== "primary" && styles.secondaryButtonText, variant === "danger" && styles.dangerButtonText]}>{label}</Text> : null}
+      {!loading ? <Text maxFontSizeMultiplier={1.05} style={[styles.buttonText, variant !== "primary" && styles.secondaryButtonText, variant === "danger" && styles.dangerButtonText]}>{label}</Text> : null}
     </Pressable>
   );
 }
@@ -842,6 +842,30 @@ function Stat({ label, value, tone = "orange" }: { label: string; value: string;
   );
 }
 
+function ReviewStatusRow({ label, value, ready = true }: { label: string; value: string; ready?: boolean }) {
+  return (
+    <View style={styles.reviewStatusRow}>
+      <Text maxFontSizeMultiplier={1.05} style={styles.reviewStatusLabel}>{label}</Text>
+      <View style={styles.reviewStatusValueWrap}>
+        <Text maxFontSizeMultiplier={1.05} numberOfLines={2} style={[styles.reviewStatusValue, !ready && styles.reviewStatusValueWarn]}>{value}</Text>
+        <Ionicons name={ready ? "checkmark-circle-outline" : "alert-circle-outline"} size={16} color={ready ? SUCCESS : BRAND_ORANGE} />
+      </View>
+    </View>
+  );
+}
+
+function AuthFeature({ icon, title, copy }: { icon: keyof typeof Ionicons.glyphMap; title: string; copy: string }) {
+  return (
+    <View style={styles.authFeature}>
+      <View style={styles.authFeatureIcon}>
+        <Ionicons name={icon} size={24} color={BRAND_ORANGE} />
+      </View>
+      <Text style={styles.authFeatureTitle}>{title}</Text>
+      <Text style={styles.authFeatureCopy}>{copy}</Text>
+    </View>
+  );
+}
+
 function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => void; showDialog: (dialog: DialogState) => void }) {
   const [step, setStep] = useState<AuthStep>("login");
   const [timer, setTimer] = useState(30);
@@ -901,11 +925,18 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.logoMark}>
-          <Image source={deliveryAppIcon} resizeMode="contain" style={styles.authAppIcon} />
+          <Image source={darziLogo} resizeMode="contain" style={styles.authAppIcon} />
         </View>
         <Text style={styles.authTitle}>Darji Delivery</Text>
-        <Text style={styles.authCopy}>{localize(language, "Accept pickup jobs, open Google Maps routes, and complete verified handoffs.", "पिकअप कार्य स्वीकार करें, Google Maps में रास्ता खोलें और सुरक्षित डिलीवरी पूरी करें।")}</Text>
-        <Card>
+        <Text style={styles.authCopy}>{localize(language, "Accept nearby pickup and delivery jobs, reach on time and earn more.", "नजदीकी पिकअप और डिलीवरी काम लें, समय पर पहुंचें और अधिक कमाएं।")}</Text>
+        {step === "login" ? (
+          <View style={styles.authFeatures}>
+            <AuthFeature icon="location-outline" title={localize(language, "Nearby Orders", "नजदीकी ऑर्डर")} copy={localize(language, "Get orders close to you.", "आपके नजदीक के ऑर्डर पाएं।")} />
+            <AuthFeature icon="map-outline" title={localize(language, "Easy Navigation", "आसान नेविगेशन")} copy={localize(language, "Open routes instantly.", "तुरंत रूट खोलें।")} />
+            <AuthFeature icon="wallet-outline" title={localize(language, "Fast Payouts", "तेज पेआउट")} copy={localize(language, "Track your earnings.", "अपनी कमाई देखें।")} />
+          </View>
+        ) : null}
+        <Card style={styles.authCard}>
           {step === "login" ? (
             <>
               <Text style={styles.formLabel}>{t(language, "login")}</Text>
@@ -955,9 +986,63 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
             </>
           )}
         </Card>
+        {step === "login" ? (
+          <Text style={styles.authTerms}>
+            {localize(language, "By continuing, you agree to our", "जारी रखकर, आप हमारी शर्तों से सहमत हैं")}{"\n"}
+            <Text style={styles.authTermsLink}>Terms of Service</Text> {localize(language, "and", "और")} <Text style={styles.authTermsLink}>Privacy Policy</Text>
+          </Text>
+        ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+function StepNotice({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+  return (
+    <View style={styles.stepNotice}>
+      <Ionicons name={icon} size={16} color={BRAND_ORANGE} />
+      <Text style={styles.stepNoticeText}>{text}</Text>
+    </View>
+  );
+}
+
+function TrustBanner({ title, copy, icon = "shield-checkmark-outline" }: { title: string; copy: string; icon?: keyof typeof Ionicons.glyphMap }) {
+  return (
+    <View style={styles.privacyTrustBanner}>
+      <Ionicons name={icon} size={30} color={SUCCESS} />
+      <View style={styles.flexOne}>
+        <Text maxFontSizeMultiplier={1.05} style={styles.privacyTrustTitle}>{title}</Text>
+        <Text maxFontSizeMultiplier={1.05} style={styles.privacyTrustText}>{copy}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ProfilePhotoNoticeModal({ visible, onCancel, onContinue }: { visible: boolean; onCancel: () => void; onContinue: () => void }) {
+  const language = useAppStore((state) => state.language);
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.popupBackdrop}>
+        <View style={styles.profileNoticeCard}>
+          <View style={styles.profileNoticeIcon}>
+            <Ionicons name="scan-circle-outline" size={30} color={BRAND_ORANGE} />
+          </View>
+          <Text style={styles.profileNoticeTitle}>{localize(language, "Profile Photo Notice", "प्रोफाइल फोटो की सूचना")}</Text>
+          <Text style={styles.profileNoticeCopy}>
+            {localize(language, "This photo helps verify your identity and will be used as your Darji profile photo. Make sure your face is clear and well lit.", "यह फोटो आपकी पहचान सत्यापित करने में मदद करती है और Darji प्रोफाइल फोटो के रूप में दिखेगी। चेहरा साफ और रोशनी में रखें।")}
+          </Text>
+          <View style={styles.profileNoticeActions}>
+            <Pressable style={styles.profileNoticeCancel} onPress={onCancel}>
+              <Text style={styles.profileNoticeCancelText}>{t(language, "cancel")}</Text>
+            </Pressable>
+            <Pressable style={styles.profileNoticeContinue} onPress={onContinue}>
+              <Text style={styles.profileNoticeContinueText}>{t(language, "continue")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -976,6 +1061,7 @@ function OnboardingScreen({
 }) {
   const verificationStatus = me?.deliveryProfile?.verificationStatus;
   const language = useAppStore((state) => state.language);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const isLocked = verificationStatus === "PENDING" || verificationStatus === "VERIFIED";
   const profile = me?.deliveryProfile;
   const rejectionReason = profile?.verificationRejectionReason;
@@ -988,6 +1074,7 @@ function OnboardingScreen({
   const [submitting, setSubmitting] = useState(false);
   const [uploadingMediaKey, setUploadingMediaKey] = useState<string>();
   const [locatingAddress, setLocatingAddress] = useState(false);
+  const [profilePhotoAction, setProfilePhotoAction] = useState<(() => void) | undefined>();
   const step = onboardingSteps[stepIndex];
   const progress = `${stepIndex + 1}/${onboardingSteps.length}`;
   const localizedStep = language === "hi"
@@ -1110,14 +1197,7 @@ function OnboardingScreen({
   }
 
   function confirmFaceProfilePhoto(action: () => void) {
-    Alert.alert(
-      localize(language, "Profile photo notice", "प्रोफाइल फोटो की सूचना"),
-      localize(language, "This face verification photo will become your permanent Darji profile photo. Make sure your face is clear and well lit.", "चेहरा सत्यापन की यह फोटो आपकी स्थायी Darji प्रोफाइल फोटो बनेगी। सुनिश्चित करें कि चेहरा साफ और पर्याप्त रोशनी में दिखे।"),
-      [
-        { text: t(language, "cancel"), style: "cancel" },
-        { text: t(language, "continue"), onPress: action }
-      ]
-    );
+    setProfilePhotoAction(() => action);
   }
 
   async function fillCurrentLocation() {
@@ -1299,8 +1379,17 @@ function OnboardingScreen({
 
   return (
     <Screen>
+      <ProfilePhotoNoticeModal
+        visible={Boolean(profilePhotoAction)}
+        onCancel={() => setProfilePhotoAction(undefined)}
+        onContinue={() => {
+          const action = profilePhotoAction;
+          setProfilePhotoAction(undefined);
+          action?.();
+        }}
+      />
       <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
-        <Header title={localizedStep.title} subtitle={`${localizedStep.subtitle} - ${progress}`} />
+        <Header title={localizedStep.title} subtitle={`${localizedStep.subtitle} - ${progress}`} right={<CompactLanguageToggle language={language} onSelect={setLanguagePreference} />} />
         {isLocked ? (
           <View style={styles.lockedBanner}>
             <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
@@ -1312,14 +1401,14 @@ function OnboardingScreen({
             {localize(language, "Document reupload required.", "दस्तावेज़ दोबारा अपलोड करना आवश्यक है।")} {rejectionReason ?? localize(language, "Darji admin requested clearer documents. Please review your details and submit again.", "Darji एडमिन ने अधिक साफ दस्तावेज़ माँगे हैं। अपनी जानकारी जाँचकर दोबारा जमा करें।")}
           </Text>
         ) : null}
-        {!isLocked && currentStepError && step.key !== "review" ? <Text style={styles.helperWarning}>{localize(language, "Complete this step to continue.", "आगे बढ़ने के लिए यह चरण पूरा करें।")}</Text> : null}
+        {!isLocked && currentStepError && step.key !== "review" ? <StepNotice icon="sparkles-outline" text={localize(language, "Complete this step to continue.", "आगे बढ़ने के लिए यह चरण पूरा करें।")} /> : null}
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${((stepIndex + 1) / onboardingSteps.length) * 100}%` }]} />
         </View>
-        <View style={styles.privacyTrustBanner}>
-          <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
-          <Text style={styles.privacyTrustText}>{localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")}</Text>
-        </View>
+        <TrustBanner
+          title={step.key === "review" ? localize(language, "Almost done!", "लगभग हो गया!") : localize(language, "Your privacy, our priority!", "आपकी गोपनीयता हमारी प्राथमिकता!")}
+          copy={localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")}
+        />
 
         {step.key === "personal" ? (
           <Card>
@@ -1418,26 +1507,35 @@ function OnboardingScreen({
         ) : null}
 
         {step.key === "tutorial" ? (
-          <Card accent>
+          <Card style={styles.tutorialCard}>
             {tutorialItems.map((item, index) => (
-              <View style={styles.tutorialRow} key={item}>
-                <Text style={styles.tutorialNumber}>{index + 1}</Text>
-                <Text style={styles.tutorialText}>{item}</Text>
+              <View style={styles.tutorialRow} key={item.title}>
+                <Text maxFontSizeMultiplier={1.05} style={styles.tutorialNumber}>{index + 1}</Text>
+                <View style={styles.tutorialIconTile}>
+                  <Ionicons name={item.icon} size={16} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.flexOne}>
+                  <Text maxFontSizeMultiplier={1.05} style={styles.tutorialText}>{item.title}</Text>
+                  <Text maxFontSizeMultiplier={1.05} style={styles.tutorialSubtext}>{item.copy}</Text>
+                </View>
               </View>
             ))}
           </Card>
         ) : null}
 
         {step.key === "review" ? (
-          <Card>
-            <StatusRow label={localize(language, "Personal details", "व्यक्तिगत जानकारी")} value={data.fullName ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
-            <StatusRow label={data.identityType} value={data.identityType === "Aadhaar" ? data.aadhaarNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा") : data.panNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
-            <StatusRow label={localize(language, "OCR check", "दस्तावेज़ जाँच")} value={data.ocrStatus} />
-            <StatusRow label={localize(language, "Face check", "चेहरा जाँच")} value={data.faceStatus} />
-            <StatusRow label={localize(language, "Driving license", "ड्राइविंग लाइसेंस")} value={data.licenseNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
-            <StatusRow label={localize(language, "Vehicle details", "वाहन की जानकारी")} value={data.vehicleNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
-            <StatusRow label={localize(language, "Bank details", "बैंक की जानकारी")} value={data.accountNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} />
-            <Text style={styles.noticeText}>{localize(language, "After submission the app stays locked until Darji admins verify this partner account.", "जमा करने के बाद Darji एडमिन द्वारा सत्यापन होने तक ऐप लॉक रहेगा।")}</Text>
+          <Card style={styles.reviewCard}>
+            <ReviewStatusRow label={localize(language, "Personal details", "व्यक्तिगत जानकारी")} value={data.fullName ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} ready={Boolean(data.fullName)} />
+            <ReviewStatusRow label={data.identityType} value={data.identityType === "Aadhaar" ? data.aadhaarNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा") : data.panNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} ready={data.identityType === "Aadhaar" ? Boolean(data.aadhaarNumber) : Boolean(data.panNumber)} />
+            <ReviewStatusRow label={localize(language, "OCR check", "दस्तावेज़ जाँच")} value={data.ocrStatus} ready={!/failed|no readable/i.test(data.ocrStatus)} />
+            <ReviewStatusRow label={localize(language, "Face check", "चेहरा जाँच")} value={data.faceStatus} ready={!/failed|no face/i.test(data.faceStatus)} />
+            <ReviewStatusRow label={localize(language, "Driving license", "ड्राइविंग लाइसेंस")} value={data.licenseNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} ready={Boolean(data.licenseNumber)} />
+            <ReviewStatusRow label={localize(language, "Vehicle details", "वाहन की जानकारी")} value={data.vehicleNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} ready={Boolean(data.vehicleNumber)} />
+            <ReviewStatusRow label={localize(language, "Bank details", "बैंक की जानकारी")} value={data.accountNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} ready={Boolean(data.accountNumber)} />
+            <View style={styles.reviewLockNotice}>
+              <Ionicons name="lock-closed-outline" size={18} color={BRAND_ORANGE} />
+              <Text maxFontSizeMultiplier={1.05} style={styles.reviewLockText}>{localize(language, "After submission, the app stays locked until Darji admins verify this partner account.", "जमा करने के बाद, Darji एडमिन सत्यापन होने तक ऐप लॉक रहेगा।")}</Text>
+            </View>
           </Card>
         ) : null}
 
@@ -3645,13 +3743,21 @@ const styles = StyleSheet.create({
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
-  authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingBottom: 28, paddingTop: 70 },
+  authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingBottom: 28, paddingTop: 88 },
   authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
-  logoMark: { width: 68, height: 68, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", marginBottom: 18 },
-  authAppIcon: { width: 66, height: 66, borderRadius: 23 },
-  authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
-  authCopy: { color: MUTED, fontSize: 15, lineHeight: 22, fontWeight: "700", marginTop: 8, marginBottom: 22 },
-  pageContent: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 118 },
+  logoMark: { width: 70, height: 70, borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#eef2f7", alignItems: "center", justifyContent: "center", marginBottom: 20, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  authAppIcon: { width: 60, height: 60 },
+  authTitle: { color: BRAND_DEEP, fontSize: 30, lineHeight: 37, fontWeight: "900", fontStyle: "italic" },
+  authCopy: { color: MUTED, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8, marginBottom: 24, maxWidth: 310 },
+  authFeatures: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 22 },
+  authFeature: { flex: 1, alignItems: "center", minHeight: 104 },
+  authFeatureIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff7ed", alignItems: "center", justifyContent: "center", marginBottom: 9 },
+  authFeatureTitle: { color: BRAND_DEEP, fontSize: 10, lineHeight: 13, fontWeight: "900", textAlign: "center" },
+  authFeatureCopy: { color: MUTED, fontSize: 9, lineHeight: 13, fontWeight: "700", textAlign: "center", marginTop: 4 },
+  authCard: { borderRadius: 16, padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  authTerms: { color: MUTED, fontSize: 11, lineHeight: 18, fontWeight: "700", textAlign: "center", marginTop: 8 },
+  authTermsLink: { color: BRAND_ORANGE, fontWeight: "900" },
+  pageContent: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 118 },
   centeredState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
   centeredTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", marginTop: 18 },
   centeredCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 8 },
@@ -3671,14 +3777,14 @@ const styles = StyleSheet.create({
   detailSectionButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: "#FEC104" },
   detailSectionText: { color: BRAND_DEEP, fontSize: 11, fontWeight: "900", textAlign: "center" },
   detailSectionTextActive: { color: "#111111" },
-  header: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 16 },
+  header: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 },
   roundIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center" },
   headerText: { flex: 1, minWidth: 0 },
-  headerTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900" },
+  headerTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", fontStyle: "italic" },
   headerSubtitle: { color: MUTED, fontSize: 13, fontWeight: "700", marginTop: 4, lineHeight: 19 },
-  card: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
+  card: { borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
   accentCard: { borderColor: "#efcf92", backgroundColor: "#fffaf0" },
-  button: { minHeight: 50, borderRadius: 15, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, paddingHorizontal: 14, marginTop: 12 },
+  button: { minHeight: 50, borderRadius: 12, backgroundColor: "#ff9800", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, paddingHorizontal: 14, marginTop: 12 },
   secondaryButton: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER },
   dangerButton: { backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1" },
   disabledButton: { opacity: 0.5 },
@@ -3688,19 +3794,19 @@ const styles = StyleSheet.create({
   textButton: { alignItems: "center", marginTop: 16 },
   linkText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   mutedText: { color: MUTED },
-  formLabel: { color: MUTED, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginBottom: 8, marginTop: 8 },
+  formLabel: { color: MUTED, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginBottom: 8, marginTop: 8, fontStyle: "italic" },
   fieldBlock: { marginBottom: 4 },
-  input: { minHeight: 52, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", paddingHorizontal: 16, color: BRAND_DEEP, fontSize: 15, fontWeight: "800" },
+  input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", paddingHorizontal: 16, color: BRAND_DEEP, fontSize: 14, fontWeight: "800" },
   textArea: { minHeight: 92, paddingTop: 14, lineHeight: 20 },
-  inputButton: { minHeight: 52, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  inputButton: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   inputButtonText: { color: BRAND_DEEP, fontSize: 15, fontWeight: "800" },
   placeholderText: { color: "#98a4b6" },
   dateDoneButton: { alignSelf: "flex-end", height: 36, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderColor: "#efbd65", justifyContent: "center", marginTop: 8 },
-  phoneField: { height: 54, borderRadius: 17, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", flexDirection: "row", alignItems: "center", marginBottom: 12 },
+  phoneField: { height: 54, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", flexDirection: "row", alignItems: "center", marginBottom: 12 },
   phonePrefix: { width: 58, textAlign: "center", color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   phoneDivider: { width: 1, height: 28, backgroundColor: BORDER },
   phoneInput: { flex: 1, height: 52, color: BRAND_DEEP, fontSize: 15, fontWeight: "800", paddingHorizontal: 14 },
-  otpInput: { height: 58, borderRadius: 17, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center", letterSpacing: 4, marginBottom: 4 },
+  otpInput: { height: 58, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center", letterSpacing: 4, marginBottom: 4 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
   choiceChip: { minHeight: 38, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   choiceChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
@@ -3712,10 +3818,13 @@ const styles = StyleSheet.create({
   statusValue: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900", maxWidth: "58%", textAlign: "right" },
   twoCol: { flexDirection: "row", gap: 10 },
   flexOne: { flex: 1, minWidth: 0 },
-  progressTrack: { height: 8, borderRadius: 4, backgroundColor: "#111111", overflow: "hidden", marginTop: 14, marginBottom: 4 },
+  progressTrack: { height: 7, borderRadius: 4, backgroundColor: "#171717", overflow: "hidden", marginTop: 12, marginBottom: 4 },
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
-  privacyTrustBanner: { minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, paddingVertical: 10, marginTop: 12, marginBottom: 2 },
-  privacyTrustText: { flex: 1, color: "#166534", fontSize: 12, lineHeight: 18, fontWeight: "800" },
+  stepNotice: { minHeight: 40, borderRadius: 10, backgroundColor: "#fff3d8", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, marginTop: 8 },
+  stepNoticeText: { flex: 1, color: "#8a5600", fontSize: 12, lineHeight: 17, fontWeight: "900" },
+  privacyTrustBanner: { minHeight: 70, borderRadius: 14, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#ecfdf5", flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 12, marginBottom: 10 },
+  privacyTrustTitle: { color: "#166534", fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  privacyTrustText: { color: "#166534", fontSize: 11, lineHeight: 16, fontWeight: "800", marginTop: 2 },
   singleIdNotice: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 10 },
   singleIdNoticeText: { flex: 1, color: "#9a3412", fontSize: 12, lineHeight: 17, fontWeight: "800" },
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 },
@@ -3727,19 +3836,30 @@ const styles = StyleSheet.create({
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
   cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
   navRow: { flexDirection: "row", gap: 10, marginTop: 8 },
-  documentBox: { minHeight: 104, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 10, marginTop: 10, overflow: "hidden" },
-  documentPreview: { width: 76, height: 76, flexShrink: 0, borderRadius: 14, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  documentBox: { minHeight: 96, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 10, marginTop: 10, overflow: "hidden" },
+  documentPreview: { width: 70, height: 70, flexShrink: 0, borderRadius: 12, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   documentImage: { width: "100%", height: "100%" },
   documentBody: { flex: 1, minWidth: 0 },
   docActions: { flexDirection: "row", gap: 10, marginTop: 12 },
-  docButton: { flex: 1, minHeight: 40, borderRadius: 14, borderWidth: 1, borderColor: "#efbd65", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
+  docButton: { flex: 1, minHeight: 34, borderRadius: 10, borderWidth: 1, borderColor: "#efbd65", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
   docButtonText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
   docLockedText: { color: "#9aa6b8", fontSize: 11, fontWeight: "700", marginTop: 8 },
   mlKitPanel: { minHeight: 62, borderRadius: 15, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, marginTop: 14 },
   mlKitText: { color: MUTED, fontSize: 11, lineHeight: 17, fontWeight: "800" },
-  tutorialRow: { flexDirection: "row", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#f3dfb9" },
-  tutorialNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: BRAND_ORANGE, color: "#111111", textAlign: "center", lineHeight: 26, overflow: "hidden", fontSize: 12, fontWeight: "900" },
-  tutorialText: { flex: 1, color: BRAND_DEEP, fontSize: 14, lineHeight: 22, fontWeight: "800" },
+  tutorialCard: { borderRadius: 14, borderColor: "#efcf92", backgroundColor: "#fffdf7", paddingVertical: 8 },
+  tutorialRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderTopWidth: 1, borderTopColor: "#f3dfb9" },
+  tutorialNumber: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#fff2d8", color: BRAND_ORANGE, textAlign: "center", lineHeight: 28, overflow: "hidden", fontSize: 12, fontWeight: "900" },
+  tutorialIconTile: { width: 34, height: 34, borderRadius: 12, backgroundColor: "#fff7e8", alignItems: "center", justifyContent: "center" },
+  tutorialText: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  tutorialSubtext: { color: MUTED, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 2 },
+  reviewCard: { borderRadius: 14, paddingVertical: 10 },
+  reviewStatusRow: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderBottomColor: "#eef2f7", paddingVertical: 8 },
+  reviewStatusLabel: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", flex: 1 },
+  reviewStatusValueWrap: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7, maxWidth: "58%" },
+  reviewStatusValue: { color: SUCCESS, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "right" },
+  reviewStatusValueWarn: { color: BRAND_ORANGE },
+  reviewLockNotice: { minHeight: 54, borderRadius: 13, backgroundColor: "#fff7e8", borderWidth: 1, borderColor: "#fde4b2", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 10, marginTop: 12 },
+  reviewLockText: { color: "#8a5600", fontSize: 11, lineHeight: 16, fontWeight: "800", flex: 1 },
   heroCard: { minHeight: 156, borderRadius: 24, backgroundColor: BRAND_DEEP, padding: 20, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 14 },
   heroLabel: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
   heroTitle: { color: "#ffffff", fontSize: 26, fontWeight: "900", marginTop: 8 },
@@ -3789,6 +3909,15 @@ const styles = StyleSheet.create({
   popupActionText: { color: "#111111", fontSize: 13, fontWeight: "900", textAlign: "center" },
   popupSecondaryButton: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER },
   popupSecondaryText: { color: BRAND_DEEP },
+  profileNoticeCard: { width: "100%", maxWidth: 285, borderRadius: 10, backgroundColor: SURFACE, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 12, alignItems: "center" },
+  profileNoticeIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#fff3d8", borderWidth: 1, borderColor: "#ffd18a", alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  profileNoticeTitle: { color: "#111827", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
+  profileNoticeCopy: { color: "#374151", fontSize: 11, lineHeight: 16, fontWeight: "700", textAlign: "center", marginTop: 6 },
+  profileNoticeActions: { height: 42, flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: "#e5e7eb", marginTop: 14, alignSelf: "stretch" },
+  profileNoticeCancel: { flex: 1, height: 42, alignItems: "center", justifyContent: "center", borderRightWidth: 1, borderRightColor: "#e5e7eb" },
+  profileNoticeContinue: { flex: 1, height: 42, alignItems: "center", justifyContent: "center" },
+  profileNoticeCancelText: { color: "#111827", fontSize: 11, fontWeight: "900" },
+  profileNoticeContinueText: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900" },
   reasonList: { width: "100%", gap: 9, marginTop: 14 },
   reasonOption: { minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12 },
   reasonOptionActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff7e8" },

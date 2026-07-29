@@ -21,14 +21,20 @@ type Options = {
 
 const completedRegistrations = new Set<string>();
 const pendingRegistrations = new Map<string, Promise<unknown>>();
-let firebaseMessaging: typeof messaging | undefined;
+let firebaseMessaging: typeof messaging | null | undefined;
 
 function easProjectId() {
   return (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? Constants.easConfig?.projectId;
 }
 
 function getFirebaseMessaging() {
-  if (!firebaseMessaging) firebaseMessaging = require("@react-native-firebase/messaging").default;
+  if (firebaseMessaging !== undefined) return firebaseMessaging;
+  try {
+    firebaseMessaging = require("@react-native-firebase/messaging").default ?? null;
+  } catch (error) {
+    console.warn("Firebase messaging native module unavailable", error);
+    firebaseMessaging = null;
+  }
   return firebaseMessaging;
 }
 

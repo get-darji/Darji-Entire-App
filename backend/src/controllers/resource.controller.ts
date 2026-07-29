@@ -941,37 +941,55 @@ export async function updateDeliveryProfileController(req: Request, res: Respons
 export async function submitDeliveryVerificationController(req: Request, res: Response) {
   const input = deliveryVerificationSchema.parse(req.body);
 
-  const [user, partner] = await Promise.all([
-    UserModel.findByIdAndUpdate(
+  try {
+    if (input.personal.email) {
+      const existingEmailUser = await UserModel.findOne({ email: input.personal.email, _id: { $ne: req.user!.id } }).select("_id");
+      if (existingEmailUser) throw new AppError(409, "This email is already linked to another account");
+    }
+
+    const user = await UserModel.findByIdAndUpdate(
       req.user!.id,
       {
         name: input.personal.fullName,
         ...(input.personal.email ? { email: input.personal.email } : {}),
-        avatarUrl: input.identity.facePhotoUrl
+        ...(input.identity.facePhotoUrl ? { avatarUrl: input.identity.facePhotoUrl } : {})
       },
       { returnDocument: "after" }
-    ),
-    DeliveryPartnerModel.findOneAndUpdate(
+    );
+    if (!user) throw new AppError(404, "User not found");
+
+    const partner = await DeliveryPartnerModel.findOneAndUpdate(
       { userId: req.user!.id },
       {
-        vehicleNumber: input.vehicle.vehicleNumber,
-        settings: {
-          availability: input.preferences.availability,
-          radius: input.preferences.radius,
-          instantDeliveries: input.preferences.instantDeliveries
+        $set: {
+          vehicleNumber: input.vehicle.vehicleNumber,
+          settings: {
+            availability: input.preferences.availability,
+            radius: input.preferences.radius,
+            instantDeliveries: input.preferences.instantDeliveries
+          },
+          verificationStatus: "PENDING",
+          verificationSubmittedAt: new Date(),
+          verification: input
         },
-        verificationStatus: "PENDING",
-        verificationSubmittedAt: new Date(),
-        verificationReviewedAt: undefined,
-        verificationRejectionReason: undefined,
-        verification: input,
-        verificationDraft: undefined
+        $unset: {
+          verificationReviewedAt: "",
+          verificationRejectionReason: "",
+          verificationDraft: ""
+        }
       },
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
-    )
-  ]);
+    );
 
-  res.json({ data: { ...user?.toJSON(), deliveryProfile: partner } });
+    res.json({ data: { ...user.toJSON(), deliveryProfile: partner } });
+  } catch (error: any) {
+    if (error instanceof AppError) throw error;
+    if (error?.code === 11000) {
+      const field = Object.keys(error.keyPattern ?? error.keyValue ?? {})[0];
+      throw new AppError(409, field === "email" ? "This email is already linked to another account" : "This verification profile already exists. Please refresh and try again.");
+    }
+    throw error;
+  }
 }
 
 export async function saveDeliveryVerificationDraftController(req: Request, res: Response) {
