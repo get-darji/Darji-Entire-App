@@ -50,6 +50,7 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 import { localize, t, type AppLanguage } from "../../shared/src/localization";
+import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
@@ -272,6 +273,7 @@ const TAILOR_ONBOARDING_STORAGE_PREFIX = "darji.tailorOnboarding.v1";
 const VERIFICATION_TOTAL_STEPS = 5;
 const VERIFICATION_FORM_STEPS = 4;
 const VERIFICATION_STATUS_STEP = 5;
+const TAILOR_VERIFICATION_STEPS = [1, 2, 3, 4] as const;
 const verificationStepLabels = ["Personal", "Shop", "ID", "Tutorial", "Submit"] as const;
 
 type PullToRefreshState = {
@@ -638,7 +640,7 @@ function Header({ title, subtitle, onBack }: { title: string; subtitle?: string;
   return (
     <View style={styles.header}>
       {onBack ? (
-        <Pressable style={styles.roundIcon} onPress={onBack}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" style={styles.roundIcon} onPress={onBack}>
           <Ionicons name="arrow-back" size={20} color={BRAND_DEEP} />
         </Pressable>
       ) : null}
@@ -843,7 +845,7 @@ function RequestsScreen({ requests, setScreen, setActiveRequest }: { requests: T
   );
 }
 
-function RequestDetailsScreen({ request, setScreen, showDialog }: { request: TailoringRequest; setScreen: (screen: Screen) => void; showDialog: (dialog: DialogState) => void }) {
+function RequestDetailsScreen({ request, setScreen, showDialog }: { request: TailoringRequest; setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void; showDialog: (dialog: DialogState) => void }) {
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
   const items = requestItems(request);
   const itemCount = requestItemCount(request);
@@ -851,7 +853,7 @@ function RequestDetailsScreen({ request, setScreen, showDialog }: { request: Tai
   return (
     <>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title="Request Details" subtitle={`Request ID ${shortId(request.id)}`} onBack={() => setScreen("requests")} />
+        <Header title="Request Details" subtitle={`Request ID ${shortId(request.id)}`} onBack={() => setScreen("requests", { replace: true })} />
         <View style={styles.whiteCard}>
           <View style={styles.rowBetween}>
             <Text style={styles.cardLabel}>REQUEST</Text>
@@ -1098,7 +1100,7 @@ function QuoteScreen({
   request: TailoringRequest;
   token?: string;
   onDone: (quote: TailorQuote) => void;
-  setScreen: (screen: Screen) => void;
+  setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void;
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
   activeOrderCount: number;
@@ -1161,7 +1163,7 @@ function QuoteScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Send Quote" subtitle={requestSummary(request)} onBack={() => setScreen("requestDetails")} />
+      <Header title="Send Quote" subtitle={requestSummary(request)} onBack={() => setScreen("requestDetails", { replace: true })} />
       <View style={styles.whiteCard}>
         <Text style={styles.cardLabel}>QUOTE DETAILS</Text>
         <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
@@ -1446,7 +1448,7 @@ function OrderDetailsScreen({
   order: Order;
   token?: string;
   onUpdated: () => void;
-  setScreen: (screen: Screen) => void;
+  setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void;
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
 }) {
@@ -1575,7 +1577,7 @@ function OrderDetailsScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Order Details" subtitle={order.orderNumber} onBack={() => setScreen("orders")} />
+      <Header title="Order Details" subtitle={order.orderNumber} onBack={() => setScreen("orders", { replace: true })} />
       <View style={styles.whiteCard}>
         <View style={styles.rowBetween}>
           <Text style={styles.cardLabel}>STATUS</Text>
@@ -2546,6 +2548,39 @@ function TailorVerificationFlow({
     setStep((current) => current + 1);
   }
 
+  function handleVerificationBack(source: "header" | "hardware" | "button" = "button") {
+    if (infoPage) {
+      setInfoPage(undefined);
+      return true;
+    }
+    if (faceModeOpen) {
+      setFaceModeOpen(false);
+      return true;
+    }
+    if (step === VERIFICATION_STATUS_STEP || isLocked) return false;
+    return handleFlowBack({
+      currentStep: step as (typeof TAILOR_VERIFICATION_STEPS)[number],
+      steps: TAILOR_VERIFICATION_STEPS,
+      onPreviousStep: (previousStep) => setStep(previousStep),
+      onExitFlow: () => {
+        showDialog({
+          title: localize(language, "Leave onboarding?", "ऑनबोर्डिंग छोड़ें?"),
+          message: localize(language, "Your verification progress is saved automatically. You can continue later, or leave and sign in with another number.", "आपकी सत्यापन प्रगति अपने-आप सेव होती है। आप बाद में जारी रख सकते हैं या दूसरे नंबर से साइन इन कर सकते हैं।"),
+          icon: "log-out-outline",
+          actions: [
+            { label: localize(language, "Continue", "जारी रखें"), variant: "primary" },
+            { label: localize(language, "Leave", "छोड़ें"), variant: "secondary", onPress: signOut }
+          ]
+        });
+      }
+    }, source).handled;
+  }
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => handleVerificationBack("hardware"));
+    return () => subscription.remove();
+  }, [step, infoPage, faceModeOpen, isLocked, language, signOut]);
+
   function tutorialDurationSeconds() {
     return Math.max(5, Math.round(Number(tutorialMedia?.durationSeconds ?? 15)));
   }
@@ -2859,6 +2894,7 @@ function TailorVerificationFlow({
         <Header
           title={localize(language, "Tailor Verification", "दर्जी सत्यापन")}
           subtitle={localize(language, `Step ${Math.min(step, VERIFICATION_TOTAL_STEPS)} of ${VERIFICATION_TOTAL_STEPS}`, `चरण ${Math.min(step, VERIFICATION_TOTAL_STEPS)} / ${VERIFICATION_TOTAL_STEPS}`)}
+          onBack={() => handleVerificationBack("header")}
         />
         <View style={styles.verificationSteps}>
           {(language === "hi" ? ["व्यक्तिगत", "दुकान", "पहचान", "ट्यूटोरियल", "जमा करें"] : verificationStepLabels).map((label, index) => (
@@ -3135,7 +3171,7 @@ function TailorVerificationFlow({
 
         <View style={styles.verificationNav}>
           {step > 1 && step <= VERIFICATION_FORM_STEPS ? (
-            <Pressable style={styles.secondaryButton} onPress={() => setStep((current) => Math.max(1, current - 1))}>
+            <Pressable style={styles.secondaryButton} onPress={() => handleVerificationBack("button")}>
               <Text style={styles.secondaryButtonText}>{localize(language, "Back", "पीछे")}</Text>
             </Pressable>
           ) : null}
@@ -3626,8 +3662,10 @@ export default function App() {
     if (nextScreen === screen) return;
     if (options?.resetStack || nextScreen === "dashboard") {
       setScreenStack([]);
+    } else if (options?.replace) {
+      setScreenStack((current) => current[current.length - 1] === nextScreen ? current.slice(0, -1) : current);
     } else if (!options?.replace) {
-      setScreenStack((current) => [...current, screen].slice(-16));
+      setScreenStack((current) => [...current.filter((item, index, list) => !(item === screen && index === list.length - 1)), screen].slice(-16));
     }
     setScreenState(nextScreen);
   }
@@ -4467,3 +4505,4 @@ const styles = StyleSheet.create({
   walletClearDate: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
   walletResultCount: { color: MUTED, fontSize: 11, fontWeight: "800", marginBottom: 10 }
 });
+

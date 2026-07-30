@@ -49,6 +49,7 @@ import { playAppSound } from "./src/services/soundService";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useAppStore } from "./src/store";
 import { localize, t } from "../../shared/src/localization";
+import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
@@ -70,6 +71,7 @@ type OnboardingStep = "personal" | "identity" | "license" | "vehicle" | "bank" |
 type Tab = "home" | "orders" | "earnings" | "earningDetails" | "notifications" | "profile" | "transactions";
 type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
 type ActiveOrderScreen = "summary" | "route" | "confirmations";
+const ACTIVE_ORDER_FLOW_STEPS = ["summary", "route", "confirmations"] as const satisfies readonly ActiveOrderScreen[];
 type DialogState = {
   title: string;
   message: string;
@@ -419,6 +421,7 @@ const onboardingSteps: { key: OnboardingStep; title: string; subtitle: string }[
   { key: "tutorial", title: "Tutorial", subtitle: "Pickup, photos, packing, COD, delivery" },
   { key: "review", title: "Review", subtitle: "Submit for admin approval" }
 ];
+const DELIVERY_ONBOARDING_STEPS = onboardingSteps.map((_, index) => index) as number[];
 
 const defaultOnboarding: OnboardingData = {
   fullName: "",
@@ -644,7 +647,7 @@ function Header({ title, subtitle, right, onBack }: { title: string; subtitle?: 
   return (
     <View style={styles.header}>
       {onBack ? (
-        <Pressable style={styles.roundIcon} onPress={onBack}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" style={styles.roundIcon} onPress={onBack}>
           <Ionicons name="arrow-back" size={20} color={BRAND_DEEP} />
         </Pressable>
       ) : null}
@@ -1406,6 +1409,35 @@ function OnboardingScreen({
     setStepIndex((value) => value + 1);
   }
 
+  function handleOnboardingBack(source: "header" | "hardware" | "button" = "button") {
+    if (profilePhotoAction) {
+      setProfilePhotoAction(undefined);
+      return true;
+    }
+    if (isLocked) return false;
+    return handleFlowBack({
+      currentStep: stepIndex,
+      steps: DELIVERY_ONBOARDING_STEPS,
+      onPreviousStep: (previousStep) => setStepIndex(previousStep),
+      onExitFlow: () => {
+        showDialog({
+          title: localize(language, "Leave onboarding?", "ऑनबोर्डिंग छोड़ें?"),
+          message: localize(language, "Your onboarding progress is saved automatically. You can continue later, or leave and sign in with another number.", "आपकी ऑनबोर्डिंग प्रगति अपने-आप सेव होती है। आप बाद में जारी रख सकते हैं या दूसरे नंबर से साइन इन कर सकते हैं।"),
+          icon: "log-out-outline",
+          actions: [
+            { label: localize(language, "Continue", "जारी रखें"), variant: "primary" },
+            { label: localize(language, "Leave", "छोड़ें"), variant: "secondary", onPress: onSessionExpired }
+          ]
+        });
+      }
+    }, source).handled;
+  }
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => handleOnboardingBack("hardware"));
+    return () => subscription.remove();
+  }, [stepIndex, profilePhotoAction, isLocked, language, onSessionExpired]);
+
   const currentStepError = validateCurrentStep();
   const emailBlocked = step.key === "personal" && emailAvailability.state === "taken";
   const nextDisabled = Boolean(currentStepError || emailBlocked || submitting || uploadingMediaKey || scanning);
@@ -1422,7 +1454,7 @@ function OnboardingScreen({
         }}
       />
       <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
-        <Header title={localizedStep.title} subtitle={`${localizedStep.subtitle} - ${progress}`} right={<CompactLanguageToggle language={language} onSelect={setLanguagePreference} />} />
+        <Header title={localizedStep.title} subtitle={`${localizedStep.subtitle} - ${progress}`} onBack={() => handleOnboardingBack("header")} right={<CompactLanguageToggle language={language} onSelect={setLanguagePreference} />} />
         {isLocked ? (
           <View style={styles.lockedBanner}>
             <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
@@ -1596,7 +1628,7 @@ function OnboardingScreen({
 
         <View style={styles.navRow}>
           <View style={styles.flexOne}>
-              <PrimaryButton disabled={stepIndex === 0 || submitting} label={localize(language, "Back", "पीछे")} onPress={() => setStepIndex((value) => Math.max(0, value - 1))} variant="secondary" />
+              <PrimaryButton disabled={stepIndex === 0 || submitting} label={localize(language, "Back", "पीछे")} onPress={() => handleOnboardingBack("button")} variant="secondary" />
           </View>
           {!isLocked ? (
             <View style={styles.flexOne}>
@@ -2982,26 +3014,33 @@ function MainApp({
     if (nextTab === tab) return;
     if (options?.resetStack || nextTab === "home") {
       setTabStack([]);
+    } else if (options?.replace) {
+      setTabStack((current) => current[current.length - 1] === nextTab ? current.slice(0, -1) : current);
     } else if (!options?.replace) {
-      setTabStack((current) => [...current, tab].slice(-12));
+      setTabStack((current) => [...current.filter((item, index, list) => !(item === tab && index === list.length - 1)), tab].slice(-12));
     }
     setTabState(nextTab);
   }
+
+  const handleActiveOrderBack = useCallback((source: "header" | "hardware" | "button" = "button") => {
+    if (!activeOrder) return false;
+    return handleFlowBack({
+      currentStep: activeOrderScreen,
+      steps: ACTIVE_ORDER_FLOW_STEPS,
+      onPreviousStep: (previousStep) => setActiveOrderScreen(previousStep),
+      onExitFlow: () => {
+        setActiveOrder(undefined);
+        setActiveOrderScreen("summary");
+      }
+    }, source).handled;
+  }, [activeOrder, activeOrderScreen]);
 
   const goBack = useCallback(() => {
     if (requestVisible) {
       setRequestVisible(false);
       return true;
     }
-    if (activeOrder) {
-      if (activeOrderScreen !== "summary") {
-        setActiveOrderScreen("summary");
-        return true;
-      }
-      setActiveOrder(undefined);
-      setActiveOrderScreen("summary");
-      return true;
-    }
+    if (activeOrder) return handleActiveOrderBack("hardware");
     if (activeBatchId) {
       setActiveBatchId(undefined);
       return true;
@@ -3017,7 +3056,7 @@ function MainApp({
       return true;
     }
     return false;
-  }, [activeOrder, activeOrderScreen, activeBatchId, requestVisible, tab, tabStack]);
+  }, [activeOrder, activeBatchId, handleActiveOrderBack, requestVisible, tab, tabStack]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", goBack);
@@ -3458,10 +3497,7 @@ function MainApp({
             </Pressable>
           ) : null}
           <ActiveOrderScreenView
-            onBack={() => {
-              setActiveOrder(undefined);
-              setActiveOrderScreen("summary");
-            }}
+            onBack={() => handleActiveOrderBack("header")}
             order={activeOrder}
             screen={activeOrderScreen}
             setScreen={setActiveOrderScreen}
@@ -4066,3 +4102,4 @@ const styles = StyleSheet.create({
   walletClearDate: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
   walletResultCount: { color: MUTED, fontSize: 11, fontWeight: "800", marginBottom: 10 }
 });
+

@@ -47,6 +47,7 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 import { getLanguageLabel, localize, t, type AppLanguage } from "../../shared/src/localization";
+import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
@@ -451,6 +452,7 @@ const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const CUSTOMER_NOTIFICATION_PREFS_KEY = "darji.customerNotificationPreferences.v1";
 const REQUEST_FLOW_SCREENS = new Set<Screen>(["newRequest", "clothIssue", "measurements", "orderSummary", "quotes", "confirmOrder"]);
+const REQUEST_FLOW_STEPS = ["newRequest", "clothIssue", "measurements", "orderSummary", "quotes", "confirmOrder"] as const satisfies readonly RequestFlowScreen[];
 function getPlatformFee(orderValue: number) {
   if (orderValue <= 0) return 0;
   if (orderValue <= 199) return 5;
@@ -1676,7 +1678,7 @@ function Header({ title, onBack, right }: { title?: string; onBack?: () => void;
   return (
     <View style={styles.header}>
       {onBack ? (
-        <Pressable onPress={onBack} style={styles.roundIconButton}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} style={styles.roundIconButton}>
           <Ionicons name="arrow-back" size={20} color={BRAND_DEEP} />
         </Pressable>
       ) : (
@@ -4934,7 +4936,7 @@ function QuotesScreen({
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header
           title="Tailor Quotes"
-          onBack={() => setScreen(draft.backendRequestId ? "orders" : "clothIssue")}
+          onBack={() => setScreen("orderSummary")}
           right={(
             <Pressable style={styles.roundIconButton} onPress={() => setScreen("notifications")}>
               <Ionicons name="notifications-outline" size={20} color={BRAND_DEEP} />
@@ -8905,6 +8907,17 @@ export default function App() {
       setDialog(undefined);
       return true;
     }
+    if (REQUEST_FLOW_SCREENS.has(screen)) {
+      return handleFlowBack({
+        currentStep: screen as RequestFlowScreen,
+        steps: REQUEST_FLOW_STEPS,
+        onPreviousStep: (previousStep) => {
+          setScreenState(previousStep);
+          setRequestProgressScreen(previousStep);
+        },
+        onExitFlow: () => exitRequestFlow()
+      }, "hardware").handled;
+    }
     if (screenStack.length > 0) {
       setScreenState(screenStack[screenStack.length - 1]);
       setScreenStack((currentStack) => currentStack.slice(0, -1));
@@ -8916,7 +8929,19 @@ export default function App() {
       return true;
     }
     return false;
-  }, [cancellingOrderId, dialog, paymentSheet, screen, screenStack, verifyingPayment]);
+  }, [cancellingOrderId, dialog, paymentSheet, screen, screenStack, verifyingPayment, draft, selectedQuote, defaultAddress]);
+
+  function handleRequestFlowBack(source: "header" | "hardware" | "button" = "header") {
+    return handleFlowBack({
+      currentStep: screen as RequestFlowScreen,
+      steps: REQUEST_FLOW_STEPS,
+      onPreviousStep: (previousStep) => {
+        setScreenState(previousStep);
+        setRequestProgressScreen(previousStep);
+      },
+      onExitFlow: () => exitRequestFlow()
+    }, source).handled;
+  }
 
   function setScreen(nextScreen: Screen, options?: { replace?: boolean; resetStack?: boolean }) {
     let resolvedScreen = nextScreen;
@@ -8924,10 +8949,13 @@ export default function App() {
       resolvedScreen = requestProgressScreen;
     }
     if (resolvedScreen === screen) return;
+    const isRequestStepTransition = REQUEST_FLOW_SCREENS.has(screen) && REQUEST_FLOW_SCREENS.has(resolvedScreen);
     if (options?.resetStack || resolvedScreen === "home") {
       setScreenStack([]);
-    } else if (!options?.replace) {
-      setScreenStack((currentStack) => [...currentStack, screen].slice(-16));
+    } else if (options?.replace) {
+      setScreenStack((currentStack) => currentStack[currentStack.length - 1] === resolvedScreen ? currentStack.slice(0, -1) : currentStack);
+    } else if (!options?.replace && !isRequestStepTransition) {
+      setScreenStack((currentStack) => [...currentStack.filter((item, index, list) => !(item === screen && index === list.length - 1)), screen].slice(-16));
     }
     setScreenState(resolvedScreen);
   }
@@ -9192,16 +9220,19 @@ export default function App() {
       return;
     }
     setDialog({
-      title: "Discard request?",
-      message: "Your photos and request details will be cleared.",
+      title: "Discard this request?",
+      message: "Your entered details will be removed if you leave this flow.",
       actions: [
-        { label: "Keep Editing" },
+        { label: "Continue Editing" },
         {
-          label: "Discard",
+          label: "Delete Request",
           destructive: true,
           onPress: () => {
-            resetRequestDraft();
-            setScreen("home");
+            if (draft.backendRequestId) void deleteIncompleteRequest(draft.backendRequestId);
+            else {
+              resetRequestDraft();
+              setScreen("home");
+            }
           }
         }
       ]
