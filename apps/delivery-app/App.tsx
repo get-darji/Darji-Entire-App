@@ -693,7 +693,17 @@ function PrimaryButton({
       onPress={onPress}
     >
       {loading ? <ActivityIndicator color={variant === "primary" ? "#111111" : BRAND_ORANGE} /> : icon ? <Ionicons color={variant === "primary" ? "#111111" : variant === "danger" ? "#b91c1c" : BRAND_DEEP} name={icon} size={18} /> : null}
-      {!loading ? <Text maxFontSizeMultiplier={1.05} style={[styles.buttonText, variant !== "primary" && styles.secondaryButtonText, variant === "danger" && styles.dangerButtonText]}>{label}</Text> : null}
+      {!loading ? (
+        <Text
+          maxFontSizeMultiplier={1}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          style={[styles.buttonText, variant !== "primary" && styles.secondaryButtonText, variant === "danger" && styles.dangerButtonText]}
+        >
+          {label}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -1075,6 +1085,7 @@ function OnboardingScreen({
   const [uploadingMediaKey, setUploadingMediaKey] = useState<string>();
   const [locatingAddress, setLocatingAddress] = useState(false);
   const [profilePhotoAction, setProfilePhotoAction] = useState<(() => void) | undefined>();
+  const [emailAvailability, setEmailAvailability] = useState<{ state: "idle" | "checking" | "available" | "taken" | "error"; message?: string }>({ state: "idle" });
   const step = onboardingSteps[stepIndex];
   const progress = `${stepIndex + 1}/${onboardingSteps.length}`;
   const localizedStep = language === "hi"
@@ -1104,6 +1115,27 @@ function OnboardingScreen({
     }, 600);
     return () => clearTimeout(id);
   }, [data, stepIndex, token, onSessionExpired]);
+
+  useEffect(() => {
+    if (step.key !== "personal") return undefined;
+    const email = data.email.trim();
+    if (!email) {
+      setEmailAvailability({ state: "idle" });
+      return undefined;
+    }
+    const id = setTimeout(() => {
+      setEmailAvailability({ state: "checking" });
+      api<{ available: boolean; email: string }>(`/delivery-partners/me/email-availability?email=${encodeURIComponent(email)}`, {}, token)
+        .then((result) => {
+          setEmailAvailability(result.available ? { state: "available", message: "Email is available." } : { state: "taken", message: "This email is already linked to another account." });
+        })
+        .catch((error) => {
+          if (isSessionError(error)) return onSessionExpired();
+          setEmailAvailability({ state: "error", message: error instanceof Error ? error.message : "Could not verify email right now." });
+        });
+    }, 600);
+    return () => clearTimeout(id);
+  }, [data.email, onSessionExpired, step.key, token]);
 
   function update<K extends keyof OnboardingData>(key: K, value: OnboardingData[K]) {
     setData((current) => ({ ...current, [key]: value }));
@@ -1375,7 +1407,8 @@ function OnboardingScreen({
   }
 
   const currentStepError = validateCurrentStep();
-  const nextDisabled = Boolean(currentStepError || submitting || uploadingMediaKey || scanning);
+  const emailBlocked = step.key === "personal" && emailAvailability.state === "taken";
+  const nextDisabled = Boolean(currentStepError || emailBlocked || submitting || uploadingMediaKey || scanning);
 
   return (
     <Screen>
@@ -1416,7 +1449,29 @@ function OnboardingScreen({
             <DateField label={t(language, "dateOfBirth")} maximumDate={new Date()} onChange={(value) => update("dob", value)} value={data.dob} disabled={isLocked} />
             <Text style={styles.formLabel}>{t(language, "gender")}</Text>
             <ChoiceGroup onChange={(value) => update("gender", value)} options={["Male", "Female", "Other"]} labels={language === "hi" ? { Male: "पुरुष", Female: "महिला", Other: "अन्य" } : undefined} value={data.gender} disabled={isLocked} />
-            <Field label={localize(language, "Email", "ईमेल")} keyboardType="email-address" onChange={(value) => update("email", value)} value={data.email} readOnly={isLocked} />
+            <View style={styles.fieldBlock}>
+              <Text style={styles.formLabel}>{localize(language, "Email", "ईमेल")}</Text>
+              <TextInput
+                editable={!isLocked}
+                keyboardType="email-address"
+                onChangeText={(value) => update("email", value)}
+                onBlur={() => {
+                  const email = data.email.trim();
+                  if (!email) return setEmailAvailability({ state: "idle" });
+                  setEmailAvailability((current) => current.state === "taken" || current.state === "checking" ? current : { state: "checking" });
+                }}
+                placeholder={localize(language, "Enter email", "ईमेल दर्ज करें")}
+                placeholderTextColor="#9aa6b8"
+                style={[styles.input, isLocked && styles.inputReadOnly]}
+                value={data.email}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {emailAvailability.state === "checking" ? <Text style={styles.emailHint}>{localize(language, "Checking email...", "ईमेल जांच रहे हैं...")}</Text> : null}
+              {emailAvailability.state === "available" ? <Text style={styles.emailSuccess}>{emailAvailability.message}</Text> : null}
+              {emailAvailability.state === "taken" ? <Text style={styles.emailError}>{emailAvailability.message}</Text> : null}
+              {emailAvailability.state === "error" ? <Text style={styles.emailHint}>{emailAvailability.message}</Text> : null}
+            </View>
             <Field label={localize(language, "Emergency contact", "आपातकालीन संपर्क")} keyboardType="phone-pad" onChange={(value) => update("emergencyContact", value.replace(/\D/g, "").slice(0, 10))} value={data.emergencyContact} readOnly={isLocked} />
             <Field label={localize(language, "Address", "पता")} multiline onChange={(value) => update("address", value)} value={data.address} readOnly={isLocked} />
             {!isLocked ? <PrimaryButton icon="location-outline" label={localize(language, "Use Current Location", "वर्तमान स्थान उपयोग करें")} loading={locatingAddress} disabled={locatingAddress} onPress={() => void fillCurrentLocation()} variant="secondary" /> : null}
@@ -3788,7 +3843,7 @@ const styles = StyleSheet.create({
   secondaryButton: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER },
   dangerButton: { backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1" },
   disabledButton: { opacity: 0.5 },
-  buttonText: { color: "#111111", fontSize: 14, fontWeight: "900" },
+  buttonText: { color: "#111111", fontSize: 12, lineHeight: 14, fontWeight: "900", textAlign: "center" },
   secondaryButtonText: { color: BRAND_DEEP },
   dangerButtonText: { color: "#b91c1c" },
   textButton: { alignItems: "center", marginTop: 16 },
@@ -3860,6 +3915,9 @@ const styles = StyleSheet.create({
   reviewStatusValueWarn: { color: BRAND_ORANGE },
   reviewLockNotice: { minHeight: 54, borderRadius: 13, backgroundColor: "#fff7e8", borderWidth: 1, borderColor: "#fde4b2", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 10, marginTop: 12 },
   reviewLockText: { color: "#8a5600", fontSize: 11, lineHeight: 16, fontWeight: "800", flex: 1 },
+  emailHint: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 6 },
+  emailSuccess: { color: SUCCESS, fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 6 },
+  emailError: { color: "#b91c1c", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 6 },
   heroCard: { minHeight: 156, borderRadius: 24, backgroundColor: BRAND_DEEP, padding: 20, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 14 },
   heroLabel: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
   heroTitle: { color: "#ffffff", fontSize: 26, fontWeight: "900", marginTop: 8 },

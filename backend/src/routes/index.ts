@@ -36,6 +36,7 @@ import {
   listAddressesController,
   listCouponsController,
   listDeliveryPartnersController,
+  checkDeliveryEmailAvailabilityController,
   listNotificationsController,
   listOrdersController,
   listSupportTicketsController,
@@ -193,6 +194,7 @@ router.get("/delivery-partners", requireAuth, listDeliveryPartnersController);
 router.patch("/delivery-partners/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewDeliveryVerificationController);
 router.patch("/delivery-partners/me/availability", requireAuth, requireRole("DELIVERY_PARTNER"), updateDeliveryAvailabilityController);
 router.patch("/delivery-partners/me/profile", requireAuth, requireRole("DELIVERY_PARTNER"), updateDeliveryProfileController);
+router.get("/delivery-partners/me/email-availability", requireAuth, requireRole("DELIVERY_PARTNER"), checkDeliveryEmailAvailabilityController);
 router.patch("/delivery-partners/me/verification-draft", requireAuth, requireRole("DELIVERY_PARTNER"), saveDeliveryVerificationDraftController);
 router.post("/delivery-partners/me/verification", requireAuth, requireRole("DELIVERY_PARTNER"), submitDeliveryVerificationController);
 router.post("/delivery-partners/me/avatar", requireAuth, requireRole("DELIVERY_PARTNER"), uploadDeliveryAvatar, uploadDeliveryAvatarController);

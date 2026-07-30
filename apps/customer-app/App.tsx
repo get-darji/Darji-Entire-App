@@ -100,7 +100,7 @@ type Screen =
 type RequestFlowScreen = "newRequest" | "clothIssue" | "measurements" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
-type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
+type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; specialty?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
 type BackendTailorQuote = {
   id: string;
   requestId: string;
@@ -114,6 +114,7 @@ type BackendTailorQuote = {
   tailor?: {
     id: string;
     shopName?: string;
+    specialization?: string[];
     rating?: number;
     user?: { name?: string; phone?: string };
   } | null;
@@ -247,6 +248,7 @@ type BackendTailoringRequest = {
   confirmedAt?: string;
   createdAt: string;
   selectedQuote?: BackendRequestQuote | null;
+  quoteCount?: number;
   tailorRating?: number;
   deliveryRating?: number;
   tailorReview?: string;
@@ -557,7 +559,7 @@ const helpTopics = [
     subtitle: "UPI, cards and cash on delivery are supported.",
     details: [
       "You can pay online through Razorpay or use COD when available.",
-      "Refunds follow the cancellation and rescheduling rules.",
+      "Refunds follow the cancellation policy for the order status.",
       "Failed online payments can be retried from the order screen.",
       "Payment support can help with duplicate debit or refund delays."
     ]
@@ -663,12 +665,6 @@ const services = [
   { icon: "ribbon-outline", title: "Blouse", count: "15 tailors" },
   { icon: "woman-outline", title: "Kurti", count: "22 tailors" }
 ] as const;
-
-const quotes: Quote[] = [
-  { id: "ravi", initials: "RS", name: "Ravi Sharma", rating: "4.8", reviews: 214, eta: "2 days", price: 350, badge: "Top Rated" },
-  { id: "meena", initials: "MT", name: "Meena Tailors", rating: "4.6", reviews: 98, eta: "3 days", price: 280, badge: "Fast" },
-  { id: "arjun", initials: "AW", name: "Arjun Works", rating: "4.5", reviews: 67, eta: "2 days", price: 320 }
-];
 
 const homeMediaFeatures = [
   {
@@ -1076,12 +1072,7 @@ function makeDefaultAddresses(): SavedAddress[] {
 }
 
 function makeDefaultNotifications(): AppNotification[] {
-  return [
-    { id: "order-progress", icon: "cube-outline", title: "Order in progress", text: "Ravi Sharma started work on your kurta alteration.", time: "Now", dark: false, read: false },
-    { id: "pickup-confirmed", icon: "notifications-outline", title: "Pickup confirmed", text: "Your pickup slot is confirmed for today between 2:00 - 4:00 PM.", time: "15 min", dark: false, read: false },
-    { id: "quote-received", icon: "notifications-outline", title: "Quote received", text: "Meena Tailors sent a quote for blouse stitching.", time: "1 hr", dark: true, read: true },
-    { id: "order-delivered", icon: "cube-outline", title: "Order delivered", text: "Blouse Stitching was delivered successfully. Rate your experience.", time: "Jun 7", dark: true, read: true }
-  ];
+  return [];
 }
 
 function displayNameForPhone(phone: string, name?: string) {
@@ -2368,8 +2359,8 @@ function HomeScreen({
           <Pressable style={styles.supportRow} onPress={() => setScreen("helpCenter")}>
             <Ionicons name="help-circle-outline" size={21} color={BRAND_DEEP} />
             <View style={styles.profileRowText}>
-              <Text style={styles.addressTitle}>FAQs</Text>
-              <Text style={styles.mutedSmall}>Find answers to common questions</Text>
+              <Text style={styles.addressTitle}>Help Center</Text>
+              <Text style={styles.mutedSmall}>Find answers and support options</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#6b7890" />
           </Pressable>
@@ -4507,6 +4498,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 
 function quoteFromBackend(quote: BackendRequestQuote): Quote {
   const name = quote.tailor?.shopName || quote.tailor?.user?.name || "Darji Tailor";
+  const rating = Number(quote.tailor?.rating ?? 0);
   return {
     id: quote.id,
     backendQuoteId: quote.id,
@@ -4514,12 +4506,30 @@ function quoteFromBackend(quote: BackendRequestQuote): Quote {
     tailorId: quote.tailorId,
     initials: initialsFor(name),
     name,
-    rating: String(quote.tailor?.rating ?? "4.5"),
+    rating: rating > 0 ? rating.toFixed(1) : "New",
     reviews: 0,
     eta: etaLabel(quote),
     price: quote.price,
-    message: quote.message
+    message: quote.message,
+    specialty: quote.tailor?.specialization?.filter(Boolean).join(", ")
   };
+}
+
+function formatRequestSentLabel(createdAt?: string) {
+  if (!createdAt) return "Request sent";
+  const created = new Date(createdAt).getTime();
+  if (!Number.isFinite(created)) return "Request sent";
+  const minutes = Math.max(0, Math.floor((Date.now() - created) / 60000));
+  if (minutes < 1) return "Your request was sent just now";
+  if (minutes < 60) return `Your request was sent ${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Your request was sent ${hours} hr${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `Your request was sent ${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function quoteResponseLabel(count: number) {
+  return `${count} ${count === 1 ? "tailor" : "tailors"} responded`;
 }
 
 function statusFromBackendRequest(request: BackendTailoringRequest): OrderStatus {
@@ -4846,18 +4856,29 @@ function QuotesScreen({
 }) {
   const token = useAppStore((state) => state.token);
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
+  const [backendRequest, setBackendRequest] = useState<BackendTailoringRequest | undefined>();
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const itemCount = checkoutItemCount(draft);
+  const itemCount = backendRequest?.itemCount ?? checkoutItemCount(draft);
+  const responseCount = backendRequest?.quoteCount ?? backendQuotes.length;
+  const requestSentLabel = formatRequestSentLabel(backendRequest?.createdAt);
 
   async function loadQuotes() {
-    if (!token || !draft.backendRequestId) return;
+    if (!token || !draft.backendRequestId) {
+      setBackendQuotes([]);
+      setBackendRequest(undefined);
+      return;
+    }
     try {
       setLoading(true);
-      const data = await api<BackendTailorQuote[]>(`/tailoring-requests/${draft.backendRequestId}/quotes`, {}, token);
+      const [request, data] = await Promise.all([
+        api<BackendTailoringRequest>(`/tailoring-requests/${draft.backendRequestId}`, {}, token),
+        api<BackendTailorQuote[]>(`/tailoring-requests/${draft.backendRequestId}/quotes`, {}, token)
+      ]);
       const allowedStatuses = new Set(["SUBMITTED", "RESERVED", "ACCEPTED"]);
+      setBackendRequest(request);
       setBackendQuotes(data.filter((quote) => allowedStatuses.has(quote.status)).map(quoteFromBackend));
     } catch (error) {
       showDialog({
@@ -4874,7 +4895,7 @@ function QuotesScreen({
     void loadQuotes();
   }, [draft.backendRequestId, token]);
 
-  const visibleQuotes = draft.backendRequestId ? backendQuotes : quotes;
+  const visibleQuotes = backendQuotes;
 
   async function confirmTailor() {
     if (!selectedQuote) return;
@@ -4926,15 +4947,15 @@ function QuotesScreen({
               <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
             </View>
             <View style={styles.profileRowText}>
-              <Text style={styles.quotesSummaryTitle}>{loading ? "Checking quotes..." : `${visibleQuotes.length} tailors responded`}{` - ${itemCount} ${itemCount === 1 ? "item" : "items"}`}</Text>
-              <Text style={styles.mutedSmall}>Your request was sent just now</Text>
+              <Text style={styles.quotesSummaryTitle}>{loading ? "Checking quotes..." : quoteResponseLabel(responseCount)}</Text>
+              <Text style={styles.quotesSummaryItem}>{itemCount} {itemCount === 1 ? "item" : "items"}</Text>
+              <Text style={styles.mutedSmall}>{requestSentLabel}</Text>
             </View>
+            <Pressable style={styles.quoteDetailsButton} onPress={() => setDetailsOpen(true)}>
+              <Text style={styles.quoteDetailsButtonText}>View Details</Text>
+              <Ionicons name="chevron-forward" size={16} color={BRAND_DEEP} />
+            </Pressable>
           </View>
-          <Pressable style={styles.quoteDetailsButton} onPress={() => setDetailsOpen(true)}>
-            <Ionicons name="list-outline" size={18} color={BRAND_DEEP} />
-            <Text style={styles.quoteDetailsButtonText}>View Details</Text>
-            <Ionicons name="chevron-forward" size={16} color={BRAND_DEEP} />
-          </Pressable>
         </View>
 
         {visibleQuotes.length === 0 && !loading ? (
@@ -4944,25 +4965,20 @@ function QuotesScreen({
               <Ionicons name="paper-plane-outline" size={44} color={BRAND_ORANGE} style={styles.quotesPlaneIcon} />
             </View>
             <Text style={styles.emptyTitle}>Waiting for tailor quotes</Text>
-            <Text style={styles.helperText}>Your request is open. Tailors will see it in their app and send quote amount with completion time.</Text>
-            <View style={styles.quotesTrustCard}>
-              {[
-                ["eye-outline", "Verified Tailors", "Only trusted tailors"],
-                ["pricetag-outline", "Best Prices", "Compare quotes"],
-                ["shield-checkmark-outline", "Secure & Safe", "Protected orders"]
-              ].map(([icon, title, copy]) => (
-                <View key={title} style={styles.quotesTrustItem}>
-                  <View style={styles.quotesTrustIcon}><Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={BRAND_ORANGE} /></View>
-                  <Text style={styles.quotesTrustTitle}>{title}</Text>
-                  <Text style={styles.quotesTrustCopy}>{copy}</Text>
-                </View>
-              ))}
-            </View>
+            <Text style={styles.helperText}>Tailors will see your request and send their best quote soon.</Text>
+          </View>
+        ) : null}
+
+        {visibleQuotes.length > 0 ? (
+          <View style={styles.quotesListHeader}>
+            <Text style={styles.sectionTitle}>Tailor Quotes</Text>
+            <Text style={styles.mutedSmall}>Compare and choose the best quote for you.</Text>
           </View>
         ) : null}
 
         {visibleQuotes.map((quote) => {
           const selected = selectedQuote?.id === quote.id;
+          const numericRating = Number(quote.rating);
           return (
             <Pressable key={quote.id} style={[styles.quoteCard, selected && styles.selectedQuoteCard]} onPress={() => setSelectedQuote(quote)}>
               <View style={styles.quoteTopRow}>
@@ -4974,32 +4990,46 @@ function QuotesScreen({
                     {quote.name}
                   </Text>
                   <View style={styles.ratingRow}>
-                    <Ionicons name="star" size={13} color={BRAND_ORANGE} />
-                    <Text style={styles.quoteMeta} numberOfLines={1}>
-                      {quote.rating} ({quote.reviews} reviews)
-                    </Text>
+                    {Number.isFinite(numericRating) && numericRating > 0 ? [1, 2, 3, 4, 5].map((star) => (
+                      <Ionicons key={star} name={star <= Math.round(numericRating) ? "star" : "star-outline"} size={16} color={BRAND_ORANGE} />
+                    )) : <Text style={styles.quoteMeta}>New tailor</Text>}
                   </View>
-                  <Text style={styles.quoteMeta}>Est. {quote.eta}</Text>
                 </View>
                 <View style={styles.quotePriceWrap}>
                   <Text style={styles.quotePrice}>Rs{quote.price}</Text>
-                  {quote.badge ? <Text style={styles.badge}>{quote.badge}</Text> : null}
+                  <Text style={styles.quotePriceLabel}>Total Quote</Text>
                 </View>
               </View>
-              <View style={styles.chipRow}>
-                <Text style={styles.quoteChip}>{itemCount === 1 ? clothingItemSummary(clothingItemsForDraft(draft)[0] ?? draftToClothingItem(draft, "active-item")) : `${itemCount} clothing items`}</Text>
+              <View style={styles.quoteInfoGrid}>
+                <View style={styles.quoteInfoPill}>
+                  <Ionicons name="calendar-outline" size={20} color={BRAND_DEEP} />
+                  <View style={styles.profileRowTextNoMargin}>
+                    <Text style={styles.quoteInfoLabel}>Delivery in</Text>
+                    <Text style={styles.quoteInfoValue}>{quote.eta}</Text>
+                  </View>
+                </View>
+                <View style={styles.quoteInfoPill}>
+                  <Ionicons name="pricetag-outline" size={20} color={BRAND_DEEP} />
+                  <View style={styles.profileRowTextNoMargin}>
+                    <Text style={styles.quoteInfoLabel}>Specialty</Text>
+                    <Text style={styles.quoteInfoValue} numberOfLines={1}>{quote.specialty || (itemCount === 1 ? clothingItemTitle(clothingItemsForDraft(draft)[0] ?? draftToClothingItem(draft, "active-item")) : `${itemCount} items`)}</Text>
+                  </View>
+                </View>
               </View>
               {quote.message ? (
                 <View style={styles.quoteMessageBox}>
-                  <Text style={styles.cardLabel}>TAILOR NOTE</Text>
-                  <Text style={styles.quoteMessageText}>{quote.message}</Text>
+                  <Text style={styles.reviewQuoteMark}>“</Text>
+                  <View style={styles.quoteMessageContent}>
+                    <Text style={styles.quoteMessageText}>{quote.message}</Text>
+                    <Text style={styles.quoteMessageLabel}>Tailor's Note</Text>
+                  </View>
                 </View>
               ) : null}
             </Pressable>
           );
         })}
 
-        <Pressable style={styles.quoteActionRowButton} onPress={loadQuotes} disabled={loading || deleting}>
+        <Pressable style={styles.quoteActionRowButton} onPress={loadQuotes} disabled={loading || deleting || !draft.backendRequestId}>
           {loading ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh-outline" size={24} color={BRAND_ORANGE} />}
           <View style={styles.profileRowText}>
             <Text style={styles.quoteActionTitle}>Refresh Quotes</Text>
@@ -5007,8 +5037,13 @@ function QuotesScreen({
           </View>
           <Ionicons name="chevron-forward" size={20} color="#6b7890" />
         </Pressable>
-        <Pressable disabled={!selectedQuote || confirming} style={[styles.primaryWideButton, (!selectedQuote || confirming) && styles.disabledDarkButton]} onPress={confirmTailor}>
-          {confirming ? <ActivityIndicator color="#777777" /> : <Text style={[styles.primaryWideButtonText, !selectedQuote && styles.disabledText]}>Confirm This Tailor</Text>}
+        <Pressable disabled={!selectedQuote || confirming} style={[styles.primaryWideButton, styles.quoteConfirmButton, (!selectedQuote || confirming) && styles.disabledDarkButton]} onPress={confirmTailor}>
+          {confirming ? <ActivityIndicator color="#777777" /> : (
+            <>
+              <Ionicons name="shield-checkmark-outline" size={22} color={!selectedQuote ? "#777777" : "#ffffff"} />
+              <Text style={[styles.primaryWideButtonText, styles.quoteConfirmButtonText, !selectedQuote && styles.disabledText]}>Confirm This Tailor</Text>
+            </>
+          )}
         </Pressable>
         {draft.backendRequestId && onDeleteRequest ? (
           <Pressable style={styles.cancelOrderButton} onPress={requestDeleteRequest} disabled={deleting}>
@@ -5798,7 +5833,6 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="help-circle-outline" label={t(language, "helpCenter")} value={t(language, "faqWorkflows")} onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
-          <ProfileRow icon="document-text-outline" label="FAQs" value="Common questions and cancellation rules" onPress={() => setScreen("faq")} styles={profileStyles} />
           <ProfileRow icon="chatbubble-ellipses-outline" label={t(language, "contactSupport")} value={t(language, "chatWithSupportTeam")} onPress={() => setScreen("contactSupport")} styles={profileStyles} />
           <ProfileRow icon="bug-outline" label={t(language, "reportBug")} value={t(language, "submitBugReport")} onPress={() => setScreen("reportBug")} styles={profileStyles} />
         </View>
@@ -5809,7 +5843,6 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value={t(language, "refundAndCancellationRules")} onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} noBorder />
-          <ProfileRow icon="calendar-outline" label="Refund & Rescheduling Policy" value="Refunds, rescheduling and related rules" onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} />
           <ProfileRow icon="information-circle-outline" label={t(language, "aboutDarji")} value={t(language, "whoWeAreHowItWorks")} onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
           <ProfileRow icon="shield-checkmark-outline" label={t(language, "privacyPolicy")} value={t(language, "readPrivacyPolicy")} onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
           <ProfileRow icon="document-text-outline" label={t(language, "termsOfUse")} value={t(language, "readTermsOfService")} onPress={() => setScreen("termsService")} styles={profileStyles} />
@@ -6661,6 +6694,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   const border = isDark ? "#222222" : "#dce2ea";
   const text = isDark ? "#ffffff" : "#0b2241";
   const mutedText = isDark ? "#94a3b8" : "#65748a";
+  const placeholderText = isDark ? "#64748b" : "#a9b4c5";
 
   const loadTickets = useCallback(async () => {
     if (!token) return;
@@ -7285,7 +7319,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   value={description}
                   onChangeText={(value) => value.length <= 500 && setDescription(value)}
                   placeholder="Tell us more about your issue..."
-                  placeholderTextColor={mutedText}
+                  placeholderTextColor={placeholderText}
                   multiline
                 />
                 <Text style={styles.supportCounter}>{description.length}/500</Text>
@@ -7332,7 +7366,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 {sending ? <ActivityIndicator color="#111111" /> : (
                   <>
                     <Ionicons name="chatbubble-ellipses-outline" size={17} color="#111111" />
-                    <Text style={styles.primaryWideButtonText}>Start Conversation</Text>
+                    <Text numberOfLines={1} style={styles.supportPrimaryButtonText}>Start Conversation</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -7487,7 +7521,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     value={chatMessage}
                     onChangeText={setChatMessage}
                     placeholder="Type a message..."
-                    placeholderTextColor={mutedText}
+                    placeholderTextColor={placeholderText}
                     multiline
                   />
                   <Pressable 
@@ -7527,7 +7561,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   value={bugTitle}
                   onChangeText={setBugTitle}
                   placeholder="Eg. App crashes on Orders page"
-                  placeholderTextColor={mutedText}
+                  placeholderTextColor={placeholderText}
                 />
               </View>
 
@@ -7539,7 +7573,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   value={bugDescription}
                   onChangeText={(value) => value.length <= 500 && setBugDescription(value)}
                   placeholder="Tell us what went wrong and how we can see it"
-                  placeholderTextColor={mutedText}
+                  placeholderTextColor={placeholderText}
                   multiline
                 />
                 <Text style={styles.supportCounter}>{bugDescription.length}/500</Text>
@@ -7593,19 +7627,20 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 </View>
               </View>
 
-              <Pressable 
+              <Pressable
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
-                style={({ pressed }) => [
+                style={[
                   styles.supportPrimaryButton,
-                  sending ? { opacity: 0.6 } : (pressed ? { opacity: 0.8 } : { opacity: 1.0 })
+                  styles.bugSubmitButton,
+                  (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.bugSubmitButtonDisabled
                 ]}
-                disabled={sending}
+                disabled={bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending}
                 onPress={handleSubmitBug}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : (
                   <>
                     <Ionicons name="bug-outline" size={17} color="#111111" />
-                    <Text style={styles.primaryWideButtonText}>Submit Bug Report</Text>
+                    <Text numberOfLines={1} style={styles.supportPrimaryButtonText}>Submit Bug Report</Text>
                   </>
                 )}
               </Pressable>
@@ -7649,6 +7684,22 @@ function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Scr
       )}
     </ProfileSubPage>
   );
+}
+
+function ratingLabelForStars(rating: number) {
+  switch (rating) {
+    case 1:
+      return "Poor";
+    case 2:
+      return "Needs improvement";
+    case 3:
+      return "Good";
+    case 4:
+      return "Very good";
+    case 5:
+    default:
+      return "Excellent";
+  }
 }
 
 function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review: string) => void; setScreen: (screen: Screen) => void }) {
@@ -7715,7 +7766,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
             </Pressable>
           ))}
         </View>
-        <Text style={styles.mutedSmall}>{rating >= 4 ? "Excellent" : rating === 3 ? "Good" : "Needs improvement"}</Text>
+        <Text style={styles.ratingMoodText}>{ratingLabelForStars(rating)}</Text>
         <TextInput
           style={[styles.descriptionInput, styles.rateReviewInput]}
           value={review}
@@ -9842,10 +9893,6 @@ export default function App() {
           <HelpTopicScreen topicId={selectedHelpTopicId} setScreen={setScreen} />
         </Modal>
 
-        <Modal visible={screen === "faq"} onRequestClose={goBack} animationType="slide">
-          <FaqScreen setScreen={setScreen} onOpenCancellationPolicy={() => { setPendingCancellationOrder(undefined); setScreen("cancellationPolicy"); }} />
-        </Modal>
-        
         <Modal visible={screen === "cancellationPolicy"} onRequestClose={goBack} animationType="slide">
           <CancellationPolicyScreen order={pendingCancellationOrder} setScreen={setScreen} onConfirmCancel={confirmCancelOrder} isCancelling={Boolean(cancellingOrderId)} />
         </Modal>
@@ -9987,6 +10034,7 @@ function createStyles(isDark = false) {
   },
   authButtonText: { color: "#050505", fontSize: 14, fontWeight: "900" },
   buttonDisabled: { opacity: 0.72 },
+  pressedButton: { opacity: 0.86 },
   editPhoneButton: { marginTop: 16, alignItems: "center" },
   orangeText: { color: BRAND_ORANGE },
   orangeSmall: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "800" },
@@ -9997,13 +10045,13 @@ function createStyles(isDark = false) {
   onboardingTitle: { color: text, fontSize: 24, fontWeight: "900", marginTop: 34, marginBottom: 8 },
   locationLoadingContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 34 },
   locationLoadingIcon: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  dialogOverlay: { flex: 1, backgroundColor: "rgba(8, 17, 31, 0.48)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
-  dialogCard: { width: "100%", maxWidth: 360, borderRadius: 22, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 20, alignItems: "center" },
-  dialogIcon: { width: 52, height: 52, borderRadius: 18, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
-  dialogTitle: { color: text, fontSize: 20, fontWeight: "900", textAlign: "center" },
+  dialogOverlay: { flex: 1, backgroundColor: "rgba(8, 17, 31, 0.52)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+  dialogCard: { width: "100%", maxWidth: 360, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.16, shadowRadius: 28, elevation: 8 },
+  dialogIcon: { width: 54, height: 54, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  dialogTitle: { color: text, fontSize: 19, lineHeight: 24, fontWeight: "900", textAlign: "center" },
   dialogMessage: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 10 },
-  dialogActions: { width: "100%", gap: 10, marginTop: 20 },
-  dialogButton: { minHeight: 48, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  dialogActions: { width: "100%", gap: 10, marginTop: 22 },
+  dialogButton: { minHeight: 48, borderRadius: 13, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   dialogDestructiveButton: { backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1" },
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
@@ -10080,6 +10128,11 @@ function createStyles(isDark = false) {
   fabricCareIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   fabricCareTitle: { color: text, fontSize: 16, fontWeight: "900" },
   fabricCareCopy: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 7 },
+  pendingStepCard: { minHeight: 68, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10 },
+  pendingStepNumber: { width: 34, height: 34, borderRadius: 17, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  pendingStepNumberText: { color: "#111111", fontSize: 13, fontWeight: "900" },
+  pendingStepTitle: { color: text, fontSize: 14, fontWeight: "900", lineHeight: 19 },
+  pendingStepHelper: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 2 },
   offerRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 22 },
   offerCard: { flex: 1, minWidth: "30%", minHeight: 118, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, padding: 14 },
   offerCardWide: { width: "100%", minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
@@ -10153,7 +10206,7 @@ function createStyles(isDark = false) {
   createTabButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.22, shadowRadius: 9, elevation: 5 },
   createTabText: { marginTop: 2, fontSize: 9 },
   header: { height: 52, flexDirection: "row", alignItems: "center", marginBottom: 14 },
-  headerTitle: { color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
+  headerTitle: { flex: 1, minWidth: 0, color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
   headerSpacer: { width: 40 },
   roundIconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: surface, alignItems: "center", justifyContent: "center" },
   requestProgressWrap: { flexDirection: "row", gap: 6, marginBottom: 16 },
@@ -10456,21 +10509,23 @@ function createStyles(isDark = false) {
   paymentVerificationOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(247, 250, 255, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   infoBanner: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8, marginBottom: 14 },
   infoBannerText: { color: muted, fontSize: 13, fontWeight: "700" },
-  quotesSummaryCard: { minHeight: 126, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 14, marginBottom: 26 },
-  quotesSummaryTop: { flexDirection: "row", alignItems: "center", gap: 14, width: "100%" },
+  quotesSummaryCard: { minHeight: 118, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 14, marginBottom: 26 },
+  quotesSummaryTop: { flexDirection: "row", alignItems: "center", gap: 12, width: "100%" },
   quoteClockIcon: { width: 62, height: 62, borderRadius: 31, backgroundColor: surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92" },
   quotesSummaryTitle: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 24 },
-  quoteDetailsButton: { minHeight: 46, alignSelf: "flex-end", borderRadius: 23, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14, marginTop: 14 },
+  quotesSummaryItem: { color: text, fontSize: 15, fontWeight: "900", lineHeight: 21, marginTop: 2 },
+  quoteDetailsButton: { minHeight: 46, alignSelf: "center", borderRadius: 23, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14 },
   quoteDetailsButtonText: { color: text, fontSize: 13, fontWeight: "900" },
   quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 12 },
-  quotesIllustration: { width: 220, height: 170, borderRadius: 85, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  quotesIllustration: { width: 220, height: 220, borderRadius: 110, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 24, marginTop: 24 },
   quotesPlaneIcon: { position: "absolute", right: 34, top: 34 },
+  quotesListHeader: { marginBottom: 16 },
   quotesTrustCard: { width: "100%", minHeight: 96, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "stretch", padding: 12, marginBottom: 16 },
   quotesTrustItem: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: border },
   quotesTrustIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   quotesTrustTitle: { color: text, fontSize: 11, fontWeight: "900", textAlign: "center" },
   quotesTrustCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 14, textAlign: "center", marginTop: 4 },
-  quoteActionRowButton: { minHeight: 74, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginTop: 4 },
+  quoteActionRowButton: { minHeight: 64, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginTop: 4 },
   quoteActionTitle: { color: text, fontSize: 16, fontWeight: "900" },
   requestExpireRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 18, marginBottom: 20 },
   requestDetailsModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
@@ -10478,22 +10533,31 @@ function createStyles(isDark = false) {
   requestDetailPreviewRow: { gap: 8, paddingTop: 10 },
   requestDetailPreviewBox: { width: 58, height: 58, borderRadius: 13, overflow: "hidden", borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt },
   requestDetailPreviewImage: { width: "100%", height: "100%" },
-  quoteCard: { width: "100%", minHeight: 162, borderRadius: 20, backgroundColor: surfaceAlt, padding: 18, marginBottom: 16, borderWidth: 1.2, borderColor: "#efcf92" },
+  quoteCard: { width: "100%", minHeight: 190, borderRadius: 20, backgroundColor: surface, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: border, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 18, elevation: 2 },
   selectedQuoteCard: { borderColor: BRAND_ORANGE, backgroundColor: isDark ? "#2a1d0a" : "#fff5df" },
   quoteTopRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
   quoteMain: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 },
-  quoteAvatar: { width: 58, height: 58, borderRadius: 18, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  quoteAvatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 4 },
   quoteDetails: { flex: 1, minWidth: 0, paddingLeft: 14, paddingRight: 8 },
-  quoteName: { color: text, fontSize: 16, fontWeight: "900", lineHeight: 21 },
+  quoteName: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 23 },
   ratingRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 7, maxWidth: "100%" },
   quoteMeta: { color: muted, fontSize: 12, fontWeight: "800", flexShrink: 1, lineHeight: 17 },
-  quotePriceWrap: { width: 76, alignItems: "flex-end", alignSelf: "flex-start", paddingTop: 3 },
+  quotePriceWrap: { width: 86, alignItems: "flex-end", alignSelf: "flex-start", paddingTop: 3 },
   badge: { color: "#8a5600", backgroundColor: "#ffe7ae", overflow: "hidden", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, fontSize: 9, fontWeight: "900", marginTop: 8 },
-  quotePrice: { color: BRAND_ORANGE, fontSize: 19, fontWeight: "900", lineHeight: 24 },
+  quotePrice: { color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", lineHeight: 30 },
+  quotePriceLabel: { color: muted, fontSize: 11, fontWeight: "800", marginTop: 3 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 22, paddingLeft: 72 },
   quoteChip: { color: muted, backgroundColor: surface, overflow: "hidden", borderRadius: 10, borderWidth: 1, borderColor: border, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
-  quoteMessageBox: { borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 12, marginTop: 12 },
-  quoteMessageText: { color: text, fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 5 },
+  quoteInfoGrid: { flexDirection: "row", gap: 10, marginTop: 14, paddingLeft: 82 },
+  quoteInfoPill: { flex: 1, minHeight: 54, borderRadius: 12, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  quoteInfoLabel: { color: muted, fontSize: 11, fontWeight: "800", lineHeight: 15 },
+  quoteInfoValue: { color: text, fontSize: 12, fontWeight: "900", lineHeight: 17, marginTop: 1 },
+  quoteMessageBox: { borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 12, marginTop: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  quoteMessageContent: { flex: 1, minWidth: 0 },
+  quoteMessageText: { color: text, fontSize: 13, lineHeight: 19, fontWeight: "700" },
+  quoteMessageLabel: { color: muted, fontSize: 11, fontWeight: "800", marginTop: 2 },
+  quoteConfirmButton: { backgroundColor: BRAND_DEEP, borderRadius: 14, marginTop: 22 },
+  quoteConfirmButtonText: { color: "#ffffff" },
   whiteCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
@@ -10645,6 +10709,12 @@ function createStyles(isDark = false) {
   profileInput: { height: 52, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 16, color: text, fontSize: 15, fontWeight: "800" },
   profileInputButton: { height: 52, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   profileInputButtonText: { color: text, fontSize: 15, fontWeight: "800" },
+  profileGenderGrid: { flexDirection: "row", gap: 10, marginBottom: 4 },
+  profileGenderCard: { flex: 1, minHeight: 76, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 6 },
+  profileGenderCardSelected: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  profileGenderIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
+  profileGenderIconSelected: { backgroundColor: "#fff4dc" },
+  profileGenderText: { color: muted, fontSize: 12, fontWeight: "900", textAlign: "center" },
   placeholderText: { color: "#98a4b6" },
   dateDoneButton: { alignSelf: "flex-end", height: 36, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1, borderColor: "#efbd65", justifyContent: "center", marginTop: 8 },
   readOnlyField: { minHeight: 62, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, justifyContent: "center", paddingHorizontal: 16 },
@@ -10685,6 +10755,7 @@ function createStyles(isDark = false) {
   rateHero: { alignItems: "center", justifyContent: "center", paddingVertical: 12, marginBottom: 12, gap: 8 },
   ratingCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   starPicker: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 18 },
+  ratingMoodText: { color: BRAND_ORANGE, fontSize: 13, lineHeight: 18, fontWeight: "900" },
   rateReviewInput: { minHeight: 116, marginTop: 14 },
   reviewCounter: { color: muted, fontSize: 11, fontWeight: "800", alignSelf: "flex-end", marginTop: 7 },
   reviewPhotoRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
@@ -10835,37 +10906,38 @@ function createStyles(isDark = false) {
   helpTopicRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: "#edf1f5" },
   helpTopicIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   helpTopicText: { flex: 1, minWidth: 0 },
-  helpTopicTitle: { color: text, fontSize: 11, fontWeight: "900", lineHeight: 15 },
-  helpTopicCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, marginTop: 2 },
+  helpTopicTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
+  helpTopicCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 2 },
   helpContactCard: { minHeight: 62, borderRadius: 9, backgroundColor: "#fff7ea", flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginTop: 4, marginBottom: 12 },
   helpContactButton: { minHeight: 30, borderRadius: 9, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-  supportPage: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
-  supportFormContent: { gap: 14, paddingBottom: 32 },
-  supportIntro: { color: muted, fontSize: 11, fontWeight: "800", lineHeight: 17, marginTop: -8, marginBottom: 4, fontStyle: "italic" },
-  supportLabel: { color: text, fontSize: 12, fontWeight: "900", marginBottom: 7 },
-  supportFieldHint: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, marginTop: -4, marginBottom: 7 },
+  supportPage: { flex: 1, paddingHorizontal: 20, paddingTop: 18 },
+  supportFormContent: { gap: 18, paddingTop: 4, paddingBottom: 48 },
+  supportIntro: { color: muted, fontSize: 14, fontWeight: "800", lineHeight: 21, marginBottom: 2 },
+  supportLabel: { color: text, fontSize: 15, fontWeight: "900", marginBottom: 7 },
+  supportFieldHint: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: -3, marginBottom: 8 },
   supportOrderScroller: { gap: 10, paddingBottom: 8 },
   supportOrderCard: { width: 252, minHeight: 54, borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12 },
   supportOrderCardActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fffaf1" },
   supportTinyIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   supportOrderText: { flex: 1, minWidth: 0 },
-  supportOrderTitle: { color: text, fontSize: 11, fontWeight: "900" },
-  supportOrderCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, marginTop: 2 },
-  supportNoOrderButton: { height: 32, borderRadius: 6, borderWidth: 1, borderColor: BRAND_ORANGE, backgroundColor: "#fffdf9", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  supportNoOrderText: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900" },
+  supportOrderTitle: { color: text, fontSize: 13, fontWeight: "900" },
+  supportOrderCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 15, marginTop: 2 },
+  supportNoOrderButton: { minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: BRAND_ORANGE, backgroundColor: "#fffdf9", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12 },
+  supportNoOrderText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   supportCategoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  supportCategoryCard: { width: "48.5%", height: 39, borderRadius: 7, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8 },
+  supportCategoryCard: { width: "48.5%", minHeight: 48, borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 8 },
   supportCategoryCardActive: { borderColor: "#efbd65", backgroundColor: "#fff7ea" },
-  supportCategoryText: { flexShrink: 1, minWidth: 0, color: text, fontSize: 10, fontWeight: "900" },
+  supportCategoryText: { flexShrink: 1, minWidth: 0, color: text, fontSize: 12, fontWeight: "900", lineHeight: 16 },
   supportCategoryTextActive: { color: BRAND_ORANGE },
-  supportSingleInput: { height: 42, borderRadius: 8, borderWidth: 1, borderColor: "#dce2ea", backgroundColor: inputSurface, paddingHorizontal: 13, color: text, fontSize: 12, fontWeight: "800" },
-  supportDescriptionInput: { minHeight: 72, borderRadius: 10, borderWidth: 1, borderColor: "#dce2ea", backgroundColor: inputSurface, paddingHorizontal: 13, paddingVertical: 12, color: text, fontSize: 11, fontWeight: "800", textAlignVertical: "top" },
-  supportCounter: { color: muted, fontSize: 9, fontWeight: "800", textAlign: "right", marginTop: -20, marginRight: 10 },
+  supportSingleInput: { height: 48, borderRadius: 12, borderWidth: 1, borderColor: "#dce2ea", backgroundColor: inputSurface, paddingHorizontal: 14, color: text, fontSize: 13, fontWeight: "800" },
+  supportDescriptionInput: { minHeight: 112, borderRadius: 13, borderWidth: 1, borderColor: "#dce2ea", backgroundColor: inputSurface, paddingHorizontal: 14, paddingVertical: 13, color: text, fontSize: 13, fontWeight: "800", lineHeight: 19, textAlignVertical: "top" },
+  supportCounter: { color: muted, fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: -28, marginRight: 12 },
   supportAttachmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" },
   supportPhotoButton: { width: 64, height: 58, borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface },
-  supportPhotoButtonText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", marginTop: 4 },
-  supportPhotoHelper: { flex: 1, minWidth: 0, color: muted, fontSize: 9, fontWeight: "800", lineHeight: 13 },
-  supportPrimaryButton: { height: 46, borderRadius: 8, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 12, marginTop: 4, shadowColor: "#c47a00", shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 5 },
+  supportPhotoButtonText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", marginTop: 4 },
+  supportPhotoHelper: { flex: 1, minWidth: 0, color: muted, fontSize: 12, fontWeight: "800", lineHeight: 17 },
+  supportPrimaryButton: { minHeight: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 10, marginTop: 4, paddingHorizontal: 18, shadowColor: "#c47a00", shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.18, shadowRadius: 16, elevation: 5 },
+  supportPrimaryButtonText: { flexShrink: 1, minWidth: 0, color: "#111111", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
   chatPage: { flex: 1, paddingHorizontal: 14, paddingTop: 8 },
   chatHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#edf1f5", paddingBottom: 10, marginBottom: 8 },
   chatHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 9, flex: 1, minWidth: 0 },
@@ -10884,7 +10956,9 @@ function createStyles(isDark = false) {
   chatMediaText: { color: muted, fontSize: 8, fontWeight: "800", marginTop: 1 },
   chatInput: { flex: 1, minHeight: 40, maxHeight: 92, borderWidth: 1, borderColor: "#edf1f5", borderRadius: 20, paddingHorizontal: 14, color: text, fontSize: 12, fontWeight: "800" },
   chatSendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#ffc45c", alignItems: "center", justifyContent: "center" },
-  bugUploadButton: { width: "100%", height: 46, borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface, flexDirection: "row", gap: 8 },
+  bugUploadButton: { width: "100%", minHeight: 56, borderRadius: 13, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface, flexDirection: "row", gap: 8 },
+  bugSubmitButton: { width: "100%", alignSelf: "stretch", backgroundColor: BRAND_ORANGE, marginTop: 10 },
+  bugSubmitButtonDisabled: { backgroundColor: "#ffc45c", opacity: 1 },
   bugInfoCard: { borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, paddingHorizontal: 12 },
   bugInfoRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 },
   bugInfoRowBorder: { borderTopWidth: 1, borderTopColor: "#edf1f5" },
@@ -10908,7 +10982,14 @@ function createStyles(isDark = false) {
   searchNotificationButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", marginLeft: 12 },
   searchControlRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 18 },
   filterButton: { height: 46, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14 },
+  filterButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff7ea" },
   filterButtonText: { color: text, fontSize: 13, fontWeight: "800" },
+  searchFilterPanel: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 14, marginTop: -6, marginBottom: 14 },
+  searchFilterChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  searchFilterChip: { minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 13 },
+  searchFilterChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
+  searchFilterChipText: { color: muted, fontSize: 12, fontWeight: "900" },
+  searchFilterChipTextActive: { color: text },
   searchSegment: { height: 52, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 4, marginBottom: 18 },
   searchSegmentOption: { flex: 1, height: "100%", borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
   searchSegmentActive: { backgroundColor: surface, borderWidth: 1, borderColor: "#eef2f7", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },

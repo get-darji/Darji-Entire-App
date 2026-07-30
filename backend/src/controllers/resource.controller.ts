@@ -938,6 +938,12 @@ export async function updateDeliveryProfileController(req: Request, res: Respons
   res.json({ data: { ...user?.toJSON(), deliveryProfile: partner } });
 }
 
+export async function checkDeliveryEmailAvailabilityController(req: Request, res: Response) {
+  const email = z.string().trim().email().parse(req.query.email);
+  const existingUser = await UserModel.findOne({ email, _id: { $ne: req.user!.id } }).select("_id");
+  res.json({ data: { available: !existingUser, email } });
+}
+
 export async function submitDeliveryVerificationController(req: Request, res: Response) {
   const input = deliveryVerificationSchema.parse(req.body);
 
@@ -954,36 +960,37 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
         ...(input.personal.email ? { email: input.personal.email } : {}),
         ...(input.identity.facePhotoUrl ? { avatarUrl: input.identity.facePhotoUrl } : {})
       },
-      { returnDocument: "after" }
+      { returnDocument: "after", runValidators: true }
     );
     if (!user) throw new AppError(404, "User not found");
 
-    const partner = await DeliveryPartnerModel.findOneAndUpdate(
-      { userId: req.user!.id },
-      {
-        $set: {
-          vehicleNumber: input.vehicle.vehicleNumber,
-          settings: {
-            availability: input.preferences.availability,
-            radius: input.preferences.radius,
-            instantDeliveries: input.preferences.instantDeliveries
-          },
-          verificationStatus: "PENDING",
-          verificationSubmittedAt: new Date(),
-          verification: input
-        },
-        $unset: {
-          verificationReviewedAt: "",
-          verificationRejectionReason: "",
-          verificationDraft: ""
-        }
-      },
-      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
-    );
+    const partner =
+      (await DeliveryPartnerModel.findOne({ userId: req.user!.id })) ??
+      new DeliveryPartnerModel({
+        userId: req.user!.id
+      });
+
+    partner.vehicleNumber = input.vehicle.vehicleNumber;
+    partner.settings = {
+      availability: input.preferences.availability,
+      radius: input.preferences.radius,
+      instantDeliveries: input.preferences.instantDeliveries
+    };
+    partner.verificationStatus = "PENDING";
+    partner.verificationSubmittedAt = new Date();
+    partner.verification = input;
+    partner.verificationDraft = undefined;
+    partner.verificationReviewedAt = undefined;
+    partner.verificationRejectionReason = undefined;
+    await partner.save();
 
     res.json({ data: { ...user.toJSON(), deliveryProfile: partner } });
   } catch (error: any) {
     if (error instanceof AppError) throw error;
+    if (error?.name === "ValidationError") {
+      const message = Object.values(error.errors ?? {}).map((item: any) => item?.message).filter(Boolean).join(", ") || "Verification validation failed";
+      throw new AppError(400, message);
+    }
     if (error?.code === 11000) {
       const field = Object.keys(error.keyPattern ?? error.keyValue ?? {})[0];
       throw new AppError(409, field === "email" ? "This email is already linked to another account" : "This verification profile already exists. Please refresh and try again.");
