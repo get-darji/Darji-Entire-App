@@ -889,163 +889,341 @@ function RequestsEmptyState({ sent }: { sent: boolean }) {
   );
 }
 
-function RequestDetailsScreen({ request, setScreen, showDialog }: { request: TailoringRequest; setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void; showDialog: (dialog: DialogState) => void }) {
+function requestDetailMedia(request: TailoringRequest) {
+  const byUrl = new Map<string, MediaItem>();
+  requestItems(request).flatMap((item) => item.media ?? []).concat(request.media ?? []).forEach((item) => {
+    if (item.url) byUrl.set(item.url, item);
+  });
+  return Array.from(byUrl.values());
+}
+
+function requestItemMedia(request: TailoringRequest, item: TailoringRequestItem, totalItems: number) {
+  const byUrl = new Map<string, MediaItem>();
+  (item.media ?? []).forEach((media) => {
+    if (media.url) byUrl.set(media.url, media);
+  });
+  if (totalItems <= 1) {
+    (request.media ?? []).forEach((media) => {
+      if (media.url) byUrl.set(media.url, media);
+    });
+  }
+  return Array.from(byUrl.values());
+}
+
+function requestSampleMedia(request: TailoringRequest) {
+  const byUrl = new Map<string, MediaItem>();
+  requestItems(request).forEach((item) => {
+    (item.sampleMedia ?? []).forEach((media) => {
+      if (media.url) byUrl.set(media.url, media);
+    });
+    if (item.measurement?.imageUrl) {
+      byUrl.set(item.measurement.imageUrl, { url: item.measurement.imageUrl, resourceType: "image", originalName: "Sample garment" });
+    }
+  });
+  if (request.measurement?.imageUrl) {
+    byUrl.set(request.measurement.imageUrl, { url: request.measurement.imageUrl, resourceType: "image", originalName: "Sample garment" });
+  }
+  return Array.from(byUrl.values());
+}
+
+function requestItemSampleMedia(request: TailoringRequest, item: TailoringRequestItem, totalItems: number) {
+  const byUrl = new Map<string, MediaItem>();
+  (item.sampleMedia ?? []).forEach((media) => {
+    if (media.url) byUrl.set(media.url, media);
+  });
+  if (item.measurement?.imageUrl) {
+    byUrl.set(item.measurement.imageUrl, { url: item.measurement.imageUrl, resourceType: "image", originalName: "Sample garment" });
+  }
+  if (totalItems <= 1 && request.measurement?.imageUrl) {
+    byUrl.set(request.measurement.imageUrl, { url: request.measurement.imageUrl, resourceType: "image", originalName: "Sample garment" });
+  }
+  return Array.from(byUrl.values());
+}
+
+function requestWorkLabel(item: TailoringRequestItem) {
+  if (item.selectedWorkItems?.length) return item.selectedWorkItems.join(", ");
+  return item.otherWorkDescription || item.workType || "Tailoring";
+}
+
+function requestWorkDisplayLabel(item: TailoringRequestItem) {
+  if (item.selectedWorkItems?.length && item.selectedWorkItems.length > 1) {
+    return `${item.selectedWorkItems[0]} +${item.selectedWorkItems.length - 1}`;
+  }
+  return requestWorkLabel(item);
+}
+
+function genderDetail(gender?: string) {
+  const value = String(gender ?? "").toLowerCase();
+  if (value.includes("women") || value.includes("female")) return { icon: "female-outline" as const, color: "#ec4899", bg: "#fce7f3" };
+  if (value.includes("men") || value.includes("male")) return { icon: "male-outline" as const, color: "#2563eb", bg: "#dbeafe" };
+  return { icon: "people-outline" as const, color: "#64748b", bg: "#f1f5f9" };
+}
+
+function cleanCustomerNote(value?: string) {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !/customer\s+requested.*(measurement|mesurement|measure)/i.test(line))
+    .filter((line) => !/fee:\s*rs\s*\d+/i.test(line))
+    .join("\n")
+    .replace(/customer\s+requested.*(measurement|mesurement|measure).*?\.?/gi, "")
+    .replace(/fee:\s*rs\s*\d+\.?/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function RequestDetailsHeader({ requestId, onBack }: { requestId: string; onBack: () => void }) {
+  return (
+    <View style={styles.header}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Go back" style={styles.roundIcon} onPress={onBack}>
+        <Ionicons name="arrow-back" size={20} color={BRAND_DEEP} />
+      </Pressable>
+      <View style={styles.headerText}>
+        <Text style={styles.headerTitle}>Request Details</Text>
+        <Text style={styles.headerSubtitle}>
+          Request ID <Text style={styles.requestIdAccent}>{requestId}</Text>
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function RequestDetailTile({
+  bg,
+  color,
+  displayValue,
+  icon,
+  label,
+  onPress,
+  value
+}: {
+  bg: string;
+  color: string;
+  displayValue?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress?: () => void;
+  value: string;
+}) {
+  return (
+    <Pressable style={({ pressed }) => [styles.requestDetailTile, pressed && styles.requestDetailTilePressed]} onPress={onPress}>
+      <View style={[styles.requestDetailTileIcon, { backgroundColor: bg }]}>
+        <Ionicons name={icon} size={29} color={color} />
+      </View>
+      <View style={styles.requestDetailTileText}>
+        <Text style={styles.requestDetailTileLabel} numberOfLines={2} ellipsizeMode="tail" textBreakStrategy="simple">{label}</Text>
+        <Text style={styles.requestDetailTileValue} numberOfLines={2} ellipsizeMode="tail" adjustsFontSizeToFit minimumFontScale={0.78} textBreakStrategy="simple">{displayValue ?? value}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function RequestDetailsScreen({
+  request,
+  setScreen,
+  showDialog,
+  onDecline
+}: {
+  request: TailoringRequest;
+  setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void;
+  showDialog: (dialog: DialogState) => void;
+  onDecline?: (request: TailoringRequest) => void;
+}) {
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
+  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const items = requestItems(request);
-  const itemCount = requestItemCount(request);
+  const selectedItem = items[Math.min(selectedItemIndex, Math.max(items.length - 1, 0))] ?? items[0];
+  const hasMultipleItems = items.length > 1;
+  const media = selectedItem ? requestItemMedia(request, selectedItem, items.length) : [];
+  const sampleMedia = selectedItem ? requestItemSampleMedia(request, selectedItem, items.length) : [];
+  const customerNote = cleanCustomerNote(request.description);
+  const measurementNote = cleanCustomerNote(request.measurementNotes);
+  const selectedGender = selectedItem?.gender || request.gender;
+  const selectedGenderDetail = genderDetail(selectedGender);
+  const openTileDetails = (details: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap }) => {
+    showDialog({ title: details.label, message: details.value, icon: details.icon });
+  };
+  const detailTiles = selectedItem ? [
+    { bg: selectedGenderDetail.bg, color: selectedGenderDetail.color, icon: selectedGenderDetail.icon, label: "For", value: selectedGender || "Not specified" },
+    { bg: "#f3e8ff", color: "#a855f7", icon: "shirt-outline" as const, label: "Garment", value: selectedItem.clothType || request.clothType || "Garment" },
+    { bg: "#e0f2fe", color: "#0284c7", icon: "cut-outline" as const, label: "Service", value: selectedItem.serviceCategory || selectedItem.workType || "Tailoring" },
+    { bg: "#fff7ed", color: BRAND_ORANGE, icon: "create-outline" as const, label: "Work", value: requestWorkLabel(selectedItem), displayValue: requestWorkDisplayLabel(selectedItem) },
+    { bg: "#dcfce7", color: "#16a34a", icon: "resize-outline" as const, label: "Measurement Method", value: measurementStatus(selectedItem) },
+    { bg: "#fff4dc", color: BRAND_ORANGE, icon: "flash-outline" as const, label: "Delivery Timing", value: request.urgency || "Normal" }
+  ] : [];
+
+  useEffect(() => {
+    if (selectedItemIndex >= items.length) setSelectedItemIndex(0);
+  }, [items.length, selectedItemIndex]);
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-        <Header title="Request Details" subtitle={`Request ID ${shortId(request.id)}`} onBack={() => setScreen("requests", { replace: true })} />
-        <View style={styles.whiteCard}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardLabel}>REQUEST</Text>
-            <StatusPill status={request.status} />
+      <ScrollView contentContainerStyle={styles.requestDetailsContent} showsVerticalScrollIndicator={false}>
+        <RequestDetailsHeader requestId={shortId(request.id)} onBack={() => setScreen("requests", { replace: true })} />
+        <View style={styles.requestReceivedCard}>
+          <View style={styles.requestReceivedIcon}>
+            <Ionicons name="calendar-outline" size={26} color={BRAND_ORANGE} />
           </View>
-          <Text style={styles.bigTitle}>{itemCount === 1 ? request.workType : `New Order - ${itemCount} Clothing Items`}</Text>
-          <Text style={styles.cardLabel}>CUSTOMER DESCRIPTION</Text>
-          <Text style={styles.customerDescriptionText}>{request.description}</Text>
-          <DetailRow icon="receipt-outline" label="Request ID" value={shortId(request.id)} />
-          <DetailRow icon="time-outline" label="Created" value={formatTimestamp(request.createdAt)} />
-          <DetailRow icon="shirt-outline" label="Clothing Items" value={`${itemCount}`} />
-          <View style={styles.detailRow}>
-            <View style={styles.smallIcon}>
-              <Ionicons name="time-outline" size={16} color={BRAND_ORANGE} />
-            </View>
-            <View style={styles.cardMain}>
-              <Text style={styles.detailLabel}>Urgency</Text>
-              <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
-            </View>
+          <View>
+            <Text style={styles.requestReceivedLabel}>Received</Text>
+            <Text style={styles.requestReceivedValue}>{formatTimestamp(request.createdAt)}</Text>
           </View>
         </View>
 
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>CLOTHING ITEMS</Text>
-          {items.map((item, index) => (
-            <View key={item.id ?? `${request.id}-${index}`} style={styles.itemBlock}>
-              <Text style={styles.cardTitle}>Item {index + 1}: {item.clothType}</Text>
-              <Text style={styles.cardMeta}>{[item.gender, item.serviceCategory ?? item.workType, measurementStatus(item)].filter(Boolean).join(" - ")}</Text>
-              <Text style={styles.cardCopy}>{item.description}</Text>
-              {item.selectedWorkItems?.length ? (
-                <View style={styles.requestWorkBlock}>
-                  <Text style={styles.detailLabel}>Requested work</Text>
-                  <View style={styles.chipWrap}>
-                    {item.selectedWorkItems.map((workItem) => (
-                      <View key={workItem} style={[styles.suggestionChip, styles.suggestionChipActive]}>
-                        <Text style={[styles.suggestionChipText, styles.suggestionChipTextActive]}>{workItem}</Text>
-                      </View>
+        <View style={styles.requestDetailsCard}>
+          {hasMultipleItems ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.requestItemChipRow}>
+              {items.map((item, index) => {
+                const active = index === selectedItemIndex;
+                return (
+                  <Pressable key={item.id ?? `${request.id}-chip-${index}`} style={[styles.requestItemChip, active && styles.requestItemChipActive]} onPress={() => setSelectedItemIndex(index)}>
+                    <Text style={[styles.requestItemChipText, active && styles.requestItemChipTextActive]}>Item {index + 1}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+
+          {selectedItem ? (
+            <View>
+              <View style={styles.requestItemHeader}>
+                <View style={styles.requestItemIcon}>
+                  <Ionicons name="shirt-outline" size={30} color="#a855f7" />
+                </View>
+                <View style={styles.cardMain}>
+                  <Text style={styles.requestItemTitle}>{hasMultipleItems ? `Item ${selectedItemIndex + 1}: ` : "Item: "}{selectedItem.clothType || "Garment"}</Text>
+                  <Text style={styles.requestItemMeta}>{[selectedItem.gender, selectedItem.serviceCategory ?? selectedItem.workType].filter(Boolean).join("  -  ")}</Text>
+                </View>
+              </View>
+
+              <View style={styles.requestDetailGrid}>
+                {[0, 2, 4].map((start) => (
+                  <View key={`detail-row-${start}`} style={styles.requestDetailTileRow}>
+                    {detailTiles.slice(start, start + 2).map((tile) => (
+                      <RequestDetailTile
+                        key={tile.label}
+                        bg={tile.bg}
+                        color={tile.color}
+                        displayValue={tile.displayValue}
+                        icon={tile.icon}
+                        label={tile.label}
+                        value={tile.value}
+                        onPress={() => openTileDetails({ label: tile.label, value: tile.value, icon: tile.icon })}
+                      />
                     ))}
                   </View>
-                </View>
-              ) : item.otherWorkDescription ? (
-                <View style={styles.requestWorkBlock}>
-                  <Text style={styles.detailLabel}>Requested work</Text>
-                  <Text style={styles.cardCopy}>{item.otherWorkDescription}</Text>
-                </View>
-              ) : null}
-              {item.measurement?.imageUrl ? (
-                <View style={styles.sampleReferenceBlock}>
-                  <Image source={{ uri: item.measurement.imageUrl }} style={styles.sampleReferenceImage} />
-                  <View style={styles.sampleReferenceText}>
-                    <Text style={styles.cardTitle}>Sample reference</Text>
-                    <Text style={styles.cardCopy}>Customer attached a sample garment photo for fit reference.</Text>
-                  </View>
-                </View>
-              ) : null}
-              {Object.entries(item.measurement?.fields ?? {}).map(([key, value]) => (
-                <View key={key} style={styles.measureRow}>
-                  <Text style={styles.detailLabel}>{key}</Text>
-                  <Text style={styles.detailValue}>{String(value)}</Text>
-                </View>
-              ))}
-              {item.measurementNotes ? <Text style={styles.cardCopy}>{item.measurementNotes}</Text> : null}
-              {item.media?.length ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
-                  {item.media.map((media, mediaIndex) => (
-                    <Pressable key={`${media.url}-${mediaIndex}`} style={styles.mediaBox} onPress={() => setSelectedMedia(media)}>
-                      {media.resourceType === "image" ? (
-                        <Image source={{ uri: media.url }} style={styles.mediaImage} />
-                      ) : (
-                        <>
-                          <Ionicons name="videocam-outline" size={26} color={BRAND_ORANGE} />
-                          <Text style={styles.mediaTypeText}>Video</Text>
-                        </>
-                      )}
-                      <View style={styles.mediaOpenBadge}>
-                        <Ionicons name="expand-outline" size={13} color="#ffffff" />
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              ) : null}
-            </View>
-          ))}
-        </View>
-
-        {itemCount === 1 ? <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>MEASUREMENTS</Text>
-          {request.measurement?.imageUrl ? (
-            <View style={styles.sampleReferenceBlock}>
-              <Image source={{ uri: request.measurement.imageUrl }} style={styles.sampleReferenceImage} />
-              <View style={styles.sampleReferenceText}>
-                <Text style={styles.cardTitle}>Sample reference</Text>
-                <Text style={styles.cardCopy}>Customer attached a sample garment photo for fit reference.</Text>
+                ))}
               </View>
+
+              {Object.entries(selectedItem.measurement?.fields ?? {}).length ? (
+                <View style={styles.requestMeasurementsPanel}>
+                  <Text style={styles.requestPanelTitle}>Measurements</Text>
+                  {Object.entries(selectedItem.measurement?.fields ?? {}).map(([key, value]) => (
+                    <View key={key} style={styles.measureRow}>
+                      <Text style={styles.detailLabel}>{key}</Text>
+                      <Text style={styles.detailValue}>{String(value)}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
-          {Object.entries(request.measurement?.fields ?? {}).length ? (
-            Object.entries(request.measurement?.fields ?? {}).map(([key, value]) => (
-              <View key={key} style={styles.measureRow}>
-                <Text style={styles.detailLabel}>{key}</Text>
-                <Text style={styles.detailValue}>{String(value)}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.helperText}>No measurements added by the customer.</Text>
-          )}
-          {request.measurementNotes ? <Text style={styles.cardCopy}>{request.measurementNotes}</Text> : null}
-        </View> : null}
 
-        {itemCount === 1 ? <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>MEDIA</Text>
-          {request.media?.length ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
-              {request.media.map((item, index) => (
-                <Pressable key={`${item.url}-${index}`} style={styles.mediaBox} onPress={() => setSelectedMedia(item)}>
+          <View style={styles.requestNotesCard}>
+            <Ionicons name="chatbox-ellipses-outline" size={26} color={BRAND_ORANGE} />
+            <View style={styles.cardMain}>
+              <Text style={styles.requestNotesTitle}>Customer Notes</Text>
+              <Text style={styles.requestNotesText}>{customerNote || "No notes added by the customer."}</Text>
+              {measurementNote ? <Text style={styles.requestNotesText}>{measurementNote}</Text> : null}
+            </View>
+          </View>
+
+          <Text style={styles.requestPhotosTitle}>Cloth Images</Text>
+          {media.length ? (
+            <View style={styles.requestPhotoGrid}>
+              {media.map((item, index) => (
+                <Pressable key={`${item.url}-${index}`} style={styles.requestPhotoBox} onPress={() => setSelectedMedia(item)}>
                   {item.resourceType === "image" ? (
-                    <Image source={{ uri: item.url }} style={styles.mediaImage} />
+                    <Image source={{ uri: item.url }} style={styles.requestPhotoImage} />
                   ) : (
-                    <>
-                      <Ionicons name="videocam-outline" size={26} color={BRAND_ORANGE} />
+                    <View style={styles.requestVideoBox}>
+                      <Ionicons name="videocam-outline" size={30} color={BRAND_ORANGE} />
                       <Text style={styles.mediaTypeText}>Video</Text>
-                    </>
+                    </View>
                   )}
-                  <View style={styles.mediaOpenBadge}>
-                    <Ionicons name="expand-outline" size={13} color="#ffffff" />
+                  <View style={styles.requestPhotoBadge}>
+                    <Text style={styles.requestPhotoBadgeText}>{index + 1}/{media.length}</Text>
                   </View>
                 </Pressable>
               ))}
-            </ScrollView>
+            </View>
           ) : (
-            <Text style={styles.helperText}>No photos or videos attached.</Text>
+            <Text style={styles.helperText}>No cloth photos uploaded.</Text>
           )}
-        </View> : null}
+
+          <Text style={[styles.requestPhotosTitle, styles.requestSamplePhotosTitle]}>Sample Photos</Text>
+          {sampleMedia.length ? (
+            <View style={styles.requestPhotoGrid}>
+              {sampleMedia.map((item, index) => (
+                <Pressable key={`${item.url}-${index}`} style={styles.requestPhotoBox} onPress={() => setSelectedMedia(item)}>
+                  {item.resourceType === "image" ? (
+                    <Image source={{ uri: item.url }} style={styles.requestPhotoImage} />
+                  ) : (
+                    <View style={styles.requestVideoBox}>
+                      <Ionicons name="videocam-outline" size={30} color={BRAND_ORANGE} />
+                      <Text style={styles.mediaTypeText}>Video</Text>
+                    </View>
+                  )}
+                  <View style={styles.requestPhotoBadge}>
+                    <Text style={styles.requestPhotoBadgeText}>{index + 1}/{sampleMedia.length}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.helperText}>No sample photos uploaded.</Text>
+          )}
+        </View>
 
         {request.ownQuote ? (
-          <View style={styles.whiteCard}>
-            <Text style={styles.cardLabel}>QUOTE SUBMITTED</Text>
-            <Text style={styles.bigTitle}>{money(request.ownQuote.price)}</Text>
-            <Text style={styles.helperText}>Estimated {quoteEtaLabel(request.ownQuote)}.</Text>
-            <Text style={styles.infoText}>Status: {request.ownQuote.status}</Text>
-            {request.ownQuote.status === "SUBMITTED" ? <Text style={styles.helperText}>Waiting for customer response.</Text> : null}
-            {request.ownQuote.message ? <Text style={styles.infoText}>{request.ownQuote.message}</Text> : null}
+          <View style={styles.quoteSubmittedCard}>
+            <View style={styles.quoteSubmittedHeader}>
+              <View style={styles.quoteSubmittedIcon}>
+                <Ionicons name="checkmark-done-outline" size={28} color={SUCCESS} />
+              </View>
+              <View style={styles.cardMain}>
+                <Text style={styles.quoteSubmittedLabel}>Quote Submitted</Text>
+                <Text style={styles.quoteSubmittedSub}>Waiting for customer response</Text>
+              </View>
+              <View style={styles.quoteStatusPill}>
+                <Text style={styles.quoteStatusText}>{formatStatus(request.ownQuote.status)}</Text>
+              </View>
+            </View>
+            <View style={styles.quoteAmountRow}>
+              <View>
+                <Text style={styles.quoteAmountLabel}>Your price</Text>
+                <Text style={styles.quoteAmountText}>{money(request.ownQuote.price)}</Text>
+              </View>
+              <View style={styles.quoteEtaBox}>
+                <Ionicons name="time-outline" size={18} color={BRAND_ORANGE} />
+                <Text style={styles.quoteEtaText}>{quoteEtaLabel(request.ownQuote)}</Text>
+              </View>
+            </View>
+            {request.ownQuote.message ? (
+              <View style={styles.quoteMessageBox}>
+                <Ionicons name="chatbox-ellipses-outline" size={18} color={BRAND_ORANGE} />
+                <Text style={styles.quoteMessageText}>{request.ownQuote.message}</Text>
+              </View>
+            ) : null}
           </View>
         ) : request.status === "QUOTE_REQUESTED" ? (
-          <Pressable style={styles.primaryButton} onPress={() => setScreen("quote")}>
-            <Ionicons name="send-outline" size={18} color="#111111" />
-            <Text style={styles.primaryButtonText}>Send Quote</Text>
-          </Pressable>
+          <View style={styles.requestActionRow}>
+            <Pressable style={styles.requestDeclineButton} onPress={() => onDecline?.(request)}>
+              <Text style={styles.requestDeclineButtonText}>Decline Request</Text>
+            </Pressable>
+            <Pressable style={styles.requestAcceptButton} onPress={() => setScreen("quote")}>
+              <Text style={styles.requestAcceptButtonText}>Accept & Send Price</Text>
+            </Pressable>
+          </View>
         ) : null}
       </ScrollView>
       <MediaViewer media={selectedMedia} onClose={() => setSelectedMedia(undefined)} showDialog={showDialog} />
@@ -4352,9 +4530,37 @@ export default function App() {
   let body;
   if (screen === "dashboard") body = <DashboardScreen me={me} requests={requests} orders={orders} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
   if (screen === "requests") body = <RequestsScreen requests={requests} setScreen={setScreen} setActiveRequest={setActiveRequest} />;
-  if (screen === "requestDetails" && activeRequest) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} />;
+  const declineActiveRequest = (request: TailoringRequest) => {
+    setDialog({
+      title: "Decline request?",
+      message: "This request will be removed from your queue.",
+      icon: "close-circle-outline",
+      actions: [
+        { label: "Cancel", variant: "secondary" },
+        {
+          label: "Decline",
+          onPress: () => {
+            dismissedRequestIdsRef.current.add(request.id);
+            if (token) {
+              void api(`/tailoring-requests/${request.id}/decline`, {
+                method: "POST",
+                body: JSON.stringify({ reason: "partner_rejected" })
+              }, token).catch((error) => {
+                setDialog({ title: "Could not decline", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+              });
+            }
+            setRequests((current) => current.filter((item) => item.id !== request.id));
+            setActiveRequest(undefined);
+            setScreen("requests", { replace: true });
+          }
+        }
+      ]
+    });
+  };
+
+  if (screen === "requestDetails" && activeRequest) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
   if (screen === "quote" && activeRequest && activeRequest.status === "QUOTE_REQUESTED" && !activeRequest.ownQuote) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} activeOrderCount={activeTailorOrderCount} maxOrdersPerDay={maxOrdersPerDay} onDone={(quote) => { setActiveRequest({ ...activeRequest, ownQuote: quote }); setRequests((current) => current.map((item) => item.id === activeRequest.id ? { ...item, ownQuote: quote } : item)); void refreshWorkspace(); setScreen("requestDetails", { replace: true }); }} />;
-  if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} />;
+  if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
   if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setScreen("earningDetails"); }} showDialog={setDialog} />;
@@ -4516,6 +4722,62 @@ const styles = StyleSheet.create({
   topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
   topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
   pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 118 },
+  requestDetailsContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 132 },
+  requestReceivedCard: { minHeight: 74, borderRadius: 18, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, marginBottom: 14 },
+  requestReceivedIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  requestReceivedLabel: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  requestReceivedValue: { color: BRAND_DEEP, fontSize: 16, lineHeight: 22, fontWeight: "900", marginTop: 2 },
+  requestDetailsCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 12, marginBottom: 14 },
+  requestDetailsItemDivider: { borderTopWidth: 1, borderTopColor: "#eef2f7", paddingTop: 18, marginTop: 18 },
+  requestItemChipRow: { gap: 8, paddingBottom: 12 },
+  requestItemChip: { minHeight: 38, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  requestItemChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
+  requestItemChipText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  requestItemChipTextActive: { color: BRAND_ORANGE },
+  requestItemHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
+  requestItemIcon: { width: 54, height: 54, borderRadius: 13, backgroundColor: "#f3e8ff", alignItems: "center", justifyContent: "center" },
+  requestItemTitle: { color: BRAND_DEEP, fontSize: 19, lineHeight: 25, fontWeight: "900" },
+  requestItemMeta: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 3 },
+  requestDetailGrid: { gap: 10, overflow: "hidden" },
+  requestDetailTileRow: { flexDirection: "row", gap: 10, overflow: "hidden" },
+  requestDetailTile: { flex: 1, height: 124, maxHeight: 124, minWidth: 0, overflow: "hidden", borderRadius: 16, borderWidth: 1.4, borderColor: "#e1e7f0", backgroundColor: SURFACE, paddingHorizontal: 10, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 8, shadowColor: "#0b2241", shadowOpacity: 0.04, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  requestDetailTilePressed: { opacity: 0.92, borderColor: "#efbd65", backgroundColor: "#fffaf0" },
+  requestDetailTileIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  requestDetailTileText: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden" },
+  requestDetailTileLabel: { color: MUTED, fontSize: 11, lineHeight: 14, fontWeight: "900", flexShrink: 1, overflow: "hidden" },
+  requestDetailTileValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900", marginTop: 5, flexShrink: 1, overflow: "hidden" },
+  requestMeasurementsPanel: { borderRadius: 14, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffaf0", padding: 12, marginTop: 14 },
+  requestPanelTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900", marginBottom: 2 },
+  requestNotesCard: { borderRadius: 16, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffaf0", padding: 14, marginTop: 22, marginBottom: 20, flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  requestNotesTitle: { color: BRAND_DEEP, fontSize: 16, lineHeight: 21, fontWeight: "900", marginBottom: 8 },
+  requestNotesText: { color: BRAND_DEEP, fontSize: 14, lineHeight: 22, fontWeight: "700", marginTop: 4 },
+  requestPhotosTitle: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900", marginBottom: 12 },
+  requestSamplePhotosTitle: { marginTop: 18 },
+  requestPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  requestPhotoBox: { width: "48.5%", aspectRatio: 1, borderRadius: 14, overflow: "hidden", backgroundColor: "#fff4dc" },
+  requestPhotoImage: { width: "100%", height: "100%" },
+  requestVideoBox: { flex: 1, alignItems: "center", justifyContent: "center" },
+  requestPhotoBadge: { position: "absolute", top: 8, right: 8, borderRadius: 12, backgroundColor: "rgba(15, 23, 42, 0.72)", paddingHorizontal: 8, paddingVertical: 4 },
+  requestPhotoBadgeText: { color: "#ffffff", fontSize: 11, lineHeight: 15, fontWeight: "900" },
+  requestActionRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  requestDeclineButton: { flex: 1, minHeight: 58, borderRadius: 14, borderWidth: 1.3, borderColor: "#ef4444", backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  requestDeclineButtonText: { color: "#ef4444", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
+  requestAcceptButton: { flex: 1, minHeight: 58, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  requestAcceptButtonText: { color: "#ffffff", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
+  quoteSubmittedCard: { borderRadius: 20, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", padding: 16, marginBottom: 14 },
+  quoteSubmittedHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  quoteSubmittedIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#dcfce7", alignItems: "center", justifyContent: "center" },
+  quoteSubmittedLabel: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900" },
+  quoteSubmittedSub: { color: SUCCESS, fontSize: 12, lineHeight: 17, fontWeight: "900", marginTop: 2 },
+  quoteStatusPill: { borderRadius: 999, backgroundColor: "#dcfce7", paddingHorizontal: 10, paddingVertical: 6 },
+  quoteStatusText: { color: SUCCESS, fontSize: 10, lineHeight: 13, fontWeight: "900" },
+  quoteAmountRow: { marginTop: 16, borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#bbf7d0", padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  quoteAmountLabel: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  quoteAmountText: { color: BRAND_ORANGE, fontSize: 34, lineHeight: 40, fontWeight: "900", marginTop: 2 },
+  quoteEtaBox: { minHeight: 38, borderRadius: 13, backgroundColor: "#fff7ed", borderWidth: 1, borderColor: "#fed7aa", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10 },
+  quoteEtaText: { color: "#c2410c", fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  quoteMessageBox: { marginTop: 12, borderRadius: 14, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  quoteMessageText: { flex: 1, color: BRAND_DEEP, fontSize: 13, lineHeight: 19, fontWeight: "800" },
   requestsPageContent: { paddingTop: 48 },
   requestsHeader: { marginBottom: 16 },
   requestsTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 29, fontWeight: "900" },
@@ -4529,6 +4791,7 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   headerTitle: { color: BRAND_DEEP, fontSize: 25, fontWeight: "900" },
   headerSubtitle: { color: MUTED, fontSize: 13, fontWeight: "700", marginTop: 4 },
+  requestIdAccent: { color: BRAND_ORANGE, fontWeight: "900" },
   heroCard: { minHeight: 126, borderRadius: 10, backgroundColor: "#2b1503", padding: 16, marginBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   heroLabel: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
   heroTitle: { color: "#ffffff", fontSize: 23, lineHeight: 29, fontWeight: "900", marginTop: 6 },
