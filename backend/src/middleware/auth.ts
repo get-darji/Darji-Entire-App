@@ -26,11 +26,12 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
   try {
     const payload = verifyAccessToken(token);
-    const user = await UserModel.findById(payload.sub).select("role accountStatus suspendedUntil moderationReason activeSessionId").lean();
+    const user = await UserModel.findById(payload.sub).select("role accountStatus suspendedUntil moderationReason activeSessionId activeSessionIds").lean();
     if (!user) {
       return next(new AppError(401, "Invalid session"));
     }
-    if (!payload.sid || !user.activeSessionId || payload.sid !== user.activeSessionId) {
+    const activeSessionId = (user.activeSessionIds as Record<string, string> | undefined)?.[payload.role] ?? user.activeSessionId;
+    if (!payload.sid || !activeSessionId || payload.sid !== activeSessionId) {
       return next(new AppError(401, "Your account has been signed in on another device."));
     }
     if (user.accountStatus === "BANNED") {
@@ -58,8 +59,8 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
         );
       }
     }
-    req.user = { id: String(user._id), role: user.role as Role };
-    const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+    req.user = { id: String(user._id), role: payload.role as Role };
+    const isAdmin = payload.role === "ADMIN" || payload.role === "SUPER_ADMIN";
     const isProfileBootstrap = req.method === "GET" && req.path === "/auth/me";
     if (!isAdmin && !isProfileBootstrap) {
       const platformStatus = await getPlatformStatus();

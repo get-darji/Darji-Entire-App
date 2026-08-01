@@ -67,6 +67,8 @@ const userSchema = new Schema(
     moderatedAt: Date,
     refreshTokenHash: String,
     activeSessionId: { type: String, index: true },
+    refreshTokenHashes: { type: Schema.Types.Mixed, default: {} },
+    activeSessionIds: { type: Schema.Types.Mixed, default: {} },
     fcmToken: String,
     fcmTokens: [
       {

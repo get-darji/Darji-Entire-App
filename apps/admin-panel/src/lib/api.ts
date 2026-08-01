@@ -253,6 +253,10 @@ export async function moderateUser(payload: {
   return unwrap<AdminUser>(api.patch(`/users/${userId}/moderation`, body));
 }
 
+export async function deleteAdminAccount(userId: string) {
+  return unwrap<{ userId: string; role: string }>(api.delete(`/users/${userId}`));
+}
+
 export async function inviteAdmin(payload: { phone: string }) {
   return unwrap<AdminUser>(api.post("/users/admin-invite", payload));
 }

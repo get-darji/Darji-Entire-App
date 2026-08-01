@@ -1791,10 +1791,10 @@ export async function createTailoringRequestController(req: Request, res: Respon
   });
 
   emitTailoringEvent({ type: "REQUEST_CREATED", requestId: request.id });
-  const availableTailors = await TailorModel.find({ isAvailable: true, verificationStatus: "VERIFIED" }).select("userId");
-  for (const tailor of availableTailors) emitToTailor(tailor.id, "tailoring:request_created", request.toJSON());
+  const verifiedTailors = await TailorModel.find({ verificationStatus: "VERIFIED" }).select("userId");
+  for (const tailor of verifiedTailors) emitToTailor(tailor.id, "tailoring:request_created", request.toJSON());
   await Promise.all(
-    availableTailors.map((tailor) => sendNewRequestNotification({
+    verifiedTailors.map((tailor) => sendNewRequestNotification({
       userId: tailor.userId,
       title: "New customer order",
       body: `${requestClothingLabel(request)}. Open the request to send a quote.`,

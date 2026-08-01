@@ -207,7 +207,7 @@ type MeResponse = {
   tailorProfile?: TailorProfile;
 };
 type DialogAction = { label: string; onPress?: () => void; variant?: "primary" | "secondary" };
-type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[] };
+type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[]; variant?: "requestSuccess" };
 type CancellationAlert = { id: string; title: string; message: string };
 type VerificationMediaDraft = { uri: string; name: string; uploadedUrl?: string };
 type TailorReuploadField = "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto" | "shopPhotos";
@@ -3685,21 +3685,27 @@ function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen:
 function DesignedDialog({ dialog, onClose }: { dialog?: DialogState; onClose: () => void }) {
   if (!dialog) return null;
   const actions = dialog.actions?.length ? dialog.actions : [{ label: "OK", variant: "primary" as const }];
+  const requestSuccess = dialog.variant === "requestSuccess";
 
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <View style={styles.popupBackdrop}>
-        <View style={styles.popupCard}>
-          <View style={styles.popupIcon}>
-            <Ionicons name={dialog.icon ?? "information-circle-outline"} size={28} color={BRAND_ORANGE} />
+        <View style={[styles.popupCard, requestSuccess && styles.popupCardSuccess]}>
+          <View style={[styles.popupIcon, requestSuccess && styles.popupIconSuccess]}>
+            <Ionicons name={dialog.icon ?? "information-circle-outline"} size={requestSuccess ? 40 : 28} color={requestSuccess ? "#16a34a" : BRAND_ORANGE} />
+            {requestSuccess ? (
+              <View style={styles.popupIconCheckBadge}>
+                <Ionicons name="checkmark" size={14} color="#ffffff" />
+              </View>
+            ) : null}
           </View>
-          <Text style={styles.popupTitle}>{dialog.title}</Text>
-          <Text style={styles.popupCopy}>{dialog.message}</Text>
+          <Text style={[styles.popupTitle, requestSuccess && styles.popupTitleSuccess]}>{dialog.title}</Text>
+          <Text style={[styles.popupCopy, requestSuccess && styles.popupCopySuccess]}>{dialog.message}</Text>
           <View style={styles.popupActions}>
             {actions.map((action) => (
               <Pressable
                 key={action.label}
-                style={[styles.popupActionButton, action.variant === "secondary" && styles.popupSecondaryButton]}
+                style={[styles.popupActionButton, requestSuccess && styles.popupActionButtonSuccess, action.variant === "secondary" && styles.popupSecondaryButton]}
                 onPress={() => {
                   onClose();
                   action.onPress?.();
@@ -4193,6 +4199,14 @@ export default function App() {
   useEffect(() => {
     if (token) void refreshWorkspace();
   }, [screen]);
+
+  useEffect(() => {
+    if (!token || !verifiedWelcomeDismissed || me?.tailorProfile?.verificationStatus !== "VERIFIED") return undefined;
+    const timer = setInterval(() => {
+      void refreshWorkspace(false);
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [token, verifiedWelcomeDismissed, me?.tailorProfile?.verificationStatus, screen]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -4771,15 +4785,21 @@ const styles = StyleSheet.create({
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupBackdropAlert: { backgroundColor: "rgba(246, 163, 19, 0.42)" },
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 26, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#f3d7a3", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  popupCardSuccess: { maxWidth: 360, borderRadius: 18, borderColor: "#e5e7eb", paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20 },
   requestPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20 },
   popupIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: "#fff4dc", borderWidth: 1, borderColor: "#ffd88a", alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  popupIconSuccess: { width: 82, height: 82, borderRadius: 41, backgroundColor: "#eafaf0", borderWidth: 0, marginBottom: 12 },
+  popupIconCheckBadge: { position: "absolute", right: 10, bottom: 9, width: 24, height: 24, borderRadius: 12, backgroundColor: "#22c55e", borderWidth: 2, borderColor: SURFACE, alignItems: "center", justifyContent: "center" },
   popupIconSmall: { width: 48, height: 48, borderRadius: 18, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   popupCloseButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#eef2f7", alignItems: "center", justifyContent: "center" },
   popupEyebrow: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginTop: 14 },
   popupTitle: { color: BRAND_DEEP, fontSize: 23, lineHeight: 29, fontWeight: "900", textAlign: "center", marginTop: 8 },
+  popupTitleSuccess: { fontSize: 20, lineHeight: 25, marginTop: 2 },
   popupCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 8 },
+  popupCopySuccess: { fontSize: 13, lineHeight: 20, marginTop: 8 },
   popupActions: { width: "100%", gap: 10, marginTop: 20 },
   popupActionButton: { minHeight: 52, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", paddingHorizontal: 14 },
+  popupActionButtonSuccess: { minHeight: 48, borderRadius: 10 },
   popupSecondaryButton: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#dce4ef" },
   popupGhostButton: { backgroundColor: "#eef2f7" },
   popupActionText: { color: "#111111", fontSize: 14, fontWeight: "900" },

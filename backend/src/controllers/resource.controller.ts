@@ -413,6 +413,26 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
   }));
 }
 
+async function deleteAccountByUserId(userId: string) {
+  const user = await UserModel.findById(userId).select("role phone");
+  if (!user) throw new AppError(404, "User not found");
+  if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
+    throw new AppError(403, "Admin accounts cannot be deleted here");
+  }
+
+  await Promise.all([
+    UserModel.findByIdAndDelete(userId),
+    TailorModel.deleteOne({ userId }),
+    DeliveryPartnerModel.deleteOne({ userId }),
+    AddressModel.deleteMany({ userId }),
+    NotificationModel.deleteMany({ userId }),
+    WalletModel.deleteOne({ userId }),
+    OtpRequestModel.deleteMany({ $or: [{ userId }, { phone: user.phone }] })
+  ]);
+
+  return { userId, role: user.role };
+}
+
 function createDarjiTailorId() {
   return `DRJ-TLR-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
@@ -551,6 +571,7 @@ export async function reviewTailorVerificationController(req: Request, res: Resp
     tailor.verificationReuploadFields = [];
     tailor.verificationRejectedUntil = undefined;
     tailor.verificationLastRejectedAt = undefined;
+    if (input.status === "VERIFIED") tailor.isAvailable = true;
   }
 
   await tailor.save();
@@ -907,6 +928,16 @@ export async function moderateUserController(req: Request, res: Response) {
   if (!updated) throw new AppError(404, "User not found");
   const [result] = await attachProfilesToUsers([updated.toJSON()]);
   res.json({ data: result });
+}
+
+export async function deleteAdminAccountController(req: Request, res: Response) {
+  const userId = String(req.params.id);
+  if (req.user?.id === userId) {
+    throw new AppError(400, "You cannot delete your own admin account");
+  }
+
+  const deleted = await deleteAccountByUserId(userId);
+  res.json({ data: deleted });
 }
 
 export async function inviteAdminController(req: Request, res: Response) {
@@ -1958,12 +1989,7 @@ export async function approveAccountChangeRequestController(req: Request, res: R
   const vals = request.requestedValues as Record<string, any>;
 
   if (request.type === "AccountDeletion") {
-    await Promise.all([
-      UserModel.findByIdAndDelete(userId),
-      request.userRole === "TAILOR"
-        ? TailorModel.deleteOne({ userId })
-        : DeliveryPartnerModel.deleteOne({ userId })
-    ]);
+    await deleteAccountByUserId(userId);
   } else if (request.userRole === "TAILOR") {
     const tailor = await TailorModel.findOne({ userId });
     if (tailor) {

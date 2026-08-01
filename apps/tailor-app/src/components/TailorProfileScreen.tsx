@@ -69,6 +69,7 @@ const SUCCESS = "#15803d";
 const DANGER = "#dc2626";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
+const CHAT_BOTTOM_INSET = Platform.OS === "android" ? 42 : 22;
 
 type PullToRefreshState = {
   refreshing: boolean;
@@ -114,7 +115,7 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScr
 });
 
 type IconName = keyof typeof Ionicons.glyphMap;
-type DialogState = { title: string; message: string; icon?: IconName };
+type DialogState = { title: string; message: string; icon?: IconName; actions?: Array<{ label: string; variant?: "primary" | "secondary"; onPress?: () => void }>; variant?: "requestSuccess" };
 type TailorSettings = {
   notifications?: boolean;
   soundAlerts?: boolean;
@@ -165,6 +166,17 @@ type Props = {
 function isSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
+}
+
+function getDeviceOsLabel() {
+  if (Platform.OS === "android") {
+    const constants = Platform.constants as { Release?: string; Version?: number | string };
+    const release = constants.Release;
+    const apiLevel = Platform.Version ?? constants.Version;
+    return release ? `Android ${release} (API ${apiLevel})` : `Android ${apiLevel}`;
+  }
+  if (Platform.OS === "ios") return `iOS ${Platform.Version}`;
+  return `${Platform.OS} ${Platform.Version}`;
 }
 
 export function TailorProfileScreen({ me, token, orders, refresh, showDialog, onSessionExpired, onOpenTransactions, onOpenOrders, socket, initialSupportScreen, clearInitialSupportScreen }: Props) {
@@ -293,7 +305,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   async function submitShopChangeRequest() {
     if (shopChangeRequest.trim().length < 10) {
-      Alert.alert("Request too short", "Please explain your shop details change request in at least 10 characters.");
+      showDialog({
+        title: "Request too short",
+        message: "Please explain your shop details change request in at least 10 characters.",
+        icon: "create-outline"
+      });
       return;
     }
     if (!token) return;
@@ -307,7 +323,12 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         })
       }, token);
       setShopChangeRequest("");
-      showDialog({ title: "Request Submitted", message: "Your shop details change request has been sent for admin approval.", icon: "checkmark-circle-outline" });
+      showDialog({
+        title: "Request Submitted!",
+        message: "Your shop details change request has been sent for admin approval.\n\nOur team will review it and get back to you soon.",
+        icon: "paper-plane-outline",
+        variant: "requestSuccess"
+      });
       setShowShopDetails(false);
     } catch (e) {
       showDialog({ title: "Failed", message: "Could not submit request. Please try again.", icon: "alert-circle-outline" });
@@ -318,7 +339,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   async function submitBankChangeRequest() {
     if (bankChangeRequest.trim().length < 10) {
-      Alert.alert("Request too short", "Please explain your bank details change request in at least 10 characters.");
+      showDialog({
+        title: "Request too short",
+        message: "Please explain your bank details change request in at least 10 characters.",
+        icon: "card-outline"
+      });
       return;
     }
     if (!token) return;
@@ -431,9 +456,9 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </View>
             </View>
             <View style={styles.section}>
-              <Input icon="person-outline" label="Tailor Name" value={name} onChangeText={setName} styles={styles} />
-              <Input icon="storefront-outline" label="Shop Name" value={shopName} onChangeText={setShopName} styles={styles} />
-              <Input icon="mail-outline" label="Email" value={email} onChangeText={setEmail} styles={styles} />
+              <Input icon="person-outline" label="Tailor Name" value={name} onChangeText={setName} placeholder="Enter tailor name" styles={styles} />
+              <Input icon="storefront-outline" label="Shop Name" value={shopName} onChangeText={setShopName} placeholder="Enter shop name" styles={styles} />
+              <Input icon="mail-outline" label="Email" value={email} onChangeText={setEmail} placeholder="Enter email address" keyboardType="email-address" styles={styles} />
               <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
                 {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
               </Pressable>
@@ -451,7 +476,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </Pressable>
               <View style={styles.rowMain}>
                 <Text style={styles.title}>Shop Details</Text>
-                <Text style={styles.meta}>Current shop registration & hours</Text>
+                <Text style={styles.meta}>Your shop information & working hours</Text>
               </View>
             </View>
 
@@ -469,23 +494,29 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View style={styles.requestHero}>
                 <View style={styles.requestIcon}><Ionicons name="create-outline" size={22} color={BRAND_ORANGE} /></View>
                 <View style={styles.rowMain}>
-                  <Text style={styles.requestTitle}>Request shop update</Text>
-                  <Text style={styles.requestSubtitle}>Admin verification required</Text>
+                  <Text style={styles.requestTitle}>Request Changes</Text>
+                  <Text style={styles.requestSubtitle}>We'll review and update it for you</Text>
                 </View>
               </View>
-              <Text style={styles.requestCopy}>Tell us exactly what should change—address, category, capacity, or registration details. You can track the request in Support Center.</Text>
+              <Text style={styles.requestCopy}>Need to make any changes to your shop details? Let us know—address, category, capacity, or any other information.</Text>
+              <Text style={styles.requestCopy}>You can track the request in Support Center.</Text>
               <View style={styles.inputBlock}>
                 <TextInput
                   style={[styles.input, styles.requestInput]}
                   value={shopChangeRequest}
                   onChangeText={setShopChangeRequest}
-                  placeholder="Describe your requested shop changes..."
+                  placeholder="Write the changes you want to request..."
                   placeholderTextColor="#9aa6b8"
                   multiline
                 />
               </View>
               <Pressable style={styles.primaryButton} onPress={submitShopChangeRequest} disabled={submittingShopChange}>
-                {submittingShopChange ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Request</Text>}
+                {submittingShopChange ? <ActivityIndicator color="#111111" /> : (
+                  <>
+                    <Ionicons name="paper-plane-outline" size={17} color="#111111" />
+                    <Text style={styles.primaryButtonText}>Submit Request</Text>
+                  </>
+                )}
               </Pressable>
             </View>
           </ScrollView>
@@ -601,29 +632,36 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       ) : supportScreen === "bug" ? (
         <TailorBugReportScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen ? (
-        <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} showDialog={showDialog} />
+        <SupportDetailScreen
+          screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">}
+          styles={styles}
+          palette={palette}
+          onBack={() => setSupportScreen(undefined)}
+          showDialog={showDialog}
+          openSupportCenter={() => setSupportScreen("support_center")}
+        />
       ) : null}
     </Modal>
 
     <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => !submittingDeletion && setShowDeleteModal(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
-        <Pressable style={{ width: "100%", maxWidth: 360, backgroundColor: "#ffffff", borderRadius: 22, padding: 24 }}>
-          <View style={{ alignItems: "center", marginBottom: 20 }}>
-            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
-              <Ionicons name="trash-outline" size={28} color="#ef4444" />
+      <Pressable style={styles.dangerModalBackdrop} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
+        <Pressable style={styles.dangerModalCard}>
+          <View style={styles.dangerModalHeader}>
+            <View style={styles.dangerModalIcon}>
+              <Ionicons name="trash-outline" size={23} color="#ef4444" />
             </View>
             <Text style={{ fontSize: 20, fontWeight: "900", color: "#0b2241", marginBottom: 8 }}>{language === "hi" ? "अकाउंट हटाने का अनुरोध?" : "Request account deletion?"}</Text>
             <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{language === "hi" ? "आपका अनुरोध एडमिन को भेजा जाएगा। मंजूरी मिलने तक अकाउंट चालू रहेगा।" : "Your request will be sent to admin. Your account remains active until it is approved."}</Text>
           </View>
-          <View style={{ backgroundColor: "#fee2e2", borderRadius: 12, padding: 12, flexDirection: "row", gap: 8, marginBottom: 14 }}>
+          <View style={styles.dangerModalNotice}>
             <Ionicons name="shield-checkmark-outline" size={16} color="#ef4444" />
-            <Text style={{ color: "#991b1b", flex: 1, fontSize: 12, fontWeight: "800", lineHeight: 17 }}>If approved, all your data will be permanently deleted and cannot be recovered.</Text>
+            <Text style={styles.dangerModalNoticeText}>If approved, all your data will be permanently deleted and cannot be recovered.</Text>
           </View>
-          <Pressable style={{ backgroundColor: "#ef4444", borderRadius: 8, paddingVertical: 13, alignItems: "center", marginBottom: 10 }} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
+          <Pressable style={styles.dangerModalPrimary} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
             {submittingDeletion ? <ActivityIndicator color="#ffffff" /> : <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{language === "hi" ? "हाँ, अनुरोध भेजें" : "Yes, submit request"}</Text>}
           </Pressable>
-          <Pressable style={{ backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#dbe1e9", paddingVertical: 13, alignItems: "center" }} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
-            <Text style={{ color: "#0b2241", fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
+          <Pressable style={styles.dangerModalSecondary} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
+            <Text style={styles.dangerModalSecondaryText}>{t(language, "cancel")}</Text>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -631,30 +669,30 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
     {/* Custom Logout Confirmation Modal */}
     <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => setShowLogoutModal(false)}>
-        <Pressable style={{ width: "100%", maxWidth: 360, backgroundColor: "#ffffff", borderRadius: 22, padding: 24 }}>
-          <View style={{ alignItems: "center", marginBottom: 20 }}>
-            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
-              <Ionicons name="log-out-outline" size={28} color="#ef4444" />
+      <Pressable style={styles.dangerModalBackdrop} onPress={() => setShowLogoutModal(false)}>
+        <Pressable style={styles.dangerModalCard}>
+          <View style={styles.dangerModalHeader}>
+            <View style={styles.dangerModalIcon}>
+              <Ionicons name="log-out-outline" size={23} color="#ef4444" />
             </View>
             <Text style={{ fontSize: 20, fontWeight: "900", color: "#0b2241", marginBottom: 8 }}>{t(language, "signOut")}</Text>
               <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{t(language, "logoutConfirm")}</Text>
           </View>
-          <View style={{ backgroundColor: "#fee2e2", borderRadius: 12, padding: 12, flexDirection: "row", gap: 8, marginBottom: 14 }}>
+          <View style={styles.dangerModalNotice}>
             <Ionicons name="shield-checkmark-outline" size={16} color="#ef4444" />
-            <Text style={{ color: "#991b1b", flex: 1, fontSize: 12, fontWeight: "800", lineHeight: 17 }}>You can sign in again anytime using your registered mobile number.</Text>
+            <Text style={styles.dangerModalNoticeText}>You can sign in again anytime using your registered mobile number.</Text>
           </View>
           <Pressable
-            style={{ backgroundColor: "#ef4444", borderRadius: 8, paddingVertical: 13, alignItems: "center", marginBottom: 10 }}
+            style={styles.dangerModalPrimary}
             onPress={() => { setShowLogoutModal(false); signOut(); }}
           >
-            <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{t(language, "yesSignOut")}</Text>
+            <Text style={styles.dangerModalPrimaryText}>{t(language, "yesSignOut")}</Text>
           </Pressable>
           <Pressable
-            style={{ backgroundColor: "#f1f5f9", borderRadius: 8, paddingVertical: 13, alignItems: "center" }}
+            style={[styles.dangerModalSecondary, styles.dangerModalSecondaryFilled]}
             onPress={() => setShowLogoutModal(false)}
           >
-            <Text style={{ color: "#0b2241", fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
+            <Text style={styles.dangerModalSecondaryText}>{t(language, "cancel")}</Text>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -677,13 +715,13 @@ function Section({ title, icon, styles, children }: { title: string; icon: IconN
   );
 }
 
-function Input({ icon, label, value, onChangeText, styles }: { icon?: IconName; label: string; value: string; onChangeText: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
+function Input({ icon, label, value, onChangeText, placeholder, keyboardType, styles }: { icon?: IconName; label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; keyboardType?: "default" | "email-address"; styles: ReturnType<typeof createStyles> }) {
   return (
     <View style={styles.inputBlock}>
       <Text style={styles.inputLabel}>{label}</Text>
       <View style={styles.iconInputWrap}>
         {icon ? <Ionicons name={icon} size={18} color={BRAND_ORANGE} /> : null}
-        <TextInput style={styles.iconInput} value={value} onChangeText={onChangeText} placeholderTextColor="#9aa6b8" />
+        <TextInput style={styles.iconInput} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#9aa6b8" keyboardType={keyboardType} />
       </View>
     </View>
   );
@@ -744,7 +782,10 @@ function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { ic
   );
 }
 
-function SupportDetailScreen({ screen, styles, palette, onBack, showDialog }: { screen: Exclude<SupportScreen, "support_center" | "requests">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; showDialog: (dialog: DialogState) => void }) {
+function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, openSupportCenter }: { screen: Exclude<SupportScreen, "support_center" | "requests">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; showDialog: (dialog: DialogState) => void; openSupportCenter: () => void }) {
+  if (screen === "faqs") {
+    return <TailorFaqScreen styles={styles} palette={palette} onBack={onBack} openSupportCenter={openSupportCenter} />;
+  }
   const detail = supportDetails[screen];
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -780,6 +821,75 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog }: { 
             <Text style={styles.primaryButtonText}>{detail.action.label}</Text>
           </Pressable>
         ) : null}
+      </View>
+    </ScrollView>
+  );
+}
+
+function TailorFaqScreen({ styles, palette, onBack, openSupportCenter }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; openSupportCenter: () => void }) {
+  const [selectedFaq, setSelectedFaq] = useState<(typeof tailorFaqs)[number]>();
+
+  if (selectedFaq) {
+    return (
+      <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.detailHeader}>
+          <Pressable style={styles.backButton} onPress={() => setSelectedFaq(undefined)}>
+            <Ionicons name="chevron-back" size={22} color={palette.text} />
+          </Pressable>
+          <View style={styles.rowMain}>
+            <Text style={styles.title}>{selectedFaq.title}</Text>
+            <Text style={styles.meta}>Detailed answer</Text>
+          </View>
+        </View>
+        <View style={styles.section}>
+          <View style={styles.detailIcon}><Ionicons name={selectedFaq.icon} size={24} color={BRAND_ORANGE} /></View>
+          <Text style={styles.detailCopy}>{selectedFaq.answer}</Text>
+          {selectedFaq.points.map((point) => (
+            <View key={point} style={styles.bulletRow}>
+              <View style={styles.bulletDot} />
+              <Text style={styles.bulletText}>{point}</Text>
+            </View>
+          ))}
+          {selectedFaq.supportAction ? (
+            <Pressable style={styles.primaryButton} onPress={openSupportCenter}>
+              <Ionicons name="headset-outline" size={18} color="#111111" />
+              <Text style={styles.primaryButtonText}>Open Support Center</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.detailHeader}>
+        <Pressable style={styles.backButton} onPress={onBack}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>FAQs</Text>
+          <Text style={styles.meta}>Quick answers to common questions</Text>
+        </View>
+      </View>
+      <View style={[styles.section, styles.faqSection]}>
+        <View style={styles.faqHeroRow}>
+          <View style={styles.detailIcon}><Ionicons name="help-circle-outline" size={24} color={BRAND_ORANGE} /></View>
+          <View style={styles.rowMain}>
+            <Text style={styles.rowTitle}>Got a question?</Text>
+            <Text style={styles.rowCopy}>Here are answers to the most common questions.</Text>
+          </View>
+        </View>
+        {tailorFaqs.map((faq, index) => (
+          <Pressable key={faq.title} style={[styles.faqRow, index === 0 ? styles.faqFirstRow : null]} onPress={() => setSelectedFaq(faq)}>
+            <View style={styles.faqIcon}><Ionicons name={faq.icon} size={17} color={BRAND_ORANGE} /></View>
+            <View style={styles.rowMain}>
+              <Text style={styles.faqTitle}>{faq.title}</Text>
+              <Text style={styles.faqPreview}>{faq.preview}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={MUTED} />
+          </Pressable>
+        ))}
       </View>
     </ScrollView>
   );
@@ -957,6 +1067,32 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8
+    });
+    if (result.canceled || !result.assets.length) return;
+    try {
+      setUploading(true);
+      const asset = result.assets[0];
+      const uploaded = await uploadTailorVerificationMedia([{ uri: asset.uri, name: asset.fileName || "attachment.jpg" }], token);
+      if (uploaded.length) {
+        setAttachments((prev) => [...prev, uploaded[0].url]);
+      }
+    } catch (e) {
+      Alert.alert("Upload failed", "Could not upload the attachment.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pickAttachmentFromGallery() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Gallery permission needed", "Allow gallery access to add an attachment.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      selectionLimit: 1
     });
     if (result.canceled || !result.assets.length) return;
     try {
@@ -1303,9 +1439,9 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
         )}
 
         {view === "chat" && activeTicket && (
-          <View style={{ flex: 1, paddingHorizontal: 18 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: palette.border, paddingBottom: 12, marginBottom: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+          <View style={styles.chatScreen}>
+            <View style={styles.chatHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                 <Pressable 
                   style={styles.backButton}
                   onPress={() => {
@@ -1315,34 +1451,37 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                 >
                   <Ionicons name="chevron-back" size={20} color={palette.text} />
                 </Pressable>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: palette.text, fontSize: 15, fontWeight: "800" }}>
+                <View style={styles.rowMain}>
+                  <Text style={styles.chatTitle} numberOfLines={1}>
                     {activeTicket.isDraft ? "Draft Conversation" : (activeTicket.deviceInfo ? `Bug: ${activeTicket.title}` : `#${(activeTicket._id || activeTicket.id || "").slice(-6).toUpperCase()}`)}
                   </Text>
-                  <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700" }}>
+                  <Text style={styles.chatSubtitle} numberOfLines={1}>
                     {activeTicket.deviceInfo ? `Status: ${activeTicket.status}` : activeTicket.subject}
                   </Text>
                 </View>
               </View>
               {!activeTicket.isDraft && !activeTicket.deviceInfo && activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && (
                 <Pressable 
-                  style={{ backgroundColor: "#fee2e2", borderColor: "#fecaca", paddingHorizontal: 12, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" }}
+                  style={styles.chatCloseButton}
                   onPress={() => handleCloseChat(activeTicket._id || activeTicket.id)}
                 >
-                  <Text style={{ color: "#dc2626", fontSize: 11, fontWeight: "900" }}>Close Chat</Text>
+                  <Text style={styles.chatCloseText}>Close</Text>
                 </Pressable>
               )}
             </View>
 
             <ScrollView
               ref={scrollViewRef}
-              style={{ flex: 1, marginBottom: 8 }}
-              contentContainerStyle={{ gap: 12, paddingVertical: 10 }}
+              style={styles.chatMessages}
+              contentContainerStyle={styles.chatMessagesContent}
               showsVerticalScrollIndicator={false}
             >
               {activeTicket.isDraft && (
-                <View style={{ alignSelf: "center", backgroundColor: palette.surface, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, marginVertical: 8 }}>
-                  <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "800", textAlign: "center" }}>
+                <View style={styles.chatNotice}>
+                  <View style={styles.chatNoticeIcon}>
+                    <Ionicons name="chatbubble-outline" size={16} color={BRAND_ORANGE} />
+                  </View>
+                  <Text style={styles.chatNoticeText}>
                     No messages yet. Type your first message below to open this support ticket.
                   </Text>
                 </View>
@@ -1414,11 +1553,10 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
               )}
             </ScrollView>
 
-            {/* Composer/Input bar */}
             {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && activeTicket.status !== "FIXED" ? (
-              <View style={{ borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 12, paddingBottom: 16 }}>
+              <View style={styles.chatComposerWrap}>
                 {attachments.length > 0 && (
-                  <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
+                  <View style={styles.chatAttachmentPreviewRow}>
                     {attachments.map((url, idx) => (
                       <View key={url} style={{ width: 50, height: 50, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: palette.border }}>
                         <Image source={{ uri: url }} style={{ width: "100%", height: "100%" }} />
@@ -1432,24 +1570,17 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                     ))}
                   </View>
                 )}
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <Pressable onPress={pickAttachmentImage} style={{ padding: 8 }}>
-                    <Ionicons name="attach-outline" size={24} color={BRAND_ORANGE} />
+                <View style={styles.chatComposer}>
+                  <Pressable onPress={pickAttachmentFromGallery} style={styles.chatMediaButton} disabled={uploading}>
+                    {uploading ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="image-outline" size={20} color={BRAND_ORANGE} />}
+                    <Text style={styles.chatMediaText}>Gallery</Text>
+                  </Pressable>
+                  <Pressable onPress={pickAttachmentImage} style={styles.chatMediaButton} disabled={uploading}>
+                    <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
+                    <Text style={styles.chatMediaText}>Camera</Text>
                   </Pressable>
                   <TextInput
-                    style={{
-                      flex: 1,
-                      minHeight: 46,
-                      maxHeight: 100,
-                      backgroundColor: palette.surface,
-                      borderWidth: 1,
-                      borderColor: palette.border,
-                      borderRadius: 23,
-                      paddingHorizontal: 16,
-                      color: palette.text,
-                      fontSize: 14,
-                      fontWeight: "700"
-                    }}
+                    style={styles.chatInput}
                     value={chatMessage}
                     onChangeText={setChatMessage}
                     placeholder="Type message..."
@@ -1457,15 +1588,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                     multiline
                   />
                   <Pressable 
-                    style={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: 23,
-                      backgroundColor: BRAND_ORANGE,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      opacity: chatMessage.trim().length >= 2 && !sending ? 1 : 0.6
-                    }}
+                    style={[styles.chatSendButton, chatMessage.trim().length < 2 || sending ? { opacity: 0.6 } : null]}
                     onPress={handleSendReply}
                     disabled={chatMessage.trim().length < 2 || sending}
                   >
@@ -1478,7 +1601,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                 </View>
               </View>
             ) : (
-              <View style={{ paddingVertical: 16, gap: 10 }}>
+              <View style={styles.chatClosedWrap}>
                 <Text style={{ color: palette.muted, fontSize: 13, fontWeight: "800", textAlign: "center" }}>This ticket is resolved or closed.</Text>
                 <Pressable 
                   style={{ backgroundColor: BRAND_ORANGE, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" }}
@@ -1505,6 +1628,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
   const [description, setDescription] = useState("");
   const [screenshot, setScreenshot] = useState<{ uri: string; name: string; uploadedUrl?: string }>();
   const [submitting, setSubmitting] = useState(false);
+  const deviceOsLabel = getDeviceOsLabel();
 
   async function pickScreenshot() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1520,7 +1644,11 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
 
   async function submitBugReport() {
     if (title.trim().length < 3 || description.trim().length < 10) {
-      Alert.alert("Add more detail", "Please add a bug title and describe what happened.");
+      showDialog({
+        title: "Add more detail",
+        message: "Please add a bug title and describe what happened.",
+        icon: "bug-outline"
+      });
       return;
     }
     if (!token) return;
@@ -1538,7 +1666,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
           title: title.trim(),
           description: description.trim(),
           screenshotUrl,
-          deviceInfo: `Android ${Platform.Version}`,
+          deviceInfo: deviceOsLabel,
           appVersion: "0.1.0 (Dev Build)"
         })
       }, token);
@@ -1552,8 +1680,8 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: palette.bg }}>
+      <ScrollView contentContainerStyle={[styles.content, styles.bugReportContent]} showsVerticalScrollIndicator={false}>
         <View style={styles.detailHeader}>
           <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
             <Ionicons name="chevron-back" size={22} color={palette.text} />
@@ -1561,26 +1689,32 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
           <View style={styles.rowMain}>
             <Text style={styles.title}>Report a Bug</Text>
             <Text style={styles.meta}>Found something that's not working right?</Text>
+            <Text style={styles.meta}>Let us know and we'll fix it.</Text>
           </View>
         </View>
         <View style={styles.inputBlock}>
           <Text style={styles.inputLabel}>Bug title</Text>
+          <Text style={styles.inputHint}>Give a short title for the issue</Text>
           <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Eg. App crashes on Orders page" placeholderTextColor="#9aa6b8" />
         </View>
         <View style={styles.inputBlock}>
           <Text style={styles.inputLabel}>What happened?</Text>
-          <TextInput style={[styles.input, { minHeight: 120, textAlignVertical: "top", paddingTop: 13 }]} value={description} onChangeText={(value) => setDescription(value.slice(0, 500))} multiline placeholder="Tell us what went wrong and how we can see it" placeholderTextColor="#9aa6b8" />
-          <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 4 }}>{description.length}/500</Text>
+          <Text style={styles.inputHint}>Describe the issue in simple words</Text>
+          <View>
+            <TextInput style={[styles.input, styles.bugTextArea]} value={description} onChangeText={(value) => setDescription(value.slice(0, 500))} multiline placeholder="Tell us what went wrong and how we can see it" placeholderTextColor="#9aa6b8" />
+            <Text style={styles.bugCounter}>{description.length}/500</Text>
+          </View>
         </View>
         <View style={styles.inputBlock}>
           <Text style={styles.inputLabel}>Add screenshot (optional)</Text>
-          <Pressable style={{ minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: palette.surface }} onPress={pickScreenshot}>
+          <Text style={styles.inputHint}>You can add a screenshot to help us understand</Text>
+          <Pressable style={styles.bugUploadBox} onPress={pickScreenshot}>
             <Ionicons name="cloud-upload-outline" size={20} color={BRAND_ORANGE} />
             <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" }}>{screenshot ? "Screenshot added" : "Upload screenshot"}</Text>
           </Pressable>
         </View>
-        <View style={styles.section}>
-          <InfoRow icon="phone-portrait-outline" title="Your device" value={`Android ${Platform.Version}`} styles={styles} noBorder />
+        <View style={styles.bugDeviceCard}>
+          <InfoRow icon="phone-portrait-outline" title="Your device" value={deviceOsLabel} styles={styles} noBorder />
           <InfoRow icon="information-circle-outline" title="App version" value="0.1.0 (Dev Build)" styles={styles} />
         </View>
         <Pressable style={styles.primaryButton} onPress={submitBugReport} disabled={submitting}>
@@ -1594,8 +1728,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
 function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
-      {/* Header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
+      <View style={styles.supportHeader}>
         <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
           <Ionicons name="chevron-back" size={22} color={palette.text} />
         </Pressable>
@@ -1605,53 +1738,59 @@ function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDial
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
-        {/* Chat Support Option */}
-        <Pressable 
-          style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.supportContent}>
+        <SupportCenterCard
+          icon="chatbubble-ellipses-outline"
+          title="Chat Support"
+          copy="Chat with Darji support representatives"
+          badgeIcon="ellipse"
+          badgeText="We usually reply within a few minutes"
+          badgeTone="green"
+          styles={styles}
           onPress={() => setScreen("chat")}
-        >
-          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-            <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Chat Support</Text>
-            <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Chat with Darji support representatives</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={palette.muted} />
-        </Pressable>
-
-        {/* Call Support Option */}
-        <Pressable 
-          style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+        />
+        <SupportCenterCard
+          icon="call-outline"
+          title="Call Support"
+          copy="Talk to our support team directly"
+          badgeIcon="call-outline"
+          badgeText="+91 98765 00000"
+          badgeTone="green"
+          styles={styles}
           onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
-        >
-          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-            <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Call Support</Text>
-            <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Dial support line directly (+91 98765 00000)</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={palette.muted} />
-        </Pressable>
-
-        {/* Account requests Option */}
-        <Pressable 
-          style={{ backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
+        />
+        <SupportCenterCard
+          icon="shield-checkmark-outline"
+          title="Shop & Account Requests"
+          copy="Update shop name, bank details, address and more"
+          badgeIcon="time-outline"
+          badgeText="We'll review and get back to you within 24-48 hours"
+          badgeTone="orange"
+          styles={styles}
           onPress={() => setScreen("requests")}
-        >
-          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Shop & Account Requests</Text>
-            <Text style={{ color: palette.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Change shop name, bank details, address</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={palette.muted} />
-        </Pressable>
+        />
       </ScrollView>
     </View>
+  );
+}
+
+function SupportCenterCard({ icon, title, copy, badgeIcon, badgeText, badgeTone, styles, onPress }: { icon: IconName; title: string; copy: string; badgeIcon: IconName; badgeText: string; badgeTone: "green" | "orange"; styles: ReturnType<typeof createStyles>; onPress: () => void }) {
+  const tone = badgeTone === "green" ? SUCCESS : BRAND_ORANGE;
+  return (
+    <Pressable style={styles.supportCard} onPress={onPress}>
+      <View style={styles.supportCardIcon}>
+        <Ionicons name={icon} size={22} color={BRAND_ORANGE} />
+      </View>
+      <View style={styles.supportCardBody}>
+        <Text style={styles.supportCardTitle}>{title}</Text>
+        <Text style={styles.supportCardCopy}>{copy}</Text>
+        <View style={styles.supportBadge}>
+          <Ionicons name={badgeIcon} size={badgeIcon === "ellipse" ? 8 : 13} color={tone} />
+          <Text style={styles.supportBadgeText}>{badgeText}</Text>
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={MUTED} />
+    </Pressable>
   );
 }
 
@@ -1944,6 +2083,52 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   );
 }
 
+const tailorFaqs: Array<{ title: string; preview: string; answer: string; icon: IconName; points: string[]; supportAction?: boolean }> = [
+  {
+    title: "How do I receive new orders?",
+    preview: "New customer requests will appear in the Requests tab.",
+    answer: "Customer requests appear in the Requests tab when a customer asks for stitching, alteration, or tailoring work in your service area.",
+    icon: "clipboard-outline",
+    points: ["You will get an in-app alert when request notifications are enabled.", "Open the request to check clothing type, urgency, pickup details, and customer notes.", "Send a quote only when you can complete the work on time."]
+  },
+  {
+    title: "When does an order move to Orders?",
+    preview: "Once the customer accepts your quote, the order will move to the Orders tab.",
+    answer: "A request becomes an assigned order only after the customer accepts your quote. After that, it moves from Requests to Orders.",
+    icon: "chatbox-ellipses-outline",
+    points: ["Accepted orders appear under the Accepted tab first.", "Use Ready to Deliver only when stitching is finished and required photos are uploaded.", "Past and cancelled work can be checked from History and Cancelled."]
+  },
+  {
+    title: "When can I mark work as Ready?",
+    preview: "You can mark the work as Ready only after stitching is complete and proof photos are uploaded.",
+    answer: "Mark an order as Ready when the garment is complete, checked, packed, and ready for pickup or delivery.",
+    icon: "shirt-outline",
+    points: ["Upload clear proof photos before changing the status.", "Do not mark partial or unfinished work as Ready.", "The delivery partner and customer may be notified after the status changes."]
+  },
+  {
+    title: "How and when do I get paid?",
+    preview: "Payments are transferred to your wallet after the customer confirms the order completion.",
+    answer: "Your earnings are tracked in the Earnings screen. Eligible completed work is added to your wallet and paid out according to Darji payout rules.",
+    icon: "wallet-outline",
+    points: ["Pending amount means money expected from completed or reviewed work.", "Last payment shows your most recent payout status.", "For payout issues, open Support Center with the order or transaction details."]
+  },
+  {
+    title: "Can I edit my shop details?",
+    preview: "Yes, you can request changes to your shop details from the Shop Details section.",
+    answer: "Verified shop details are protected, so changes are sent as a request for admin review instead of changing instantly.",
+    icon: "create-outline",
+    points: ["Open Profile, then Shop Details.", "Write what should change, such as address, category, capacity, or shop name.", "Darji support will review the request and update approved details."]
+  },
+  {
+    title: "Who can I contact for help?",
+    preview: "You can reach us anytime through the Support Center.",
+    answer: "Use Support Center when you need help with orders, account changes, payouts, bugs, or general app questions.",
+    icon: "headset-outline",
+    points: ["Use Chat Support for app or order help.", "Use Report a Bug when something is not working.", "Use Shop & Account Requests for profile, bank, and shop changes."],
+    supportAction: true
+  }
+];
+
 const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests">, { title: string; subtitle: string; icon: IconName; copy: string; points: string[]; action?: { label: string; url?: string } }> = {
   faqs: {
     title: "FAQs",
@@ -2046,6 +2231,7 @@ function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.bg },
     content: { padding: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 110 },
+    bugReportContent: { paddingTop: STATUS_BAR_INSET + 10, paddingBottom: 40 },
     headerCard: { borderRadius: 20, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
     avatar: { width: 76, height: 76, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
     avatarImage: { width: "100%", height: "100%", borderRadius: 24 },
@@ -2067,27 +2253,35 @@ function createStyles(palette: typeof lightPalette) {
     completedText: { color: SUCCESS, fontSize: 12, fontWeight: "900" },
     editButton: { minHeight: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, justifyContent: "center", paddingHorizontal: 13 },
     editButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
-    section: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 8, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+    section: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 10, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     sectionHeader: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
     sectionIcon: { width: 34, height: 34, borderRadius: 13, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     sectionTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
+    faqSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 },
+    faqHeroRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 18, marginBottom: 2 },
+    faqRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 13, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 12 },
+    faqFirstRow: { borderTopColor: "#eef2f7" },
+    faqIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
+    faqTitle: { color: palette.text, fontSize: 13, fontWeight: "900", lineHeight: 18 },
+    faqPreview: { color: palette.muted, fontSize: 11, fontWeight: "700", lineHeight: 17, marginTop: 5 },
     inputBlock: { marginTop: 10 },
-    requestCard: { borderRadius: 22, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: palette.surface, padding: 16, marginBottom: 16 },
+    requestCard: { borderRadius: 18, borderWidth: 1, borderColor: "#f8c978", backgroundColor: palette.surface, padding: 16, marginTop: 14, marginBottom: 16, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     requestHero: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
-    requestIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
-    requestTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
-    requestSubtitle: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.5 },
-    requestCopy: { color: palette.muted, fontSize: 13, lineHeight: 20, fontWeight: "600" },
-    requestInput: { minHeight: 118, textAlignVertical: "top", paddingTop: 14 },
+    requestIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
+    requestTitle: { color: palette.text, fontSize: 15, fontWeight: "900" },
+    requestSubtitle: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", marginTop: 3 },
+    requestCopy: { color: palette.muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginBottom: 3 },
+    requestInput: { minHeight: 112, textAlignVertical: "top", paddingTop: 14, backgroundColor: "#fffaf0", borderColor: "#f4dfbc" },
     inputLabel: { color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 7 },
+    inputHint: { color: palette.muted, fontSize: 10, fontWeight: "700", marginTop: -3, marginBottom: 8 },
     input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text, paddingHorizontal: 13, fontSize: 14, fontWeight: "700" },
     iconInputWrap: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13 },
     iconInput: { flex: 1, color: palette.text, fontSize: 14, fontWeight: "700", paddingVertical: 0 },
     inlineInputs: { flexDirection: "row", gap: 10 },
     inlineInput: { flex: 1, minWidth: 0 },
-    primaryButton: { minHeight: 50, borderRadius: 15, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 14 },
+    primaryButton: { minHeight: 50, borderRadius: 12, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 14 },
     primaryButtonText: { color: "#111111", fontSize: 14, fontWeight: "900" },
-    row: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderTopColor: palette.border },
+    row: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderTopColor: palette.border },
     disabledRow: { opacity: 0.58 },
     rowMain: { flex: 1, minWidth: 0 },
     rowTitle: { color: palette.text, fontSize: 14, fontWeight: "900" },
@@ -2110,6 +2304,51 @@ function createStyles(palette: typeof lightPalette) {
     choicePillSelected: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
     choiceText: { color: palette.muted, fontSize: 12, fontWeight: "900" },
     choiceTextSelected: { color: BRAND_ORANGE },
+    supportHeader: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 18, marginBottom: 22 },
+    supportContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 34 },
+    supportCard: { minHeight: 116, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+    supportCardIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+    supportCardBody: { flex: 1, minWidth: 0 },
+    supportCardTitle: { color: palette.text, fontSize: 17, fontWeight: "900", lineHeight: 22 },
+    supportCardCopy: { color: palette.muted, fontSize: 13, fontWeight: "700", lineHeight: 19, marginTop: 3 },
+    supportBadge: { alignSelf: "flex-start", minHeight: 26, borderRadius: 8, backgroundColor: "#fff7e8", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, marginTop: 14 },
+    supportBadgeText: { color: palette.muted, fontSize: 10, fontWeight: "900" },
+    chatScreen: { flex: 1 },
+    chatHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: palette.border, paddingHorizontal: 18, paddingBottom: 14, marginBottom: 2 },
+    chatTitle: { color: palette.text, fontSize: 17, lineHeight: 22, fontWeight: "900" },
+    chatSubtitle: { color: palette.muted, fontSize: 12, fontWeight: "700", marginTop: 3 },
+    chatCloseButton: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 12, minHeight: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    chatCloseText: { color: "#dc2626", fontSize: 11, fontWeight: "900" },
+    chatMessages: { flex: 1, paddingHorizontal: 18 },
+    chatMessagesContent: { flexGrow: 1, gap: 12, paddingTop: 18, paddingBottom: 16 },
+    chatNotice: { alignSelf: "stretch", borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: "#eef2f7", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12, marginTop: 6 },
+    chatNoticeIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+    chatNoticeText: { flex: 1, color: palette.muted, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+    chatComposerWrap: { borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.bg, paddingHorizontal: 14, paddingTop: 10, paddingBottom: CHAT_BOTTOM_INSET },
+    chatAttachmentPreviewRow: { flexDirection: "row", gap: 8, paddingBottom: 10 },
+    chatComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+    chatMediaButton: { width: 46, minHeight: 48, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", paddingVertical: 5 },
+    chatMediaText: { color: palette.muted, fontSize: 9, fontWeight: "900", marginTop: 3 },
+    chatInput: { flex: 1, minHeight: 48, maxHeight: 104, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 24, paddingHorizontal: 16, paddingTop: 13, paddingBottom: 10, color: palette.text, fontSize: 13, fontWeight: "700" },
+    chatSendButton: { width: 50, height: 50, borderRadius: 25, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+    chatClosedWrap: { borderTopWidth: 1, borderTopColor: palette.border, paddingHorizontal: 18, paddingTop: 14, paddingBottom: CHAT_BOTTOM_INSET, gap: 10 },
+    bugTextArea: { minHeight: 120, textAlignVertical: "top", paddingTop: 13, paddingBottom: 28, backgroundColor: palette.surface, borderColor: "#dfe6ef" },
+    bugCounter: { position: "absolute", right: 12, bottom: 10, color: palette.muted, fontSize: 10, fontWeight: "800" },
+    bugUploadBox: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: palette.surface },
+    bugDeviceCard: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 6, marginTop: 14, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+    dangerModalBackdrop: { flex: 1, backgroundColor: "rgba(7,13,24,0.52)", justifyContent: "center", alignItems: "center", padding: 24 },
+    dangerModalCard: { width: "100%", maxWidth: 330, backgroundColor: "#ffffff", borderRadius: 18, padding: 22, shadowColor: "#0b2241", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+    dangerModalHeader: { alignItems: "center", marginBottom: 16 },
+    dangerModalIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#fff1f2", alignItems: "center", justifyContent: "center", marginBottom: 14 },
+    dangerModalTitle: { color: BRAND_DEEP, fontSize: 18, lineHeight: 23, fontWeight: "900", textAlign: "center", marginBottom: 8 },
+    dangerModalCopy: { color: "#64748b", fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center" },
+    dangerModalNotice: { backgroundColor: "#fee2e2", borderRadius: 10, padding: 11, flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 14 },
+    dangerModalNoticeText: { color: "#991b1b", flex: 1, fontSize: 11, fontWeight: "800", lineHeight: 16 },
+    dangerModalPrimary: { minHeight: 44, backgroundColor: "#ef4444", borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+    dangerModalPrimaryText: { color: "#ffffff", fontWeight: "900", fontSize: 13 },
+    dangerModalSecondary: { minHeight: 42, backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#dbe1e9", alignItems: "center", justifyContent: "center" },
+    dangerModalSecondaryFilled: { backgroundColor: "#f1f5f9", borderWidth: 0 },
+    dangerModalSecondaryText: { color: BRAND_DEEP, fontWeight: "800", fontSize: 13 },
     logoutButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
     logoutText: { color: palette.text, fontSize: 15, fontWeight: "900" },
     deleteButton: { minHeight: 52, borderRadius: 16, backgroundColor: DANGER, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10 },

@@ -89,6 +89,7 @@ import {
   assignOrder,
   cancelDeliveryRetry,
   createCoupon,
+  deleteAdminAccount,
   extractError,
   getAnalytics,
   getCoupons,
@@ -947,6 +948,18 @@ export function AdminPortal() {
     mutationFn: moderateUser,
     onSuccess: async (_, variables) => {
       toast.success(`User set to ${formatStatus(variables.action).toLowerCase()}`);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const accountDeleteMutation = useMutation({
+    mutationFn: deleteAdminAccount,
+    onSuccess: async () => {
+      toast.success("Account deleted");
+      setTailorDetail(null);
+      setPartnerDetail(null);
+      setUserDetail(null);
       await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
@@ -1821,15 +1834,35 @@ export function AdminPortal() {
   const deliveryColumns = getDeliveryColumns({ onOpen: setDeliveryDetail, partners });
   const tailorColumns = getTailorColumns({
     onOpen: setTailorDetail,
-    onReview: (tailorId, status) => tailorReviewMutation.mutate({ tailorId, status })
+    onReview: (tailorId, status) => tailorReviewMutation.mutate({ tailorId, status }),
+    onDelete: (tailor) => {
+      const label = getTailorDisplayName(tailor);
+      if (window.confirm(`Permanently delete tailor account "${label}"? This action cannot be undone.`)) {
+        accountDeleteMutation.mutate(tailor.userId);
+      }
+    },
+    pendingDelete: accountDeleteMutation.isPending
   });
   const partnerColumns = getPartnerColumns({
     onOpen: setPartnerDetail,
-    onReview: (partnerId, status) => partnerReviewMutation.mutate({ partnerId, status })
+    onReview: (partnerId, status) => partnerReviewMutation.mutate({ partnerId, status }),
+    onDelete: (partner) => {
+      const label = getPartnerDisplayName(partner);
+      if (window.confirm(`Permanently delete delivery partner account "${label}"? This action cannot be undone.`)) {
+        accountDeleteMutation.mutate(partner.userId);
+      }
+    },
+    pendingDelete: accountDeleteMutation.isPending
   });
   const userColumns = getUserColumns({
     onActivate: (userId) => userModerationMutation.mutate({ userId, action: "ACTIVE" }),
     onBan: (userId) => userModerationMutation.mutate({ userId, action: "BANNED", reason: "Banned by admin" }),
+    onDelete: (user) => {
+      const label = getCustomerDisplayName(user);
+      if (window.confirm(`Permanently delete customer account "${label}"? This action cannot be undone.`)) {
+        accountDeleteMutation.mutate(user.id);
+      }
+    },
     onOpen: setUserDetail,
     onSuspend: (userId) =>
       userModerationMutation.mutate({
@@ -1838,7 +1871,8 @@ export function AdminPortal() {
         reason: "Temporarily suspended by admin",
         suspendedUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
       }),
-    pending: userModerationMutation.isPending
+    pending: userModerationMutation.isPending,
+    pendingDelete: accountDeleteMutation.isPending
   });
   const paymentColumns = getPaymentColumns({
     breakdowns: financeSummary.byPaymentId,
@@ -8479,11 +8513,15 @@ function getDeliveryColumns({
 }
 
 function getTailorColumns({
+  onDelete,
   onOpen,
-  onReview
+  onReview,
+  pendingDelete
 }: {
+  onDelete: (tailor: TailorProfile) => void;
   onOpen: (tailor: TailorProfile) => void;
   onReview: (tailorId: string, status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED") => void;
+  pendingDelete: boolean;
 }): Array<ColumnDef<TailorProfile>> {
   return [
     {
@@ -8542,6 +8580,9 @@ function getTailorColumns({
               Approve
             </ActionButton>
           ) : null}
+          <ActionButton className="px-3 py-2" disabled={pendingDelete} variant="danger" onClick={() => onDelete(row.original)}>
+            Delete
+          </ActionButton>
         </div>
       )
     }
@@ -8549,11 +8590,15 @@ function getTailorColumns({
 }
 
 function getPartnerColumns({
+  onDelete,
   onOpen,
-  onReview
+  onReview,
+  pendingDelete
 }: {
+  onDelete: (partner: DeliveryPartnerProfile) => void;
   onOpen: (partner: DeliveryPartnerProfile) => void;
   onReview: (partnerId: string, status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED") => void;
+  pendingDelete: boolean;
 }): Array<ColumnDef<DeliveryPartnerProfile>> {
   return [
     {
@@ -8617,6 +8662,9 @@ function getPartnerColumns({
               Approve
             </ActionButton>
           ) : null}
+          <ActionButton className="px-3 py-2" disabled={pendingDelete} variant="danger" onClick={() => onDelete(row.original)}>
+            Delete
+          </ActionButton>
         </div>
       )
     }
@@ -8626,15 +8674,19 @@ function getPartnerColumns({
 function getUserColumns({
   onActivate,
   onBan,
+  onDelete,
   onOpen,
   onSuspend,
-  pending
+  pending,
+  pendingDelete
 }: {
   onActivate: (userId: string) => void;
   onBan: (userId: string) => void;
+  onDelete: (user: AdminUser) => void;
   onOpen: (user: AdminUser) => void;
   onSuspend: (userId: string) => void;
   pending: boolean;
+  pendingDelete: boolean;
 }): Array<ColumnDef<AdminUser>> {
   return [
     {
@@ -8702,6 +8754,9 @@ function getUserColumns({
                 </ActionButton>
               </>
             )}
+            <ActionButton className="px-3 py-2" disabled={pendingDelete} variant="danger" onClick={() => onDelete(row.original)}>
+              Delete
+            </ActionButton>
           </div>
         );
       }

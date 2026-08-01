@@ -49,24 +49,25 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
   if (!rawToken) throw new Error("Authentication required");
 
   const payload = verifyAccessToken(String(rawToken));
-  const user = await UserModel.findById(payload.sub).select("role activeSessionId");
+  const user = await UserModel.findById(payload.sub).select("role activeSessionId activeSessionIds");
   if (!user) throw new Error("Invalid session");
-  if (!payload.sid || !user.activeSessionId || payload.sid !== user.activeSessionId) {
+  const activeSessionId = (user.activeSessionIds as Record<string, string> | undefined)?.[payload.role] ?? user.activeSessionId;
+  if (!payload.sid || !activeSessionId || payload.sid !== activeSessionId) {
     throw new Error("Your account has been signed in on another device.");
   }
-  if (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
+  if (payload.role !== "ADMIN" && payload.role !== "SUPER_ADMIN") {
     const platformStatus = await getPlatformStatus();
     if (platformStatus.maintenanceMode) throw new Error(platformStatus.title);
   }
 
   const [tailor, partner] = await Promise.all([
-    user.role === "TAILOR" ? TailorModel.findOne({ userId: user.id }).select("_id") : null,
-    user.role === "DELIVERY_PARTNER" ? DeliveryPartnerModel.findOne({ userId: user.id }).select("_id verificationStatus") : null
+    payload.role === "TAILOR" ? TailorModel.findOne({ userId: user.id }).select("_id") : null,
+    payload.role === "DELIVERY_PARTNER" ? DeliveryPartnerModel.findOne({ userId: user.id }).select("_id verificationStatus") : null
   ]);
 
   return {
     id: user.id,
-    role: user.role as Role,
+    role: payload.role as Role,
     tailorId: tailor?.id,
     deliveryPartnerId: partner?.id,
     deliveryVerified: partner?.verificationStatus === "VERIFIED"

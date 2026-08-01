@@ -39,6 +39,13 @@ async function resetAutoVerifiedTailorProfile(userId: string) {
       { returnDocument: "after" }
     );
   }
+  if (profile?.verificationStatus === "VERIFIED" && profile.isAvailable !== true) {
+    return TailorModel.findByIdAndUpdate(
+      profile.id,
+      { isAvailable: true },
+      { returnDocument: "after" }
+    );
+  }
   return profile;
 }
 
@@ -164,11 +171,14 @@ export async function verifyOtpController(req: Request, res: Response) {
   }
 
   const sessionId = randomUUID();
-  const accessToken = signAccessToken({ sub: user.id, role: user.role, sid: sessionId });
-  const refreshToken = signRefreshToken({ sub: user.id, role: user.role, sid: sessionId });
-  await UserModel.findByIdAndUpdate(user.id, { activeSessionId: sessionId, refreshTokenHash: await bcrypt.hash(refreshToken, 10) });
+  const accessToken = signAccessToken({ sub: user.id, role: input.role, sid: sessionId });
+  const refreshToken = signRefreshToken({ sub: user.id, role: input.role, sid: sessionId });
+  await UserModel.findByIdAndUpdate(user.id, {
+    [`activeSessionIds.${input.role}`]: sessionId,
+    [`refreshTokenHashes.${input.role}`]: await bcrypt.hash(refreshToken, 10)
+  });
 
-  res.json({ data: { user, accessToken, refreshToken } });
+  res.json({ data: { user: { ...user.toJSON(), role: input.role }, accessToken, refreshToken } });
 }
 
 export async function refreshController(req: Request, res: Response) {
@@ -179,10 +189,15 @@ export async function refreshController(req: Request, res: Response) {
 
   const payload = verifyRefreshToken(refreshToken);
   const user = await UserModel.findById(payload.sub);
-  if (!user?.activeSessionId || user.activeSessionId !== payload.sid) {
+  if (!user) {
+    throw new AppError(401, "Invalid refresh token");
+  }
+  const activeSessionId = (user?.activeSessionIds as Record<string, string> | undefined)?.[payload.role] ?? user?.activeSessionId;
+  const refreshTokenHash = (user?.refreshTokenHashes as Record<string, string> | undefined)?.[payload.role] ?? user?.refreshTokenHash;
+  if (!activeSessionId || activeSessionId !== payload.sid) {
     throw new AppError(401, "Your account has been signed in on another device.");
   }
-  if (!user.refreshTokenHash || !(await bcrypt.compare(refreshToken, user.refreshTokenHash))) {
+  if (!refreshTokenHash || !(await bcrypt.compare(refreshToken, refreshTokenHash))) {
     throw new AppError(401, "Invalid refresh token");
   }
   await clearExpiredSuspension(user);
@@ -190,7 +205,7 @@ export async function refreshController(req: Request, res: Response) {
 
   res.json({
     data: {
-      accessToken: signAccessToken({ sub: user.id, role: user.role, sid: payload.sid }),
+      accessToken: signAccessToken({ sub: user.id, role: payload.role, sid: payload.sid }),
       refreshToken
     }
   });
@@ -281,7 +296,7 @@ export async function meController(req: Request, res: Response) {
     };
   }
 
-  res.json({ data: { ...user?.toJSON(), wallet, tailorProfile: hydratedTailorProfile, deliveryProfile: hydratedDeliveryProfile } });
+  res.json({ data: { ...user?.toJSON(), role: req.user!.role, wallet, tailorProfile: hydratedTailorProfile, deliveryProfile: hydratedDeliveryProfile } });
 }
 
 export async function updateMeController(req: Request, res: Response) {

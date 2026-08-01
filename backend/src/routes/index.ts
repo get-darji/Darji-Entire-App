@@ -44,6 +44,7 @@ import {
   listUsersController,
   markPaymentPaidController,
   moderateUserController,
+  deleteAdminAccountController,
   paymentsController,
   platformStatusController,
   reassignDeliveryBatchTaskController,
@@ -242,5 +243,6 @@ router.get("/analytics", requireAuth, requireRole("ADMIN"), analyticsController)
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
 router.post("/users/admin-invite", requireAuth, requireRole("SUPER_ADMIN"), inviteAdminController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
+router.delete("/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);
 router.put("/settings/:key", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateSettingController);
