@@ -1,0 +1,13 @@
+
+> @darzi/tailor-app@0.1.0 start
+> node ../../scripts/run-expo-with-clean-cache.cjs . start --localhost
+
+[cache] removed D:\app\apps\tailor-app\.expo\metro-cache
+[cache] removed C:\Users\amank\AppData\Local\Temp\metro-cache
+Starting project at D:\app\apps\tailor-app
+Expo Autolinking module resolution enabled
+Starting Metro Bundler
+
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+Logs for your project will appear below.

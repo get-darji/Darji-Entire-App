@@ -78,6 +78,7 @@ const tailorVerificationReuploadFields = ["aadhaarFront", "aadhaarBack", "panPho
 
 const tailorProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
+  email: z.string().trim().email().optional().or(z.literal("")),
   shopName: z.string().trim().min(2).max(100).optional(),
   specialization: z.array(z.string().trim().min(2).max(40)).max(8).optional(),
   workingHours: z.object({ from: z.string().trim().max(10).optional(), to: z.string().trim().max(10).optional() }).optional(),
@@ -502,7 +503,30 @@ export async function listTailorsController(_req: Request, res: Response) {
     { $set: { verificationStatus: "PENDING" } }
   );
   const tailors = await TailorModel.find().sort({ createdAt: -1 });
-  res.json({ data: await Promise.all(tailors.map((tailor) => withUser(tailor))) });
+  const tailorIds = tailors.map((tailor) => tailor.id);
+  const orders = await OrderModel.find({ tailorId: { $in: tailorIds } }).select("_id tailorId").lean();
+  const orderTailorMap = new Map(orders.map((order) => [String(order._id), String(order.tailorId)]));
+  const reviews = orders.length
+    ? await ReviewModel.find({ kind: "tailor", orderId: { $in: orders.map((order) => String(order._id)) } }).select("orderId rating").lean()
+    : [];
+  const ratingStats = reviews.reduce((stats, review) => {
+    const tailorId = orderTailorMap.get(String(review.orderId));
+    if (!tailorId) return stats;
+    const current = stats.get(tailorId) ?? { count: 0, sum: 0 };
+    stats.set(tailorId, { count: current.count + 1, sum: current.sum + Number(review.rating ?? 0) });
+    return stats;
+  }, new Map<string, { count: number; sum: number }>());
+  const data = await Promise.all(
+    tailors.map(async (tailor) => {
+      const stats = ratingStats.get(tailor.id);
+      return {
+        ...(await withUser(tailor)),
+        rating: stats?.count ? Number((stats.sum / stats.count).toFixed(1)) : Number(tailor.rating ?? 0),
+        ratingCount: stats?.count ?? 0
+      };
+    })
+  );
+  res.json({ data });
 }
 
 export async function reviewTailorVerificationController(req: Request, res: Response) {
@@ -542,8 +566,11 @@ export async function updateTailorAvailabilityController(req: Request, res: Resp
 
 export async function updateTailorProfileController(req: Request, res: Response) {
   const input = tailorProfileSchema.parse(req.body);
+  const userUpdate: Record<string, string | null> = {};
+  if (input.name) userUpdate.name = input.name;
+  if (typeof input.email === "string") userUpdate.email = input.email || null;
   const [user, tailor] = await Promise.all([
-    input.name ? UserModel.findByIdAndUpdate(req.user!.id, { name: input.name }, { returnDocument: "after" }) : UserModel.findById(req.user!.id),
+    Object.keys(userUpdate).length ? UserModel.findByIdAndUpdate(req.user!.id, userUpdate, { returnDocument: "after" }) : UserModel.findById(req.user!.id),
     TailorModel.findOneAndUpdate(
       { userId: req.user!.id },
       {
@@ -572,7 +599,15 @@ export async function submitTailorVerificationController(req: Request, res: Resp
   }
 
   const [user, tailor] = await Promise.all([
-    UserModel.findByIdAndUpdate(req.user!.id, { name: input.personal.name, avatarUrl: input.idVerification.facePhotoUrl }, { returnDocument: "after" }),
+    UserModel.findByIdAndUpdate(
+      req.user!.id,
+      {
+        name: input.personal.name,
+        avatarUrl: input.idVerification.facePhotoUrl,
+        ...(input.personal.email ? { email: input.personal.email } : {})
+      },
+      { returnDocument: "after" }
+    ),
     TailorModel.findOneAndUpdate(
       { userId: req.user!.id },
       {

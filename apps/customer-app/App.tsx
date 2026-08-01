@@ -101,7 +101,36 @@ type Screen =
 type RequestFlowScreen = "newRequest" | "clothIssue" | "measurements" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
-type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; specialty?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string };
+type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; specialty?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string; tailorProfile?: TailorProfileSummary };
+type BackendTailorProfile = {
+  id: string;
+  shopName?: string;
+  darjiTailorId?: string;
+  specialization?: string[];
+  rating?: number;
+  ratingCount?: number;
+  isAvailable?: boolean;
+  verificationStatus?: string;
+  verification?: {
+    shop?: { shopAddress?: string; address?: string; area?: string; city?: string };
+    personal?: { address?: string; area?: string; city?: string };
+  };
+  user?: { name?: string; phone?: string; avatarUrl?: string };
+};
+type TailorProfileSummary = {
+  id: string;
+  initials: string;
+  shopName: string;
+  displayName: string;
+  rating: string;
+  reviews: number;
+  area: string;
+  specialty: string;
+  specializations: string[];
+  avatarUrl?: string;
+  isAvailable?: boolean;
+  verificationStatus?: string;
+};
 type BackendTailorQuote = {
   id: string;
   requestId: string;
@@ -112,13 +141,7 @@ type BackendTailorQuote = {
   message?: string;
   pickupIncluded?: boolean;
   status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
-  tailor?: {
-    id: string;
-    shopName?: string;
-    specialization?: string[];
-    rating?: number;
-    user?: { name?: string; phone?: string };
-  } | null;
+  tailor?: BackendTailorProfile | null;
 };
 type LocalMedia = { uri: string; type: "image" | "video"; name: string; size?: number };
 type ClothingItemDraft = {
@@ -400,10 +423,11 @@ const avatarImages = {
 
 type PullToRefreshState = {
   refreshing: boolean;
+  refreshSignal: number;
   onRefresh?: () => void;
 };
 
-const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false, refreshSignal: 0 });
 
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
@@ -651,12 +675,6 @@ const searchCategories = [
   { title: "Uniforms", subtitle: "School & College Wear", icon: "school-outline" },
   { title: "Home & More", subtitle: "Curtains, Cushion & more", icon: "home-outline" },
   { title: "Alterations", subtitle: "Repairs & Alterations", icon: "construct-outline" }
-] as const;
-
-const searchTailors = [
-  { name: "Rohit Tailors", rating: "4.8", reviews: 128, location: "Janakpuri, Delhi", specialty: "Men Ethnic, Formal Wear", initials: "RT" },
-  { name: "Sharma Tailors", rating: "4.7", reviews: 96, location: "Uttam Nagar, Delhi", specialty: "Women Ethnic, Alterations", initials: "ST" },
-  { name: "Style Stitch", rating: "4.6", reviews: 78, location: "Tilak Nagar, Delhi", specialty: "Men Formal, Casual Wear", initials: "SS" }
 ] as const;
 
 const services = [
@@ -1976,6 +1994,7 @@ function HomeScreen({
   appReviews: AppReviewDraft[];
 }) {
   const token = useAppStore((state) => state.token);
+  const { refreshSignal } = useContext(PullToRefreshContext);
   const { width } = useWindowDimensions();
   const popularCardWidth = Math.max(86, (width - 76) / 4);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -1987,14 +2006,19 @@ function HomeScreen({
   const localStories = storiesFromCustomerData(profile, orders, appReviews, defaultAddress);
   const stories = featuredStories.length ? featuredStories : localStories;
 
-  useEffect(() => {
+  const loadHomeExtras = useCallback(() => {
     if (!token) return;
     void api<Coupon[]>("/coupons", {}, token).then(setCoupons).catch(() => setCoupons([]));
+    void api<CustomerStory[]>("/reviews/featured").then(setFeaturedStories).catch(() => setFeaturedStories([]));
   }, [token]);
 
   useEffect(() => {
-    void api<CustomerStory[]>("/reviews/featured").then(setFeaturedStories).catch(() => setFeaturedStories([]));
-  }, []);
+    loadHomeExtras();
+  }, [loadHomeExtras]);
+
+  useEffect(() => {
+    if (refreshSignal > 0) loadHomeExtras();
+  }, [loadHomeExtras, refreshSignal]);
 
   const needs = [
     { title: "Alteration", text: "Fit and size changes", icon: "cut-outline" },
@@ -2195,7 +2219,7 @@ function HomeScreen({
           {[
             ["bicycle-outline", "Doorstep Service", "Pickup and delivery"],
             ["shield-checkmark-outline", "Trusted Tailors", "Verified partners"],
-            ["pricetag-outline", "Best Prices", "Compare quotes"],
+            ["pricetag-outline", "Best Prices", "Compare Pricing"],
             ["lock-closed-outline", "Secure & Safe", "Protected orders"]
           ].map(([icon, title, copy]) => (
             <View key={title} style={styles.whyCard}>
@@ -2724,9 +2748,9 @@ function NewRequestScreen({
         <Header
           title={draft.editingItemId ? `Edit Item ${currentItemNumber}` : currentItemNumber > 1 ? `Cloth Item ${currentItemNumber}` : "New Request"}
           onBack={leaveCurrentItem}
-          right={<Text style={styles.stepBadge}>1/2</Text>}
+          right={<Text style={styles.stepBadge}>1/3</Text>}
         />
-        <RequestProgressBar step={1} />
+        <RequestProgressBar step={1} total={3} />
         <View style={styles.requestSafetyCard}>
           <View style={styles.requestSafetyIcon}>
             <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
@@ -3786,22 +3810,26 @@ function PendingRequestStep({ number, title, helper }: { number: number; title: 
       <View style={styles.pendingStepNumber}>
         <Text style={styles.pendingStepNumberText}>{number}</Text>
       </View>
-      <View style={styles.profileRowText}>
+      <View style={styles.pendingStepTextBlock}>
         <Text style={styles.pendingStepTitle}>{title}</Text>
         <Text style={styles.pendingStepHelper}>{helper}</Text>
       </View>
+      <Ionicons name="lock-closed-outline" size={17} color="#98a4b6" />
     </View>
   );
 }
 
 function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void; stage?: "work" | "measurements" }) {
+  const scrollViewRef = useRef<RNScrollView>(null);
   const [savingAction, setSavingAction] = useState<"summary" | "another" | undefined>();
   const [garmentSearch, setGarmentSearch] = useState("");
   const [showSizeChart, setShowSizeChart] = useState(false);
   const [showHomeMeasurementModal, setShowHomeMeasurementModal] = useState(false);
   const [showClothGuideModal, setShowClothGuideModal] = useState(false);
-  const [stitchingWarningDismissed, setStitchingWarningDismissed] = useState(Boolean(draft.editingItemId));
+  const [showStitchingWarning, setShowStitchingWarning] = useState(false);
+  const [stitchingWarningDismissed, setStitchingWarningDismissed] = useState(true);
   const [clothWarningAccepted, setClothWarningAccepted] = useState(false);
+  const [clothWarningMessage, setClothWarningMessage] = useState("");
   const [showAllWorkOptions, setShowAllWorkOptions] = useState((draft.selectedWorkItems?.length ?? 0) === 0);
   const token = useAppStore((state) => state.token);
   const measurementGuide = guideForClothType(draft.clothType);
@@ -3829,6 +3857,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && selectedService && hasWorkSelection);
   const savedItemCount = draft.items?.length ?? 0;
   const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
+
+  useEffect(() => {
+    requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: 0, animated: false }));
+  }, [stage, showStitchingWarning]);
 
   function selectClothType(clothType: string) {
     setShowManualMeasurements(false);
@@ -3888,12 +3920,17 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     });
     setShowAllWorkOptions(true);
     setClothWarningAccepted(false);
+    setClothWarningMessage("");
+    setShowStitchingWarning(serviceCategory === "New Stitching");
     setStitchingWarningDismissed(serviceCategory !== "New Stitching");
   }
 
   function clearServiceCategory() {
     setShowAllWorkOptions(true);
     setClothWarningAccepted(false);
+    setClothWarningMessage("");
+    setShowStitchingWarning(false);
+    setStitchingWarningDismissed(true);
     setDraft({
       ...draft,
       serviceCategory: undefined,
@@ -4003,11 +4040,13 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 
   return (
     <SafeAreaView style={styles.safe}>
-      {selectedService?.label === "New Stitching" && !stitchingWarningDismissed ? (
-        <ScrollView contentContainerStyle={styles.pageContent}>
+      {selectedService?.label === "New Stitching" && showStitchingWarning && !stitchingWarningDismissed ? (
+        <ScrollView ref={scrollViewRef} contentContainerStyle={styles.pageContent}>
           <Header
             title="New Stitching"
             onBack={() => {
+              setShowStitchingWarning(false);
+              setStitchingWarningDismissed(true);
               setDraft({
                 ...draft,
                 serviceCategory: undefined,
@@ -4066,21 +4105,37 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
             </View>
           </View>
 
-          <Pressable style={styles.warningAgreementRow} onPress={() => setClothWarningAccepted((current) => !current)}>
+          {clothWarningMessage ? (
+            <View style={styles.warningInlineMessage}>
+              <Ionicons name="chatbox-ellipses-outline" size={16} color="#b45309" />
+              <Text style={styles.warningInlineMessageText}>{clothWarningMessage}</Text>
+            </View>
+          ) : null}
+
+          <Pressable style={styles.warningAgreementRow} onPress={() => {
+            setClothWarningAccepted((current) => !current);
+            setClothWarningMessage("");
+          }}>
             <Ionicons name={clothWarningAccepted ? "checkbox" : "square-outline"} size={20} color={BRAND_ORANGE} />
             <Text style={styles.warningAgreementText}>I have checked my fabric and understand the information above.</Text>
           </Pressable>
 
           <Pressable
-            disabled={!clothWarningAccepted}
             style={[styles.primaryWideButton, !clothWarningAccepted && styles.disabledDarkButton]}
-            onPress={() => setStitchingWarningDismissed(true)}
+            onPress={() => {
+              if (!clothWarningAccepted) {
+                setClothWarningMessage("Please check the box to continue.");
+                return;
+              }
+              setShowStitchingWarning(false);
+              setStitchingWarningDismissed(true);
+            }}
           >
             <Text style={[styles.primaryWideButtonText, !clothWarningAccepted && styles.disabledText]}>Continue</Text>
           </Pressable>
         </ScrollView>
       ) : (
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView ref={scrollViewRef} contentContainerStyle={styles.pageContent}>
           <Header
             title={stage === "measurements" ? "Measurements & Timing" : "Cloth Details"}
             onBack={() => setScreen(stage === "measurements" ? "clothIssue" : draft.editingItemId ? "orderSummary" : "newRequest")}
@@ -4153,10 +4208,15 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
             </View>
           </>
         ) : (
-          <PendingRequestStep number={2} title="Select Garment" helper="Choose gender / fit type first to unlock garment options." />
+          <View style={styles.nextStepsPanel}>
+            <Text style={styles.nextStepsEyebrow}>Next steps</Text>
+            <PendingRequestStep number={2} title="Select Garment" helper="Choose gender / fit type first to unlock garment options." />
+            <PendingRequestStep number={3} title="Select Service Category" helper="Choose a garment first to continue." />
+            <PendingRequestStep number={4} title="Select Work" helper="Choose a service category to see work options." />
+          </View>
         )}
 
-        {draft.clothType ? (
+        {draft.gender && draft.clothType ? (
           <>
             <Text style={styles.formLabel}>3. Select Service Category</Text>
             <View style={styles.serviceCategoryList}>
@@ -4187,11 +4247,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
               })}
             </View>
           </>
-        ) : (
+        ) : draft.gender ? (
           <PendingRequestStep number={3} title="Select Service Category" helper="Choose a garment first to continue." />
-        )}
+        ) : null}
 
-        {selectedService ? (
+        {draft.gender && draft.clothType && selectedService ? (
           <>
             <Text style={styles.formLabel}>4. Select Work</Text>
             <Text style={styles.workSelectionHelper}>You can select multiple</Text>
@@ -4226,9 +4286,9 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
               <Text style={styles.clothTipCopy}>You can select multiple works in this category.</Text>
             </View>
           </>
-        ) : (
+        ) : draft.gender && draft.clothType ? (
           <PendingRequestStep number={4} title="Select Work" helper="Choose a service category to see work options." />
-        )}
+        ) : null}
 
         <Pressable
           disabled={!canContinueToMeasurements}
@@ -4499,7 +4559,8 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 }
 
 function quoteFromBackend(quote: BackendRequestQuote): Quote {
-  const name = quote.tailor?.shopName || quote.tailor?.user?.name || "Darji Tailor";
+  const tailorProfile = tailorProfileFromBackend(quote.tailor);
+  const name = tailorProfile?.shopName || quote.tailor?.shopName || quote.tailor?.user?.name || "Darji Tailor";
   const rating = Number(quote.tailor?.rating ?? 0);
   return {
     id: quote.id,
@@ -4513,7 +4574,60 @@ function quoteFromBackend(quote: BackendRequestQuote): Quote {
     eta: etaLabel(quote),
     price: quote.price,
     message: quote.message,
-    specialty: quote.tailor?.specialization?.filter(Boolean).join(", ")
+    specialty: tailorProfile?.specialty || quote.tailor?.specialization?.filter(Boolean).join(", "),
+    tailorProfile
+  };
+}
+
+function compactLocation(value?: string) {
+  const parts = String(value ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.slice(0, 2).join(", ") || "Area not added";
+}
+
+function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorProfileSummary | undefined {
+  if (!tailor) return undefined;
+  const shopName = tailor.shopName || tailor.user?.name || "Darji Tailor";
+  const specializations = (tailor.specialization ?? []).filter(Boolean);
+  const address =
+    tailor.verification?.shop?.shopAddress ||
+    tailor.verification?.shop?.address ||
+    tailor.verification?.personal?.address ||
+    tailor.verification?.shop?.area ||
+    tailor.verification?.personal?.area ||
+    tailor.verification?.shop?.city ||
+    tailor.verification?.personal?.city;
+  const rating = Number(tailor.rating ?? 0);
+  return {
+    id: tailor.id,
+    initials: initialsFor(shopName),
+    shopName,
+    displayName: tailor.user?.name || shopName,
+    rating: rating > 0 ? rating.toFixed(1) : "New",
+    reviews: Number(tailor.ratingCount ?? 0),
+    area: compactLocation(address),
+    specialty: specializations.length ? specializations.join(", ") : "General tailoring",
+    specializations,
+    avatarUrl: tailor.user?.avatarUrl,
+    isAvailable: tailor.isAvailable,
+    verificationStatus: tailor.verificationStatus
+  };
+}
+
+function tailorProfileFromQuote(quote: Quote): TailorProfileSummary {
+  return {
+    id: quote.tailorId ?? quote.id,
+    initials: quote.initials,
+    shopName: quote.name,
+    displayName: quote.name,
+    rating: quote.rating,
+    reviews: quote.reviews,
+    area: "Area not added",
+    specialty: quote.specialty || "General tailoring",
+    specializations: quote.specialty ? quote.specialty.split(",").map((item) => item.trim()).filter(Boolean) : [],
+    isAvailable: true
   };
 }
 
@@ -4522,16 +4636,78 @@ function formatRequestSentLabel(createdAt?: string) {
   const created = new Date(createdAt).getTime();
   if (!Number.isFinite(created)) return "Request sent";
   const minutes = Math.max(0, Math.floor((Date.now() - created) / 60000));
-  if (minutes < 1) return "Your request was sent just now";
-  if (minutes < 60) return `Your request was sent ${minutes} min ago`;
+  if (minutes < 1) return "Request sent just now";
+  if (minutes < 60) return `Request sent ${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Your request was sent ${hours} hr${hours === 1 ? "" : "s"} ago`;
+  if (hours < 24) return `Request sent ${hours} hr${hours === 1 ? "" : "s"} ago`;
   const days = Math.floor(hours / 24);
-  return `Your request was sent ${days} day${days === 1 ? "" : "s"} ago`;
+  return `Request sent ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function quoteResponseLabel(count: number) {
+  if (count === 0) return "0 tailors responding";
   return `${count} ${count === 1 ? "tailor" : "tailors"} responded`;
+}
+
+function quoteAvatarTone(index: number) {
+  const tones = ["#ffc247", "#bca5ff", "#ccef8e"];
+  return { backgroundColor: tones[index % tones.length] };
+}
+
+function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSummary; onClose: () => void }) {
+  return (
+    <Modal visible={Boolean(profile)} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.tailorProfileModal}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.profileName}>Tailor Profile</Text>
+            <Pressable style={styles.iconMiniButton} onPress={onClose}>
+              <Ionicons name="close" size={18} color={BRAND_DEEP} />
+            </Pressable>
+          </View>
+          {profile ? (
+            <>
+              <View style={styles.tailorProfileHero}>
+                <View style={styles.tailorProfileAvatar}>
+                  {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.tailorProfileAvatarImage} /> : <Text style={styles.tailorProfileAvatarText}>{profile.initials}</Text>}
+                </View>
+                <View style={styles.profileRowTextNoMargin}>
+                  <Text style={styles.tailorProfileShop}>{profile.shopName}</Text>
+                  <Text style={styles.mutedSmall}>{profile.displayName}</Text>
+                  <View style={styles.ratingRow}>
+                    <Ionicons name="star" size={16} color={BRAND_ORANGE} />
+                    <Text style={styles.quoteMeta}>{Number(profile.rating) > 0 ? `${profile.rating} (${profile.reviews})` : "New tailor"}</Text>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.tailorProfileInfoGrid}>
+                <View style={styles.tailorProfileInfoCard}>
+                  <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
+                  <Text style={styles.tailorProfileInfoLabel}>Area</Text>
+                  <Text style={styles.tailorProfileInfoValue}>{profile.area}</Text>
+                </View>
+                <View style={styles.tailorProfileInfoCard}>
+                  <Ionicons name={profile.isAvailable === false ? "time-outline" : "checkmark-circle-outline"} size={18} color={BRAND_ORANGE} />
+                  <Text style={styles.tailorProfileInfoLabel}>Availability</Text>
+                  <Text style={styles.tailorProfileInfoValue}>{profile.isAvailable === false ? "Unavailable" : "Available"}</Text>
+                </View>
+              </View>
+              <Text style={styles.cardLabel}>SPECIALIZES IN</Text>
+              <View style={styles.tailorSpecialtyWrap}>
+                {(profile.specializations.length ? profile.specializations : [profile.specialty]).map((item) => (
+                  <Text key={item} style={styles.tailorSpecialtyChip}>{item}</Text>
+                ))}
+              </View>
+              <View style={styles.tailorVerifiedRow}>
+                <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
+                <Text style={styles.tailorVerifiedText}>{profile.verificationStatus === "VERIFIED" ? "Verified tailor profile" : "Tailor profile from Darji backend"}</Text>
+              </View>
+            </>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 function statusFromBackendRequest(request: BackendTailoringRequest): OrderStatus {
@@ -4857,11 +5033,13 @@ function QuotesScreen({
   onDeleteRequest?: () => Promise<void> | void;
 }) {
   const token = useAppStore((state) => state.token);
+  const { refreshSignal } = useContext(PullToRefreshContext);
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
   const [backendRequest, setBackendRequest] = useState<BackendTailoringRequest | undefined>();
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
   const [deleting, setDeleting] = useState(false);
   const itemCount = backendRequest?.itemCount ?? checkoutItemCount(draft);
   const responseCount = backendRequest?.quoteCount ?? backendQuotes.length;
@@ -4895,13 +5073,21 @@ function QuotesScreen({
 
   useEffect(() => {
     void loadQuotes();
-  }, [draft.backendRequestId, token]);
+  }, [draft.backendRequestId, token, refreshSignal]);
 
   const visibleQuotes = backendQuotes;
 
-  async function confirmTailor() {
-    if (!selectedQuote) return;
-    if (!selectedQuote.backendRequestId || !selectedQuote.backendQuoteId || !token) {
+  async function confirmTailor(quote = selectedQuote) {
+    if (!quote) {
+      showDialog({
+        title: visibleQuotes.length ? "Select a tailor" : "No quotes yet",
+        message: visibleQuotes.length ? "Choose one tailor quote before confirming." : "Tailors are still reviewing your request. You can confirm once a quote arrives.",
+        actions: [{ label: "OK" }]
+      });
+      return;
+    }
+    setSelectedQuote(quote);
+    if (!quote.backendRequestId || !quote.backendQuoteId || !token) {
       setScreen("confirmOrder");
       return;
     }
@@ -4948,26 +5134,34 @@ function QuotesScreen({
             <View style={styles.quoteClockIcon}>
               <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
             </View>
-            <View style={styles.profileRowText}>
-              <Text style={styles.quotesSummaryTitle}>{loading ? "Checking quotes..." : quoteResponseLabel(responseCount)}</Text>
-              <Text style={styles.quotesSummaryItem}>{itemCount} {itemCount === 1 ? "item" : "items"}</Text>
-              <Text style={styles.mutedSmall}>{requestSentLabel}</Text>
+            <View style={styles.quotesSummaryBody}>
+              <View style={styles.quotesSummaryText}>
+                <Text style={styles.quotesSummaryTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>{loading ? "Checking quotes..." : quoteResponseLabel(responseCount)}</Text>
+                <Text style={styles.quotesSummaryItem}>{itemCount} {itemCount === 1 ? "item" : "items"}</Text>
+                <Text style={styles.mutedSmall}>{requestSentLabel}</Text>
+              </View>
+              <Pressable style={styles.quoteDetailsButton} onPress={() => setDetailsOpen(true)}>
+                <Text style={styles.quoteDetailsButtonText}>View Details</Text>
+                <Ionicons name="chevron-forward" size={18} color="#ffffff" />
+              </Pressable>
             </View>
-            <Pressable style={styles.quoteDetailsButton} onPress={() => setDetailsOpen(true)}>
-              <Text style={styles.quoteDetailsButtonText}>View Details</Text>
-              <Ionicons name="chevron-forward" size={16} color={BRAND_DEEP} />
-            </Pressable>
           </View>
         </View>
 
         {visibleQuotes.length === 0 && !loading ? (
           <View style={styles.quotesWaitingState}>
             <View style={styles.quotesIllustration}>
+              <View style={styles.quotesSparkLeft}>
+                <Ionicons name="sparkles-outline" size={24} color="#ffd990" />
+              </View>
+              <View style={styles.quotesSparkRight}>
+                <Ionicons name="sparkles-outline" size={24} color="#ffd990" />
+              </View>
               <Ionicons name="shirt-outline" size={88} color={BRAND_DEEP} />
               <Ionicons name="paper-plane-outline" size={44} color={BRAND_ORANGE} style={styles.quotesPlaneIcon} />
             </View>
             <Text style={styles.emptyTitle}>Waiting for tailor quotes</Text>
-            <Text style={styles.helperText}>Tailors will see your request and send their best quote soon.</Text>
+            <Text style={styles.quotesWaitingCopy}>Tailors in your area are reviewing your request and will send their best quotes soon.</Text>
           </View>
         ) : null}
 
@@ -4978,43 +5172,31 @@ function QuotesScreen({
           </View>
         ) : null}
 
-        {visibleQuotes.map((quote) => {
+        {visibleQuotes.map((quote, index) => {
           const selected = selectedQuote?.id === quote.id;
           const numericRating = Number(quote.rating);
           return (
             <Pressable key={quote.id} style={[styles.quoteCard, selected && styles.selectedQuoteCard]} onPress={() => setSelectedQuote(quote)}>
               <View style={styles.quoteTopRow}>
-                <View style={styles.quoteAvatar}>
+                <View style={[styles.quoteAvatar, quoteAvatarTone(index)]}>
                   <Text style={styles.avatarText}>{quote.initials}</Text>
                 </View>
                 <View style={styles.quoteDetails}>
                   <Text style={styles.quoteName} numberOfLines={1}>
                     {quote.name}
                   </Text>
+                  <Text style={styles.quoteSpecialty} numberOfLines={1}>{quote.specialty || "Darji Collection"}</Text>
                   <View style={styles.ratingRow}>
-                    {Number.isFinite(numericRating) && numericRating > 0 ? [1, 2, 3, 4, 5].map((star) => (
-                      <Ionicons key={star} name={star <= Math.round(numericRating) ? "star" : "star-outline"} size={16} color={BRAND_ORANGE} />
-                    )) : <Text style={styles.quoteMeta}>New tailor</Text>}
+                    <Ionicons name="star" size={16} color={BRAND_ORANGE} />
+                    <Text style={styles.quoteMeta}>{Number.isFinite(numericRating) && numericRating > 0 ? `${quote.rating} (${quote.reviews || 0})` : "New tailor"}</Text>
                   </View>
                 </View>
                 <View style={styles.quotePriceWrap}>
-                  <Text style={styles.quotePrice}>Rs{quote.price}</Text>
+                  <Text style={styles.quotePrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>Rs{quote.price}</Text>
                   <Text style={styles.quotePriceLabel}>Total Quote</Text>
-                </View>
-              </View>
-              <View style={styles.quoteInfoGrid}>
-                <View style={styles.quoteInfoPill}>
-                  <Ionicons name="calendar-outline" size={20} color={BRAND_DEEP} />
-                  <View style={styles.profileRowTextNoMargin}>
-                    <Text style={styles.quoteInfoLabel}>Delivery in</Text>
-                    <Text style={styles.quoteInfoValue}>{quote.eta}</Text>
-                  </View>
-                </View>
-                <View style={styles.quoteInfoPill}>
-                  <Ionicons name="pricetag-outline" size={20} color={BRAND_DEEP} />
-                  <View style={styles.profileRowTextNoMargin}>
-                    <Text style={styles.quoteInfoLabel}>Specialty</Text>
-                    <Text style={styles.quoteInfoValue} numberOfLines={1}>{quote.specialty || (itemCount === 1 ? clothingItemTitle(clothingItemsForDraft(draft)[0] ?? draftToClothingItem(draft, "active-item")) : `${itemCount} items`)}</Text>
+                  <View style={styles.quoteEtaBadge}>
+                    <Ionicons name="bus-outline" size={15} color="#15803d" />
+                    <Text style={styles.quoteEtaBadgeText}>{quote.eta}</Text>
                   </View>
                 </View>
               </View>
@@ -5027,36 +5209,48 @@ function QuotesScreen({
                   </View>
                 </View>
               ) : null}
+              <View style={styles.quoteCardDivider} />
+              <View style={styles.quoteCardActions}>
+                <Pressable style={styles.quoteProfileButton} onPress={() => setProfileTailor(quote.tailorProfile ?? tailorProfileFromQuote(quote))}>
+                  <Ionicons name="person-outline" size={19} color={BRAND_DEEP} />
+                  <Text style={styles.quoteProfileButtonText}>View Profile</Text>
+                </Pressable>
+                <Pressable style={styles.quoteSelectButton} onPress={() => void confirmTailor(quote)}>
+                  <Text style={styles.quoteSelectButtonText}>{selected ? "Selected Tailor" : "Select Tailor"}</Text>
+                </Pressable>
+              </View>
             </Pressable>
           );
         })}
 
-        <Pressable style={styles.quoteActionRowButton} onPress={loadQuotes} disabled={loading || deleting || !draft.backendRequestId}>
-          {loading ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh-outline" size={24} color={BRAND_ORANGE} />}
-          <View style={styles.profileRowText}>
-            <Text style={styles.quoteActionTitle}>Refresh Quotes</Text>
-            <Text style={styles.mutedSmall}>Pull the latest quotes from tailors</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#6b7890" />
-        </Pressable>
-        <Pressable disabled={!selectedQuote || confirming} style={[styles.primaryWideButton, styles.quoteConfirmButton, (!selectedQuote || confirming) && styles.disabledDarkButton]} onPress={confirmTailor}>
-          {confirming ? <ActivityIndicator color="#777777" /> : (
-            <>
-              <Ionicons name="shield-checkmark-outline" size={22} color={!selectedQuote ? "#777777" : "#ffffff"} />
-              <Text style={[styles.primaryWideButtonText, styles.quoteConfirmButtonText, !selectedQuote && styles.disabledText]}>Confirm This Tailor</Text>
-            </>
-          )}
-        </Pressable>
-        {draft.backendRequestId && onDeleteRequest ? (
-          <Pressable style={styles.cancelOrderButton} onPress={requestDeleteRequest} disabled={deleting}>
-            <Ionicons name="trash-outline" size={18} color="#c24141" />
-            <Text style={styles.cancelOrderText}>Delete Request</Text>
+        {visibleQuotes.length > 0 ? (
+          <Pressable style={styles.quoteActionRowButton} onPress={loadQuotes} disabled={loading || deleting || !draft.backendRequestId}>
+            {loading ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="refresh-outline" size={27} color={BRAND_ORANGE} />}
+            <View style={styles.profileRowText}>
+              <Text style={styles.quoteActionTitle}>Refresh Quotes</Text>
+              <Text style={styles.mutedSmall}>Pull the latest quotes from tailors</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={26} color="#6b7890" />
           </Pressable>
         ) : null}
-        <View style={styles.requestExpireRow}>
-          <Ionicons name="shield-checkmark-outline" size={17} color="#8a94a6" />
-          <Text style={styles.mutedSmall}>Your request will expire in 24 hours if no quotes are received.</Text>
-        </View>
+        {visibleQuotes.length === 0 ? (
+          <>
+            <Pressable disabled={confirming} style={[styles.primaryWideButton, styles.quoteConfirmButton]} onPress={() => void confirmTailor()}>
+              {confirming ? <ActivityIndicator color="#ffffff" /> : (
+                <>
+                  <Ionicons name="shield-checkmark-outline" size={22} color="#ffffff" />
+                  <Text style={[styles.primaryWideButtonText, styles.quoteConfirmButtonText]}>Confirm This Tailor</Text>
+                </>
+              )}
+            </Pressable>
+            {draft.backendRequestId && onDeleteRequest ? (
+              <Pressable style={styles.cancelOrderButton} onPress={requestDeleteRequest} disabled={deleting}>
+                <Ionicons name="trash-outline" size={20} color="#c24141" />
+                <Text style={styles.cancelOrderText}>Delete Request</Text>
+              </Pressable>
+            ) : null}
+          </>
+        ) : null}
       </ScrollView>
       <Modal visible={detailsOpen} transparent animationType="fade" onRequestClose={() => setDetailsOpen(false)}>
         <View style={styles.modalBackdrop}>
@@ -5103,6 +5297,7 @@ function QuotesScreen({
           </View>
         </View>
       </Modal>
+      <TailorProfileModal profile={profileTailor} onClose={() => setProfileTailor(undefined)} />
       <Modal visible={deleting} transparent animationType="fade" onRequestClose={() => undefined}>
         <View style={styles.checkoutBlockingOverlay}>
           <View style={styles.checkoutBlockingCard}>
@@ -5549,16 +5744,41 @@ function TrackOrderScreen({ order, setScreen }: { order: CustomerOrder; setScree
 }
 
 function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Screen) => void; onStartRequest: (preset?: RequestPreset) => void }) {
+  const token = useAppStore((state) => state.token);
+  const { refreshSignal } = useContext(PullToRefreshContext);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"categories" | "tailors">("categories");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [serviceFilter, setServiceFilter] = useState<string | undefined>();
+  const [tailors, setTailors] = useState<TailorProfileSummary[]>([]);
+  const [tailorsLoading, setTailorsLoading] = useState(false);
+  const [selectedTailorProfile, setSelectedTailorProfile] = useState<TailorProfileSummary | undefined>();
   const normalizedQuery = query.trim().toLowerCase();
   const serviceFilters = ["Alteration", "Repair", "Custom Stitching", "Embroidery"] as const;
   const matchesQuery = (value: string) => !normalizedQuery || value.toLowerCase().includes(normalizedQuery);
   const matchesService = (value: string) => !serviceFilter || value.toLowerCase().includes(serviceFilter.toLowerCase().replace("custom stitching", "stitch"));
   const categoryResults = searchCategories.filter((category) => matchesQuery([category.title, category.subtitle].join(" ")) && matchesService([category.title, category.subtitle].join(" ")));
-  const tailorResults = searchTailors.filter((tailor) => matchesQuery([tailor.name, tailor.location, tailor.specialty].join(" ")) && matchesService(tailor.specialty));
+  const tailorResults = tailors.filter((tailor) => matchesQuery([tailor.shopName, tailor.displayName, tailor.area, tailor.specialty].join(" ")) && matchesService(tailor.specialty));
+
+  const loadTailors = useCallback(() => {
+    if (!token) {
+      setTailors([]);
+      return;
+    }
+    setTailorsLoading(true);
+    void api<BackendTailorProfile[]>("/tailors", {}, token)
+      .then((data) => setTailors(data.map(tailorProfileFromBackend).filter((item): item is TailorProfileSummary => Boolean(item))))
+      .catch(() => setTailors([]))
+      .finally(() => setTailorsLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    loadTailors();
+  }, [loadTailors]);
+
+  useEffect(() => {
+    if (refreshSignal > 0) loadTailors();
+  }, [loadTailors, refreshSignal]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -5648,25 +5868,38 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
           <Text style={styles.seeAll}>View all</Text>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchTailorRow}>
-          {(query ? tailorResults : searchTailors).map((tailor) => (
-            <Pressable key={tailor.name} style={styles.searchTailorCard} onPress={() => onStartRequest()}>
+          {tailorsLoading ? (
+            <View style={styles.searchTailorCard}>
+              <ActivityIndicator color={BRAND_ORANGE} />
+              <Text style={styles.mutedSmall}>Loading tailors...</Text>
+            </View>
+          ) : null}
+          {!tailorsLoading && tailorResults.length === 0 ? (
+            <View style={styles.searchTailorCard}>
+              <Ionicons name="person-outline" size={28} color={BRAND_ORANGE} />
+              <Text style={styles.addressTitle}>No tailors found</Text>
+              <Text style={styles.mutedSmall}>Try another search or filter.</Text>
+            </View>
+          ) : null}
+          {!tailorsLoading && tailorResults.map((tailor) => (
+            <Pressable key={tailor.id} style={styles.searchTailorCard} onPress={() => setSelectedTailorProfile(tailor)}>
               <View style={styles.searchTailorHeader}>
                 <View style={styles.smallQuoteAvatar}>
-                  <Text style={styles.smallAvatarText}>{tailor.initials}</Text>
+                  {tailor.avatarUrl ? <Image source={{ uri: tailor.avatarUrl }} style={styles.smallQuoteAvatarImage} /> : <Text style={styles.smallAvatarText}>{tailor.initials}</Text>}
                 </View>
                 <View style={styles.profileRowTextNoMargin}>
-                  <Text style={styles.addressTitle}>{tailor.name} <Ionicons name="checkmark-circle" size={14} color={BRAND_ORANGE} /></Text>
-                  <Text style={styles.ratingLine}>★ {tailor.rating} <Text style={styles.mutedSmall}>({tailor.reviews})</Text></Text>
+                  <Text style={styles.addressTitle}>{tailor.shopName} <Ionicons name="checkmark-circle" size={14} color={BRAND_ORANGE} /></Text>
+                  <Text style={styles.ratingLine}>Rating {tailor.rating} <Text style={styles.mutedSmall}>({tailor.reviews})</Text></Text>
                 </View>
               </View>
-              <Text style={styles.searchTailorLocation}>{tailor.location}</Text>
+              <Text style={styles.searchTailorLocation}>{tailor.area}</Text>
               <View style={styles.summaryDivider} />
               <Text style={styles.mutedSmall}>Specializes in</Text>
               <Text style={styles.searchTailorSpecialty}>{tailor.specialty}</Text>
-              <View style={styles.searchProfileButton}>
+              <Pressable style={styles.searchProfileButton} onPress={() => setSelectedTailorProfile(tailor)}>
                 <Text style={styles.searchProfileButtonText}>View Profile</Text>
                 <Ionicons name="arrow-forward" size={18} color={BRAND_ORANGE} />
-              </View>
+              </Pressable>
             </Pressable>
           ))}
         </ScrollView>
@@ -5696,6 +5929,7 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
           <Ionicons name="chevron-forward" size={22} color="#111827" />
         </Pressable>
       </ScrollView>
+      <TailorProfileModal profile={selectedTailorProfile} onClose={() => setSelectedTailorProfile(undefined)} />
       <BottomTabs active="search" setScreen={setScreen} />
     </SafeAreaView>
   );
@@ -7993,11 +8227,12 @@ function RatingButtons({ disabled, value, onRate }: { disabled?: boolean; value?
 
 function CouponsScreenV2({ setScreen }: { setScreen: (screen: Screen) => void }) {
   const token = useAppStore((state) => state.token);
+  const { refreshSignal } = useContext(PullToRefreshContext);
   const [expanded, setExpanded] = useState<string | undefined>();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadCoupons = useCallback(() => {
     if (!token) {
       setLoading(false);
       return;
@@ -8008,6 +8243,14 @@ function CouponsScreenV2({ setScreen }: { setScreen: (screen: Screen) => void })
       .catch(() => setCoupons([]))
       .finally(() => setLoading(false));
   }, [token]);
+
+  useEffect(() => {
+    loadCoupons();
+  }, [loadCoupons]);
+
+  useEffect(() => {
+    if (refreshSignal > 0) loadCoupons();
+  }, [loadCoupons, refreshSignal]);
 
   async function copyCoupon(code: string) {
     await Clipboard.setStringAsync(code);
@@ -8085,10 +8328,10 @@ function OrdersScreenV2({
   const historyOrders = orders.filter((order) => order.status === "Delivered");
   const cancelledOrders = orders.filter((order) => order.status === "Cancelled");
   const tabs = [
-    { key: "incomplete" as const, label: "Incomplete", items: incompleteOrders },
-    { key: "active" as const, label: "Active", items: activeOrders },
-    { key: "history" as const, label: "History", items: historyOrders },
-    { key: "cancelled" as const, label: "Cancelled", items: cancelledOrders }
+    { key: "incomplete" as const, label: "Incomplete", icon: "clipboard-outline" as const, items: incompleteOrders },
+    { key: "active" as const, label: "Active", icon: "cube-outline" as const, items: activeOrders },
+    { key: "history" as const, label: "History", icon: "time-outline" as const, items: historyOrders },
+    { key: "cancelled" as const, label: "Cancelled", icon: "close-circle-outline" as const, items: cancelledOrders }
   ];
   const activeItems = tabs.find((tab) => tab.key === activeTab)?.items ?? incompleteOrders;
   const renderOrderCard = (order: CustomerOrder) => (
@@ -8143,6 +8386,7 @@ function OrdersScreenV2({
             <View style={styles.orderTabRow}>
               {tabs.map((tab) => (
                 <Pressable key={tab.key} style={[styles.orderTabButton, activeTab === tab.key && styles.orderTabButtonActive]} onPress={() => setActiveTab(tab.key)}>
+                  <Ionicons name={tab.icon} size={15} color={activeTab === tab.key ? BRAND_ORANGE : "#65748a"} />
                   <Text style={[styles.orderTabText, activeTab === tab.key && styles.orderTabTextActive]}>{tab.label}</Text>
                   <Text style={[styles.orderTabCount, activeTab === tab.key && styles.orderTabTextActive]}>{tab.items.length}</Text>
                 </Pressable>
@@ -8849,6 +9093,7 @@ export default function App() {
   const [selectedHelpTopicId, setSelectedHelpTopicId] = useState<string>("pickup");
   const [isFetchingOrders, setIsFetchingOrders] = useState(true);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [refreshSignal, setRefreshSignal] = useState(0);
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
 
@@ -9151,6 +9396,7 @@ export default function App() {
     setPullRefreshing(true);
     try {
       await refreshCustomerOrders();
+      setRefreshSignal((value) => value + 1);
     } finally {
       setPullRefreshing(false);
     }
@@ -9321,7 +9567,7 @@ export default function App() {
 
     return (
       <SafeAreaProvider>
-      <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleCustomerScreen() }}>
+      <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, refreshSignal, onRefresh: () => void refreshVisibleCustomerScreen() }}>
       <NotificationProvider
         app="customer"
         onNavigate={(destination) => {
@@ -10159,11 +10405,14 @@ function createStyles(isDark = false) {
   fabricCareIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   fabricCareTitle: { color: text, fontSize: 16, fontWeight: "900" },
   fabricCareCopy: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 7 },
-  pendingStepCard: { minHeight: 68, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10 },
-  pendingStepNumber: { width: 34, height: 34, borderRadius: 17, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  nextStepsPanel: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12, gap: 12, marginTop: 18, marginBottom: 16 },
+  nextStepsEyebrow: { color: BRAND_DEEP, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 },
+  pendingStepCard: { minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 14, paddingVertical: 13, marginTop: 14, marginBottom: 10, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 1 },
+  pendingStepNumber: { width: 38, height: 38, borderRadius: 19, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   pendingStepNumberText: { color: "#111111", fontSize: 13, fontWeight: "900" },
-  pendingStepTitle: { color: text, fontSize: 14, fontWeight: "900", lineHeight: 19 },
-  pendingStepHelper: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 2 },
+  pendingStepTextBlock: { flex: 1, minWidth: 0 },
+  pendingStepTitle: { color: text, fontSize: 15, fontWeight: "900", lineHeight: 20 },
+  pendingStepHelper: { color: muted, fontSize: 12, fontWeight: "800", lineHeight: 18, marginTop: 3 },
   offerRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 22 },
   offerCard: { flex: 1, minWidth: "30%", minHeight: 118, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, padding: 14 },
   offerCardWide: { width: "100%", minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
@@ -10540,23 +10789,28 @@ function createStyles(isDark = false) {
   paymentVerificationOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(247, 250, 255, 0.96)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   infoBanner: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 8, marginBottom: 14 },
   infoBannerText: { color: muted, fontSize: 13, fontWeight: "700" },
-  quotesSummaryCard: { minHeight: 118, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, padding: 14, marginBottom: 26 },
-  quotesSummaryTop: { flexDirection: "row", alignItems: "center", gap: 12, width: "100%" },
-  quoteClockIcon: { width: 62, height: 62, borderRadius: 31, backgroundColor: surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92" },
-  quotesSummaryTitle: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 24 },
+  quotesSummaryCard: { minHeight: 156, borderRadius: 20, borderWidth: 1, borderColor: "#f5dca9", backgroundColor: surfaceAlt, padding: 16, marginBottom: 26 },
+  quotesSummaryTop: { flexDirection: "row", alignItems: "center", gap: 14, width: "100%" },
+  quoteClockIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#f5dca9", flexShrink: 0 },
+  quotesSummaryBody: { flex: 1, minWidth: 0, gap: 12 },
+  quotesSummaryText: { flex: 1, minWidth: 0 },
+  quotesSummaryTitle: { color: text, fontSize: 21, fontWeight: "900", lineHeight: 27 },
   quotesSummaryItem: { color: text, fontSize: 15, fontWeight: "900", lineHeight: 21, marginTop: 2 },
-  quoteDetailsButton: { minHeight: 46, alignSelf: "center", borderRadius: 23, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14 },
-  quoteDetailsButtonText: { color: text, fontSize: 13, fontWeight: "900" },
-  quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 12 },
-  quotesIllustration: { width: 220, height: 220, borderRadius: 110, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 24, marginTop: 24 },
-  quotesPlaneIcon: { position: "absolute", right: 34, top: 34 },
-  quotesListHeader: { marginBottom: 16 },
+  quoteDetailsButton: { minHeight: 48, alignSelf: "stretch", borderRadius: 12, backgroundColor: BRAND_DEEP, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  quoteDetailsButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
+  quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 8 },
+  quotesIllustration: { width: 220, height: 220, borderRadius: 110, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 24, marginTop: 26 },
+  quotesPlaneIcon: { position: "absolute", right: 28, top: 30, transform: [{ rotate: "-8deg" }] },
+  quotesSparkLeft: { position: "absolute", left: -28, top: 86 },
+  quotesSparkRight: { position: "absolute", right: -36, top: 86 },
+  quotesWaitingCopy: { color: muted, fontSize: 16, lineHeight: 25, fontWeight: "700", textAlign: "center", maxWidth: 322, marginBottom: 24 },
+  quotesListHeader: { marginBottom: 18 },
   quotesTrustCard: { width: "100%", minHeight: 96, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "stretch", padding: 12, marginBottom: 16 },
   quotesTrustItem: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: border },
   quotesTrustIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   quotesTrustTitle: { color: text, fontSize: 11, fontWeight: "900", textAlign: "center" },
   quotesTrustCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 14, textAlign: "center", marginTop: 4 },
-  quoteActionRowButton: { minHeight: 64, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 14, marginTop: 4 },
+  quoteActionRowButton: { minHeight: 78, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 16, marginTop: 34, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 2 },
   quoteActionTitle: { color: text, fontSize: 16, fontWeight: "900" },
   requestExpireRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 18, marginBottom: 20 },
   requestDetailsModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
@@ -10564,22 +10818,25 @@ function createStyles(isDark = false) {
   requestDetailPreviewRow: { gap: 8, paddingTop: 10 },
   requestDetailPreviewBox: { width: 58, height: 58, borderRadius: 13, overflow: "hidden", borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt },
   requestDetailPreviewImage: { width: "100%", height: "100%" },
-  quoteCard: { width: "100%", minHeight: 190, borderRadius: 20, backgroundColor: surface, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: border, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 18, elevation: 2 },
-  selectedQuoteCard: { borderColor: BRAND_ORANGE, backgroundColor: isDark ? "#2a1d0a" : "#fff5df" },
-  quoteTopRow: { flexDirection: "row", alignItems: "flex-start", width: "100%" },
+  quoteCard: { width: "100%", minHeight: 166, borderRadius: 18, backgroundColor: surface, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: border, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 18, elevation: 2 },
+  selectedQuoteCard: { borderColor: BRAND_DEEP },
+  quoteTopRow: { flexDirection: "row", alignItems: "center", width: "100%" },
   quoteMain: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 },
-  quoteAvatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 4 },
-  quoteDetails: { flex: 1, minWidth: 0, paddingLeft: 14, paddingRight: 8 },
+  quoteAvatar: { width: 58, height: 58, borderRadius: 29, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  quoteDetails: { flex: 1, minWidth: 0, paddingLeft: 13, paddingRight: 6 },
   quoteName: { color: text, fontSize: 18, fontWeight: "900", lineHeight: 23 },
-  ratingRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 7, maxWidth: "100%" },
-  quoteMeta: { color: muted, fontSize: 12, fontWeight: "800", flexShrink: 1, lineHeight: 17 },
-  quotePriceWrap: { width: 86, alignItems: "flex-end", alignSelf: "flex-start", paddingTop: 3 },
+  quoteSpecialty: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 18, marginTop: 2 },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8, maxWidth: "100%" },
+  quoteMeta: { color: muted, fontSize: 13, fontWeight: "800", flexShrink: 1, lineHeight: 17 },
+  quotePriceWrap: { width: 104, alignItems: "flex-end", alignSelf: "stretch", paddingTop: 2, flexShrink: 0 },
   badge: { color: "#8a5600", backgroundColor: "#ffe7ae", overflow: "hidden", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, fontSize: 9, fontWeight: "900", marginTop: 8 },
   quotePrice: { color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", lineHeight: 30 },
   quotePriceLabel: { color: muted, fontSize: 11, fontWeight: "800", marginTop: 3 },
+  quoteEtaBadge: { minHeight: 34, borderRadius: 9, backgroundColor: "#e9f9ed", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 9, marginTop: 14 },
+  quoteEtaBadgeText: { color: "#15803d", fontSize: 12, fontWeight: "900" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 22, paddingLeft: 72 },
   quoteChip: { color: muted, backgroundColor: surface, overflow: "hidden", borderRadius: 10, borderWidth: 1, borderColor: border, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
-  quoteInfoGrid: { flexDirection: "row", gap: 10, marginTop: 14, paddingLeft: 82 },
+  quoteInfoGrid: { flexDirection: "row", gap: 10, marginTop: 14 },
   quoteInfoPill: { flex: 1, minHeight: 54, borderRadius: 12, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, paddingVertical: 8 },
   quoteInfoLabel: { color: muted, fontSize: 11, fontWeight: "800", lineHeight: 15 },
   quoteInfoValue: { color: text, fontSize: 12, fontWeight: "900", lineHeight: 17, marginTop: 1 },
@@ -10587,6 +10844,28 @@ function createStyles(isDark = false) {
   quoteMessageContent: { flex: 1, minWidth: 0 },
   quoteMessageText: { color: text, fontSize: 13, lineHeight: 19, fontWeight: "700" },
   quoteMessageLabel: { color: muted, fontSize: 11, fontWeight: "800", marginTop: 2 },
+  quoteCardDivider: { height: 1, backgroundColor: border, marginTop: 14, marginBottom: 12 },
+  quoteCardActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  quoteProfileButton: { minHeight: 44, flex: 1, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 4 },
+  quoteProfileButtonText: { color: muted, fontSize: 14, fontWeight: "900" },
+  quoteSelectButton: { minWidth: 132, minHeight: 48, borderRadius: 10, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  quoteSelectButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
+  quoteProfileModalHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 16, marginBottom: 14 },
+  quoteProfileModalAvatar: { width: 62, height: 62, borderRadius: 31 },
+  tailorProfileModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
+  tailorProfileHero: { flexDirection: "row", alignItems: "center", gap: 13, marginTop: 16, marginBottom: 16 },
+  tailorProfileAvatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
+  tailorProfileAvatarImage: { width: "100%", height: "100%" },
+  tailorProfileAvatarText: { color: "#111111", fontSize: 18, fontWeight: "900" },
+  tailorProfileShop: { color: text, fontSize: 19, fontWeight: "900", lineHeight: 24 },
+  tailorProfileInfoGrid: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  tailorProfileInfoCard: { flex: 1, minHeight: 78, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12 },
+  tailorProfileInfoLabel: { color: muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginTop: 7 },
+  tailorProfileInfoValue: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18, marginTop: 3 },
+  tailorSpecialtyWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: -4, marginBottom: 14 },
+  tailorSpecialtyChip: { overflow: "hidden", borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, color: "#8a5600", paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
+  tailorVerifiedRow: { minHeight: 42, borderRadius: 13, backgroundColor: isDark ? "#0d2416" : "#f0fdf4", borderWidth: 1, borderColor: "#bbf7d0", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 },
+  tailorVerifiedText: { flex: 1, minWidth: 0, color: "#15803d", fontSize: 12, fontWeight: "900" },
   quoteConfirmButton: { backgroundColor: BRAND_DEEP, borderRadius: 14, marginTop: 22 },
   quoteConfirmButtonText: { color: "#ffffff" },
   whiteCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
@@ -10688,7 +10967,8 @@ function createStyles(isDark = false) {
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
   cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
   orderCardDivider: { height: 1, backgroundColor: border, marginVertical: 14 },
-  smallQuoteAvatar: { width: 38, height: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  smallQuoteAvatar: { width: 38, height: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  smallQuoteAvatarImage: { width: "100%", height: "100%" },
   smallAvatarText: { color: "#111111", fontSize: 11, fontWeight: "900" },
   orderPrice: { color: BRAND_ORANGE, fontSize: 18, fontWeight: "900" },
   emptyState: { minHeight: 360, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
@@ -10721,7 +11001,7 @@ function createStyles(isDark = false) {
   profileStatLabel: { color: muted, fontSize: 11, fontWeight: "800", marginTop: 6 },
   profileRow: { minHeight: 62, flexDirection: "row", alignItems: "center" },
   profileRowIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  profileRowText: { flex: 1, marginLeft: 12 },
+  profileRowText: { flex: 1, minWidth: 0, marginLeft: 12 },
   secondaryWideButton: { height: 52, borderRadius: 15, backgroundColor: surface, borderWidth: 1, borderColor: border, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 6 },
   secondaryWideButtonText: { color: text, fontSize: 15, fontWeight: "900" },
   signOutButton: { height: 52, borderRadius: 15, backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1", alignItems: "center", justifyContent: "center", marginTop: 12, marginBottom: 82 },
@@ -11061,6 +11341,8 @@ function createStyles(isDark = false) {
   warningBulletItem: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
   warningBulletIconContainer: { width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? "#2a1e12" : "#ffedd5", alignItems: "center", justifyContent: "center" },
   warningBulletText: { fontSize: 13, color: isDark ? "#e2e8f0" : "#334155", fontWeight: "700" },
+  warningInlineMessage: { minHeight: 42, borderRadius: 13, borderWidth: 1, borderColor: "#fcd38a", backgroundColor: isDark ? "#2a1d0a" : "#fff8e8", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, marginTop: 8 },
+  warningInlineMessageText: { flex: 1, minWidth: 0, color: "#8a5600", fontSize: 12, fontWeight: "900", lineHeight: 17 },
   warningAgreementRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 16, paddingHorizontal: 2 },
   warningAgreementText: { flex: 1, minWidth: 0, color: muted, fontSize: 11, fontWeight: "800", lineHeight: 16 },
 

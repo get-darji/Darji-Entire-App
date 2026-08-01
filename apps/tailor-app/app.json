@@ -8,9 +8,17 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#ffffff",
+      "resizeMode": "contain"
+    },
     "android": {
       "package": "com.darzi.tailor",
       "softwareKeyboardLayoutMode": "resize",
+      "splash": {
+        "backgroundColor": "#ffffff",
+        "resizeMode": "contain"
+      },
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",

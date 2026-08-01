@@ -217,8 +217,8 @@ type OcrDetails = { rawText?: string; name?: string; dob?: string; aadhaarLast4?
 type FaceLivenessState = "idle" | "aligning" | "aligned" | "blink-detected" | "captured";
 type VerificationDraft = {
   step: number;
-  personal: { name: string; address: string; dob: string; email: string; location?: { lat: number; lng: number } };
-  shop: { workFromHome: boolean; shopName: string; shopAddress: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery: string[]; shopPhotos: VerificationMediaDraft[] };
+  personal: { name: string; address: string; addressLine?: string; area?: string; city?: string; state?: string; pincode?: string; dob: string; email: string; location?: { lat: number; lng: number } };
+  shop: { workFromHome: boolean; shopName: string; shopAddress: string; shopAddressLine?: string; shopArea?: string; shopCity?: string; shopState?: string; shopPincode?: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery: string[]; shopPhotos: VerificationMediaDraft[] };
   category: "Men" | "Women" | "Both";
   rows: SpecializationRow[];
   confirmedRows: boolean;
@@ -265,7 +265,7 @@ const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
-const tailorAppIcon = require("./app-icon.png");
+const tailorAppIcon = require("./darji transparent.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
@@ -405,6 +405,13 @@ function quoteEtaLabel(quote: { estimatedDays?: number; estimatedHours?: number 
 
 function money(value: number | string | undefined) {
   return `Rs ${Number(value ?? 0).toFixed(0)}`;
+}
+
+function dayGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
 function tailorOrderEarning(order: Order) {
@@ -665,7 +672,9 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
 function EmptyState({ icon, title, copy }: { icon: keyof typeof Ionicons.glyphMap; title: string; copy: string }) {
   return (
     <View style={styles.emptyState}>
-      <Ionicons name={icon} size={34} color={BRAND_ORANGE} />
+      <View style={styles.emptyStateIcon}>
+        <Ionicons name={icon} size={30} color={BRAND_ORANGE} />
+      </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       <Text style={styles.helperText}>{copy}</Text>
     </View>
@@ -746,40 +755,57 @@ function DashboardScreen({
   const openRequests = requests.filter((request) => request.status === "QUOTE_REQUESTED");
   const readyOrders = orders.filter((order) => ["READY", "DELIVERED"].includes(order.status));
   const estimatedEarnings = readyOrders.reduce((sum, order) => sum + Number(order.totalAmount) * 0.45, 0);
+  const shopTitle = me?.tailorProfile?.shopName?.trim() || "Your Workplace";
+  const tailorName = me?.name?.trim() || "Darji Tailor";
 
   return (
-    <ScrollView contentContainerStyle={styles.pageContent}>
-      <Header title="Tailor Studio" subtitle={me?.tailorProfile?.shopName ?? "Darji Tailor"} />
+    <ScrollView contentContainerStyle={[styles.pageContent, styles.dashboardPageContent]} showsVerticalScrollIndicator={false}>
+      <View style={styles.dashboardHeader}>
+        <Text style={styles.dashboardTitle}>{shopTitle}</Text>
+        <Text style={styles.dashboardSubtitle}>{dayGreeting()}, {tailorName}</Text>
+      </View>
       <View style={styles.heroCard}>
         <View>
           <Text style={styles.heroLabel}>TODAY</Text>
           <Text style={styles.heroTitle}>{openRequests.length} new requests</Text>
-          <Text style={styles.heroCopy}>{orders.length} orders in your work queue</Text>
+          <Text style={styles.heroCopy}>{orders.length ? `${orders.length} orders waiting in your work queue.` : "No orders waiting in your work queue."}</Text>
         </View>
         <View style={styles.heroIcon}>
-          <Ionicons name="cut-outline" size={32} color="#111111" />
+          <Ionicons name="cut-outline" size={30} color="#111111" />
         </View>
       </View>
 
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
+        <Pressable style={styles.statCard} onPress={() => setScreen("requests")}>
+          <View style={[styles.statIcon, { backgroundColor: "#fff4dc" }]}>
+            <Ionicons name="receipt-outline" size={20} color={BRAND_ORANGE} />
+          </View>
           <Text style={styles.statValue}>{openRequests.length}</Text>
           <Text style={styles.statLabel}>Requests</Text>
-        </View>
-        <View style={styles.statCard}>
+          <Text style={styles.statMeta}>Total new requests</Text>
+        </Pressable>
+        <Pressable style={styles.statCard} onPress={() => setScreen("orders")}>
+          <View style={[styles.statIcon, { backgroundColor: "#dcfce7" }]}>
+            <Ionicons name="bag-handle-outline" size={20} color={SUCCESS} />
+          </View>
           <Text style={styles.statValue}>{orders.length}</Text>
           <Text style={styles.statLabel}>Orders</Text>
-        </View>
-        <View style={styles.statCard}>
+          <Text style={styles.statMeta}>Total orders</Text>
+        </Pressable>
+        <Pressable style={styles.statCard} onPress={() => setScreen("earnings")}>
+          <View style={[styles.statIcon, { backgroundColor: "#eee7ff" }]}>
+            <Ionicons name="wallet-outline" size={20} color="#7c3aed" />
+          </View>
           <Text style={styles.statValue}>{money(estimatedEarnings)}</Text>
           <Text style={styles.statLabel}>Earnings</Text>
-        </View>
+          <Text style={styles.statMeta}>Total earnings</Text>
+        </Pressable>
       </View>
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Latest Requests</Text>
         <Pressable onPress={() => setScreen("requests")}>
-          <Text style={styles.linkText}>See all</Text>
+          <Text style={styles.linkText}>See all <Ionicons name="chevron-forward" size={11} color={BRAND_ORANGE} /></Text>
         </Pressable>
       </View>
       {openRequests.slice(0, 2).map((request) => (
@@ -792,12 +818,12 @@ function DashboardScreen({
           }}
         />
       ))}
-      {openRequests.length === 0 ? <EmptyState icon="mail-open-outline" title="No new requests" copy="New customer tailoring requests will appear here." /> : null}
+      {openRequests.length === 0 ? <EmptyState icon="mail-outline" title="No new requests" copy="New customer tailoring requests will appear here." /> : null}
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Assigned Orders</Text>
         <Pressable onPress={() => setScreen("orders")}>
-          <Text style={styles.linkText}>Open</Text>
+          <Text style={styles.linkText}>Open <Ionicons name="chevron-forward" size={11} color={BRAND_ORANGE} /></Text>
         </Pressable>
       </View>
       {orders.slice(0, 2).map((order) => (
@@ -810,7 +836,7 @@ function DashboardScreen({
           }}
         />
       ))}
-      {orders.length === 0 ? <EmptyState icon="cube-outline" title="No assigned orders" copy="Orders assigned by admin will show here." /> : null}
+      {orders.length === 0 ? <EmptyState icon="cube-outline" title="No assigned orders" copy="Orders given by the admin will show up here." /> : null}
     </ScrollView>
   );
 }
@@ -818,19 +844,25 @@ function DashboardScreen({
 function RequestsScreen({ requests, setScreen, setActiveRequest }: { requests: TailoringRequest[]; setScreen: (screen: Screen) => void; setActiveRequest: (request: TailoringRequest) => void }) {
   const [filter, setFilter] = useState<"QUOTE_REQUESTED" | "QUOTED">("QUOTE_REQUESTED");
   const filteredRequests = requests.filter((request) => (filter === "QUOTED" ? Boolean(request.ownQuote) : request.status === "QUOTE_REQUESTED" && !request.ownQuote));
+  const isSent = filter === "QUOTED";
 
   return (
-    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Customer App Requests" subtitle={`${filteredRequests.length} ${filter === "QUOTED" ? "quoted" : "quote requested"}`} />
+    <ScrollView contentContainerStyle={[styles.pageContent, styles.requestsPageContent]} showsVerticalScrollIndicator={false}>
+      <View style={styles.requestsHeader}>
+        <Text style={styles.requestsTitle}>Customer App Requests</Text>
+        <Text style={styles.requestsSubtitle}>{filteredRequests.length} {isSent ? "sent requests" : "new requests"}</Text>
+      </View>
       <View style={styles.filterRow}>
         <Pressable style={[styles.filterChip, filter === "QUOTE_REQUESTED" && styles.filterChipActive]} onPress={() => setFilter("QUOTE_REQUESTED")}>
-          <Text style={[styles.filterChipText, filter === "QUOTE_REQUESTED" && styles.filterChipTextActive]}>Quote requested</Text>
+          <Ionicons name="briefcase-outline" size={15} color={filter === "QUOTE_REQUESTED" ? BRAND_ORANGE : MUTED} />
+          <Text style={[styles.filterChipText, filter === "QUOTE_REQUESTED" && styles.filterChipTextActive]}>New Requests</Text>
         </Pressable>
         <Pressable style={[styles.filterChip, filter === "QUOTED" && styles.filterChipActive]} onPress={() => setFilter("QUOTED")}>
-          <Text style={[styles.filterChipText, filter === "QUOTED" && styles.filterChipTextActive]}>Quoted</Text>
+          <Ionicons name="paper-plane-outline" size={15} color={filter === "QUOTED" ? BRAND_ORANGE : MUTED} />
+          <Text style={[styles.filterChipText, filter === "QUOTED" && styles.filterChipTextActive]}>Sent Requests</Text>
         </Pressable>
       </View>
-      {filteredRequests.length === 0 ? <EmptyState icon="albums-outline" title="No requests here" copy="Matching customer requests will appear here." /> : null}
+      {filteredRequests.length === 0 ? <RequestsEmptyState sent={isSent} /> : null}
       {filteredRequests.map((request) => (
         <RequestCard
           key={request.id}
@@ -842,6 +874,18 @@ function RequestsScreen({ requests, setScreen, setActiveRequest }: { requests: T
         />
       ))}
     </ScrollView>
+  );
+}
+
+function RequestsEmptyState({ sent }: { sent: boolean }) {
+  return (
+    <View style={styles.requestsEmptyState}>
+      <View style={[styles.requestsEmptyIcon, sent && styles.requestsEmptyIconSent]}>
+        <Ionicons name={sent ? "paper-plane-outline" : "briefcase-outline"} size={40} color={sent ? "#16a34a" : BRAND_ORANGE} />
+      </View>
+      <Text style={styles.requestsEmptyTitle}>{sent ? "No sent requests yet" : "No new requests yet"}</Text>
+      <Text style={styles.requestsEmptyCopy}>{sent ? "Quotes you have sent to customers will appear here." : "When customers send tailoring requests, they will show up here."}</Text>
+    </View>
   );
 }
 
@@ -1226,25 +1270,31 @@ function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; 
     if (filter === "CANCELLED") return order.status === "CANCELLED" || order.request?.status === "CANCELLED";
     return ["QUOTE_ACCEPTED", "AT_TAILOR", "WORKING"].includes(order.status);
   });
+  const orderTabs = [
+    { key: "ACCEPTED" as const, label: "Accepted", icon: "clipboard-outline" as const, tone: "orange" as const },
+    { key: "READY" as const, label: "Ready to\nDeliver", icon: "bus-outline" as const, tone: "green" as const },
+    { key: "HISTORY" as const, label: "History", icon: "time-outline" as const, tone: "blue" as const },
+    { key: "CANCELLED" as const, label: "Cancelled", icon: "close-circle-outline" as const, tone: "red" as const }
+  ];
 
   return (
-    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Assigned Orders" subtitle={`${filteredOrders.length} ${filter.toLowerCase()} orders`} />
-      <View style={styles.filterRow}>
-        <Pressable style={[styles.filterChip, filter === "ACCEPTED" && styles.filterChipActive]} onPress={() => setFilter("ACCEPTED")}>
-          <Text style={[styles.filterChipText, filter === "ACCEPTED" && styles.filterChipTextActive]}>Accepted</Text>
-        </Pressable>
-        <Pressable style={[styles.filterChip, filter === "READY" && styles.readyFilterChip]} onPress={() => setFilter("READY")}>
-          <Text style={[styles.filterChipText, filter === "READY" && styles.readyFilterChipText]}>Ready to Deliver</Text>
-        </Pressable>
-        <Pressable style={[styles.filterChip, filter === "HISTORY" && styles.filterChipActive]} onPress={() => setFilter("HISTORY")}>
-          <Text style={[styles.filterChipText, filter === "HISTORY" && styles.filterChipTextActive]}>History</Text>
-        </Pressable>
-        <Pressable style={[styles.filterChip, filter === "CANCELLED" && styles.cancelledFilterChip]} onPress={() => setFilter("CANCELLED")}>
-          <Text style={[styles.filterChipText, filter === "CANCELLED" && styles.cancelledFilterChipText]}>Cancelled</Text>
-        </Pressable>
+    <ScrollView contentContainerStyle={[styles.pageContent, styles.ordersPageContent]} showsVerticalScrollIndicator={false}>
+      <View style={styles.ordersHeader}>
+        <Text style={styles.ordersTitle}>Assigned Orders</Text>
+        <Text style={styles.ordersSubtitle}>{filteredOrders.length} {filter.toLowerCase()} orders</Text>
       </View>
-      {filteredOrders.length === 0 ? <EmptyState icon="cube-outline" title="No orders here" copy={filter === "CANCELLED" ? "Cancelled orders will appear here." : filter === "HISTORY" ? "Completed orders will appear here." : "Matching accepted or ready orders will appear here."} /> : null}
+      <View style={styles.orderTabsRow}>
+        {orderTabs.map((tab) => {
+          const active = filter === tab.key;
+          return (
+            <Pressable key={tab.key} style={[styles.orderTabCard, active && orderTabActiveStyle(tab.tone)]} onPress={() => setFilter(tab.key)}>
+              <Ionicons name={tab.icon} size={19} color={orderToneColor(tab.tone)} />
+              <Text style={[styles.orderTabLabel, active && { color: orderToneColor(tab.tone) }]}>{tab.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {filteredOrders.length === 0 ? <OrdersEmptyState filter={filter} /> : null}
       {filteredOrders.map((order) => (
         <OrderCard
           key={order.id}
@@ -1256,6 +1306,41 @@ function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; 
         />
       ))}
     </ScrollView>
+  );
+}
+
+function orderTabActiveStyle(tone: "orange" | "green" | "blue" | "red") {
+  if (tone === "green") return styles.orderTabCardGreen;
+  if (tone === "blue") return styles.orderTabCardBlue;
+  if (tone === "red") return styles.orderTabCardRed;
+  return styles.orderTabCardOrange;
+}
+
+function orderToneColor(tone: "orange" | "green" | "blue" | "red") {
+  if (tone === "green") return "#22c55e";
+  if (tone === "blue") return "#2495ff";
+  if (tone === "red") return "#ef4444";
+  return BRAND_ORANGE;
+}
+
+function OrdersEmptyState({ filter }: { filter: "ACCEPTED" | "READY" | "HISTORY" | "CANCELLED" }) {
+  const config =
+    filter === "READY"
+      ? { icon: "bus-outline" as const, tone: "green" as const, copy: "You don't have any orders ready to deliver.\nWhen your work is complete and you mark\nit as ready, it will appear here." }
+      : filter === "HISTORY"
+        ? { icon: "time-outline" as const, tone: "blue" as const, copy: "You don't have any past orders.\nAll the orders you completed in the past\nwill be shown here." }
+        : filter === "CANCELLED"
+          ? { icon: "cube-outline" as const, tone: "red" as const, copy: "You don't have any cancelled orders.\nOrders that were cancelled due to any\nreason will appear here.\nYou can check the details when needed." }
+          : { icon: "clipboard-outline" as const, tone: "orange" as const, copy: "You haven't accepted any orders yet.\nWhen you accept an order,\nit will show up here." };
+  const color = orderToneColor(config.tone);
+  return (
+    <View style={styles.ordersEmptyState}>
+      <View style={[styles.ordersEmptyIcon, { backgroundColor: config.tone === "green" ? "#dcfce7" : config.tone === "blue" ? "#eaf4ff" : config.tone === "red" ? "#ffe4e9" : "#fff4dc" }]}>
+        <Ionicons name={config.icon} size={42} color={color} />
+      </View>
+      <Text style={styles.ordersEmptyTitle}>No orders here</Text>
+      <Text style={styles.ordersEmptyCopy}>{config.copy}</Text>
+    </View>
   );
 }
 
@@ -1840,13 +1925,13 @@ function EarningsScreen({ wallet, loadingWallet, onViewAll, onOpenOrder, onOpenM
   const recentTransactions = wallet.transactions.slice(0, 4);
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Earnings" subtitle="Your verified tailoring payouts" />
+      <Header title="Earnings" subtitle="Track your earnings and get paid with ease." />
       <View style={styles.walletHeroCard}>
         <View style={styles.walletHeroIcon}><Ionicons name="wallet-outline" size={28} color={BRAND_ORANGE} /></View>
         <View style={styles.walletHeroMain}>
           <Text style={styles.walletHeroLabel}>WALLET BALANCE</Text>
           <Text style={styles.walletHeroValue}>{money(metrics.balance)}</Text>
-          <Text style={styles.walletHeroCopy}>Available in the next recorded payout.</Text>
+          <Text style={styles.walletHeroCopy}>You will receive this amount in your next payout.</Text>
         </View>
         {loadingWallet ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="shield-checkmark-outline" size={23} color="#dbeafe" />}
       </View>
@@ -2019,6 +2104,21 @@ function mediaDraftFromUrl(url?: string, name = "Uploaded document"): Verificati
   return url ? { uri: url, name, uploadedUrl: url } : undefined;
 }
 
+function compactAddress(parts: Array<string | undefined>) {
+  return parts.map((part) => part?.trim()).filter(Boolean).join(", ");
+}
+
+function splitAddress(value?: string) {
+  const parts = String(value ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+  return {
+    addressLine: parts[0] ?? "",
+    area: parts[1] ?? "",
+    city: parts[2] ?? "",
+    state: parts[3] ?? "",
+    pincode: parts[4] ?? ""
+  };
+}
+
 function clothOptionsForCategory(category: "Men" | "Women" | "Both") {
   if (category === "Men") return menClothTypeOptions;
   if (category === "Women") return womenClothTypeOptions;
@@ -2054,8 +2154,8 @@ function validateTailorIdNumber(idType: TailorIdType, value: string, language: A
 function makeVerificationDraft(me?: MeResponse): VerificationDraft {
   return {
     step: 1,
-    personal: { name: me?.name ?? "", address: "", dob: "", email: "" },
-    shop: { workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [], shopPhotos: [] },
+    personal: { name: me?.name ?? "", address: "", addressLine: "", area: "", city: "", state: "", pincode: "", dob: "", email: "" },
+    shop: { workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [], shopPhotos: [] },
     category: "Both",
     rows: [newSpecializationRow()],
     confirmedRows: false,
@@ -2165,8 +2265,9 @@ function TailorVerificationFlow({
   const [locating, setLocating] = useState(false);
   const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [showDobPicker, setShowDobPicker] = useState(false);
-  const [personal, setPersonal] = useState({ name: me?.name ?? "", address: "", dob: "", email: "", location: undefined as { lat: number; lng: number } | undefined });
-  const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [] as string[], shopPhotos: [] as VerificationMediaDraft[] });
+  const [showShopPhotoSheet, setShowShopPhotoSheet] = useState(false);
+  const [personal, setPersonal] = useState({ name: me?.name ?? "", address: "", addressLine: "", area: "", city: "", state: "", pincode: "", dob: "", email: "", location: undefined as { lat: number; lng: number } | undefined });
+  const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [] as string[], shopPhotos: [] as VerificationMediaDraft[] });
   const [category, setCategory] = useState<"Men" | "Women" | "Both">("Both");
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
@@ -2236,9 +2337,12 @@ function TailorVerificationFlow({
 
   function applySubmittedVerification(verification?: TailorVerificationPayload) {
     if (!verification) return;
+    const personalAddress = splitAddress(verification.personal.address);
+    const shopAddress = splitAddress(verification.shop.shopAddress);
     setPersonal({
       name: verification.personal.name ?? me?.name ?? "",
       address: verification.personal.address ?? "",
+      ...personalAddress,
       dob: verification.personal.dob ?? "",
       email: verification.personal.email ?? "",
       location: verification.personal.location
@@ -2247,6 +2351,11 @@ function TailorVerificationFlow({
       workFromHome: Boolean(verification.shop.workFromHome),
       shopName: verification.shop.shopName ?? me?.tailorProfile?.shopName ?? "",
       shopAddress: verification.shop.shopAddress ?? "",
+      shopAddressLine: shopAddress.addressLine,
+      shopArea: shopAddress.area,
+      shopCity: shopAddress.city,
+      shopState: shopAddress.state,
+      shopPincode: shopAddress.pincode,
       gstNumber: verification.shop.gstNumber ?? "",
       employeeCount: String(verification.shop.employeeCount ?? "1"),
       yearsExperience: String(verification.shop.yearsExperience ?? ""),
@@ -2337,6 +2446,18 @@ function TailorVerificationFlow({
     return () => clearInterval(timer);
   }, [tutorialWatching]);
 
+  function requestLocationWithIntro(target: "personal" | "shop") {
+    showDialog({
+      title: "Allow Location Access",
+      message: "Darji can fill your address automatically using your current location. Your location is safe with Darji and is used only for verification.",
+      icon: "navigate-outline",
+      actions: [
+        { label: "Not now", variant: "secondary" },
+        { label: "Allow Location", variant: "primary", onPress: () => void useCurrentLocation(target) }
+      ]
+    });
+  }
+
   async function useCurrentLocation(target: "personal" | "shop") {
     try {
       setLocating(true);
@@ -2354,8 +2475,25 @@ function TailorVerificationFlow({
       const address = place
         ? [place.name, place.street, place.district, place.city, place.region, place.postalCode].filter(Boolean).join(", ")
         : `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
-      if (target === "personal") setPersonal((current) => ({ ...current, address, location: { lat: position.coords.latitude, lng: position.coords.longitude } }));
-      if (target === "shop") setShop((current) => ({ ...current, shopAddress: address }));
+      if (target === "personal") setPersonal((current) => ({
+        ...current,
+        address,
+        addressLine: [place?.name, place?.street].filter(Boolean).join(", ") || current.addressLine,
+        area: place?.district ?? current.area,
+        city: place?.city ?? current.city,
+        state: place?.region ?? current.state,
+        pincode: place?.postalCode ?? current.pincode,
+        location: { lat: position.coords.latitude, lng: position.coords.longitude }
+      }));
+      if (target === "shop") setShop((current) => ({
+        ...current,
+        shopAddress: address,
+        shopAddressLine: [place?.name, place?.street].filter(Boolean).join(", ") || current.shopAddressLine,
+        shopArea: place?.district ?? current.shopArea,
+        shopCity: place?.city ?? current.shopCity,
+        shopState: place?.region ?? current.shopState,
+        shopPincode: place?.postalCode ?? current.shopPincode
+      }));
     } catch (error) {
       showDialog({ title: "Location failed", message: error instanceof Error ? error.message : "Could not fetch current location.", icon: "alert-circle-outline" });
     } finally {
@@ -2423,15 +2561,47 @@ function TailorVerificationFlow({
     }
   }
 
-  function confirmFaceProfilePhoto(action: () => void) {
-    Alert.alert(
-      "Profile photo notice",
-      "This face verification photo will become your permanent Darji profile photo. Make sure your face is clear and well lit.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Continue", onPress: action }
+  function showCameraPermissionIntro(kind: "document" | "shop" | "face", action: () => void) {
+    const copy = kind === "face"
+      ? "Darji needs camera access to take your live face photo. This photo becomes your locked profile photo, so keep your face clear and well lit."
+      : kind === "shop"
+        ? "Darji needs camera access to capture clear shop, board, or home-workshop photos for business verification."
+        : "Darji needs camera access to capture clear identity document photos for secure verification.";
+    showDialog({
+      title: "Allow Camera Access",
+      message: `${copy} Your photos are safe with Darji and used only for verification.`,
+      icon: "camera-outline",
+      actions: [
+        { label: "Not now", variant: "secondary" },
+        { label: "Allow Camera", variant: "primary", onPress: action }
       ]
-    );
+    });
+  }
+
+  function showGalleryPermissionIntro(kind: "document" | "shop", action: () => void) {
+    showDialog({
+      title: "Choose From Gallery",
+      message: kind === "shop"
+        ? "Select a clear shop, board, or workspace photo. Darji receives only the photo you choose."
+        : "Select a clear identity document photo. Darji receives only the photo you choose.",
+      icon: "images-outline",
+      actions: [
+        { label: "Cancel", variant: "secondary" },
+        { label: "Open Gallery", variant: "primary", onPress: action }
+      ]
+    });
+  }
+
+  function confirmFaceProfilePhoto(action: () => void) {
+    showDialog({
+      title: "Profile Photo Notice",
+      message: "Your live face photo will be locked as your Darji profile photo after verification. Keep your face clear, centered, and well lit.",
+      icon: "person-circle-outline",
+      actions: [
+        { label: "Not now", variant: "secondary" },
+        { label: "Use as profile photo", variant: "primary", onPress: action }
+      ]
+    });
   }
 
   async function pickDoc(setter: (media: VerificationMediaDraft) => void, scan?: "ocr" | "face", source: "camera" | "gallery" = "camera") {
@@ -2495,15 +2665,17 @@ function TailorVerificationFlow({
       const dob = new Date(personal.dob);
       const validDob = personal.dob.trim().length >= 6 && !Number.isNaN(dob.getTime()) && dob <= new Date();
       const validEmail = !personal.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personal.email.trim());
+      const personalFullAddress = compactAddress([personal.addressLine, personal.area, personal.city, personal.state, personal.pincode]) || personal.address;
       if (personal.name.trim().length < 2) return localize(language, "Enter your full name.", "अपना पूरा नाम दर्ज करें।");
       if (!validDob) return localize(language, "Enter a valid date of birth.", "सही जन्म तिथि दर्ज करें।");
-      if (personal.address.trim().length < 8) return localize(language, "Enter your full address.", "अपना पूरा पता दर्ज करें।");
+      if (personalFullAddress.trim().length < 8 || !personal.city.trim() || !personal.state.trim() || !/^\d{6}$/.test(personal.pincode.trim())) return localize(language, "Enter address, city, state, and 6 digit pin code.", "पता, शहर, राज्य और 6 अंकों का पिन कोड दर्ज करें।");
       if (!validEmail) return localize(language, "Enter a valid email address or leave it blank.", "सही ईमेल पता दर्ज करें या इसे खाली छोड़ दें।");
       return "";
     }
     if (targetStep === 2) {
+      const shopFullAddress = compactAddress([shop.shopAddressLine, shop.shopArea, shop.shopCity, shop.shopState, shop.shopPincode]) || shop.shopAddress;
       if (shop.shopName.trim().length < 2) return localize(language, "Enter your shop or workshop name.", "अपनी दुकान या कार्यशाला का नाम दर्ज करें।");
-      if (shop.shopAddress.trim().length < 8) return localize(language, "Enter your shop or home workshop address.", "अपनी दुकान या घर की कार्यशाला का पूरा पता दर्ज करें।");
+      if (shopFullAddress.trim().length < 8 || !shop.shopCity.trim() || !shop.shopState.trim() || !/^\d{6}$/.test(shop.shopPincode.trim())) return localize(language, "Enter workshop address, city, state, and 6 digit pin code.", "कार्यशाला पता, शहर, राज्य और 6 अंकों का पिन कोड दर्ज करें।");
       if (!shop.employeeCount.trim() || !Number.isFinite(Number(shop.employeeCount))) return localize(language, "Enter the number of employees.", "कर्मचारियों की संख्या दर्ज करें।");
       if (!shop.yearsExperience.trim() || !Number.isFinite(Number(shop.yearsExperience))) return localize(language, "Enter your years of experience.", "अपने अनुभव के वर्ष दर्ज करें।");
       if (shop.shopPhotos.length < 1) return localize(language, "Upload at least 1 shop photo.", "दुकान की कम से कम 1 फोटो अपलोड करें।");
@@ -2602,6 +2774,23 @@ function TailorVerificationFlow({
     }
   }
 
+  function unlockedVerificationStep() {
+    let unlocked = 1;
+    for (const targetStep of [1, 2, 3, 4]) {
+      if (!validateCurrentStep(targetStep)) break;
+      unlocked = Math.min(VERIFICATION_TOTAL_STEPS, targetStep + 1);
+    }
+    return unlocked;
+  }
+
+  function verificationTrustMessage() {
+    if (step === 1) return "We collect your details to verify your identity, build trust with customers, and keep your account secure.";
+    if (step === 2) return "We collect your shop details to verify your business, ensure trust with customers, and comply with legal and tax requirements.";
+    if (step === 3) return "As per Government guidelines, we verify your identity to ensure a safe platform for our customers and protect your account from misuse.";
+    if (step === 4) return "This short video helps you understand how Darji works and what to expect. Please watch it fully to complete your verification.";
+    return "Your information and documents are safe with Darji. We use them only to verify your account.";
+  }
+
   function updateRow(id: string, patch: Partial<SpecializationRow>) {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
     setConfirmedRows(false);
@@ -2655,10 +2844,12 @@ function TailorVerificationFlow({
         stitchingType: row.stitchingType.trim() || "New Stitching",
         price: Number(row.price) || 0
       }));
+      const personalFullAddress = compactAddress([personal.addressLine, personal.area, personal.city, personal.state, personal.pincode]) || personal.address;
+      const shopFullAddress = compactAddress([shop.shopAddressLine, shop.shopArea, shop.shopCity, shop.shopState, shop.shopPincode]) || shop.shopAddress;
       const payload: TailorVerificationPayload = {
         personal: {
           name: personal.name.trim(),
-          address: personal.address.trim(),
+          address: personalFullAddress.trim(),
           dob: personal.dob.trim(),
           email: personal.email.trim() || undefined,
           location: personal.location
@@ -2666,7 +2857,7 @@ function TailorVerificationFlow({
         shop: {
           workFromHome: shop.workFromHome,
           shopName: shop.shopName.trim(),
-          shopAddress: shop.shopAddress.trim(),
+          shopAddress: shopFullAddress.trim(),
           gstNumber: shop.gstNumber.trim() || undefined,
           employeeCount: Number(shop.employeeCount),
           yearsExperience: Number(shop.yearsExperience),
@@ -2773,30 +2964,32 @@ function TailorVerificationFlow({
     }
 
     function chooseReplacementShopPhoto() {
-      Alert.alert(
-        localize(language, "Choose shop photo", "दुकान की फोटो चुनें"),
-        localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
-        [
-          { text: localize(language, "Camera", "कैमरा"), onPress: () => void pickShopPhoto("camera") },
-          { text: localize(language, "Gallery", "गैलरी"), onPress: () => void pickShopPhoto("gallery") },
-          { text: t(language, "cancel"), style: "cancel" }
+      showDialog({
+        title: localize(language, "Choose shop photo", "दुकान की फोटो चुनें"),
+        message: localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
+        icon: "camera-outline",
+        actions: [
+          { label: localize(language, "Camera", "कैमरा"), variant: "primary", onPress: () => showCameraPermissionIntro("shop", () => void pickShopPhoto("camera")) },
+          { label: localize(language, "Gallery", "गैलरी"), variant: "secondary", onPress: () => showGalleryPermissionIntro("shop", () => void pickShopPhoto("gallery")) },
+          { label: t(language, "cancel"), variant: "secondary" }
         ]
-      );
+      });
     }
 
     function pickReuploadField(field: TailorReuploadField) {
-      if (field === "facePhoto") return pickDoc(setFacePhoto, "face");
+      if (field === "facePhoto") return confirmFaceProfilePhoto(() => showCameraPermissionIntro("face", () => void pickDoc(setFacePhoto, "face", "camera")));
       if (field === "shopPhotos") return chooseReplacementShopPhoto();
       const setter = field === "aadhaarFront" ? setAadhaarFront : field === "aadhaarBack" ? setAadhaarBack : setPanPhoto;
-      Alert.alert(
-        localize(language, "Choose document photo", "दस्तावेज़ की फोटो चुनें"),
-        localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
-        [
-          { text: localize(language, "Camera", "कैमरा"), onPress: () => void pickDoc(setter, "ocr", "camera") },
-          { text: localize(language, "Gallery", "गैलरी"), onPress: () => void pickDoc(setter, "ocr", "gallery") },
-          { text: t(language, "cancel"), style: "cancel" }
+      showDialog({
+        title: localize(language, "Choose document photo", "दस्तावेज़ की फोटो चुनें"),
+        message: localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
+        icon: "camera-outline",
+        actions: [
+          { label: localize(language, "Camera", "कैमरा"), variant: "primary", onPress: () => showCameraPermissionIntro("document", () => void pickDoc(setter, "ocr", "camera")) },
+          { label: localize(language, "Gallery", "गैलरी"), variant: "secondary", onPress: () => showGalleryPermissionIntro("document", () => void pickDoc(setter, "ocr", "gallery")) },
+          { label: t(language, "cancel"), variant: "secondary" }
         ]
-      );
+      });
     }
 
     return (
@@ -2897,16 +3090,33 @@ function TailorVerificationFlow({
           onBack={() => handleVerificationBack("header")}
         />
         <View style={styles.verificationSteps}>
-          {(language === "hi" ? ["व्यक्तिगत", "दुकान", "पहचान", "ट्यूटोरियल", "जमा करें"] : verificationStepLabels).map((label, index) => (
-            <Text key={label} style={[styles.verificationStepPill, Math.min(step, VERIFICATION_TOTAL_STEPS) === index + 1 && styles.verificationStepPillActive]}>{label}</Text>
-          ))}
+          {(language === "hi" ? ["व्यक्तिगत", "दुकान", "पहचान", "ट्यूटोरियल", "जमा करें"] : verificationStepLabels).map((label, index) => {
+            const targetStep = index + 1;
+            const locked = targetStep > unlockedVerificationStep() && !isLocked;
+            return (
+              <Pressable
+                key={label}
+                style={[styles.verificationStepPill, Math.min(step, VERIFICATION_TOTAL_STEPS) === targetStep && styles.verificationStepPillActive, locked && styles.verificationStepPillLocked]}
+                onPress={() => {
+                  if (isLocked || targetStep === step) return;
+                  if (locked) {
+                    showDialog({ title: "Step locked", message: "Complete the current section before moving forward.", icon: "lock-closed-outline" });
+                    return;
+                  }
+                  setStep(Math.min(targetStep, VERIFICATION_FORM_STEPS));
+                }}
+              >
+                <Text style={[styles.verificationStepText, Math.min(step, VERIFICATION_TOTAL_STEPS) === targetStep && styles.verificationStepTextActive, locked && styles.verificationStepTextLocked]}>{label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
         <View style={styles.verificationProgressTrack}>
           <View style={[styles.verificationProgressFill, { width: `${(Math.min(step, VERIFICATION_TOTAL_STEPS) / VERIFICATION_TOTAL_STEPS) * 100}%` }]} />
         </View>
         <View style={styles.privacyTrustBanner}>
           <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
-          <Text style={styles.privacyTrustText}>{localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")}</Text>
+          <Text style={styles.privacyTrustText}>{verificationTrustMessage()}</Text>
         </View>
         {isLocked ? (
           <View style={styles.lockedNoticeBanner}>
@@ -2941,9 +3151,19 @@ function TailorVerificationFlow({
             <Text style={styles.formLabel}>{localize(language, "Email (optional)", "ईमेल (वैकल्पिक)")}</Text>
             <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.email} onChangeText={(email) => !isLocked && setPersonal((current) => ({ ...current, email }))} placeholder="name@example.com" placeholderTextColor="#9aa6b8" keyboardType="email-address" editable={!isLocked} />
             <Text style={styles.formLabel}>{localize(language, "Address", "पता")}</Text>
-            <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={personal.address} onChangeText={(address) => !isLocked && setPersonal((current) => ({ ...current, address }))} placeholder={localize(language, "Home address", "घर का पता")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <TextInput style={[styles.input, styles.addressInput, isLocked && styles.inputReadOnly]} value={personal.addressLine} onChangeText={(addressLine) => !isLocked && setPersonal((current) => ({ ...current, addressLine, address: compactAddress([addressLine, current.area, current.city, current.state, current.pincode]) }))} placeholder={localize(language, "House / street address", "घर / सड़क का पता")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <TextInput style={[styles.input, styles.addressInput, isLocked && styles.inputReadOnly]} value={personal.area} onChangeText={(area) => !isLocked && setPersonal((current) => ({ ...current, area, address: compactAddress([current.addressLine, area, current.city, current.state, current.pincode]) }))} placeholder={localize(language, "Area / locality", "क्षेत्र / मोहल्ला")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <View style={[styles.twoFieldRow, styles.addressInput]}>
+              <View style={styles.twoFieldItem}>
+                <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.city} onChangeText={(city) => !isLocked && setPersonal((current) => ({ ...current, city, address: compactAddress([current.addressLine, current.area, city, current.state, current.pincode]) }))} placeholder={localize(language, "City", "शहर")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
+              </View>
+              <View style={styles.twoFieldItem}>
+                <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={personal.state} onChangeText={(state) => !isLocked && setPersonal((current) => ({ ...current, state, address: compactAddress([current.addressLine, current.area, current.city, state, current.pincode]) }))} placeholder={localize(language, "State", "राज्य")} placeholderTextColor="#9aa6b8" editable={!isLocked} />
+              </View>
+            </View>
+            <TextInput style={[styles.input, styles.addressInput, isLocked && styles.inputReadOnly]} value={personal.pincode} onChangeText={(pincode) => !isLocked && setPersonal((current) => ({ ...current, pincode: pincode.replace(/\D/g, "").slice(0, 6), address: compactAddress([current.addressLine, current.area, current.city, current.state, pincode.replace(/\D/g, "").slice(0, 6)]) }))} placeholder={localize(language, "Pin code", "पिन कोड")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} editable={!isLocked} />
             {!isLocked ? (
-              <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("personal")} disabled={locating}>
+              <Pressable style={styles.secondaryButton} onPress={() => requestLocationWithIntro("personal")} disabled={locating}>
                 {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
                 <Text style={styles.secondaryButtonText}>{localize(language, "Fetch Current Location", "वर्तमान स्थान लें")}</Text>
               </Pressable>
@@ -2964,9 +3184,19 @@ function TailorVerificationFlow({
             <Text style={styles.formLabel}>{shop.workFromHome ? localize(language, "Home Workshop Name", "घर की कार्यशाला का नाम") : localize(language, "Shop Name", "दुकान का नाम")}</Text>
             <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.shopName} onChangeText={(shopName) => !isLocked && setShop((current) => ({ ...current, shopName }))} placeholder={shop.workFromHome ? "Home" : "Shop or studio name"} placeholderTextColor="#9aa6b8" editable={!isLocked} />
             <Text style={styles.formLabel}>{shop.workFromHome ? localize(language, "Home Address", "घर का पता") : localize(language, "Shop/Home Address", "दुकान/घर का पता")}</Text>
-            <TextInput multiline style={[styles.textArea, isLocked && styles.inputReadOnly]} value={shop.shopAddress} onChangeText={(shopAddress) => !isLocked && setShop((current) => ({ ...current, shopAddress }))} placeholder="Home address if no shop" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <TextInput style={[styles.input, styles.addressInput, isLocked && styles.inputReadOnly]} value={shop.shopAddressLine} onChangeText={(shopAddressLine) => !isLocked && setShop((current) => ({ ...current, shopAddressLine, shopAddress: compactAddress([shopAddressLine, current.shopArea, current.shopCity, current.shopState, current.shopPincode]) }))} placeholder="Shop / home workshop address" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <TextInput style={[styles.input, styles.addressInput, isLocked && styles.inputReadOnly]} value={shop.shopArea} onChangeText={(shopArea) => !isLocked && setShop((current) => ({ ...current, shopArea, shopAddress: compactAddress([current.shopAddressLine, shopArea, current.shopCity, current.shopState, current.shopPincode]) }))} placeholder="Area / locality" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <View style={[styles.twoFieldRow, styles.addressInput]}>
+              <View style={styles.twoFieldItem}>
+                <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.shopCity} onChangeText={(shopCity) => !isLocked && setShop((current) => ({ ...current, shopCity, shopAddress: compactAddress([current.shopAddressLine, current.shopArea, shopCity, current.shopState, current.shopPincode]) }))} placeholder="City" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+              </View>
+              <View style={styles.twoFieldItem}>
+                <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.shopState} onChangeText={(shopState) => !isLocked && setShop((current) => ({ ...current, shopState, shopAddress: compactAddress([current.shopAddressLine, current.shopArea, current.shopCity, shopState, current.shopPincode]) }))} placeholder="State" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+              </View>
+            </View>
+            <TextInput style={[styles.input, styles.addressInput, isLocked && styles.inputReadOnly]} value={shop.shopPincode} onChangeText={(shopPincode) => !isLocked && setShop((current) => ({ ...current, shopPincode: shopPincode.replace(/\D/g, "").slice(0, 6), shopAddress: compactAddress([current.shopAddressLine, current.shopArea, current.shopCity, current.shopState, shopPincode.replace(/\D/g, "").slice(0, 6)]) }))} placeholder="Pin code" placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} editable={!isLocked} />
             {!isLocked ? (
-              <Pressable style={styles.secondaryButton} onPress={() => useCurrentLocation("shop")} disabled={locating}>
+              <Pressable style={styles.secondaryButton} onPress={() => requestLocationWithIntro("shop")} disabled={locating}>
                 {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={18} color={BRAND_DEEP} />}
                 <Text style={styles.secondaryButtonText}>{localize(language, "Use Current Location", "वर्तमान स्थान उपयोग करें")}</Text>
               </Pressable>
@@ -3012,15 +3242,7 @@ function TailorVerificationFlow({
               {!isLocked && shop.shopPhotos.length < 3 ? (
                 <Pressable
                   style={styles.shopPhotoUpload}
-                  onPress={() => Alert.alert(
-                    localize(language, "Add shop photo", "दुकान की फोटो जोड़ें"),
-                    localize(language, "Choose Camera or Gallery. Darji receives only the photo you select.", "कैमरा या गैलरी चुनें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी।"),
-                    [
-                      { text: localize(language, "Camera", "कैमरा"), onPress: () => void pickShopPhoto("camera") },
-                      { text: localize(language, "Gallery", "गैलरी"), onPress: () => void pickShopPhoto("gallery") },
-                      { text: t(language, "cancel"), style: "cancel" }
-                    ]
-                  )}
+                  onPress={() => setShowShopPhotoSheet(true)}
                 >
                   <Ionicons name="camera-outline" size={22} color={BRAND_ORANGE} />
                   <Text style={styles.verificationDocText}>{localize(language, "Camera / Gallery", "कैमरा / गैलरी")}</Text>
@@ -3028,6 +3250,44 @@ function TailorVerificationFlow({
               ) : null}
             </View>
             <Text style={styles.cardMeta}>{localize(language, "Upload 1 to 3 clear photos of your shop, board, or home workshop.", "दुकान, बोर्ड या घर की कार्यशाला की 1 से 3 साफ फोटो अपलोड करें।")}</Text>
+            <Modal visible={showShopPhotoSheet} transparent animationType="fade" onRequestClose={() => setShowShopPhotoSheet(false)}>
+              <View style={styles.modalBackdrop}>
+                <View style={styles.shopPhotoSheet}>
+                  <Pressable style={styles.sheetCloseButton} onPress={() => setShowShopPhotoSheet(false)}>
+                    <Ionicons name="close" size={18} color={MUTED} />
+                  </Pressable>
+                  <View style={styles.sheetHeroIcon}>
+                    <Ionicons name="camera-outline" size={32} color={BRAND_ORANGE} />
+                  </View>
+                  <Text style={styles.sheetTitle}>{localize(language, "Add Shop Photo", "दुकान की फोटो जोड़ें")}</Text>
+                  <Text style={styles.sheetCopy}>{localize(language, "Upload clear photos of your shop, board, or home workspace.", "अपनी दुकान, बोर्ड या घर की कार्यशाला की साफ फोटो अपलोड करें।")}</Text>
+                  <View style={styles.sheetTrustBox}>
+                    <Ionicons name="shield-checkmark-outline" size={24} color={SUCCESS} />
+                    <View style={styles.cardMain}>
+                      <Text style={styles.sheetTrustTitle}>Why we need this?</Text>
+                      <Text style={styles.sheetTrustCopy}>These photos help us verify your business and build trust with customers. Your photos are safe with Darji and used only for verification.</Text>
+                    </View>
+                  </View>
+                  <View style={styles.sheetActionRow}>
+                    <Pressable style={styles.sheetActionCard} onPress={() => { setShowShopPhotoSheet(false); showCameraPermissionIntro("shop", () => void pickShopPhoto("camera")); }}>
+                      <Ionicons name="camera-outline" size={28} color={BRAND_ORANGE} />
+                      <Text style={styles.sheetActionTitle}>Camera</Text>
+                      <Text style={styles.sheetActionMeta}>Take a new photo</Text>
+                    </Pressable>
+                    <Pressable style={styles.sheetActionCard} onPress={() => { setShowShopPhotoSheet(false); showGalleryPermissionIntro("shop", () => void pickShopPhoto("gallery")); }}>
+                      <Ionicons name="image-outline" size={28} color={BRAND_ORANGE} />
+                      <Text style={styles.sheetActionTitle}>Gallery</Text>
+                      <Text style={styles.sheetActionMeta}>Choose from gallery</Text>
+                    </Pressable>
+                    <Pressable style={styles.sheetActionCard} onPress={() => setShowShopPhotoSheet(false)}>
+                      <Ionicons name="close-circle-outline" size={28} color={MUTED} />
+                      <Text style={styles.sheetActionTitle}>Cancel</Text>
+                      <Text style={styles.sheetActionMeta}>Go back</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            </Modal>
           </View>
         ) : null}
 
@@ -3067,11 +3327,11 @@ function TailorVerificationFlow({
             />
             {idType === "Aadhaar" ? (
               <View style={styles.docGrid}>
-                <VerificationDocBox label={localize(language, "Aadhaar Front", "आधार सामने")} media={aadhaarFront} onCamera={() => !isLocked && pickDoc(setAadhaarFront, "ocr", "camera")} onGallery={() => !isLocked && pickDoc(setAadhaarFront, "ocr", "gallery")} disabled={isLocked} />
-                <VerificationDocBox label={localize(language, "Aadhaar Back", "आधार पीछे")} media={aadhaarBack} onCamera={() => !isLocked && pickDoc(setAadhaarBack, "ocr", "camera")} onGallery={() => !isLocked && pickDoc(setAadhaarBack, "ocr", "gallery")} disabled={isLocked} />
+                <VerificationDocBox label={localize(language, "Aadhaar Front", "आधार सामने")} media={aadhaarFront} onCamera={() => !isLocked && showCameraPermissionIntro("document", () => void pickDoc(setAadhaarFront, "ocr", "camera"))} onGallery={() => !isLocked && showGalleryPermissionIntro("document", () => void pickDoc(setAadhaarFront, "ocr", "gallery"))} disabled={isLocked} />
+                <VerificationDocBox label={localize(language, "Aadhaar Back", "आधार पीछे")} media={aadhaarBack} onCamera={() => !isLocked && showCameraPermissionIntro("document", () => void pickDoc(setAadhaarBack, "ocr", "camera"))} onGallery={() => !isLocked && showGalleryPermissionIntro("document", () => void pickDoc(setAadhaarBack, "ocr", "gallery"))} disabled={isLocked} />
               </View>
             ) : (
-              <VerificationDocBox label={localize(language, "PAN Card", "पैन कार्ड")} media={panPhoto} onCamera={() => !isLocked && pickDoc(setPanPhoto, "ocr", "camera")} onGallery={() => !isLocked && pickDoc(setPanPhoto, "ocr", "gallery")} disabled={isLocked} />
+              <VerificationDocBox label={localize(language, "PAN Card", "पैन कार्ड")} media={panPhoto} onCamera={() => !isLocked && showCameraPermissionIntro("document", () => void pickDoc(setPanPhoto, "ocr", "camera"))} onGallery={() => !isLocked && showGalleryPermissionIntro("document", () => void pickDoc(setPanPhoto, "ocr", "gallery"))} disabled={isLocked} />
             )}
             <View style={styles.faceVerificationPanel}>
               <View style={[styles.faceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" || faceLiveness === "captured" ? styles.faceCircleReady : styles.faceCircleWaiting]}>
@@ -3083,11 +3343,11 @@ function TailorVerificationFlow({
                 <Text style={styles.faceStatusText}>{faceLiveness === "idle" ? "Not started" : faceLiveness === "aligning" ? "Aligning face..." : faceLiveness === "aligned" ? "Green circle: blink now" : faceLiveness === "blink-detected" ? "Blink detected, capturing..." : "Selfie captured"}</Text>
               </View>
             </View>
-            <Pressable style={styles.secondaryButton} onPress={() => confirmFaceProfilePhoto(() => setFaceModeOpen(true))}>
+            <Pressable style={styles.secondaryButton} onPress={() => confirmFaceProfilePhoto(() => showCameraPermissionIntro("face", () => setFaceModeOpen(true)))}>
               <Ionicons name="camera-outline" size={18} color={BRAND_DEEP} />
               <Text style={styles.secondaryButtonText}>{facePhoto ? localize(language, "Retake Face Verification", "चेहरे की फोटो दोबारा लें") : localize(language, "Start Face Verification", "चेहरा सत्यापन शुरू करें")}</Text>
             </Pressable>
-            <VerificationDocBox label={localize(language, "Take Face Photo", "चेहरे की फोटो लें")} media={facePhoto} onCamera={() => confirmFaceProfilePhoto(() => pickDoc(setFacePhoto, "face", "camera"))} />
+            <VerificationDocBox label={localize(language, "Take Face Photo", "चेहरे की फोटो लें")} media={facePhoto} onCamera={() => confirmFaceProfilePhoto(() => showCameraPermissionIntro("face", () => void pickDoc(setFacePhoto, "face", "camera")))} />
             {faceModeOpen ? (
               <Modal visible animationType="slide" onRequestClose={() => setFaceModeOpen(false)}>
                 <SafeAreaView style={styles.cameraSafe}>
@@ -3713,6 +3973,7 @@ export default function App() {
     knownRequestIdsRef.current.add(request.id);
     if (alertedRequestIdsRef.current.has(request.id)) return;
     alertedRequestIdsRef.current.add(request.id);
+    setNewRequestPopup(request);
     const payload = incomingPayloadFromTailoringRequest(request);
     if (!payload) return;
     void displayIncomingRequestNotification({
@@ -4139,9 +4400,18 @@ export default function App() {
             void api<TailoringRequest>(`/tailoring-requests/${destination.entityId}`, {}, token)
               .then((loadedRequest) => {
                 setActiveRequest(loadedRequest);
+                setRequests((current) => current.some((item) => item.id === loadedRequest.id) ? current : [loadedRequest, ...current]);
                 setScreen(destination.actionIdentifier === "SEND_QUOTE" ? "quote" : "requestDetails");
               })
-              .catch(() => setScreen("requests"));
+              .catch((error) => {
+                setDialog({
+                  title: "Request unavailable",
+                  message: error instanceof Error ? error.message : "This request is no longer available. It may have been quoted, selected, or closed.",
+                  icon: "alert-circle-outline"
+                });
+                void refreshWorkspace();
+                setScreen("requests");
+              });
             return;
           }
           setScreen("requests");
@@ -4176,6 +4446,14 @@ export default function App() {
           }}
           onClose={() => setAcceptedQuoteRequest(undefined)}
         />
+        <NewRequestPopup
+          request={newRequestPopup}
+          secondsLeft={newRequestSecondsLeft}
+          flashOn={alertFlashVisible && alertFlashOn}
+          onAccept={() => openPopupRequest("quote")}
+          onViewDetails={() => openPopupRequest("requestDetails")}
+          onClose={closeNewRequestPopup}
+        />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
         {incomingAlertPermissionGuide}
       </SafeAreaView>
@@ -4194,7 +4472,7 @@ const styles = StyleSheet.create({
   authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 26, paddingBottom: 28, paddingTop: 70 },
   authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
   authLogoWrap: { alignItems: "flex-start", justifyContent: "center", marginBottom: 14 },
-  authLogo: { width: 82, height: 82, borderRadius: 24 },
+  authLogo: { width: 92, height: 62 },
   logoMark: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 20 },
   authTitle: { color: BRAND_DEEP, fontSize: 34, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 15, lineHeight: 23, marginTop: 8, marginBottom: 34 },
@@ -4204,6 +4482,7 @@ const styles = StyleSheet.create({
   phoneDivider: { width: 1, height: 26, backgroundColor: BORDER, marginHorizontal: 14 },
   phoneInput: { flex: 1, color: BRAND_DEEP, fontSize: 15 },
   input: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, color: BRAND_DEEP, paddingHorizontal: 15, fontSize: 15 },
+  addressInput: { marginTop: 10 },
   inputReadOnly: { backgroundColor: "#f1f5f9", opacity: 0.75 },
   lockedNoticeBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#fef3c7", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginTop: 8, borderWidth: 1, borderColor: "#fcd34d" },
   lockedNoticeText: { color: "#92400e", fontSize: 12, fontWeight: "900" as const, flex: 1 },
@@ -4223,31 +4502,61 @@ const styles = StyleSheet.create({
   topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
   topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
   pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 118 },
+  requestsPageContent: { paddingTop: 48 },
+  requestsHeader: { marginBottom: 16 },
+  requestsTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 29, fontWeight: "900" },
+  requestsSubtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 4 },
+  dashboardPageContent: { paddingTop: 18 },
+  dashboardHeader: { marginBottom: 12 },
+  dashboardTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  dashboardSubtitle: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 2 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", marginBottom: 18 },
   roundIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", marginRight: 12 },
   headerText: { flex: 1 },
   headerTitle: { color: BRAND_DEEP, fontSize: 25, fontWeight: "900" },
   headerSubtitle: { color: MUTED, fontSize: 13, fontWeight: "700", marginTop: 4 },
-  heroCard: { minHeight: 158, borderRadius: 24, backgroundColor: "#2b1503", padding: 22, marginBottom: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  heroLabel: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
-  heroTitle: { color: "#ffffff", fontSize: 26, fontWeight: "900", marginTop: 8 },
-  heroCopy: { color: "#d6deea", fontSize: 13, fontWeight: "700", marginTop: 8 },
-  heroIcon: { width: 66, height: 66, borderRadius: 33, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
-  statCard: { flex: 1, minHeight: 92, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 13, justifyContent: "center" },
-  statValue: { color: BRAND_DEEP, fontSize: 20, fontWeight: "900" },
-  statLabel: { color: MUTED, fontSize: 12, fontWeight: "800", marginTop: 5 },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 10 },
-  sectionTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900" },
-  linkText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
+  heroCard: { minHeight: 126, borderRadius: 10, backgroundColor: "#2b1503", padding: 16, marginBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heroLabel: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
+  heroTitle: { color: "#ffffff", fontSize: 23, lineHeight: 29, fontWeight: "900", marginTop: 6 },
+  heroCopy: { color: "#f2e8dc", fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 5 },
+  heroIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  statsRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  statCard: { flex: 1, minHeight: 104, borderRadius: 9, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 10, alignItems: "center", justifyContent: "center" },
+  statIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", marginBottom: 7 },
+  statValue: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  statLabel: { color: BRAND_DEEP, fontSize: 11, lineHeight: 15, fontWeight: "900" },
+  statMeta: { color: MUTED, fontSize: 9, lineHeight: 12, fontWeight: "700", marginTop: 3, textAlign: "center" },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 7, marginBottom: 8 },
+  sectionTitle: { color: BRAND_DEEP, fontSize: 15, lineHeight: 20, fontWeight: "900" },
+  linkText: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900" },
   requestCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
   requestCardTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   requestChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12, marginLeft: 60 },
   filterRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
-  filterChip: { flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  filterChip: { flex: 1, minHeight: 46, borderRadius: 10, borderWidth: 1.2, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", flexDirection: "row", paddingHorizontal: 10, gap: 7 },
   filterChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff5df" },
-  filterChipText: { color: MUTED, fontSize: 12, fontWeight: "900", textAlign: "center" },
+  filterChipText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "900", textAlign: "center" },
   filterChipTextActive: { color: BRAND_ORANGE },
+  requestsEmptyState: { minHeight: 252, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, paddingVertical: 26, marginTop: 2 },
+  requestsEmptyIcon: { width: 86, height: 86, borderRadius: 43, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 18 },
+  requestsEmptyIconSent: { backgroundColor: "#ecfdf5" },
+  requestsEmptyTitle: { color: BRAND_DEEP, fontSize: 17, lineHeight: 23, fontWeight: "900", textAlign: "center" },
+  requestsEmptyCopy: { color: MUTED, fontSize: 12, lineHeight: 19, fontWeight: "700", textAlign: "center", marginTop: 10, maxWidth: 260 },
+  ordersPageContent: { paddingTop: 48 },
+  ordersHeader: { marginBottom: 14 },
+  ordersTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 29, fontWeight: "900" },
+  ordersSubtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 4 },
+  orderTabsRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  orderTabCard: { flex: 1, minHeight: 70, borderRadius: 10, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 5, gap: 5 },
+  orderTabCardOrange: { borderColor: BRAND_ORANGE, backgroundColor: "#fff5df" },
+  orderTabCardGreen: { borderColor: "#22c55e", backgroundColor: "#dcfce7" },
+  orderTabCardBlue: { borderColor: "#2495ff", backgroundColor: "#eaf4ff" },
+  orderTabCardRed: { borderColor: "#ef4444", backgroundColor: "#fff1f2" },
+  orderTabLabel: { color: MUTED, fontSize: 10, lineHeight: 13, fontWeight: "900", textAlign: "center" },
+  ordersEmptyState: { minHeight: 236, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", paddingHorizontal: 22, paddingVertical: 24, marginTop: 2 },
+  ordersEmptyIcon: { width: 82, height: 82, borderRadius: 41, alignItems: "center", justifyContent: "center", marginBottom: 18 },
+  ordersEmptyTitle: { color: BRAND_DEEP, fontSize: 17, lineHeight: 23, fontWeight: "900", textAlign: "center" },
+  ordersEmptyCopy: { color: MUTED, fontSize: 12, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 10 },
   readyFilterChip: { borderColor: SUCCESS, backgroundColor: "#dcfce7" },
   readyFilterChipText: { color: SUCCESS },
   cancelledFilterChip: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
@@ -4288,8 +4597,9 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   priceText: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900" },
   helperText: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", marginTop: 8 },
-  emptyState: { minHeight: 170, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", padding: 22, marginBottom: 14 },
-  emptyTitle: { color: BRAND_DEEP, fontSize: 17, fontWeight: "900", marginTop: 12 },
+  emptyState: { minHeight: 144, borderRadius: 11, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", padding: 18, marginBottom: 14 },
+  emptyStateIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  emptyTitle: { color: BRAND_DEEP, fontSize: 15, lineHeight: 20, fontWeight: "900", marginTop: 10 },
   bigTitle: { color: BRAND_DEEP, fontSize: 22, fontWeight: "900", marginTop: 10 },
   customerDescriptionText: { color: BRAND_DEEP, fontSize: 14, lineHeight: 22, fontWeight: "800", marginBottom: 12 },
   detailRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#eef2f7" },
@@ -4344,8 +4654,12 @@ const styles = StyleSheet.create({
   twoFieldRow: { flexDirection: "row", gap: 10 },
   twoFieldItem: { flex: 1, minWidth: 0 },
   verificationSteps: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  verificationStepPill: { overflow: "hidden", borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, color: MUTED, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
-  verificationStepPillActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc", color: BRAND_ORANGE },
+  verificationStepPill: { minHeight: 34, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },
+  verificationStepPillActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
+  verificationStepPillLocked: { opacity: 0.45 },
+  verificationStepText: { color: MUTED, fontSize: 11, fontWeight: "900" },
+  verificationStepTextActive: { color: BRAND_ORANGE },
+  verificationStepTextLocked: { color: "#94a3b8" },
   verificationProgressTrack: { height: 6, borderRadius: 4, backgroundColor: "#e7edf5", overflow: "hidden", marginBottom: 16 },
   verificationProgressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
   verificationNotice: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 10 },
@@ -4354,6 +4668,19 @@ const styles = StyleSheet.create({
   verificationTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center", marginTop: 14 },
   verificationCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 10 },
   statusReviewCard: { borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: SURFACE, padding: 16, marginTop: 14 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.52)", alignItems: "center", justifyContent: "center", padding: 20 },
+  shopPhotoSheet: { width: "100%", maxWidth: 420, borderRadius: 22, backgroundColor: SURFACE, padding: 18, alignItems: "center" },
+  sheetCloseButton: { position: "absolute", right: 12, top: 12, width: 32, height: 32, borderRadius: 16, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center", zIndex: 2 },
+  sheetHeroIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  sheetTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center" },
+  sheetCopy: { color: MUTED, fontSize: 13, lineHeight: 19, fontWeight: "700", textAlign: "center", marginTop: 4 },
+  sheetTrustBox: { width: "100%", borderRadius: 16, borderWidth: 1, borderColor: "#86efac", backgroundColor: "#ecfdf5", flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, marginTop: 14 },
+  sheetTrustTitle: { color: SUCCESS, fontSize: 13, fontWeight: "900" },
+  sheetTrustCopy: { color: "#166534", fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 3 },
+  sheetActionRow: { width: "100%", flexDirection: "row", gap: 10, marginTop: 14 },
+  sheetActionCard: { flex: 1, minHeight: 104, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", alignItems: "center", justifyContent: "center", padding: 8 },
+  sheetActionTitle: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 8, textAlign: "center" },
+  sheetActionMeta: { color: MUTED, fontSize: 10, fontWeight: "700", marginTop: 3, textAlign: "center" },
   reuploadAlertCard: { borderRadius: 20, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff7f7", padding: 16, marginTop: 14 },
   reuploadReasonText: { color: "#dc2626", fontSize: 13, lineHeight: 20, fontWeight: "800", marginTop: 10 },
   reuploadDocumentCard: { minHeight: 94, borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, marginTop: 12 },
@@ -4443,17 +4770,17 @@ const styles = StyleSheet.create({
   activeTabText: { color: BRAND_ORANGE },
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupBackdropAlert: { backgroundColor: "rgba(246, 163, 19, 0.42)" },
-  popupCard: { width: "100%", maxWidth: 390, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 22, alignItems: "center" },
+  popupCard: { width: "100%", maxWidth: 390, borderRadius: 26, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#f3d7a3", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   requestPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20 },
-  popupIcon: { width: 64, height: 64, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  popupIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: "#fff4dc", borderWidth: 1, borderColor: "#ffd88a", alignItems: "center", justifyContent: "center", marginBottom: 14 },
   popupIconSmall: { width: 48, height: 48, borderRadius: 18, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   popupCloseButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#eef2f7", alignItems: "center", justifyContent: "center" },
   popupEyebrow: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginTop: 14 },
-  popupTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 28, fontWeight: "900", textAlign: "center", marginTop: 8 },
-  popupCopy: { color: MUTED, fontSize: 14, lineHeight: 21, fontWeight: "700", textAlign: "center", marginTop: 8 },
-  popupActions: { width: "100%", gap: 10, marginTop: 18 },
-  popupActionButton: { minHeight: 48, borderRadius: 15, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", paddingHorizontal: 14 },
-  popupSecondaryButton: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER },
+  popupTitle: { color: BRAND_DEEP, fontSize: 23, lineHeight: 29, fontWeight: "900", textAlign: "center", marginTop: 8 },
+  popupCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 8 },
+  popupActions: { width: "100%", gap: 10, marginTop: 20 },
+  popupActionButton: { minHeight: 52, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", paddingHorizontal: 14 },
+  popupSecondaryButton: { backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#dce4ef" },
   popupGhostButton: { backgroundColor: "#eef2f7" },
   popupActionText: { color: "#111111", fontSize: 14, fontWeight: "900" },
   popupSecondaryText: { color: BRAND_DEEP },

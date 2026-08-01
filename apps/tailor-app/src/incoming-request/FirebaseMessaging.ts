@@ -1,5 +1,8 @@
-import messaging, { type FirebaseMessagingTypes } from "@react-native-firebase/messaging";
+import type messaging from "@react-native-firebase/messaging";
+import type { FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { displayIncomingRequestNotification } from "./NotificationService";
+
+declare const require: (moduleName: string) => { default?: typeof messaging };
 
 export function isIncomingRequestData(data: Record<string, unknown>) {
   if (String(data.darjiIncomingRequest).toLowerCase() === "true") return true;
@@ -23,20 +26,38 @@ async function displayForegroundMessage(message: FirebaseMessagingTypes.RemoteMe
 
 let registered = false;
 let backgroundHandlerRegistered = false;
+let firebaseMessaging: typeof messaging | undefined;
+let firebaseMessagingUnavailable = false;
+
+function getFirebaseMessaging() {
+  if (firebaseMessagingUnavailable) return undefined;
+  try {
+    if (!firebaseMessaging) firebaseMessaging = require("@react-native-firebase/messaging").default;
+    return firebaseMessaging;
+  } catch (error) {
+    firebaseMessagingUnavailable = true;
+    console.warn("RN Firebase messaging unavailable; incoming foreground FCM listener disabled.", error);
+    return undefined;
+  }
+}
 
 function registerBackgroundHandler() {
   if (backgroundHandlerRegistered) return;
+  const messagingModule = getFirebaseMessaging();
+  if (!messagingModule) return;
   backgroundHandlerRegistered = true;
   // The shared Android receiver has already rendered the alert before headless
   // React starts. Keeping this handler registered preserves RNFirebase delivery
   // semantics without producing a second notification.
-  messaging().setBackgroundMessageHandler(async () => undefined);
+  messagingModule().setBackgroundMessageHandler(async () => undefined);
 }
 
 registerBackgroundHandler();
 
 export function registerIncomingRequestMessaging() {
   if (registered) return () => undefined;
+  const messagingModule = getFirebaseMessaging();
+  if (!messagingModule) return () => undefined;
   registered = true;
-  return messaging().onMessage(displayForegroundMessage);
+  return messagingModule().onMessage(displayForegroundMessage);
 }

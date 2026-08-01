@@ -2152,6 +2152,11 @@ function OrdersScreen({
         <View style={styles.segmentRow}>
           {(["requested", "accepted", "history", "cancelled"] as const).map((item) => (
             <Pressable key={item} style={[styles.segment, queue === item && styles.segmentActive, item === "cancelled" && queue === item && styles.cancelledSegmentActive]} onPress={() => setQueue(item)}>
+              <Ionicons
+                name={item === "requested" ? "briefcase-outline" : item === "accepted" ? "checkbox-outline" : item === "history" ? "time-outline" : "close-circle-outline"}
+                size={15}
+                color={item === "cancelled" && queue === item ? "#b91c1c" : queue === item ? BRAND_ORANGE : MUTED}
+              />
               <Text style={[styles.segmentText, queue === item && styles.segmentTextActive, item === "cancelled" && queue === item && styles.cancelledSegmentText]}>
                 {item === "requested" ? `Requested${requestedCount ? ` (${requestedCount})` : ""}` : item === "accepted" ? `Accepted${acceptedCount ? ` (${acceptedCount})` : ""}` : item === "history" ? "History" : "Cancelled"}
               </Text>
@@ -4037,7 +4042,7 @@ const styles = StyleSheet.create({
   emptyState: { minHeight: 220, alignItems: "center", justifyContent: "center", padding: 22 },
   emptyTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900", marginTop: 12 },
   segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  segment: { minHeight: 36, borderRadius: 13, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 11 },
+  segment: { minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 11, gap: 3 },
   segmentActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
   segmentText: { color: MUTED, fontSize: 12, fontWeight: "900", textTransform: "capitalize" },
   segmentTextActive: { color: BRAND_ORANGE },

@@ -22,14 +22,22 @@ type Options = {
 const completedRegistrations = new Set<string>();
 const pendingRegistrations = new Map<string, Promise<unknown>>();
 let firebaseMessaging: typeof messaging | undefined;
+let firebaseMessagingUnavailable = false;
 
 function easProjectId() {
   return (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? Constants.easConfig?.projectId;
 }
 
 function getFirebaseMessaging() {
-  if (!firebaseMessaging) firebaseMessaging = require("@react-native-firebase/messaging").default;
-  return firebaseMessaging;
+  if (firebaseMessagingUnavailable) return undefined;
+  try {
+    if (!firebaseMessaging) firebaseMessaging = require("@react-native-firebase/messaging").default;
+    return firebaseMessaging;
+  } catch (error) {
+    firebaseMessagingUnavailable = true;
+    console.warn("RN Firebase messaging unavailable; falling back to Expo/native push token.", error);
+    return undefined;
+  }
 }
 
 export function useRegisterPushNotifications({ authToken, app, userId }: Options) {

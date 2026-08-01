@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -437,10 +437,29 @@ async function hydrateTailorQuote(quoteInput: unknown) {
   if (!quote) return null;
 
   const tailor = await TailorModel.findById(quote.tailorId);
-  const user = tailor ? await UserModel.findById(tailor.userId).select("name phone role") : null;
+  const [user, tailorOrders] = tailor
+    ? await Promise.all([
+        UserModel.findById(tailor.userId).select("name phone role avatarUrl"),
+        OrderModel.find({ tailorId: tailor.id }).select("_id").lean()
+      ])
+    : [null, []];
+  const orderIds = tailorOrders.map((order) => String(order._id));
+  const [ratingSummary] = orderIds.length
+    ? await ReviewModel.aggregate<{ _id: null; averageRating: number; ratingCount: number }>([
+        { $match: { kind: "tailor", orderId: { $in: orderIds } } },
+        { $group: { _id: null, averageRating: { $avg: "$rating" }, ratingCount: { $sum: 1 } } }
+      ])
+    : [];
   return {
     ...quote,
-    tailor: tailor ? { ...tailor.toJSON(), user: user?.toJSON() } : null
+    tailor: tailor
+      ? {
+          ...tailor.toJSON(),
+          rating: ratingSummary ? Number(ratingSummary.averageRating.toFixed(1)) : Number(tailor.rating ?? 0),
+          ratingCount: ratingSummary?.ratingCount ?? 0,
+          user: user?.toJSON()
+        }
+      : null
   };
 }
 

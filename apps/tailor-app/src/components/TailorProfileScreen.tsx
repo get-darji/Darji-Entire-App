@@ -134,7 +134,7 @@ type TailorProfile = {
   workingHours?: { from?: string; to?: string };
   settings?: TailorSettings;
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
-  verification?: { idVerification?: { facePhotoUrl?: string } };
+  verification?: { personal?: { email?: string }; idVerification?: { facePhotoUrl?: string } };
 };
 type MeResponse = {
   id: string;
@@ -217,6 +217,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const palette = general.darkMode ? darkPalette : lightPalette;
   const styles = useMemo(() => createStyles(palette), [palette]);
   const verificationAvatarUrl = profile?.verification?.idVerification?.facePhotoUrl;
+  const serverEmail = me?.email?.trim() || profile?.verification?.personal?.email?.trim() || "";
   const avatarLocked = Boolean(verificationAvatarUrl) || profile?.verificationStatus === "VERIFIED";
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
@@ -234,11 +235,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   useEffect(() => {
     setName(me?.name ?? "");
     setShopName(profile?.shopName ?? "Darji Tailor");
-    setEmail(me?.email ?? "");
+    setEmail(serverEmail);
     setAvailable(Boolean(profile?.isAvailable ?? true));
     setNotifications((current) => ({ ...current, newOrderAlerts: settingsFromServer.notifications ?? true, sound: settingsFromServer.soundAlerts ?? true }));
     setGeneral((current) => ({ ...current, darkMode: settingsFromServer.darkMode ?? false }));
-  }, [me?.name, me?.email, profile]);
+  }, [me?.name, profile, serverEmail]);
 
   async function updateAvailability(value: boolean) {
     setAvailable(value);
@@ -260,13 +261,14 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     if (!token) return;
     try {
       setSavingProfile(true);
-      await api(
+      const saved = await api<MeResponse>(
         "/tailors/me/profile",
         {
           method: "PATCH",
           body: JSON.stringify({
             name: name.trim(),
             shopName: shopName.trim(),
+            email: email.trim() || undefined,
             settings: {
               notifications: notifications.newOrderAlerts,
               soundAlerts: notifications.sound,
@@ -277,6 +279,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         },
         token
       );
+      setEmail(saved.email?.trim() || saved.tailorProfile?.verification?.personal?.email?.trim() || email.trim());
       setEditing(false);
       showDialog({ title: "Profile saved", message: "Your profile and settings were updated.", icon: "checkmark-circle-outline" });
       refresh();
@@ -391,13 +394,21 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       <View style={styles.headerCard}>
         <View style={styles.avatar}>
           <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)} style={styles.avatarImage} />
+          {avatarLocked ? (
+            <View style={styles.avatarLockBadge}>
+              <Ionicons name="lock-closed" size={10} color={palette.surface} />
+            </View>
+          ) : null}
         </View>
         <View style={styles.headerMain}>
           <Text style={styles.title}>{shopName}</Text>
-          <Text style={styles.meta}>{avatarLocked ? `${name || "Tailor Partner"} - verification photo locked` : name || "Tailor Partner"}</Text>
-          <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}</Text>
-          <Text style={styles.meta}>{email || "Email not added"}</Text>
-          <Text style={styles.completedText}>{completedOrders} completed orders</Text>
+          <ProfileMetaRow icon={avatarLocked ? "shield-checkmark-outline" : "person-outline"} text={avatarLocked ? `${name || "Tailor Partner"} - Verification photo locked` : name || "Tailor Partner"} color={avatarLocked ? "#2563eb" : MUTED} styles={styles} />
+          <ProfileMetaRow icon="call-outline" text={`+91 ${me?.phone ?? "XXXXXXXXXX"}`} styles={styles} />
+          <ProfileMetaRow icon="mail-outline" text={email.trim() || serverEmail || "Email not added"} muted={!(email.trim() || serverEmail)} styles={styles} />
+          <View style={styles.completedPill}>
+            <Ionicons name="checkmark-circle-outline" size={14} color={SUCCESS} />
+            <Text style={styles.completedText}>{completedOrders} completed orders</Text>
+          </View>
         </View>
       </View>
 
@@ -420,9 +431,9 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </View>
             </View>
             <View style={styles.section}>
-              <Input label="Tailor Name" value={name} onChangeText={setName} styles={styles} />
-              <Input label="Shop Name" value={shopName} onChangeText={setShopName} styles={styles} />
-              <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
+              <Input icon="person-outline" label="Tailor Name" value={name} onChangeText={setName} styles={styles} />
+              <Input icon="storefront-outline" label="Shop Name" value={shopName} onChangeText={setShopName} styles={styles} />
+              <Input icon="mail-outline" label="Email" value={email} onChangeText={setEmail} styles={styles} />
               <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
                 {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
               </Pressable>
@@ -548,8 +559,9 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Section title={t(language, "support")} icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title={t(language, "helpCenter")} value={language === "hi" ? "सवाल-जवाब और ऐप गाइड" : "Faqs and app guides"} styles={styles} onPress={() => setSupportScreen("faqs")} noBorder />
+        <InfoRow icon="help-buoy-outline" title="FAQs" value={language === "hi" ? "आम सवालों के जवाब" : "Find quick answers to common questions"} styles={styles} onPress={() => setSupportScreen("faqs")} noBorder />
         <InfoRow icon="chatbubble-outline" title={t(language, "supportCenter")} value={language === "hi" ? "चैट, कॉल या अकाउंट बदलाव के लिए सहायता लें" : "Chat, call, or request account updates"} styles={styles} onPress={() => setSupportScreen("support_center")} />
+        <InfoRow icon="bug-outline" title="Report a Bug" value="Found an issue? Let us know" styles={styles} onPress={() => setSupportScreen("bug")} />
       </Section>
 
       <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
@@ -586,14 +598,16 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         <TailorSupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} socket={socket} />
       ) : supportScreen === "requests" ? (
         <TailorAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
+      ) : supportScreen === "bug" ? (
+        <TailorBugReportScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen ? (
         <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} showDialog={showDialog} />
       ) : null}
     </Modal>
 
     <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => !submittingDeletion && setShowDeleteModal(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
-        <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
+        <Pressable style={{ width: "100%", maxWidth: 360, backgroundColor: "#ffffff", borderRadius: 22, padding: 24 }}>
           <View style={{ alignItems: "center", marginBottom: 20 }}>
             <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
               <Ionicons name="trash-outline" size={28} color="#ef4444" />
@@ -601,10 +615,14 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             <Text style={{ fontSize: 20, fontWeight: "900", color: "#0b2241", marginBottom: 8 }}>{language === "hi" ? "अकाउंट हटाने का अनुरोध?" : "Request account deletion?"}</Text>
             <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{language === "hi" ? "आपका अनुरोध एडमिन को भेजा जाएगा। मंजूरी मिलने तक अकाउंट चालू रहेगा।" : "Your request will be sent to admin. Your account remains active until it is approved."}</Text>
           </View>
-          <Pressable style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
+          <View style={{ backgroundColor: "#fee2e2", borderRadius: 12, padding: 12, flexDirection: "row", gap: 8, marginBottom: 14 }}>
+            <Ionicons name="shield-checkmark-outline" size={16} color="#ef4444" />
+            <Text style={{ color: "#991b1b", flex: 1, fontSize: 12, fontWeight: "800", lineHeight: 17 }}>If approved, all your data will be permanently deleted and cannot be recovered.</Text>
+          </View>
+          <Pressable style={{ backgroundColor: "#ef4444", borderRadius: 8, paddingVertical: 13, alignItems: "center", marginBottom: 10 }} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
             {submittingDeletion ? <ActivityIndicator color="#ffffff" /> : <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{language === "hi" ? "हाँ, अनुरोध भेजें" : "Yes, submit request"}</Text>}
           </Pressable>
-          <Pressable style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
+          <Pressable style={{ backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#dbe1e9", paddingVertical: 13, alignItems: "center" }} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
             <Text style={{ color: "#0b2241", fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
           </Pressable>
         </Pressable>
@@ -613,8 +631,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
     {/* Custom Logout Confirmation Modal */}
     <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => setShowLogoutModal(false)}>
-        <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => setShowLogoutModal(false)}>
+        <Pressable style={{ width: "100%", maxWidth: 360, backgroundColor: "#ffffff", borderRadius: 22, padding: 24 }}>
           <View style={{ alignItems: "center", marginBottom: 20 }}>
             <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
               <Ionicons name="log-out-outline" size={28} color="#ef4444" />
@@ -622,14 +640,18 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             <Text style={{ fontSize: 20, fontWeight: "900", color: "#0b2241", marginBottom: 8 }}>{t(language, "signOut")}</Text>
               <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{t(language, "logoutConfirm")}</Text>
           </View>
+          <View style={{ backgroundColor: "#fee2e2", borderRadius: 12, padding: 12, flexDirection: "row", gap: 8, marginBottom: 14 }}>
+            <Ionicons name="shield-checkmark-outline" size={16} color="#ef4444" />
+            <Text style={{ color: "#991b1b", flex: 1, fontSize: 12, fontWeight: "800", lineHeight: 17 }}>You can sign in again anytime using your registered mobile number.</Text>
+          </View>
           <Pressable
-            style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
+            style={{ backgroundColor: "#ef4444", borderRadius: 8, paddingVertical: 13, alignItems: "center", marginBottom: 10 }}
             onPress={() => { setShowLogoutModal(false); signOut(); }}
           >
             <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{t(language, "yesSignOut")}</Text>
           </Pressable>
           <Pressable
-            style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
+            style={{ backgroundColor: "#f1f5f9", borderRadius: 8, paddingVertical: 13, alignItems: "center" }}
             onPress={() => setShowLogoutModal(false)}
           >
             <Text style={{ color: "#0b2241", fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
@@ -655,11 +677,14 @@ function Section({ title, icon, styles, children }: { title: string; icon: IconN
   );
 }
 
-function Input({ label, value, onChangeText, styles }: { label: string; value: string; onChangeText: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
+function Input({ icon, label, value, onChangeText, styles }: { icon?: IconName; label: string; value: string; onChangeText: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
   return (
     <View style={styles.inputBlock}>
       <Text style={styles.inputLabel}>{label}</Text>
-      <TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholderTextColor="#9aa6b8" />
+      <View style={styles.iconInputWrap}>
+        {icon ? <Ionicons name={icon} size={18} color={BRAND_ORANGE} /> : null}
+        <TextInput style={styles.iconInput} value={value} onChangeText={onChangeText} placeholderTextColor="#9aa6b8" />
+      </View>
     </View>
   );
 }
@@ -669,6 +694,15 @@ function LanguageChoiceRow({ language, onChange }: { language: AppLanguage; onCh
     <View style={{ borderTopWidth: 0, paddingVertical: 4, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
       <Text style={{ color: MUTED, fontSize: 13, flex: 1 }}>{t(language, "currentLanguage")}: {getLanguageLabel(language)}</Text>
       <CompactLanguageToggle language={language} onSelect={onChange} />
+    </View>
+  );
+}
+
+function ProfileMetaRow({ icon, text, styles, color = MUTED, muted }: { icon: IconName; text: string; styles: ReturnType<typeof createStyles>; color?: string; muted?: boolean }) {
+  return (
+    <View style={styles.profileMetaRow}>
+      <Ionicons name={icon} size={13} color={muted ? "#9aa6b8" : color} />
+      <Text style={[styles.profileMetaText, { color: muted ? "#8a96a8" : color }]} numberOfLines={1}>{text}</Text>
     </View>
   );
 }
@@ -1144,7 +1178,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                 )}
               </View>
 
-              <View style={{ marginTop: 16 }}>
+              {false ? <View style={{ marginTop: 16 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
                   <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
                   <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>Bug Reports</Text>
@@ -1185,7 +1219,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                     ))}
                   </View>
                 )}
-              </View>
+              </View> : null}
             </ScrollView>
           </View>
         )}
@@ -1463,6 +1497,97 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
         )}
       </KeyboardAvoidingView>
     </View>
+  );
+}
+
+function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [screenshot, setScreenshot] = useState<{ uri: string; name: string; uploadedUrl?: string }>();
+  const [submitting, setSubmitting] = useState(false);
+
+  async function pickScreenshot() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Gallery permission needed", "Allow gallery access to add a screenshot.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82, selectionLimit: 1 });
+    if (result.canceled || !result.assets.length) return;
+    const asset = result.assets[0];
+    setScreenshot({ uri: asset.uri, name: asset.fileName || `bug-screenshot-${Date.now()}.jpg` });
+  }
+
+  async function submitBugReport() {
+    if (title.trim().length < 3 || description.trim().length < 10) {
+      Alert.alert("Add more detail", "Please add a bug title and describe what happened.");
+      return;
+    }
+    if (!token) return;
+    try {
+      setSubmitting(true);
+      let screenshotUrl = screenshot?.uploadedUrl;
+      if (screenshot && !screenshotUrl) {
+        const uploaded = await uploadTailorVerificationMedia([{ uri: screenshot.uri, name: screenshot.name }], token);
+        screenshotUrl = uploaded[0]?.url;
+        setScreenshot({ ...screenshot, uploadedUrl: screenshotUrl });
+      }
+      await api("/support/bug-reports", {
+        method: "POST",
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim(),
+          screenshotUrl,
+          deviceInfo: `Android ${Platform.Version}`,
+          appVersion: "0.1.0 (Dev Build)"
+        })
+      }, token);
+      showDialog({ title: "Bug report submitted", message: "Thanks. Our team will review the issue and fix it as soon as possible.", icon: "checkmark-circle-outline" });
+      setScreen(undefined);
+    } catch (error) {
+      showDialog({ title: "Submit failed", message: error instanceof Error ? error.message : "Could not submit bug report.", icon: "alert-circle-outline" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.detailHeader}>
+          <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
+            <Ionicons name="chevron-back" size={22} color={palette.text} />
+          </Pressable>
+          <View style={styles.rowMain}>
+            <Text style={styles.title}>Report a Bug</Text>
+            <Text style={styles.meta}>Found something that's not working right?</Text>
+          </View>
+        </View>
+        <View style={styles.inputBlock}>
+          <Text style={styles.inputLabel}>Bug title</Text>
+          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Eg. App crashes on Orders page" placeholderTextColor="#9aa6b8" />
+        </View>
+        <View style={styles.inputBlock}>
+          <Text style={styles.inputLabel}>What happened?</Text>
+          <TextInput style={[styles.input, { minHeight: 120, textAlignVertical: "top", paddingTop: 13 }]} value={description} onChangeText={(value) => setDescription(value.slice(0, 500))} multiline placeholder="Tell us what went wrong and how we can see it" placeholderTextColor="#9aa6b8" />
+          <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 4 }}>{description.length}/500</Text>
+        </View>
+        <View style={styles.inputBlock}>
+          <Text style={styles.inputLabel}>Add screenshot (optional)</Text>
+          <Pressable style={{ minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: palette.surface }} onPress={pickScreenshot}>
+            <Ionicons name="cloud-upload-outline" size={20} color={BRAND_ORANGE} />
+            <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" }}>{screenshot ? "Screenshot added" : "Upload screenshot"}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.section}>
+          <InfoRow icon="phone-portrait-outline" title="Your device" value={`Android ${Platform.Version}`} styles={styles} noBorder />
+          <InfoRow icon="information-circle-outline" title="App version" value="0.1.0 (Dev Build)" styles={styles} />
+        </View>
+        <Pressable style={styles.primaryButton} onPress={submitBugReport} disabled={submitting}>
+          {submitting ? <ActivityIndicator color="#111111" /> : <><Ionicons name="bug-outline" size={18} color="#111111" /><Text style={styles.primaryButtonText}>Submit Bug Report</Text></>}
+        </Pressable>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1921,9 +2046,10 @@ function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.bg },
     content: { padding: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 110 },
-    headerCard: { borderRadius: 22, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 },
-    avatar: { width: 72, height: 72, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+    headerCard: { borderRadius: 20, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
+    avatar: { width: 76, height: 76, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
     avatarImage: { width: "100%", height: "100%", borderRadius: 24 },
+    avatarLockBadge: { position: "absolute", right: -3, bottom: -3, width: 24, height: 24, borderRadius: 12, backgroundColor: "#7b8492", borderWidth: 3, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
     avatarText: { color: "#111111", fontSize: 21, fontWeight: "900" },
     avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
     avatarOption: { width: "30%", minWidth: 96, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, alignItems: "center", padding: 10 },
@@ -1935,10 +2061,13 @@ function createStyles(palette: typeof lightPalette) {
     headerMain: { flex: 1, minWidth: 0 },
     title: { color: palette.text, fontSize: 20, fontWeight: "900" },
     meta: { color: palette.muted, fontSize: 12, fontWeight: "700", marginTop: 4 },
-    completedText: { color: SUCCESS, fontSize: 12, fontWeight: "900", marginTop: 8 },
+    profileMetaRow: { marginTop: 5, flexDirection: "row", alignItems: "center", gap: 7 },
+    profileMetaText: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: "800", lineHeight: 16 },
+    completedPill: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
+    completedText: { color: SUCCESS, fontSize: 12, fontWeight: "900" },
     editButton: { minHeight: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, justifyContent: "center", paddingHorizontal: 13 },
     editButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
-    section: { borderRadius: 20, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 15 },
+    section: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 8, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     sectionHeader: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
     sectionIcon: { width: 34, height: 34, borderRadius: 13, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     sectionTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
@@ -1952,11 +2081,13 @@ function createStyles(palette: typeof lightPalette) {
     requestInput: { minHeight: 118, textAlignVertical: "top", paddingTop: 14 },
     inputLabel: { color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 7 },
     input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text, paddingHorizontal: 13, fontSize: 14, fontWeight: "700" },
+    iconInputWrap: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13 },
+    iconInput: { flex: 1, color: palette.text, fontSize: 14, fontWeight: "700", paddingVertical: 0 },
     inlineInputs: { flexDirection: "row", gap: 10 },
     inlineInput: { flex: 1, minWidth: 0 },
     primaryButton: { minHeight: 50, borderRadius: 15, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 14 },
     primaryButtonText: { color: "#111111", fontSize: 14, fontWeight: "900" },
-    row: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderTopColor: palette.border },
+    row: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderTopColor: palette.border },
     disabledRow: { opacity: 0.58 },
     rowMain: { flex: 1, minWidth: 0 },
     rowTitle: { color: palette.text, fontSize: 14, fontWeight: "900" },
@@ -1965,7 +2096,7 @@ function createStyles(palette: typeof lightPalette) {
     metricValue: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900" },
     reviewSummary: { minHeight: 70, borderRadius: 16, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border, flexDirection: "row", alignItems: "center", gap: 14, padding: 13, marginTop: 6, marginBottom: 10 },
     rating: { color: BRAND_ORANGE, fontSize: 32, fontWeight: "900" },
-    smallIcon: { width: 32, height: 32, borderRadius: 12, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
+    smallIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     detailHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
     backButton: { width: 44, height: 44, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
     detailIcon: { width: 48, height: 48, borderRadius: 18, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center", marginBottom: 12 },
