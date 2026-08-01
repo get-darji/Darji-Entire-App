@@ -215,6 +215,7 @@ router.get("/transactions", requireAuth, transactionsController);
 router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
 router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletDetailController);
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
+router.delete("/admin/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.put("/admin/platform-status", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updatePlatformStatusController);
 router.get("/settings/delivery-fares", requireAuth, getDeliveryFareSettingsController);
 router.put("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateDeliveryFareSettingsController);
