@@ -1008,16 +1008,14 @@ function GridTile({
       onPress={onPress}
     >
       <View style={[styles.gridIconCircle, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
+        <Ionicons name={icon} size={20} color={iconColor} />
       </View>
-      <View style={styles.gridCellTextWrap}>
-        <Text style={styles.gridCellLabel} numberOfLines={1} ellipsizeMode="tail">
-          {label}
-        </Text>
-        <Text style={styles.gridCellValue} numberOfLines={2} ellipsizeMode="tail">
-          {value}
-        </Text>
-      </View>
+      <Text style={styles.gridCellLabel} numberOfLines={1} ellipsizeMode="tail">
+        {label}
+      </Text>
+      <Text style={styles.gridCellValue} numberOfLines={2} ellipsizeMode="tail">
+        {value}
+      </Text>
     </Pressable>
   );
 }
@@ -1154,44 +1152,30 @@ function RequestDetailsScreen({
             />
           </View>
 
-          <View style={styles.gridRow}>
-            <GridTile
-              label="Work"
-              value={selectedItem ? requestWorkLabel(selectedItem) : "Alteration"}
-              icon="pencil-outline"
-              iconBg="#fff7ed"
-              iconColor="#f6a313"
-              onPress={() => openTileDetails({
-                label: "Work",
-                value: selectedItem ? requestWorkLabel(selectedItem) : "Alteration",
-                icon: "pencil-outline"
-              })}
-            />
-            <GridTile
-              label="Measurement Method"
-              value={selectedItem ? measurementStatus(selectedItem) : "Not added"}
-              icon="resize-outline"
-              iconBg="#dcfce7"
-              iconColor="#16a34a"
-              onPress={() => openTileDetails({
-                label: "Measurement Method",
-                value: selectedItem ? measurementStatus(selectedItem) : "Not added",
-                icon: "resize-outline"
-              })}
-            />
-            <GridTile
-              label="Delivery Timing"
-              value={request.urgency || "Normal"}
-              icon="flash-outline"
-              iconBg="#fff4dc"
-              iconColor="#f59e0b"
-              onPress={() => openTileDetails({
-                label: "Delivery Timing",
-                value: request.urgency || "Normal",
-                icon: "flash-outline"
-              })}
-            />
-          </View>
+        </View>
+
+        {/* Work / Measurement / Delivery detail rows */}
+        <View style={styles.requestDetailCard}>
+          {[
+            { icon: "pencil-outline" as const, iconBg: "#fff7ed", iconColor: "#f6a313", label: "Work", value: selectedItem ? requestWorkLabel(selectedItem) : "Alteration" },
+            { icon: "resize-outline" as const, iconBg: "#dcfce7", iconColor: "#16a34a", label: "Measurement", value: selectedItem ? measurementStatus(selectedItem) : "Not added" },
+            { icon: "flash-outline" as const, iconBg: "#fff4dc", iconColor: "#f59e0b", label: "Delivery", value: request.urgency || "Normal" }
+          ].map((row, i) => (
+            <Pressable
+              key={row.label}
+              style={({ pressed }) => [styles.requestDetailRow, i > 0 && styles.requestDetailRowBorder, pressed && { backgroundColor: "#fffaf0" }]}
+              onPress={() => openTileDetails({ label: row.label, value: row.value, icon: row.icon })}
+            >
+              <View style={[styles.requestDetailIcon, { backgroundColor: row.iconBg }]}>
+                <Ionicons name={row.icon} size={18} color={row.iconColor} />
+              </View>
+              <View style={styles.requestDetailText}>
+                <Text style={styles.requestDetailLabel}>{row.label}</Text>
+                <Text style={styles.requestDetailValue}>{row.value}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color={MUTED} />
+            </Pressable>
+          ))}
         </View>
 
         {/* Customer Notes Card */}
@@ -4834,14 +4818,21 @@ const styles = StyleSheet.create({
   itemHeaderTextWrap: { flex: 1 },
   itemHeaderTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900" },
   itemHeaderSubtitle: { color: MUTED, fontSize: 12, fontWeight: "800", marginTop: 2 },
-  gridContainer: { gap: 10, marginBottom: 14 },
-  gridRow: { flexDirection: "row", gap: 10, alignItems: "stretch" },
-  gridCellCard: { flex: 1, flexBasis: "31%", maxWidth: "33%", minHeight: 70, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 8, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 6 },
+  gridContainer: { gap: 8, marginBottom: 14 },
+  gridRow: { flexDirection: "row", gap: 8, alignItems: "stretch" },
+  gridCellCard: { flex: 1, minHeight: 90, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 6, paddingVertical: 12, flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 5 },
   gridCellCardPressed: { backgroundColor: "#fffaf0", borderColor: "#f3dfb9" },
-  gridIconCircle: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  gridIconCircle: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   gridCellTextWrap: { flex: 1, minWidth: 0 },
-  gridCellLabel: { color: MUTED, fontSize: 9, fontWeight: "800", alignSelf: "flex-start", flexShrink: 1 },
-  gridCellValue: { color: BRAND_DEEP, fontSize: 11, fontWeight: "900", marginTop: 2, alignSelf: "flex-start", flexShrink: 1 },
+  gridCellLabel: { color: MUTED, fontSize: 9, fontWeight: "800", textAlign: "center", marginTop: 2 },
+  gridCellValue: { color: BRAND_DEEP, fontSize: 11, fontWeight: "900", marginTop: 1, textAlign: "center", lineHeight: 14 },
+  requestDetailCard: { borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, marginBottom: 14, overflow: "hidden" },
+  requestDetailRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  requestDetailRowBorder: { borderTopWidth: 1, borderTopColor: "#eef2f7" },
+  requestDetailIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  requestDetailText: { flex: 1, minWidth: 0 },
+  requestDetailLabel: { color: MUTED, fontSize: 11, fontWeight: "800" },
+  requestDetailValue: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 2, lineHeight: 18 },
   notesCard: { backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 16, padding: 16, marginBottom: 18 },
   notesHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
   notesTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
