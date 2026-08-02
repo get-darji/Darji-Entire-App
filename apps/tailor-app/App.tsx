@@ -987,31 +987,36 @@ function RequestDetailsHeader({ requestId, onBack }: { requestId: string; onBack
   );
 }
 
-function RequestDetailTile({
-  bg,
-  color,
-  displayValue,
-  icon,
+function GridTile({
   label,
-  onPress,
-  value
+  value,
+  icon,
+  iconBg,
+  iconColor,
+  onPress
 }: {
-  bg: string;
-  color: string;
-  displayValue?: string;
-  icon: keyof typeof Ionicons.glyphMap;
   label: string;
-  onPress?: () => void;
   value: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconBg: string;
+  iconColor: string;
+  onPress?: () => void;
 }) {
   return (
-    <Pressable style={({ pressed }) => [styles.requestDetailTile, pressed && styles.requestDetailTilePressed]} onPress={onPress}>
-      <View style={[styles.requestDetailTileIcon, { backgroundColor: bg }]}>
-        <Ionicons name={icon} size={29} color={color} />
+    <Pressable
+      style={({ pressed }) => (pressed ? [styles.gridCellCard, styles.gridCellCardPressed] : styles.gridCellCard)}
+      onPress={onPress}
+    >
+      <View style={[styles.gridIconCircle, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={18} color={iconColor} />
       </View>
-      <View style={styles.requestDetailTileText}>
-        <Text style={styles.requestDetailTileLabel} numberOfLines={2} ellipsizeMode="tail" textBreakStrategy="simple">{label}</Text>
-        <Text style={styles.requestDetailTileValue} numberOfLines={2} ellipsizeMode="tail" adjustsFontSizeToFit minimumFontScale={0.78} textBreakStrategy="simple">{displayValue ?? value}</Text>
+      <View style={styles.gridCellTextWrap}>
+        <Text style={styles.gridCellLabel} numberOfLines={1} ellipsizeMode="tail">
+          {label}
+        </Text>
+        <Text style={styles.gridCellValue} numberOfLines={2} ellipsizeMode="tail">
+          {value}
+        </Text>
       </View>
     </Pressable>
   );
@@ -1059,132 +1064,223 @@ function RequestDetailsScreen({
     <>
       <ScrollView contentContainerStyle={styles.requestDetailsContent} showsVerticalScrollIndicator={false}>
         <RequestDetailsHeader requestId={shortId(request.id)} onBack={() => setScreen("requests", { replace: true })} />
-        <View style={styles.requestReceivedCard}>
-          <View style={styles.requestReceivedIcon}>
-            <Ionicons name="calendar-outline" size={26} color={BRAND_ORANGE} />
+        
+        {/* Top Info Card (Received date) */}
+        <View style={styles.receivedCard}>
+          <View style={styles.receivedIconBg}>
+            <Ionicons name="calendar" size={20} color={BRAND_ORANGE} />
           </View>
-          <View>
-            <Text style={styles.requestReceivedLabel}>Received</Text>
-            <Text style={styles.requestReceivedValue}>{formatTimestamp(request.createdAt)}</Text>
+          <View style={styles.receivedTextWrap}>
+            <Text style={styles.receivedLabel}>Received</Text>
+            <Text style={styles.receivedValue}>{formatTimestamp(request.createdAt)}</Text>
           </View>
         </View>
 
-        <View style={styles.requestDetailsCard}>
-          {hasMultipleItems ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.requestItemChipRow}>
-              {items.map((item, index) => {
-                const active = index === selectedItemIndex;
-                return (
-                  <Pressable key={item.id ?? `${request.id}-chip-${index}`} style={[styles.requestItemChip, active && styles.requestItemChipActive]} onPress={() => setSelectedItemIndex(index)}>
-                    <Text style={[styles.requestItemChipText, active && styles.requestItemChipTextActive]}>Item {index + 1}</Text>
-                  </Pressable>
-                );
+        {/* Item Selection Tabs */}
+        {hasMultipleItems ? (
+          <View style={styles.segmentedControlContainer}>
+            {items.map((item, index) => {
+              const active = index === selectedItemIndex;
+              return (
+                <Pressable
+                  key={item.id ?? `${request.id}-chip-${index}`}
+                  style={[styles.segmentedTab, active && styles.segmentedTabActive]}
+                  onPress={() => setSelectedItemIndex(index)}
+                >
+                  <Text style={[styles.segmentedTabText, active && styles.segmentedTabTextActive]}>
+                    Item {index + 1}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {/* Item Header block */}
+        {selectedItem ? (
+          <View style={styles.itemHeaderRow}>
+            <View style={[styles.itemHeaderIconBg, { backgroundColor: selectedGenderDetail.bg }]}>
+              <Ionicons name="shirt-outline" size={24} color={selectedGenderDetail.color} />
+            </View>
+            <View style={styles.itemHeaderTextWrap}>
+              <Text style={styles.itemHeaderTitle}>
+                {`Item ${selectedItemIndex + 1}: ${selectedItem.clothType || "Garment"}`}
+              </Text>
+              <Text style={styles.itemHeaderSubtitle}>
+                {[selectedItem.gender, selectedItem.serviceCategory ?? selectedItem.workType].filter(Boolean).join("  -  ")}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* 2x3 Details Grid */}
+        <View style={styles.gridContainer}>
+          <View style={styles.gridRow}>
+            <GridTile
+              label="For"
+              value={selectedGender || "Not specified"}
+              icon={selectedGenderDetail.icon}
+              iconBg={selectedGenderDetail.bg}
+              iconColor={selectedGenderDetail.color}
+              onPress={() => openTileDetails({
+                label: "For",
+                value: selectedGender || "Not specified",
+                icon: selectedGenderDetail.icon
               })}
-            </ScrollView>
-          ) : null}
-
-          {selectedItem ? (
-            <View>
-              <View style={styles.requestItemHeader}>
-                <View style={styles.requestItemIcon}>
-                  <Ionicons name="shirt-outline" size={30} color="#a855f7" />
-                </View>
-                <View style={styles.cardMain}>
-                  <Text style={styles.requestItemTitle}>{hasMultipleItems ? `Item ${selectedItemIndex + 1}: ` : "Item: "}{selectedItem.clothType || "Garment"}</Text>
-                  <Text style={styles.requestItemMeta}>{[selectedItem.gender, selectedItem.serviceCategory ?? selectedItem.workType].filter(Boolean).join("  -  ")}</Text>
-                </View>
-              </View>
-
-              <View style={styles.requestDetailGrid}>
-                {[0, 2, 4].map((start) => (
-                  <View key={`detail-row-${start}`} style={styles.requestDetailTileRow}>
-                    {detailTiles.slice(start, start + 2).map((tile) => (
-                      <RequestDetailTile
-                        key={tile.label}
-                        bg={tile.bg}
-                        color={tile.color}
-                        displayValue={tile.displayValue}
-                        icon={tile.icon}
-                        label={tile.label}
-                        value={tile.value}
-                        onPress={() => openTileDetails({ label: tile.label, value: tile.value, icon: tile.icon })}
-                      />
-                    ))}
-                  </View>
-                ))}
-              </View>
-
-              {Object.entries(selectedItem.measurement?.fields ?? {}).length ? (
-                <View style={styles.requestMeasurementsPanel}>
-                  <Text style={styles.requestPanelTitle}>Measurements</Text>
-                  {Object.entries(selectedItem.measurement?.fields ?? {}).map(([key, value]) => (
-                    <View key={key} style={styles.measureRow}>
-                      <Text style={styles.detailLabel}>{key}</Text>
-                      <Text style={styles.detailValue}>{String(value)}</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
-          <View style={styles.requestNotesCard}>
-            <Ionicons name="chatbox-ellipses-outline" size={26} color={BRAND_ORANGE} />
-            <View style={styles.cardMain}>
-              <Text style={styles.requestNotesTitle}>Customer Notes</Text>
-              <Text style={styles.requestNotesText}>{customerNote || "No notes added by the customer."}</Text>
-              {measurementNote ? <Text style={styles.requestNotesText}>{measurementNote}</Text> : null}
-            </View>
+            />
+            <GridTile
+              label="Garment"
+              value={selectedItem?.clothType || request.clothType || "Garment"}
+              icon="shirt-outline"
+              iconBg="#f3e8ff"
+              iconColor="#a855f7"
+              onPress={() => openTileDetails({
+                label: "Garment",
+                value: selectedItem?.clothType || request.clothType || "Garment",
+                icon: "shirt-outline"
+              })}
+            />
+            <GridTile
+              label="Service"
+              value={selectedItem?.serviceCategory || selectedItem?.workType || "Tailoring"}
+              icon="cut-outline"
+              iconBg="#e0f2fe"
+              iconColor="#0284c7"
+              onPress={() => openTileDetails({
+                label: "Service",
+                value: selectedItem?.serviceCategory || selectedItem?.workType || "Tailoring",
+                icon: "cut-outline"
+              })}
+            />
           </View>
 
-          <Text style={styles.requestPhotosTitle}>Cloth Images</Text>
-          {media.length ? (
-            <View style={styles.requestPhotoGrid}>
-              {media.map((item, index) => (
-                <Pressable key={`${item.url}-${index}`} style={styles.requestPhotoBox} onPress={() => setSelectedMedia(item)}>
-                  {item.resourceType === "image" ? (
-                    <Image source={{ uri: item.url }} style={styles.requestPhotoImage} />
-                  ) : (
-                    <View style={styles.requestVideoBox}>
-                      <Ionicons name="videocam-outline" size={30} color={BRAND_ORANGE} />
-                      <Text style={styles.mediaTypeText}>Video</Text>
-                    </View>
-                  )}
-                  <View style={styles.requestPhotoBadge}>
-                    <Text style={styles.requestPhotoBadgeText}>{index + 1}/{media.length}</Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.helperText}>No cloth photos uploaded.</Text>
-          )}
-
-          <Text style={[styles.requestPhotosTitle, styles.requestSamplePhotosTitle]}>Sample Photos</Text>
-          {sampleMedia.length ? (
-            <View style={styles.requestPhotoGrid}>
-              {sampleMedia.map((item, index) => (
-                <Pressable key={`${item.url}-${index}`} style={styles.requestPhotoBox} onPress={() => setSelectedMedia(item)}>
-                  {item.resourceType === "image" ? (
-                    <Image source={{ uri: item.url }} style={styles.requestPhotoImage} />
-                  ) : (
-                    <View style={styles.requestVideoBox}>
-                      <Ionicons name="videocam-outline" size={30} color={BRAND_ORANGE} />
-                      <Text style={styles.mediaTypeText}>Video</Text>
-                    </View>
-                  )}
-                  <View style={styles.requestPhotoBadge}>
-                    <Text style={styles.requestPhotoBadgeText}>{index + 1}/{sampleMedia.length}</Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.helperText}>No sample photos uploaded.</Text>
-          )}
+          <View style={styles.gridRow}>
+            <GridTile
+              label="Work"
+              value={selectedItem ? requestWorkLabel(selectedItem) : "Alteration"}
+              icon="pencil-outline"
+              iconBg="#fff7ed"
+              iconColor="#f6a313"
+              onPress={() => openTileDetails({
+                label: "Work",
+                value: selectedItem ? requestWorkLabel(selectedItem) : "Alteration",
+                icon: "pencil-outline"
+              })}
+            />
+            <GridTile
+              label="Measurement Method"
+              value={selectedItem ? measurementStatus(selectedItem) : "Not added"}
+              icon="resize-outline"
+              iconBg="#dcfce7"
+              iconColor="#16a34a"
+              onPress={() => openTileDetails({
+                label: "Measurement Method",
+                value: selectedItem ? measurementStatus(selectedItem) : "Not added",
+                icon: "resize-outline"
+              })}
+            />
+            <GridTile
+              label="Delivery Timing"
+              value={request.urgency || "Normal"}
+              icon="flash-outline"
+              iconBg="#fff4dc"
+              iconColor="#f59e0b"
+              onPress={() => openTileDetails({
+                label: "Delivery Timing",
+                value: request.urgency || "Normal",
+                icon: "flash-outline"
+              })}
+            />
+          </View>
         </View>
 
-        {request.ownQuote ? (
+        {/* Customer Notes Card */}
+        <View style={styles.notesCard}>
+          <View style={styles.notesHeader}>
+            <Ionicons name="chatbox-ellipses-outline" size={20} color={BRAND_ORANGE} />
+            <Text style={styles.notesTitle}>Customer Notes</Text>
+          </View>
+          <Text style={styles.notesText}>
+            {customerNote || "No notes added by the customer."}
+          </Text>
+          {measurementNote ? <Text style={[styles.notesText, { marginTop: 8 }]}>{measurementNote}</Text> : null}
+        </View>
+
+        {/* Custom Measurements fields if any */}
+        {selectedItem && Object.entries(selectedItem.measurement?.fields ?? {}).length ? (
+          <View style={styles.measurementFieldsCard}>
+            <Text style={styles.measurementFieldsTitle}>Measurements</Text>
+            {Object.entries(selectedItem.measurement?.fields ?? {}).map(([key, value]) => (
+              <View key={key} style={styles.measurementRow}>
+                <Text style={styles.measurementLabel}>{key}</Text>
+                <Text style={styles.measurementValue}>{String(value)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {/* Photos section */}
+        <Text style={styles.photosHeading}>Photos Uploaded</Text>
+        <View style={styles.photosRow}>
+          {/* Cloth Images */}
+          <View style={styles.photoSlot}>
+            {media.length ? (
+              <Pressable style={styles.photoBox} onPress={() => setSelectedMedia(media[0])}>
+                {media[0].resourceType === "image" ? (
+                  <Image source={{ uri: media[0].url }} style={styles.photoImage} />
+                ) : (
+                  <View style={styles.videoPlaceholder}>
+                    <Ionicons name="videocam-outline" size={28} color={BRAND_ORANGE} />
+                    <Text style={styles.videoText}>Video</Text>
+                  </View>
+                )}
+                <View style={styles.photoBadge}>
+                  <Text style={styles.photoBadgeText}>1/{media.length}</Text>
+                </View>
+              </Pressable>
+            ) : (
+              <View style={[styles.photoBox, styles.photoBoxPlaceholder]}>
+                <Ionicons name="image-outline" size={24} color={MUTED} />
+                <Text style={styles.photoPlaceholderText}>No cloth photo</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Sample Images */}
+          <View style={styles.photoSlot}>
+            {sampleMedia.length ? (
+              <Pressable style={styles.photoBox} onPress={() => setSelectedMedia(sampleMedia[0])}>
+                {sampleMedia[0].resourceType === "image" ? (
+                  <Image source={{ uri: sampleMedia[0].url }} style={styles.photoImage} />
+                ) : (
+                  <View style={styles.videoPlaceholder}>
+                    <Ionicons name="videocam-outline" size={28} color={BRAND_ORANGE} />
+                    <Text style={styles.videoText}>Video</Text>
+                  </View>
+                )}
+                <View style={styles.photoBadge}>
+                  <Text style={styles.photoBadgeText}>2/{sampleMedia.length}</Text>
+                </View>
+              </Pressable>
+            ) : (
+              <View style={[styles.photoBox, styles.photoBoxPlaceholder]}>
+                <Ionicons name="shirt-outline" size={24} color={MUTED} />
+                <Text style={styles.photoPlaceholderText}>No sample photo</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Action / Next buttons */}
+        {selectedItemIndex < items.length - 1 ? (
+          <Pressable
+            style={styles.premiumNextButton}
+            onPress={() => setSelectedItemIndex(selectedItemIndex + 1)}
+          >
+            <Text style={styles.premiumNextButtonText}>Next Item  </Text>
+            <Ionicons name="chevron-forward" size={16} color="#ffffff" />
+          </Pressable>
+        ) : request.ownQuote ? (
           <View style={styles.quoteSubmittedCard}>
             <View style={styles.quoteSubmittedHeader}>
               <View style={styles.quoteSubmittedIcon}>
@@ -4723,42 +4819,51 @@ const styles = StyleSheet.create({
   topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
   pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 118 },
   requestDetailsContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 132 },
-  requestReceivedCard: { minHeight: 74, borderRadius: 18, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, marginBottom: 14 },
-  requestReceivedIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
-  requestReceivedLabel: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "900" },
-  requestReceivedValue: { color: BRAND_DEEP, fontSize: 16, lineHeight: 22, fontWeight: "900", marginTop: 2 },
-  requestDetailsCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 12, marginBottom: 14 },
-  requestDetailsItemDivider: { borderTopWidth: 1, borderTopColor: "#eef2f7", paddingTop: 18, marginTop: 18 },
-  requestItemChipRow: { gap: 8, paddingBottom: 12 },
-  requestItemChip: { minHeight: 38, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
-  requestItemChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
-  requestItemChipText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "900" },
-  requestItemChipTextActive: { color: BRAND_ORANGE },
-  requestItemHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
-  requestItemIcon: { width: 54, height: 54, borderRadius: 13, backgroundColor: "#f3e8ff", alignItems: "center", justifyContent: "center" },
-  requestItemTitle: { color: BRAND_DEEP, fontSize: 19, lineHeight: 25, fontWeight: "900" },
-  requestItemMeta: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 3 },
-  requestDetailGrid: { gap: 10, overflow: "hidden" },
-  requestDetailTileRow: { flexDirection: "row", gap: 10, overflow: "hidden" },
-  requestDetailTile: { flex: 1, height: 124, maxHeight: 124, minWidth: 0, overflow: "hidden", borderRadius: 16, borderWidth: 1.4, borderColor: "#e1e7f0", backgroundColor: SURFACE, paddingHorizontal: 10, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 8, shadowColor: "#0b2241", shadowOpacity: 0.04, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  requestDetailTilePressed: { opacity: 0.92, borderColor: "#efbd65", backgroundColor: "#fffaf0" },
-  requestDetailTileIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  requestDetailTileText: { flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden" },
-  requestDetailTileLabel: { color: MUTED, fontSize: 11, lineHeight: 14, fontWeight: "900", flexShrink: 1, overflow: "hidden" },
-  requestDetailTileValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900", marginTop: 5, flexShrink: 1, overflow: "hidden" },
-  requestMeasurementsPanel: { borderRadius: 14, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffaf0", padding: 12, marginTop: 14 },
-  requestPanelTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900", marginBottom: 2 },
-  requestNotesCard: { borderRadius: 16, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffaf0", padding: 14, marginTop: 22, marginBottom: 20, flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  requestNotesTitle: { color: BRAND_DEEP, fontSize: 16, lineHeight: 21, fontWeight: "900", marginBottom: 8 },
-  requestNotesText: { color: BRAND_DEEP, fontSize: 14, lineHeight: 22, fontWeight: "700", marginTop: 4 },
-  requestPhotosTitle: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900", marginBottom: 12 },
-  requestSamplePhotosTitle: { marginTop: 18 },
-  requestPhotoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  requestPhotoBox: { width: "48.5%", aspectRatio: 1, borderRadius: 14, overflow: "hidden", backgroundColor: "#fff4dc" },
-  requestPhotoImage: { width: "100%", height: "100%" },
-  requestVideoBox: { flex: 1, alignItems: "center", justifyContent: "center" },
-  requestPhotoBadge: { position: "absolute", top: 8, right: 8, borderRadius: 12, backgroundColor: "rgba(15, 23, 42, 0.72)", paddingHorizontal: 8, paddingVertical: 4 },
-  requestPhotoBadgeText: { color: "#ffffff", fontSize: 11, lineHeight: 15, fontWeight: "900" },
+  receivedCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 16, padding: 14, marginBottom: 14, gap: 12 },
+  receivedIconBg: { width: 38, height: 38, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  receivedTextWrap: { flex: 1 },
+  receivedLabel: { color: MUTED, fontSize: 11, fontWeight: "800" },
+  receivedValue: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 2 },
+  segmentedControlContainer: { flexDirection: "row", backgroundColor: "#eef2f6", borderRadius: 14, padding: 4, marginBottom: 14, gap: 4 },
+  segmentedTab: { flex: 1, paddingVertical: 10, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "transparent" },
+  segmentedTabActive: { backgroundColor: BRAND_ORANGE },
+  segmentedTabText: { color: MUTED, fontSize: 12, fontWeight: "900" },
+  segmentedTabTextActive: { color: "#ffffff" },
+  itemHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14, paddingHorizontal: 4 },
+  itemHeaderIconBg: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#f3e8ff", alignItems: "center", justifyContent: "center" },
+  itemHeaderTextWrap: { flex: 1 },
+  itemHeaderTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900" },
+  itemHeaderSubtitle: { color: MUTED, fontSize: 12, fontWeight: "800", marginTop: 2 },
+  gridContainer: { gap: 10, marginBottom: 14 },
+  gridRow: { flexDirection: "row", gap: 10, alignItems: "stretch" },
+  gridCellCard: { flex: 1, flexBasis: "31%", maxWidth: "33%", minHeight: 70, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 8, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 6 },
+  gridCellCardPressed: { backgroundColor: "#fffaf0", borderColor: "#f3dfb9" },
+  gridIconCircle: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  gridCellTextWrap: { flex: 1, minWidth: 0 },
+  gridCellLabel: { color: MUTED, fontSize: 9, fontWeight: "800", alignSelf: "flex-start", flexShrink: 1 },
+  gridCellValue: { color: BRAND_DEEP, fontSize: 11, fontWeight: "900", marginTop: 2, alignSelf: "flex-start", flexShrink: 1 },
+  notesCard: { backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 16, padding: 16, marginBottom: 18 },
+  notesHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  notesTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
+  notesText: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "800" },
+  measurementFieldsCard: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 16, padding: 14, marginBottom: 14 },
+  measurementFieldsTitle: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginBottom: 8 },
+  measurementRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#eef2f7" },
+  measurementLabel: { color: MUTED, fontSize: 12, fontWeight: "800" },
+  measurementValue: { color: BRAND_DEEP, fontSize: 12, fontWeight: "900" },
+  photosHeading: { color: BRAND_DEEP, fontSize: 16, fontWeight: "900", marginBottom: 12, marginTop: 6 },
+  photosRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  photoSlot: { flex: 1 },
+  photoBox: { width: "100%", aspectRatio: 1.15, borderRadius: 12, overflow: "hidden", backgroundColor: BORDER },
+  photoBoxPlaceholder: { borderWidth: 1, borderColor: BORDER, borderStyle: "dashed", backgroundColor: "#f7faff", alignItems: "center", justifyContent: "center", gap: 6 },
+  photoImage: { width: "100%", height: "100%", resizeMode: "cover" },
+  videoPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#fffaf0" },
+  videoText: { color: MUTED, fontSize: 11, fontWeight: "800" },
+  photoBadge: { position: "absolute", top: 8, right: 8, borderRadius: 10, backgroundColor: "rgba(15, 23, 42, 0.72)", paddingHorizontal: 6, paddingVertical: 3 },
+  photoBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "900" },
+  photoPlaceholderText: { color: MUTED, fontSize: 11, fontWeight: "800" },
+  premiumNextButton: { minHeight: 56, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", marginTop: 10, marginBottom: 10 },
+  premiumNextButtonText: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
   requestActionRow: { flexDirection: "row", gap: 10, marginTop: 4 },
   requestDeclineButton: { flex: 1, minHeight: 58, borderRadius: 14, borderWidth: 1.3, borderColor: "#ef4444", backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   requestDeclineButtonText: { color: "#ef4444", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
