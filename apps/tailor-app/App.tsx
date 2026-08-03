@@ -973,15 +973,18 @@ function cleanCustomerNote(value?: string) {
 
 function RequestDetailsHeader({ requestId, onBack }: { requestId: string; onBack: () => void }) {
   return (
-    <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Go back" style={styles.roundIcon} onPress={onBack}>
+    <View style={styles.rdHeader}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Go back" style={styles.rdBackBtn} onPress={onBack}>
         <Ionicons name="arrow-back" size={20} color={BRAND_DEEP} />
       </Pressable>
-      <View style={styles.headerText}>
-        <Text style={styles.headerTitle}>Request Details</Text>
-        <Text style={styles.headerSubtitle}>
-          Request ID <Text style={styles.requestIdAccent}>{requestId}</Text>
-        </Text>
+      <View style={styles.rdHeaderText}>
+        <Text style={styles.rdHeaderTitle}>Request Details</Text>
+        <View style={styles.rdRequestIdRow}>
+          <Text style={styles.rdRequestIdLabel}>ID </Text>
+          <View style={styles.rdRequestIdBadge}>
+            <Text style={styles.rdRequestIdText}>{requestId}</Text>
+          </View>
+        </View>
       </View>
     </View>
   );
@@ -1008,7 +1011,7 @@ function GridTile({
       onPress={onPress}
     >
       <View style={[styles.gridIconCircle, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
+        <Ionicons name={icon} size={22} color={iconColor} />
       </View>
       <Text style={styles.gridCellLabel} numberOfLines={1} ellipsizeMode="tail">
         {label}
@@ -1033,6 +1036,7 @@ function RequestDetailsScreen({
 }) {
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+  const [tileDetail, setTileDetail] = useState<{ label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string } | undefined>();
   const items = requestItems(request);
   const selectedItem = items[Math.min(selectedItemIndex, Math.max(items.length - 1, 0))] ?? items[0];
   const hasMultipleItems = items.length > 1;
@@ -1042,8 +1046,8 @@ function RequestDetailsScreen({
   const measurementNote = cleanCustomerNote(request.measurementNotes);
   const selectedGender = selectedItem?.gender || request.gender;
   const selectedGenderDetail = genderDetail(selectedGender);
-  const openTileDetails = (details: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap }) => {
-    showDialog({ title: details.label, message: details.value, icon: details.icon });
+  const openTileDetails = (details: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string }) => {
+    setTileDetail(details);
   };
   const detailTiles = selectedItem ? [
     { bg: selectedGenderDetail.bg, color: selectedGenderDetail.color, icon: selectedGenderDetail.icon, label: "For", value: selectedGender || "Not specified" },
@@ -1062,16 +1066,17 @@ function RequestDetailsScreen({
     <>
       <ScrollView contentContainerStyle={styles.requestDetailsContent} showsVerticalScrollIndicator={false}>
         <RequestDetailsHeader requestId={shortId(request.id)} onBack={() => setScreen("requests", { replace: true })} />
-        
+
         {/* Top Info Card (Received date) */}
         <View style={styles.receivedCard}>
           <View style={styles.receivedIconBg}>
-            <Ionicons name="calendar" size={20} color={BRAND_ORANGE} />
+            <Ionicons name="calendar" size={22} color={BRAND_ORANGE} />
           </View>
           <View style={styles.receivedTextWrap}>
             <Text style={styles.receivedLabel}>Received</Text>
             <Text style={styles.receivedValue}>{formatTimestamp(request.createdAt)}</Text>
           </View>
+          <View style={styles.receivedStatusDot} />
         </View>
 
         {/* Item Selection Tabs */}
@@ -1096,84 +1101,58 @@ function RequestDetailsScreen({
 
         {/* Item Header block */}
         {selectedItem ? (
-          <View style={styles.itemHeaderRow}>
+          <View style={styles.itemHeaderCard}>
             <View style={[styles.itemHeaderIconBg, { backgroundColor: selectedGenderDetail.bg }]}>
-              <Ionicons name="shirt-outline" size={24} color={selectedGenderDetail.color} />
+              <Ionicons name="shirt-outline" size={26} color={selectedGenderDetail.color} />
             </View>
             <View style={styles.itemHeaderTextWrap}>
               <Text style={styles.itemHeaderTitle}>
-                {`Item ${selectedItemIndex + 1}: ${selectedItem.clothType || "Garment"}`}
+                {hasMultipleItems
+                  ? `Item ${selectedItemIndex + 1}: ${selectedItem.clothType || "Garment"}`
+                  : (selectedItem.clothType || "Garment")}
               </Text>
               <Text style={styles.itemHeaderSubtitle}>
-                {[selectedItem.gender, selectedItem.serviceCategory ?? selectedItem.workType].filter(Boolean).join("  -  ")}
+                {[selectedItem.gender, selectedItem.serviceCategory ?? selectedItem.workType].filter(Boolean).join("  ·  ")}
               </Text>
             </View>
           </View>
         ) : null}
 
-        {/* 2x3 Details Grid */}
-        <View style={styles.gridContainer}>
-          <View style={styles.gridRow}>
-            <GridTile
-              label="For"
-              value={selectedGender || "Not specified"}
-              icon={selectedGenderDetail.icon}
-              iconBg={selectedGenderDetail.bg}
-              iconColor={selectedGenderDetail.color}
-              onPress={() => openTileDetails({
-                label: "For",
-                value: selectedGender || "Not specified",
-                icon: selectedGenderDetail.icon
-              })}
-            />
-            <GridTile
-              label="Garment"
-              value={selectedItem?.clothType || request.clothType || "Garment"}
-              icon="shirt-outline"
-              iconBg="#f3e8ff"
-              iconColor="#a855f7"
-              onPress={() => openTileDetails({
-                label: "Garment",
-                value: selectedItem?.clothType || request.clothType || "Garment",
-                icon: "shirt-outline"
-              })}
-            />
-            <GridTile
-              label="Service"
-              value={selectedItem?.serviceCategory || selectedItem?.workType || "Tailoring"}
-              icon="cut-outline"
-              iconBg="#e0f2fe"
-              iconColor="#0284c7"
-              onPress={() => openTileDetails({
-                label: "Service",
-                value: selectedItem?.serviceCategory || selectedItem?.workType || "Tailoring",
-                icon: "cut-outline"
-              })}
-            />
-          </View>
 
-        </View>
 
-        {/* Work / Measurement / Delivery detail rows */}
+        {/* Work / Measurement / Delivery + For / Garment / Service detail card */}
         <View style={styles.requestDetailCard}>
+          <View style={styles.requestDetailCardHeader}>
+            <Text style={styles.requestDetailCardTitle}>Request Details</Text>
+          </View>
           {[
+            { icon: selectedGenderDetail.icon, iconBg: selectedGenderDetail.bg, iconColor: selectedGenderDetail.color, label: "For", value: selectedGender || "Not specified" },
+            { icon: "shirt-outline" as const, iconBg: "#f3e8ff", iconColor: "#a855f7", label: "Garment", value: selectedItem?.clothType || request.clothType || "Garment" },
+            { icon: "cut-outline" as const, iconBg: "#e0f2fe", iconColor: "#0284c7", label: "Service", value: selectedItem?.serviceCategory || selectedItem?.workType || "Tailoring" },
             { icon: "pencil-outline" as const, iconBg: "#fff7ed", iconColor: "#f6a313", label: "Work", value: selectedItem ? requestWorkLabel(selectedItem) : "Alteration" },
             { icon: "resize-outline" as const, iconBg: "#dcfce7", iconColor: "#16a34a", label: "Measurement", value: selectedItem ? measurementStatus(selectedItem) : "Not added" },
             { icon: "flash-outline" as const, iconBg: "#fff4dc", iconColor: "#f59e0b", label: "Delivery", value: request.urgency || "Normal" }
           ].map((row, i) => (
             <Pressable
               key={row.label}
-              style={({ pressed }) => [styles.requestDetailRow, i > 0 && styles.requestDetailRowBorder, pressed && { backgroundColor: "#fffaf0" }]}
-              onPress={() => openTileDetails({ label: row.label, value: row.value, icon: row.icon })}
+              style={({ pressed }) => [
+                i > 0 && { borderTopWidth: 1, borderTopColor: "#eef2f7" },
+                pressed && { backgroundColor: "#fffaf0" }
+              ]}
+              onPress={() => openTileDetails({ label: row.label, value: row.value, icon: row.icon, iconBg: row.iconBg, iconColor: row.iconColor })}
             >
-              <View style={[styles.requestDetailIcon, { backgroundColor: row.iconBg }]}>
-                <Ionicons name={row.icon} size={18} color={row.iconColor} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 13, minHeight: 56 }}>
+                <View style={[styles.requestDetailIcon, { backgroundColor: row.iconBg }]}>
+                  <Ionicons name={row.icon} size={20} color={row.iconColor} />
+                </View>
+                <View style={styles.requestDetailText}>
+                  <Text style={styles.requestDetailLabel}>{row.label}</Text>
+                  <Text style={styles.requestDetailValue} numberOfLines={2} ellipsizeMode="tail">{row.value}</Text>
+                </View>
+                <View style={styles.requestDetailChevron}>
+                  <Ionicons name="chevron-forward" size={13} color={MUTED} />
+                </View>
               </View>
-              <View style={styles.requestDetailText}>
-                <Text style={styles.requestDetailLabel}>{row.label}</Text>
-                <Text style={styles.requestDetailValue}>{row.value}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color={MUTED} />
             </Pressable>
           ))}
         </View>
@@ -1181,75 +1160,117 @@ function RequestDetailsScreen({
         {/* Customer Notes Card */}
         <View style={styles.notesCard}>
           <View style={styles.notesHeader}>
-            <Ionicons name="chatbox-ellipses-outline" size={20} color={BRAND_ORANGE} />
+            <View style={styles.notesIconBg}>
+              <Ionicons name="chatbox-ellipses-outline" size={18} color={BRAND_ORANGE} />
+            </View>
             <Text style={styles.notesTitle}>Customer Notes</Text>
           </View>
           <Text style={styles.notesText}>
             {customerNote || "No notes added by the customer."}
           </Text>
-          {measurementNote ? <Text style={[styles.notesText, { marginTop: 8 }]}>{measurementNote}</Text> : null}
+          {measurementNote ? <Text style={[styles.notesText, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#f3dfb9" }]}>{measurementNote}</Text> : null}
         </View>
 
         {/* Custom Measurements fields if any */}
         {selectedItem && Object.entries(selectedItem.measurement?.fields ?? {}).length ? (
           <View style={styles.measurementFieldsCard}>
-            <Text style={styles.measurementFieldsTitle}>Measurements</Text>
+            <View style={styles.measurementFieldsHeader}>
+              <Ionicons name="body-outline" size={16} color={BRAND_ORANGE} />
+              <Text style={styles.measurementFieldsTitle}>Measurements</Text>
+            </View>
             {Object.entries(selectedItem.measurement?.fields ?? {}).map(([key, value]) => (
               <View key={key} style={styles.measurementRow}>
                 <Text style={styles.measurementLabel}>{key}</Text>
-                <Text style={styles.measurementValue}>{String(value)}</Text>
+                <View style={styles.measurementValueBadge}>
+                  <Text style={styles.measurementValue}>{String(value)}</Text>
+                </View>
               </View>
             ))}
           </View>
         ) : null}
 
-        {/* Photos section */}
-        <Text style={styles.photosHeading}>Photos Uploaded</Text>
-        <View style={styles.photosRow}>
-          {/* Cloth Images */}
-          <View style={styles.photoSlot}>
-            {media.length ? (
-              <Pressable style={styles.photoBox} onPress={() => setSelectedMedia(media[0])}>
-                {media[0].resourceType === "image" ? (
-                  <Image source={{ uri: media[0].url }} style={styles.photoImage} />
-                ) : (
-                  <View style={styles.videoPlaceholder}>
-                    <Ionicons name="videocam-outline" size={28} color={BRAND_ORANGE} />
-                    <Text style={styles.videoText}>Video</Text>
-                  </View>
-                )}
-                <View style={styles.photoBadge}>
-                  <Text style={styles.photoBadgeText}>1/{media.length}</Text>
+        {/* Media Gallery Section */}
+        <View style={styles.mediaGalleryCard}>
+          <View style={styles.mediaGalleryHeader}>
+            <View style={styles.mediaGalleryIconBg}>
+              <Ionicons name="images-outline" size={18} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.mediaGalleryTitle}>Photos Uploaded</Text>
+          </View>
+
+          {/* Cloth Photos */}
+          <View style={styles.mediaGallerySection}>
+            <View style={styles.mediaGallerySectionHeader}>
+              <View style={styles.mediaGallerySectionDot} />
+              <Text style={styles.mediaGallerySectionLabel}>Cloth Photos</Text>
+              {media.length > 0 && (
+                <View style={styles.mediaGalleryCount}>
+                  <Text style={styles.mediaGalleryCountText}>{media.length}</Text>
                 </View>
-              </Pressable>
+              )}
+            </View>
+            {media.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaGalleryRow}>
+                {media.map((item, idx) => (
+                  <Pressable key={`cloth-${idx}`} onPress={() => setSelectedMedia(item)} style={styles.mediaThumbnailWrap}>
+                    {item.resourceType === "image" ? (
+                      <Image source={{ uri: item.url }} style={styles.mediaThumbnail} />
+                    ) : (
+                      <View style={[styles.mediaThumbnail, styles.mediaVideoThumb]}>
+                        <Ionicons name="videocam" size={24} color={BRAND_ORANGE} />
+                        <Text style={styles.mediaVideoLabel}>Video</Text>
+                      </View>
+                    )}
+                    <View style={styles.mediaThumbnailIndex}>
+                      <Text style={styles.mediaThumbnailIndexText}>{idx + 1}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
             ) : (
-              <View style={[styles.photoBox, styles.photoBoxPlaceholder]}>
-                <Ionicons name="image-outline" size={24} color={MUTED} />
-                <Text style={styles.photoPlaceholderText}>No cloth photo</Text>
+              <View style={styles.mediaEmptyRow}>
+                <Ionicons name="image-outline" size={22} color={MUTED} />
+                <Text style={styles.mediaEmptyText}>No cloth photos</Text>
               </View>
             )}
           </View>
 
-          {/* Sample Images */}
-          <View style={styles.photoSlot}>
-            {sampleMedia.length ? (
-              <Pressable style={styles.photoBox} onPress={() => setSelectedMedia(sampleMedia[0])}>
-                {sampleMedia[0].resourceType === "image" ? (
-                  <Image source={{ uri: sampleMedia[0].url }} style={styles.photoImage} />
-                ) : (
-                  <View style={styles.videoPlaceholder}>
-                    <Ionicons name="videocam-outline" size={28} color={BRAND_ORANGE} />
-                    <Text style={styles.videoText}>Video</Text>
-                  </View>
-                )}
-                <View style={styles.photoBadge}>
-                  <Text style={styles.photoBadgeText}>2/{sampleMedia.length}</Text>
+          {/* Divider */}
+          <View style={styles.mediaGalleryDivider} />
+
+          {/* Sample Photos */}
+          <View style={styles.mediaGallerySection}>
+            <View style={styles.mediaGallerySectionHeader}>
+              <View style={[styles.mediaGallerySectionDot, { backgroundColor: "#a855f7" }]} />
+              <Text style={styles.mediaGallerySectionLabel}>Sample Photos</Text>
+              {sampleMedia.length > 0 && (
+                <View style={[styles.mediaGalleryCount, { backgroundColor: "#f3e8ff" }]}>
+                  <Text style={[styles.mediaGalleryCountText, { color: "#a855f7" }]}>{sampleMedia.length}</Text>
                 </View>
-              </Pressable>
+              )}
+            </View>
+            {sampleMedia.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaGalleryRow}>
+                {sampleMedia.map((item, idx) => (
+                  <Pressable key={`sample-${idx}`} onPress={() => setSelectedMedia(item)} style={styles.mediaThumbnailWrap}>
+                    {item.resourceType === "image" ? (
+                      <Image source={{ uri: item.url }} style={styles.mediaThumbnail} />
+                    ) : (
+                      <View style={[styles.mediaThumbnail, styles.mediaVideoThumb]}>
+                        <Ionicons name="videocam" size={24} color="#a855f7" />
+                        <Text style={[styles.mediaVideoLabel, { color: "#a855f7" }]}>Video</Text>
+                      </View>
+                    )}
+                    <View style={[styles.mediaThumbnailIndex, { backgroundColor: "rgba(168,85,247,0.85)" }]}>
+                      <Text style={styles.mediaThumbnailIndexText}>{idx + 1}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
             ) : (
-              <View style={[styles.photoBox, styles.photoBoxPlaceholder]}>
-                <Ionicons name="shirt-outline" size={24} color={MUTED} />
-                <Text style={styles.photoPlaceholderText}>No sample photo</Text>
+              <View style={styles.mediaEmptyRow}>
+                <Ionicons name="shirt-outline" size={22} color={MUTED} />
+                <Text style={styles.mediaEmptyText}>No sample photos</Text>
               </View>
             )}
           </View>
@@ -1261,8 +1282,10 @@ function RequestDetailsScreen({
             style={styles.premiumNextButton}
             onPress={() => setSelectedItemIndex(selectedItemIndex + 1)}
           >
-            <Text style={styles.premiumNextButtonText}>Next Item  </Text>
-            <Ionicons name="chevron-forward" size={16} color="#ffffff" />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={styles.premiumNextButtonText}>Next Item</Text>
+              <Ionicons name="chevron-forward" size={16} color="#ffffff" />
+            </View>
           </Pressable>
         ) : request.ownQuote ? (
           <View style={styles.quoteSubmittedCard}>
@@ -1298,16 +1321,83 @@ function RequestDetailsScreen({
         ) : request.status === "QUOTE_REQUESTED" ? (
           <View style={styles.requestActionRow}>
             <Pressable style={styles.requestDeclineButton} onPress={() => onDecline?.(request)}>
-              <Text style={styles.requestDeclineButtonText}>Decline Request</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="close-circle-outline" size={18} color="#ef4444" />
+                <Text style={styles.requestDeclineButtonText}>Decline</Text>
+              </View>
             </Pressable>
             <Pressable style={styles.requestAcceptButton} onPress={() => setScreen("quote")}>
-              <Text style={styles.requestAcceptButtonText}>Accept & Send Price</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="checkmark-circle-outline" size={18} color="#ffffff" />
+                <Text style={styles.requestAcceptButtonText}>Accept & Send Price</Text>
+              </View>
             </Pressable>
           </View>
         ) : null}
       </ScrollView>
+      <TileDetailSheet detail={tileDetail} onClose={() => setTileDetail(undefined)} />
       <MediaViewer media={selectedMedia} onClose={() => setSelectedMedia(undefined)} showDialog={showDialog} />
     </>
+  );
+}
+
+function TileDetailSheet({
+  detail,
+  onClose
+}: {
+  detail?: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string };
+  onClose: () => void;
+}) {
+  if (!detail) return null;
+
+  const descriptionMap: Record<string, string> = {
+    "For": "The intended wearer of this garment",
+    "Garment": "Type of clothing to be tailored",
+    "Service": "The tailoring service requested",
+    "Work": "Specific alterations or work required",
+    "Measurement": "How measurements will be collected",
+    "Delivery": "Expected delivery speed for this order",
+  };
+  const description = descriptionMap[detail.label] ?? "Request detail information";
+
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.tileSheetBackdrop} onPress={onClose}>
+        <Pressable style={styles.tileSheetCard} onPress={() => {}}>
+          {/* Close X */}
+          <Pressable style={styles.tileSheetClose} onPress={onClose}>
+            <Ionicons name="close" size={18} color={MUTED} />
+          </Pressable>
+
+          {/* Large icon */}
+          <View style={[styles.tileSheetIconCircle, { backgroundColor: detail.iconBg }]}>
+            <Ionicons name={detail.icon} size={32} color={detail.iconColor} />
+          </View>
+
+          {/* Label */}
+          <Text style={styles.tileSheetLabel}>{detail.label.toUpperCase()}</Text>
+
+          {/* Description hint */}
+          <Text style={styles.tileSheetDescription}>{description}</Text>
+
+          {/* Divider */}
+          <View style={styles.tileSheetDivider} />
+
+          {/* Value */}
+          <View style={styles.tileSheetValueBox}>
+            <Text style={styles.tileSheetValue}>{detail.value}</Text>
+          </View>
+
+          {/* Got it button */}
+          <Pressable style={styles.tileSheetButton} onPress={onClose}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name="checkmark-circle-outline" size={18} color="#ffffff" />
+              <Text style={styles.tileSheetButtonText}>Got it</Text>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -4803,63 +4893,114 @@ const styles = StyleSheet.create({
   topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
   pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 118 },
   requestDetailsContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 132 },
-  receivedCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 16, padding: 14, marginBottom: 14, gap: 12 },
-  receivedIconBg: { width: 38, height: 38, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  // -- Request Details Header --
+  rdHeader: { minHeight: 64, flexDirection: "row", alignItems: "center", marginBottom: 20, gap: 14 },
+  rdBackBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", shadowColor: "#0b2241", shadowOpacity: 0.10, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3, borderWidth: 1, borderColor: BORDER },
+  rdHeaderText: { flex: 1 },
+  rdHeaderTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", letterSpacing: -0.3 },
+  rdRequestIdRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
+  rdRequestIdLabel: { color: MUTED, fontSize: 12, fontWeight: "700" },
+  rdRequestIdBadge: { borderRadius: 8, backgroundColor: "#fff4dc", borderWidth: 1, borderColor: "#f3dfb9", paddingHorizontal: 8, paddingVertical: 2 },
+  rdRequestIdText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
+  // -- Received Card --
+  receivedCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fffbf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 18, padding: 16, marginBottom: 16, gap: 14, shadowColor: "#f6a313", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  receivedIconBg: { width: 44, height: 44, borderRadius: 13, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#f3dfb9" },
   receivedTextWrap: { flex: 1 },
-  receivedLabel: { color: MUTED, fontSize: 11, fontWeight: "800" },
-  receivedValue: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 2 },
-  segmentedControlContainer: { flexDirection: "row", backgroundColor: "#eef2f6", borderRadius: 14, padding: 4, marginBottom: 14, gap: 4 },
-  segmentedTab: { flex: 1, paddingVertical: 10, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: "transparent" },
-  segmentedTabActive: { backgroundColor: BRAND_ORANGE },
-  segmentedTabText: { color: MUTED, fontSize: 12, fontWeight: "900" },
+  receivedLabel: { color: MUTED, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  receivedValue: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900", marginTop: 2 },
+  receivedStatusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#22c55e", borderWidth: 2, borderColor: "#bbf7d0" },
+  // -- Segmented Tabs --
+  segmentedControlContainer: { flexDirection: "row", backgroundColor: "#eef2f6", borderRadius: 16, padding: 4, marginBottom: 14, gap: 4 },
+  segmentedTab: { flex: 1, paddingVertical: 11, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: "transparent" },
+  segmentedTabActive: { backgroundColor: BRAND_ORANGE, shadowColor: BRAND_ORANGE, shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  segmentedTabText: { color: MUTED, fontSize: 13, fontWeight: "800" },
   segmentedTabTextActive: { color: "#ffffff" },
+  // -- Item Header Card --
+  itemHeaderCard: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16, backgroundColor: SURFACE, borderRadius: 18, borderWidth: 1, borderColor: BORDER, padding: 14, shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
   itemHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14, paddingHorizontal: 4 },
-  itemHeaderIconBg: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#f3e8ff", alignItems: "center", justifyContent: "center" },
+  itemHeaderIconBg: { width: 50, height: 50, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   itemHeaderTextWrap: { flex: 1 },
-  itemHeaderTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900" },
-  itemHeaderSubtitle: { color: MUTED, fontSize: 12, fontWeight: "800", marginTop: 2 },
-  gridContainer: { gap: 8, marginBottom: 14 },
+  itemHeaderTitle: { color: BRAND_DEEP, fontSize: 18, fontWeight: "900", letterSpacing: -0.2 },
+  itemHeaderSubtitle: { color: MUTED, fontSize: 12, fontWeight: "700", marginTop: 4 },
+  // -- Grid Tiles --
+  gridContainer: { gap: 8, marginBottom: 16 },
   gridRow: { flexDirection: "row", gap: 8, alignItems: "stretch" },
-  gridCellCard: { flex: 1, minHeight: 90, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 6, paddingVertical: 12, flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 5 },
+  gridCellCard: { flex: 1, minHeight: 100, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 6, paddingVertical: 14, flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 6, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   gridCellCardPressed: { backgroundColor: "#fffaf0", borderColor: "#f3dfb9" },
-  gridIconCircle: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  gridIconCircle: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   gridCellTextWrap: { flex: 1, minWidth: 0 },
-  gridCellLabel: { color: MUTED, fontSize: 9, fontWeight: "800", textAlign: "center", marginTop: 2 },
-  gridCellValue: { color: BRAND_DEEP, fontSize: 11, fontWeight: "900", marginTop: 1, textAlign: "center", lineHeight: 14 },
-  requestDetailCard: { borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, marginBottom: 14, overflow: "hidden" },
-  requestDetailRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  gridCellLabel: { color: MUTED, fontSize: 10, fontWeight: "800", textAlign: "center", marginTop: 2, textTransform: "uppercase", letterSpacing: 0.3 },
+  gridCellValue: { color: BRAND_DEEP, fontSize: 11, fontWeight: "900", marginTop: 2, textAlign: "center", lineHeight: 15 },
+  // -- Request Detail Card --
+  requestDetailCard: { borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, marginBottom: 16, overflow: "hidden", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  requestDetailCardHeader: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eef2f7", backgroundColor: "#f9fbff" },
+  requestDetailCardTitle: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.6 },
+  requestDetailRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 14, minHeight: 60 },
   requestDetailRowBorder: { borderTopWidth: 1, borderTopColor: "#eef2f7" },
-  requestDetailIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  requestDetailIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center", flexShrink: 0, alignSelf: "center" },
   requestDetailText: { flex: 1, minWidth: 0 },
-  requestDetailLabel: { color: MUTED, fontSize: 11, fontWeight: "800" },
-  requestDetailValue: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 2, lineHeight: 18 },
-  notesCard: { backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 16, padding: 16, marginBottom: 18 },
-  notesHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  requestDetailLabel: { color: MUTED, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  requestDetailValue: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 3, lineHeight: 19 },
+  requestDetailChevron: { width: 26, height: 26, borderRadius: 13, backgroundColor: "#f3f6fb", alignItems: "center", justifyContent: "center", flexShrink: 0, alignSelf: "center" },
+  // -- Notes Card --
+  notesCard: { backgroundColor: "#fffbf0", borderWidth: 1, borderColor: "#f3dfb9", borderRadius: 18, padding: 16, marginBottom: 18, shadowColor: "#f6a313", shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  notesHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  notesIconBg: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#f3dfb9" },
   notesTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
-  notesText: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "800" },
-  measurementFieldsCard: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 16, padding: 14, marginBottom: 14 },
-  measurementFieldsTitle: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginBottom: 8 },
-  measurementRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#eef2f7" },
-  measurementLabel: { color: MUTED, fontSize: 12, fontWeight: "800" },
-  measurementValue: { color: BRAND_DEEP, fontSize: 12, fontWeight: "900" },
-  photosHeading: { color: BRAND_DEEP, fontSize: 16, fontWeight: "900", marginBottom: 12, marginTop: 6 },
-  photosRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
-  photoSlot: { flex: 1 },
-  photoBox: { width: "100%", aspectRatio: 1.15, borderRadius: 12, overflow: "hidden", backgroundColor: BORDER },
-  photoBoxPlaceholder: { borderWidth: 1, borderColor: BORDER, borderStyle: "dashed", backgroundColor: "#f7faff", alignItems: "center", justifyContent: "center", gap: 6 },
-  photoImage: { width: "100%", height: "100%", resizeMode: "cover" },
+  notesText: { color: "#374151", fontSize: 13, lineHeight: 20, fontWeight: "600" },
+  // -- Measurement Fields Card --
+  measurementFieldsCard: { backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 18, padding: 16, marginBottom: 16, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  measurementFieldsHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  measurementFieldsTitle: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900" },
+  measurementRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#eef2f7" },
+  measurementLabel: { color: MUTED, fontSize: 13, fontWeight: "700" },
+  measurementValueBadge: { borderRadius: 8, backgroundColor: "#f0f4ff", paddingHorizontal: 10, paddingVertical: 4 },
+  measurementValue: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900" },
+  // -- Media Gallery Card --
+  mediaGalleryCard: { borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, marginBottom: 18, overflow: "hidden", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  mediaGalleryHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#eef2f7", backgroundColor: "#f9fbff" },
+  mediaGalleryIconBg: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#f3dfb9" },
+  mediaGalleryTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
+  mediaGallerySection: { paddingVertical: 14 },
+  mediaGallerySectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, marginBottom: 12 },
+  mediaGallerySectionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND_ORANGE },
+  mediaGallerySectionLabel: { color: BRAND_DEEP, fontSize: 13, fontWeight: "800", flex: 1 },
+  mediaGalleryCount: { borderRadius: 10, backgroundColor: "#fff4dc", paddingHorizontal: 8, paddingVertical: 3 },
+  mediaGalleryCountText: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900" },
+  mediaGalleryRow: { paddingHorizontal: 16, gap: 10 },
+  mediaGalleryDivider: { height: 1, backgroundColor: "#eef2f7", marginHorizontal: 16 },
+  mediaThumbnailWrap: { width: 100, height: 100, borderRadius: 14, overflow: "hidden", backgroundColor: BORDER },
+  mediaThumbnail: { width: "100%", height: "100%", resizeMode: "cover" },
+  mediaVideoThumb: { alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#fffaf0" },
+  mediaVideoLabel: { color: MUTED, fontSize: 10, fontWeight: "800" },
+  mediaThumbnailIndex: { position: "absolute", top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(15,23,42,0.72)", alignItems: "center", justifyContent: "center" },
+  mediaThumbnailIndexText: { color: "#ffffff", fontSize: 10, fontWeight: "900" },
+  mediaEmptyRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
+  mediaEmptyText: { color: MUTED, fontSize: 13, fontWeight: "700" },
+  // -- Tile Detail Sheet --
+  tileSheetBackdrop: { flex: 1, backgroundColor: "rgba(11,34,65,0.55)", alignItems: "center", justifyContent: "center", padding: 28 },
+  tileSheetCard: { width: "100%", backgroundColor: SURFACE, borderRadius: 26, padding: 24, shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 16 },
+  tileSheetClose: { position: "absolute", top: 16, right: 16, width: 32, height: 32, borderRadius: 16, backgroundColor: "#f3f6fb", alignItems: "center", justifyContent: "center" },
+  tileSheetIconCircle: { width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center", marginBottom: 14, alignSelf: "center" },
+  tileSheetLabel: { color: MUTED, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.2, textAlign: "center", marginBottom: 4 },
+  tileSheetDescription: { color: MUTED, fontSize: 13, fontWeight: "600", textAlign: "center", lineHeight: 19, marginBottom: 18 },
+  tileSheetDivider: { height: 1, backgroundColor: "#eef2f7", marginBottom: 16 },
+  tileSheetValueBox: { backgroundColor: "#f9fbff", borderRadius: 14, borderWidth: 1, borderColor: BORDER, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 22 },
+  tileSheetValue: { color: BRAND_DEEP, fontSize: 17, fontWeight: "900", lineHeight: 24, textAlign: "center" },
+  tileSheetButton: { minHeight: 52, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", shadowColor: BRAND_ORANGE, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  tileSheetButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
+  // Legacy (kept for other uses)
   videoPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: "#fffaf0" },
   videoText: { color: MUTED, fontSize: 11, fontWeight: "800" },
-  photoBadge: { position: "absolute", top: 8, right: 8, borderRadius: 10, backgroundColor: "rgba(15, 23, 42, 0.72)", paddingHorizontal: 6, paddingVertical: 3 },
-  photoBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "900" },
-  photoPlaceholderText: { color: MUTED, fontSize: 11, fontWeight: "800" },
-  premiumNextButton: { minHeight: 56, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", marginTop: 10, marginBottom: 10 },
+  // -- Action Buttons --
+  premiumNextButton: { minHeight: 56, borderRadius: 18, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", marginTop: 10, marginBottom: 10, shadowColor: BRAND_ORANGE, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   premiumNextButtonText: { color: "#ffffff", fontSize: 16, fontWeight: "900" },
-  requestActionRow: { flexDirection: "row", gap: 10, marginTop: 4 },
-  requestDeclineButton: { flex: 1, minHeight: 58, borderRadius: 14, borderWidth: 1.3, borderColor: "#ef4444", backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
-  requestDeclineButtonText: { color: "#ef4444", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
-  requestAcceptButton: { flex: 1, minHeight: 58, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
-  requestAcceptButtonText: { color: "#ffffff", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
+  requestActionRow: { flexDirection: "row", gap: 10, marginTop: 6 },
+  requestDeclineButton: { flex: 0.42, minHeight: 58, borderRadius: 16, borderWidth: 1.5, borderColor: "#ef4444", backgroundColor: "#fff5f5", alignItems: "center", justifyContent: "center", paddingHorizontal: 10, gap: 6, flexDirection: "row" },
+  requestDeclineButtonText: { color: "#ef4444", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
+  requestAcceptButton: { flex: 1, minHeight: 58, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, gap: 8, flexDirection: "row", shadowColor: BRAND_ORANGE, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  requestAcceptButtonText: { color: "#ffffff", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
+  // -- Quote Submitted Card --
   quoteSubmittedCard: { borderRadius: 20, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", padding: 16, marginBottom: 14 },
   quoteSubmittedHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   quoteSubmittedIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#dcfce7", alignItems: "center", justifyContent: "center" },
