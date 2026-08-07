@@ -47,7 +47,47 @@ async function backendReverseGeocode(lat: number, lng: number): Promise<{
   state: string;
   postalCode: string;
 }> {
-  return api(`/location/reverse-geocode?lat=${lat}&lng=${lng}`, {});
+  try {
+    return await api(`/location/reverse-geocode?lat=${lat}&lng=${lng}`, {});
+  } catch (error) {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+        headers: { "User-Agent": "Darji-Delivery-App/1.0" }
+      });
+      if (response.ok) {
+        const osmData = await response.json() as {
+          display_name?: string;
+          address?: {
+            house_number?: string;
+            road?: string;
+            suburb?: string;
+            neighbourhood?: string;
+            city?: string;
+            town?: string;
+            village?: string;
+            county?: string;
+            state?: string;
+            postcode?: string;
+          };
+        };
+        if (osmData && osmData.display_name) {
+          const addr = osmData.address || {};
+          return {
+            formattedAddress: osmData.display_name,
+            houseNumber: addr.house_number ?? "",
+            route: addr.road ?? "",
+            area: addr.suburb ?? addr.neighbourhood ?? "",
+            city: addr.city ?? addr.town ?? addr.village ?? addr.county ?? "",
+            state: addr.state ?? "",
+            postalCode: addr.postcode ?? ""
+          };
+        }
+      }
+    } catch {
+      // Ignore fallback failure, throw original error
+    }
+    throw error;
+  }
 }
 import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";

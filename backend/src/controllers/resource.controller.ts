@@ -2499,45 +2499,118 @@ export async function reverseGeocodeController(req: Request, res: Response) {
     return;
   }
 
-  if (!env.GOOGLE_MAPS_API_KEY) {
-    res.status(503).json({ message: "Geocoding service not configured" });
-    return;
-  }
+  // Helper to try Nominatim (OpenStreetMap) fallback
+  async function tryNominatimFallback() {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Darji-App/1.0"
+        }
+      });
+      if (response.ok) {
+        const osmData = await response.json() as {
+          display_name?: string;
+          address?: {
+            house_number?: string;
+            road?: string;
+            suburb?: string;
+            neighbourhood?: string;
+            city?: string;
+            town?: string;
+            village?: string;
+            county?: string;
+            state?: string;
+            postcode?: string;
+            country?: string;
+          };
+        };
 
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${env.GOOGLE_MAPS_API_KEY}`;
-  const response = await fetch(url);
-  const data = (await response.json()) as {
-    status: string;
-    results: Array<{
-      formatted_address: string;
-      address_components: Array<{ long_name: string; types: string[] }>;
-    }>;
-  };
+        if (osmData && osmData.display_name) {
+          const addr = osmData.address || {};
+          const houseNumber = addr.house_number ?? "";
+          const route = addr.road ?? "";
+          const area = addr.suburb ?? addr.neighbourhood ?? "";
+          const city = addr.city ?? addr.town ?? addr.village ?? addr.county ?? "";
+          const state = addr.state ?? "";
+          const postalCode = addr.postcode ?? "";
+          const country = addr.country ?? "";
 
-  if (data.status !== "OK" || !data.results?.[0]) {
-    res.status(422).json({ message: "Could not geocode location" });
-    return;
-  }
-
-  const components = data.results[0].address_components;
-  const get = (...types: string[]) =>
-    components.find((c) => types.some((t) => c.types.includes(t)))?.long_name ?? "";
-
-  res.json({
-    data: {
-      latitude: lat,
-      longitude: lng,
-      formattedAddress: data.results[0].formatted_address,
-      houseNumber: get("street_number"),
-      route: get("route"),
-      area: get("sublocality_level_1", "sublocality"),
-      locality: get("locality"),
-      city: get("administrative_area_level_2", "locality"),
-      state: get("administrative_area_level_1"),
-      postalCode: get("postal_code"),
-      country: get("country")
+          return {
+            latitude: lat,
+            longitude: lng,
+            formattedAddress: osmData.display_name,
+            houseNumber,
+            route,
+            area,
+            locality: city,
+            city,
+            state,
+            postalCode,
+            country
+          };
+        }
+      }
+    } catch (e) {
+      // Ignore error and return null
     }
-  });
+    return null;
+  }
+
+  if (!env.GOOGLE_MAPS_API_KEY) {
+    const fallback = await tryNominatimFallback();
+    if (fallback) {
+      res.json({ data: fallback });
+      return;
+    }
+    res.status(503).json({ message: "Geocoding service not configured and fallback failed" });
+    return;
+  }
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${env.GOOGLE_MAPS_API_KEY}`;
+    const response = await fetch(url);
+    const data = (await response.json()) as {
+      status: string;
+      results: Array<{
+        formatted_address: string;
+        address_components: Array<{ long_name: string; types: string[] }>;
+      }>;
+    };
+
+    if (data.status === "OK" && data.results?.[0]) {
+      const components = data.results[0].address_components;
+      const get = (...types: string[]) =>
+        components.find((c) => types.some((t) => c.types.includes(t)))?.long_name ?? "";
+
+      res.json({
+        data: {
+          latitude: lat,
+          longitude: lng,
+          formattedAddress: data.results[0].formatted_address,
+          houseNumber: get("street_number"),
+          route: get("route"),
+          area: get("sublocality_level_1", "sublocality"),
+          locality: get("locality"),
+          city: get("administrative_area_level_2", "locality"),
+          state: get("administrative_area_level_1"),
+          postalCode: get("postal_code"),
+          country: get("country")
+        }
+      });
+      return;
+    }
+  } catch (e) {
+    // If Google fetch fails, fallback to Nominatim
+  }
+
+  const fallback = await tryNominatimFallback();
+  if (fallback) {
+    res.json({ data: fallback });
+    return;
+  }
+
+  res.status(422).json({ message: "Could not geocode location" });
 }
 
 // ---------------------------------------------------------------------------

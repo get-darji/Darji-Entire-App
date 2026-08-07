@@ -1292,8 +1292,27 @@ function NewRequestStep({
         const lng = position.coords.longitude;
         try {
           setLocationStatus("Fetching address...");
-          const result = await customerApi.reverseGeocode(lat, lng);
-          setDraft((current) => ({ ...current, pickup: result.formattedAddress }));
+          let addressText: string;
+          try {
+            const result = await customerApi.reverseGeocode(lat, lng);
+            addressText = result.formattedAddress;
+          } catch {
+            // Client-side Nominatim fallback
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+              headers: { "User-Agent": "Darji-Web/1.0" }
+            });
+            if (response.ok) {
+              const osmData = await response.json();
+              if (osmData && osmData.display_name) {
+                addressText = osmData.display_name;
+              } else {
+                throw new Error("No name");
+              }
+            } else {
+              throw new Error("Nominatim failed");
+            }
+          }
+          setDraft((current) => ({ ...current, pickup: addressText }));
           setLocationStatus("Location added.");
         } catch {
           const fallbackAddress = `Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`;
@@ -2997,10 +3016,52 @@ function SavedAddressesScreen({ setScreen }: { setScreen: (s: CustomerScreen) =>
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const value = `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
-        setLine1(value);
-        setLocationStatus("Location coordinates added.");
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        try {
+          setLocationStatus("Fetching address...");
+          let res: {
+            formattedAddress: string;
+            houseNumber?: string;
+            route?: string;
+            area?: string;
+            city?: string;
+            state?: string;
+            postalCode?: string;
+          };
+          try {
+            res = await customerApi.reverseGeocode(lat, lng);
+          } catch {
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+              headers: { "User-Agent": "Darji-Web/1.0" }
+            });
+            if (response.ok) {
+              const osmData = await response.json();
+              const addr = osmData.address || {};
+              res = {
+                formattedAddress: osmData.display_name || "",
+                houseNumber: addr.house_number ?? "",
+                route: addr.road ?? "",
+                area: addr.suburb ?? addr.neighbourhood ?? "",
+                city: addr.city ?? addr.town ?? addr.village ?? addr.county ?? "",
+                state: addr.state ?? "",
+                postalCode: addr.postcode ?? ""
+              };
+            } else {
+              throw new Error("Nominatim failed");
+            }
+          }
+          setLine1(res.formattedAddress);
+          setCity(res.city ?? "");
+          setState(res.state ?? "");
+          setPincode(res.postalCode ?? "");
+          setLocationStatus("Location details added.");
+        } catch {
+          const value = `Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`;
+          setLine1(value);
+          setLocationStatus("Location coordinates added.");
+        }
       },
       () => setLocationStatus("Could not read location."),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
