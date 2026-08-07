@@ -287,10 +287,12 @@ const deliveryPartnerSchema = new Schema(
     // Live location tracking (optional, backward-compatible)
     currentLocation: {
       type: {
-        type: { type: String, enum: ["Point"] },
-        coordinates: { type: [Number] }
+        type: String,
+        enum: ["Point"]
       },
-      default: undefined
+      coordinates: {
+        type: [Number]
+      }
     },
     lastLocationAccuracy: { type: Number },
     lastLocationUpdatedAt: { type: Date },
