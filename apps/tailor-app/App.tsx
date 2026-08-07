@@ -38,6 +38,19 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { api, getPlatformStatus, refreshAccessToken, uploadAuditMedia, uploadTailorVerificationMedia } from "./src/api";
+
+// Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
+async function backendReverseGeocode(lat: number, lng: number): Promise<{
+  formattedAddress: string;
+  houseNumber: string;
+  route: string;
+  area: string;
+  city: string;
+  state: string;
+  postalCode: string;
+}> {
+  return api(`/location/reverse-geocode?lat=${lat}&lng=${lng}`, {});
+}
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
@@ -2836,29 +2849,29 @@ function TailorVerificationFlow({
         });
         return;
       }
-      const position = await Location.getCurrentPositionAsync({});
-      const [place] = await Location.reverseGeocodeAsync(position.coords);
-      const address = place
-        ? [place.name, place.street, place.district, place.city, place.region, place.postalCode].filter(Boolean).join(", ")
-        : `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      let geo: { formattedAddress: string; area: string; city: string; state: string; postalCode: string; houseNumber: string; route: string } | null = null;
+      try { geo = await backendReverseGeocode(position.coords.latitude, position.coords.longitude); } catch { /* use null fallback */ }
+      const address = geo?.formattedAddress ?? `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
+      const addressLine = [geo?.houseNumber, geo?.route].filter(Boolean).join(" ");
       if (target === "personal") setPersonal((current) => ({
         ...current,
         address,
-        addressLine: [place?.name, place?.street].filter(Boolean).join(", ") || current.addressLine,
-        area: place?.district ?? current.area,
-        city: place?.city ?? current.city,
-        state: place?.region ?? current.state,
-        pincode: place?.postalCode ?? current.pincode,
+        addressLine: addressLine || current.addressLine,
+        area: geo?.area ?? current.area,
+        city: geo?.city ?? current.city,
+        state: geo?.state ?? current.state,
+        pincode: geo?.postalCode ?? current.pincode,
         location: { lat: position.coords.latitude, lng: position.coords.longitude }
       }));
       if (target === "shop") setShop((current) => ({
         ...current,
         shopAddress: address,
-        shopAddressLine: [place?.name, place?.street].filter(Boolean).join(", ") || current.shopAddressLine,
-        shopArea: place?.district ?? current.shopArea,
-        shopCity: place?.city ?? current.shopCity,
-        shopState: place?.region ?? current.shopState,
-        shopPincode: place?.postalCode ?? current.shopPincode
+        shopAddressLine: addressLine || current.shopAddressLine,
+        shopArea: geo?.area ?? current.shopArea,
+        shopCity: geo?.city ?? current.shopCity,
+        shopState: geo?.state ?? current.shopState,
+        shopPincode: geo?.postalCode ?? current.shopPincode
       }));
     } catch (error) {
       showDialog({ title: "Location failed", message: error instanceof Error ? error.message : "Could not fetch current location.", icon: "alert-circle-outline" });

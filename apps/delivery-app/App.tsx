@@ -36,6 +36,19 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { api, getPlatformStatus, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
+
+// Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
+async function backendReverseGeocode(lat: number, lng: number): Promise<{
+  formattedAddress: string;
+  houseNumber: string;
+  route: string;
+  area: string;
+  city: string;
+  state: string;
+  postalCode: string;
+}> {
+  return api(`/location/reverse-geocode?lat=${lat}&lng=${lng}`, {});
+}
 import { DeliveryProfileScreen } from "./src/components/DeliveryProfileScreen";
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
 import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
@@ -1264,13 +1277,10 @@ function OnboardingScreen({
         return;
       }
 
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const [place] = await Location.reverseGeocodeAsync({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude
-      });
-
-      if (!place) {
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      let geo: { formattedAddress: string; city: string; state: string; postalCode: string } | null = null;
+      try { geo = await backendReverseGeocode(position.coords.latitude, position.coords.longitude); } catch { /* use null fallback */ }
+      if (!geo) {
         showDialog({
           title: localize(language, "Address not found", "पता नहीं मिला"),
           message: localize(language, "We could not read your current address. Enter it manually.", "वर्तमान पता नहीं मिल सका। कृपया इसे स्वयं दर्ज करें।"),
@@ -1278,14 +1288,12 @@ function OnboardingScreen({
         });
         return;
       }
-
-      const addressParts = [place.name, place.street, place.subregion].filter((value): value is string => Boolean(value && value.trim()));
       setData((current) => ({
         ...current,
-        address: addressParts.join(", ") || current.address,
-        city: place.city || place.district || current.city,
-        state: place.region || current.state,
-        pincode: place.postalCode || current.pincode
+        address: geo!.formattedAddress || current.address,
+        city: geo!.city || current.city,
+        state: geo!.state || current.state,
+        pincode: geo!.postalCode || current.pincode
       }));
     } catch (error) {
       showDialog({
@@ -1759,36 +1767,37 @@ function HomeScreen({
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header
         right={
-          <Pressable
-            onPress={() => onToggleOnline(!online)}
-            style={{
-              width: 72,
-              height: 32,
-              backgroundColor: online ? "#22c55e" : "#94a3b8",
-              borderRadius: 16,
-              padding: 3,
-              justifyContent: "center"
-            }}
-          >
-            <View
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: online ? "#22c55e" : "#64748b" }}>
+              {online ? "Online" : "Offline"}
+            </Text>
+            <Pressable
+              onPress={() => onToggleOnline(!online)}
               style={{
-                width: 26,
-                height: 26,
-                borderRadius: 13,
-                backgroundColor: "#ffffff",
-                alignSelf: online ? "flex-end" : "flex-start",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.2,
-                shadowRadius: 1.5,
-                elevation: 2,
-                alignItems: "center",
+                width: 40,
+                height: 22,
+                backgroundColor: online ? "#22c55e" : "#cbd5e1",
+                borderRadius: 11,
+                padding: 3,
                 justifyContent: "center"
               }}
             >
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: online ? "#22c55e" : "#94a3b8" }} />
-            </View>
-          </Pressable>
+              <View
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  backgroundColor: "#ffffff",
+                  alignSelf: online ? "flex-end" : "flex-start",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 1,
+                  elevation: 1
+                }}
+              />
+            </Pressable>
+          </View>
         }
         subtitle={"Your work, your earnings.\nWe've got your back."}
         title="Your Delivery Home 🏠"
@@ -2223,31 +2232,31 @@ function QueueEmptyState({ queue }: { queue: "requested" | "accepted" | "history
 
 function getQueueTabStyle(item: "requested" | "accepted" | "history" | "cancelled", active: boolean) {
   let bg = "#ffffff";
-  let border = "#e2e8f0";
+  let border = "#cbd5e1"; // inactive border matching mockup
   let text = "#64748b";
   
   if (item === "requested") {
-    bg = active ? "#fff7ed" : "#fffaf0";
-    border = active ? "#f97316" : "#fed7aa";
+    bg = active ? "#fff7ed" : "#ffffff";
+    border = active ? "#f97316" : "#cbd5e1";
     text = "#ea580c";
   } else if (item === "accepted") {
-    bg = active ? "#f0fdf4" : "#f7fee7";
-    border = active ? "#22c55e" : "#bbf7d0";
+    bg = active ? "#e8f8f0" : "#ffffff";
+    border = active ? "#22c55e" : "#cbd5e1";
     text = "#16a34a";
   } else if (item === "history") {
-    bg = active ? "#eff6ff" : "#f0f9ff";
-    border = active ? "#3b82f6" : "#bfdbfe";
+    bg = active ? "#eff6ff" : "#ffffff";
+    border = active ? "#3b82f6" : "#cbd5e1";
     text = "#2563eb";
   } else if (item === "cancelled") {
-    bg = active ? "#fef2f2" : "#fff5f5";
-    border = active ? "#ef4444" : "#fecaca";
+    bg = active ? "#fef2f2" : "#ffffff";
+    border = active ? "#ef4444" : "#cbd5e1";
     text = "#dc2626";
   }
   
   return {
     backgroundColor: bg,
     borderColor: border,
-    borderWidth: active ? 2 : 1,
+    borderWidth: 1.2,
     textColor: text
   };
 }
@@ -2326,9 +2335,8 @@ function OrdersScreen({
           {(["requested", "accepted", "history", "cancelled"] as const).map((item) => {
             const active = queue === item;
             const styleConf = getQueueTabStyle(item, active);
-            const count = item === "requested" ? requestedCount : item === "accepted" ? acceptedCount : 0;
-            const labelText = item === "requested" ? `Requested${count ? ` (${count})` : ""}` :
-                              item === "accepted" ? `Accepted${count ? ` (${count})` : ""}` :
+            const labelText = item === "requested" ? "Requested" :
+                              item === "accepted" ? "Accepted" :
                               item === "history" ? "History" : "Cancelled";
             const iconName = item === "requested" ? "briefcase-outline" :
                              item === "accepted" ? "checkbox-outline" :
@@ -2339,22 +2347,22 @@ function OrdersScreen({
                 onPress={() => setQueue(item)}
                 style={{
                   flex: 1,
-                  height: 38,
+                  height: 52,
                   borderRadius: 10,
                   borderWidth: styleConf.borderWidth,
                   borderColor: styleConf.borderColor,
                   backgroundColor: styleConf.backgroundColor,
-                  flexDirection: "row",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 4,
-                  paddingHorizontal: 2
+                  gap: 2,
+                  paddingVertical: 4
                 }}
               >
-                <Ionicons name={iconName} size={14} color={styleConf.textColor} />
-                <Text style={{ color: styleConf.textColor, fontSize: 11, fontWeight: "800" }} numberOfLines={1}>
+                <Text style={{ color: styleConf.textColor, fontSize: 11, fontWeight: "800", textAlign: "center" }} numberOfLines={1}>
                   {labelText}
                 </Text>
+                <Ionicons name={iconName} size={15} color={styleConf.textColor} />
               </Pressable>
             );
           })}
@@ -3580,6 +3588,51 @@ function MainApp({
       // Keep the UI responsive; backend availability will sync on the next attempt.
     }
   }
+
+  // GPS heartbeat — periodically sends rider location to backend while online
+  // Only runs while rider is marked Online. Uses foreground location only.
+  useEffect(() => {
+    if (!online || !token) return undefined;
+
+    let lastSentLat = 0;
+    let lastSentLng = 0;
+    let lastForceSendAt = 0;
+    let isMounted = true;
+
+    async function sendHeartbeat() {
+      if (!isMounted) return;
+      try {
+        const perm = await Location.getForegroundPermissionsAsync();
+        if (!perm.granted) return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const { latitude, longitude, accuracy, heading, speed } = pos.coords;
+        const now = Date.now();
+        // Only send if rider moved ≥ ~100m (0.0009° ≈ 100m) or 60s elapsed
+        const dlat = latitude - lastSentLat;
+        const dlng = longitude - lastSentLng;
+        const moved = (dlat * dlat + dlng * dlng) > 0.00000081; // (0.0009)²
+        const elapsed = now - lastForceSendAt > 60000;
+        if (!moved && !elapsed) return;
+        await api("/delivery-partners/me/location", {
+          method: "PATCH",
+          body: JSON.stringify({ latitude, longitude, accuracy, heading, speed })
+        }, token);
+        lastSentLat = latitude;
+        lastSentLng = longitude;
+        lastForceSendAt = now;
+      } catch {
+        // Heartbeat is best-effort — silently ignore failures
+      }
+    }
+
+    void sendHeartbeat(); // send immediately on going online
+    const interval = setInterval(() => void sendHeartbeat(), 20000); // then every 20s
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [online, token]);
 
   async function acceptDeliveryTask(taskId: string) {
     if (!token) return;

@@ -1280,7 +1280,7 @@ function NewRequestStep({
     upload.mutate();
   }
 
-  function useCurrentLocation() {
+  async function useCurrentLocation() {
     setLocationStatus("Locating...");
     if (!navigator.geolocation) {
       setLocationStatus("Location is not available in this browser.");
@@ -1292,27 +1292,17 @@ function NewRequestStep({
         const lng = position.coords.longitude;
         try {
           setLocationStatus("Fetching address...");
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
-            headers: {
-              "Accept-Language": "en"
-            }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.display_name) {
-              setDraft((current) => ({ ...current, pickup: data.display_name }));
-              setLocationStatus("Location added.");
-              return;
-            }
-          }
-          throw new Error("Geocoding failed");
-        } catch (err) {
-          const fallbackAddress = `Sector 62, Noida, Uttar Pradesh, 201301 (based on Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)})`;
+          const result = await customerApi.reverseGeocode(lat, lng);
+          setDraft((current) => ({ ...current, pickup: result.formattedAddress }));
+          setLocationStatus("Location added.");
+        } catch {
+          const fallbackAddress = `Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`;
           setDraft((current) => ({ ...current, pickup: fallbackAddress }));
           setLocationStatus("Location added (estimated).");
         }
       },
-      () => setLocationStatus("Could not read location.")
+      () => setLocationStatus("Could not read location."),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }
 
@@ -3012,7 +3002,8 @@ function SavedAddressesScreen({ setScreen }: { setScreen: (s: CustomerScreen) =>
         setLine1(value);
         setLocationStatus("Location coordinates added.");
       },
-      () => setLocationStatus("Could not read location.")
+      () => setLocationStatus("Could not read location."),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 

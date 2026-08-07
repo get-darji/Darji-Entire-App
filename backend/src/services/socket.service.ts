@@ -78,6 +78,9 @@ async function joinRooms(socket: Socket, user: SocketUser) {
   await socket.join(userRoom(user.id));
   if (user.role !== "DELIVERY_PARTNER" || user.deliveryVerified) {
     await socket.join(roleRoom(user.role));
+    if (user.role === "SUPER_ADMIN") {
+      await socket.join(roleRoom("ADMIN"));
+    }
   }
   if (user.tailorId) await socket.join(tailorRoom(user.tailorId));
   if (user.deliveryPartnerId && user.deliveryVerified) await socket.join(deliveryPartnerRoom(user.deliveryPartnerId));
@@ -158,7 +161,7 @@ export function setupSocketServer(server: HttpServer) {
     socket.emit("connection:status", { status: "connected", role: user.role });
 
     // Sync state for new admin connection
-    if (user.role === "ADMIN") {
+    if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
       socket.emit("user:online_list", Array.from(onlineUsers.keys()));
       socket.emit(
         "support:active_viewers",

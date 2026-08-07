@@ -121,6 +121,12 @@ export type DeliveryPartnerProfile = {
   verificationRejectionReason?: string;
   verification?: Record<string, unknown>;
   verificationDraft?: Record<string, unknown>;
+  // Live location fields (optional — only present if rider has sent a heartbeat)
+  currentLocation?: { type: string; coordinates: [number, number] } | null;
+  lastLocationAccuracy?: number | null;
+  lastLocationUpdatedAt?: string | null;
+  lastLocationHeading?: number | null;
+  lastLocationSpeed?: number | null;
   user?: BasicUser;
   createdAt?: string;
   updatedAt?: string;

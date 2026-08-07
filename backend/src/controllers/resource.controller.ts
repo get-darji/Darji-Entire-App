@@ -2485,3 +2485,110 @@ export async function listFeaturedReviewsController(req: Request, res: Response)
   );
   res.json({ data: populated });
 }
+
+// ---------------------------------------------------------------------------
+// Location — server-side Google reverse geocoding (keeps API key server-side)
+// GET /api/location/reverse-geocode?lat=&lng=
+// ---------------------------------------------------------------------------
+export async function reverseGeocodeController(req: Request, res: Response) {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    res.status(400).json({ message: "Invalid lat/lng parameters" });
+    return;
+  }
+
+  if (!env.GOOGLE_MAPS_API_KEY) {
+    res.status(503).json({ message: "Geocoding service not configured" });
+    return;
+  }
+
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${env.GOOGLE_MAPS_API_KEY}`;
+  const response = await fetch(url);
+  const data = (await response.json()) as {
+    status: string;
+    results: Array<{
+      formatted_address: string;
+      address_components: Array<{ long_name: string; types: string[] }>;
+    }>;
+  };
+
+  if (data.status !== "OK" || !data.results?.[0]) {
+    res.status(422).json({ message: "Could not geocode location" });
+    return;
+  }
+
+  const components = data.results[0].address_components;
+  const get = (...types: string[]) =>
+    components.find((c) => types.some((t) => c.types.includes(t)))?.long_name ?? "";
+
+  res.json({
+    data: {
+      latitude: lat,
+      longitude: lng,
+      formattedAddress: data.results[0].formatted_address,
+      houseNumber: get("street_number"),
+      route: get("route"),
+      area: get("sublocality_level_1", "sublocality"),
+      locality: get("locality"),
+      city: get("administrative_area_level_2", "locality"),
+      state: get("administrative_area_level_1"),
+      postalCode: get("postal_code"),
+      country: get("country")
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Rider live location — Delivery Partner updates their own GPS position
+// PATCH /api/delivery-partners/me/location
+// ---------------------------------------------------------------------------
+export async function updateRiderLocationController(req: Request, res: Response) {
+  const { latitude, longitude, accuracy, heading, speed } = req.body as {
+    latitude: unknown;
+    longitude: unknown;
+    accuracy?: unknown;
+    heading?: unknown;
+    speed?: unknown;
+  };
+
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    res.status(400).json({ message: "Invalid coordinates" });
+    return;
+  }
+
+  const userId: string = req.user!.id;
+
+  const partner = await DeliveryPartnerModel.findOneAndUpdate(
+    { userId },
+    {
+      currentLocation: { type: "Point", coordinates: [lng, lat] },
+      lastLocationAccuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : undefined,
+      lastLocationUpdatedAt: new Date(),
+      lastLocationHeading: Number.isFinite(Number(heading)) ? Number(heading) : undefined,
+      lastLocationSpeed: Number.isFinite(Number(speed)) ? Number(speed) : undefined
+    },
+    { new: true, select: "_id darjiPartnerId isAvailable lastLocationUpdatedAt lastLocationAccuracy" }
+  );
+
+  if (!partner) {
+    res.status(404).json({ message: "Delivery partner not found" });
+    return;
+  }
+
+  // Broadcast to authenticated admin sockets only — not customers, not tailors
+  emitToAdmins("rider:location_updated", {
+    partnerId: partner.id,
+    latitude: lat,
+    longitude: lng,
+    accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null,
+    heading: Number.isFinite(Number(heading)) ? Number(heading) : null,
+    lastLocationUpdatedAt: partner.lastLocationUpdatedAt
+  });
+
+  res.json({ data: { ok: true } });
+}

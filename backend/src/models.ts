@@ -283,7 +283,19 @@ const deliveryPartnerSchema = new Schema(
     verificationReviewedAt: Date,
     verificationRejectionReason: String,
     verification: { type: Schema.Types.Mixed },
-    verificationDraft: { type: Schema.Types.Mixed }
+    verificationDraft: { type: Schema.Types.Mixed },
+    // Live location tracking (optional, backward-compatible)
+    currentLocation: {
+      type: {
+        type: { type: String, enum: ["Point"] },
+        coordinates: { type: [Number] }
+      },
+      default: undefined
+    },
+    lastLocationAccuracy: { type: Number },
+    lastLocationUpdatedAt: { type: Date },
+    lastLocationHeading: { type: Number },
+    lastLocationSpeed: { type: Number }
   },
   baseOptions
 );
@@ -291,6 +303,7 @@ attachDarjiIdPlugin(deliveryPartnerSchema, {
   field: "darjiPartnerId",
   prefix: (doc) => String(doc.deliveryType ?? "").toUpperCase() === "DROP" ? "DDP" : "DPP"
 });
+deliveryPartnerSchema.index({ currentLocation: "2dsphere" }, { sparse: true });
 
 
 const paymentSchema = new Schema(

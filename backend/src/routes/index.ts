@@ -77,7 +77,9 @@ import {
   uploadTailorAvatarController,
   uploadTailorVerificationMedia,
   uploadTailorVerificationMediaController,
-  walletController
+  walletController,
+  reverseGeocodeController,
+  updateRiderLocationController
 } from "../controllers/resource.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
@@ -194,6 +196,8 @@ router.post("/tailors/me/verification-media", requireAuth, requireRole("TAILOR")
 router.get("/delivery-partners", requireAuth, listDeliveryPartnersController);
 router.patch("/delivery-partners/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewDeliveryVerificationController);
 router.patch("/delivery-partners/me/availability", requireAuth, requireRole("DELIVERY_PARTNER"), updateDeliveryAvailabilityController);
+router.patch("/delivery-partners/me/location", requireAuth, requireRole("DELIVERY_PARTNER"), updateRiderLocationController);
+router.get("/location/reverse-geocode", requireAuth, reverseGeocodeController);
 router.patch("/delivery-partners/me/profile", requireAuth, requireRole("DELIVERY_PARTNER"), updateDeliveryProfileController);
 router.get("/delivery-partners/me/email-availability", requireAuth, requireRole("DELIVERY_PARTNER"), checkDeliveryEmailAvailabilityController);
 router.patch("/delivery-partners/me/verification-draft", requireAuth, requireRole("DELIVERY_PARTNER"), saveDeliveryVerificationDraftController);

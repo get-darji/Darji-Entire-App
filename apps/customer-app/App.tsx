@@ -40,6 +40,20 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { api, getPlatformStatus, refreshAccessToken, uploadMedia, type UploadedMedia } from "./src/api";
+
+// Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
+// Calls GET /api/location/reverse-geocode which uses Google Geocoding API server-side
+async function backendReverseGeocode(lat: number, lng: number): Promise<{
+  formattedAddress: string;
+  houseNumber: string;
+  route: string;
+  area: string;
+  city: string;
+  state: string;
+  postalCode: string;
+}> {
+  return api(`/location/reverse-geocode?lat=${lat}&lng=${lng}`, {});
+}
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
 import { configureForegroundNotificationHandler } from "./src/notifications/handlers";
@@ -2743,12 +2757,14 @@ function NewRequestScreen({
         Alert.alert("Permission needed", "Allow location access to select your current pickup address. Your location is safe with Darji and is used only for pickup and delivery.");
         return;
       }
-      const position = await Location.getCurrentPositionAsync({});
-      const places = await Location.reverseGeocodeAsync(position.coords);
-      const place = places[0];
-      const address = place
-        ? [place.name, place.street, place.district, place.city, place.region, place.postalCode].filter(Boolean).join(", ")
-        : `Current location: ${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`;
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      let address: string;
+      try {
+        const geo = await backendReverseGeocode(position.coords.latitude, position.coords.longitude);
+        address = geo.formattedAddress;
+      } catch {
+        address = `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
+      }
       setDraft({ ...draft, pickup: address });
     } catch (error) {
       Alert.alert("Location failed", error instanceof Error ? error.message : "Unable to fetch current location.");
@@ -6741,11 +6757,14 @@ function AddAddressScreen({
     }
     setLocating(true);
     try {
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const [place] = await Location.reverseGeocodeAsync(current.coords);
-      const resolved = place
-        ? [place.name, place.street, place.district, place.city, place.region, place.postalCode].filter(Boolean).join(", ")
-        : `Lat ${current.coords.latitude.toFixed(5)}, Lng ${current.coords.longitude.toFixed(5)}`;
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      let resolved: string;
+      try {
+        const geo = await backendReverseGeocode(current.coords.latitude, current.coords.longitude);
+        resolved = geo.formattedAddress;
+      } catch {
+        resolved = `Lat ${current.coords.latitude.toFixed(5)}, Lng ${current.coords.longitude.toFixed(5)}`;
+      }
       setAddress(resolved);
       setLocation({ lat: current.coords.latitude, lng: current.coords.longitude });
     } catch {
@@ -10056,13 +10075,16 @@ export default function App() {
         }
 
         const current = await Promise.race([
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Location request timed out")), 10000))
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Location request timed out")), 12000))
         ]);
-        const [place] = await Location.reverseGeocodeAsync(current.coords);
-        const resolvedAddress = place
-          ? [place.name, place.street, place.district, place.city, place.region, place.postalCode].filter(Boolean).join(", ")
-          : `Lat ${current.coords.latitude.toFixed(5)}, Lng ${current.coords.longitude.toFixed(5)}`;
+        let resolvedAddress: string;
+        try {
+          const geo = await backendReverseGeocode(current.coords.latitude, current.coords.longitude);
+          resolvedAddress = geo.formattedAddress;
+        } catch {
+          resolvedAddress = `Lat ${current.coords.latitude.toFixed(5)}, Lng ${current.coords.longitude.toFixed(5)}`;
+        }
 
         if (cancelled) return;
 

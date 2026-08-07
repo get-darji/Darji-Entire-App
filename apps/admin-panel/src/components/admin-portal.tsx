@@ -176,6 +176,8 @@ import type {
   WalletDetail,
   DeliveryFareSettings
 } from "@/src/types/admin";
+import dynamic from "next/dynamic";
+const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
 
 type TrendRange = "daily" | "weekly" | "monthly";
 
@@ -2264,6 +2266,7 @@ export function AdminPortal() {
                 </div>
               }
             />
+            <RiderLiveMap partners={partners} token={token} />
             <DataTable
               columns={partnerColumns}
               data={filteredPartners}
