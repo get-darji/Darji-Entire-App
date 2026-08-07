@@ -9,6 +9,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
+      "image": "./app-icon.png",
       "backgroundColor": "#ffffff",
       "resizeMode": "contain"
     },
@@ -16,6 +17,7 @@
       "package": "com.darzi.tailor",
       "softwareKeyboardLayoutMode": "resize",
       "splash": {
+        "image": "./app-icon.png",
         "backgroundColor": "#ffffff",
         "resizeMode": "contain"
       },

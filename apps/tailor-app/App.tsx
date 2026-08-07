@@ -1518,12 +1518,14 @@ function QuoteScreen({
     }
     const amount = Number(price);
     const eta = Number(estimatedTime);
-    if (!amount || amount <= 0 || !Number.isInteger(eta) || eta < quoteWindow.min || eta > quoteWindow.max) {
+    if (!amount || amount <= 0 || amount > 99999 || !Number.isInteger(eta) || eta < quoteWindow.min || eta > quoteWindow.max) {
       showDialog({
         title: "Check quote",
-        message: quoteWindow.mode === "hours"
-          ? `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} hours.`
-          : `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} day${quoteWindow.max === 1 ? "" : "s"}.`,
+        message: amount > 99999
+          ? "Enter a price up to 5 digits only (maximum Rs 99,999)."
+          : quoteWindow.mode === "hours"
+            ? `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} hours.`
+            : `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} day${quoteWindow.max === 1 ? "" : "s"}.`,
         icon: "cash-outline"
       });
       return;
@@ -1566,7 +1568,18 @@ function QuoteScreen({
           </Text>
         </View>
         <Text style={styles.formLabel}>Total Price</Text>
-        <TextInput style={styles.input} value={price} onChangeText={setPrice} placeholder="Example: Rs 1200" placeholderTextColor="#9aa6b8" keyboardType="number-pad" />
+        <TextInput
+          style={styles.input}
+          value={price}
+          onChangeText={(value) => {
+            const digits = value.replace(/\D/g, "").slice(0, 5);
+            setPrice(digits);
+          }}
+          placeholder="Example: Rs 1200"
+          placeholderTextColor="#9aa6b8"
+          keyboardType="number-pad"
+          maxLength={5}
+        />
         <Text style={styles.formLabel}>{quoteWindow.mode === "hours" ? "Completion Time (Hours)" : "Completion Time (Days)"}</Text>
         <TextInput
           style={styles.input}
@@ -1629,7 +1642,12 @@ function OrdersScreen({ orders, setScreen, setActiveOrder }: { orders: Order[]; 
     <ScrollView contentContainerStyle={[styles.pageContent, styles.ordersPageContent]} showsVerticalScrollIndicator={false}>
       <View style={styles.ordersHeader}>
         <Text style={styles.ordersTitle}>Assigned Orders</Text>
-        <Text style={styles.ordersSubtitle}>{filteredOrders.length} {filter.toLowerCase()} orders</Text>
+        <Text style={styles.ordersSubtitle}>
+          {filter === "ACCEPTED" ? "Orders you have accepted and are currently working on." :
+           filter === "READY" ? "Orders that are stitched and ready for delivery pickup." :
+           filter === "HISTORY" ? "View your completed orders and transaction history." :
+           "View cancelled orders and the reasons."}
+        </Text>
       </View>
       <View style={styles.orderTabsRow}>
         {orderTabs.map((tab) => {
@@ -1674,19 +1692,19 @@ function orderToneColor(tone: "orange" | "green" | "blue" | "red") {
 function OrdersEmptyState({ filter }: { filter: "ACCEPTED" | "READY" | "HISTORY" | "CANCELLED" }) {
   const config =
     filter === "READY"
-      ? { icon: "bus-outline" as const, tone: "green" as const, copy: "You don't have any orders ready to deliver.\nWhen your work is complete and you mark\nit as ready, it will appear here." }
+      ? { icon: "bus-outline" as const, tone: "green" as const, title: "No ready orders", copy: "You don't have any orders ready to deliver. Mark completed orders as ready to move them here." }
       : filter === "HISTORY"
-        ? { icon: "time-outline" as const, tone: "blue" as const, copy: "You don't have any past orders.\nAll the orders you completed in the past\nwill be shown here." }
+        ? { icon: "time-outline" as const, tone: "blue" as const, title: "No completed orders", copy: "Your completed orders will appear here. Once an order is delivered, it will be saved in your history." }
         : filter === "CANCELLED"
-          ? { icon: "cube-outline" as const, tone: "red" as const, copy: "You don't have any cancelled orders.\nOrders that were cancelled due to any\nreason will appear here.\nYou can check the details when needed." }
-          : { icon: "clipboard-outline" as const, tone: "orange" as const, copy: "You haven't accepted any orders yet.\nWhen you accept an order,\nit will show up here." };
+          ? { icon: "close-circle-outline" as const, tone: "red" as const, title: "No cancelled orders", copy: "You don't have any cancelled orders. Orders cancelled by customers or admins will appear here." }
+          : { icon: "clipboard-outline" as const, tone: "orange" as const, title: "No accepted orders", copy: "You haven't accepted any orders yet. When you accept an order, it will show up here." };
   const color = orderToneColor(config.tone);
   return (
     <View style={styles.ordersEmptyState}>
       <View style={[styles.ordersEmptyIcon, { backgroundColor: config.tone === "green" ? "#dcfce7" : config.tone === "blue" ? "#eaf4ff" : config.tone === "red" ? "#ffe4e9" : "#fff4dc" }]}>
         <Ionicons name={config.icon} size={42} color={color} />
       </View>
-      <Text style={styles.ordersEmptyTitle}>No orders here</Text>
+      <Text style={styles.ordersEmptyTitle}>{config.title}</Text>
       <Text style={styles.ordersEmptyCopy}>{config.copy}</Text>
     </View>
   );

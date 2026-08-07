@@ -15,6 +15,7 @@ type Store = {
   language: AppLanguage;
   hasSelectedLanguage: boolean;
   sessionNotice?: string;
+  favoriteTailorIds?: string[];
   setSession: (token: string, user: User, refreshToken?: string) => void;
   setAccessToken: (token: string) => void;
   setLanguagePreference: (language: AppLanguage) => void;
@@ -23,16 +24,18 @@ type Store = {
   clearSessionNotice: () => void;
   addToCart: (service: ServiceItem) => void;
   clearCart: () => void;
+  toggleFavoriteTailor: (tailorId: string) => void;
 };
 
 export const useAppStore = create<Store>()(persist((set) => ({
   cart: [],
   language: "en",
   hasSelectedLanguage: false,
+  favoriteTailorIds: [],
   setSession: (token, user, refreshToken) => set({ token, user, refreshToken, sessionNotice: undefined }),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
-  signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [] }),
+  signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [], favoriteTailorIds: [] }),
   invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [], sessionNotice }),
   clearSessionNotice: () => set({ sessionNotice: undefined }),
   addToCart: (service) =>
@@ -43,9 +46,24 @@ export const useAppStore = create<Store>()(persist((set) => ({
       }
       return { cart: [...state.cart, { service, quantity: 1 }] };
     }),
-  clearCart: () => set({ cart: [] })
+  clearCart: () => set({ cart: [] }),
+  toggleFavoriteTailor: (tailorId) =>
+    set((state) => {
+      const ids = state.favoriteTailorIds ?? [];
+      const nextIds = ids.includes(tailorId)
+        ? ids.filter((id) => id !== tailorId)
+        : [...ids, tailorId];
+      return { favoriteTailorIds: nextIds };
+    })
 }), {
   name: "darzi-customer-session",
   storage: createJSONStorage(() => AsyncStorage),
-  partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage })
+  partialize: (state) => ({
+    token: state.token,
+    refreshToken: state.refreshToken,
+    user: state.user,
+    language: state.language,
+    hasSelectedLanguage: state.hasSelectedLanguage,
+    favoriteTailorIds: state.favoriteTailorIds
+  })
 }));

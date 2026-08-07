@@ -68,7 +68,7 @@ const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const DANGER = "#dc2626";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
-const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
+const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 10;
 
 type PullToRefreshState = {
   refreshing: boolean;
@@ -148,7 +148,7 @@ type MeResponse = {
   role: string;
   deliveryProfile?: DeliveryProfile;
 };
-type SupportScreen = "help" | "chat" | "call" | "email" | "faq" | "privacy" | "terms" | "safety" | "version" | "about" | "support_center" | "requests";
+type SupportScreen = "help" | "chat" | "call" | "email" | "faq" | "privacy" | "terms" | "safety" | "version" | "about" | "support_center" | "requests" | "bug";
 
 type Props = {
   me?: MeResponse;
@@ -400,7 +400,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
 
   return withProfileRefresh(
     <View style={styles.root}>
-      <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.root} contentContainerStyle={[styles.content, { paddingTop: 10 }]} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
         <View style={styles.avatar}>
           <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)} style={styles.avatarImage} />
@@ -467,27 +467,35 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               <InfoRow icon="options-outline" title="Delivery Type" value={profile?.deliveryType || "PICKUP"} styles={styles} />
             </View>
 
-            <View style={styles.requestCard}>
+                        <View style={styles.requestCard}>
               <View style={styles.requestHero}>
-                <View style={styles.requestIcon}><Ionicons name="car-sport-outline" size={22} color={BRAND_ORANGE} /></View>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="car-sport-outline" size={20} color={BRAND_ORANGE} />
+                </View>
                 <View style={styles.rowMain}>
-                  <Text style={styles.requestTitle}>Request vehicle update</Text>
-                  <Text style={styles.requestSubtitle}>Admin verification required</Text>
+                  <Text style={styles.requestTitle}>Update Vehicle Details</Text>
+                  <Text style={[styles.requestSubtitle, { color: BRAND_ORANGE }]}>Changes require admin approval</Text>
                 </View>
               </View>
-              <Text style={styles.requestCopy}>Describe the new vehicle number, model, RC or registration update. Your current vehicle stays active until approval.</Text>
+              <Text style={styles.requestCopy}>Need to change your vehicle details? Tell us what you'd like to update. Our team will review your request, and your current vehicle will remain active until it's approved.</Text>
               <View style={styles.inputBlock}>
                 <TextInput
-                  style={[styles.input, styles.requestInput]}
+                  style={[styles.input, styles.requestInput, { minHeight: 90, textAlignVertical: "top" }]}
                   value={vehicleChangeRequest}
-                  onChangeText={setVehicleChangeRequest}
-                  placeholder="New vehicle details, registration request..."
+                  onChangeText={(val) => val.length <= 500 && setVehicleChangeRequest(val)}
+                  placeholder="Describe the changes you'd like to make..."
                   placeholderTextColor="#9aa6b8"
                   multiline
                 />
+                <Text style={{ color: "#64748b", fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 4 }}>{vehicleChangeRequest.length}/500</Text>
               </View>
-              <Pressable style={styles.primaryButton} onPress={submitVehicleChangeRequest} disabled={submittingVehicleChange}>
-                {submittingVehicleChange ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Request</Text>}
+              <Pressable style={[styles.primaryButton, { flexDirection: "row", gap: 8 }]} onPress={submitVehicleChangeRequest} disabled={submittingVehicleChange}>
+                {submittingVehicleChange ? <ActivityIndicator color="#111111" /> : (
+                  <>
+                    <Ionicons name="paper-plane-outline" size={17} color="#111111" />
+                    <Text style={styles.primaryButtonText}>Submit Request</Text>
+                  </>
+                )}
               </Pressable>
             </View>
           </ScrollView>
@@ -551,8 +559,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Section>
 
       <Section title={t(language, "preferences")} icon="options-outline" styles={styles}>
-        <SwitchRow title={t(language, "goOnline")} copy={savingAvailability ? t(language, "updating") : t(language, "receivePickupDeliveryRequests")} value={available} onValueChange={updateAvailability} styles={styles} noBorder />
-        <SwitchRow title={t(language, "pushNotifications")} copy={t(language, "headsUpAlertsForNewJobs")} value={preferences.notifications} onValueChange={(value) => setPreferences((current) => ({ ...current, notifications: value }))} styles={styles} />
+        <SwitchRow title={t(language, "pushNotifications")} copy={t(language, "headsUpAlertsForNewJobs")} value={preferences.notifications} onValueChange={(value) => setPreferences((current) => ({ ...current, notifications: value }))} styles={styles} noBorder />
         <SwitchRow title={t(language, "soundNotifications")} copy={t(language, "playDeliverySounds")} value={preferences.sound} onValueChange={(value) => setPreferences((current) => ({ ...current, sound: value }))} styles={styles} />
         <SwitchRow title={t(language, "vibration")} copy={t(language, "vibrateOnUrgentTasks")} value={preferences.vibration} onValueChange={(value) => setPreferences((current) => ({ ...current, vibration: value }))} styles={styles} />
       </Section>
@@ -560,9 +567,10 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
         <LanguageChoiceRow language={language} onChange={handleLanguageChange} />
       </Section>
 
-      <Section title={t(language, "support")} icon="help-circle-outline" styles={styles}>
+            <Section title={t(language, "support")} icon="help-circle-outline" styles={styles}>
         <InfoRow icon="help-buoy-outline" title={t(language, "helpCenter")} value={language === "hi" ? "डिलीवरी प्रक्रिया और जानकारी" : "Delivery workflows and details"} styles={styles} onPress={() => setSupportScreen("help")} noBorder />
         <InfoRow icon="chatbubble-outline" title={t(language, "supportCenter")} value={language === "hi" ? "चैट, कॉल या अकाउंट बदलाव के लिए सहायता लें" : "Chat, call, or request account updates"} styles={styles} onPress={() => setSupportScreen("support_center")} />
+        <InfoRow icon="bug-outline" title="Report a Bug" value="Found something not working? Let us know and help us improve." styles={styles} onPress={() => setSupportScreen("bug")} />
       </Section>
 
       <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
@@ -593,53 +601,63 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
         <DeliverySupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} socket={socket} />
       ) : supportScreen === "requests" ? (
         <DeliveryAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
+      ) : supportScreen === "bug" ? (
+        <DeliveryReportBugScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen ? (
-        <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
+        <SupportDetailScreen screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests" | "bug">} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} setSupportScreen={setSupportScreen} />
       ) : null}
     </Modal>
 
-    <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => !submittingDeletion && setShowDeleteModal(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
-        <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
-          <View style={{ alignItems: "center", marginBottom: 20 }}>
-            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
-              <Ionicons name="trash-outline" size={28} color="#ef4444" />
+        <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => !submittingDeletion && setShowDeleteModal(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => !submittingDeletion && setShowDeleteModal(false)}>
+        <Pressable style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: 24, width: "100%", maxWidth: 340 }}>
+          <View style={{ alignItems: "center", marginBottom: 16 }}>
+            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fef2f2", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+              <Ionicons name="trash" size={28} color="#dc2626" />
             </View>
-            <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>{language === "hi" ? "अकाउंट हटाने का अनुरोध?" : "Request account deletion?"}</Text>
-            <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{language === "hi" ? "आपका अनुरोध एडमिन को भेजा जाएगा। मंजूरी मिलने तक अकाउंट चालू रहेगा।" : "Your request will be sent to admin. Your account remains active until it is approved."}</Text>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: "#0f172a", marginBottom: 8, textAlign: "center" }}>{language === "hi" ? "अकाउंट हटाने का अनुरोध?" : "Request account deletion?"}</Text>
+            <Text style={{ fontSize: 13, color: "#64748b", textAlign: "center", lineHeight: 18, paddingHorizontal: 4 }}>{language === "hi" ? "आपका अनुरोध एडमिन को भेजा जाएगा। मंजूरी मिलने तक अकाउंट चालू रहेगा।" : "Your request will be sent to our team for review. Your account will remain active until it is approved."}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff1f2", borderColor: "#ffe4e6", borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginTop: 14 }}>
+              <Ionicons name="shield-checkmark" size={18} color="#e11d48" />
+              <Text style={{ color: "#9f1239", fontSize: 12, fontWeight: "600", lineHeight: 17, flex: 1 }}>{language === "hi" ? "यदि अनुमोदित किया जाता है, तो आपका सारा डेटा स्थायी रूप से हटा दिया जाएगा और इसे पुनर्प्राप्त नहीं किया जा सकता है।" : "If approved, all your data will be permanently deleted and cannot be recovered."}</Text>
+            </View>
           </View>
-          <Pressable style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
-            {submittingDeletion ? <ActivityIndicator color="#ffffff" /> : <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{language === "hi" ? "हाँ, अनुरोध भेजें" : "Yes, submit request"}</Text>}
+          <Pressable style={{ backgroundColor: "#dc2626", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginBottom: 10 }} onPress={submitAccountDeletionRequest} disabled={submittingDeletion}>
+            {submittingDeletion ? <ActivityIndicator color="#ffffff" /> : <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 15 }}>{language === "hi" ? "हाँ, अनुरोध भेजें" : "Yes, submit request"}</Text>}
           </Pressable>
-          <Pressable style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
-            <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
+          <Pressable style={{ backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 12, paddingVertical: 15, alignItems: "center" }} onPress={() => setShowDeleteModal(false)} disabled={submittingDeletion}>
+            <Text style={{ color: "#475569", fontWeight: "800", fontSize: 15 }}>{t(language, "cancel")}</Text>
           </Pressable>
         </Pressable>
       </Pressable>
     </Modal>
 
     {/* Custom Logout Confirmation Modal */}
-    <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => setShowLogoutModal(false)}>
-        <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
-          <View style={{ alignItems: "center", marginBottom: 20 }}>
-            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
-              <Ionicons name="log-out-outline" size={28} color="#ef4444" />
+        <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 }} onPress={() => setShowLogoutModal(false)}>
+        <Pressable style={{ backgroundColor: "#ffffff", borderRadius: 24, padding: 24, width: "100%", maxWidth: 340 }}>
+          <View style={{ alignItems: "center", marginBottom: 16 }}>
+            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fef2f2", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+              <Ionicons name="log-out" size={28} color="#dc2626" />
             </View>
-            <Text style={{ fontSize: 20, fontWeight: "900", color: BRAND_DEEP, marginBottom: 8 }}>{t(language, "signOut")}</Text>
-            <Text style={{ fontSize: 14, color: "#64748b", textAlign: "center", lineHeight: 20 }}>{t(language, "logoutConfirm")}</Text>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: "#0f172a", marginBottom: 8, textAlign: "center" }}>{t(language, "signOut")}</Text>
+            <Text style={{ fontSize: 13, color: "#64748b", textAlign: "center", lineHeight: 18, paddingHorizontal: 4 }}>{language === "hi" ? "आप अपने पंजीकृत मोबाइल नंबर का उपयोग करके किसी भी समय फिर से साइन इन कर सकते हैं।" : "You will be signed out of your Darji account on this device."}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff1f2", borderColor: "#ffe4e6", borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginTop: 14 }}>
+              <Ionicons name="shield-checkmark" size={18} color="#e11d48" />
+              <Text style={{ color: "#9f1239", fontSize: 12, fontWeight: "600", lineHeight: 17, flex: 1 }}>{language === "hi" ? "आप अपने पंजीकृत मोबाइल नंबर का उपयोग करके किसी भी समय फिर से साइन इन कर सकते हैं।" : "You can sign in again anytime using your registered mobile number."}</Text>
+            </View>
           </View>
           <Pressable
-            style={{ backgroundColor: "#ef4444", borderRadius: 14, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
+            style={{ backgroundColor: "#dc2626", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginBottom: 10 }}
             onPress={() => { setShowLogoutModal(false); signOut(); }}
           >
-            <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16 }}>{t(language, "yesSignOut")}</Text>
+            <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 15 }}>{t(language, "yesSignOut")}</Text>
           </Pressable>
           <Pressable
-            style={{ backgroundColor: "#f1f5f9", borderRadius: 14, paddingVertical: 15, alignItems: "center" }}
+            style={{ backgroundColor: "#f1f5f9", borderRadius: 12, paddingVertical: 15, alignItems: "center" }}
             onPress={() => setShowLogoutModal(false)}
           >
-            <Text style={{ color: BRAND_DEEP, fontWeight: "700", fontSize: 16 }}>{t(language, "cancel")}</Text>
+            <Text style={{ color: "#475569", fontWeight: "800", fontSize: 15 }}>{t(language, "cancel")}</Text>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -732,7 +750,7 @@ function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { ic
   );
 }
 
-const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests">, { title: string; subtitle: string; icon: IconName; copy: string; action?: { label: string; run: () => void }; points: string[] }> = {
+const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests" | "bug">, { title: string; subtitle: string; icon: IconName; copy: string; action?: { label: string; run: () => void }; points: string[] }> = {
   help: {
     title: "Help Center",
     subtitle: "Delivery workflow support",
@@ -812,10 +830,14 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   }
 };
 
-function SupportDetailScreen({ screen, styles, palette, onBack }: { screen: Exclude<SupportScreen, "support_center" | "requests">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
+function SupportDetailScreen({ screen, styles, palette, onBack, setSupportScreen }: { screen: Exclude<SupportScreen, "support_center" | "requests" | "bug">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; setSupportScreen?: (screen: SupportScreen | undefined) => void }) {
+  if (screen === "help") {
+    return <HelpCenterFAQScreen styles={styles} palette={palette} onBack={onBack} onContactSupport={() => setSupportScreen?.("chat")} />;
+  }
+
   const detail = supportDetails[screen];
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.root} contentContainerStyle={[styles.content, { paddingTop: 10 }]} showsVerticalScrollIndicator={false}>
       <View style={styles.detailHeader}>
         <Pressable style={styles.backButton} onPress={onBack}>
           <Ionicons name="chevron-back" size={22} color={palette.text} />
@@ -1168,7 +1190,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 4 : SCREEN_TOP_PADDING }}>
+    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: 10 }}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 18 }}>
@@ -1183,12 +1205,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
                   <Text style={styles.meta}>Get help from our support team</Text>
                 </View>
               </View>
-              <Pressable 
-                style={styles.backButton} 
-                onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
-              >
-                <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
-              </Pressable>
+
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
@@ -1303,12 +1320,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
                   <Text style={styles.meta}>Fill out details for support</Text>
                 </View>
               </View>
-              <Pressable 
-                style={styles.backButton} 
-                onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
-              >
-                <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
-              </Pressable>
+
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
@@ -2033,4 +2045,342 @@ function createStyles(palette: typeof lightPalette) {
     bulletText: { flex: 1, color: palette.subtext, fontSize: 13, lineHeight: 20, fontWeight: "700" },
     dangerText: { color: DANGER }
   });
+}
+
+function HelpCenterFAQScreen({ styles, palette, onBack, onContactSupport }: { styles: any; palette: any; onBack: () => void; onContactSupport: () => void }) {
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+  const faqs = [
+    {
+      q: "How do I accept a delivery job?",
+      a: "Go online from the Home tab. When a batch or delivery request is offered, tap it to see the pickup location and estimated earnings. Tap 'Accept' before the timer expires to lock it."
+    },
+    {
+      q: "What should I do before picking up an order?",
+      a: "Reach the pickup location on time. Check the items against the checklist, confirm that package photos are uploaded, and obtain the pickup OTP from the sender before receiving the package."
+    },
+    {
+      q: "How do I update my pickup or drop status?",
+      a: "Use the active navigation routes shown in the app. Swipe the status bars or press the action buttons (e.g. 'Arrived at Pickup', 'OTP Verified', 'Picked Up', 'Delivered') to log your progress."
+    },
+    {
+      q: "What if I face an issue during delivery?",
+      a: "If you face any vehicle breakdown, customer dispute, or route blockage, call Call Support (+91 98765 00000) or open a support chat immediately for admin assistance."
+    },
+    {
+      q: "How do I contact the customer?",
+      a: "Go to the active delivery task details page. You will find a call icon next to the customer's or tailor's name. Tap it to dial their registered mobile number."
+    },
+    {
+      q: "What is route mode and when should I use it?",
+      a: "Route mode enables real-time GPS tracking of your location to assist tailor and customer notifications. Always keep route mode enabled during active pickups and deliveries."
+    },
+    {
+      q: "How do I complete a delivery?",
+      a: "Verify the order reference code. Ask the recipient for the delivery OTP and enter it in the app. If required, upload a clear handoff proof photo to finish."
+    },
+    {
+      q: "What if OTP is not received?",
+      a: "Ask the user to check their network connection. If it still doesn't arrive, wait for the timer and tap 'Resend OTP'. If needed, contact Call Support to verify the handoff manually."
+    }
+  ];
+
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={[styles.content, { paddingBottom: 40 }]} showsVerticalScrollIndicator={false}>
+      <View style={styles.detailHeader}>
+        <Pressable style={styles.backButton} onPress={onBack}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>Help Center</Text>
+          <Text style={styles.meta}>Delivery workflow support</Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#fff7ed", alignItems: "center", justifyContent: "center", alignSelf: "center", marginBottom: 14 }}>
+          <Ionicons name="earth-outline" size={32} color={BRAND_ORANGE} />
+        </View>
+        <Text style={[styles.detailCopy, { textAlign: "center", fontSize: 14, lineHeight: 22 }]}>
+          This section helps you understand the entire delivery process on Darji — from accepting jobs to completing deliveries successfully.
+        </Text>
+        
+        <View style={{ gap: 8, marginTop: 12 }}>
+          {[
+            "Learn the correct steps for smooth deliveries.",
+            "Follow best practices to avoid mistakes.",
+            "Get quick answers to your common questions."
+          ].map((pt) => (
+            <View key={pt} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: BRAND_ORANGE }} />
+              <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600" }}>{pt}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 22, marginBottom: 12 }}>
+        <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2 }} />
+        <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>COMMON QUESTIONS</Text>
+      </View>
+
+      <View style={{ gap: 10 }}>
+        {faqs.map((faq, index) => {
+          const isExpanded = expandedIndex === index;
+          return (
+            <View key={faq.q} style={{ backgroundColor: palette.card, borderRadius: 14, borderWidth: 1, borderColor: palette.cardBorder, overflow: "hidden" }}>
+              <Pressable
+                onPress={() => setExpandedIndex(isExpanded ? null : index)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14 }}
+              >
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="help-circle-outline" size={18} color={BRAND_ORANGE} />
+                </View>
+                <Text style={{ flex: 1, color: palette.text, fontSize: 13, fontWeight: "800", lineHeight: 18 }}>{faq.q}</Text>
+                <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={16} color={palette.subtext} />
+              </Pressable>
+              {isExpanded && (
+                <View style={{ borderTopWidth: 1, borderTopColor: palette.cardBorder, padding: 14, backgroundColor: palette.background }}>
+                  <Text style={{ color: palette.text, fontSize: 13, fontWeight: "600", lineHeight: 20 }}>{faq.a}</Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      <Pressable
+        onPress={onContactSupport}
+        style={{
+          marginTop: 24,
+          backgroundColor: palette.card,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: palette.cardBorder,
+          padding: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 14
+        }}
+      >
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="chatbubbles-outline" size={20} color={BRAND_ORANGE} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: palette.text, fontSize: 15, fontWeight: "800" }}>Still need help?</Text>
+          <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Contact our support team anytime</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+function DeliveryReportBugScreen({
+  setScreen,
+  palette,
+  styles,
+  token,
+  showDialog
+}: {
+  setScreen: (screen: SupportScreen | undefined) => void;
+  palette: any;
+  styles: any;
+  token?: string;
+  showDialog: (dialog: any) => void;
+}) {
+  const [bugTitle, setBugTitle] = useState("");
+  const [bugDescription, setBugDescription] = useState("");
+  const [bugScreenshot, setBugScreenshot] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function pickBugScreenshot() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to upload screenshots. Darji receives only the screenshot you choose, and your information stays safe.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      quality: 0.8
+    });
+    if (result.canceled || !result.assets.length) return;
+    try {
+      setUploading(true);
+      const asset = result.assets[0];
+      const uploaded = await uploadDeliveryVerificationDocs([{ uri: asset.uri, name: asset.fileName || "screenshot.jpg" }], token);
+      if (uploaded.length) {
+        setBugScreenshot(uploaded[0].url);
+      }
+    } catch (e) {
+      Alert.alert("Upload failed", "Could not upload the screenshot.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSubmitBug() {
+    if (bugTitle.trim().length < 3) {
+      Alert.alert("Title too short", "Please write a descriptive title.");
+      return;
+    }
+    if (bugDescription.trim().length < 10) {
+      Alert.alert("Description too short", "Please write a detailed description (min 10 characters).");
+      return;
+    }
+    if (!token) return;
+    try {
+      setSending(true);
+      const deviceInfo = `Device: ${Platform.OS} (Version ${Platform.Version}), TV: ${Platform.isTV}`;
+      await api("/support/bug-reports", {
+        method: "POST",
+        body: JSON.stringify({
+          title: bugTitle.trim(),
+          description: bugDescription.trim(),
+          screenshot: bugScreenshot,
+          deviceInfo,
+          appVersion: "0.1.0"
+        })
+      }, token);
+      Alert.alert("Bug Reported", "Thank you! Our engineering team has received your bug report.");
+      setBugTitle("");
+      setBugDescription("");
+      setBugScreenshot(null);
+      setScreen(undefined);
+    } catch (e) {
+      Alert.alert("Failed", "Could not submit bug report.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const bugStyles = {
+    supportPage: { flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING },
+    supportFormContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 24 },
+    supportIntro: { color: palette.subtext, fontSize: 13, fontWeight: "600", lineHeight: 20 },
+    supportLabel: { color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 6 },
+    supportFieldHint: { color: palette.subtext, fontSize: 12, fontWeight: "600", marginBottom: 8 },
+    supportSingleInput: { height: 48, borderRadius: 12, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card, paddingHorizontal: 14, color: palette.text, fontSize: 13, fontWeight: "800" },
+    supportDescriptionInput: { minHeight: 112, borderRadius: 13, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card, paddingHorizontal: 14, paddingVertical: 13, color: palette.text, fontSize: 13, fontWeight: "800", lineHeight: 19, textAlignVertical: "top" },
+    supportCounter: { color: palette.subtext, fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 6, marginRight: 12 },
+    bugUploadButton: { width: "100%", minHeight: 56, borderRadius: 13, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.card, flexDirection: "row", gap: 8 },
+    bugSubmitButton: { height: 50, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 10, marginTop: 12, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 },
+    bugSubmitButtonDisabled: { opacity: 0.6 },
+    bugInfoCard: { borderRadius: 10, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card, paddingHorizontal: 12 },
+    bugInfoRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 },
+    bugInfoRowBorder: { borderTopWidth: 1, borderTopColor: palette.cardBorder },
+    bugInfoIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: (palette.card === "#0a1322" ? "#0f172a" : "#f1f5f9"), alignItems: "center", justifyContent: "center" },
+    bugInfoLabel: { flex: 1, minWidth: 0, color: palette.text, fontSize: 11, fontWeight: "900" },
+    bugInfoValue: { color: palette.text, fontSize: 10, fontWeight: "900" }
+  } as const;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
+        <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>Report a Bug</Text>
+          <Text style={styles.meta}>Let us know if something isn't working</Text>
+        </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={bugStyles.supportFormContent}>
+        <Text style={bugStyles.supportIntro}>Found something that's not working right? Let us know and we'll fix it.</Text>
+        
+        <View>
+          <Text style={bugStyles.supportLabel}>Bug title</Text>
+          <Text style={bugStyles.supportFieldHint}>Give a short title for the issue</Text>
+          <TextInput
+            style={bugStyles.supportSingleInput}
+            value={bugTitle}
+            onChangeText={setBugTitle}
+            placeholder="Eg. App crashes on Orders page"
+            placeholderTextColor={palette.subtext}
+          />
+        </View>
+
+        <View>
+          <Text style={bugStyles.supportLabel}>What happened?</Text>
+          <Text style={bugStyles.supportFieldHint}>Describe the issue in simple words</Text>
+          <TextInput
+            style={bugStyles.supportDescriptionInput}
+            value={bugDescription}
+            onChangeText={(value) => value.length <= 500 && setBugDescription(value)}
+            placeholder="Tell us what went wrong and how we can see it"
+            placeholderTextColor={palette.subtext}
+            multiline
+          />
+          <Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "800", textAlign: "right", marginTop: 4 }}>{bugDescription.length}/500</Text>
+        </View>
+
+        <View>
+          <Text style={bugStyles.supportLabel}>Add screenshot (optional)</Text>
+          <Text style={bugStyles.supportFieldHint}>You can add a screenshot to help us understand</Text>
+          {bugScreenshot ? (
+            <View style={{ width: 140, height: 140, borderRadius: 14, borderWidth: 1, borderColor: palette.cardBorder, overflow: "hidden", position: "relative" }}>
+              <Image source={{ uri: bugScreenshot }} style={{ width: "100%", height: "100%" }} />
+              <Pressable 
+                style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}
+                onPress={() => setBugScreenshot(null)}
+              >
+                <Ionicons name="close" size={16} color="#ffffff" />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable 
+              style={bugStyles.bugUploadButton}
+              onPress={pickBugScreenshot}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator color={BRAND_ORANGE} />
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={20} color={BRAND_ORANGE} />
+                  <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" }}>Upload screenshot</Text>
+                </>
+              )}
+            </Pressable>
+          )}
+        </View>
+
+        <View style={bugStyles.bugInfoCard}>
+          <View style={bugStyles.bugInfoRow}>
+            <View style={bugStyles.bugInfoIcon}>
+              <Ionicons name="phone-portrait-outline" size={14} color="#8fa0b8" />
+            </View>
+            <Text style={bugStyles.bugInfoLabel}>Your device</Text>
+            <Text style={bugStyles.bugInfoValue}>{Platform.OS} {Platform.Version}</Text>
+          </View>
+          <View style={[bugStyles.bugInfoRow, bugStyles.bugInfoRowBorder]}>
+            <View style={bugStyles.bugInfoIcon}>
+              <Ionicons name="information-circle-outline" size={14} color="#8fa0b8" />
+            </View>
+            <Text style={bugStyles.bugInfoLabel}>App version</Text>
+            <Text style={bugStyles.bugInfoValue}>0.1.0 (Dev Build)</Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={[
+            bugStyles.bugSubmitButton,
+            (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && bugStyles.bugSubmitButtonDisabled
+          ]}
+          disabled={bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending}
+          onPress={handleSubmitBug}
+        >
+          {sending ? <ActivityIndicator color="#111111" /> : (
+            <>
+              <Ionicons name="bug-outline" size={17} color="#111111" />
+              <Text numberOfLines={1} style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Submit Bug Report</Text>
+            </>
+          )}
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
 }

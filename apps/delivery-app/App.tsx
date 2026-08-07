@@ -846,12 +846,28 @@ function DesignedDialog({ dialog, onClose }: { dialog?: DialogState; onClose: ()
   );
 }
 
-function Stat({ label, value, tone = "orange" }: { label: string; value: string; tone?: "orange" | "green" | "blue" }) {
+function Stat({ label, value, tone = "orange", icon, onPress }: { label: string; value: string; tone?: "orange" | "green" | "blue"; icon?: keyof typeof Ionicons.glyphMap; onPress?: () => void }) {
+  let bgColor = "#fff7ed";
+  let iconColor = BRAND_ORANGE;
+  if (tone === "green") {
+    bgColor = "#f0fdf4";
+    iconColor = "#22c55e";
+  } else if (tone === "blue") {
+    bgColor = "#eff6ff";
+    iconColor = "#3b82f6";
+  }
   return (
-    <View style={styles.statCard}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={[styles.statValue, tone === "green" && styles.greenText, tone === "blue" && styles.blueText]}>{value}</Text>
-    </View>
+    <Pressable onPress={onPress} disabled={!onPress} style={[styles.statCard, { flex: 1, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14 }]}>
+      {icon ? (
+        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: bgColor, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name={icon} size={20} color={iconColor} />
+        </View>
+      ) : null}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.statLabel}>{label}</Text>
+        <Text style={[styles.statValue, tone === "green" && styles.greenText, tone === "blue" && styles.blueText, { marginTop: 2 }]}>{value}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -1471,8 +1487,28 @@ function OnboardingScreen({
           <View style={[styles.progressFill, { width: `${((stepIndex + 1) / onboardingSteps.length) * 100}%` }]} />
         </View>
         <TrustBanner
-          title={step.key === "review" ? localize(language, "Almost done!", "लगभग हो गया!") : localize(language, "Your privacy, our priority!", "आपकी गोपनीयता हमारी प्राथमिकता!")}
-          copy={localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")}
+          title={
+            step.key === "personal" ? localize(language, "Your information is safe with Darji.", "आपकी जानकारी Darji के साथ सुरक्षित है।") :
+            step.key === "identity" ? localize(language, "Why we ask for Aadhaar or PAN?", "हम आधार या पैन क्यों मांगते हैं?") :
+            step.key === "license" ? localize(language, "Why we need your driving license?", "हमें आपके ड्राइविंग लाइसेंस की आवश्यकता क्यों है?") :
+            step.key === "vehicle" ? localize(language, "We collect these details to verify your vehicle and ensure safe deliveries on Darji.", "हम आपके वाहन को सत्यापित करने और Darji पर सुरक्षित डिलीवरी सुनिश्चित करने के लिए ये विवरण एकत्र करते हैं।") :
+            step.key === "bank" ? localize(language, "Safe payouts, always!", "सुरक्षित भुगतान, हमेशा!") :
+            step.key === "preferences" ? localize(language, "Your privacy, our priority!", "आपकी गोपनीयता, हमारी प्राथमिकता!") :
+            step.key === "tutorial" ? localize(language, "We've got your back!", "हम आपके साथ हैं!") :
+            step.key === "review" ? localize(language, "Almost done!", "लगभग हो गया!") :
+            localize(language, "Your privacy, our priority!", "आपकी गोपनीयता हमारी प्राथमिकता!")
+          }
+          copy={
+            step.key === "personal" ? localize(language, "We keep it private and use it only for verification.", "हम इसे निजी रखते हैं और केवल सत्यापन के लिए उपयोग करते हैं।") :
+            step.key === "identity" ? localize(language, "It helps us verify your identity, prevent fraud and keep the Darji platform safe and trusted.", "यह हमें आपकी पहचान सत्यापित करने, धोखाधड़ी रोकने और Darji प्लेटफ़ॉर्म को सुरक्षित और विश्वसनीय रखने में मदद करता है।") :
+            step.key === "license" ? localize(language, "We use it to verify that you are a valid driver and can help keep the platform safe.", "हम इसका उपयोग यह सत्यापित करने के लिए करते हैं कि आप एक वैध ड्राइवर हैं और प्लेटफ़ॉर्म को सुरक्षित रखने में मदद कर सकते हैं।") :
+            step.key === "vehicle" ? localize(language, "All information is secure and used only for verification.", "सभी जानकारी सुरक्षित है और केवल सत्यापन के लिए उपयोग की जाती है।") :
+            step.key === "bank" ? localize(language, "We use your bank details to send your earnings securely to your account. Your information is private and 100% secure.", "हम आपकी कमाई को आपके खाते में सुरक्षित रूप से भेजने के लिए आपके बैंक विवरण का उपयोग करते हैं। आपकी जानकारी निजी और 100% सुरक्षित है।") :
+            step.key === "preferences" ? localize(language, "We keep your information safe and use it only to match you with the best delivery requests. You're in control, always.", "हम आपकी जानकारी सुरक्षित रखते हैं और इसका उपयोग केवल आपको सर्वोत्तम डिलीवरी अनुरोधों से मिलाने के लिए करते हैं। आप हमेशा नियंत्रण में हैं।") :
+            step.key === "tutorial" ? localize(language, "Your information stays safe with Darji. We use it only to help you deliver better.", "का विवरण Darji के साथ सुरक्षित रहता है। हम इसका उपयोग केवल आपको बेहतर डिलीवरी करने में मदद करने के लिए करते हैं।") :
+            step.key === "review" ? localize(language, "We've checked your details. Everything looks good. Submit for admin approval to start delivering.", "हमने आपके विवरण की जांच कर ली है। सब कुछ अच्छा लग रहा है। डिलीवरी शुरू करने के लिए एडमिन की मंजूरी के लिए जमा करें।") :
+            localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")
+          }
         />
 
         {step.key === "personal" ? (
@@ -1697,7 +1733,8 @@ function HomeScreen({
   rating,
   online,
   onToggleOnline,
-  onOpenBatch
+  onOpenBatch,
+  onTabChange
 }: {
   activeBatch?: {
     batchId: string;
@@ -1716,18 +1753,45 @@ function HomeScreen({
   online: boolean;
   onToggleOnline: (value: boolean) => void;
   onOpenBatch: (batchId: string) => void;
+  onTabChange?: (tab: Tab) => void;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header
         right={
-          <View style={styles.onlineBlock}>
-            <Switch value={online} onValueChange={onToggleOnline} />
-            <Text style={[styles.onlineText, online && styles.greenText]}>{online ? "Online" : "Offline"}</Text>
-          </View>
+          <Pressable
+            onPress={() => onToggleOnline(!online)}
+            style={{
+              width: 72,
+              height: 32,
+              backgroundColor: online ? "#22c55e" : "#94a3b8",
+              borderRadius: 16,
+              padding: 3,
+              justifyContent: "center"
+            }}
+          >
+            <View
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 13,
+                backgroundColor: "#ffffff",
+                alignSelf: online ? "flex-end" : "flex-start",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.2,
+                shadowRadius: 1.5,
+                elevation: 2,
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: online ? "#22c55e" : "#94a3b8" }} />
+            </View>
+          </Pressable>
         }
-        subtitle="Automatic batch routes assigned to your operational area"
-        title="Delivery Hub"
+        subtitle={"Your work, your earnings.\nWe've got your back."}
+        title="Your Delivery Home 🏠"
       />
       <View style={styles.heroCard}>
         <View style={styles.flexOne}>
@@ -1740,12 +1804,12 @@ function HomeScreen({
         </View>
       </View>
       <View style={styles.statsRow}>
-        <Stat label="Today" value={`Rs ${todayEarnings.toFixed(0)}`} />
-        <Stat label="Completed" value={String(completedJobs)} tone="green" />
+        <Stat label="Today's Earnings" value={`Rs ${todayEarnings.toFixed(0)}`} icon="wallet-outline" onPress={() => onTabChange?.("earnings")} />
+        <Stat label="Completed" value={String(completedJobs)} tone="green" icon="checkmark-circle-outline" onPress={() => onTabChange?.("orders")} />
       </View>
       <View style={styles.statsRow}>
-        <Stat label="Rating" value={rating} tone="blue" />
-        <Stat label="Wallet" value={`Rs ${totalEarnings.toFixed(0)}`} />
+        <Stat label="Rating" value={rating} tone="blue" icon="star-outline" onPress={() => onTabChange?.("profile")} />
+        <Stat label="Wallet Balance" value={`Rs ${totalEarnings.toFixed(0)}`} icon="wallet-outline" onPress={() => onTabChange?.("earnings")} />
       </View>
       {activeBatch ? (() => {
         const activeRequestsCount = activeBatch.requests.filter(r => r.taskStatus !== "delivered" && r.taskStatus !== "cancelled").length;
@@ -1798,9 +1862,31 @@ function HomeScreen({
       )}
       <Card>
         <Text style={styles.cardTitle}>Device health</Text>
-        <StatusRow label="Google Maps" value="Ready" />
-        <StatusRow label="Background location" value={online ? "Active" : "Paused"} />
-        <StatusRow label="Notifications" value="Enabled when allowed" />
+        <View style={{ gap: 12, marginTop: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: "#f1f5f9", paddingBottom: 10 }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#eff6ff", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="logo-google" size={16} color="#3b82f6" />
+            </View>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "600", color: "#1e293b" }}>Google Maps</Text>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: "#22c55e" }}>Ready</Text>
+          </View>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: "#f1f5f9", paddingBottom: 10 }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: online ? "#f0fdf4" : "#fef2f2", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="location-outline" size={16} color={online ? "#22c55e" : "#ef4444"} />
+            </View>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "600", color: "#1e293b" }}>Background location</Text>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: online ? "#22c55e" : "#ef4444" }}>{online ? "Active" : "Paused"}</Text>
+          </View>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#fff7ed", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="notifications-outline" size={16} color="#f97316" />
+            </View>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "600", color: "#1e293b" }}>Notifications</Text>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: "#22c55e" }}>Enabled</Text>
+          </View>
+        </View>
       </Card>
     </ScrollView>
   );
@@ -2087,6 +2173,85 @@ function BatchDetailsView({
   );
 }
 
+function QueueEmptyState({ queue }: { queue: "requested" | "accepted" | "history" | "cancelled" }) {
+  let title = "";
+  let copy = "";
+  let icon: keyof typeof Ionicons.glyphMap = "cube-outline";
+  let bgColor = "#fff7ed";
+  let iconColor = BRAND_ORANGE;
+  switch (queue) {
+    case "requested":
+      title = "No new batches";
+      copy = "New delivery batches will appear here. Accept a batch to start delivering.";
+      icon = "mail-open-outline";
+      bgColor = "#fff7ed";
+      iconColor = BRAND_ORANGE;
+      break;
+    case "accepted":
+      title = "No accepted batches";
+      copy = "You haven't accepted any batches yet. Once you accept, they will show up here.";
+      icon = "clipboard-outline";
+      bgColor = "#f0fdf4";
+      iconColor = "#22c55e";
+      break;
+    case "history":
+      title = "No completed batches";
+      copy = "Your completed delivery batches will appear here. Once you complete a batch, it will be saved in your history.";
+      icon = "time-outline";
+      bgColor = "#eff6ff";
+      iconColor = "#3b82f6";
+      break;
+    case "cancelled":
+      title = "No cancelled batches";
+      copy = "You don't have any cancelled batches. If a batch is cancelled, it will appear here with the reason.";
+      icon = "close-circle-outline";
+      bgColor = "#fef2f2";
+      iconColor = "#ef4444";
+      break;
+  }
+  return (
+    <View style={styles.emptyState}>
+      <View style={{ width: 140, height: 140, borderRadius: 70, backgroundColor: bgColor, alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+        <Ionicons name={icon} size={54} color={iconColor} />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.helperText}>{copy}</Text>
+    </View>
+  );
+}
+
+
+function getQueueTabStyle(item: "requested" | "accepted" | "history" | "cancelled", active: boolean) {
+  let bg = "#ffffff";
+  let border = "#e2e8f0";
+  let text = "#64748b";
+  
+  if (item === "requested") {
+    bg = active ? "#fff7ed" : "#fffaf0";
+    border = active ? "#f97316" : "#fed7aa";
+    text = "#ea580c";
+  } else if (item === "accepted") {
+    bg = active ? "#f0fdf4" : "#f7fee7";
+    border = active ? "#22c55e" : "#bbf7d0";
+    text = "#16a34a";
+  } else if (item === "history") {
+    bg = active ? "#eff6ff" : "#f0f9ff";
+    border = active ? "#3b82f6" : "#bfdbfe";
+    text = "#2563eb";
+  } else if (item === "cancelled") {
+    bg = active ? "#fef2f2" : "#fff5f5";
+    border = active ? "#ef4444" : "#fecaca";
+    text = "#dc2626";
+  }
+  
+  return {
+    backgroundColor: bg,
+    borderColor: border,
+    borderWidth: active ? 2 : 1,
+    textColor: text
+  };
+}
+
 function OrdersScreen({
   batches,
   onOpenBatch,
@@ -2148,23 +2313,54 @@ function OrdersScreen({
       }
       ListHeaderComponent={<>
         <PullRefreshReveal visible={pullToRefresh.refreshing} />
-        <Header subtitle={`${deliveryType || "PICKUP"} batch pickup and delivery workflow`} title="Delivery Batches" />
-        <View style={styles.segmentRow}>
-          {(["requested", "accepted", "history", "cancelled"] as const).map((item) => (
-            <Pressable key={item} style={[styles.segment, queue === item && styles.segmentActive, item === "cancelled" && queue === item && styles.cancelledSegmentActive]} onPress={() => setQueue(item)}>
-              <Ionicons
-                name={item === "requested" ? "briefcase-outline" : item === "accepted" ? "checkbox-outline" : item === "history" ? "time-outline" : "close-circle-outline"}
-                size={15}
-                color={item === "cancelled" && queue === item ? "#b91c1c" : queue === item ? BRAND_ORANGE : MUTED}
-              />
-              <Text style={[styles.segmentText, queue === item && styles.segmentTextActive, item === "cancelled" && queue === item && styles.cancelledSegmentText]}>
-                {item === "requested" ? `Requested${requestedCount ? ` (${requestedCount})` : ""}` : item === "accepted" ? `Accepted${acceptedCount ? ` (${acceptedCount})` : ""}` : item === "history" ? "History" : "Cancelled"}
-              </Text>
-            </Pressable>
-          ))}
+        <Header
+          subtitle={
+            queue === "requested" ? "View new delivery batches waiting for your response." :
+            queue === "accepted" ? "Batches you have accepted and are ready to deliver." :
+            queue === "history" ? "View your completed delivery batches and details." :
+            "View cancelled delivery batches and the reason."
+          }
+          title="Delivery Batches"
+        />
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 14 }}>
+          {(["requested", "accepted", "history", "cancelled"] as const).map((item) => {
+            const active = queue === item;
+            const styleConf = getQueueTabStyle(item, active);
+            const count = item === "requested" ? requestedCount : item === "accepted" ? acceptedCount : 0;
+            const labelText = item === "requested" ? `Requested${count ? ` (${count})` : ""}` :
+                              item === "accepted" ? `Accepted${count ? ` (${count})` : ""}` :
+                              item === "history" ? "History" : "Cancelled";
+            const iconName = item === "requested" ? "briefcase-outline" :
+                             item === "accepted" ? "checkbox-outline" :
+                             item === "history" ? "time-outline" : "close-circle-outline";
+            return (
+              <Pressable
+                key={item}
+                onPress={() => setQueue(item)}
+                style={{
+                  flex: 1,
+                  height: 38,
+                  borderRadius: 10,
+                  borderWidth: styleConf.borderWidth,
+                  borderColor: styleConf.borderColor,
+                  backgroundColor: styleConf.backgroundColor,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 4,
+                  paddingHorizontal: 2
+                }}
+              >
+                <Ionicons name={iconName} size={14} color={styleConf.textColor} />
+                <Text style={{ color: styleConf.textColor, fontSize: 11, fontWeight: "800" }} numberOfLines={1}>
+                  {labelText}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       </>}
-      ListEmptyComponent={<EmptyState title={`No ${queue} batches`} copy="Batches are automatically assigned to your area during scheduling rounds." />}
+      ListEmptyComponent={<QueueEmptyState queue={queue} />}
       renderItem={({ item }) => {
         const currentHour = getKolkataHour();
         let expectedRound = "ONE_PM";
@@ -3580,6 +3776,7 @@ function MainApp({
             rating={deliveryRating}
             todayEarnings={todayEarnings}
             totalEarnings={Number(me?.deliveryProfile?.totalEarnings ?? totalEarnings)}
+            onTabChange={(nextTab) => setTab(nextTab)}
           />
         ) : null}
         {tab === "orders" ? <OrdersScreen
@@ -3650,18 +3847,34 @@ function VerificationPendingScreen({
           <View style={styles.pendingBadge}>
             <Ionicons name={needsUpdate ? "alert-circle-outline" : "hourglass-outline"} size={32} color={BRAND_ORANGE} />
           </View>
-          <Text style={styles.pendingTitle}>{needsUpdate ? "Document reupload required" : "Verification under process"}</Text>
+          <Text style={styles.pendingTitle}>{needsUpdate ? "Document reupload required" : "Verification in Progress"}</Text>
           <Text style={styles.pendingCopy}>
             {needsUpdate
               ? rejectionReason ?? "Darji admin requested clearer documents. Open registration again and resubmit the details."
-              : "Your registration is complete. The app will stay locked until Darji admins verify this delivery partner account."}
+              : "Thank you for joining Darji! Our team is verifying your details. You'll be notified once your account is approved."}
           </Text>
         </View>
         <Card>
-          <StatusRow label="Partner" value={me?.name || "Delivery Partner"} />
-          <StatusRow label="Phone" value={me?.phone ? `+91 ${me.phone}` : "Pending"} />
-          <StatusRow label="Status" value={me?.deliveryProfile?.verificationStatus ?? "PENDING"} />
-          <StatusRow label="Submitted" value={submittedAt ? new Date(submittedAt).toLocaleString("en-IN") : "Just now"} />
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Partner</Text>
+            <Text style={styles.statusValue}>{me?.name || "Delivery Partner"}</Text>
+          </View>
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Phone</Text>
+            <Text style={styles.statusValue}>{me?.phone ? `+91 ${me.phone}` : "Pending"}</Text>
+          </View>
+          <View style={[styles.statusRow, { alignItems: "center" }]}>
+            <Text style={styles.statusLabel}>Status</Text>
+            <View style={{ backgroundColor: "#fff4dc", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 }}>
+              <Text style={{ color: BRAND_ORANGE, fontSize: 11, fontWeight: "900" }}>
+                {(me?.deliveryProfile?.verificationStatus ?? "PENDING").toUpperCase()}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Submitted</Text>
+            <Text style={styles.statusValue}>{submittedAt ? new Date(submittedAt).toLocaleString("en-IN") : "Just now"}</Text>
+          </View>
           <Text style={styles.noticeText}>You cannot access live delivery jobs, orders, or profile settings until admin verification is complete.</Text>
           {needsUpdate ? (
             <View style={styles.reuploadChecklist}>
@@ -3672,7 +3885,14 @@ function VerificationPendingScreen({
                 </View>
               ))}
             </View>
-          ) : null}
+          ) : (
+            <View style={{ flexDirection: "row", gap: 12, backgroundColor: "#ecfdf5", borderColor: "#bbf7d0", borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 14 }}>
+              <Ionicons name="checkmark-circle" size={20} color="#22c55e" style={{ marginTop: 2 }} />
+              <Text style={{ flex: 1, color: "#166534", fontSize: 12, fontWeight: "600", lineHeight: 18 }}>
+                Great job! Your registration is complete and under review. Once approved, you'll be able to start delivering and earning with Darji.
+              </Text>
+            </View>
+          )}
         </Card>
         <PrimaryButton
           icon="refresh-outline"
@@ -3843,7 +4063,7 @@ const styles = StyleSheet.create({
   authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
   logoMark: { width: 70, height: 70, borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#eef2f7", alignItems: "center", justifyContent: "center", marginBottom: 20, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
   authAppIcon: { width: 60, height: 60 },
-  authTitle: { color: BRAND_DEEP, fontSize: 30, lineHeight: 37, fontWeight: "900", fontStyle: "italic" },
+  authTitle: {  color: BRAND_DEEP, fontSize: 30, lineHeight: 37, fontWeight: "900" },
   authCopy: { color: MUTED, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8, marginBottom: 24, maxWidth: 310 },
   authFeatures: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 22 },
   authFeature: { flex: 1, alignItems: "center", minHeight: 104 },
@@ -3876,7 +4096,7 @@ const styles = StyleSheet.create({
   header: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 },
   roundIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center" },
   headerText: { flex: 1, minWidth: 0 },
-  headerTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", fontStyle: "italic" },
+  headerTitle: {  color: BRAND_DEEP, fontSize: 24, fontWeight: "900" },
   headerSubtitle: { color: MUTED, fontSize: 13, fontWeight: "700", marginTop: 4, lineHeight: 19 },
   card: { borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
   accentCard: { borderColor: "#efcf92", backgroundColor: "#fffaf0" },
@@ -3890,7 +4110,7 @@ const styles = StyleSheet.create({
   textButton: { alignItems: "center", marginTop: 16 },
   linkText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   mutedText: { color: MUTED },
-  formLabel: { color: MUTED, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginBottom: 8, marginTop: 8, fontStyle: "italic" },
+  formLabel: {  color: MUTED, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginBottom: 8, marginTop: 8 },
   fieldBlock: { marginBottom: 4 },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", paddingHorizontal: 16, color: BRAND_DEEP, fontSize: 14, fontWeight: "800" },
   textArea: { minHeight: 92, paddingTop: 14, lineHeight: 20 },

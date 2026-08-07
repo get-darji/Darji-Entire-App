@@ -97,7 +97,8 @@ type Screen =
   | "orderSummary"
   | "quotes"
   | "confirmOrder"
-  | "trackOrder";
+  | "trackOrder"
+  | "favoriteTailors";
 type RequestFlowScreen = "newRequest" | "clothIssue" | "measurements" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
@@ -149,6 +150,7 @@ type ClothingItemDraft = {
   description: string;
   gender?: string;
   clothType?: string;
+  otherClothType?: string;
   workType?: string;
   serviceCategory?: string;
   selectedWorkItems?: string[];
@@ -370,6 +372,7 @@ type RequestDraft = {
   description: string;
   gender?: string;
   clothType?: string;
+  otherClothType?: string;
   workType?: string;
   serviceCategory?: string;
   selectedWorkItems?: string[];
@@ -979,6 +982,7 @@ function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?
     description: draft.description.trim(),
     gender: draft.gender,
     clothType: draft.clothType,
+    otherClothType: draft.otherClothType,
     workType: draft.workType,
     serviceCategory: draft.serviceCategory,
     selectedWorkItems: draft.selectedWorkItems,
@@ -1009,6 +1013,7 @@ function loadClothingItemIntoDraft(draft: RequestDraft, item: ClothingItemDraft)
     description: item.description,
     gender: item.gender,
     clothType: item.clothType,
+    otherClothType: item.otherClothType,
     workType: item.workType,
     serviceCategory: item.serviceCategory,
     selectedWorkItems: item.selectedWorkItems,
@@ -1692,12 +1697,16 @@ function AuthScreen() {
   );
 }
 
-function Header({ title, onBack, right }: { title?: string; onBack?: () => void; right?: React.ReactNode }) {
+function Header({ title, onBack, onHome, right }: { title?: string; onBack?: () => void; onHome?: () => void; right?: React.ReactNode }) {
   return (
     <View style={styles.header}>
       {onBack ? (
         <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} style={styles.roundIconButton}>
           <Ionicons name="arrow-back" size={20} color={BRAND_DEEP} />
+        </Pressable>
+      ) : onHome ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Go home" onPress={onHome} style={styles.roundIconButton}>
+          <Ionicons name="home-outline" size={20} color={BRAND_DEEP} />
         </Pressable>
       ) : (
         <View />
@@ -2114,6 +2123,12 @@ function HomeScreen({
                 <StatusPill status={order.status} />
               </Pressable>
             ))}
+            <View style={styles.warningInlineMessage}>
+              <Ionicons name="warning-outline" size={16} color="#8a5600" />
+              <Text style={styles.warningInlineMessageText}>
+                Pending requests will automatically expire 24 hours after creation.
+              </Text>
+            </View>
           </View>
         ) : null}
 
@@ -3843,18 +3858,22 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const filteredGarments = normalizedGarmentSearch
     ? garments.filter((garment) => garment.toLowerCase().includes(normalizedGarmentSearch))
     : garments;
+  const hasOtherClothType = draft.clothType === "Other"
+    ? Boolean(draft.otherClothType?.trim())
+    : true;
   const hasWorkSelection = selectedService?.label === "Other"
     ? Boolean(draft.otherWorkDescription?.trim())
     : selectedWorkItems.length > 0;
   const canContinue = Boolean(
     draft.gender &&
     draft.clothType &&
+    hasOtherClothType &&
     selectedService &&
     hasWorkSelection &&
     draft.urgency &&
     (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked)
   );
-  const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && selectedService && hasWorkSelection);
+  const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && hasOtherClothType && selectedService && hasWorkSelection);
   const savedItemCount = draft.items?.length ?? 0;
   const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
 
@@ -3868,6 +3887,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     setDraft({
       ...draft,
       clothType,
+      otherClothType: "",
       serviceCategory: undefined,
       workType: undefined,
       selectedWorkItems: [],
@@ -3884,6 +3904,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     setDraft({
       ...draft,
       clothType: undefined,
+      otherClothType: "",
       serviceCategory: undefined,
       workType: undefined,
       selectedWorkItems: [],
@@ -3900,6 +3921,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       ...draft,
       gender,
       clothType: undefined,
+      otherClothType: "",
       serviceCategory: undefined,
       workType: undefined,
       selectedWorkItems: [],
@@ -4193,6 +4215,18 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 />
               ))}
             </View>
+            {draft.clothType === "Other" ? (
+              <View style={{ marginTop: 8, marginBottom: 4 }}>
+                <Text style={styles.formLabel}>Specify garment type</Text>
+                <TextInput
+                  style={styles.otherClothInput}
+                  value={draft.otherClothType ?? ""}
+                  onChangeText={(otherClothType) => setDraft({ ...draft, otherClothType })}
+                  placeholder="e.g. Tablecloth, Cushion Cover, Apron..."
+                  placeholderTextColor="#98a4b6"
+                />
+              </View>
+            ) : null}
             {!filteredGarments.length ? (
               <View style={styles.infoBanner}>
                 <Ionicons name="search-outline" size={17} color={BRAND_ORANGE} />
@@ -4655,15 +4689,26 @@ function quoteAvatarTone(index: number) {
 }
 
 function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSummary; onClose: () => void }) {
+  const favoriteTailorIds = useAppStore((state) => state.favoriteTailorIds ?? []);
+  const toggleFavoriteTailor = useAppStore((state) => state.toggleFavoriteTailor);
+  const isFavorite = profile ? favoriteTailorIds.includes(profile.id) : false;
+
   return (
     <Modal visible={Boolean(profile)} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={styles.tailorProfileModal}>
           <View style={styles.rowBetween}>
             <Text style={styles.profileName}>Tailor Profile</Text>
-            <Pressable style={styles.iconMiniButton} onPress={onClose}>
-              <Ionicons name="close" size={18} color={BRAND_DEEP} />
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              {profile ? (
+                <Pressable onPress={() => toggleFavoriteTailor(profile.id)} style={{ padding: 4 }}>
+                  <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={22} color={isFavorite ? "#ef4444" : BRAND_DEEP} />
+                </Pressable>
+              ) : null}
+              <Pressable style={styles.iconMiniButton} onPress={onClose}>
+                <Ionicons name="close" size={18} color={BRAND_DEEP} />
+              </Pressable>
+            </View>
           </View>
           {profile ? (
             <>
@@ -4835,17 +4880,20 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
 function payloadForClothingItem(item: ClothingItemDraft) {
   const measurementFields = Object.fromEntries(Object.entries(item.measurements ?? {}).filter(([, value]) => value.trim()));
   const measurementNotes = notesForClothingItem(item);
+  const finalClothType = item.clothType === "Other" && item.otherClothType?.trim()
+    ? `Other - ${item.otherClothType.trim()}`
+    : item.clothType;
   return {
     description: item.description,
     gender: item.gender,
-    clothType: item.clothType,
+    clothType: finalClothType ?? "",
     workType: item.serviceCategory ?? item.workType,
     serviceCategory: item.serviceCategory ?? item.workType,
     selectedWorkItems: item.selectedWorkItems ?? [],
     otherWorkDescription: item.otherWorkDescription?.trim() || undefined,
-    measurement: item.clothType
+    measurement: finalClothType
       ? {
-          label: item.clothType,
+          label: finalClothType,
           fields: measurementFields,
           imageUrl: item.uploadedSampleMedia?.url
         }
@@ -4911,7 +4959,13 @@ function OrderSummaryScreen({
       showDialog({ title: "Shared details missing", message: "Pickup address and delivery timing are required for the order.", actions: [{ label: "OK" }] });
       return;
     }
-    const incomplete = items.find((item) => !item.description.trim() || !item.clothType || !item.workType || !item.uploadedMedia.length);
+    const incomplete = items.find((item) =>
+      !item.description.trim() ||
+      !item.clothType ||
+      (item.clothType === "Other" && !item.otherClothType?.trim()) ||
+      !item.workType ||
+      !item.uploadedMedia.length
+    );
     if (incomplete) {
       showDialog({ title: "Item incomplete", message: `${clothingItemTitle(incomplete)} needs photos, description, a garment, and service/work selection.`, actions: [{ label: "OK" }] });
       return;
@@ -5033,6 +5087,7 @@ function QuotesScreen({
   onDeleteRequest?: () => Promise<void> | void;
 }) {
   const token = useAppStore((state) => state.token);
+  const favoriteTailorIds = useAppStore((state) => state.favoriteTailorIds ?? []);
   const { refreshSignal } = useContext(PullToRefreshContext);
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
   const [backendRequest, setBackendRequest] = useState<BackendTailoringRequest | undefined>();
@@ -5075,7 +5130,13 @@ function QuotesScreen({
     void loadQuotes();
   }, [draft.backendRequestId, token, refreshSignal]);
 
-  const visibleQuotes = backendQuotes;
+  const visibleQuotes = [...backendQuotes].sort((a, b) => {
+    const aFav = (a.tailorId && favoriteTailorIds.includes(a.tailorId)) || (a.tailorProfile?.id && favoriteTailorIds.includes(a.tailorProfile.id));
+    const bFav = (b.tailorId && favoriteTailorIds.includes(b.tailorId)) || (b.tailorProfile?.id && favoriteTailorIds.includes(b.tailorProfile.id));
+    if (aFav && !bFav) return -1;
+    if (!aFav && bFav) return 1;
+    return 0;
+  });
 
   async function confirmTailor(quote = selectedQuote) {
     if (!quote) {
@@ -5122,7 +5183,7 @@ function QuotesScreen({
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header
           title="Tailor Quotes"
-          onBack={() => setScreen("orderSummary")}
+          onHome={() => setScreen("home")}
           right={(
             <Pressable style={styles.roundIconButton} onPress={() => setScreen("notifications")}>
               <Ionicons name="notifications-outline" size={20} color={BRAND_DEEP} />
@@ -5174,18 +5235,41 @@ function QuotesScreen({
 
         {visibleQuotes.map((quote, index) => {
           const selected = selectedQuote?.id === quote.id;
+          const isFavoriteTailor = (quote.tailorId && favoriteTailorIds.includes(quote.tailorId)) ||
+                                   (quote.tailorProfile?.id && favoriteTailorIds.includes(quote.tailorProfile.id));
           const numericRating = Number(quote.rating);
           return (
-            <Pressable key={quote.id} style={[styles.quoteCard, selected && styles.selectedQuoteCard]} onPress={() => setSelectedQuote(quote)}>
+            <Pressable
+              key={quote.id}
+              style={[
+                styles.quoteCard,
+                isFavoriteTailor && styles.favoriteQuoteCard,
+                selected && styles.selectedQuoteCard
+              ]}
+              onPress={() => setSelectedQuote(quote)}
+            >
               <View style={styles.quoteTopRow}>
-                <View style={[styles.quoteAvatar, quoteAvatarTone(index)]}>
-                  <Text style={styles.avatarText}>{quote.initials}</Text>
+                <View style={{ position: "relative" }}>
+                  <View style={[styles.quoteAvatar, quoteAvatarTone(index)]}>
+                    <Text style={styles.avatarText}>{quote.initials}</Text>
+                  </View>
+                  {selected ? (
+                    <View style={styles.avatarCheckBadge}>
+                      <Ionicons name="checkmark" size={11} color="#ffffff" />
+                    </View>
+                  ) : null}
                 </View>
                 <View style={styles.quoteDetails}>
                   <Text style={styles.quoteName} numberOfLines={1}>
                     {quote.name}
                   </Text>
                   <Text style={styles.quoteSpecialty} numberOfLines={1}>{quote.specialty || "Darji Collection"}</Text>
+                  {isFavoriteTailor ? (
+                    <View style={styles.savedTailorBadge}>
+                      <Ionicons name="heart" size={10} color="#b91c1c" />
+                      <Text style={styles.savedTailorBadgeText}>Saved Tailor</Text>
+                    </View>
+                  ) : null}
                   <View style={styles.ratingRow}>
                     <Ionicons name="star" size={16} color={BRAND_ORANGE} />
                     <Text style={styles.quoteMeta}>{Number.isFinite(numericRating) && numericRating > 0 ? `${quote.rating} (${quote.reviews || 0})` : "New tailor"}</Text>
@@ -5215,9 +5299,6 @@ function QuotesScreen({
                   <Ionicons name="person-outline" size={19} color={BRAND_DEEP} />
                   <Text style={styles.quoteProfileButtonText}>View Profile</Text>
                 </Pressable>
-                <Pressable style={styles.quoteSelectButton} onPress={() => void confirmTailor(quote)}>
-                  <Text style={styles.quoteSelectButtonText}>{selected ? "Selected Tailor" : "Select Tailor"}</Text>
-                </Pressable>
               </View>
             </Pressable>
           );
@@ -5233,23 +5314,23 @@ function QuotesScreen({
             <Ionicons name="chevron-forward" size={26} color="#6b7890" />
           </Pressable>
         ) : null}
-        {visibleQuotes.length === 0 ? (
-          <>
-            <Pressable disabled={confirming} style={[styles.primaryWideButton, styles.quoteConfirmButton]} onPress={() => void confirmTailor()}>
-              {confirming ? <ActivityIndicator color="#ffffff" /> : (
-                <>
-                  <Ionicons name="shield-checkmark-outline" size={22} color="#ffffff" />
-                  <Text style={[styles.primaryWideButtonText, styles.quoteConfirmButtonText]}>Confirm This Tailor</Text>
-                </>
-              )}
-            </Pressable>
-            {draft.backendRequestId && onDeleteRequest ? (
-              <Pressable style={styles.cancelOrderButton} onPress={requestDeleteRequest} disabled={deleting}>
-                <Ionicons name="trash-outline" size={20} color="#c24141" />
-                <Text style={styles.cancelOrderText}>Delete Request</Text>
-              </Pressable>
-            ) : null}
-          </>
+
+        {selectedQuote ? (
+          <Pressable disabled={confirming} style={[styles.primaryWideButton, { marginTop: 24, marginBottom: 8 }]} onPress={() => void confirmTailor(selectedQuote)}>
+            {confirming ? <ActivityIndicator color="#ffffff" /> : (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Text style={styles.primaryWideButtonText}>Continue</Text>
+                <Ionicons name="chevron-forward" size={18} color="#ffffff" />
+              </View>
+            )}
+          </Pressable>
+        ) : null}
+
+        {draft.backendRequestId && onDeleteRequest ? (
+          <Pressable style={[styles.cancelOrderButton, { marginTop: selectedQuote ? 8 : 24, marginBottom: 28 }]} onPress={requestDeleteRequest} disabled={deleting}>
+            <Ionicons name="trash-outline" size={20} color="#c24141" />
+            <Text style={styles.cancelOrderText}>Delete Request</Text>
+          </Pressable>
         ) : null}
       </ScrollView>
       <Modal visible={detailsOpen} transparent animationType="fade" onRequestClose={() => setDetailsOpen(false)}>
@@ -5745,6 +5826,8 @@ function TrackOrderScreen({ order, setScreen }: { order: CustomerOrder; setScree
 
 function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Screen) => void; onStartRequest: (preset?: RequestPreset) => void }) {
   const token = useAppStore((state) => state.token);
+  const favoriteTailorIds = useAppStore((state) => state.favoriteTailorIds ?? []);
+  const toggleFavoriteTailor = useAppStore((state) => state.toggleFavoriteTailor);
   const { refreshSignal } = useContext(PullToRefreshContext);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"categories" | "tailors">("categories");
@@ -5881,27 +5964,36 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
               <Text style={styles.mutedSmall}>Try another search or filter.</Text>
             </View>
           ) : null}
-          {!tailorsLoading && tailorResults.map((tailor) => (
-            <Pressable key={tailor.id} style={styles.searchTailorCard} onPress={() => setSelectedTailorProfile(tailor)}>
-              <View style={styles.searchTailorHeader}>
-                <View style={styles.smallQuoteAvatar}>
-                  {tailor.avatarUrl ? <Image source={{ uri: tailor.avatarUrl }} style={styles.smallQuoteAvatarImage} /> : <Text style={styles.smallAvatarText}>{tailor.initials}</Text>}
+          {!tailorsLoading && tailorResults.map((tailor) => {
+            const isFav = favoriteTailorIds.includes(tailor.id);
+            return (
+              <Pressable key={tailor.id} style={styles.searchTailorCard} onPress={() => setSelectedTailorProfile(tailor)}>
+                <Pressable
+                  style={{ position: "absolute", top: 12, right: 12, zIndex: 10, padding: 4 }}
+                  onPress={() => toggleFavoriteTailor(tailor.id)}
+                >
+                  <Ionicons name={isFav ? "heart" : "heart-outline"} size={20} color={isFav ? "#ef4444" : "#64748b"} />
+                </Pressable>
+                <View style={styles.searchTailorHeader}>
+                  <View style={styles.smallQuoteAvatar}>
+                    {tailor.avatarUrl ? <Image source={{ uri: tailor.avatarUrl }} style={styles.smallQuoteAvatarImage} /> : <Text style={styles.smallAvatarText}>{tailor.initials}</Text>}
+                  </View>
+                  <View style={styles.profileRowTextNoMargin}>
+                    <Text style={styles.addressTitle}>{tailor.shopName} <Ionicons name="checkmark-circle" size={14} color={BRAND_ORANGE} /></Text>
+                    <Text style={styles.ratingLine}>Rating {tailor.rating} <Text style={styles.mutedSmall}>({tailor.reviews})</Text></Text>
+                  </View>
                 </View>
-                <View style={styles.profileRowTextNoMargin}>
-                  <Text style={styles.addressTitle}>{tailor.shopName} <Ionicons name="checkmark-circle" size={14} color={BRAND_ORANGE} /></Text>
-                  <Text style={styles.ratingLine}>Rating {tailor.rating} <Text style={styles.mutedSmall}>({tailor.reviews})</Text></Text>
-                </View>
-              </View>
-              <Text style={styles.searchTailorLocation}>{tailor.area}</Text>
-              <View style={styles.summaryDivider} />
-              <Text style={styles.mutedSmall}>Specializes in</Text>
-              <Text style={styles.searchTailorSpecialty}>{tailor.specialty}</Text>
-              <Pressable style={styles.searchProfileButton} onPress={() => setSelectedTailorProfile(tailor)}>
-                <Text style={styles.searchProfileButtonText}>View Profile</Text>
-                <Ionicons name="arrow-forward" size={18} color={BRAND_ORANGE} />
+                <Text style={styles.searchTailorLocation}>{tailor.area}</Text>
+                <View style={styles.summaryDivider} />
+                <Text style={styles.mutedSmall}>Specializes in</Text>
+                <Text style={styles.searchTailorSpecialty}>{tailor.specialty}</Text>
+                <Pressable style={styles.searchProfileButton} onPress={() => setSelectedTailorProfile(tailor)}>
+                  <Text style={styles.searchProfileButtonText}>View Profile</Text>
+                  <Ionicons name="arrow-forward" size={18} color={BRAND_ORANGE} />
+                </Pressable>
               </Pressable>
-            </Pressable>
-          ))}
+            );
+          })}
         </ScrollView>
 
         <Text style={styles.searchSectionTitle}>Popular Services</Text>
@@ -6004,6 +6096,131 @@ function OnboardingScreen({
   );
 }
 
+function FavoriteTailorsScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
+  const token = useAppStore((state) => state.token);
+  const favoriteTailorIds = useAppStore((state) => state.favoriteTailorIds ?? []);
+  const toggleFavoriteTailor = useAppStore((state) => state.toggleFavoriteTailor);
+  const [tailors, setTailors] = useState<TailorProfileSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedTailorProfile, setSelectedTailorProfile] = useState<TailorProfileSummary | undefined>();
+
+  const loadTailors = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      const res = await api<{ tailors: TailorProfileSummary[] }>("/tailoring-requests/tailors", { method: "GET" }, token);
+      if (res && Array.isArray(res.tailors)) {
+        setTailors(res.tailors);
+      }
+    } catch (e) {
+      console.warn("Failed to load tailors for favorites:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadTailors();
+  }, [loadTailors]);
+
+  const favoriteTailors = tailors.filter((tailor) => favoriteTailorIds.includes(tailor.id));
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <Header title="Saved Tailors" onBack={() => setScreen("profile")} />
+        
+        {loading && favoriteTailors.length === 0 ? (
+          <View style={{ flex: 1, padding: 40, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator color={BRAND_ORANGE} size="large" />
+            <Text style={[styles.mutedSmall, { marginTop: 12 }]}>Loading saved tailors...</Text>
+          </View>
+        ) : null}
+
+        {!loading && favoriteTailors.length === 0 ? (
+          <View style={{ flex: 1, padding: 40, alignItems: "center", justifyContent: "center", marginTop: 60 }}>
+            <Ionicons name="heart-outline" size={80} color="#cbd5e1" />
+            <Text style={[styles.emptyTitle, { marginTop: 16 }]}>No saved tailors yet</Text>
+            <Text style={[styles.quotesWaitingCopy, { textAlign: "center", marginTop: 8 }]}>
+              Explore tailors on the search tab and tap the heart icon to save them here for quick access.
+            </Text>
+            <Pressable
+              style={[styles.primaryWideButton, { marginTop: 24 }]}
+              onPress={() => {
+                setScreen("search");
+              }}
+            >
+              <Text style={styles.primaryWideButtonText}>Find Tailors</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {favoriteTailors.length > 0 ? (
+          <View style={{ gap: 16, marginTop: 12 }}>
+            {favoriteTailors.map((tailor) => {
+              return (
+                <Pressable
+                  key={tailor.id}
+                  style={[styles.quoteCard, { position: "relative", padding: 16 }]}
+                  onPress={() => setSelectedTailorProfile(tailor)}
+                >
+                  <Pressable
+                    style={{ position: "absolute", top: 12, right: 12, zIndex: 10, padding: 4 }}
+                    onPress={() => toggleFavoriteTailor(tailor.id)}
+                  >
+                    <Ionicons name="heart" size={22} color="#ef4444" />
+                  </Pressable>
+                  <View style={styles.quoteTopRow}>
+                    <View style={styles.quoteAvatar}>
+                      {tailor.avatarUrl ? (
+                        <Image source={{ uri: tailor.avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+                      ) : (
+                        <Text style={styles.avatarText}>{tailor.initials}</Text>
+                      )}
+                    </View>
+                    <View style={styles.quoteDetails}>
+                      <Text style={styles.quoteName} numberOfLines={1}>
+                        {tailor.shopName}
+                      </Text>
+                      <Text style={styles.quoteSpecialty} numberOfLines={1}>
+                        {tailor.displayName}
+                      </Text>
+                      <View style={styles.ratingRow}>
+                        <Ionicons name="star" size={16} color={BRAND_ORANGE} />
+                        <Text style={styles.quoteMeta}>
+                          {Number(tailor.rating) > 0 ? `${tailor.rating} (${tailor.reviews})` : "New tailor"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Text style={[styles.mutedSmall, { marginTop: 8 }]}>
+                    Location: <Text style={{ color: BRAND_DEEP, fontWeight: "500" }}>{tailor.area}</Text>
+                  </Text>
+                  <Text style={[styles.mutedSmall, { marginTop: 4 }]}>
+                    Specializes in: <Text style={{ color: BRAND_DEEP, fontWeight: "500" }}>{tailor.specialty}</Text>
+                  </Text>
+                  <View style={styles.quoteCardDivider} />
+                  <View style={[styles.quoteCardActions, { justifyContent: "flex-end" }]}>
+                    <Pressable
+                      style={styles.quoteProfileButton}
+                      onPress={() => setSelectedTailorProfile(tailor)}
+                    >
+                      <Ionicons name="person-outline" size={19} color={BRAND_DEEP} />
+                      <Text style={styles.quoteProfileButtonText}>View Profile</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </ScrollView>
+
+      <TailorProfileModal profile={selectedTailorProfile} onClose={() => setSelectedTailorProfile(undefined)} />
+    </SafeAreaView>
+  );
+}
+
 function ProfileScreen({
   setScreen,
   orders,
@@ -6021,7 +6238,7 @@ function ProfileScreen({
   settings: AppSettings;
   language: AppLanguage;
 }) {
-  const { user, signOut } = useAppStore();
+  const { user, signOut, favoriteTailorIds = [] } = useAppStore();
   const profileStyles = createStyles(settings.darkMode);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
@@ -6043,6 +6260,7 @@ function ProfileScreen({
         </View>
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="person-outline" label={t(language, "editProfile")} value={t(language, "nameGenderDob")} onPress={() => setScreen("editProfile")} styles={profileStyles} noBorder />
+          <ProfileRow icon="heart-outline" label="Favorite Tailors" value={`${favoriteTailorIds.length} saved tailors`} onPress={() => setScreen("favoriteTailors")} styles={profileStyles} />
           <ProfileRow icon="location-outline" label={t(language, "savedAddresses")} value={`${addresses.length} ${t(language, "savedCount")}`} onPress={() => setScreen("savedAddresses")} styles={profileStyles} />
         </View>
 
@@ -9153,6 +9371,11 @@ export default function App() {
       return true;
     }
     if (REQUEST_FLOW_SCREENS.has(screen)) {
+      if (screen === "quotes") {
+        setScreenState("home");
+        setScreenStack([]);
+        return true;
+      }
       return handleFlowBack({
         currentStep: screen as RequestFlowScreen,
         steps: REQUEST_FLOW_STEPS,
@@ -9177,6 +9400,11 @@ export default function App() {
   }, [cancellingOrderId, dialog, paymentSheet, screen, screenStack, verifyingPayment, draft, selectedQuote, defaultAddress]);
 
   function handleRequestFlowBack(source: "header" | "hardware" | "button" = "header") {
+    if (screen === "quotes") {
+      setScreenState("home");
+      setScreenStack([]);
+      return true;
+    }
     return handleFlowBack({
       currentStep: screen as RequestFlowScreen,
       steps: REQUEST_FLOW_STEPS,
@@ -10111,7 +10339,8 @@ export default function App() {
     "privacyPolicy",
     "termsService",
     "appInfo",
-    "aboutDarji"
+    "aboutDarji",
+    "favoriteTailors"
   ]);
 
   if (screen === "profile" || PROFILE_SUBSCREENS.has(screen)) {
@@ -10119,6 +10348,10 @@ export default function App() {
       <>
         <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} settings={settings} language={language} />
         
+        <Modal visible={screen === "favoriteTailors"} onRequestClose={goBack} animationType="slide">
+          <FavoriteTailorsScreen setScreen={setScreen} />
+        </Modal>
+
         <Modal visible={screen === "editProfile"} onRequestClose={goBack} animationType="slide">
           <EditProfileScreen profile={profile} setProfile={setCustomerProfile} setScreen={setScreen} />
         </Modal>
@@ -10601,6 +10834,7 @@ function createStyles(isDark = false) {
   selectedOptionText: { color: text },
   garmentSearchBox: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 13, marginBottom: 12 },
   garmentSearchInput: { flex: 1, minWidth: 0, color: text, fontSize: 13, fontWeight: "700", paddingVertical: 0 },
+  otherClothInput: { height: 48, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 14, color: text, fontSize: 13, fontWeight: "800" },
   selectedFlowChoice: { minHeight: 64, borderRadius: 14, borderWidth: 1.5, borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, paddingVertical: 9 },
   selectedFlowChoiceIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   selectedFlowChoiceText: { flex: 1, minWidth: 0 },
@@ -10819,7 +11053,38 @@ function createStyles(isDark = false) {
   requestDetailPreviewBox: { width: 58, height: 58, borderRadius: 13, overflow: "hidden", borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt },
   requestDetailPreviewImage: { width: "100%", height: "100%" },
   quoteCard: { width: "100%", minHeight: 166, borderRadius: 18, backgroundColor: surface, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: border, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 18, elevation: 2 },
-  selectedQuoteCard: { borderColor: BRAND_DEEP },
+  selectedQuoteCard: { borderColor: BRAND_DEEP, backgroundColor: isDark ? "#1c2230" : "#fffbeb" },
+  favoriteQuoteCard: { backgroundColor: isDark ? "#29161a" : "#fff1f2" },
+  avatarCheckBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: BRAND_ORANGE,
+    borderWidth: 1.5,
+    borderColor: surface,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10
+  },
+  savedTailorBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: isDark ? "#4c0519" : "#ffe4e6",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+    marginTop: 4
+  },
+  savedTailorBadgeText: {
+    color: "#b91c1c",
+    fontSize: 9,
+    fontWeight: "900"
+  },
   quoteTopRow: { flexDirection: "row", alignItems: "center", width: "100%" },
   quoteMain: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 },
   quoteAvatar: { width: 58, height: 58, borderRadius: 29, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
