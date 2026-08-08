@@ -235,6 +235,21 @@ const orderSchema = new Schema(
 );
 attachDarjiIdPlugin(orderSchema, { field: "darjiId", prefix: "ORD" });
 
+const tailorSampleSchema = new Schema(
+  {
+    url: { type: String, required: true },
+    publicId: { type: String, required: true },
+    bytes: Number,
+    format: String,
+    originalName: String,
+    status: { type: String, enum: ["PENDING", "APPROVED", "REJECTED"], default: "PENDING", index: true },
+    uploadedAt: { type: Date, default: Date.now },
+    reviewedAt: Date,
+    reviewedBy: String,
+    rejectionReason: String
+  },
+  { versionKey: false }
+);
 
 const tailorSchema = new Schema(
   {
@@ -256,6 +271,7 @@ const tailorSchema = new Schema(
     verificationLastRejectedAt: Date,
     verification: { type: Schema.Types.Mixed },
     verificationDraft: { type: Schema.Types.Mixed },
+    sampleGallery: { type: [tailorSampleSchema], default: [] },
     earnings: { type: Number, default: 0 }
   },
   baseOptions
@@ -536,7 +552,7 @@ const requestMediaSchema = new Schema(
   {
     url: { type: String, required: true },
     publicId: { type: String, required: true },
-    resourceType: { type: String, enum: ["image", "video"], required: true },
+    resourceType: { type: String, enum: ["image", "video", "audio"], required: true },
     bytes: { type: Number, required: true },
     format: String,
     originalName: String
@@ -557,6 +573,7 @@ const tailoringRequestItemSchema = new Schema(
     measurement: measurementSchema,
     measurementNotes: String,
     media: [requestMediaSchema],
+    voiceNotes: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
     homeMeasurementBooked: { type: Boolean, default: false }
@@ -590,6 +607,7 @@ const tailoringRequestSchema = new Schema(
     measurementNotes: String,
     pickupAddress: { type: String, required: true },
     media: [requestMediaSchema],
+    voiceNotes: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
     homeMeasurementBooked: { type: Boolean, default: false },

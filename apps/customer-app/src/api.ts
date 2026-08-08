@@ -94,19 +94,19 @@ export async function api<T>(path: string, options: RequestInit = {}, token?: st
 export type UploadedMedia = {
   url: string;
   publicId: string;
-  resourceType: "image" | "video";
+  resourceType: "image" | "video" | "audio";
   bytes: number;
   format?: string;
   originalName?: string;
 };
 
-function sendMediaUpload(files: { uri: string; type: "image" | "video"; name: string }[], token: string): Promise<UploadedMedia[]> {
+function sendMediaUpload(files: { uri: string; type: "image" | "video" | "audio"; name: string }[], token: string): Promise<UploadedMedia[]> {
   const form = new FormData();
   files.forEach((file) => {
     form.append("media", {
       uri: file.uri,
       name: file.name,
-      type: file.type === "image" ? "image/jpeg" : "video/mp4"
+      type: file.type === "image" ? "image/jpeg" : file.type === "audio" ? "audio/m4a" : "video/mp4"
     } as unknown as File);
   });
 
@@ -138,7 +138,7 @@ function sendMediaUpload(files: { uri: string; type: "image" | "video"; name: st
   });
 }
 
-export async function uploadMedia(files: { uri: string; type: "image" | "video"; name: string }[], token?: string): Promise<UploadedMedia[]> {
+export async function uploadMedia(files: { uri: string; type: "image" | "video" | "audio"; name: string }[], token?: string): Promise<UploadedMedia[]> {
   const currentToken = token ?? useAppStore.getState().token;
   if (!currentToken) throw new Error("Authentication required");
 

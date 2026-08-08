@@ -58,10 +58,15 @@ function parsePhoneAllowlist(value: string) {
   );
 }
 
-function assertAdminPhoneAllowed(phone: string, role?: string) {
+async function assertAdminPhoneAllowed(phone: string, role?: string) {
   if (role !== "ADMIN") return;
   const allowedPhones = parsePhoneAllowlist(env.ADMIN_ALLOWED_PHONES);
-  if (!allowedPhones.has(phone)) {
+  const approvedAdmin = await UserModel.findOne({
+    phone,
+    role: { $in: ["ADMIN", "SUPER_ADMIN"] },
+    accountStatus: { $ne: "BANNED" }
+  }).select("_id");
+  if (!allowedPhones.has(phone) && !approvedAdmin) {
     throw new AppError(403, "This phone number is not allowed to access the admin portal");
   }
 }
@@ -134,14 +139,14 @@ function dateValue(value?: Date | string | null) {
 
 export async function requestOtpController(req: Request, res: Response) {
   const input = requestOtpSchema.parse(req.body);
-  assertAdminPhoneAllowed(input.phone, input.role);
+  await assertAdminPhoneAllowed(input.phone, input.role);
   const result = await requestOtp(input.phone);
   res.json({ data: result, message: "OTP sent" });
 }
 
 export async function verifyOtpController(req: Request, res: Response) {
   const input = verifyOtpSchema.parse(req.body);
-  assertAdminPhoneAllowed(input.phone, input.role);
+  await assertAdminPhoneAllowed(input.phone, input.role);
   await verifyOtp(input.phone, input.otp);
 
   const user = await UserModel.findOneAndUpdate(

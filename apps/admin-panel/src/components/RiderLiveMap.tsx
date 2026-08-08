@@ -13,6 +13,7 @@ const API_URL =
   "https://backend-production-5a7e4.up.railway.app/api";
 const SOCKET_URL = API_URL.replace(/\/api$/, "");
 const STALE_MS = 5 * 60 * 1000;
+const addressCache = new Map<string, string>();
 
 type RiderLocationEvent = {
   partnerId: string;
@@ -31,18 +32,21 @@ function getMarkerColor(partner: DeliveryPartnerProfile): string {
 }
 
 function makeIcon(color: string): L.DivIcon {
-  const dot = [
-    "width:14px", "height:14px", "border-radius:50%",
+  const pin = [
+    "width:26px", "height:26px", "border-radius:50% 50% 50% 0",
     "background:" + color,
-    "border:2.5px solid white",
-    "box-shadow:0 1px 5px rgba(0,0,0,0.35)",
+    "border:3px solid white",
+    "box-shadow:0 4px 12px rgba(15,23,42,0.32)",
+    "transform:rotate(-45deg)",
+    "display:flex", "align-items:center", "justify-content:center",
   ].join(";");
+  const center = ["width:8px", "height:8px", "border-radius:50%", "background:white", "display:block"].join(";");
   return L.divIcon({
     className: "",
-    html: "<div style=\"" + dot + "\"></div>",
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
-    popupAnchor: [0, -10],
+    html: "<div style=\"" + pin + "\"><span style=\"" + center + "\"></span></div>",
+    iconSize: [26, 26],
+    iconAnchor: [13, 26],
+    popupAnchor: [0, -28],
   });
 }
 
@@ -54,20 +58,53 @@ function formatAge(iso: string | null | undefined): string {
   return Math.floor(min / 60) + "h " + (min % 60) + "m ago";
 }
 
-function buildPopup(partner: DeliveryPartnerProfile, lat: number, lng: number, updatedAt?: string): string {
+function buildPopup(partner: DeliveryPartnerProfile, lat: number, lng: number, updatedAt?: string, address?: string): string {
   const name = partner.user?.name ?? partner.darjiPartnerId ?? partner.id;
-  const status = partner.isAvailable ? "&#x1F7E2; Online" : "&#x26AB; Offline";
+  const status = partner.isAvailable ? "Online" : "Offline";
   const updAt = updatedAt ?? partner.lastLocationUpdatedAt ?? null;
   const acc = partner.lastLocationAccuracy != null ? " &middot; &plusmn;" + Math.round(partner.lastLocationAccuracy) + "m" : "";
   return (
-    "<div style=\"font-size:13px;line-height:1.6;min-width:180px\">" +
+    "<div style=\"font-size:13px;line-height:1.6;min-width:220px\">" +
     "<strong style=\"font-size:14px\">" + name + "</strong><br/>" +
     "<span style=\"color:#64748b\">" + (partner.darjiPartnerId ?? "No partner ID") + "</span><br/>" +
     status + "<br/>" +
-    "&#x1F4CD; " + lat.toFixed(5) + ", " + lng.toFixed(5) + "<br/>" +
-    "&#x1F550; " + formatAge(updAt) + acc +
+    "<div style=\"margin-top:6px;padding:8px;border-radius:8px;background:#f8fafc;color:#0f172a\"><strong>Exact location</strong><br/>" + (address || "Finding exact address...") + "</div>" +
+    "<span style=\"color:#64748b\">Coordinates: " + lat.toFixed(5) + ", " + lng.toFixed(5) + "</span><br/>" +
+    "<span style=\"color:#64748b\">Updated " + formatAge(updAt) + acc + "</span>" +
     "</div>"
   );
+}
+
+async function reverseAddress(lat: number, lng: number, token?: string | null): Promise<string> {
+  const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+  const cached = addressCache.get(key);
+  if (cached) return cached;
+  if (token) {
+    const backendResponse = await fetch(`${API_URL}/location/reverse-geocode?lat=${lat}&lng=${lng}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (backendResponse.ok) {
+      const body = await backendResponse.json() as { data?: { formattedAddress?: string } };
+      const backendAddress = body.data?.formattedAddress;
+      if (backendAddress) {
+        addressCache.set(key, backendAddress);
+        return backendAddress;
+      }
+    }
+  }
+  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`);
+  if (!response.ok) throw new Error("Reverse geocode failed");
+  const data = await response.json() as { display_name?: string };
+  const address = data.display_name || key;
+  addressCache.set(key, address);
+  return address;
+}
+
+function bindPopupWithAddress(marker: L.Marker, partner: DeliveryPartnerProfile, lat: number, lng: number, updatedAt?: string, token?: string | null) {
+  marker.bindPopup(buildPopup(partner, lat, lng, updatedAt));
+  void reverseAddress(lat, lng, token)
+    .then((address) => marker.setPopupContent(buildPopup(partner, lat, lng, updatedAt, address)))
+    .catch(() => marker.setPopupContent(buildPopup(partner, lat, lng, updatedAt, "Address unavailable. Check saved partner/customer address.")));
 }
 
 export default function RiderLiveMap({
@@ -103,8 +140,8 @@ export default function RiderLiveMap({
       if (!loc?.coordinates || loc.coordinates.length < 2) return;
       const [lng, lat] = loc.coordinates;
       const marker = L.marker([lat, lng], { icon: makeIcon(getMarkerColor(partner)) })
-        .bindPopup(buildPopup(partner, lat, lng))
         .addTo(map);
+      bindPopupWithAddress(marker, partner, lat, lng, undefined, token);
       markersRef.current.set(partner.id, marker);
     });
 
@@ -135,11 +172,12 @@ export default function RiderLiveMap({
         const marker = markersRef.current.get(partnerId)!;
         marker.setLatLng([latitude, longitude]);
         marker.setIcon(makeIcon(color));
-        if (partner) marker.setPopupContent(buildPopup(partner, latitude, longitude, lastLocationUpdatedAt));
+        if (partner) bindPopupWithAddress(marker, partner, latitude, longitude, lastLocationUpdatedAt, token);
       } else {
         const marker = L.marker([latitude, longitude], { icon: makeIcon(color) })
-          .bindPopup(partner ? buildPopup(partner, latitude, longitude, lastLocationUpdatedAt) : "<strong>" + partnerId + "</strong>")
           .addTo(map);
+        if (partner) bindPopupWithAddress(marker, partner, latitude, longitude, lastLocationUpdatedAt, token);
+        else marker.bindPopup("<strong>" + partnerId + "</strong>");
         markersRef.current.set(partnerId, marker);
         setShowOverlay(false);
       }
@@ -169,9 +207,9 @@ export default function RiderLiveMap({
           lineHeight: "1.8", pointerEvents: "none",
         }}
       >
-        <div><span style={{ color: "#22c55e", fontWeight: 700 }}>&#9679; </span>Online &amp; recent</div>
-        <div><span style={{ color: "#f97316", fontWeight: 700 }}>&#9679; </span>Stale (&gt;5 min)</div>
-        <div><span style={{ color: "#94a3b8", fontWeight: 700 }}>&#9679; </span>Offline / no data</div>
+        <div><span style={{ color: "#22c55e", fontWeight: 700 }}>&#9670; </span>Online &amp; recent</div>
+        <div><span style={{ color: "#f97316", fontWeight: 700 }}>&#9670; </span>Stale (&gt;5 min)</div>
+        <div><span style={{ color: "#94a3b8", fontWeight: 700 }}>&#9670; </span>Offline / no data</div>
       </div>
 
       {/* Empty-state overlay */}

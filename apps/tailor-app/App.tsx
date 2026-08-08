@@ -2,6 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import { createAudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -144,7 +145,7 @@ type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" |
 type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
-type MediaItem = { url: string; resourceType: "image" | "video"; originalName?: string; bytes?: number };
+type MediaItem = { url: string; resourceType: "image" | "video" | "audio"; originalName?: string; bytes?: number };
 type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED" };
 type HandoffOtp = {
   taskId: string;
@@ -175,6 +176,7 @@ type TailoringRequestItem = {
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
   media?: MediaItem[];
+  voiceNotes?: MediaItem[];
   sampleProvided?: boolean;
   sampleMedia?: MediaItem[];
   homeMeasurementBooked?: boolean;
@@ -196,6 +198,7 @@ type TailoringRequest = {
   orderStatus?: string;
   workStatus?: "ACCEPTED" | "WORKING" | "READY";
   media: MediaItem[];
+  voiceNotes?: MediaItem[];
   receivedMedia?: MediaItem[];
   stitchedMedia?: MediaItem[];
   items?: TailoringRequestItem[];
@@ -522,7 +525,8 @@ function requestItems(request: TailoringRequest): TailoringRequestItem[] {
       otherWorkDescription: request.otherWorkDescription,
       measurement: request.measurement,
       measurementNotes: request.measurementNotes,
-      media: request.media ?? []
+      media: request.media ?? [],
+      voiceNotes: request.voiceNotes ?? []
     }
   ];
 }
@@ -563,6 +567,7 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
       item.measurementNotes
     ].filter(Boolean).join(" - "),
     media: item.media ?? [],
+    voiceNotes: item.voiceNotes ?? [],
     sampleMedia: item.sampleMedia ?? [],
     price: request.ownQuote?.price
   }));
@@ -993,6 +998,19 @@ function requestItemSampleMedia(request: TailoringRequest, item: TailoringReques
   return Array.from(byUrl.values());
 }
 
+function requestItemVoiceNotes(request: TailoringRequest, item: TailoringRequestItem, totalItems: number) {
+  const byUrl = new Map<string, MediaItem>();
+  (item.voiceNotes ?? []).forEach((media) => {
+    if (media.url) byUrl.set(media.url, media);
+  });
+  if (totalItems <= 1) {
+    (request.voiceNotes ?? []).forEach((media) => {
+      if (media.url) byUrl.set(media.url, media);
+    });
+  }
+  return Array.from(byUrl.values());
+}
+
 function requestWorkLabel(item: TailoringRequestItem) {
   if (item.selectedWorkItems?.length) return item.selectedWorkItems.join(", ");
   return item.otherWorkDescription || item.workType || "Tailoring";
@@ -1095,12 +1113,21 @@ function RequestDetailsScreen({
   const hasMultipleItems = items.length > 1;
   const media = selectedItem ? requestItemMedia(request, selectedItem, items.length) : [];
   const sampleMedia = selectedItem ? requestItemSampleMedia(request, selectedItem, items.length) : [];
+  const voiceNotes = selectedItem ? requestItemVoiceNotes(request, selectedItem, items.length) : [];
   const customerNote = cleanCustomerNote(request.description);
   const measurementNote = cleanCustomerNote(request.measurementNotes);
   const selectedGender = selectedItem?.gender || request.gender;
   const selectedGenderDetail = genderDetail(selectedGender);
   const openTileDetails = (details: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string }) => {
     setTileDetail(details);
+  };
+  const playVoiceNote = (voice: MediaItem) => {
+    try {
+      const player = createAudioPlayer({ uri: voice.url });
+      player.play();
+    } catch (error) {
+      showDialog({ title: "Playback failed", message: error instanceof Error ? error.message : "Could not play the voice note.", icon: "alert-circle-outline" });
+    }
   };
   const detailTiles = selectedItem ? [
     { bg: selectedGenderDetail.bg, color: selectedGenderDetail.color, icon: selectedGenderDetail.icon, label: "For", value: selectedGender || "Not specified" },
@@ -1238,6 +1265,28 @@ function RequestDetailsScreen({
                   <Text style={styles.measurementValue}>{String(value)}</Text>
                 </View>
               </View>
+            ))}
+          </View>
+        ) : null}
+
+        {voiceNotes.length ? (
+          <View style={styles.voiceNotesCard}>
+            <View style={styles.notesHeader}>
+              <View style={styles.notesIconBg}>
+                <Ionicons name="mic-outline" size={18} color={BRAND_ORANGE} />
+              </View>
+              <Text style={styles.notesTitle}>Voice Instructions</Text>
+            </View>
+            {voiceNotes.map((voice, index) => (
+              <Pressable key={voice.url} style={styles.voiceNoteRow} onPress={() => playVoiceNote(voice)}>
+                <View style={styles.voiceNotePlay}>
+                  <Ionicons name="play" size={16} color="#111111" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.requestDetailValue}>Voice note {index + 1}</Text>
+                  <Text style={styles.mediaEmptyText}>{voice.originalName ?? "Customer recorded instructions"}</Text>
+                </View>
+              </Pressable>
             ))}
           </View>
         ) : null}
@@ -5029,6 +5078,9 @@ const styles = StyleSheet.create({
   measurementValue: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900" },
   // -- Media Gallery Card --
   mediaGalleryCard: { borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, marginBottom: 18, overflow: "hidden", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  voiceNotesCard: { borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 14, marginBottom: 18 },
+  voiceNoteRow: { minHeight: 56, borderRadius: 14, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, marginTop: 10 },
+  voiceNotePlay: { width: 34, height: 34, borderRadius: 17, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   mediaGalleryHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#eef2f7", backgroundColor: "#f9fbff" },
   mediaGalleryIconBg: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#f3dfb9" },
   mediaGalleryTitle: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },

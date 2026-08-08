@@ -271,6 +271,16 @@ export async function reviewTailorVerification(payload: {
   return unwrap<TailorProfile>(api.patch(`/tailors/${tailorId}/verification-review`, body));
 }
 
+export async function reviewTailorSample(payload: {
+  tailorId: string;
+  sampleId: string;
+  status: "APPROVED" | "REJECTED";
+  reason?: string;
+}) {
+  const { tailorId, sampleId, ...body } = payload;
+  return unwrap<TailorProfile>(api.patch(`/tailors/${tailorId}/samples/${sampleId}`, body));
+}
+
 export async function uploadAdminMedia(file: File) {
   const form = new FormData();
   form.append("media", file);

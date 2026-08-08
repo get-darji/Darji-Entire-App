@@ -511,7 +511,7 @@ export async function assignOrderController(req: Request, res: Response) {
   res.json({ data: order });
 }
 
-export async function listTailorsController(_req: Request, res: Response) {
+export async function listTailorsController(req: Request, res: Response) {
   await TailorModel.updateMany(
     {
       verificationStatus: "NOT_SUBMITTED",
@@ -539,8 +539,13 @@ export async function listTailorsController(_req: Request, res: Response) {
   const data = await Promise.all(
     tailors.map(async (tailor) => {
       const stats = ratingStats.get(tailor.id);
+      const profile = await withUser(tailor);
+      const samples = Array.isArray((profile as any).sampleGallery) ? (profile as any).sampleGallery : [];
       return {
-        ...(await withUser(tailor)),
+        ...profile,
+        sampleGallery: req.user?.role === "ADMIN" || req.user?.role === "SUPER_ADMIN"
+          ? samples
+          : samples.filter((sample: any) => sample.status === "APPROVED"),
         rating: stats?.count ? Number((stats.sum / stats.count).toFixed(1)) : Number(tailor.rating ?? 0),
         ratingCount: stats?.count ?? 0
       };
@@ -706,6 +711,61 @@ export async function uploadTailorVerificationMediaController(req: Request, res:
   );
 
   res.status(201).json({ data: uploaded });
+}
+
+export async function uploadTailorSamplesController(req: Request, res: Response) {
+  assertCloudinaryConfigured();
+  const tailor = await TailorModel.findOne({ userId: req.user!.id });
+  if (!tailor) throw new AppError(404, "Tailor profile not found");
+
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) throw new AppError(400, "Attach at least one sample photo");
+  const currentSamples = Array.isArray(tailor.sampleGallery) ? tailor.sampleGallery : [];
+  const activeSamples = currentSamples.filter((sample: any) => sample.status !== "REJECTED");
+  if (activeSamples.length + files.length > 5) throw new AppError(400, "You can keep up to 5 pending or approved sample photos");
+
+  const uploaded = await Promise.all(
+    files.slice(0, 5).map(async (file) => {
+      const result = await uploadTailorImageBuffer(file, "darzi/tailor-samples");
+      return {
+        url: result.secure_url,
+        publicId: result.public_id,
+        bytes: result.bytes,
+        format: result.format,
+        originalName: file.originalname,
+        status: "PENDING",
+        uploadedAt: new Date()
+      };
+    })
+  );
+
+  const updated = await TailorModel.findByIdAndUpdate(
+    tailor.id,
+    { $push: { sampleGallery: { $each: uploaded } } },
+    { returnDocument: "after" }
+  );
+  res.status(201).json({ data: await withUser(updated!) });
+}
+
+export async function reviewTailorSampleController(req: Request, res: Response) {
+  const input = z.object({
+    status: z.enum(["APPROVED", "REJECTED"]),
+    reason: z.string().trim().max(300).optional().or(z.literal(""))
+  }).parse(req.body);
+  const tailor = await TailorModel.findOneAndUpdate(
+    { _id: String(req.params.tailorId), "sampleGallery._id": String(req.params.sampleId) },
+    {
+      $set: {
+        "sampleGallery.$.status": input.status,
+        "sampleGallery.$.reviewedAt": new Date(),
+        "sampleGallery.$.reviewedBy": req.user!.id,
+        "sampleGallery.$.rejectionReason": input.status === "REJECTED" ? input.reason : undefined
+      }
+    },
+    { returnDocument: "after" }
+  );
+  if (!tailor) throw new AppError(404, "Tailor sample not found");
+  res.json({ data: await withUser(tailor) });
 }
 
 export async function uploadAdminMediaController(req: Request, res: Response) {

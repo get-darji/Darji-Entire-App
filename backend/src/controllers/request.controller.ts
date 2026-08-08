@@ -204,7 +204,7 @@ export const uploadTailoringMedia = multer({
 const tailoringMediaSchema = z.object({
   url: z.string().url(),
   publicId: z.string().min(1),
-  resourceType: z.enum(["image", "video"]),
+  resourceType: z.enum(["image", "video", "audio"]),
   bytes: z.number().int().positive(),
   format: z.string().optional(),
   originalName: z.string().optional()
@@ -229,6 +229,7 @@ const tailoringRequestItemInputSchema = z.object({
   homeMeasurementBooked: z.boolean().default(false),
   sampleProvided: z.boolean().default(false),
   media: z.array(tailoringMediaSchema).max(MAX_FILES).default([]),
+  voiceNotes: z.array(tailoringMediaSchema).max(3).default([]),
   sampleMedia: z.array(tailoringMediaSchema).max(1).default([])
 });
 
@@ -365,6 +366,7 @@ function tailoringItemsForRequest(request: any) {
       media: request.media ?? [],
       sampleProvided: request.sampleProvided,
       sampleMedia: request.sampleMedia ?? [],
+      voiceNotes: request.voiceNotes ?? [],
       homeMeasurementBooked: request.homeMeasurementBooked
     }
   ];
@@ -1571,7 +1573,8 @@ function assertCloudinaryConfigured() {
 function fileKind(file: Express.Multer.File) {
   if (file.mimetype.startsWith("image/")) return "image" as const;
   if (file.mimetype.startsWith("video/")) return "video" as const;
-  throw new AppError(400, "Only image and video uploads are allowed");
+  if (file.mimetype.startsWith("audio/")) return "audio" as const;
+  throw new AppError(400, "Only image, video and audio uploads are allowed");
 }
 
 function validateFile(file: Express.Multer.File) {
@@ -1580,18 +1583,18 @@ function validateFile(file: Express.Multer.File) {
 
   if (file.size > limit) {
     const maxMb = kind === "image" ? 5 : 50;
-    throw new AppError(400, `${kind === "image" ? "Photos" : "Videos"} must be ${maxMb} MB or smaller`);
+    throw new AppError(400, `${kind === "image" ? "Photos" : kind === "audio" ? "Voice notes" : "Videos"} must be ${maxMb} MB or smaller`);
   }
 
   return kind;
 }
 
-async function uploadBuffer(file: Express.Multer.File, resourceType: "image" | "video") {
+async function uploadBuffer(file: Express.Multer.File, resourceType: "image" | "video" | "audio") {
   return new Promise<UploadApiResponse>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
         folder: "darzi/tailoring-requests",
-        resource_type: resourceType,
+        resource_type: resourceType === "audio" ? "video" : resourceType,
         use_filename: false,
         unique_filename: true
       },
@@ -1612,7 +1615,7 @@ export async function uploadTailoringMediaController(req: Request, res: Response
   assertCloudinaryConfigured();
 
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-  if (files.length === 0) throw new AppError(400, "Attach at least one photo or video");
+  if (files.length === 0) throw new AppError(400, "Attach at least one photo, video or voice note");
   if (files.length > MAX_FILES) throw new AppError(400, `Upload up to ${MAX_FILES} files at a time`);
 
   const uploaded = await Promise.all(
@@ -1767,6 +1770,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
     homeMeasurementBooked: input.homeMeasurementBooked,
     sampleProvided: input.sampleProvided,
     media: input.media,
+    voiceNotes: input.voiceNotes,
     sampleMedia: input.sampleMedia
   }];
   const primary = items[0];
@@ -1784,6 +1788,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
     homeMeasurementBooked: primary.homeMeasurementBooked,
     sampleProvided: primary.sampleProvided,
     media: primary.media,
+    voiceNotes: primary.voiceNotes,
     sampleMedia: primary.sampleMedia,
     items,
     itemCount: items.length,

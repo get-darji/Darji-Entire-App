@@ -94,10 +94,26 @@ export type TailorProfile = {
   verificationLastRejectedAt?: string;
   verification?: Record<string, unknown>;
   verificationDraft?: Record<string, unknown>;
+  sampleGallery?: TailorSample[];
   earnings?: number;
   user?: BasicUser;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type TailorSample = {
+  _id?: string;
+  id?: string;
+  url: string;
+  publicId?: string;
+  bytes?: number;
+  format?: string;
+  originalName?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  uploadedAt?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
 };
 
 export type DeliveryPartnerProfile = {
@@ -435,6 +451,7 @@ export type TailoringRequest = {
   measurementNotes?: string;
   pickupAddress: string;
   media?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  voiceNotes?: Array<{ url: string; resourceType: string; originalName?: string }>;
   sampleProvided?: boolean;
   sampleMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
   receivedMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;

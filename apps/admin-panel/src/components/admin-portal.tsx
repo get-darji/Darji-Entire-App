@@ -118,6 +118,7 @@ import {
   moderateUser,
   requestOtp,
   reviewDeliveryVerification,
+  reviewTailorSample,
   reviewTailorVerification,
   updateOrderStatus,
   updatePlatformStatus,
@@ -329,7 +330,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "notifications", icon: Send, label: "Notifications", description: "Push, SMS, email and in-app campaigns" },
   { id: "analytics", icon: BarChart3, label: "Analytics", description: "Dedicated reports and exports" },
   { id: "activity", icon: FileText, label: "Activity Logs", description: "Admin action audit trail" },
-  { id: "roles", icon: ShieldCheck, label: "Roles", description: "Role and permission management" },
+  { id: "roles", icon: ShieldCheck, label: "Accounts", description: "Approved admin phone access" },
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
   { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
   { id: "platform", icon: AlertTriangle, label: "Platform Settings", description: "Live and maintenance controls" },
@@ -932,6 +933,15 @@ export function AdminPortal() {
     mutationFn: reviewTailorVerification,
     onSuccess: async (_, variables) => {
       toast.success(`Tailor marked ${formatStatus(variables.status).toLowerCase()}`);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const tailorSampleReviewMutation = useMutation({
+    mutationFn: reviewTailorSample,
+    onSuccess: async (_, variables) => {
+      toast.success(`Sample ${variables.status.toLowerCase()}`);
       await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
@@ -2620,8 +2630,9 @@ export function AdminPortal() {
         orders={allOrders}
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
-        pending={tailorReviewMutation.isPending}
+        pending={tailorReviewMutation.isPending || tailorSampleReviewMutation.isPending}
         onReview={(review) => tailorDetail && tailorReviewMutation.mutate({ tailorId: tailorDetail.id, status: review.status, reason: review.reason, reuploadFields: review.reuploadFields })}
+        onSampleReview={(sampleId, status) => tailorDetail && tailorSampleReviewMutation.mutate({ tailorId: tailorDetail.id, sampleId, status })}
         subtitle="Tailor profile"
         setOpen={(next) => {
           if (!next) setTailorDetail(null);
@@ -4097,16 +4108,17 @@ function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse;
 }
 
 function RolesModule() {
-  const roles = ["Super Admin", "Operations", "Support", "Finance", "Marketing", "Developer"];
+  const roles = ["Approved phone account", "Operations", "Support", "Finance", "Marketing", "Developer"];
   const permissions = ["View", "Create", "Edit", "Delete", "Approve", "Export"];
   return (
     <div className="space-y-6">
-      <SectionIntro title="Role & Permission Management" description="Default MVP role matrix for module-level access planning." />
+      <SectionIntro title="Admin Account Access" description="Approved phone-number accounts can log in to the admin dashboard." />
       <Panel>
+        <p className="mb-4 text-sm text-[var(--muted)]">Use the Users admin invite action to approve a phone number. For now every approved admin account sees the same dashboard.</p>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead><tr className="border-b border-[var(--panel-border)]"><th className="px-4 py-3 text-left">Role</th>{permissions.map((permission) => <th key={permission} className="px-4 py-3 text-left">{permission}</th>)}</tr></thead>
-            <tbody>{roles.map((role) => <tr key={role} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3 font-semibold">{role}</td>{permissions.map((permission) => <td key={permission} className="px-4 py-3"><Badge tone={role === "Super Admin" || permission === "View" ? "emerald" : "slate"}>{role === "Super Admin" || permission === "View" ? "Allowed" : "Planned"}</Badge></td>)}</tr>)}</tbody>
+            <thead><tr className="border-b border-[var(--panel-border)]"><th className="px-4 py-3 text-left">Account</th>{permissions.map((permission) => <th key={permission} className="px-4 py-3 text-left">{permission}</th>)}</tr></thead>
+            <tbody>{roles.map((role) => <tr key={role} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3 font-semibold">{role}</td>{permissions.map((permission) => <td key={permission} className="px-4 py-3"><Badge tone={role === "Approved phone account" || permission === "View" ? "emerald" : "slate"}>{role === "Approved phone account" || permission === "View" ? "Allowed" : "Planned"}</Badge></td>)}</tr>)}</tbody>
           </table>
         </div>
       </Panel>
@@ -6825,6 +6837,7 @@ function DeliveryRequestDialog({
 
 function ProfileDialog({
   onReview,
+  onSampleReview,
   orders,
   open,
   pending,
@@ -6833,6 +6846,7 @@ function ProfileDialog({
   subtitle
 }: {
   onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
+  onSampleReview?: (sampleId: string, status: "APPROVED" | "REJECTED") => void;
   orders: Order[];
   open: boolean;
   pending?: boolean;
@@ -7042,6 +7056,41 @@ function ProfileDialog({
                           <p className="mt-2 text-sm">{formatList(profile.specialization)}</p>
                         </div>
                       </div>
+                    </Panel>
+                    <Panel>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h4 className="text-lg font-semibold">Profile samples</h4>
+                        <Badge tone="amber">{((profile as TailorProfile).sampleGallery ?? []).filter((sample) => sample.status === "PENDING").length} pending</Badge>
+                      </div>
+                      {((profile as TailorProfile).sampleGallery ?? []).length ? (
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                          {((profile as TailorProfile).sampleGallery ?? []).map((sample, index) => {
+                            const sampleId = sample.id ?? sample._id;
+                            return (
+                              <div key={sampleId ?? sample.url} className="overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff]">
+                                <a href={sample.url} target="_blank" rel="noreferrer">
+                                  <img alt={`Tailor sample ${index + 1}`} className="h-36 w-full object-cover" src={sample.url} />
+                                </a>
+                                <div className="space-y-3 p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="truncate text-sm font-semibold">{sample.originalName ?? `Sample ${index + 1}`}</p>
+                                    <StatusBadge value={sample.status} />
+                                  </div>
+                                  <p className="text-xs text-[var(--muted)]">Uploaded {formatDate(sample.uploadedAt, true)}</p>
+                                  {sample.status === "PENDING" && sampleId && onSampleReview ? (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <ActionButton className="px-3 py-2 text-xs" disabled={pending} onClick={() => onSampleReview(sampleId, "APPROVED")}>Approve</ActionButton>
+                                      <ActionButton className="px-3 py-2 text-xs" disabled={pending} variant="danger" onClick={() => onSampleReview(sampleId, "REJECTED")}>Reject</ActionButton>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm text-[var(--muted)]">No tailor samples uploaded yet.</p>
+                      )}
                     </Panel>
                     <Panel>
                       <h4 className="text-lg font-semibold">Earnings</h4>

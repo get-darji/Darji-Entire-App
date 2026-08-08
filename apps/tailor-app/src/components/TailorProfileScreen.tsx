@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { ActivityIndicator, Animated, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
-import { api, uploadTailorVerificationMedia } from "../api";
+import { api, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
 import { CompactLanguageToggle } from "../../../../shared/src/compact-language-toggle";
@@ -136,6 +136,7 @@ type TailorProfile = {
   settings?: TailorSettings;
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verification?: { personal?: { email?: string }; idVerification?: { facePhotoUrl?: string } };
+  sampleGallery?: Array<{ id?: string; _id?: string; url: string; status?: "PENDING" | "APPROVED" | "REJECTED"; originalName?: string; uploadedAt?: string; rejectionReason?: string }>;
 };
 type MeResponse = {
   id: string;
@@ -208,6 +209,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   const [supportScreen, setSupportScreen] = useState<SupportScreen>();
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingSamples, setUploadingSamples] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
@@ -366,6 +368,42 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     }
   }
 
+  async function pickSamplePhotos() {
+    if (!token) return;
+    const existing = (profile?.sampleGallery ?? []).filter((sample) => sample.status !== "REJECTED").length;
+    const remaining = Math.max(0, 5 - existing);
+    if (remaining <= 0) {
+      showDialog({ title: "Sample limit reached", message: "You can keep up to 5 pending or approved sample photos.", icon: "images-outline" });
+      return;
+    }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      showDialog({ title: "Permission needed", message: "Allow photo library access to upload sample work photos.", icon: "alert-circle-outline" });
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      quality: 0.82
+    });
+    if (result.canceled) return;
+    try {
+      setUploadingSamples(true);
+      await uploadTailorSamples(result.assets.slice(0, remaining).map((asset, index) => ({
+        uri: asset.uri,
+        name: asset.fileName || `tailor-sample-${Date.now()}-${index}.jpg`
+      })), token);
+      showDialog({ title: "Samples uploaded", message: "Your sample photos were sent for admin approval.", icon: "checkmark-circle-outline" });
+      refresh();
+    } catch (error) {
+      if (isSessionError(error)) return onSessionExpired();
+      showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not upload sample photos.", icon: "alert-circle-outline" });
+    } finally {
+      setUploadingSamples(false);
+    }
+  }
+
   async function submitAccountDeletionRequest() {
     if (!token || submittingDeletion) return;
     try {
@@ -441,6 +479,36 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         <InfoRow icon="create-outline" title="Edit Profile" value="Update name and shop details" styles={styles} onPress={() => setEditing(true)} noBorder />
         <InfoRow icon="storefront-outline" title="Shop Details" value={shopName} styles={styles} onPress={() => setShowShopDetails(true)} />
 
+      </Section>
+
+      <Section title="Sample Work" icon="images-outline" styles={styles}>
+        <View style={styles.sampleHeaderRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionHint}>Upload up to 5 dress photos. Approved samples appear on your customer profile.</Text>
+          </View>
+          <Pressable style={styles.sampleUploadButton} onPress={pickSamplePhotos} disabled={uploadingSamples}>
+            {uploadingSamples ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="cloud-upload-outline" size={16} color="#111111" />}
+            <Text style={styles.sampleUploadButtonText}>Add</Text>
+          </Pressable>
+        </View>
+        {(profile?.sampleGallery ?? []).length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sampleGalleryRow}>
+            {(profile?.sampleGallery ?? []).map((sample, index) => (
+              <View key={sample.id ?? sample._id ?? sample.url} style={styles.sampleGalleryCard}>
+                <Image source={{ uri: sample.url }} style={styles.sampleGalleryImage} />
+                <View style={styles.sampleStatusPill}>
+                  <Text style={styles.sampleStatusText}>{sample.status ?? "PENDING"}</Text>
+                </View>
+                <Text style={styles.sampleGalleryName} numberOfLines={1}>{sample.originalName ?? `Sample ${index + 1}`}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyMiniCard}>
+            <Ionicons name="image-outline" size={22} color={MUTED} />
+            <Text style={styles.emptyMiniText}>No sample photos yet</Text>
+          </View>
+        )}
       </Section>
 
       <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
@@ -2257,6 +2325,18 @@ function createStyles(palette: typeof lightPalette) {
     sectionHeader: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
     sectionIcon: { width: 34, height: 34, borderRadius: 13, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     sectionTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
+    sectionHint: { color: palette.muted, fontSize: 12, fontWeight: "700", lineHeight: 18 },
+    sampleHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
+    sampleUploadButton: { minHeight: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 13 },
+    sampleUploadButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
+    sampleGalleryRow: { gap: 10, paddingTop: 10, paddingBottom: 4 },
+    sampleGalleryCard: { width: 116, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, overflow: "hidden" },
+    sampleGalleryImage: { width: "100%", height: 126, backgroundColor: palette.border },
+    sampleStatusPill: { position: "absolute", left: 7, top: 7, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.92)", paddingHorizontal: 7, paddingVertical: 3 },
+    sampleStatusText: { color: BRAND_DEEP, fontSize: 9, fontWeight: "900" },
+    sampleGalleryName: { color: palette.muted, fontSize: 10, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 8 },
+    emptyMiniCard: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: palette.border, backgroundColor: palette.surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },
+    emptyMiniText: { color: palette.muted, fontSize: 12, fontWeight: "800" },
     faqSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 },
     faqHeroRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 18, marginBottom: 2 },
     faqRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 13, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 12 },

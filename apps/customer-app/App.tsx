@@ -2,6 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -171,6 +172,7 @@ type BackendTailorProfile = {
     personal?: { address?: string; area?: string; city?: string };
   };
   user?: { name?: string; phone?: string; avatarUrl?: string };
+  sampleGallery?: Array<{ id?: string; _id?: string; url: string; status?: string; originalName?: string }>;
 };
 type TailorProfileSummary = {
   id: string;
@@ -185,6 +187,7 @@ type TailorProfileSummary = {
   avatarUrl?: string;
   isAvailable?: boolean;
   verificationStatus?: string;
+  samples?: Array<{ id?: string; url: string; originalName?: string }>;
 };
 type BackendTailorQuote = {
   id: string;
@@ -198,7 +201,7 @@ type BackendTailorQuote = {
   status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
   tailor?: BackendTailorProfile | null;
 };
-type LocalMedia = { uri: string; type: "image" | "video"; name: string; size?: number };
+type LocalMedia = { uri: string; type: "image" | "video" | "audio"; name: string; size?: number };
 type ClothingItemDraft = {
   id: string;
   description: string;
@@ -217,6 +220,8 @@ type ClothingItemDraft = {
   homeMeasurementBooked?: boolean;
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
+  voiceNotes?: LocalMedia[];
+  uploadedVoiceNotes?: UploadedMedia[];
 };
 type OrderStatus =
   | "Awaiting Payment"
@@ -288,6 +293,7 @@ type BackendTailoringRequestItem = {
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
   media?: UploadedMedia[];
+  voiceNotes?: UploadedMedia[];
   sampleProvided?: boolean;
   sampleMedia?: UploadedMedia[];
   homeMeasurementBooked?: boolean;
@@ -304,6 +310,7 @@ type BackendTailoringRequest = {
   urgency: string;
   pickupAddress: string;
   media?: UploadedMedia[];
+  voiceNotes?: UploadedMedia[];
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
   sampleProvided?: boolean;
@@ -441,6 +448,8 @@ type RequestDraft = {
   pickup: string;
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
+  voiceNotes?: LocalMedia[];
+  uploadedVoiceNotes?: UploadedMedia[];
   additionalItems?: CheckoutAdditionalItem[];
   items?: ClothingItemDraft[];
   editingItemId?: string;
@@ -938,7 +947,9 @@ const sampleDraft: RequestDraft = {
   urgency: "Normal",
   pickup: "12, Rose Garden, Sector 5, Gurugram, Haryana 122001",
   media: [],
-  uploadedMedia: []
+  uploadedMedia: [],
+  voiceNotes: [],
+  uploadedVoiceNotes: []
 };
 
 function makeEmptyDraft(pickup = ""): RequestDraft {
@@ -947,6 +958,8 @@ function makeEmptyDraft(pickup = ""): RequestDraft {
     pickup,
     media: [],
     uploadedMedia: [],
+    voiceNotes: [],
+    uploadedVoiceNotes: [],
     items: []
   };
 }
@@ -961,6 +974,8 @@ function hasActiveItemDraftData(draft: RequestDraft) {
     draft.description.trim() ||
       draft.media.length ||
       draft.uploadedMedia.length ||
+      (draft.voiceNotes?.length ?? 0) ||
+      (draft.uploadedVoiceNotes?.length ?? 0) ||
       draft.gender ||
       draft.clothType ||
       draft.workType ||
@@ -1048,7 +1063,9 @@ function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?
     uploadedSampleMedia: draft.uploadedSampleMedia,
     homeMeasurementBooked: draft.homeMeasurementBooked,
     media: draft.media,
-    uploadedMedia: draft.uploadedMedia
+    uploadedMedia: draft.uploadedMedia,
+    voiceNotes: draft.voiceNotes ?? [],
+    uploadedVoiceNotes: draft.uploadedVoiceNotes ?? []
   };
 }
 
@@ -1080,6 +1097,8 @@ function loadClothingItemIntoDraft(draft: RequestDraft, item: ClothingItemDraft)
     homeMeasurementBooked: item.homeMeasurementBooked,
     media: item.media ?? [],
     uploadedMedia: item.uploadedMedia ?? [],
+    voiceNotes: item.voiceNotes ?? [],
+    uploadedVoiceNotes: item.uploadedVoiceNotes ?? [],
     editingItemId: item.id
   };
 }
@@ -2665,6 +2684,9 @@ function NewRequestScreen({
   const [editingAddress, setEditingAddress] = useState(false);
   const [locating, setLocating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [playingVoiceUri, setPlayingVoiceUri] = useState<string | undefined>();
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder);
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
   const savedItemCount = draft.items?.length ?? 0;
@@ -2729,7 +2751,8 @@ function NewRequestScreen({
     try {
       setUploading(true);
       const uploaded = await uploadMedia(draft.media, token);
-      setDraft({ ...draft, uploadedMedia: uploaded });
+      const uploadedVoiceNotes = draft.voiceNotes?.length ? await uploadMedia(draft.voiceNotes, token) : draft.uploadedVoiceNotes ?? [];
+      setDraft({ ...draft, uploadedMedia: uploaded, uploadedVoiceNotes });
       setScreen("clothIssue");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Try uploading smaller files.";
@@ -2786,6 +2809,45 @@ function NewRequestScreen({
           ? "Camera access is blocked. Open device settings and allow camera access for Darji."
           : "Could not open the camera right now."
       );
+    }
+  }
+
+  async function toggleVoiceRecording() {
+    try {
+      if (recorderState.isRecording) {
+        await audioRecorder.stop();
+        const uri = audioRecorder.uri;
+        if (uri) {
+          setDraft({
+            ...draft,
+            voiceNotes: [{ uri, type: "audio", name: `voice-note-${Date.now()}.m4a` }],
+            uploadedVoiceNotes: []
+          });
+        }
+        return;
+      }
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", "Allow microphone access to record voice instructions for your tailor.");
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+    } catch (error) {
+      Alert.alert("Voice note failed", error instanceof Error ? error.message : "Could not record voice note.");
+    }
+  }
+
+  async function playVoiceNote(uri: string) {
+    try {
+      setPlayingVoiceUri(uri);
+      const player = createAudioPlayer({ uri });
+      player.play();
+    } catch (error) {
+      Alert.alert("Playback failed", error instanceof Error ? error.message : "Could not play the voice note.");
+    } finally {
+      setTimeout(() => setPlayingVoiceUri(undefined), 1200);
     }
   }
 
@@ -2886,6 +2948,25 @@ function NewRequestScreen({
         <Text style={[styles.fieldDisclaimer, styles.descriptionCounter]}>
           {descriptionRemaining > 0 ? `${descriptionRemaining} more character${descriptionRemaining === 1 ? "" : "s"} required.` : "Description looks good."}
         </Text>
+
+        <Text style={styles.formLabel}>Voice Instructions</Text>
+        <View style={styles.voiceNoteCard}>
+          <View style={styles.voiceNoteIcon}>
+            <Ionicons name={recorderState.isRecording ? "radio-button-on" : "mic-outline"} size={22} color={recorderState.isRecording ? "#dc2626" : BRAND_ORANGE} />
+          </View>
+          <View style={styles.voiceNoteText}>
+            <Text style={styles.addressTitle}>{recorderState.isRecording ? "Recording..." : draft.voiceNotes?.length ? "Voice note added" : "Record a voice note"}</Text>
+            <Text style={styles.mutedSmall}>{draft.voiceNotes?.length ? "Tailor can listen to your instructions." : "Optional, useful for detailed fitting instructions."}</Text>
+          </View>
+          {draft.voiceNotes?.[0]?.uri ? (
+            <Pressable style={styles.voiceRoundButton} onPress={() => playVoiceNote(draft.voiceNotes![0].uri)}>
+              <Ionicons name={playingVoiceUri ? "volume-high-outline" : "play"} size={17} color={BRAND_DEEP} />
+            </Pressable>
+          ) : null}
+          <Pressable style={[styles.voiceRecordButton, recorderState.isRecording && styles.voiceRecordButtonActive]} onPress={toggleVoiceRecording}>
+            <Text style={styles.voiceRecordButtonText}>{recorderState.isRecording ? "Stop" : draft.voiceNotes?.length ? "Re-record" : "Record"}</Text>
+          </Pressable>
+        </View>
 
         {needsPickupAddress ? (
           <>
@@ -3908,6 +3989,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const hasManualMeasurements = Object.values(measurements).some((value) => value.trim()) || Boolean(draft.measurementNotes?.trim());
   const [showManualMeasurements, setShowManualMeasurements] = useState(hasManualMeasurements);
   const selectedService = getServiceCategory(draft.serviceCategory ?? draft.workType);
+  const requiresHomeMeasurement = selectedService?.label === "New Stitching";
   const selectedWorkItems = draft.selectedWorkItems ?? [];
   const garments = getGarmentsForGender(draft.gender);
   const normalizedGarmentSearch = garmentSearch.trim().toLowerCase();
@@ -3936,6 +4018,12 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   useEffect(() => {
     requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: 0, animated: false }));
   }, [stage, showStitchingWarning]);
+
+  useEffect(() => {
+    if (requiresHomeMeasurement && !draft.homeMeasurementBooked) {
+      setDraft({ ...draft, homeMeasurementBooked: true });
+    }
+  }, [requiresHomeMeasurement, draft, setDraft]);
 
   function selectClothType(clothType: string) {
     setShowManualMeasurements(false);
@@ -3989,12 +4077,14 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   }
 
   function selectServiceCategory(serviceCategory: string) {
+    const requiresVisit = serviceCategory === "New Stitching";
     setDraft({
       ...draft,
       serviceCategory,
       workType: serviceCategory,
       selectedWorkItems: [],
-      otherWorkDescription: ""
+      otherWorkDescription: "",
+      homeMeasurementBooked: requiresVisit ? true : draft.homeMeasurementBooked
     });
     setShowAllWorkOptions(true);
     setClothWarningAccepted(false);
@@ -4424,19 +4514,19 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 </Pressable>
                 <Pressable
                   style={[styles.measurementMethodCard, draft.homeMeasurementBooked && styles.measurementMethodCardSelected]}
-                  onPress={() => setDraft({ ...draft, homeMeasurementBooked: !draft.homeMeasurementBooked })}
+                  onPress={() => !requiresHomeMeasurement && setDraft({ ...draft, homeMeasurementBooked: !draft.homeMeasurementBooked })}
                 >
                   <Ionicons name={draft.homeMeasurementBooked ? "checkbox" : "square-outline"} size={23} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} style={styles.measurementMethodCheck} />
                   <View style={styles.measurementMethodIcon}>
                     <Ionicons name="home-outline" size={32} color={BRAND_ORANGE} />
                   </View>
                   <Text style={styles.measurementMethodCardTitle}>Get a tailor at home</Text>
-                  <Text style={styles.measurementMethodCopy}>A tailor will visit your home and take measurements accurately.</Text>
+                  <Text style={styles.measurementMethodCopy}>{requiresHomeMeasurement ? "Required for new stitching so the fit is measured accurately." : "A tailor will visit your home and take measurements accurately."}</Text>
                 </Pressable>
               </View>
               <View style={styles.measurementInfoBanner}>
                 <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
-                <Text style={styles.measurementInfoText}>You can select one or both options</Text>
+                <Text style={styles.measurementInfoText}>{requiresHomeMeasurement ? "Home measurement is mandatory for new stitching. You can also add a sample." : "You can select one or both options"}</Text>
                 <Ionicons name="chevron-forward" size={18} color="#7d8491" />
               </View>
               {draft.sampleProvided ? (
@@ -4702,7 +4792,10 @@ function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorP
     specializations,
     avatarUrl: tailor.user?.avatarUrl,
     isAvailable: tailor.isAvailable,
-    verificationStatus: tailor.verificationStatus
+    verificationStatus: tailor.verificationStatus,
+    samples: (tailor.sampleGallery ?? [])
+      .filter((sample) => !sample.status || sample.status === "APPROVED")
+      .map((sample) => ({ id: sample.id ?? sample._id, url: sample.url, originalName: sample.originalName }))
   };
 }
 
@@ -4799,6 +4892,16 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
                   <Text key={item} style={styles.tailorSpecialtyChip}>{item}</Text>
                 ))}
               </View>
+              {profile.samples?.length ? (
+                <>
+                  <Text style={styles.cardLabel}>SAMPLE WORK</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tailorSampleRow}>
+                    {profile.samples.map((sample, index) => (
+                      <Image key={sample.id ?? sample.url} source={{ uri: sample.url }} style={styles.tailorSampleImage} resizeMode="cover" accessibilityLabel={`Tailor sample ${index + 1}`} />
+                    ))}
+                  </ScrollView>
+                </>
+              ) : null}
               <View style={styles.tailorVerifiedRow}>
                 <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
                 <Text style={styles.tailorVerifiedText}>{profile.verificationStatus === "VERIFIED" ? "Verified tailor profile" : "Tailor profile from Darji backend"}</Text>
@@ -4958,6 +5061,7 @@ function payloadForClothingItem(item: ClothingItemDraft) {
     homeMeasurementBooked: item.homeMeasurementBooked === true,
     sampleProvided: item.sampleProvided === true,
     media: item.uploadedMedia,
+    voiceNotes: item.uploadedVoiceNotes ?? [],
     sampleMedia: item.uploadedSampleMedia ? [item.uploadedSampleMedia] : []
   };
 }
@@ -5060,6 +5164,8 @@ function OrderSummaryScreen({
         homeMeasurementBooked: items[0].homeMeasurementBooked,
         media: items[0].media,
         uploadedMedia: items[0].uploadedMedia,
+        voiceNotes: items[0].voiceNotes,
+        uploadedVoiceNotes: items[0].uploadedVoiceNotes,
         items,
         backendRequestId: request.id
       });
@@ -6164,9 +6270,9 @@ function FavoriteTailorsScreen({ setScreen }: { setScreen: (screen: Screen) => v
     if (!token) return;
     try {
       setLoading(true);
-      const res = await api<{ tailors: TailorProfileSummary[] }>("/tailoring-requests/tailors", { method: "GET" }, token);
-      if (res && Array.isArray(res.tailors)) {
-        setTailors(res.tailors);
+      const res = await api<BackendTailorProfile[]>("/tailors", { method: "GET" }, token);
+      if (res && Array.isArray(res)) {
+        setTailors(res.map(tailorProfileFromBackend).filter((item): item is TailorProfileSummary => Boolean(item)));
       }
     } catch (e) {
       console.warn("Failed to load tailors for favorites:", e);
@@ -9281,12 +9387,10 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
 
 function TrackOrderScreenV2({
   order,
-  setScreen,
-  deliveryLocation
+  setScreen
 }: {
   order: CustomerOrder;
   setScreen: (screen: Screen) => void;
-  deliveryLocation?: { latitude: number; longitude: number; updatedAt?: string };
 }) {
   const steps = order.status === "Cancelled" ? [["Order Placed", "10:30 AM", true], ["Cancelled", "", true]] as const : trackStepsForStatus(order.status);
 
@@ -9324,18 +9428,6 @@ function TrackOrderScreenV2({
           <Text style={styles.addressTitle}>{order.tailor.name}</Text>
           <Text style={styles.mutedSmall}>Estimated completion: {order.tailor.eta}.</Text>
         </View>
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>LIVE DELIVERY MAP</Text>
-          <View style={styles.liveMapCard}>
-            <Ionicons name="navigate-outline" size={28} color={BRAND_ORANGE} />
-            <Text style={styles.addressTitle}>{deliveryLocation ? "Delivery partner moving" : "Waiting for delivery partner"}</Text>
-            <Text style={styles.mutedSmall}>
-              {deliveryLocation
-                ? `Lat ${deliveryLocation.latitude.toFixed(5)}, Lng ${deliveryLocation.longitude.toFixed(5)}`
-                : "Live location appears here when pickup or delivery starts."}
-            </Text>
-          </View>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -9362,7 +9454,6 @@ export default function App() {
   const [hasLoadedRequestDraft, setHasLoadedRequestDraft] = useState(false);
   const [requestProgressScreen, setRequestProgressScreen] = useState<RequestFlowScreen>("newRequest");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
-  const [deliveryLocations, setDeliveryLocations] = useState<Record<string, { latitude: number; longitude: number; updatedAt?: string }>>({});
   const [paymentSheet, setPaymentSheet] = useState<PaymentSheetState | undefined>();
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<string | undefined>();
@@ -10090,11 +10181,6 @@ export default function App() {
     socket.on("customer:delivery_status_updated", ({ tailoringRequestId, status }: { tailoringRequestId?: string; status?: string }) => {
       if (tailoringRequestId && status) applyRealtimeOrderStatus(tailoringRequestId, status);
     });
-    socket.on("delivery:location_updated", ({ requestId, location, updatedAt }: { requestId?: string; location?: { latitude?: number; longitude?: number }; updatedAt?: string }) => {
-      if (!requestId || !location?.latitude || !location?.longitude) return;
-      setDeliveryLocations((current) => ({ ...current, [requestId]: { latitude: location.latitude!, longitude: location.longitude!, updatedAt } }));
-    });
-
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -10376,8 +10462,7 @@ export default function App() {
   if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
   if (screen === "trackOrder" && activeOrderForCustomer) {
-    const locationKey = activeOrderForCustomer.backendOrderId ?? activeOrderForCustomer.tailor.backendRequestId ?? activeOrderForCustomer.id;
-    return withAppChrome(<TrackOrderScreenV2 deliveryLocation={deliveryLocations[locationKey]} order={activeOrderForCustomer} setScreen={setScreen} />);
+    return withAppChrome(<TrackOrderScreenV2 order={activeOrderForCustomer} setScreen={setScreen} />);
   }
   if (screen === "orderDetails" || screen === "trackOrder") return withAppChrome(<OrdersScreenV2 orders={orders} onOpenOrder={openOrderFromList} setScreen={setScreen} />);
   const PROFILE_SUBSCREENS = new Set([
@@ -10972,6 +11057,13 @@ function createStyles(isDark = false) {
   samplePreviewImage: { width: 52, height: 52, borderRadius: 13, backgroundColor: iconBg },
   samplePreviewText: { flex: 1, minWidth: 0 },
   sampleRemoveButton: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#c24141", alignItems: "center", justifyContent: "center" },
+  voiceNoteCard: { minHeight: 74, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 },
+  voiceNoteIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  voiceNoteText: { flex: 1, minWidth: 0 },
+  voiceRoundButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92" },
+  voiceRecordButton: { minHeight: 36, borderRadius: 13, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  voiceRecordButtonActive: { backgroundColor: "#fecaca" },
+  voiceRecordButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
   homeMeasurementButton: {
     minHeight: 74,
     borderRadius: 18,
@@ -11038,8 +11130,8 @@ function createStyles(isDark = false) {
   measurementDefinitionText: { flex: 1, minWidth: 0 },
   measurementDefinitionTitle: { color: text, fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   measurementDefinitionCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 3 },
-  measurementTipsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  measurementTip: { width: "47.8%", minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 7, padding: 9 },
+  measurementTipsGrid: { flexDirection: "row", flexWrap: "nowrap", gap: 8 },
+  measurementTip: { flex: 1, minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 7, padding: 9 },
   measurementTipText: { flex: 1, color: muted, fontSize: 10, fontWeight: "800", lineHeight: 14 },
   measurementGuideChipPanel: { borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 10, marginTop: 10 },
   measurementGuideChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -11189,6 +11281,8 @@ function createStyles(isDark = false) {
   tailorProfileInfoCard: { flex: 1, minHeight: 78, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12 },
   tailorProfileInfoLabel: { color: muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginTop: 7 },
   tailorProfileInfoValue: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18, marginTop: 3 },
+  tailorSampleRow: { gap: 10, paddingVertical: 10 },
+  tailorSampleImage: { width: 112, height: 132, borderRadius: 14, backgroundColor: iconBg },
   tailorSpecialtyWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: -4, marginBottom: 14 },
   tailorSpecialtyChip: { overflow: "hidden", borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, color: "#8a5600", paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
   tailorVerifiedRow: { minHeight: 42, borderRadius: 13, backgroundColor: isDark ? "#0d2416" : "#f0fdf4", borderWidth: 1, borderColor: "#bbf7d0", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 },
