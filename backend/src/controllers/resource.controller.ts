@@ -768,6 +768,22 @@ export async function reviewTailorSampleController(req: Request, res: Response) 
   res.json({ data: await withUser(tailor) });
 }
 
+export async function deleteTailorSampleController(req: Request, res: Response) {
+  const tailor = await TailorModel.findOne({ userId: req.user!.id });
+  if (!tailor) throw new AppError(404, "Tailor profile not found");
+
+  const sample = (tailor.sampleGallery as any[] | undefined)?.find((item: any) => String(item._id) === String(req.params.sampleId));
+  if (!sample) throw new AppError(404, "Tailor sample not found");
+  if (sample.status === "APPROVED") throw new AppError(400, "Approved samples cannot be deleted from the app. Contact support.");
+
+  const updated = await TailorModel.findByIdAndUpdate(
+    tailor.id,
+    { $pull: { sampleGallery: { _id: String(req.params.sampleId) } } },
+    { returnDocument: "after" }
+  );
+  res.json({ data: await withUser(updated!) });
+}
+
 export async function uploadAdminMediaController(req: Request, res: Response) {
   assertCloudinaryConfigured();
   const file = req.file;
@@ -994,6 +1010,10 @@ export async function deleteAdminAccountController(req: Request, res: Response) 
   const userId = String(req.params.id);
   if (req.user?.id === userId) {
     throw new AppError(400, "You cannot delete your own admin account");
+  }
+  const target = await UserModel.findById(userId).select("phone role");
+  if (target?.phone === "9971416471") {
+    throw new AppError(400, "Owner admin access cannot be removed");
   }
 
   const deleted = await deleteAccountByUserId(userId);

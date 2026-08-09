@@ -312,3 +312,17 @@ export async function uploadTailorSamples(files: { uri: string; name: string }[]
     return sendTailorSamplesUpload(files, nextToken);
   }
 }
+
+export async function deleteTailorSample(sampleId: string, token?: string): Promise<unknown> {
+  const currentToken = token ?? useAppStore.getState().token;
+  if (!currentToken) throw new Error("Authentication required");
+
+  try {
+    return await api(`/tailors/me/samples/${sampleId}`, { method: "DELETE" }, currentToken);
+  } catch (error) {
+    if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
+    const nextToken = await refreshAccessToken();
+    if (!nextToken) throw error;
+    return api(`/tailors/me/samples/${sampleId}`, { method: "DELETE" }, nextToken);
+  }
+}

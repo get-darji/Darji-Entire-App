@@ -79,6 +79,7 @@ import {
   uploadTailorVerificationMediaController,
   uploadTailorSamplesController,
   reviewTailorSampleController,
+  deleteTailorSampleController,
   walletController,
   reverseGeocodeController,
   updateRiderLocationController
@@ -195,6 +196,7 @@ router.post("/tailors/me/verification", requireAuth, requireRole("TAILOR"), subm
 router.post("/tailors/me/avatar", requireAuth, requireRole("TAILOR"), uploadTailorAvatar, uploadTailorAvatarController);
 router.post("/tailors/me/verification-media", requireAuth, requireRole("TAILOR"), uploadTailorVerificationMedia, uploadTailorVerificationMediaController);
 router.post("/tailors/me/samples", requireAuth, requireRole("TAILOR"), uploadTailorVerificationMedia, uploadTailorSamplesController);
+router.delete("/tailors/me/samples/:sampleId", requireAuth, requireRole("TAILOR"), deleteTailorSampleController);
 router.patch("/tailors/:tailorId/samples/:sampleId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reviewTailorSampleController);
 
 router.get("/delivery-partners", requireAuth, listDeliveryPartnersController);

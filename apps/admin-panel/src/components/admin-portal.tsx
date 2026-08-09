@@ -114,6 +114,7 @@ import {
   getTailoringRequests,
   getTailors,
   getUsers,
+  inviteAdmin,
   markPaymentPaid,
   moderateUser,
   requestOtp,
@@ -321,6 +322,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "delivery", icon: Truck, label: "Delivery Ops", description: "Pickup and delivery tasks" },
   { id: "batches", icon: PackageCheck, label: "Batch Management", description: "Delivery batch routing and reassignment" },
   { id: "tailors", icon: ShieldCheck, label: "Tailors", description: "Availability, verification, earnings" },
+  { id: "samples", icon: ImageIcon, label: "Sample Work", description: "Approve tailor profile photos" },
   { id: "partners", icon: Users, label: "Delivery Partners", description: "Fleet management and ratings" },
   { id: "users", icon: UserCircle2, label: "Customers", description: "Customer accounts and access control" },
   { id: "payments", icon: CreditCard, label: "Payments", description: "Collections and payment state" },
@@ -977,6 +979,15 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
+  const adminInviteMutation = useMutation({
+    mutationFn: inviteAdmin,
+    onSuccess: async () => {
+      toast.success("Admin account added");
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
   const bugReportUpdateMutation = useMutation({
     mutationFn: updateBugReport,
     onSuccess: async () => {
@@ -1228,6 +1239,7 @@ export function AdminPortal() {
   const pendingOrders = allOrders.length - completedOrders - cancelledOrders;
   const recentOrders = [...allOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
   const customerUsers = users.filter((user) => user.role === "CUSTOMER" && !user.tailorProfile && !user.deliveryProfile);
+  const adminUsers = users.filter((user) => user.role === "ADMIN" || user.role === "SUPER_ADMIN");
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const globalSearchResults: GlobalSearchResult[] = (() => {
     if (!searchTerm) return [];
@@ -2255,6 +2267,14 @@ export function AdminPortal() {
           </div>
         ) : null}
 
+        {activeSection === "samples" ? (
+          <SampleWorkModule
+            tailors={tailors}
+            pending={tailorSampleReviewMutation.isPending}
+            onReview={(tailorId, sampleId, status) => tailorSampleReviewMutation.mutate({ tailorId, sampleId, status })}
+          />
+        ) : null}
+
         {activeSection === "partners" ? (
           <div className="space-y-6">
             <SectionIntro
@@ -2442,7 +2462,15 @@ export function AdminPortal() {
           />
         ) : null}
 
-        {activeSection === "roles" ? <RolesModule /> : null}
+        {activeSection === "roles" ? (
+          <RolesModule
+            admins={adminUsers}
+            pendingInvite={adminInviteMutation.isPending}
+            pendingDelete={accountDeleteMutation.isPending}
+            onInvite={(phone) => adminInviteMutation.mutate({ phone })}
+            onDelete={(userId) => accountDeleteMutation.mutate(userId)}
+          />
+        ) : null}
 
         {activeSection === "health" ? (
           <SystemHealthModule
@@ -3603,12 +3631,14 @@ function ActionButton({
   className,
   disabled,
   onClick,
+  type = "button",
   variant = "primary"
 }: {
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
   onClick?: () => void;
+  type?: "button" | "submit";
   variant?: "primary" | "secondary" | "danger";
 }) {
   return (
@@ -3622,7 +3652,7 @@ function ActionButton({
       )}
       disabled={disabled}
       onClick={onClick}
-      type="button"
+      type={type}
     >
       {children}
     </button>
@@ -4107,18 +4137,150 @@ function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse;
   );
 }
 
-function RolesModule() {
-  const roles = ["Approved phone account", "Operations", "Support", "Finance", "Marketing", "Developer"];
-  const permissions = ["View", "Create", "Edit", "Delete", "Approve", "Export"];
+function SampleWorkModule({
+  tailors,
+  pending,
+  onReview
+}: {
+  tailors: TailorProfile[];
+  pending: boolean;
+  onReview: (tailorId: string, sampleId: string, status: "APPROVED" | "REJECTED") => void;
+}) {
+  const samples = tailors.flatMap((tailor) =>
+    (tailor.sampleGallery ?? []).map((sample, index) => ({
+      tailor,
+      sample,
+      sampleId: sample.id ?? sample._id,
+      index
+    }))
+  );
+  const pendingSamples = samples.filter((item) => item.sample.status === "PENDING");
+  const ordered = [...pendingSamples, ...samples.filter((item) => item.sample.status !== "PENDING")];
+
   return (
     <div className="space-y-6">
-      <SectionIntro title="Admin Account Access" description="Approved phone-number accounts can log in to the admin dashboard." />
+      <SectionIntro title="Sample Work Verification" description="Approve tailor dress samples before they appear on customer-facing tailor profiles." />
+      <div className="grid gap-4 md:grid-cols-3">
+        <Panel><Badge tone="amber">{pendingSamples.length} pending</Badge><p className="mt-3 font-semibold">Waiting for review</p></Panel>
+        <Panel><Badge tone="emerald">{samples.filter((item) => item.sample.status === "APPROVED").length} approved</Badge><p className="mt-3 font-semibold">Visible to customers</p></Panel>
+        <Panel><Badge tone="rose">{samples.filter((item) => item.sample.status === "REJECTED").length} rejected</Badge><p className="mt-3 font-semibold">Hidden from profiles</p></Panel>
+      </div>
       <Panel>
-        <p className="mb-4 text-sm text-[var(--muted)]">Use the Users admin invite action to approve a phone number. For now every approved admin account sees the same dashboard.</p>
+        {ordered.length ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {ordered.map(({ tailor, sample, sampleId, index }) => (
+              <div key={`${tailor.id}-${sampleId ?? sample.url}`} className="overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] dark:bg-white/5">
+                <a href={sample.url} target="_blank" rel="noreferrer">
+                  <img alt={`Sample ${index + 1}`} className="h-44 w-full object-cover" src={sample.url} />
+                </a>
+                <div className="space-y-3 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate font-semibold">{tailor.shopName ?? tailor.user?.name ?? "Tailor"}</p>
+                    <StatusBadge value={sample.status} />
+                  </div>
+                  <p className="text-xs text-[var(--muted)]">+91 {tailor.user?.phone ?? "Unknown"} · Uploaded {formatDate(sample.uploadedAt, true)}</p>
+                  {sample.status === "PENDING" && sampleId ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <ActionButton className="px-3 py-2 text-xs" disabled={pending} onClick={() => onReview(tailor.id, sampleId, "APPROVED")}>Approve</ActionButton>
+                      <ActionButton className="px-3 py-2 text-xs" disabled={pending} variant="danger" onClick={() => onReview(tailor.id, sampleId, "REJECTED")}>Reject</ActionButton>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="py-12 text-center">
+            <ImageIcon className="mx-auto text-[var(--muted)]" size={36} />
+            <p className="mt-3 font-semibold">No sample photos submitted yet</p>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+const PROTECTED_ADMIN_PHONE = "9971416471";
+
+function RolesModule({
+  admins,
+  pendingInvite,
+  pendingDelete,
+  onInvite,
+  onDelete
+}: {
+  admins: AdminUser[];
+  pendingInvite: boolean;
+  pendingDelete: boolean;
+  onInvite: (phone: string) => void;
+  onDelete: (userId: string) => void;
+}) {
+  const [phone, setPhone] = useState("");
+  const rows = admins.some((admin) => admin.phone === PROTECTED_ADMIN_PHONE)
+    ? admins
+    : [{ id: "protected-owner", phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN", name: "Owner Admin" } as AdminUser, ...admins];
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (cleanPhone.length < 10) {
+      toast.error("Enter a valid admin phone number");
+      return;
+    }
+    onInvite(cleanPhone);
+    setPhone("");
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionIntro title="Admin Accounts" description="Only approved phone-number accounts can log in to this dashboard." />
+      <Panel>
+        <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={submit}>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Phone number</label>
+            <input
+              className="mt-2 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4 py-3 font-semibold outline-none dark:bg-white/5"
+              inputMode="tel"
+              placeholder="Enter admin phone"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+            />
+          </div>
+          <ActionButton className="self-end" disabled={pendingInvite} type="submit">
+            <UserRoundPlus size={16} /> Add Admin
+          </ActionButton>
+        </form>
+      </Panel>
+      <Panel>
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead><tr className="border-b border-[var(--panel-border)]"><th className="px-4 py-3 text-left">Account</th>{permissions.map((permission) => <th key={permission} className="px-4 py-3 text-left">{permission}</th>)}</tr></thead>
-            <tbody>{roles.map((role) => <tr key={role} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3 font-semibold">{role}</td>{permissions.map((permission) => <td key={permission} className="px-4 py-3"><Badge tone={role === "Approved phone account" || permission === "View" ? "emerald" : "slate"}>{role === "Approved phone account" || permission === "View" ? "Allowed" : "Planned"}</Badge></td>)}</tr>)}</tbody>
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+              <tr><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((admin) => {
+                const protectedOwner = admin.phone === PROTECTED_ADMIN_PHONE;
+                return (
+                  <tr key={admin.id} className="border-b border-[var(--panel-border)]">
+                    <td className="px-4 py-3 font-semibold">+91 {admin.phone}</td>
+                    <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Owner locked" : "Admin"}</Badge></td>
+                    <td className="px-4 py-3"><StatusBadge value={admin.accountStatus ?? "ACTIVE"} /></td>
+                    <td className="px-4 py-3">
+                      <ActionButton
+                        className="px-3 py-2 text-xs"
+                        disabled={pendingDelete || protectedOwner || admin.id === "protected-owner"}
+                        variant="danger"
+                        onClick={() => {
+                          if (!protectedOwner && window.confirm(`Remove admin access for +91 ${admin.phone}?`)) onDelete(admin.id);
+                        }}
+                      >
+                        Remove
+                      </ActionButton>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
         </div>
       </Panel>

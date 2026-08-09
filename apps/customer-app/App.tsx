@@ -2,7 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from "expo-audio";
+import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -2685,6 +2685,9 @@ function NewRequestScreen({
   const [locating, setLocating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [playingVoiceUri, setPlayingVoiceUri] = useState<string | undefined>();
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
+  const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder);
   const token = useAppStore((state) => state.token);
@@ -2698,6 +2701,7 @@ function NewRequestScreen({
   const isAddingAnotherItem = savedItemCount > 0 && !draft.editingItemId;
 
   function leaveCurrentItem() {
+    stopVoicePlayback();
     if (draft.editingItemId || isAddingAnotherItem) {
       setDraft(clearActiveClothingItem(draft));
       setScreen("orderSummary");
@@ -2705,6 +2709,29 @@ function NewRequestScreen({
     }
     onExitRequest();
   }
+
+  function stopVoicePlayback() {
+    try {
+      voicePlayerRef.current?.pause();
+      voicePlayerRef.current?.release();
+    } catch {
+      // Best-effort cleanup; stale audio players should never survive screen changes.
+    }
+    voicePlayerRef.current = undefined;
+    setPlayingVoiceUri(undefined);
+    setVoicePlaybackPaused(false);
+  }
+
+  useEffect(() => {
+    return () => {
+      stopVoicePlayback();
+      try {
+        audioRecorder.stop();
+      } catch {
+        // Recorder may already be released by Expo.
+      }
+    };
+  }, []);
 
   function toLocalMedia(asset: ImagePicker.ImagePickerAsset, fallbackIndex: number): LocalMedia {
     const type = asset.type === "video" ? "video" : "image";
@@ -2814,6 +2841,7 @@ function NewRequestScreen({
 
   async function toggleVoiceRecording() {
     try {
+      stopVoicePlayback();
       if (recorderState.isRecording) {
         await audioRecorder.stop();
         const uri = audioRecorder.uri;
@@ -2824,6 +2852,7 @@ function NewRequestScreen({
             uploadedVoiceNotes: []
           });
         }
+        setRecordingPaused(false);
         return;
       }
       const permission = await requestRecordingPermissionsAsync();
@@ -2834,20 +2863,46 @@ function NewRequestScreen({
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
+      setRecordingPaused(false);
     } catch (error) {
       Alert.alert("Voice note failed", error instanceof Error ? error.message : "Could not record voice note.");
     }
   }
 
-  async function playVoiceNote(uri: string) {
+  function toggleRecordingPause() {
     try {
+      if (!recorderState.isRecording) return;
+      if (recordingPaused) {
+        audioRecorder.record();
+        setRecordingPaused(false);
+      } else {
+        audioRecorder.pause();
+        setRecordingPaused(true);
+      }
+    } catch (error) {
+      Alert.alert("Voice note failed", error instanceof Error ? error.message : "Could not pause this recording.");
+    }
+  }
+
+  async function toggleVoicePlayback(uri: string) {
+    try {
+      if (voicePlayerRef.current && playingVoiceUri === uri) {
+        if (voicePlaybackPaused) {
+          voicePlayerRef.current.play();
+          setVoicePlaybackPaused(false);
+        } else {
+          voicePlayerRef.current.pause();
+          setVoicePlaybackPaused(true);
+        }
+        return;
+      }
+      stopVoicePlayback();
       setPlayingVoiceUri(uri);
       const player = createAudioPlayer({ uri });
+      voicePlayerRef.current = player;
       player.play();
     } catch (error) {
       Alert.alert("Playback failed", error instanceof Error ? error.message : "Could not play the voice note.");
-    } finally {
-      setTimeout(() => setPlayingVoiceUri(undefined), 1200);
     }
   }
 
@@ -2959,12 +3014,17 @@ function NewRequestScreen({
             <Text style={styles.mutedSmall}>{draft.voiceNotes?.length ? "Tailor can listen to your instructions." : "Optional, useful for detailed fitting instructions."}</Text>
           </View>
           {draft.voiceNotes?.[0]?.uri ? (
-            <Pressable style={styles.voiceRoundButton} onPress={() => playVoiceNote(draft.voiceNotes![0].uri)}>
-              <Ionicons name={playingVoiceUri ? "volume-high-outline" : "play"} size={17} color={BRAND_DEEP} />
+            <Pressable style={styles.voiceRoundButton} onPress={() => toggleVoicePlayback(draft.voiceNotes![0].uri)}>
+              <Ionicons name={playingVoiceUri && !voicePlaybackPaused ? "pause" : "play"} size={17} color={BRAND_DEEP} />
+            </Pressable>
+          ) : null}
+          {recorderState.isRecording ? (
+            <Pressable style={styles.voiceRoundButton} onPress={toggleRecordingPause}>
+              <Ionicons name={recordingPaused ? "play" : "pause"} size={17} color={BRAND_DEEP} />
             </Pressable>
           ) : null}
           <Pressable style={[styles.voiceRecordButton, recorderState.isRecording && styles.voiceRecordButtonActive]} onPress={toggleVoiceRecording}>
-            <Text style={styles.voiceRecordButtonText}>{recorderState.isRecording ? "Stop" : draft.voiceNotes?.length ? "Re-record" : "Record"}</Text>
+            <Text style={styles.voiceRecordButtonText}>{recorderState.isRecording ? "Done" : draft.voiceNotes?.length ? "Re-record" : "Record"}</Text>
           </Pressable>
         </View>
 
@@ -6300,18 +6360,21 @@ function FavoriteTailorsScreen({ setScreen }: { setScreen: (screen: Screen) => v
         ) : null}
 
         {!loading && favoriteTailors.length === 0 ? (
-          <View style={{ flex: 1, padding: 40, alignItems: "center", justifyContent: "center", marginTop: 60 }}>
-            <Ionicons name="heart-outline" size={80} color="#cbd5e1" />
-            <Text style={[styles.emptyTitle, { marginTop: 16 }]}>No saved tailors yet</Text>
-            <Text style={[styles.quotesWaitingCopy, { textAlign: "center", marginTop: 8 }]}>
-              Explore tailors on the search tab and tap the heart icon to save them here for quick access.
+          <View style={styles.favoriteEmptyCard}>
+            <View style={styles.favoriteEmptyIcon}>
+              <Ionicons name="heart-outline" size={38} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.emptyTitle}>No saved tailors yet</Text>
+            <Text style={styles.mutedCenter}>
+              Save tailors you like and they will appear here for faster repeat orders.
             </Text>
             <Pressable
-              style={[styles.primaryWideButton, { marginTop: 24 }]}
+              style={styles.favoriteFindButton}
               onPress={() => {
                 setScreen("search");
               }}
             >
+              <Ionicons name="search-outline" size={18} color="#111111" />
               <Text style={styles.primaryWideButtonText}>Find Tailors</Text>
             </Pressable>
           </View>
@@ -6562,20 +6625,56 @@ function EditProfileScreen({
   const [name, setName] = useState(profile.name);
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
+  const [avatarUri, setAvatarUri] = useState(profile.avatarUri);
 
   function save() {
     if (name.trim().length < 2) {
       Alert.alert("Name required", "Enter your full name.");
       return;
     }
-    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri: undefined, avatarPreset: undefined, hasCompletedOnboarding: true });
+    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri, avatarPreset: avatarUri ? undefined : profile.avatarPreset, hasCompletedOnboarding: true });
     setScreen("profile");
+  }
+
+  async function pickProfilePhoto(source: "camera" | "gallery") {
+    try {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", source === "camera" ? "Allow camera access to take a profile photo." : "Allow photo access to select a profile photo.");
+        return;
+      }
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.85 })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.85 });
+      if (!result.canceled && result.assets[0]?.uri) setAvatarUri(result.assets[0].uri);
+    } catch (error) {
+      Alert.alert("Photo failed", error instanceof Error ? error.message : "Could not update profile photo.");
+    }
   }
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title={t(useAppStore.getState().language, "editProfile")} onBack={() => setScreen("profile")} />
+        <View style={styles.editAvatarPanel}>
+          <Image source={avatarUri ? { uri: avatarUri } : getDefaultAvatarSource({ ...profile, gender, dateOfBirth })} style={styles.editProfileAvatarImage} />
+          <View style={styles.editAvatarActions}>
+            <Text style={styles.addressTitle}>Profile photo</Text>
+            <Text style={styles.mutedSmall}>Choose a clear photo from camera or gallery.</Text>
+            <View style={styles.editAvatarButtonRow}>
+              <Pressable style={styles.editAvatarButton} onPress={() => pickProfilePhoto("gallery")}>
+                <Ionicons name="images-outline" size={16} color={BRAND_ORANGE} />
+                <Text style={styles.editAvatarButtonText}>Gallery</Text>
+              </Pressable>
+              <Pressable style={styles.editAvatarButton} onPress={() => pickProfilePhoto("camera")}>
+                <Ionicons name="camera-outline" size={16} color={BRAND_ORANGE} />
+                <Text style={styles.editAvatarButtonText}>Camera</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
         <Text style={styles.formLabel}>Full Name</Text>
         <TextInput style={styles.profileInput} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor="#98a4b6" />
         <Text style={styles.formLabel}>Gender</Text>
@@ -8723,29 +8822,27 @@ function OrdersScreenV2({
       style={styles.orderCardV2}
       onPress={() => onOpenOrder(order)}
     >
-      <View style={styles.orderTopRow}>
-        <View style={styles.orderTitleBlock}>
+      <View style={styles.orderBatchLayout}>
+        <View style={styles.orderBatchIcon}>
+          <Ionicons name="cube-outline" size={34} color={BRAND_ORANGE} />
+        </View>
+        <View style={styles.orderBatchMain}>
           <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-          <Text style={styles.orderService} numberOfLines={2}>
-            {order.draft.workType ?? "Tailoring"} - {order.draft.clothType ?? "Cloth"}
+          <Text style={styles.orderService} numberOfLines={3}>
+            {order.draft.clothType ?? "Cloth"} - {order.draft.workType ?? "Tailoring"} - Order ID #{order.status.toUpperCase()}
           </Text>
-          <Text style={{ fontSize: 11, color: BRAND_ORANGE, marginTop: 4, fontWeight: "700" }}>
-            Confirmed: {new Date(order.placedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-          </Text>
+          <View style={styles.orderCreatedPill}>
+            <Ionicons name="time-outline" size={15} color="#b91c1c" />
+            <Text style={styles.orderCreatedText}>
+              Created: {new Date(order.placedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+            </Text>
+          </View>
         </View>
         <StatusPill status={order.status} />
       </View>
       <View style={styles.orderCardDivider} />
       <View style={styles.orderBottomRow}>
-        <View style={styles.orderTailorBlock}>
-          <View style={styles.smallQuoteAvatar}>
-            <Text style={styles.smallAvatarText}>{order.tailor.initials}</Text>
-          </View>
-          <View style={styles.orderTailorText}>
-            <Text style={styles.addressTitle} numberOfLines={1}>{order.tailor.name}</Text>
-            <Text style={styles.mutedSmall} numberOfLines={2}>{order.status === "Cancelled" ? "Cancelled order" : `Pickup: ${order.pickupWindow}`}</Text>
-          </View>
-        </View>
+        <Text style={styles.orderPickupText} numberOfLines={1}>{order.status === "Cancelled" ? "Order cancelled" : `Pickup: ${order.pickupWindow}`}</Text>
         <Text style={styles.orderPrice}>Rs{order.total}</Text>
       </View>
     </Pressable>
@@ -8754,14 +8851,20 @@ function OrdersScreenV2({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title="Orders" />
+        <View style={styles.ordersHero}>
+          <Text style={styles.ordersHeroTitle}>My Orders</Text>
+          <Text style={styles.ordersHeroCopy}>Track requests, accepted orders, history and cancellations.</Text>
+        </View>
         {orders.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="cube-outline" size={34} color={BRAND_ORANGE} />
+          <View style={styles.orderEmptyCard}>
+            <View style={styles.orderEmptyIcon}>
+              <Ionicons name="cube-outline" size={38} color={BRAND_ORANGE} />
+            </View>
             <Text style={styles.emptyTitle}>No orders yet</Text>
-            <Text style={styles.helperText}>Your confirmed tailoring orders will appear here.</Text>
-            <Pressable style={[styles.primaryWideButton, styles.emptyActionButton]} onPress={() => setScreen("newRequest")}>
-              <Text style={styles.primaryWideButtonText}>Start a Request</Text>
+            <Text style={styles.mutedCenter}>Place your first tailoring request and we will help you find the right tailor.</Text>
+            <Pressable style={styles.favoriteFindButton} onPress={() => setScreen("newRequest")}>
+              <Ionicons name="add" size={18} color="#111111" />
+              <Text style={styles.primaryWideButtonText}>Place an Order</Text>
             </Pressable>
           </View>
         ) : (
@@ -8769,9 +8872,8 @@ function OrdersScreenV2({
             <View style={styles.orderTabRow}>
               {tabs.map((tab) => (
                 <Pressable key={tab.key} style={[styles.orderTabButton, activeTab === tab.key && styles.orderTabButtonActive]} onPress={() => setActiveTab(tab.key)}>
-                  <Ionicons name={tab.icon} size={15} color={activeTab === tab.key ? BRAND_ORANGE : "#65748a"} />
+                  <Ionicons name={tab.icon} size={25} color={activeTab === tab.key ? BRAND_ORANGE : "#65748a"} />
                   <Text style={[styles.orderTabText, activeTab === tab.key && styles.orderTabTextActive]}>{tab.label}</Text>
-                  <Text style={[styles.orderTabCount, activeTab === tab.key && styles.orderTabTextActive]}>{tab.items.length}</Text>
                 </Pressable>
               ))}
             </View>
@@ -11060,7 +11162,7 @@ function createStyles(isDark = false) {
   voiceNoteCard: { minHeight: 74, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 },
   voiceNoteIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   voiceNoteText: { flex: 1, minWidth: 0 },
-  voiceRoundButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92" },
+  voiceRoundButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92", flexShrink: 0 },
   voiceRecordButton: { minHeight: 36, borderRadius: 13, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   voiceRecordButtonActive: { backgroundColor: "#fecaca" },
   voiceRecordButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
@@ -11368,21 +11470,29 @@ function createStyles(isDark = false) {
   orderIdCard: { height: 70, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 20 },
   orderId: { color: "#dc2626", fontSize: 22, fontWeight: "900", marginTop: 4, letterSpacing: 0.4 },
   orderCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
-  orderCardV2: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 16 },
+  orderCardV2: { borderRadius: 30, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 26, marginBottom: 18 },
   orderSectionBlock: { marginBottom: 16 },
-  orderTabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  orderTabButton: { minHeight: 42, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 11 },
+  ordersHero: { paddingTop: 6, marginBottom: 26 },
+  ordersHeroTitle: { color: text, fontSize: 38, fontWeight: "900", lineHeight: 44 },
+  ordersHeroCopy: { color: muted, fontSize: 18, fontWeight: "800", lineHeight: 26, marginTop: 8 },
+  orderTabRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  orderTabButton: { flex: 1, aspectRatio: 1, borderRadius: 18, borderWidth: 1.5, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 6 },
   orderTabButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
-  orderTabText: { color: muted, fontSize: 12, fontWeight: "900" },
+  orderTabText: { color: muted, fontSize: 12, fontWeight: "900", textAlign: "center" },
   orderTabTextActive: { color: BRAND_ORANGE },
   orderTabCount: { color: subtle, fontSize: 11, fontWeight: "900" },
+  orderBatchLayout: { flexDirection: "row", alignItems: "center", gap: 18 },
+  orderBatchIcon: { width: 82, height: 82, borderRadius: 24, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  orderBatchMain: { flex: 1, minWidth: 0 },
   orderTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   orderTitleBlock: { flex: 1, minWidth: 0 },
   orderBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   orderTailorBlock: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
   orderTailorText: { flex: 1, minWidth: 0, marginLeft: 12 },
-  orderNumber: { color: "#dc2626", fontSize: 22, fontWeight: "900", letterSpacing: 0.4 },
-  orderService: { color: muted, fontSize: 12, fontWeight: "800", marginTop: 6 },
+  orderNumber: { color: "#dc2626", fontSize: 32, fontWeight: "900", letterSpacing: 0 },
+  orderService: { color: muted, fontSize: 15, fontWeight: "900", lineHeight: 20, marginTop: 12 },
+  orderCreatedPill: { alignSelf: "flex-start", minHeight: 46, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, marginTop: 16 },
+  orderCreatedText: { color: "#b91c1c", fontSize: 14, fontWeight: "900" },
   cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   noticeTextBlock: { flex: 1, minWidth: 0 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
@@ -11391,10 +11501,16 @@ function createStyles(isDark = false) {
   smallQuoteAvatar: { width: 38, height: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   smallQuoteAvatarImage: { width: "100%", height: "100%" },
   smallAvatarText: { color: "#111111", fontSize: 11, fontWeight: "900" },
-  orderPrice: { color: BRAND_ORANGE, fontSize: 18, fontWeight: "900" },
+  orderPickupText: { flex: 1, minWidth: 0, color: muted, fontSize: 18, fontWeight: "900" },
+  orderPrice: { color: BRAND_ORANGE, fontSize: 24, fontWeight: "900" },
   emptyState: { minHeight: 360, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
   emptyTitle: { color: text, fontSize: 20, fontWeight: "900", marginTop: 12, marginBottom: 6 },
   mutedCenter: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, textAlign: "center" },
+  favoriteEmptyCard: { minHeight: 360, borderRadius: 28, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 28, marginTop: 28 },
+  favoriteEmptyIcon: { width: 86, height: 86, borderRadius: 28, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  favoriteFindButton: { minHeight: 54, borderRadius: 17, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, paddingHorizontal: 24, marginTop: 24, alignSelf: "stretch" },
+  orderEmptyCard: { minHeight: 400, borderRadius: 30, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 28 },
+  orderEmptyIcon: { width: 92, height: 92, borderRadius: 30, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 6 },
   searchInputWrap: { height: 46, borderRadius: 15, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 9, marginBottom: 14 },
   searchInput: { flex: 1, height: 44, color: text, fontSize: 13, fontWeight: "700" },
   quickRequestCard: { borderRadius: 20, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 22 },
@@ -11416,6 +11532,12 @@ function createStyles(isDark = false) {
   profileName: { color: text, fontSize: 20, fontWeight: "900" },
   profilePhone: { color: muted, fontSize: 13, fontWeight: "800", marginTop: 6 },
   profileEditButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: surface, alignItems: "center", justifyContent: "center" },
+  editAvatarPanel: { borderRadius: 22, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 18 },
+  editProfileAvatarImage: { width: 86, height: 86, borderRadius: 28, backgroundColor: iconBg },
+  editAvatarActions: { flex: 1, minWidth: 0 },
+  editAvatarButtonRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  editAvatarButton: { flex: 1, minHeight: 40, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  editAvatarButtonText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
   profileStatsRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
   profileStat: { flex: 1, minHeight: 78, borderRadius: 17, backgroundColor: surface, borderWidth: 1, borderColor: border, alignItems: "center", justifyContent: "center" },
   profileStatValue: { color: text, fontSize: 18, fontWeight: "900" },

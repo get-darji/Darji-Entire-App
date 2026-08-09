@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { ActivityIndicator, Animated, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
-import { api, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
+import { api, deleteTailorSample, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
 import { CompactLanguageToggle } from "../../../../shared/src/compact-language-toggle";
@@ -206,6 +206,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [submittingShopChange, setSubmittingShopChange] = useState(false);
   const [bankChangeRequest, setBankChangeRequest] = useState("");
   const [submittingBankChange, setSubmittingBankChange] = useState(false);
+  const [showSampleWork, setShowSampleWork] = useState(false);
+  const [sampleDrafts, setSampleDrafts] = useState<Array<{ uri: string; name: string }>>([]);
 
   const [supportScreen, setSupportScreen] = useState<SupportScreen>();
   const [savingProfile, setSavingProfile] = useState(false);
@@ -369,9 +371,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   }
 
   async function pickSamplePhotos() {
-    if (!token) return;
     const existing = (profile?.sampleGallery ?? []).filter((sample) => sample.status !== "REJECTED").length;
-    const remaining = Math.max(0, 5 - existing);
+    const remaining = Math.max(0, 5 - existing - sampleDrafts.length);
     if (remaining <= 0) {
       showDialog({ title: "Sample limit reached", message: "You can keep up to 5 pending or approved sample photos.", icon: "images-outline" });
       return;
@@ -388,19 +389,39 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       quality: 0.82
     });
     if (result.canceled) return;
-    try {
-      setUploadingSamples(true);
-      await uploadTailorSamples(result.assets.slice(0, remaining).map((asset, index) => ({
+    setSampleDrafts((current) => [
+      ...current,
+      ...result.assets.slice(0, remaining).map((asset, index) => ({
         uri: asset.uri,
         name: asset.fileName || `tailor-sample-${Date.now()}-${index}.jpg`
-      })), token);
-      showDialog({ title: "Samples uploaded", message: "Your sample photos were sent for admin approval.", icon: "checkmark-circle-outline" });
+      }))
+    ]);
+  }
+
+  async function submitSamplePhotos() {
+    if (!token || sampleDrafts.length === 0) return;
+    try {
+      setUploadingSamples(true);
+      await uploadTailorSamples(sampleDrafts, token);
+      setSampleDrafts([]);
+      showDialog({ title: "Samples submitted", message: "Your sample photos were sent for admin verification.", icon: "checkmark-circle-outline" });
       refresh();
     } catch (error) {
       if (isSessionError(error)) return onSessionExpired();
       showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not upload sample photos.", icon: "alert-circle-outline" });
     } finally {
       setUploadingSamples(false);
+    }
+  }
+
+  async function removeUploadedSample(sampleId?: string) {
+    if (!token || !sampleId) return;
+    try {
+      await deleteTailorSample(sampleId, token);
+      refresh();
+    } catch (error) {
+      if (isSessionError(error)) return onSessionExpired();
+      showDialog({ title: "Delete failed", message: error instanceof Error ? error.message : "Could not delete this sample photo.", icon: "alert-circle-outline" });
     }
   }
 
@@ -478,38 +499,83 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
         <InfoRow icon="create-outline" title="Edit Profile" value="Update name and shop details" styles={styles} onPress={() => setEditing(true)} noBorder />
         <InfoRow icon="storefront-outline" title="Shop Details" value={shopName} styles={styles} onPress={() => setShowShopDetails(true)} />
-
+        <InfoRow icon="images-outline" title="Sample Photos" value={`${(profile?.sampleGallery ?? []).length} uploaded, ${sampleDrafts.length} ready to submit`} styles={styles} onPress={() => setShowSampleWork(true)} />
       </Section>
 
-      <Section title="Sample Work" icon="images-outline" styles={styles}>
-        <View style={styles.sampleHeaderRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.sectionHint}>Upload up to 5 dress photos. Approved samples appear on your customer profile.</Text>
-          </View>
-          <Pressable style={styles.sampleUploadButton} onPress={pickSamplePhotos} disabled={uploadingSamples}>
-            {uploadingSamples ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="cloud-upload-outline" size={16} color="#111111" />}
-            <Text style={styles.sampleUploadButtonText}>Add</Text>
-          </Pressable>
-        </View>
-        {(profile?.sampleGallery ?? []).length ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sampleGalleryRow}>
-            {(profile?.sampleGallery ?? []).map((sample, index) => (
-              <View key={sample.id ?? sample._id ?? sample.url} style={styles.sampleGalleryCard}>
-                <Image source={{ uri: sample.url }} style={styles.sampleGalleryImage} />
-                <View style={styles.sampleStatusPill}>
-                  <Text style={styles.sampleStatusText}>{sample.status ?? "PENDING"}</Text>
-                </View>
-                <Text style={styles.sampleGalleryName} numberOfLines={1}>{sample.originalName ?? `Sample ${index + 1}`}</Text>
+      <Modal visible={showSampleWork} onRequestClose={() => setShowSampleWork(false)} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: palette.bg }}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.detailHeader}>
+              <Pressable style={styles.backButton} onPress={() => setShowSampleWork(false)}>
+                <Ionicons name="chevron-back" size={22} color={palette.text} />
+              </Pressable>
+              <View style={styles.rowMain}>
+                <Text style={styles.title}>Sample Photos</Text>
+                <Text style={styles.meta}>Submit dress photos for admin verification</Text>
               </View>
-            ))}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionHint}>Add up to 5 sample photos. Customers will only see photos after admin approval.</Text>
+              <Pressable style={styles.sampleUploadButtonWide} onPress={pickSamplePhotos} disabled={uploadingSamples}>
+                <Ionicons name="images-outline" size={18} color="#111111" />
+                <Text style={styles.primaryButtonText}>Add Photos</Text>
+              </Pressable>
+              {sampleDrafts.length ? (
+                <View style={styles.sampleGrid}>
+                  {sampleDrafts.map((sample, index) => (
+                    <View key={sample.uri} style={styles.sampleGalleryCard}>
+                      <Image source={{ uri: sample.uri }} style={styles.sampleGalleryImage} />
+                      <Pressable style={styles.sampleDeleteButton} onPress={() => setSampleDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+                        <Ionicons name="trash-outline" size={15} color="#ffffff" />
+                      </Pressable>
+                      <Text style={styles.sampleGalleryName} numberOfLines={1}>Ready to submit</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.emptyMiniCard}>
+                  <Ionicons name="image-outline" size={22} color={MUTED} />
+                  <Text style={styles.emptyMiniText}>No new photos selected</Text>
+                </View>
+              )}
+              <Pressable style={[styles.primaryButton, (!sampleDrafts.length || uploadingSamples) && styles.disabledButton]} onPress={submitSamplePhotos} disabled={!sampleDrafts.length || uploadingSamples}>
+                {uploadingSamples ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Photos for Verification</Text>}
+              </Pressable>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Uploaded Photos</Text>
+              {(profile?.sampleGallery ?? []).length ? (
+                <View style={styles.sampleGrid}>
+                  {(profile?.sampleGallery ?? []).map((sample, index) => {
+                    const sampleId = sample.id ?? sample._id;
+                    return (
+                      <View key={sampleId ?? sample.url} style={styles.sampleGalleryCard}>
+                        <Image source={{ uri: sample.url }} style={styles.sampleGalleryImage} />
+                        <View style={styles.sampleStatusPill}>
+                          <Text style={styles.sampleStatusText}>{sample.status ?? "PENDING"}</Text>
+                        </View>
+                        {sample.status !== "APPROVED" ? (
+                          <Pressable style={styles.sampleDeleteButton} onPress={() => removeUploadedSample(sampleId)}>
+                            <Ionicons name="trash-outline" size={15} color="#ffffff" />
+                          </Pressable>
+                        ) : null}
+                        <Text style={styles.sampleGalleryName} numberOfLines={1}>{sample.originalName ?? `Sample ${index + 1}`}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyMiniCard}>
+                  <Ionicons name="image-outline" size={22} color={MUTED} />
+                  <Text style={styles.emptyMiniText}>No uploaded sample photos yet</Text>
+                </View>
+              )}
+            </View>
           </ScrollView>
-        ) : (
-          <View style={styles.emptyMiniCard}>
-            <Ionicons name="image-outline" size={22} color={MUTED} />
-            <Text style={styles.emptyMiniText}>No sample photos yet</Text>
-          </View>
-        )}
-      </Section>
+        </View>
+      </Modal>
 
       <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
         <View style={{ flex: 1, backgroundColor: palette.bg }}>
@@ -2328,13 +2394,17 @@ function createStyles(palette: typeof lightPalette) {
     sectionHint: { color: palette.muted, fontSize: 12, fontWeight: "700", lineHeight: 18 },
     sampleHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
     sampleUploadButton: { minHeight: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 13 },
+    sampleUploadButtonWide: { minHeight: 48, borderRadius: 16, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16, marginTop: 14 },
     sampleUploadButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
     sampleGalleryRow: { gap: 10, paddingTop: 10, paddingBottom: 4 },
+    sampleGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingTop: 14, paddingBottom: 12 },
     sampleGalleryCard: { width: 116, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, overflow: "hidden" },
     sampleGalleryImage: { width: "100%", height: 126, backgroundColor: palette.border },
     sampleStatusPill: { position: "absolute", left: 7, top: 7, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.92)", paddingHorizontal: 7, paddingVertical: 3 },
     sampleStatusText: { color: BRAND_DEEP, fontSize: 9, fontWeight: "900" },
+    sampleDeleteButton: { position: "absolute", right: 7, top: 7, width: 28, height: 28, borderRadius: 14, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
     sampleGalleryName: { color: palette.muted, fontSize: 10, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 8 },
+    disabledButton: { opacity: 0.55 },
     emptyMiniCard: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: palette.border, backgroundColor: palette.surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },
     emptyMiniText: { color: palette.muted, fontSize: 12, fontWeight: "800" },
     faqSection: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 },

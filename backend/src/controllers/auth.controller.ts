@@ -6,7 +6,6 @@ import { DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, Ta
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
-import { env } from "../env.js";
 
 async function resetAutoVerifiedDeliveryProfile(userId: string, phone?: string) {
   const profile = await DeliveryPartnerModel.findOne({ userId });
@@ -49,24 +48,16 @@ async function resetAutoVerifiedTailorProfile(userId: string) {
   return profile;
 }
 
-function parsePhoneAllowlist(value: string) {
-  return new Set(
-    value
-      .split(",")
-      .map((phone) => phone.trim())
-      .filter(Boolean)
-  );
-}
+const OWNER_ADMIN_PHONE = "9971416471";
 
 async function assertAdminPhoneAllowed(phone: string, role?: string) {
   if (role !== "ADMIN") return;
-  const allowedPhones = parsePhoneAllowlist(env.ADMIN_ALLOWED_PHONES);
   const approvedAdmin = await UserModel.findOne({
     phone,
     role: { $in: ["ADMIN", "SUPER_ADMIN"] },
     accountStatus: { $ne: "BANNED" }
   }).select("_id");
-  if (!allowedPhones.has(phone) && !approvedAdmin) {
+  if (phone !== OWNER_ADMIN_PHONE && !approvedAdmin) {
     throw new AppError(403, "This phone number is not allowed to access the admin portal");
   }
 }
@@ -149,16 +140,17 @@ export async function verifyOtpController(req: Request, res: Response) {
   await assertAdminPhoneAllowed(input.phone, input.role);
   await verifyOtp(input.phone, input.otp);
 
+  const role = input.role === "ADMIN" && input.phone === OWNER_ADMIN_PHONE ? "SUPER_ADMIN" : input.role;
   const user = await UserModel.findOneAndUpdate(
     { phone: input.phone },
-    { $set: { role: input.role }, $setOnInsert: { phone: input.phone } },
+    { $set: { role }, $setOnInsert: { phone: input.phone } },
     { upsert: true, returnDocument: "after" }
   );
   await clearExpiredSuspension(user);
   assertUserCanAccess(user);
 
   await WalletModel.updateOne({ userId: user.id }, { $setOnInsert: { userId: user.id, balance: 0 } }, { upsert: true });
-  if (input.role === "TAILOR") {
+  if (role === "TAILOR") {
     await TailorModel.updateOne(
       { userId: user.id },
       { $setOnInsert: { userId: user.id, shopName: user.name ? `${user.name}'s Studio` : "Darji Tailor", specialization: ["Alteration", "Stitching"] } },
@@ -166,7 +158,7 @@ export async function verifyOtpController(req: Request, res: Response) {
     );
     await resetAutoVerifiedTailorProfile(user.id);
   }
-  if (input.role === "DELIVERY_PARTNER") {
+  if (role === "DELIVERY_PARTNER") {
     await DeliveryPartnerModel.updateOne(
       { userId: user.id },
       { $setOnInsert: { userId: user.id, verificationStatus: "NOT_SUBMITTED", isAvailable: false } },
@@ -176,14 +168,14 @@ export async function verifyOtpController(req: Request, res: Response) {
   }
 
   const sessionId = randomUUID();
-  const accessToken = signAccessToken({ sub: user.id, role: input.role, sid: sessionId });
-  const refreshToken = signRefreshToken({ sub: user.id, role: input.role, sid: sessionId });
+  const accessToken = signAccessToken({ sub: user.id, role, sid: sessionId });
+  const refreshToken = signRefreshToken({ sub: user.id, role, sid: sessionId });
   await UserModel.findByIdAndUpdate(user.id, {
-    [`activeSessionIds.${input.role}`]: sessionId,
-    [`refreshTokenHashes.${input.role}`]: await bcrypt.hash(refreshToken, 10)
+    [`activeSessionIds.${role}`]: sessionId,
+    [`refreshTokenHashes.${role}`]: await bcrypt.hash(refreshToken, 10)
   });
 
-  res.json({ data: { user: { ...user.toJSON(), role: input.role }, accessToken, refreshToken } });
+  res.json({ data: { user: { ...user.toJSON(), role }, accessToken, refreshToken } });
 }
 
 export async function refreshController(req: Request, res: Response) {
