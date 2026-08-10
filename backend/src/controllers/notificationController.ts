@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { UserModel } from "../models.js";
-import { saveDeviceTokens } from "../services/push.service.js";
+import { removeDeviceTokens, saveDeviceTokens } from "../services/push.service.js";
 import { sendOtpNotification } from "../services/notificationService.js";
 
 const deviceTokenSchema = z.object({
@@ -29,6 +29,12 @@ const notificationPreferencesSchema = z.object({
 export async function registerDeviceTokenController(req: Request, res: Response) {
   const input = deviceTokenSchema.parse(req.body);
   await saveDeviceTokens(req.user!.id, input);
+  res.json({ data: { ok: true } });
+}
+
+export async function unregisterDeviceTokenController(req: Request, res: Response) {
+  const input = deviceTokenSchema.parse(req.body);
+  await removeDeviceTokens(req.user!.id, input);
   res.json({ data: { ok: true } });
 }
 

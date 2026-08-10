@@ -2,7 +2,7 @@
   "name": "@darzi/tailor-app",
   "version": "0.1.0",
   "private": true,
-  "main": "expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "node ../../scripts/run-expo-with-clean-cache.cjs . start",
     "android": "node ../../scripts/run-expo-with-clean-cache.cjs . run:android",

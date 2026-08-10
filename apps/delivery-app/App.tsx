@@ -4,6 +4,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Notifications from "./src/notifications/expoNotifications";
+import * as Updates from "expo-updates";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +15,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   BackHandler,
   FlatList,
   Image,
@@ -4010,11 +4012,50 @@ export default function App() {
   const [me, setMe] = useState<MeResponse>();
   const [dialog, setDialog] = useState<DialogState>();
   const skipLoadingScreenRef = useRef(false);
+  const updatePromptShownRef = useRef(false);
 
   useEffect(() => {
     if (!sessionNotice) return;
     Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
   }, [clearSessionNotice, sessionNotice]);
+
+  useEffect(() => {
+    async function checkForAppUpdate() {
+      if (updatePromptShownRef.current || !Updates.isEnabled) return;
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (!result.isAvailable || updatePromptShownRef.current) return;
+        updatePromptShownRef.current = true;
+        setDialog({
+          title: "Update available",
+          message: "A newer Darji Delivery update is ready with the latest fixes and improvements.",
+          icon: "cloud-download-outline",
+          actions: [
+            { label: "Later", variant: "secondary" },
+            {
+              label: "Update now",
+              variant: "primary",
+              onPress: async () => {
+                try {
+                  await Updates.fetchUpdateAsync();
+                  await Updates.reloadAsync();
+                } catch {
+                  setDialog({ title: "Update failed", message: "Could not install the update right now. Please try again later.", icon: "alert-circle-outline" });
+                }
+              }
+            }
+          ]
+        });
+      } catch {
+        // Updates are disabled in Expo Go/dev builds.
+      }
+    }
+    void checkForAppUpdate();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void checkForAppUpdate();
+    });
+    return () => subscription.remove();
+  }, []);
 
   const handleSessionExpired = useCallback(() => {
     signOut();

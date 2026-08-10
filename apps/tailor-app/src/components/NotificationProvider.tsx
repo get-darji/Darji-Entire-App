@@ -19,22 +19,25 @@ export function useNotificationContext() {
 export function NotificationProvider({
   app,
   children,
+  isAuthenticated,
   onNavigate
 }: {
   app: DarjiApp;
   children: ReactNode;
+  isAuthenticated: boolean;
   onNavigate: (destination: NotificationDestination) => void;
 }) {
   const [lastNotification, setLastNotification] = useState<Notifications.Notification>();
   const handledResponseRef = useRef<string | undefined>(undefined);
 
   const handleNotificationData = useCallback((responseKey: string, data: NotificationData, actionIdentifier?: string) => {
+    if (!isAuthenticated) return;
     if (handledResponseRef.current === responseKey) return;
     handledResponseRef.current = responseKey;
     void Notifications.setBadgeCountAsync(0).catch(() => undefined);
     void cancelIncomingRequestNotifications(data);
     onNavigate(resolveNotificationDestination(app, data, actionIdentifier));
-  }, [app, onNavigate]);
+  }, [app, isAuthenticated, onNavigate]);
 
   const handleResponse = useCallback((response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data as NotificationData;
@@ -42,15 +45,18 @@ export function NotificationProvider({
   }, [handleNotificationData]);
 
   const consumeNativeAction = useCallback(async () => {
+    if (!isAuthenticated) return;
     const pending = await consumePendingIncomingAlertAction();
     if (!pending) return;
     const data = pending.data as NotificationData;
     const entityId = data.requestId ?? data.taskId ?? data.pickupId ?? data.orderId ?? data.id ?? "current";
     handleNotificationData(`native:${String(entityId)}:${pending.actionIdentifier}`, data, pending.actionIdentifier);
-  }, [handleNotificationData]);
+  }, [handleNotificationData, isAuthenticated]);
 
   useEffect(() => {
-    const received = Notifications.addNotificationReceivedListener(setLastNotification);
+    const received = Notifications.addNotificationReceivedListener((notification) => {
+      if (isAuthenticated) setLastNotification(notification);
+    });
     const response = Notifications.addNotificationResponseReceivedListener(handleResponse);
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") void consumeNativeAction();
@@ -68,7 +74,7 @@ export function NotificationProvider({
       appState.remove();
       clearInterval(nativeActionPoll);
     };
-  }, [consumeNativeAction, handleResponse]);
+  }, [consumeNativeAction, handleResponse, isAuthenticated]);
 
   const value = useMemo(() => ({ lastNotification }), [lastNotification]);
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

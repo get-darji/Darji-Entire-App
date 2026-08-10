@@ -3,18 +3,38 @@ const { withNativeWind } = require("nativewind/metro");
 const path = require("path");
 
 const projectRoot = __dirname;
-const workspaceRoot = path.resolve(projectRoot, "../..");
+const sharedRoot = path.resolve(projectRoot, "../../shared");
+const rootNodeModules = path.resolve(projectRoot, "../../node_modules");
+const appRequestPrefix = `/apps/${path.basename(projectRoot)}/`;
 
 const config = getDefaultConfig(projectRoot);
 
-// 1. Watch the workspace root so hoisted dependencies (like expo) are visible
-config.watchFolders = [workspaceRoot];
+// 1. Watch only the shared package instead of the whole workspace to avoid Windows crawl stalls.
+config.watchFolders = [sharedRoot, rootNodeModules];
 
 // 2. Resolve modules from both local and root node_modules
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
-  path.resolve(workspaceRoot, "node_modules"),
+  rootNodeModules,
 ];
+config.resolver.extraNodeModules = new Proxy(
+  {},
+  {
+    get: (_, name) => path.join(rootNodeModules, name),
+  },
+);
+config.server = {
+  ...config.server,
+  unstable_serverRoot: projectRoot,
+  enhanceMiddleware: (middleware) => {
+    return (req, res, next) => {
+      if (req.url?.startsWith(appRequestPrefix)) {
+        req.url = `/${req.url.slice(appRequestPrefix.length)}`;
+      }
+      return middleware(req, res, next);
+    };
+  },
+};
 
 // 3. Exclude non-relevant monorepo directories from the file crawler.
 // This prevents Windows file system watch timeouts while maintaining monorepo resolutions.
@@ -26,16 +46,6 @@ class CustomBlockListRegExp extends RegExp {
     this.patterns = [...defaultPatterns, ...customPatterns];
   }
   test(filePath) {
-    const normalized = filePath.replace(/\\/g, "/");
-    
-    // Ignore node_modules directory walks in the watcher
-    if (normalized.includes("/node_modules")) {
-      const hasFileExtension = /\.[a-z0-9]+$/i.test(normalized);
-      if (!hasFileExtension) {
-        return true;
-      }
-    }
-    
     return this.patterns.some((re) => re.test(filePath));
   }
 }

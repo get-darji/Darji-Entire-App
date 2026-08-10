@@ -2,11 +2,12 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer } from "expo-audio";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Notifications from "./src/notifications/expoNotifications";
+import * as Updates from "expo-updates";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,6 +19,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   BackHandler,
   Image,
   KeyboardAvoidingView,
@@ -1108,6 +1110,9 @@ function RequestDetailsScreen({
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const [tileDetail, setTileDetail] = useState<{ label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string } | undefined>();
+  const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | undefined>();
+  const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
+  const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const items = requestItems(request);
   const selectedItem = items[Math.min(selectedItemIndex, Math.max(items.length - 1, 0))] ?? items[0];
   const hasMultipleItems = items.length > 1;
@@ -1121,11 +1126,39 @@ function RequestDetailsScreen({
   const openTileDetails = (details: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string }) => {
     setTileDetail(details);
   };
+
+  const stopVoicePlayback = useCallback(() => {
+    try {
+      voicePlayerRef.current?.pause();
+      voicePlayerRef.current?.release();
+    } catch {
+      // Audio cleanup is best-effort when leaving the request screen.
+    }
+    voicePlayerRef.current = undefined;
+    setPlayingVoiceUrl(undefined);
+    setVoicePlaybackPaused(false);
+  }, []);
+
   const playVoiceNote = (voice: MediaItem) => {
     try {
+      if (voicePlayerRef.current && playingVoiceUrl === voice.url) {
+        if (voicePlaybackPaused) {
+          voicePlayerRef.current.play();
+          setVoicePlaybackPaused(false);
+        } else {
+          voicePlayerRef.current.pause();
+          setVoicePlaybackPaused(true);
+        }
+        return;
+      }
+      stopVoicePlayback();
       const player = createAudioPlayer({ uri: voice.url });
+      voicePlayerRef.current = player;
+      setPlayingVoiceUrl(voice.url);
+      setVoicePlaybackPaused(false);
       player.play();
     } catch (error) {
+      stopVoicePlayback();
       showDialog({ title: "Playback failed", message: error instanceof Error ? error.message : "Could not play the voice note.", icon: "alert-circle-outline" });
     }
   };
@@ -1142,10 +1175,12 @@ function RequestDetailsScreen({
     if (selectedItemIndex >= items.length) setSelectedItemIndex(0);
   }, [items.length, selectedItemIndex]);
 
+  useEffect(() => stopVoicePlayback, [request.id, selectedItemIndex, stopVoicePlayback]);
+
   return (
     <>
       <ScrollView contentContainerStyle={styles.requestDetailsContent} showsVerticalScrollIndicator={false}>
-        <RequestDetailsHeader requestId={shortId(request.id)} onBack={() => setScreen("requests", { replace: true })} />
+        <RequestDetailsHeader requestId={shortId(request.id)} onBack={() => { stopVoicePlayback(); setScreen("requests", { replace: true }); }} />
 
         {/* Top Info Card (Received date) */}
         <View style={styles.receivedCard}>
@@ -1280,7 +1315,7 @@ function RequestDetailsScreen({
             {voiceNotes.map((voice, index) => (
               <Pressable key={voice.url} style={styles.voiceNoteRow} onPress={() => playVoiceNote(voice)}>
                 <View style={styles.voiceNotePlay}>
-                  <Ionicons name="play" size={16} color="#111111" />
+                  <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={16} color="#111111" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.requestDetailValue}>Voice note {index + 1}</Text>
@@ -2008,7 +2043,20 @@ function OrderDetailsScreen({
   const [savingStatus, setSavingStatus] = useState<string>();
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
   const [uploadingProof, setUploadingProof] = useState<{ stage: "RECEIVED" | "STITCHED" }>();
+  const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | undefined>();
+  const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
+  const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const acceptedRequest = order.request;
+  const acceptedVoiceNotes = acceptedRequest
+    ? Array.from(
+        new Map(
+          [
+            ...(acceptedRequest.voiceNotes ?? []),
+            ...requestItems(acceptedRequest).flatMap((item) => item.voiceNotes ?? [])
+          ].map((voice) => [voice.url, voice])
+        ).values()
+      )
+    : [];
   const requiredProofCount = acceptedRequest ? requestItemCount(acceptedRequest) : Math.max(1, order.items.length);
   const receivedProofCount = acceptedRequest?.receivedMedia?.length ?? 0;
   const stitchedProofCount = acceptedRequest?.stitchedMedia?.length ?? 0;
@@ -2017,6 +2065,44 @@ function OrderDetailsScreen({
   const hasReceivedPackage = acceptedRequest
     ? ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
     : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "WORKING", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
+
+  const stopVoicePlayback = useCallback(() => {
+    try {
+      voicePlayerRef.current?.pause();
+      voicePlayerRef.current?.release();
+    } catch {
+      // Audio cleanup is best-effort when leaving the order screen.
+    }
+    voicePlayerRef.current = undefined;
+    setPlayingVoiceUrl(undefined);
+    setVoicePlaybackPaused(false);
+  }, []);
+
+  useEffect(() => stopVoicePlayback, [order.id, stopVoicePlayback]);
+
+  function playVoiceNote(voice: MediaItem) {
+    try {
+      if (voicePlayerRef.current && playingVoiceUrl === voice.url) {
+        if (voicePlaybackPaused) {
+          voicePlayerRef.current.play();
+          setVoicePlaybackPaused(false);
+        } else {
+          voicePlayerRef.current.pause();
+          setVoicePlaybackPaused(true);
+        }
+        return;
+      }
+      stopVoicePlayback();
+      const player = createAudioPlayer({ uri: voice.url });
+      voicePlayerRef.current = player;
+      setPlayingVoiceUrl(voice.url);
+      setVoicePlaybackPaused(false);
+      player.play();
+    } catch (error) {
+      stopVoicePlayback();
+      showDialog({ title: "Playback failed", message: error instanceof Error ? error.message : "Could not play the voice note.", icon: "alert-circle-outline" });
+    }
+  }
 
   async function uploadProof(stage: "RECEIVED" | "STITCHED") {
     if (!acceptedRequest || !token) return;
@@ -2130,7 +2216,7 @@ function OrderDetailsScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Order Details" subtitle={order.orderNumber} onBack={() => setScreen("orders", { replace: true })} />
+      <Header title="Order Details" subtitle={order.orderNumber} onBack={() => { stopVoicePlayback(); setScreen("orders", { replace: true }); }} />
       <View style={styles.whiteCard}>
         <View style={styles.rowBetween}>
           <Text style={styles.cardLabel}>STATUS</Text>
@@ -2153,6 +2239,28 @@ function OrderDetailsScreen({
       ) : null}
       <TailorEtaCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
       <TailorHandoffOtpCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
+
+      {acceptedVoiceNotes.length ? (
+        <View style={styles.voiceNotesCard}>
+          <View style={styles.notesHeader}>
+            <View style={styles.notesIconBg}>
+              <Ionicons name="mic-outline" size={18} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.notesTitle}>Voice Instructions</Text>
+          </View>
+          {acceptedVoiceNotes.map((voice, index) => (
+            <Pressable key={voice.url} style={styles.voiceNoteRow} onPress={() => playVoiceNote(voice)}>
+              <View style={styles.voiceNotePlay}>
+                <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={16} color="#111111" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.requestDetailValue}>Voice note {index + 1}</Text>
+                <Text style={styles.mediaEmptyText}>{voice.originalName ?? "Customer recorded instructions"}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       <View style={styles.whiteCard}>
         <Text style={styles.cardLabel}>ITEMS & MEASUREMENTS</Text>
@@ -4370,6 +4478,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
+  const updatePromptShownRef = useRef(false);
   const [newRequestPopup, setNewRequestPopup] = useState<TailoringRequest>();
   const [newRequestSecondsLeft, setNewRequestSecondsLeft] = useState(30);
   const [alertFlashVisible, setAlertFlashVisible] = useState(false);
@@ -4383,6 +4492,7 @@ export default function App() {
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const alertedRequestIdsRef = useRef<Set<string>>(new Set());
   const acceptedQuoteIdsRef = useRef<Set<string>>(new Set());
+  const notificationAuthTokenRef = useRef(token);
   useRegisterPushNotifications({ authToken: token, app: "tailor", userId: sessionUser?.id });
   const hasLoadedWorkspaceRef = useRef(false);
   const maxOrdersPerDay = Number(me?.tailorProfile?.settings?.maxOrdersPerDay ?? 8);
@@ -4390,7 +4500,49 @@ export default function App() {
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
   const activeTailorOrderCount = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
 
-  useEffect(() => registerIncomingRequestMessaging(), []);
+  useEffect(() => {
+    async function checkForAppUpdate() {
+      if (updatePromptShownRef.current || !Updates.isEnabled) return;
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (!result.isAvailable || updatePromptShownRef.current) return;
+        updatePromptShownRef.current = true;
+        setDialog({
+          title: "Update available",
+          message: "A newer Darji Tailor update is ready with the latest fixes and improvements.",
+          icon: "cloud-download-outline",
+          actions: [
+            { label: "Later", variant: "secondary" },
+            {
+              label: "Update now",
+              variant: "primary",
+              onPress: async () => {
+                try {
+                  await Updates.fetchUpdateAsync();
+                  await Updates.reloadAsync();
+                } catch {
+                  setDialog({ title: "Update failed", message: "Could not install the update right now. Please try again later.", icon: "alert-circle-outline" });
+                }
+              }
+            }
+          ]
+        });
+      } catch {
+        // Updates are disabled in Expo Go/dev builds.
+      }
+    }
+    void checkForAppUpdate();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void checkForAppUpdate();
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    notificationAuthTokenRef.current = token;
+  }, [token]);
+
+  useEffect(() => registerIncomingRequestMessaging(() => Boolean(notificationAuthTokenRef.current)), []);
 
   function setScreen(nextScreen: Screen, options?: { resetStack?: boolean; replace?: boolean }) {
     if (nextScreen === screen) return;
@@ -4880,7 +5032,9 @@ export default function App() {
     <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleTailorScreen() }}>
     <NotificationProvider
       app="tailor"
+      isAuthenticated={Boolean(token)}
       onNavigate={(destination) => {
+        if (!token) return;
         if (destination.screen === "support_center" || destination.screen === "contactSupport") {
           setInitialSupportScreen("support_center");
           setScreen("profile");

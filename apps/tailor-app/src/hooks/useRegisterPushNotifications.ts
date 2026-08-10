@@ -50,6 +50,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     }
 
     let cancelled = false;
+    let registeredTokens: { expoPushToken?: string; fcmToken?: string } | undefined;
     async function getNativePushToken() {
       try {
         const messagingModule = getFirebaseMessaging();
@@ -105,6 +106,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
       pendingRegistrations.set(registrationKey, registration);
       try {
         await registration;
+        registeredTokens = { expoPushToken, fcmToken };
         completedRegistrations.add(registrationKey);
         await AsyncStorage.setItem(storageKey, registrationKey);
       } finally {
@@ -138,6 +140,12 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     void register();
     return () => {
       cancelled = true;
+      if (authToken && registeredTokens && (registeredTokens.expoPushToken || registeredTokens.fcmToken)) {
+        void api("/notifications/device-token", {
+          method: "DELETE",
+          body: JSON.stringify(registeredTokens)
+        }, authToken).catch(() => undefined);
+      }
     };
   }, [app, authToken, userId]);
 

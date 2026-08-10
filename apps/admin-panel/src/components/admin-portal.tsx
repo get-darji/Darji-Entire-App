@@ -4146,56 +4146,124 @@ function SampleWorkModule({
   pending: boolean;
   onReview: (tailorId: string, sampleId: string, status: "APPROVED" | "REJECTED") => void;
 }) {
-  const samples = tailors.flatMap((tailor) =>
-    (tailor.sampleGallery ?? []).map((sample, index) => ({
-      tailor,
-      sample,
-      sampleId: sample.id ?? sample._id,
-      index
-    }))
-  );
-  const pendingSamples = samples.filter((item) => item.sample.status === "PENDING");
-  const ordered = [...pendingSamples, ...samples.filter((item) => item.sample.status !== "PENDING")];
+  const [selectedTailorId, setSelectedTailorId] = useState<string | null>(null);
+  const tailorQueues = tailors
+    .map((tailor) => {
+      const samples = tailor.sampleGallery ?? [];
+      return {
+        tailor,
+        samples,
+        pendingCount: samples.filter((sample) => sample.status === "PENDING").length,
+        approvedCount: samples.filter((sample) => sample.status === "APPROVED").length,
+        rejectedCount: samples.filter((sample) => sample.status === "REJECTED").length,
+        latestAt: samples.reduce<string | undefined>((latest, sample) => {
+          if (!sample.uploadedAt) return latest;
+          if (!latest || new Date(sample.uploadedAt).getTime() > new Date(latest).getTime()) return sample.uploadedAt;
+          return latest;
+        }, undefined)
+      };
+    })
+    .filter((item) => item.samples.length > 0)
+    .sort((a, b) => b.pendingCount - a.pendingCount || new Date(b.latestAt ?? 0).getTime() - new Date(a.latestAt ?? 0).getTime());
+  const selectedQueue = tailorQueues.find((item) => item.tailor.id === selectedTailorId) ?? null;
+  const allSamples = tailorQueues.flatMap((item) => item.samples);
+  const pendingSamples = allSamples.filter((sample) => sample.status === "PENDING");
 
   return (
     <div className="space-y-6">
-      <SectionIntro title="Sample Work Verification" description="Approve tailor dress samples before they appear on customer-facing tailor profiles." />
+      <SectionIntro
+        title="Sample Work Verification"
+        description={selectedQueue ? "Review this tailor account's submitted sample photos." : "Open a tailor account to review submitted sample photos."}
+        action={selectedQueue ? <ActionButton variant="secondary" onClick={() => setSelectedTailorId(null)}>Back to Tailors</ActionButton> : undefined}
+      />
       <div className="grid gap-4 md:grid-cols-3">
         <Panel><Badge tone="amber">{pendingSamples.length} pending</Badge><p className="mt-3 font-semibold">Waiting for review</p></Panel>
-        <Panel><Badge tone="emerald">{samples.filter((item) => item.sample.status === "APPROVED").length} approved</Badge><p className="mt-3 font-semibold">Visible to customers</p></Panel>
-        <Panel><Badge tone="rose">{samples.filter((item) => item.sample.status === "REJECTED").length} rejected</Badge><p className="mt-3 font-semibold">Hidden from profiles</p></Panel>
+        <Panel><Badge tone="emerald">{allSamples.filter((sample) => sample.status === "APPROVED").length} approved</Badge><p className="mt-3 font-semibold">Visible to customers</p></Panel>
+        <Panel><Badge tone="rose">{allSamples.filter((sample) => sample.status === "REJECTED").length} rejected</Badge><p className="mt-3 font-semibold">Hidden from profiles</p></Panel>
       </div>
-      <Panel>
-        {ordered.length ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {ordered.map(({ tailor, sample, sampleId, index }) => (
-              <div key={`${tailor.id}-${sampleId ?? sample.url}`} className="overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] dark:bg-white/5">
-                <a href={sample.url} target="_blank" rel="noreferrer">
-                  <img alt={`Sample ${index + 1}`} className="h-44 w-full object-cover" src={sample.url} />
-                </a>
-                <div className="space-y-3 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate font-semibold">{tailor.shopName ?? tailor.user?.name ?? "Tailor"}</p>
-                    <StatusBadge value={sample.status} />
-                  </div>
-                  <p className="text-xs text-[var(--muted)]">+91 {tailor.user?.phone ?? "Unknown"} · Uploaded {formatDate(sample.uploadedAt, true)}</p>
-                  {sample.status === "PENDING" && sampleId ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <ActionButton className="px-3 py-2 text-xs" disabled={pending} onClick={() => onReview(tailor.id, sampleId, "APPROVED")}>Approve</ActionButton>
-                      <ActionButton className="px-3 py-2 text-xs" disabled={pending} variant="danger" onClick={() => onReview(tailor.id, sampleId, "REJECTED")}>Reject</ActionButton>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
+
+      {selectedQueue ? (
+        <Panel>
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--panel-border)] pb-5">
+            <div>
+              <h3 className="text-xl font-semibold">{selectedQueue.tailor.shopName ?? selectedQueue.tailor.user?.name ?? "Tailor"}</h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">+91 {selectedQueue.tailor.user?.phone ?? "Unknown"} · {selectedQueue.tailor.darjiTailorId ?? selectedQueue.tailor.id}</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">{formatList(selectedQueue.tailor.specialization) || "Custom tailoring"}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone="amber">{selectedQueue.pendingCount} pending</Badge>
+              <Badge tone="emerald">{selectedQueue.approvedCount} approved</Badge>
+              <Badge tone="rose">{selectedQueue.rejectedCount} rejected</Badge>
+            </div>
           </div>
-        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[...selectedQueue.samples].sort((a, b) => (a.status === "PENDING" ? -1 : 0) - (b.status === "PENDING" ? -1 : 0)).map((sample, index) => {
+              const sampleId = sample.id ?? sample._id;
+              return (
+                <div key={`${selectedQueue.tailor.id}-${sampleId ?? sample.url}`} className="overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] dark:bg-white/5">
+                  <a href={sample.url} target="_blank" rel="noreferrer">
+                    <img alt={`Sample ${index + 1}`} className="h-44 w-full object-cover" src={sample.url} />
+                  </a>
+                  <div className="space-y-3 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate font-semibold">{sample.originalName ?? `Sample ${index + 1}`}</p>
+                      <StatusBadge value={sample.status} />
+                    </div>
+                    <p className="text-xs text-[var(--muted)]">Uploaded {formatDate(sample.uploadedAt, true)}</p>
+                    {sampleId ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {sample.status !== "APPROVED" ? (
+                          <ActionButton className="px-3 py-2 text-xs" disabled={pending} onClick={() => onReview(selectedQueue.tailor.id, sampleId, "APPROVED")}>Approve</ActionButton>
+                        ) : null}
+                        {sample.status !== "REJECTED" ? (
+                          <ActionButton className="px-3 py-2 text-xs" disabled={pending} variant="danger" onClick={() => onReview(selectedQueue.tailor.id, sampleId, "REJECTED")}>
+                            {sample.status === "APPROVED" ? "Remove" : "Reject"}
+                          </ActionButton>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      ) : (
+        <Panel>
+          {tailorQueues.length ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {tailorQueues.map(({ tailor, samples, pendingCount, approvedCount, rejectedCount, latestAt }) => (
+                <button
+                  key={tailor.id}
+                  className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)] hover:shadow-sm dark:bg-white/5"
+                  onClick={() => setSelectedTailorId(tailor.id)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-semibold">{tailor.shopName ?? tailor.user?.name ?? "Tailor"}</p>
+                      <p className="mt-1 text-sm text-[var(--muted)]">+91 {tailor.user?.phone ?? "Unknown"} · {tailor.darjiTailorId ?? tailor.id}</p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">{formatList(tailor.specialization) || "Custom tailoring"}</p>
+                    </div>
+                    {pendingCount ? <Badge tone="amber">{pendingCount} pending</Badge> : <Badge tone="slate">No pending</Badge>}
+                  </div>
+                  <div className="mt-4 grid grid-cols-4 gap-2 text-sm">
+                    <MetricChip label="Photos" value={String(samples.length)} />
+                    <MetricChip label="Approved" value={String(approvedCount)} />
+                    <MetricChip label="Rejected" value={String(rejectedCount)} />
+                    <MetricChip label="Latest" value={latestAt ? formatDate(latestAt) : "-"} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
           <div className="py-12 text-center">
             <ImageIcon className="mx-auto text-[var(--muted)]" size={36} />
             <p className="mt-3 font-semibold">No sample photos submitted yet</p>
           </div>
-        )}
-      </Panel>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }

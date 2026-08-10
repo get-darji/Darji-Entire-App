@@ -148,6 +148,30 @@ export async function saveDeviceTokens(
   await Promise.all(updates);
 }
 
+export async function removeDeviceTokens(
+  userId: string,
+  input: { fcmToken?: string; expoPushToken?: string }
+) {
+  const fcmToken = input.fcmToken?.trim();
+  const expoPushToken = input.expoPushToken?.trim();
+  const updates: Promise<unknown>[] = [];
+  if (fcmToken) {
+    updates.push(
+      UserModel.updateOne(
+        { _id: userId },
+        {
+          $pull: { fcmTokens: { token: fcmToken } },
+          $unset: { fcmToken: "" }
+        }
+      )
+    );
+  }
+  if (expoPushToken) {
+    updates.push(UserModel.updateOne({ _id: userId }, { $pull: { expoPushTokens: { token: expoPushToken } } }));
+  }
+  await Promise.all(updates);
+}
+
 async function sendExpoPushNotifications(tokens: string[], payload: PushPayload, data: Record<string, string>) {
   if (!tokens.length) return { successCount: 0, failureCount: 0 };
   const messages = tokens.map((to) => ({

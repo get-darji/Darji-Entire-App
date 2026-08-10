@@ -14,7 +14,8 @@ function stringData(data?: FirebaseMessagingTypes.RemoteMessage["data"]) {
   return Object.fromEntries(Object.entries(data ?? {}).map(([key, value]) => [key, String(value)]));
 }
 
-async function displayForegroundMessage(message: FirebaseMessagingTypes.RemoteMessage) {
+async function displayForegroundMessage(message: FirebaseMessagingTypes.RemoteMessage, shouldHandle?: () => boolean) {
+  if (shouldHandle && !shouldHandle()) return;
   const data = stringData(message.data);
   if (!isIncomingRequestData(data)) return;
   await displayIncomingRequestNotification({
@@ -54,10 +55,14 @@ function registerBackgroundHandler() {
 
 registerBackgroundHandler();
 
-export function registerIncomingRequestMessaging() {
+export function registerIncomingRequestMessaging(shouldHandle?: () => boolean) {
   if (registered) return () => undefined;
   const messagingModule = getFirebaseMessaging();
   if (!messagingModule) return () => undefined;
   registered = true;
-  return messagingModule().onMessage(displayForegroundMessage);
+  const unsubscribe = messagingModule().onMessage((message) => displayForegroundMessage(message, shouldHandle));
+  return () => {
+    registered = false;
+    unsubscribe();
+  };
 }

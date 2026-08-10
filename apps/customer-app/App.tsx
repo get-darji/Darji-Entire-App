@@ -2,13 +2,14 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer } from "expo-audio";
+import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, type AudioPlayer } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Notifications from "./src/notifications/expoNotifications";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import * as Updates from "expo-updates";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -385,7 +386,16 @@ type AppSettings = {
   locationAccess: boolean;
   saveMedia: boolean;
 };
-type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number };
+type AddressFields = {
+  buildingNo: string;
+  street: string;
+  area: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  landmark: string;
+};
+type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number; fields?: AddressFields };
 type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
 type HandoffOtp = {
   taskId: string;
@@ -1167,6 +1177,58 @@ function isInQuietHoursNow(date = new Date()) {
 
 function makeDefaultAddresses(): SavedAddress[] {
   return [];
+}
+
+function emptyAddressFields(): AddressFields {
+  return { buildingNo: "", street: "", area: "", city: "", state: "", postalCode: "", landmark: "" };
+}
+
+function addressFieldsFromGeo(geo: Awaited<ReturnType<typeof backendReverseGeocode>>): AddressFields {
+  return {
+    buildingNo: geo.houseNumber ?? "",
+    street: geo.route ?? "",
+    area: geo.area || geo.route || "",
+    city: geo.city ?? "",
+    state: geo.state ?? "",
+    postalCode: geo.postalCode ?? "",
+    landmark: ""
+  };
+}
+
+function addressFieldsFromText(address?: string): AddressFields {
+  if (!address?.trim()) return emptyAddressFields();
+  const parts = address.split(",").map((part) => part.trim()).filter(Boolean);
+  return {
+    buildingNo: parts[0] ?? "",
+    street: parts[1] ?? "",
+    area: parts[2] ?? "",
+    city: parts[3] ?? "",
+    state: parts[4]?.replace(/\b\d{5,6}\b/g, "").trim() ?? "",
+    postalCode: address.match(/\b\d{5,6}\b/)?.[0] ?? "",
+    landmark: ""
+  };
+}
+
+function formatAddressFields(fields: AddressFields) {
+  return [
+    fields.buildingNo,
+    fields.street,
+    fields.area,
+    fields.city,
+    [fields.state, fields.postalCode].filter(Boolean).join(" "),
+    fields.landmark ? `Landmark: ${fields.landmark}` : ""
+  ].map((part) => part.trim()).filter(Boolean).join(", ");
+}
+
+function missingAddressFields(fields: AddressFields) {
+  const required: Array<[keyof AddressFields, string]> = [
+    ["buildingNo", "building / flat number"],
+    ["area", "area / locality"],
+    ["city", "city"],
+    ["state", "state"],
+    ["postalCode", "pincode"]
+  ];
+  return required.filter(([key]) => !fields[key].trim()).map(([, label]) => label);
 }
 
 function makeDefaultNotifications(): AppNotification[] {
@@ -2682,14 +2744,15 @@ function NewRequestScreen({
   onExitRequest: () => void;
 }) {
   const [editingAddress, setEditingAddress] = useState(false);
+  const [pickupAddressFields, setPickupAddressFields] = useState<AddressFields>(() => addressFieldsFromText(draft.pickup));
   const [locating, setLocating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [playingVoiceUri, setPlayingVoiceUri] = useState<string | undefined>();
+  const [recordingActive, setRecordingActive] = useState(false);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recorderState = useAudioRecorderState(audioRecorder);
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
   const savedItemCount = draft.items?.length ?? 0;
@@ -2697,7 +2760,9 @@ function NewRequestScreen({
   const currentItemNumber = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) + 1 || savedItemCount + 1 : savedItemCount + 1;
   const descriptionLength = draft.description.trim().length;
   const descriptionRemaining = Math.max(REQUEST_DESCRIPTION_MIN - descriptionLength, 0);
-  const canContinueRequest = draft.media.length > 0 && descriptionLength >= REQUEST_DESCRIPTION_MIN && (!needsPickupAddress || draft.pickup.trim().length >= 8);
+  const pickupAddressText = formatAddressFields(pickupAddressFields);
+  const pickupAddressMissing = missingAddressFields(pickupAddressFields);
+  const canContinueRequest = draft.media.length > 0 && descriptionLength >= REQUEST_DESCRIPTION_MIN && (!needsPickupAddress || pickupAddressMissing.length === 0);
   const isAddingAnotherItem = savedItemCount > 0 && !draft.editingItemId;
 
   function leaveCurrentItem() {
@@ -2730,6 +2795,8 @@ function NewRequestScreen({
       } catch {
         // Recorder may already be released by Expo.
       }
+      setRecordingActive(false);
+      setRecordingPaused(false);
     };
   }, []);
 
@@ -2758,6 +2825,17 @@ function NewRequestScreen({
     setDraft({ ...draft, media: next, uploadedMedia: [] });
   }
 
+  function updatePickupAddressField(key: keyof AddressFields, value: string) {
+    const next = { ...pickupAddressFields, [key]: value };
+    setPickupAddressFields(next);
+    setDraft({ ...draft, pickup: formatAddressFields(next) });
+  }
+
+  function applyPickupAddress(fields: AddressFields) {
+    setPickupAddressFields(fields);
+    setDraft({ ...draft, pickup: formatAddressFields(fields) });
+  }
+
   async function uploadAndContinue() {
     if (!token) {
       Alert.alert("Login required", "Please login again.");
@@ -2771,8 +2849,8 @@ function NewRequestScreen({
       Alert.alert("Description required", `Please describe the stitching, alteration, or issue in at least ${REQUEST_DESCRIPTION_MIN} characters.`);
       return;
     }
-    if (needsPickupAddress && draft.pickup.trim().length < 8) {
-      Alert.alert("Pickup address required", "Please add a pickup address or choose a saved address.");
+    if (needsPickupAddress && pickupAddressMissing.length) {
+      Alert.alert("Pickup address required", `Please fill ${pickupAddressMissing.join(", ")}.`);
       return;
     }
     try {
@@ -2842,9 +2920,10 @@ function NewRequestScreen({
   async function toggleVoiceRecording() {
     try {
       stopVoicePlayback();
-      if (recorderState.isRecording) {
+      if (recordingActive) {
+        const uriBeforeStop = audioRecorder.uri;
         await audioRecorder.stop();
-        const uri = audioRecorder.uri;
+        const uri = audioRecorder.uri ?? uriBeforeStop;
         if (uri) {
           setDraft({
             ...draft,
@@ -2852,6 +2931,8 @@ function NewRequestScreen({
             uploadedVoiceNotes: []
           });
         }
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        setRecordingActive(false);
         setRecordingPaused(false);
         return;
       }
@@ -2863,6 +2944,7 @@ function NewRequestScreen({
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
+      setRecordingActive(true);
       setRecordingPaused(false);
     } catch (error) {
       Alert.alert("Voice note failed", error instanceof Error ? error.message : "Could not record voice note.");
@@ -2871,7 +2953,7 @@ function NewRequestScreen({
 
   function toggleRecordingPause() {
     try {
-      if (!recorderState.isRecording) return;
+      if (!recordingActive) return;
       if (recordingPaused) {
         audioRecorder.record();
         setRecordingPaused(false);
@@ -2886,6 +2968,7 @@ function NewRequestScreen({
 
   async function toggleVoicePlayback(uri: string) {
     try {
+      if (recordingActive) return;
       if (voicePlayerRef.current && playingVoiceUri === uri) {
         if (voicePlaybackPaused) {
           voicePlayerRef.current.play();
@@ -2897,6 +2980,7 @@ function NewRequestScreen({
         return;
       }
       stopVoicePlayback();
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       setPlayingVoiceUri(uri);
       const player = createAudioPlayer({ uri });
       voicePlayerRef.current = player;
@@ -2916,13 +3000,19 @@ function NewRequestScreen({
       }
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       let address: string;
+      let fields: AddressFields | undefined;
       try {
         const geo = await backendReverseGeocode(position.coords.latitude, position.coords.longitude);
         address = geo.formattedAddress;
+        fields = addressFieldsFromGeo(geo);
       } catch {
         address = `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
       }
-      setDraft({ ...draft, pickup: address });
+      if (fields) {
+        applyPickupAddress(fields);
+      } else {
+        setDraft({ ...draft, pickup: address });
+      }
     } catch (error) {
       Alert.alert("Location failed", error instanceof Error ? error.message : "Unable to fetch current location.");
     } finally {
@@ -3007,52 +3097,66 @@ function NewRequestScreen({
         <Text style={styles.formLabel}>Voice Instructions</Text>
         <View style={styles.voiceNoteCard}>
           <View style={styles.voiceNoteIcon}>
-            <Ionicons name={recorderState.isRecording ? "radio-button-on" : "mic-outline"} size={22} color={recorderState.isRecording ? "#dc2626" : BRAND_ORANGE} />
+            <Ionicons name={recordingActive ? "radio-button-on" : "mic-outline"} size={22} color={recordingActive ? "#dc2626" : BRAND_ORANGE} />
           </View>
           <View style={styles.voiceNoteText}>
-            <Text style={styles.addressTitle}>{recorderState.isRecording ? "Recording..." : draft.voiceNotes?.length ? "Voice note added" : "Record a voice note"}</Text>
-            <Text style={styles.mutedSmall}>{draft.voiceNotes?.length ? "Tailor can listen to your instructions." : "Optional, useful for detailed fitting instructions."}</Text>
+            <Text style={styles.addressTitle}>{recordingActive ? recordingPaused ? "Recording paused" : "Recording..." : draft.voiceNotes?.length ? "Voice note added" : "Record a voice note"}</Text>
+            <Text style={styles.mutedSmall}>{recordingActive ? "Tap play to continue or Done to save." : draft.voiceNotes?.length ? "Tailor can listen to your instructions." : "Optional, useful for detailed fitting instructions."}</Text>
           </View>
-          {draft.voiceNotes?.[0]?.uri ? (
+          {draft.voiceNotes?.[0]?.uri && !recordingActive ? (
             <Pressable style={styles.voiceRoundButton} onPress={() => toggleVoicePlayback(draft.voiceNotes![0].uri)}>
               <Ionicons name={playingVoiceUri && !voicePlaybackPaused ? "pause" : "play"} size={17} color={BRAND_DEEP} />
             </Pressable>
           ) : null}
-          {recorderState.isRecording ? (
+          {recordingActive ? (
             <Pressable style={styles.voiceRoundButton} onPress={toggleRecordingPause}>
               <Ionicons name={recordingPaused ? "play" : "pause"} size={17} color={BRAND_DEEP} />
             </Pressable>
           ) : null}
-          <Pressable style={[styles.voiceRecordButton, recorderState.isRecording && styles.voiceRecordButtonActive]} onPress={toggleVoiceRecording}>
-            <Text style={styles.voiceRecordButtonText}>{recorderState.isRecording ? "Done" : draft.voiceNotes?.length ? "Re-record" : "Record"}</Text>
+          <Pressable style={[styles.voiceRecordButton, recordingActive && styles.voiceRecordButtonActive]} onPress={toggleVoiceRecording}>
+            <Text style={styles.voiceRecordButtonText}>{recordingActive ? "Done" : draft.voiceNotes?.length ? "Re-record" : "Record"}</Text>
           </Pressable>
         </View>
 
         {needsPickupAddress ? (
           <>
             <Text style={styles.formLabel}>Pickup Address</Text>
-            <View style={styles.addressCard}>
-              <Ionicons name="location-outline" size={20} color={BRAND_ORANGE} />
-              <View style={styles.addressTextWrap}>
-                {editingAddress ? (
-                  <TextInput
-                    multiline
-                    style={styles.addressInput}
-                    value={draft.pickup}
-                    onChangeText={(pickup) => setDraft({ ...draft, pickup })}
-                    placeholder="Enter pickup address"
-                    placeholderTextColor="#98a4b6"
-                  />
-                ) : (
-                  <>
-                    <Text style={styles.addressTitle}>{draft.pickup.split(",")[0]}</Text>
-                    <Text style={styles.mutedSmall}>{draft.pickup.split(",").slice(1).join(",").trim() || "Tap edit to update address"}</Text>
-                  </>
-                )}
+            <View style={styles.structuredAddressCard}>
+              <View style={styles.addressHelperLine}>
+                <Ionicons name="information-circle-outline" size={12} color={BRAND_ORANGE} />
+                <Text style={styles.addressHelperText}>Required: building, area, city, state and pincode.</Text>
               </View>
-              <Pressable style={styles.addressInlineEdit} onPress={() => setEditingAddress((value) => !value)}>
-                <Ionicons name={editingAddress ? "checkmark-outline" : "create-outline"} size={17} color={BRAND_ORANGE} />
-              </Pressable>
+              <View style={styles.addressFieldGrid}>
+                <View style={styles.addressFieldWide}>
+                  <Text style={styles.addressFieldLabel}>Building / Flat No.</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.buildingNo} onChangeText={(value) => updatePickupAddressField("buildingNo", value)} placeholder="A-5, Flat 302" placeholderTextColor="#98a4b6" />
+                </View>
+                <View style={styles.addressFieldWide}>
+                  <Text style={styles.addressFieldLabel}>Street / Society</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.street} onChangeText={(value) => updatePickupAddressField("street", value)} placeholder="Street, society or road" placeholderTextColor="#98a4b6" />
+                </View>
+                <View style={styles.addressFieldHalf}>
+                  <Text style={styles.addressFieldLabel}>Area</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.area} onChangeText={(value) => updatePickupAddressField("area", value)} placeholder="Area" placeholderTextColor="#98a4b6" />
+                </View>
+                <View style={styles.addressFieldHalf}>
+                  <Text style={styles.addressFieldLabel}>City</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.city} onChangeText={(value) => updatePickupAddressField("city", value)} placeholder="City" placeholderTextColor="#98a4b6" />
+                </View>
+                <View style={styles.addressFieldHalf}>
+                  <Text style={styles.addressFieldLabel}>State</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.state} onChangeText={(value) => updatePickupAddressField("state", value)} placeholder="State" placeholderTextColor="#98a4b6" />
+                </View>
+                <View style={styles.addressFieldHalf}>
+                  <Text style={styles.addressFieldLabel}>Pincode</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.postalCode} onChangeText={(value) => updatePickupAddressField("postalCode", value.replace(/[^\d]/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="110001" placeholderTextColor="#98a4b6" />
+                </View>
+                <View style={styles.addressFieldWide}>
+                  <Text style={styles.addressFieldLabel}>Landmark</Text>
+                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.landmark} onChangeText={(value) => updatePickupAddressField("landmark", value)} placeholder="Near..." placeholderTextColor="#98a4b6" />
+                </View>
+              </View>
+              {pickupAddressMissing.length ? <Text style={styles.addressMissingText}>Missing: {pickupAddressMissing.join(", ")}</Text> : <Text style={styles.addressPreviewText}>{pickupAddressText}</Text>}
             </View>
             <View style={styles.addressActions}>
               <Pressable style={styles.addressActionButton} onPress={useCurrentLocation} disabled={locating}>
@@ -3065,8 +3169,8 @@ function NewRequestScreen({
                 <Text style={styles.formLabel}>Use Saved Address</Text>
                 <View style={styles.savedAddressList}>
                   {addresses.map((address) => (
-                    <Pressable key={address.id} style={[styles.savedAddressChoice, draft.pickup === address.address && styles.savedAddressChoiceSelected]} onPress={() => setDraft({ ...draft, pickup: address.address })}>
-                      <Ionicons name="home-outline" size={15} color={draft.pickup === address.address ? BRAND_ORANGE : "#6b7890"} />
+                    <Pressable key={address.id} style={[styles.savedAddressChoice, pickupAddressText === address.address && styles.savedAddressChoiceSelected]} onPress={() => applyPickupAddress(address.fields ?? addressFieldsFromText(address.address))}>
+                      <Ionicons name="home-outline" size={15} color={pickupAddressText === address.address ? BRAND_ORANGE : "#6b7890"} />
                       <View style={styles.savedAddressChoiceText}>
                         <Text style={styles.savedAddressChoiceTitle}>{address.label}</Text>
                         <Text style={styles.mutedSmall} numberOfLines={1}>{address.address}</Text>
@@ -4584,10 +4688,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                   <Text style={styles.measurementMethodCopy}>{requiresHomeMeasurement ? "Required for new stitching so the fit is measured accurately." : "A tailor will visit your home and take measurements accurately."}</Text>
                 </Pressable>
               </View>
-              <View style={styles.measurementInfoBanner}>
-                <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
-                <Text style={styles.measurementInfoText}>{requiresHomeMeasurement ? "Home measurement is mandatory for new stitching. You can also add a sample." : "You can select one or both options"}</Text>
-                <Ionicons name="chevron-forward" size={18} color="#7d8491" />
+              <View style={[styles.measurementInfoBanner, requiresHomeMeasurement && styles.measurementInfoBannerRequired]}>
+                <Ionicons name={requiresHomeMeasurement ? "alert-circle-outline" : "bulb-outline"} size={22} color={requiresHomeMeasurement ? "#dc2626" : BRAND_ORANGE} />
+                <Text style={[styles.measurementInfoText, requiresHomeMeasurement && styles.measurementInfoTextRequired]}>{requiresHomeMeasurement ? "Home measurement is mandatory for new stitching. You can also add a sample." : "You can select one or both options"}</Text>
+                <Ionicons name="chevron-forward" size={18} color={requiresHomeMeasurement ? "#dc2626" : "#7d8491"} />
               </View>
               {draft.sampleProvided ? (
                 <>
@@ -6990,9 +7094,15 @@ function AddAddressScreen({
   setScreen: (screen: Screen) => void;
 }) {
   const [label, setLabel] = useState("Home");
-  const [address, setAddress] = useState("");
+  const [addressFields, setAddressFields] = useState<AddressFields>(() => emptyAddressFields());
   const [location, setLocation] = useState<{ lat?: number; lng?: number }>({});
   const [locating, setLocating] = useState(false);
+  const formattedAddress = formatAddressFields(addressFields);
+  const missingFields = missingAddressFields(addressFields);
+
+  function updateAddressField(key: keyof AddressFields, value: string) {
+    setAddressFields((current) => ({ ...current, [key]: value }));
+  }
 
   async function useCurrentLocation() {
     const permission = await Location.requestForegroundPermissionsAsync();
@@ -7003,14 +7113,12 @@ function AddAddressScreen({
     setLocating(true);
     try {
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      let resolved: string;
       try {
         const geo = await backendReverseGeocode(current.coords.latitude, current.coords.longitude);
-        resolved = geo.formattedAddress;
+        setAddressFields(addressFieldsFromGeo(geo));
       } catch {
-        resolved = `Lat ${current.coords.latitude.toFixed(5)}, Lng ${current.coords.longitude.toFixed(5)}`;
+        Alert.alert("Address not found", "Location was found, but address fields could not be filled. Please enter them manually.");
       }
-      setAddress(resolved);
       setLocation({ lat: current.coords.latitude, lng: current.coords.longitude });
     } catch {
       Alert.alert("Location failed", "Could not read your current location. You can enter the address manually.");
@@ -7020,14 +7128,15 @@ function AddAddressScreen({
   }
 
   function saveAddress() {
-    if (label.trim().length < 2 || address.trim().length < 8) {
-      Alert.alert("Address required", "Enter a label and complete pickup address.");
+    if (label.trim().length < 2 || missingFields.length) {
+      Alert.alert("Address required", `Enter a label and fill ${missingFields.join(", ")}.`);
       return;
     }
     const newAddress: SavedAddress = {
       id: `${Date.now()}`,
       label: label.trim(),
-      address: address.trim(),
+      address: formattedAddress,
+      fields: addressFields,
       isDefault: addresses.length === 0,
       lat: location.lat,
       lng: location.lng
@@ -7059,21 +7168,43 @@ function AddAddressScreen({
           );
         })}
       </View>
-      <Text style={styles.formLabel}>Full Address</Text>
+      <Text style={styles.formLabel}>Address Details</Text>
       <View style={styles.addressHelperLine}>
         <Ionicons name="location" size={10} color={BRAND_ORANGE} />
-        <Text style={styles.addressHelperText}>Include house / flat no., street, city & pincode</Text>
+        <Text style={styles.addressHelperText}>Use current location to auto-fill, then complete missing fields.</Text>
       </View>
-      <View style={styles.addressInputShell}>
-        <Ionicons name="location-outline" size={20} color="#98a4b6" />
-        <TextInput
-          style={styles.addressFullInput}
-          value={address}
-          onChangeText={setAddress}
-          multiline
-          placeholder="Enter full address"
-          placeholderTextColor="#98a4b6"
-        />
+      <View style={styles.structuredAddressCard}>
+        <View style={styles.addressFieldGrid}>
+          <View style={styles.addressFieldWide}>
+            <Text style={styles.addressFieldLabel}>Building / Flat No.</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.buildingNo} onChangeText={(value) => updateAddressField("buildingNo", value)} placeholder="A-5, Flat 302" placeholderTextColor="#98a4b6" />
+          </View>
+          <View style={styles.addressFieldWide}>
+            <Text style={styles.addressFieldLabel}>Street / Society</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.street} onChangeText={(value) => updateAddressField("street", value)} placeholder="Street, society or road" placeholderTextColor="#98a4b6" />
+          </View>
+          <View style={styles.addressFieldHalf}>
+            <Text style={styles.addressFieldLabel}>Area</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.area} onChangeText={(value) => updateAddressField("area", value)} placeholder="Area" placeholderTextColor="#98a4b6" />
+          </View>
+          <View style={styles.addressFieldHalf}>
+            <Text style={styles.addressFieldLabel}>City</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.city} onChangeText={(value) => updateAddressField("city", value)} placeholder="City" placeholderTextColor="#98a4b6" />
+          </View>
+          <View style={styles.addressFieldHalf}>
+            <Text style={styles.addressFieldLabel}>State</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.state} onChangeText={(value) => updateAddressField("state", value)} placeholder="State" placeholderTextColor="#98a4b6" />
+          </View>
+          <View style={styles.addressFieldHalf}>
+            <Text style={styles.addressFieldLabel}>Pincode</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.postalCode} onChangeText={(value) => updateAddressField("postalCode", value.replace(/[^\d]/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="110001" placeholderTextColor="#98a4b6" />
+          </View>
+          <View style={styles.addressFieldWide}>
+            <Text style={styles.addressFieldLabel}>Landmark</Text>
+            <TextInput style={styles.addressFieldInput} value={addressFields.landmark} onChangeText={(value) => updateAddressField("landmark", value)} placeholder="Near..." placeholderTextColor="#98a4b6" />
+          </View>
+        </View>
+        {missingFields.length ? <Text style={styles.addressMissingText}>Missing: {missingFields.join(", ")}</Text> : <Text style={styles.addressPreviewText}>{formattedAddress}</Text>}
       </View>
       <View style={styles.addressActions}>
         <Pressable style={styles.currentLocationButton} onPress={useCurrentLocation} disabled={locating}>
@@ -8599,7 +8730,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function StatusPill({ status }: { status: CustomerOrder["status"] }) {
-  return <Text style={[styles.statusPill, statusStyle(status)]}>{status}</Text>;
+  return <Text style={[styles.statusPill, statusStyle(status)]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{status}</Text>;
 }
 
 function formatOrderTimestamp(value?: string) {
@@ -8810,10 +8941,10 @@ function OrdersScreenV2({
   const historyOrders = orders.filter((order) => order.status === "Delivered");
   const cancelledOrders = orders.filter((order) => order.status === "Cancelled");
   const tabs = [
-    { key: "incomplete" as const, label: "Incomplete", icon: "clipboard-outline" as const, items: incompleteOrders },
-    { key: "active" as const, label: "Active", icon: "cube-outline" as const, items: activeOrders },
-    { key: "history" as const, label: "History", icon: "time-outline" as const, items: historyOrders },
-    { key: "cancelled" as const, label: "Cancelled", icon: "close-circle-outline" as const, items: cancelledOrders }
+    { key: "incomplete" as const, label: "Incomplete", shortLabel: "Open", icon: "clipboard-outline" as const, items: incompleteOrders },
+    { key: "active" as const, label: "Active", shortLabel: "Active", icon: "cube-outline" as const, items: activeOrders },
+    { key: "history" as const, label: "History", shortLabel: "History", icon: "time-outline" as const, items: historyOrders },
+    { key: "cancelled" as const, label: "Cancelled", shortLabel: "Cancelled", icon: "close-circle-outline" as const, items: cancelledOrders }
   ];
   const activeItems = tabs.find((tab) => tab.key === activeTab)?.items ?? incompleteOrders;
   const renderOrderCard = (order: CustomerOrder) => (
@@ -8827,18 +8958,20 @@ function OrdersScreenV2({
           <Ionicons name="cube-outline" size={34} color={BRAND_ORANGE} />
         </View>
         <View style={styles.orderBatchMain}>
-          <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-          <Text style={styles.orderService} numberOfLines={3}>
+          <Text style={styles.orderNumber} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82}>{order.orderNumber}</Text>
+          <Text style={styles.orderService} numberOfLines={2}>
             {order.draft.clothType ?? "Cloth"} - {order.draft.workType ?? "Tailoring"} - Order ID #{order.status.toUpperCase()}
           </Text>
           <View style={styles.orderCreatedPill}>
             <Ionicons name="time-outline" size={15} color="#b91c1c" />
-            <Text style={styles.orderCreatedText}>
+            <Text style={styles.orderCreatedText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
               Created: {new Date(order.placedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
             </Text>
           </View>
         </View>
-        <StatusPill status={order.status} />
+        <View style={styles.orderStatusSlot}>
+          <StatusPill status={order.status} />
+        </View>
       </View>
       <View style={styles.orderCardDivider} />
       <View style={styles.orderBottomRow}>
@@ -8872,8 +9005,9 @@ function OrdersScreenV2({
             <View style={styles.orderTabRow}>
               {tabs.map((tab) => (
                 <Pressable key={tab.key} style={[styles.orderTabButton, activeTab === tab.key && styles.orderTabButtonActive]} onPress={() => setActiveTab(tab.key)}>
-                  <Ionicons name={tab.icon} size={25} color={activeTab === tab.key ? BRAND_ORANGE : "#65748a"} />
-                  <Text style={[styles.orderTabText, activeTab === tab.key && styles.orderTabTextActive]}>{tab.label}</Text>
+                  <Ionicons name={tab.icon} size={23} color={activeTab === tab.key ? BRAND_ORANGE : "#65748a"} />
+                  <Text style={[styles.orderTabText, activeTab === tab.key && styles.orderTabTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{tab.shortLabel}</Text>
+                  <Text style={styles.orderTabCount}>{tab.items.length}</Text>
                 </Pressable>
               ))}
             </View>
@@ -8887,10 +9021,18 @@ function OrdersScreenV2({
                     : "Cancelled requests and orders."}
             </Text>
             {activeItems.length ? activeItems.map(renderOrderCard) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="file-tray-outline" size={32} color={BRAND_ORANGE} />
-                <Text style={styles.emptyTitle}>Nothing here</Text>
-                <Text style={styles.helperText}>No {tabs.find((tab) => tab.key === activeTab)?.label.toLowerCase()} orders yet.</Text>
+              <View style={styles.orderEmptyCard}>
+                <View style={styles.orderEmptyIcon}>
+                  <Ionicons name={activeTab === "incomplete" ? "add-circle-outline" : "file-tray-outline"} size={36} color={BRAND_ORANGE} />
+                </View>
+                <Text style={styles.emptyTitle}>{activeTab === "incomplete" ? "No open requests" : "Nothing here"}</Text>
+                <Text style={styles.mutedCenter}>{activeTab === "incomplete" ? "Start a tailoring request and get quotes from nearby tailors." : `No ${tabs.find((tab) => tab.key === activeTab)?.label.toLowerCase()} orders yet.`}</Text>
+                {activeTab === "incomplete" ? (
+                  <Pressable style={styles.favoriteFindButton} onPress={() => setScreen("newRequest")}>
+                    <Ionicons name="add" size={18} color="#111111" />
+                    <Text style={styles.primaryWideButtonText}>Place an Order</Text>
+                  </Pressable>
+                ) : null}
               </View>
             )}
           </>
@@ -9566,6 +9708,7 @@ export default function App() {
   const [refreshSignal, setRefreshSignal] = useState(0);
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
+  const updatePromptShownRef = useRef(false);
 
   useEffect(() => {
     const nativeAlert = Alert.alert;
@@ -9581,6 +9724,42 @@ export default function App() {
     if (!sessionNotice) return;
     Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
   }, [clearSessionNotice, sessionNotice]);
+
+  useEffect(() => {
+    async function checkForAppUpdate() {
+      if (updatePromptShownRef.current || !Updates.isEnabled) return;
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (!result.isAvailable || updatePromptShownRef.current) return;
+        updatePromptShownRef.current = true;
+        setDialog({
+          title: "Update available",
+          message: "A newer Darji update is ready. Update now for the latest fixes and improvements.",
+          actions: [
+            { label: "Later" },
+            {
+              label: "Update now",
+              onPress: async () => {
+                try {
+                  await Updates.fetchUpdateAsync();
+                  await Updates.reloadAsync();
+                } catch {
+                  setDialog({ title: "Update failed", message: "Could not install the update right now. Please try again later.", actions: [{ label: "OK" }] });
+                }
+              }
+            }
+          ]
+        });
+      } catch {
+        // Updates are disabled in Expo Go/dev builds; no prompt is needed there.
+      }
+    }
+    void checkForAppUpdate();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void checkForAppUpdate();
+    });
+    return () => subscription.remove();
+  }, []);
 
   const customerPhone = user?.phone ?? (user?.id ? `user-${user.id}` : "guest");
   const customerData = customerDataByPhone[customerPhone] ?? makeDefaultCustomerData(user?.phone ?? customerPhone, user?.name);
@@ -11062,6 +11241,14 @@ function createStyles(isDark = false) {
   addressTextWrap: { flex: 1, marginLeft: 14 },
   addressInlineEdit: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   addressInput: { minHeight: 46, color: text, fontSize: 13, lineHeight: 19, padding: 0, textAlignVertical: "top" },
+  structuredAddressCard: { borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14 },
+  addressFieldGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+  addressFieldWide: { width: "100%" },
+  addressFieldHalf: { width: "48.4%" },
+  addressFieldLabel: { color: muted, fontSize: 11, fontWeight: "900", marginBottom: 6 },
+  addressFieldInput: { minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, color: text, paddingHorizontal: 12, fontSize: 13, fontWeight: "800" },
+  addressMissingText: { color: "#b91c1c", fontSize: 11, fontWeight: "900", lineHeight: 16, marginTop: 10 },
+  addressPreviewText: { color: "#15803d", fontSize: 11, fontWeight: "800", lineHeight: 17, marginTop: 10 },
   addressActions: { flexDirection: "row", gap: 10, marginTop: 12 },
   addressActionButton: { flex: 1, minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
   savedAddressList: { gap: 10 },
@@ -11127,6 +11314,8 @@ function createStyles(isDark = false) {
   measurementMethodCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, textAlign: "center", marginTop: 10 },
   measurementInfoBanner: { minHeight: 52, borderRadius: 13, backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 10, marginTop: 14 },
   measurementInfoText: { flex: 1, minWidth: 0, color: muted, fontSize: 13, fontWeight: "800", lineHeight: 18 },
+  measurementInfoBannerRequired: { backgroundColor: isDark ? "#2b1111" : "#fff1f2", borderWidth: 1, borderColor: "#fecaca" },
+  measurementInfoTextRequired: { color: "#b91c1c" },
   measurementCard: { borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 16, marginTop: 16 },
   measurementTitleBlock: { flex: 1, minWidth: 0 },
   measurementHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -11470,29 +11659,30 @@ function createStyles(isDark = false) {
   orderIdCard: { height: 70, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 20 },
   orderId: { color: "#dc2626", fontSize: 22, fontWeight: "900", marginTop: 4, letterSpacing: 0.4 },
   orderCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
-  orderCardV2: { borderRadius: 30, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 26, marginBottom: 18 },
+  orderCardV2: { borderRadius: 24, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 16 },
   orderSectionBlock: { marginBottom: 16 },
-  ordersHero: { paddingTop: 6, marginBottom: 26 },
-  ordersHeroTitle: { color: text, fontSize: 38, fontWeight: "900", lineHeight: 44 },
-  ordersHeroCopy: { color: muted, fontSize: 18, fontWeight: "800", lineHeight: 26, marginTop: 8 },
-  orderTabRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
-  orderTabButton: { flex: 1, aspectRatio: 1, borderRadius: 18, borderWidth: 1.5, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 9, paddingHorizontal: 6 },
+  ordersHero: { paddingTop: 4, marginBottom: 18 },
+  ordersHeroTitle: { color: text, fontSize: 34, fontWeight: "900", lineHeight: 39 },
+  ordersHeroCopy: { color: muted, fontSize: 16, fontWeight: "800", lineHeight: 23, marginTop: 7 },
+  orderTabRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  orderTabButton: { flex: 1, height: 82, borderRadius: 16, borderWidth: 1.5, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 5 },
   orderTabButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
-  orderTabText: { color: muted, fontSize: 12, fontWeight: "900", textAlign: "center" },
+  orderTabText: { color: muted, fontSize: 11, fontWeight: "900", textAlign: "center", width: "100%" },
   orderTabTextActive: { color: BRAND_ORANGE },
-  orderTabCount: { color: subtle, fontSize: 11, fontWeight: "900" },
-  orderBatchLayout: { flexDirection: "row", alignItems: "center", gap: 18 },
-  orderBatchIcon: { width: 82, height: 82, borderRadius: 24, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  orderBatchMain: { flex: 1, minWidth: 0 },
+  orderTabCount: { color: subtle, fontSize: 10, fontWeight: "900" },
+  orderBatchLayout: { position: "relative", flexDirection: "row", alignItems: "flex-start", gap: 14, paddingRight: 0 },
+  orderBatchIcon: { width: 70, height: 70, borderRadius: 20, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 26 },
+  orderBatchMain: { flex: 1, minWidth: 0, paddingRight: 4 },
+  orderStatusSlot: { position: "absolute", right: 0, top: 78, maxWidth: 142, alignItems: "flex-end" },
   orderTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   orderTitleBlock: { flex: 1, minWidth: 0 },
   orderBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   orderTailorBlock: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
   orderTailorText: { flex: 1, minWidth: 0, marginLeft: 12 },
-  orderNumber: { color: "#dc2626", fontSize: 32, fontWeight: "900", letterSpacing: 0 },
-  orderService: { color: muted, fontSize: 15, fontWeight: "900", lineHeight: 20, marginTop: 12 },
-  orderCreatedPill: { alignSelf: "flex-start", minHeight: 46, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, marginTop: 16 },
-  orderCreatedText: { color: "#b91c1c", fontSize: 14, fontWeight: "900" },
+  orderNumber: { color: "#dc2626", fontSize: 29, fontWeight: "900", letterSpacing: 0, lineHeight: 35 },
+  orderService: { color: muted, fontSize: 14, fontWeight: "900", lineHeight: 19, marginTop: 8, paddingRight: 124 },
+  orderCreatedPill: { alignSelf: "flex-start", minHeight: 40, maxWidth: "100%", borderRadius: 15, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, marginTop: 13 },
+  orderCreatedText: { color: "#b91c1c", fontSize: 13, fontWeight: "900", flexShrink: 1 },
   cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   noticeTextBlock: { flex: 1, minWidth: 0 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },

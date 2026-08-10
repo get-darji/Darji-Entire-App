@@ -10,6 +10,11 @@ const apiUrl =
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
 const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
+const transientUploadPattern = /backend connection|network request failed|network error|timed out|timeout|failed to fetch/i;
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function performAccessTokenRefresh() {
   const refreshToken = useAppStore.getState().refreshToken;
@@ -131,11 +136,31 @@ function sendMediaUpload(files: { uri: string; type: "image" | "video" | "audio"
       resolve(body.data ?? []);
     };
 
-    request.onerror = () => reject(new Error("Upload failed. Check backend connection."));
-    request.ontimeout = () => reject(new Error("Upload timed out. Try a smaller file."));
-    request.timeout = 120000;
+    request.onerror = () => reject(new Error("Upload network error. Your connection or the backend dropped the upload."));
+    request.onabort = () => reject(new Error("Upload was cancelled before it finished."));
+    request.ontimeout = () => reject(new Error("Upload timed out. Try a smaller file or fewer files at once."));
+    request.timeout = files.some((file) => file.type === "video") ? 240000 : 150000;
     request.send(form);
   });
+}
+
+async function sendMediaUploadWithRetry(files: { uri: string; type: "image" | "video" | "audio"; name: string }[], token: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await sendMediaUpload(files, token);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : "";
+      if (!transientUploadPattern.test(message) || attempt === 2) break;
+      await wait(attempt === 0 ? 1200 : 2600);
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : "Upload failed";
+  if (transientUploadPattern.test(message)) {
+    throw new Error("Upload failed because the connection dropped. Please check internet and try again; smaller videos/photos upload more reliably.");
+  }
+  throw lastError instanceof Error ? lastError : new Error(message);
 }
 
 export async function uploadMedia(files: { uri: string; type: "image" | "video" | "audio"; name: string }[], token?: string): Promise<UploadedMedia[]> {
@@ -143,11 +168,11 @@ export async function uploadMedia(files: { uri: string; type: "image" | "video" 
   if (!currentToken) throw new Error("Authentication required");
 
   try {
-    return await sendMediaUpload(files, currentToken);
+    return await sendMediaUploadWithRetry(files, currentToken);
   } catch (error) {
     if (!sessionErrorPattern.test(error instanceof Error ? error.message : "")) throw error;
     const nextToken = await refreshAccessToken();
     if (!nextToken) throw error;
-    return sendMediaUpload(files, nextToken);
+    return sendMediaUploadWithRetry(files, nextToken);
   }
 }
