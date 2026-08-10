@@ -364,7 +364,7 @@ export function AdminPortal() {
   const setSidebarOpen = useAdminStore((state) => state.setSidebarOpen);
   const persistedSupportSubTab = useAdminStore((state) => state.supportSubTab);
   const persistSupportSubTab = useAdminStore((state) => state.setSupportSubTab);
-  const setToken = useAdminStore((state) => state.setToken);
+  const setSession = useAdminStore((state) => state.setSession);
   const sidebarOpen = useAdminStore((state) => state.sidebarOpen);
   const token = useAdminStore((state) => state.token);
   const sessionNotice = useAdminStore((state) => state.sessionNotice);
@@ -707,7 +707,7 @@ export function AdminPortal() {
   const verifyOtpMutation = useMutation({
     mutationFn: ({ phone, otp }: { phone: string; otp: string }) => verifyOtp(phone, otp),
     onSuccess: (session) => {
-      setToken(session.accessToken);
+      setSession(session);
       toast.success("Admin session started");
     },
     onError: (error) => toast.error(extractError(error))
@@ -2806,6 +2806,7 @@ function LoginPanel({
   const [otp, setOtp] = useState("");
   const [requested, setRequested] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
+  const cleanPhoneInput = (value: string) => value.replace(/\D/g, "").slice(0, 10);
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(246,163,19,0.18),transparent_20%),radial-gradient(circle_at_bottom_right,rgba(246,163,19,0.12),transparent_24%),linear-gradient(180deg,#fffdf8_0%,#fff6e8_100%)]">
@@ -2879,8 +2880,11 @@ function LoginPanel({
                     <Users size={20} className="text-[#8f8f95]" />
                     <input
                       className="w-full bg-transparent outline-none placeholder:text-[#9a9aa3]"
+                      inputMode="numeric"
+                      maxLength={10}
+                      pattern="[0-9]*"
                       value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
+                      onChange={(event) => setPhone(cleanPhoneInput(event.target.value))}
                       placeholder="Enter your phone number"
                     />
                   </div>

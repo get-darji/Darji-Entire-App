@@ -33,6 +33,7 @@ type AdminStore = {
   sidebarOpen: boolean;
   theme: ThemeMode;
   token: string | null;
+  refreshToken: string | null;
   sessionNotice: string | null;
   supportSubTab: "customer" | "tailor" | "delivery" | "bugs";
   logout: () => void;
@@ -41,6 +42,7 @@ type AdminStore = {
   setActiveSection: (section: SectionId) => void;
   setHydrated: (value: boolean) => void;
   setSidebarOpen: (value: boolean) => void;
+  setSession: (session: { accessToken: string; refreshToken: string }) => void;
   setToken: (token: string | null) => void;
   toggleTheme: () => void;
   setSupportSubTab: (tab: "customer" | "tailor" | "delivery" | "bugs") => void;
@@ -54,14 +56,16 @@ export const useAdminStore = create<AdminStore>()(
       sidebarOpen: false,
       theme: "light",
       token: null,
+      refreshToken: null,
       sessionNotice: null,
       supportSubTab: "customer",
-      logout: () => set({ token: null, activeSection: "dashboard", sidebarOpen: false, supportSubTab: "customer" }),
-      invalidateSession: (sessionNotice) => set({ token: null, sessionNotice, activeSection: "dashboard", sidebarOpen: false }),
+      logout: () => set({ token: null, refreshToken: null, activeSection: "dashboard", sidebarOpen: false, supportSubTab: "customer" }),
+      invalidateSession: (sessionNotice) => set({ token: null, refreshToken: null, sessionNotice, activeSection: "dashboard", sidebarOpen: false }),
       clearSessionNotice: () => set({ sessionNotice: null }),
       setActiveSection: (activeSection) => set({ activeSection }),
       setHydrated: (hydrated) => set({ hydrated }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
+      setSession: (session) => set({ token: session.accessToken, refreshToken: session.refreshToken, sessionNotice: null }),
       setToken: (token) => set({ token, sessionNotice: null }),
       toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
       setSupportSubTab: (supportSubTab) => set({ supportSubTab })
@@ -82,6 +86,7 @@ export const useAdminStore = create<AdminStore>()(
         activeSection: state.activeSection,
         theme: state.theme,
         token: state.token,
+        refreshToken: state.refreshToken,
         supportSubTab: state.supportSubTab
       }),
       onRehydrateStorage: () => (state) => state?.setHydrated(true)

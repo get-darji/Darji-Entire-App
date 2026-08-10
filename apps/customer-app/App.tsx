@@ -158,7 +158,7 @@ type Screen =
 type RequestFlowScreen = "newRequest" | "clothIssue" | "measurements" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
-type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; badge?: string; message?: string; specialty?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string; tailorProfile?: TailorProfileSummary };
+type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; deliveryFee?: number; deliveryDistanceMeters?: number; badge?: string; message?: string; specialty?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string; tailorProfile?: TailorProfileSummary };
 type BackendTailorProfile = {
   id: string;
   shopName?: string;
@@ -200,6 +200,7 @@ type BackendTailorQuote = {
   message?: string;
   pickupIncluded?: boolean;
   status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+  deliveryEstimate?: { deliveryMode?: string; oneWayDistanceMeters?: number; totalChargeableDistanceMeters?: number; deliveryFee?: number };
   tailor?: BackendTailorProfile | null;
 };
 type LocalMedia = { uri: string; type: "image" | "video" | "audio"; name: string; size?: number };
@@ -1426,7 +1427,7 @@ function checkoutItemCount(draft: RequestDraft) {
 }
 
 function subtotalForQuote(quote: Quote, draft: RequestDraft) {
-  return quote.price + deliveryFeeForUrgency(draft.urgency) + getPlatformFee(quote.price) + homeMeasurementFeeForDraft(draft);
+  return quote.price + (quote.deliveryFee ?? deliveryFeeForUrgency(draft.urgency)) + getPlatformFee(quote.price) + homeMeasurementFeeForDraft(draft);
 }
 
 function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
@@ -4917,6 +4918,8 @@ function quoteFromBackend(quote: BackendRequestQuote): Quote {
     reviews: 0,
     eta: etaLabel(quote),
     price: quote.price,
+    deliveryFee: quote.deliveryEstimate?.deliveryFee,
+    deliveryDistanceMeters: quote.deliveryEstimate?.oneWayDistanceMeters,
     message: quote.message,
     specialty: tailorProfile?.specialty || quote.tailor?.specialization?.filter(Boolean).join(", "),
     tailorProfile
@@ -5760,7 +5763,7 @@ function ConfirmOrderScreen({
   };
 
   const orderItems = clothingItemsForDraft(draft);
-  const deliveryFee = getCustomerDeliveryFee(draft.urgency);
+  const deliveryFee = quote.deliveryFee ?? getCustomerDeliveryFee(draft.urgency);
   const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
   const itemCount = checkoutItemCount(draft);
   const tailoringTotal = quote.price;

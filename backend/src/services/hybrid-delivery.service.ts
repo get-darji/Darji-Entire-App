@@ -3,6 +3,7 @@ import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, Deliver
 import { emitToCustomer, emitToDeliveryPartner } from "./socket.service.js";
 import { sendPushToUsers } from "./push.service.js";
 import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
+import { batchDeliveryPayout, pointFrom, roadDistanceMatrix } from "./delivery-pricing.service.js";
 
 export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
@@ -131,38 +132,48 @@ async function ensureDeliveryBatchIndexes() {
         if (codeName !== "IndexNotFound") throw error;
       }
       await DeliveryBatchModel.collection.createIndex(
-        { deliveryType: 1, deliveryRound: 1, roundAt: 1, slotIndex: 1 },
-        { unique: true, name: "deliveryType_1_deliveryRound_1_roundAt_1_slotIndex_1" }
+        { deliveryRound: 1, roundAt: 1, slotIndex: 1 },
+        { unique: true, name: "deliveryRound_1_roundAt_1_slotIndex_1" }
       );
     })();
   }
   return deliveryBatchIndexesReady;
 }
 
-function point(value: unknown): { lat: number; lng: number } | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const source = value as Record<string, unknown>;
-  const lat = Number(source.lat ?? source.latitude);
-  const lng = Number(source.lng ?? source.longitude);
-  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+function matrixDistance(matrix: Array<Array<{ distance: number; duration: number }>>, from: number, to: number) {
+  return Number(matrix[from]?.[to]?.distance ?? Number.POSITIVE_INFINITY);
 }
 
-function distance(a?: { lat: number; lng: number }, b?: { lat: number; lng: number }) {
-  if (!a || !b) return Number.POSITIVE_INFINITY;
-  return Math.hypot(a.lat - b.lat, a.lng - b.lng);
-}
-
-function routeOrder(tasks: any[]) {
+async function routeOrder(tasks: any[], startLocation?: unknown) {
+  const points = [
+    pointFrom(startLocation),
+    ...tasks.flatMap((task) => [pointFrom(task.pickupLocation), pointFrom(task.dropLocation)])
+  ];
+  const usablePoints = points.every(Boolean);
+  const matrix = usablePoints ? await roadDistanceMatrix(points as Array<{ lat: number; lng: number }>) : [];
   const remaining = [...tasks].sort((a, b) => String(a.pickupAddress).localeCompare(String(b.pickupAddress)));
   const ordered: any[] = [];
-  let cursor: { lat: number; lng: number } | undefined;
+  let cursorIndex = usablePoints && pointFrom(startLocation) ? 0 : undefined;
+  let cursorPoint: { lat: number; lng: number } | undefined = pointFrom(startLocation);
 
   while (remaining.length) {
     let index = 0;
-    if (cursor) {
+    if (usablePoints && cursorIndex != null) {
       let best = Number.POSITIVE_INFINITY;
       remaining.forEach((task, candidate) => {
-        const candidateDistance = distance(cursor, point(task.pickupLocation));
+        const originalIndex = tasks.findIndex((item) => String(item.id) === String(task.id));
+        const pickupIndex = 1 + originalIndex * 2;
+        const candidateDistance = matrixDistance(matrix, cursorIndex!, pickupIndex);
+        if (candidateDistance < best) {
+          best = candidateDistance;
+          index = candidate;
+        }
+      });
+    } else if (cursorPoint) {
+      let best = Number.POSITIVE_INFINITY;
+      remaining.forEach((task, candidate) => {
+        const taskPoint = pointFrom(task.pickupLocation);
+        const candidateDistance = !taskPoint ? Number.POSITIVE_INFINITY : Math.hypot(cursorPoint!.lat - taskPoint.lat, cursorPoint!.lng - taskPoint.lng);
         if (candidateDistance < best) {
           best = candidateDistance;
           index = candidate;
@@ -171,43 +182,108 @@ function routeOrder(tasks: any[]) {
     }
     const [next] = remaining.splice(index, 1);
     ordered.push(next);
-    cursor = point(next.dropLocation) ?? point(next.pickupLocation) ?? cursor;
+    if (usablePoints) {
+      const originalIndex = tasks.findIndex((item) => String(item.id) === String(next.id));
+      cursorIndex = 1 + originalIndex * 2 + 1;
+    }
+    cursorPoint = pointFrom(next.dropLocation) ?? pointFrom(next.pickupLocation) ?? cursorPoint;
   }
 
-  return ordered;
+  return { ordered, matrix, usablePoints };
+}
+
+async function calculateOptimizedBatch(tasks: any[], startLocation?: unknown) {
+  const { ordered, matrix, usablePoints } = await routeOrder(tasks, startLocation);
+  let payableDistance = 0;
+  let totalDistance = 0;
+  let durationSeconds = 0;
+  if (usablePoints) {
+    for (let index = 0; index < ordered.length; index += 1) {
+      const task = ordered[index];
+      const originalIndex = tasks.findIndex((item) => String(item.id) === String(task.id));
+      const pickupIndex = 1 + originalIndex * 2;
+      const dropIndex = pickupIndex + 1;
+      if (index > 0) {
+        const previous = ordered[index - 1];
+        const previousOriginalIndex = tasks.findIndex((item) => String(item.id) === String(previous.id));
+        const previousDropIndex = 1 + previousOriginalIndex * 2 + 1;
+        payableDistance += matrixDistance(matrix, previousDropIndex, pickupIndex);
+        durationSeconds += Number(matrix[previousDropIndex]?.[pickupIndex]?.duration ?? 0);
+      }
+      payableDistance += matrixDistance(matrix, pickupIndex, dropIndex);
+      durationSeconds += Number(matrix[pickupIndex]?.[dropIndex]?.duration ?? 0);
+    }
+    if (pointFrom(startLocation) && ordered.length) {
+      const firstOriginalIndex = tasks.findIndex((item) => String(item.id) === String(ordered[0].id));
+      totalDistance += matrixDistance(matrix, 0, 1 + firstOriginalIndex * 2);
+    }
+    totalDistance += payableDistance;
+  } else {
+    payableDistance = tasks.reduce((sum, task) => sum + Number(task.distanceMeters ?? 0), 0);
+    totalDistance = payableDistance;
+  }
+  const completedJobs = tasks.filter((task) => ["delivered", "completed"].includes(String(task.taskStatus))).length || tasks.length;
+  const estimatedPayout = batchDeliveryPayout(payableDistance, completedJobs);
+  return { ordered, payableDistance, totalDistance, durationSeconds, estimatedPayout };
 }
 
 async function refreshRoutePositions(batchId?: string) {
   if (!batchId) return;
   const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } }).sort({ roundAt: 1, acceptedAt: 1, createdAt: 1 });
-  const ordered = routeOrder(tasks);
+  const batch = await DeliveryBatchModel.findOne({ batchId });
+  const optimized = await calculateOptimizedBatch(tasks, batch?.riderStartLocation);
   await Promise.all(
-    ordered.map((task, index) =>
+    optimized.ordered.map((task, index) =>
       DeliveryRequestModel.findByIdAndUpdate(task.id, {
         routePosition: index + 1,
-        routeTotal: ordered.length,
+        routeTotal: optimized.ordered.length,
         etaWindowStart: new Date(tasks[0]?.roundAt ? new Date(tasks[0].roundAt).getTime() + index * 20 * 60 * 1000 : Date.now() + index * 20 * 60 * 1000),
         etaWindowEnd: new Date(tasks[0]?.roundAt ? new Date(tasks[0].roundAt).getTime() + (index + 1) * 20 * 60 * 1000 : Date.now() + (index + 1) * 20 * 60 * 1000)
       })
     )
   );
+  await DeliveryBatchModel.findOneAndUpdate({ batchId }, {
+    deliveryJobIds: optimized.ordered.map((task) => task.id),
+    optimizedStops: optimized.ordered.map((task, index) => ({
+      taskId: task.id,
+      orderId: task.orderId,
+      stop: index + 1,
+      type: task.deliveryType,
+      jobType: task.type,
+      pickupAddress: task.pickupAddress,
+      dropAddress: task.dropAddress
+    })),
+    optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
+    payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
+    estimatedDurationSeconds: Math.round(optimized.durationSeconds),
+    estimatedPayout: optimized.estimatedPayout,
+    estimatedEarnings: optimized.estimatedPayout,
+    totalDistance: Number((optimized.payableDistance / 1000).toFixed(2))
+  });
 }
 
 async function recalculateBatchTotals(batchId?: string) {
   if (!batchId) return null;
   const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } });
-  const estimatedEarnings = tasks.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
-  const totalDistance = tasks.reduce((sum, task) => sum + Number(task.estimatedDistanceKm ?? 0), 0);
+  const batch = await DeliveryBatchModel.findOne({ batchId });
+  const optimized = await calculateOptimizedBatch(tasks, batch?.riderStartLocation);
   const allCompleted = tasks.length > 0 && tasks.every((task) => ["delivered", "completed"].includes(String(task.taskStatus)));
   return DeliveryBatchModel.findOneAndUpdate(
     { batchId },
     {
       $set: {
         tasks: tasks.map((task) => task.id),
+        deliveryJobIds: optimized.ordered.map((task) => task.id),
+        optimizedStops: optimized.ordered.map((task, index) => ({ taskId: task.id, orderId: task.orderId, stop: index + 1, type: task.deliveryType, jobType: task.type, pickupAddress: task.pickupAddress, dropAddress: task.dropAddress })),
         ordersCount: tasks.length,
-        estimatedEarnings,
-        totalDistance,
-        ...(allCompleted ? { status: "completed" } : {})
+        estimatedEarnings: optimized.estimatedPayout,
+        estimatedPayout: optimized.estimatedPayout,
+        finalPayout: allCompleted ? optimized.estimatedPayout : undefined,
+        optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
+        payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
+        estimatedDurationSeconds: Math.round(optimized.durationSeconds),
+        totalDistance: Number((optimized.payableDistance / 1000).toFixed(2)),
+        ...(allCompleted ? { status: "completed", finalPayout: optimized.estimatedPayout } : {})
       }
     },
     { returnDocument: "after" }
@@ -225,7 +301,7 @@ async function notifyBatchAssignment(partner: any, task: any) {
   });
   await sendPushToUsers([partner.userId], {
     title: "Batch ready",
-    body: `A locked ${task.deliveryType === "DROP" ? "drop" : "pickup"} batch is ready for your route.`,
+    body: "A locked delivery batch is ready for your route.",
     data: { type: "DELIVERY_BATCH_ASSIGNED", taskId: task.id, orderId: task.orderId, screen: "activeOrder" },
     channelId: "delivery-orders-v2",
     categoryId: "DARJI_ORDER",
@@ -249,21 +325,30 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
   );
 
   const pendingTasks = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: "pending" });
-  const ordered = routeOrder(pendingTasks);
+  const optimized = await calculateOptimizedBatch(pendingTasks, claimed.riderStartLocation);
   await Promise.all(
-    ordered.map((task, index) =>
+    optimized.ordered.map((task, index) =>
       DeliveryRequestModel.findByIdAndUpdate(task.id, {
         routePosition: index + 1,
-        routeTotal: ordered.length,
+        routeTotal: optimized.ordered.length,
         etaWindowStart: new Date(claimed.roundAt.getTime() + index * 20 * 60 * 1000),
         etaWindowEnd: new Date(claimed.roundAt.getTime() + (index + 1) * 20 * 60 * 1000)
       })
       )
   );
+  await DeliveryBatchModel.findOneAndUpdate({ batchId: claimed.batchId }, {
+    deliveryJobIds: optimized.ordered.map((task) => task.id),
+    optimizedStops: optimized.ordered.map((task, index) => ({ taskId: task.id, orderId: task.orderId, stop: index + 1, type: task.deliveryType, jobType: task.type, pickupAddress: task.pickupAddress, dropAddress: task.dropAddress })),
+    payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
+    optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
+    estimatedDurationSeconds: Math.round(optimized.durationSeconds),
+    estimatedPayout: optimized.estimatedPayout,
+    estimatedEarnings: optimized.estimatedPayout,
+    totalDistance: Number((optimized.payableDistance / 1000).toFixed(2))
+  });
   const eligiblePartners = claimed.deliveryPartnerId
     ? await DeliveryPartnerModel.find({ _id: claimed.deliveryPartnerId }).select("userId assignedArea")
     : await DeliveryPartnerModel.find({
-        deliveryType: claimed.deliveryType,
         isAvailable: true,
         verificationStatus: "VERIFIED",
         ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
@@ -277,6 +362,9 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
 
   const batchOrdersCount = batchTasksForOffer.length;
   const batchEstimatedEarnings = batchTasksForOffer.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
+  const batchPayableDistanceMeters = Math.round(optimized.payableDistance);
+  const batchEstimatedDurationSeconds = Math.round(optimized.durationSeconds);
+  const effectiveBatchEarnings = Number(optimized.estimatedPayout || batchEstimatedEarnings);
   const batchTasks = batchTasksForOffer.map((task) => ({
     ...(typeof task.toJSON === "function" ? task.toJSON() : task),
     batchId: claimed.batchId,
@@ -285,7 +373,9 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     shift: claimed.shift,
     assignedArea: claimed.area,
     batchOrdersCount,
-    batchEstimatedEarnings,
+    batchEstimatedEarnings: effectiveBatchEarnings,
+    batchPayableDistanceMeters,
+    batchEstimatedDurationSeconds,
     batchArea: claimed.area
   }));
 
@@ -298,7 +388,9 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     assignedArea: claimed.area,
     notificationSentAt: now,
     batchOrdersCount,
-    batchEstimatedEarnings,
+    batchEstimatedEarnings: effectiveBatchEarnings,
+    batchPayableDistanceMeters,
+    batchEstimatedDurationSeconds,
     batchArea: claimed.area,
     batchTasks
   };
@@ -308,8 +400,8 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
       emitToDeliveryPartner(partner.id, "delivery:task_created", representativePayload);
       await sendDeliveryBatchReadyNotification({
         userId: partner.userId,
-        title: `${claimed.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} ${String(claimed.deliveryType).toLowerCase()} batch ready`,
-        body: `${batchOrdersCount} requests | Rs ${batchEstimatedEarnings.toFixed(0)} earnings | Tap to accept or view details.`,
+        title: `${claimed.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} batch ready`,
+        body: `${batchOrdersCount} jobs | Rs ${effectiveBatchEarnings.toFixed(0)} earnings | Tap to accept or view details.`,
         data: {
           type: "INCOMING_DELIVERY_BATCH_REQUEST",
           event: "delivery:task_created",
@@ -321,8 +413,8 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
           serviceLevel: representativeTask.serviceLevel ?? "STANDARD",
           requestKind: "BATCH",
           pickupAddress: claimed.area,
-          dropAddress: claimed.deliveryType === "DROP" ? "Customer route" : "Tailor route",
-          expectedEarnings: `Rs ${batchEstimatedEarnings.toFixed(0)}`,
+          dropAddress: "Optimized mixed route",
+          expectedEarnings: `Rs ${effectiveBatchEarnings.toFixed(0)}`,
           screen: "pickupDetails"
         },
         sound: "requests.mp3"
@@ -437,6 +529,7 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()): 
 
   await DeliveryBatchModel.findByIdAndUpdate(batch.id, {
     deliveryPartnerId: partner.id,
+    riderStartLocation: pointFrom(partner.currentLocation) ?? pointFrom(partner.partnerLocation),
     routeOptimizedAt: batch.routeOptimizedAt ?? now
   });
 
@@ -474,7 +567,6 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
   const slot = await nextOpenBatchSlot(task.deliveryType);
   const area = task.assignedArea || "unassigned";
   const batchQuery = {
-    deliveryType: task.deliveryType,
     deliveryRound: slot.deliveryRound,
     roundAt: slot.roundAt,
     deliveryPartnerId: { $exists: false },
@@ -484,7 +576,6 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
 
   if (!batch) {
     const existingSlotCount = await DeliveryBatchModel.countDocuments({
-      deliveryType: task.deliveryType,
       deliveryRound: slot.deliveryRound,
       roundAt: slot.roundAt,
       status: { $ne: "cancelled" }
@@ -573,7 +664,6 @@ export async function assignPendingTasksToPartner(partner: any) {
   if (enableAreaFiltering && partner.assignedArea === "unassigned") return;
 
   const pendingTasksQuery: Record<string, any> = {
-    deliveryType: partner.deliveryType,
     serviceLevel: "INSTANT",
     taskStatus: "pending",
     retryStatus: { $ne: "ACTION_REQUIRED" }

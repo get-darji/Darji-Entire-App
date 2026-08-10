@@ -20,6 +20,7 @@ import {
 import { emitToAdmins, emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
 import { creditOrderEarning } from "../services/wallet.service.js";
 import { addTaskToSilentBatch, assignBatchToPartnerFromTask, assignPendingTasksToPartner as assignPendingDeliveryTasksToPartner, deliveryServiceLevel, nextOpenBatchSlot } from "../services/hybrid-delivery.service.js";
+import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorPoint, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
 import { getPlatformFee, getSmallOrderFee } from "@darzi/shared";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -236,6 +237,7 @@ const tailoringRequestItemInputSchema = z.object({
 const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
   urgency: z.string().trim().min(2).max(80),
   pickupAddress: z.string().trim().min(8).max(500),
+  pickupLocation: z.object({ lat: z.number(), lng: z.number() }).optional(),
   items: z.array(tailoringRequestItemInputSchema).min(1).max(20).optional()
 });
 
@@ -446,14 +448,24 @@ async function hydrateTailorQuote(quoteInput: unknown) {
       ])
     : [null, []];
   const orderIds = tailorOrders.map((order) => String(order._id));
-  const [ratingSummary] = orderIds.length
-    ? await ReviewModel.aggregate<{ _id: null; averageRating: number; ratingCount: number }>([
+  const [ratingSummary, requestForEstimate] = await Promise.all([
+    orderIds.length
+      ? ReviewModel.aggregate<{ _id: null; averageRating: number; ratingCount: number }>([
         { $match: { kind: "tailor", orderId: { $in: orderIds } } },
         { $group: { _id: null, averageRating: { $avg: "$rating" }, ratingCount: { $sum: 1 } } }
-      ])
-    : [];
+      ]).then((items) => items[0])
+      : undefined,
+    TailoringRequestModel.findById(String(quote.requestId)).select("urgency pickupLocation")
+  ]);
+  const quoteDeliveryMode = deliveryModeFromUrgency(String(requestForEstimate?.urgency ?? ""));
+  const quoteDistance = await roadDistanceMeters(pointFrom(requestForEstimate?.pickupLocation), extractTailorPoint(tailor?.toJSON() as Record<string, unknown> | undefined));
+  const deliveryEstimate = customerDeliveryCharge(quoteDeliveryMode, quoteDistance);
   return {
     ...quote,
+    deliveryEstimate: {
+      deliveryMode: quoteDeliveryMode,
+      ...deliveryEstimate
+    },
     tailor: tailor
       ? {
           ...tailor.toJSON(),
@@ -505,31 +517,12 @@ function tailorDropAddress(tailor: Record<string, unknown> | null | undefined) {
 }
 
 async function deliveryTaskEstimatedEarnings(
-  request: { deliveryFee?: number | null; urgency?: string | null },
+  request: { deliveryFee?: number | null; urgency?: string | null; customerToTailorDistanceMeters?: number | null },
   _type: "customer_to_tailor" | "tailor_to_customer"
 ) {
-  const fare = await deliveryFareForUrgency(request.urgency);
-  return Number(fare.partnerFare.toFixed(2));
-}
-
-async function deliveryFareForUrgency(urgency?: string | null) {
-  const setting = await SettingModel.findOne({ key: "delivery_fare_settings" });
-  const value = typeof setting?.value === "object" && setting.value ? setting.value as Record<string, any> : {};
-  const normalized = normalizeUrgency(urgency ?? "");
-  const key = normalized === "same_day" ? "normal" : normalized;
-  const defaults: Record<string, { partnerFare: number; customerCharge: number }> = {
-    normal: { partnerFare: 8, customerCharge: 30 },
-    express: { partnerFare: 8, customerCharge: 40 },
-    instant: { partnerFare: 15, customerCharge: 50 }
-  };
-  const config = value[key] ?? defaults[key as keyof typeof defaults] ?? defaults.normal;
-  const partnerFareValue = typeof config === "object" && config ? Number(config.partnerFare) : Number(config);
-  const customerChargeValue = typeof config === "object" && config ? Number(config.customerCharge) : Number(config);
-  const fallback = defaults[key as keyof typeof defaults] ?? defaults.normal;
-  return {
-    partnerFare: Number.isFinite(partnerFareValue) && partnerFareValue > 0 ? partnerFareValue : fallback.partnerFare,
-    customerCharge: Number.isFinite(customerChargeValue) && customerChargeValue >= 0 ? customerChargeValue : fallback.customerCharge
-  };
+  const mode = deliveryModeFromUrgency(request.urgency);
+  if (mode === "INSTANT") return instantDeliveryPayout(Number(request.customerToTailorDistanceMeters ?? 0));
+  return 0;
 }
 
 async function createDeliveryRequestForTailoringRequest(requestId: string, type: "customer_to_tailor" | "tailor_to_customer", acceptedTailorId?: string) {
@@ -555,6 +548,11 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const tailorAddress = tailorDropAddress(tailorJson);
   const pickupAddress = type === "customer_to_tailor" ? customerAddress : tailorAddress;
   const dropAddress = type === "customer_to_tailor" ? tailorAddress : customerAddress;
+  const customerPoint = pointFrom(request.pickupLocation);
+  const tailorPoint = extractTailorPoint(tailorJson);
+  const pickupLocation = type === "customer_to_tailor" ? customerPoint : tailorPoint;
+  const dropLocation = type === "customer_to_tailor" ? tailorPoint : customerPoint;
+  const distanceMeters = Number(request.customerToTailorDistanceMeters ?? await roadDistanceMeters(customerPoint, tailorPoint));
   const estimatedEarnings = await deliveryTaskEstimatedEarnings(request, type);
   const cashCollectionRequired = type === "tailor_to_customer" && request.paymentMethod === "COD";
   const serviceLevel = deliveryServiceLevel(request.urgency);
@@ -573,7 +571,6 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const { deliveryRound, roundAt } = slot;
 
   const availablePartnersQuery: Record<string, any> = {
-    deliveryType,
     isAvailable: true,
     verificationStatus: "VERIFIED"
   };
@@ -608,9 +605,14 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         assignedDeliveryBoyId: undefined,
         taskStatus,
         shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
+        distanceMeters,
+        estimatedDistanceKm: Number((distanceMeters / 1000).toFixed(2)),
         estimatedEarnings,
+        estimatedPayout: estimatedEarnings,
         pickupAddress,
         dropAddress,
+        pickupLocation,
+        dropLocation,
         customerName: customer?.name,
         customerPhone: customer?.phone,
         tailorName: tailor.shopName,
@@ -641,7 +643,14 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
             batchId,
             taskStatus,
             shift: deliveryRound === "ONE_PM" ? "morning" : "evening",
+            distanceMeters,
+            estimatedDistanceKm: Number((distanceMeters / 1000).toFixed(2)),
             estimatedEarnings,
+            estimatedPayout: estimatedEarnings,
+            pickupAddress,
+            dropAddress,
+            pickupLocation,
+            dropLocation,
             paymentMethod: request.paymentMethod,
             paymentStatus: request.paymentStatus,
             totalAmount: request.totalAmount,
@@ -731,7 +740,19 @@ async function finalizeTailoringRequestConfirmation(
   quoteId: string,
   paymentMethod: "ONLINE" | "COD" | "UPI",
   paymentStatus: "PENDING" | "PAID",
-  breakdown?: { deliveryFee: number; platformFee: number; smallOrderFee?: number; homeMeasurementFee: number; totalAmount: number; additionalItems?: unknown[]; couponCode?: string; discountAmount?: number }
+  breakdown?: {
+    deliveryFee: number;
+    deliveryMode?: string;
+    customerToTailorDistanceMeters?: number;
+    totalChargeableDistanceMeters?: number;
+    platformFee: number;
+    smallOrderFee?: number;
+    homeMeasurementFee: number;
+    totalAmount: number;
+    additionalItems?: unknown[];
+    couponCode?: string;
+    discountAmount?: number;
+  }
 ) {
   const request = await TailoringRequestModel.findById(requestId);
   if (!request) throw new AppError(404, "Tailoring request not found");
@@ -753,6 +774,10 @@ async function finalizeTailoringRequestConfirmation(
       paymentStatus,
       quoteAmount: Number(quote.price),
       deliveryFee: breakdown?.deliveryFee ?? request.deliveryFee ?? 0,
+      deliveryMode: breakdown?.deliveryMode ?? request.deliveryMode ?? deliveryModeFromUrgency(request.urgency),
+      customerToTailorDistanceMeters: breakdown?.customerToTailorDistanceMeters ?? request.customerToTailorDistanceMeters,
+      totalChargeableDistanceMeters: breakdown?.totalChargeableDistanceMeters ?? request.totalChargeableDistanceMeters,
+      deliveryFeeLockedAt: request.deliveryFeeLockedAt ?? new Date(),
       platformFee: breakdown?.platformFee ?? request.platformFee ?? 0,
       smallOrderFee: breakdown?.smallOrderFee ?? request.smallOrderFee ?? 0,
       homeMeasurementFee: breakdown?.homeMeasurementFee ?? request.homeMeasurementFee ?? 0,
@@ -1322,14 +1347,38 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
     : (task.type === "customer_to_tailor" ? "received_by_tailor" : "completed");
   await TailoringRequestModel.findByIdAndUpdate(task.orderId, { orderStatus });
   if (input.status === "delivered") {
-    await creditOrderEarning({
-      userId: partner.userId,
-      userType: "DELIVERY_PARTNER",
-      orderId: task.id,
-      amount: Number(task.estimatedEarnings ?? 0),
-      remarks: `Delivery earning for ${task.taskId ?? task.id}`,
-      createdBy: "system"
-    });
+    if (task.serviceLevel === "INSTANT" || !task.batchId) {
+      const payout = Number(task.finalPayout ?? task.estimatedPayout ?? task.estimatedEarnings ?? 0);
+      await DeliveryRequestModel.findByIdAndUpdate(task.id, { finalPayout: payout, estimatedPayout: task.estimatedPayout ?? payout });
+      await creditOrderEarning({
+        userId: partner.userId,
+        userType: "DELIVERY_PARTNER",
+        orderId: task.id,
+        amount: payout,
+        remarks: `Delivery earning for ${task.taskId ?? task.id}`,
+        createdBy: "system"
+      });
+    } else {
+      const batchTasks = await DeliveryRequestModel.find({ batchId: task.batchId, taskStatus: { $ne: "cancelled" } }).select("taskStatus");
+      const batchComplete = batchTasks.length > 0 && batchTasks.every((item) => String(item.taskStatus) === "delivered");
+      if (batchComplete) {
+        const batch = await DeliveryBatchModel.findOneAndUpdate(
+          { batchId: task.batchId, finalPayout: { $exists: false } },
+          [{ $set: { finalPayout: { $ifNull: ["$estimatedPayout", "$estimatedEarnings"] }, status: "completed" } }],
+          { returnDocument: "after" }
+        );
+        if (batch) {
+          await creditOrderEarning({
+            userId: partner.userId,
+            userType: "DELIVERY_PARTNER",
+            orderId: batch.batchId,
+            amount: Number(batch.finalPayout ?? batch.estimatedPayout ?? batch.estimatedEarnings ?? 0),
+            remarks: `Batch delivery earning for ${batch.deliveryRound}`,
+            createdBy: "system"
+          });
+        }
+      }
+    }
 
     if (task.type === "tailor_to_customer") {
       const acceptedQuote = await findSelectedQuote(task.orderId);
@@ -1776,6 +1825,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
   const primary = items[0];
   const request = await TailoringRequestModel.create({
     ...input,
+    deliveryMode: deliveryModeFromUrgency(input.urgency),
     description: primary.description,
     gender: primary.gender,
     clothType: primary.clothType,
@@ -1904,6 +1954,7 @@ export async function createTailorQuoteController(req: Request, res: Response) {
       requestId: request.id,
       tailorId: tailor.id,
       price: input.price,
+      serviceLevel: deliveryModeFromUrgency(request.urgency),
       estimatedDays: input.estimatedDays,
       estimatedHours: input.estimatedHours,
       message: input.message,
@@ -1951,12 +2002,20 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const quote = await TailorQuoteModel.findOne({ _id: input.quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
+  const currentDeliveryMode = deliveryModeFromUrgency(request.urgency);
+  if (quote.serviceLevel && quote.serviceLevel !== currentDeliveryMode) {
+    throw new AppError(409, "Delivery type changed after this quote was submitted. Please request fresh quotes.");
+  }
   const itemCount = requestItemCount(request);
   const tailoringSubtotal = Number(quote.price);
 
   const expectedPlatformFee = getPlatformFee(tailoringSubtotal);
   const expectedSmallOrderFee = getSmallOrderFee(tailoringSubtotal);
-  const expectedDeliveryFee = (await deliveryFareForUrgency(request.urgency)).customerCharge;
+  const selectedTailor = await TailorModel.findById(quote.tailorId);
+  const selectedTailorJson = selectedTailor?.toJSON() as Record<string, unknown> | undefined;
+  const customerToTailorDistanceMeters = await roadDistanceMeters(pointFrom(request.pickupLocation), extractTailorPoint(selectedTailorJson));
+  const lockedDelivery = customerDeliveryCharge(currentDeliveryMode, customerToTailorDistanceMeters);
+  const expectedDeliveryFee = lockedDelivery.deliveryFee;
   const enforceClientCheckoutTotals = env.ENFORCE_CLIENT_CHECKOUT_TOTALS;
 
   if (enforceClientCheckoutTotals && Math.abs(input.deliveryFee - expectedDeliveryFee) > 1) {
@@ -2001,6 +2060,10 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     paymentStatus: "PENDING",
     quoteAmount: tailoringSubtotal,
     deliveryFee: expectedDeliveryFee,
+    deliveryMode: currentDeliveryMode,
+    customerToTailorDistanceMeters: lockedDelivery.oneWayDistanceMeters,
+    totalChargeableDistanceMeters: lockedDelivery.totalChargeableDistanceMeters,
+    deliveryFeeLockedAt: new Date(),
     platformFee: expectedPlatformFee,
     smallOrderFee: expectedSmallOrderFee,
     homeMeasurementFee: input.homeMeasurementFee,
@@ -2016,6 +2079,9 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     await PaymentModel.create({ orderId: request.id, method: "COD", amount: payableAmount, status: "PENDING" });
     res.json({ data: { mode: "cod", ...(await finalizeTailoringRequestConfirmation(request.id, quote.id, "COD", "PENDING", {
       deliveryFee: expectedDeliveryFee,
+      deliveryMode: currentDeliveryMode,
+      customerToTailorDistanceMeters: lockedDelivery.oneWayDistanceMeters,
+      totalChargeableDistanceMeters: lockedDelivery.totalChargeableDistanceMeters,
       platformFee: expectedPlatformFee,
       smallOrderFee: expectedSmallOrderFee,
       homeMeasurementFee: input.homeMeasurementFee,
@@ -2091,6 +2157,9 @@ export async function verifyTailoringCheckoutController(req: Request, res: Respo
       "PAID",
       {
         deliveryFee: Number(request.deliveryFee ?? 0),
+        deliveryMode: request.deliveryMode ?? deliveryModeFromUrgency(request.urgency),
+        customerToTailorDistanceMeters: Number(request.customerToTailorDistanceMeters ?? 0),
+        totalChargeableDistanceMeters: Number(request.totalChargeableDistanceMeters ?? 0),
         platformFee: Number(request.platformFee ?? 0),
         smallOrderFee: Number(request.smallOrderFee ?? 0),
         homeMeasurementFee: Number(request.homeMeasurementFee ?? 0),

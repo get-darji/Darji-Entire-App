@@ -2025,6 +2025,38 @@ function TailorHandoffOtpCard({ orderId, status }: { orderId?: string; status?: 
   );
 }
 
+function ConfirmedDetailTile({
+  icon,
+  label,
+  value,
+  tone
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  tone: "slate" | "purple" | "sky" | "orange" | "green" | "amber";
+}) {
+  const tones = {
+    slate: { bg: "#f1f5f9", icon: "#64748b" },
+    purple: { bg: "#faf5ff", icon: "#a855f7" },
+    sky: { bg: "#ecfeff", icon: "#0891b2" },
+    orange: { bg: "#fff7ed", icon: "#f97316" },
+    green: { bg: "#f0fdf4", icon: "#22c55e" },
+    amber: { bg: "#fffbeb", icon: BRAND_ORANGE }
+  }[tone];
+  return (
+    <View style={[styles.confirmedDetailTile, { backgroundColor: tones.bg }]}>
+      <View style={[styles.confirmedDetailIcon, { backgroundColor: `${tones.bg}` }]}>
+        <Ionicons name={icon} size={22} color={tones.icon} />
+      </View>
+      <View style={styles.confirmedDetailText}>
+        <Text style={styles.confirmedDetailLabel}>{label}</Text>
+        <Text style={styles.confirmedDetailValue} numberOfLines={2}>{value || "Not added"}</Text>
+      </View>
+    </View>
+  );
+}
+
 function OrderDetailsScreen({
   order,
   token,
@@ -2214,19 +2246,105 @@ function OrderDetailsScreen({
     }
   }
 
+  const detailItems = acceptedRequest
+    ? requestItems(acceptedRequest).map((item, index) => ({
+        key: item.id ?? `${acceptedRequest.id}-accepted-item-${index}`,
+        title: item.clothType || "Tailoring item",
+        service: item.workType || "Tailoring",
+        gender: item.gender || "Customer",
+        work: item.selectedWorkItems?.length ? item.selectedWorkItems.join(", ") : item.otherWorkDescription || item.description || item.workType || "Custom work",
+        measurement: item.measurement?.label || (item.homeMeasurementBooked ? "Home visit" : item.sampleProvided ? "Sample" : "Not added"),
+        delivery: acceptedRequest.urgency || "Standard",
+        description: item.description,
+        measurementFields: item.measurement?.fields ?? {},
+        sampleImage: item.measurement?.imageUrl,
+        media: [...(item.media ?? []), ...(item.sampleMedia ?? [])]
+      }))
+    : order.items.map((item, index) => ({
+        key: item.id ?? `${order.id}-order-item-${index}`,
+        title: item.service?.name ?? "Tailoring item",
+        service: item.service?.name ?? "Tailoring",
+        gender: "Customer",
+        work: item.instructions || "Custom work",
+        measurement: item.measurement?.label || (item.measurement?.imageUrl ? "Sample" : "Not added"),
+        delivery: item.service?.estimatedDelivery || "Standard",
+        description: item.instructions,
+        measurementFields: item.measurement?.fields ?? {},
+        sampleImage: item.measurement?.imageUrl,
+        media: [...(item.media ?? []), ...(item.sampleMedia ?? [])]
+      }));
+  const primaryDetailItem = detailItems[0];
+  const requestCode = acceptedRequest ? `REQ-${acceptedRequest.id.slice(0, 8).toUpperCase()}` : order.orderNumber;
+  const displayStatus = acceptedRequest?.workStatus ?? order.status;
+  const pickupDate = order.pickupScheduledAt
+    ? new Date(order.pickupScheduledAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })
+    : "Not scheduled";
+  const descriptionText = acceptedRequest?.description || order.instructions || primaryDetailItem?.description;
+  const referenceMedia = [
+    ...detailItems.flatMap((item) => item.media),
+    ...(acceptedRequest?.media ?? [])
+  ];
+  const firstReferenceImage = referenceMedia.find((item) => item.resourceType === "image");
+  const timelineSteps = [
+    { label: "Accepted", icon: "mail-open-outline" as const, active: true },
+    { label: "Pickup", icon: "file-tray-stacked-outline" as const, active: hasReceivedPackage },
+    { label: "In Progress", icon: "cut-outline" as const, active: ["WORKING", "READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.workStatus === "WORKING" || acceptedRequest?.workStatus === "READY" },
+    { label: "Ready", icon: "briefcase-outline" as const, active: ["READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.workStatus === "READY" },
+    { label: "Delivery", icon: "car-outline" as const, active: ["ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.orderStatus === "completed" }
+  ];
+
   return (
-    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Order Details" subtitle={order.orderNumber} onBack={() => { stopVoicePlayback(); setScreen("orders", { replace: true }); }} />
-      <View style={styles.whiteCard}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.cardLabel}>STATUS</Text>
-          <StatusPill status={order.status} />
+    <ScrollView contentContainerStyle={styles.confirmedOrderContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.confirmedOrderHeader}>
+        <Pressable style={styles.confirmedBackButton} onPress={() => { stopVoicePlayback(); setScreen("orders", { replace: true }); }}>
+          <Ionicons name="arrow-back" size={24} color={BRAND_DEEP} />
+        </Pressable>
+        <View style={styles.confirmedHeaderTitleWrap}>
+          <View style={styles.confirmedHeaderTitleRow}>
+            <Text style={styles.confirmedHeaderTitle}>Order Details</Text>
+            <View style={styles.confirmedStatusPill}>
+              <Text style={styles.confirmedStatusText}>{formatStatus(displayStatus)}</Text>
+            </View>
+          </View>
+          <Text style={styles.confirmedHeaderSubtitle}>{requestCode}</Text>
         </View>
-        <Text style={styles.bigTitle}>{firstItem(order)}</Text>
-        <Text style={styles.prominentOrderId}>{acceptedRequest ? `REQ-${acceptedRequest.id.slice(0, 8).toUpperCase()}` : order.orderNumber}</Text>
-        <DetailRow icon="calendar-outline" label="Pickup" value={order.pickupScheduledAt ? new Date(order.pickupScheduledAt).toLocaleString("en-IN") : "Not scheduled"} />
-        <DetailRow icon="cash-outline" label="Order Value" value={money(order.totalAmount)} />
-        {acceptedRequest?.ownQuote ? <DetailRow icon="checkmark-circle-outline" label="Quote" value={`${money(acceptedRequest.ownQuote.price)} accepted by customer`} /> : null}
+      </View>
+
+      <View style={styles.confirmedSummaryCard}>
+        <View style={styles.confirmedSummaryTop}>
+          <View style={styles.confirmedThumb}>
+            {firstReferenceImage ? (
+              <Image source={{ uri: firstReferenceImage.url }} style={styles.confirmedThumbImage} />
+            ) : (
+              <Ionicons name="shirt-outline" size={34} color={BRAND_ORANGE} />
+            )}
+          </View>
+          <View style={styles.confirmedSummaryMain}>
+            <Text style={styles.confirmedGarmentTitle} numberOfLines={1}>{primaryDetailItem?.title ?? firstItem(order)}</Text>
+            <Text style={styles.confirmedGarmentMeta} numberOfLines={1}>{primaryDetailItem?.service ?? "Tailoring"}</Text>
+            <Text style={styles.confirmedRequestCode}>{requestCode}</Text>
+          </View>
+          <View style={styles.confirmedValueBox}>
+            <Text style={styles.confirmedValueLabel}>Order Value</Text>
+            <Text style={styles.confirmedValueAmount}>{money(order.totalAmount)}</Text>
+          </View>
+        </View>
+        <View style={styles.confirmedTimeline}>
+          {timelineSteps.map((step, index) => (
+            <View key={step.label} style={styles.confirmedTimelineItem}>
+              <View style={[styles.confirmedTimelineIcon, step.active && styles.confirmedTimelineIconActive]}>
+                <Ionicons name={step.icon} size={19} color={step.active ? BRAND_ORANGE : "#94a3b8"} />
+                {step.active && index === 0 ? (
+                  <View style={styles.confirmedTimelineCheck}>
+                    <Ionicons name="checkmark" size={10} color="#ffffff" />
+                  </View>
+                ) : null}
+              </View>
+              <Text style={[styles.confirmedTimelineLabel, step.active && styles.confirmedTimelineLabelActive]} numberOfLines={1}>{step.label}</Text>
+              {index < timelineSteps.length - 1 ? <View style={styles.confirmedTimelineLine} /> : null}
+            </View>
+          ))}
+        </View>
       </View>
       {order.status === "CANCELLED" || acceptedRequest?.status === "CANCELLED" ? (
         <View style={styles.cancelledNoticeCard}>
@@ -2237,92 +2355,111 @@ function OrderDetailsScreen({
           </View>
         </View>
       ) : null}
-      <TailorEtaCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
+
+      <View style={styles.confirmedPickupCard}>
+        <View style={styles.confirmedPickupIcon}>
+          <Ionicons name="time-outline" size={28} color={BRAND_ORANGE} />
+        </View>
+        <View style={styles.confirmedPickupMain}>
+          <Text style={styles.confirmedPickupLabel}>Pickup Window (To Tailor)</Text>
+          <Text style={styles.confirmedPickupTime}>{pickupDate}</Text>
+          <Text style={styles.confirmedPickupCopy}>Rider will pick up the package from you.</Text>
+        </View>
+        <View style={styles.confirmedPickupBadge}>
+          <Text style={styles.confirmedPickupBadgeText}>{order.pickupScheduledAt ? "Upcoming" : "Pending"}</Text>
+        </View>
+      </View>
+
       <TailorHandoffOtpCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
 
-      {acceptedVoiceNotes.length ? (
-        <View style={styles.voiceNotesCard}>
-          <View style={styles.notesHeader}>
-            <View style={styles.notesIconBg}>
-              <Ionicons name="mic-outline" size={18} color={BRAND_ORANGE} />
-            </View>
-            <Text style={styles.notesTitle}>Voice Instructions</Text>
-          </View>
-          {acceptedVoiceNotes.map((voice, index) => (
-            <Pressable key={voice.url} style={styles.voiceNoteRow} onPress={() => playVoiceNote(voice)}>
-              <View style={styles.voiceNotePlay}>
-                <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={16} color="#111111" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.requestDetailValue}>Voice note {index + 1}</Text>
-                <Text style={styles.mediaEmptyText}>{voice.originalName ?? "Customer recorded instructions"}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-
-      <View style={styles.whiteCard}>
-        <Text style={styles.cardLabel}>ITEMS & MEASUREMENTS</Text>
-        {order.items.map((item, index) => (
-          <View key={`${order.id}-item-${index}`} style={styles.itemBlock}>
-            <Text style={styles.cardTitle}>{item.service?.name ?? "Tailoring item"}</Text>
-            {item.instructions ? <Text style={styles.cardCopy}>{item.instructions}</Text> : null}
-            {item.measurement?.imageUrl ? (
-              <View style={styles.sampleReferenceBlock}>
-                <Image source={{ uri: item.measurement.imageUrl }} style={styles.sampleReferenceImage} />
-                <View style={styles.sampleReferenceText}>
-                  <Text style={styles.cardTitle}>Sample reference</Text>
-                  <Text style={styles.cardCopy}>Customer attached a sample garment photo for fit reference.</Text>
+      <View style={styles.confirmedSectionCard}>
+        <Text style={styles.confirmedSectionLabel}>INSTRUCTIONS</Text>
+        {acceptedVoiceNotes.length ? (
+          <View style={styles.confirmedVoiceList}>
+            {acceptedVoiceNotes.map((voice, index) => (
+              <Pressable key={voice.url} style={styles.confirmedVoiceRow} onPress={() => playVoiceNote(voice)}>
+                <View style={styles.confirmedVoicePlay}>
+                  <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={20} color="#ffffff" />
                 </View>
+                <View style={styles.confirmedVoiceMain}>
+                  <Text style={styles.confirmedVoiceTitle}>Voice Note {index + 1}</Text>
+                  <View style={styles.confirmedWaveform}>
+                    {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13, 20, 10, 16, 12, 19].map((height, barIndex) => (
+                      <View
+                        key={`${voice.url}-wave-${barIndex}`}
+                        style={[
+                          styles.confirmedWaveBar,
+                          { height, backgroundColor: barIndex < 10 ? BRAND_ORANGE : "#d7dde7" }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.confirmedVoiceMeta}>{voice.originalName ?? "Customer recorded instructions"}</Text>
+                </View>
+                <Ionicons name="download-outline" size={22} color={MUTED} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.confirmedDescriptionBox}>
+          <View style={styles.confirmedDescriptionHeader}>
+            <Ionicons name="document-text-outline" size={18} color={BRAND_DEEP} />
+            <Text style={styles.confirmedDescriptionTitle}>Description</Text>
+          </View>
+          <Text style={styles.confirmedDescriptionText}>{descriptionText || "No written instructions added by the customer."}</Text>
+        </View>
+      </View>
+
+      <View style={styles.confirmedSectionCard}>
+        <Text style={styles.confirmedSectionLabel}>ITEM DETAILS</Text>
+        {detailItems.map((item) => (
+          <View key={item.key} style={styles.confirmedItemBlock}>
+            <View style={styles.confirmedItemGrid}>
+              <ConfirmedDetailTile icon="people-outline" label="For" value={item.gender} tone="slate" />
+              <ConfirmedDetailTile icon="shirt-outline" label="Garment" value={item.title} tone="purple" />
+              <ConfirmedDetailTile icon="cut-outline" label="Service" value={item.service} tone="sky" />
+              <ConfirmedDetailTile icon="color-wand-outline" label="Work" value={item.work} tone="orange" />
+              <ConfirmedDetailTile icon="resize-outline" label="Measurement" value={item.measurement} tone="green" />
+              <ConfirmedDetailTile icon="flash-outline" label="Delivery" value={item.delivery} tone="amber" />
+            </View>
+            {Object.entries(item.measurementFields).length ? (
+              <View style={styles.confirmedMeasurements}>
+                {Object.entries(item.measurementFields).map(([key, value]) => (
+                  <View key={`${item.key}-${key}`} style={styles.confirmedMeasurementRow}>
+                    <Text style={styles.confirmedMeasurementLabel}>{key}</Text>
+                    <Text style={styles.confirmedMeasurementValue}>{String(value)}</Text>
+                  </View>
+                ))}
               </View>
             ) : null}
-            {Object.entries(item.measurement?.fields ?? {}).map(([key, value]) => (
-              <View key={key} style={styles.measureRow}>
-                <Text style={styles.detailLabel}>{key}</Text>
-                <Text style={styles.detailValue}>{String(value)}</Text>
-              </View>
-            ))}
-            {item.media?.length ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
-                {item.media.map((media, mediaIndex) => (
-                  <Pressable key={`${media.url}-${mediaIndex}`} style={styles.mediaBox} onPress={() => setSelectedMedia(media)}>
-                    {media.resourceType === "image" ? (
-                      <Image source={{ uri: media.url }} style={styles.mediaImage} />
-                    ) : (
-                      <>
-                        <Ionicons name="videocam-outline" size={26} color={BRAND_ORANGE} />
-                        <Text style={styles.mediaTypeText}>Video</Text>
-                      </>
-                    )}
-                    <View style={styles.mediaOpenBadge}>
-                      <Ionicons name="expand-outline" size={13} color="#ffffff" />
-                    </View>
-                  </Pressable>
-                ))}
-              </ScrollView>
+            {item.sampleImage ? (
+              <Pressable style={styles.confirmedSampleRow} onPress={() => setSelectedMedia({ url: item.sampleImage!, resourceType: "image" })}>
+                <Image source={{ uri: item.sampleImage }} style={styles.confirmedSampleImage} />
+                <View style={styles.confirmedSampleText}>
+                  <Text style={styles.confirmedSampleTitle}>Sample reference</Text>
+                  <Text style={styles.confirmedSampleCopy}>Customer attached a reference for fitting or design.</Text>
+                </View>
+                <Ionicons name="expand-outline" size={18} color={MUTED} />
+              </Pressable>
             ) : null}
           </View>
         ))}
       </View>
 
-      {acceptedRequest?.media?.length && !order.items.some((item) => item.media?.length) ? (
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>MEDIA</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
-            {acceptedRequest.media.map((item, index) => (
-              <Pressable key={`${item.url}-${index}`} style={styles.mediaBox} onPress={() => setSelectedMedia(item)}>
+      {referenceMedia.length ? (
+        <View style={styles.confirmedSectionCard}>
+          <Text style={styles.confirmedSectionLabel}>CUSTOMER MEDIA</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.confirmedMediaRow}>
+            {referenceMedia.map((item, index) => (
+              <Pressable key={`${item.url}-${index}`} style={styles.confirmedMediaBox} onPress={() => setSelectedMedia(item)}>
                 {item.resourceType === "image" ? (
-                  <Image source={{ uri: item.url }} style={styles.mediaImage} />
+                  <Image source={{ uri: item.url }} style={styles.confirmedMediaImage} />
                 ) : (
                   <>
-                    <Ionicons name="videocam-outline" size={26} color={BRAND_ORANGE} />
-                    <Text style={styles.mediaTypeText}>Video</Text>
+                    <Ionicons name={item.resourceType === "audio" ? "mic-outline" : "videocam-outline"} size={25} color={BRAND_ORANGE} />
+                    <Text style={styles.mediaTypeText}>{item.resourceType === "audio" ? "Audio" : "Video"}</Text>
                   </>
                 )}
-                <View style={styles.mediaOpenBadge}>
-                  <Ionicons name="expand-outline" size={13} color="#ffffff" />
-                </View>
               </Pressable>
             ))}
           </ScrollView>
@@ -5354,6 +5491,75 @@ const styles = StyleSheet.create({
   cancelledFilterChipText: { color: "#b91c1c" },
   orderCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
   readyOrderCard: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
+  confirmedOrderContent: { paddingHorizontal: 18, paddingTop: 26, paddingBottom: 132 },
+  confirmedOrderHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16 },
+  confirmedBackButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" },
+  confirmedHeaderTitleWrap: { flex: 1, minWidth: 0 },
+  confirmedHeaderTitleRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  confirmedHeaderTitle: { color: BRAND_DEEP, fontSize: 26, lineHeight: 32, fontWeight: "900" },
+  confirmedHeaderSubtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 2 },
+  confirmedStatusPill: { borderRadius: 999, backgroundColor: "#dcfce7", paddingHorizontal: 13, paddingVertical: 8 },
+  confirmedStatusText: { color: SUCCESS, fontSize: 12, lineHeight: 15, fontWeight: "900" },
+  confirmedSummaryCard: { borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, padding: 18, marginBottom: 16 },
+  confirmedSummaryTop: { flexDirection: "row", alignItems: "center", gap: 14 },
+  confirmedThumb: { width: 76, height: 76, borderRadius: 12, overflow: "hidden", backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  confirmedThumbImage: { width: "100%", height: "100%" },
+  confirmedSummaryMain: { flex: 1, minWidth: 0 },
+  confirmedGarmentTitle: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900" },
+  confirmedGarmentMeta: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 3 },
+  confirmedRequestCode: { color: "#dc2626", fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 8 },
+  confirmedValueBox: { alignItems: "flex-end", minWidth: 74 },
+  confirmedValueLabel: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", textAlign: "right" },
+  confirmedValueAmount: { color: BRAND_DEEP, fontSize: 24, lineHeight: 30, fontWeight: "900", marginTop: 8 },
+  confirmedTimeline: { marginTop: 22, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  confirmedTimelineItem: { flex: 1, alignItems: "center", minWidth: 0 },
+  confirmedTimelineIcon: { width: 43, height: 43, borderRadius: 22, borderWidth: 1, borderColor: BORDER, backgroundColor: "#f8fafc", alignItems: "center", justifyContent: "center" },
+  confirmedTimelineIconActive: { borderColor: "#fde68a", backgroundColor: "#fff8e1" },
+  confirmedTimelineCheck: { position: "absolute", right: -1, bottom: -1, width: 17, height: 17, borderRadius: 9, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: SURFACE },
+  confirmedTimelineLabel: { color: MUTED, fontSize: 10, lineHeight: 14, fontWeight: "800", textAlign: "center", marginTop: 8 },
+  confirmedTimelineLabelActive: { color: BRAND_DEEP },
+  confirmedTimelineLine: { position: "absolute", left: "72%", top: 21, width: "56%", height: 1, borderStyle: "dashed", borderWidth: 1, borderColor: "#d7dde7" },
+  confirmedPickupCard: { minHeight: 112, borderRadius: 18, borderWidth: 1, borderColor: "#f4dca6", backgroundColor: "#fffaf0", padding: 16, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 14 },
+  confirmedPickupIcon: { width: 58, height: 58, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  confirmedPickupMain: { flex: 1, minWidth: 0 },
+  confirmedPickupLabel: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  confirmedPickupTime: { color: BRAND_DEEP, fontSize: 20, lineHeight: 26, fontWeight: "900", marginTop: 6 },
+  confirmedPickupCopy: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 6 },
+  confirmedPickupBadge: { borderRadius: 999, backgroundColor: "#fff4dc", paddingHorizontal: 12, paddingVertical: 9 },
+  confirmedPickupBadgeText: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 15, fontWeight: "900" },
+  confirmedSectionCard: { borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, padding: 16, marginBottom: 16 },
+  confirmedSectionLabel: { color: "#475569", fontSize: 12, lineHeight: 16, fontWeight: "900", marginBottom: 14 },
+  confirmedVoiceList: { gap: 10, marginBottom: 14 },
+  confirmedVoiceRow: { minHeight: 86, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: "#fbfdff", flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 14, paddingVertical: 12 },
+  confirmedVoicePlay: { width: 48, height: 48, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  confirmedVoiceMain: { flex: 1, minWidth: 0 },
+  confirmedVoiceTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900", marginBottom: 8 },
+  confirmedWaveform: { height: 30, flexDirection: "row", alignItems: "center", gap: 3 },
+  confirmedWaveBar: { width: 3, borderRadius: 2 },
+  confirmedVoiceMeta: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 4 },
+  confirmedDescriptionBox: { borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: "#ffffff", padding: 14 },
+  confirmedDescriptionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  confirmedDescriptionTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  confirmedDescriptionText: { color: "#475569", fontSize: 13, lineHeight: 21, fontWeight: "700" },
+  confirmedItemBlock: { marginBottom: 12 },
+  confirmedItemGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  confirmedDetailTile: { width: "48%", minHeight: 66, borderRadius: 12, borderWidth: 1, borderColor: "#eef2f7", padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  confirmedDetailIcon: { width: 35, height: 35, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  confirmedDetailText: { flex: 1, minWidth: 0 },
+  confirmedDetailLabel: { color: MUTED, fontSize: 10, lineHeight: 13, fontWeight: "900" },
+  confirmedDetailValue: { color: BRAND_DEEP, fontSize: 12, lineHeight: 16, fontWeight: "900", marginTop: 2 },
+  confirmedMeasurements: { marginTop: 12, borderRadius: 14, borderWidth: 1, borderColor: "#eef2f7", overflow: "hidden" },
+  confirmedMeasurementRow: { minHeight: 42, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderBottomColor: "#eef2f7" },
+  confirmedMeasurementLabel: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", flex: 1 },
+  confirmedMeasurementValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  confirmedSampleRow: { marginTop: 12, minHeight: 72, borderRadius: 15, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffbf0", padding: 10, flexDirection: "row", alignItems: "center", gap: 12 },
+  confirmedSampleImage: { width: 52, height: 52, borderRadius: 12, backgroundColor: "#fff4dc" },
+  confirmedSampleText: { flex: 1, minWidth: 0 },
+  confirmedSampleTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  confirmedSampleCopy: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 2 },
+  confirmedMediaRow: { gap: 10 },
+  confirmedMediaBox: { width: 96, height: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  confirmedMediaImage: { width: "100%", height: "100%" },
   whiteCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
   cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },

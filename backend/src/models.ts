@@ -212,6 +212,11 @@ const orderSchema = new Schema(
     pickupPartnerId: { type: String, index: true },
     deliveryPartnerId: { type: String, index: true },
     deliveryType: { type: String, enum: deliveryTypes, index: true },
+    deliveryMode: { type: String, enum: ["STANDARD", "EXPRESS", "INSTANT"], index: true },
+    customerToTailorDistanceMeters: Number,
+    totalChargeableDistanceMeters: Number,
+    deliveryFee: Number,
+    deliveryFeeLockedAt: Date,
     deliveryRound: { type: String, index: true },
     batchId: { type: String, index: true },
     assignedDeliveryBoyId: { type: String, index: true },
@@ -606,6 +611,7 @@ const tailoringRequestSchema = new Schema(
     measurement: measurementSchema,
     measurementNotes: String,
     pickupAddress: { type: String, required: true },
+    pickupLocation: { type: Schema.Types.Mixed },
     media: [requestMediaSchema],
     voiceNotes: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
@@ -619,6 +625,10 @@ const tailoringRequestSchema = new Schema(
     paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING", index: true },
     quoteAmount: Number,
     deliveryFee: Number,
+    deliveryMode: { type: String, enum: ["STANDARD", "EXPRESS", "INSTANT"], index: true },
+    customerToTailorDistanceMeters: Number,
+    totalChargeableDistanceMeters: Number,
+    deliveryFeeLockedAt: Date,
     platformFee: Number,
     smallOrderFee: { type: Number, default: 0 },
     homeMeasurementFee: Number,
@@ -658,6 +668,7 @@ const tailorQuoteSchema = new Schema(
     requestId: { type: String, required: true, index: true },
     tailorId: { type: String, required: true, index: true },
     price: { type: Number, required: true },
+    serviceLevel: { type: String, enum: ["STANDARD", "EXPRESS", "INSTANT"], index: true },
     estimatedDays: { type: Number, required: true },
     estimatedHours: Number,
     message: String,
@@ -689,7 +700,10 @@ const deliveryRequestSchema = new Schema(
     taskStatus: { type: String, enum: ["pending", "accepted", "picked_up", "delivered", "cancelled"], default: "pending", index: true },
     shift: { type: String, enum: ["morning", "evening"], required: true, index: true },
     estimatedDistanceKm: Number,
+    distanceMeters: Number,
     estimatedEarnings: { type: Number, required: true },
+    estimatedPayout: Number,
+    finalPayout: Number,
     pickupAddress: { type: String, required: true },
     dropAddress: { type: String, required: true },
     pickupLocation: { type: Schema.Types.Mixed },
@@ -758,6 +772,14 @@ const deliveryBatchSchema = new Schema(
     deliveryPartnerId: { type: String, index: true },
     deliveryType: { type: String, enum: deliveryTypes, required: true, index: true },
     serviceLevel: { type: String, enum: ["STANDARD", "EXPRESS"], default: "STANDARD", index: true },
+    deliveryJobIds: [{ type: String }],
+    riderStartLocation: { type: Schema.Types.Mixed },
+    optimizedStops: { type: [Schema.Types.Mixed], default: [] },
+    optimizationTotalDistanceMeters: Number,
+    payableOptimizedDistanceMeters: Number,
+    estimatedDurationSeconds: Number,
+    estimatedPayout: Number,
+    finalPayout: Number,
     deliveryRound: { type: String, required: true, index: true },
     roundAt: { type: Date, required: true, index: true },
     lockAt: { type: Date, required: true, index: true },
@@ -776,7 +798,7 @@ const deliveryBatchSchema = new Schema(
 );
 attachDarjiIdPlugin(deliveryBatchSchema, { field: "darjiId", prefix: "DBT" });
 
-deliveryBatchSchema.index({ deliveryType: 1, deliveryRound: 1, roundAt: 1, slotIndex: 1 }, { unique: true });
+deliveryBatchSchema.index({ deliveryRound: 1, roundAt: 1, slotIndex: 1 }, { unique: true });
 
 const settingSchema = new Schema(
   {

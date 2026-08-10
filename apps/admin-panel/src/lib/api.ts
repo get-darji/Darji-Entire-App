@@ -28,6 +28,7 @@ import type {
 } from "@/src/types/admin";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
+let adminRefreshPromise: Promise<string | undefined> | undefined;
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -44,13 +45,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+async function refreshAdminAccessToken() {
+  const refreshToken = useAdminStore.getState().refreshToken;
+  if (!refreshToken) return undefined;
+  const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken: string }>>(`${API_URL}/auth/refresh`, { refreshToken });
+  const session = response.data.data;
+  useAdminStore.getState().setSession(session);
+  return session.accessToken;
+}
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     if (error?.response?.status === 401) {
       const message = String(error.response?.data?.message ?? "Session expired");
+      const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+      if (!/signed in on another device/i.test(message) && originalRequest && !originalRequest._retry && useAdminStore.getState().refreshToken) {
+        originalRequest._retry = true;
+        try {
+          adminRefreshPromise ??= refreshAdminAccessToken().finally(() => {
+            adminRefreshPromise = undefined;
+          });
+          const nextToken = await adminRefreshPromise;
+          if (nextToken) {
+            originalRequest.headers = { ...originalRequest.headers, Authorization: `Bearer ${nextToken}` };
+            return api(originalRequest);
+          }
+        } catch {
+          // Fall through to session invalidation below.
+        }
+      }
       if (/signed in on another device/i.test(message)) useAdminStore.getState().invalidateSession(message);
-      else useAdminStore.getState().logout();
+      else useAdminStore.getState().invalidateSession("Your admin session expired. Please log in again.");
     }
     return Promise.reject(error);
   }

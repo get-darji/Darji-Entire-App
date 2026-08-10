@@ -168,6 +168,9 @@ type DeliveryRequest = {
   assignedDeliveryPartnerId?: string;
   estimatedDistanceKm?: number;
   estimatedEarnings?: number;
+  distanceMeters?: number;
+  estimatedPayout?: number;
+  finalPayout?: number;
   tailoringRequestId: string;
   leg: "CUSTOMER_TO_TAILOR" | "TAILOR_TO_CUSTOMER";
   status: "OPEN" | "ACCEPTED" | "CANCELLED" | "COMPLETED";
@@ -205,6 +208,8 @@ type DeliveryRequest = {
   assignedArea?: string;
   batchOrdersCount?: number;
   batchEstimatedEarnings?: number;
+  batchPayableDistanceMeters?: number;
+  batchEstimatedDurationSeconds?: number;
   batchArea?: string;
   retryStatus?: "ACTIVE" | "PENDING_RETRY" | "ACTION_REQUIRED" | "CANCELLED" | "RESOLVED";
   retryCount?: number;
@@ -221,6 +226,8 @@ type DeliveryTaskPayload = Omit<DeliveryRequest, "tailoringRequestId" | "leg" | 
   leg?: DeliveryRequest["leg"];
   status?: DeliveryRequest["status"];
   batchTasks?: DeliveryTaskPayload[];
+  payableOptimizedDistanceMeters?: number;
+  estimatedDurationSeconds?: number;
 };
 
 type DeliveryProfile = {
@@ -306,6 +313,8 @@ function normalizeDeliveryTaskPayloads(payload: DeliveryTaskPayload): DeliveryRe
     assignedArea: task.assignedArea ?? payload.assignedArea ?? payload.batchArea,
     batchOrdersCount: task.batchOrdersCount ?? payload.batchOrdersCount ?? tasks.length,
     batchEstimatedEarnings: task.batchEstimatedEarnings ?? payload.batchEstimatedEarnings,
+    batchPayableDistanceMeters: task.batchPayableDistanceMeters ?? payload.batchPayableDistanceMeters ?? payload.payableOptimizedDistanceMeters,
+    batchEstimatedDurationSeconds: task.batchEstimatedDurationSeconds ?? payload.batchEstimatedDurationSeconds ?? payload.estimatedDurationSeconds,
     batchArea: task.batchArea ?? payload.batchArea ?? payload.assignedArea
   }));
 }
@@ -586,7 +595,21 @@ function requestTitle(request: DeliveryRequest) {
 }
 
 function requestEarning(request: DeliveryRequest) {
-  return Number(request.estimatedEarnings ?? 0);
+  return Number(request.finalPayout ?? request.estimatedPayout ?? request.estimatedEarnings ?? 0);
+}
+
+function formatKm(meters?: number) {
+  const value = Number(meters ?? 0);
+  if (!Number.isFinite(value) || value <= 0) return "Optimizing";
+  return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} km`;
+}
+
+function formatDuration(seconds?: number) {
+  const value = Number(seconds ?? 0);
+  if (!Number.isFinite(value) || value <= 0) return "ETA pending";
+  const minutes = Math.max(1, Math.round(value / 60));
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function incomingPayloadFromDeliveryRequest(request?: DeliveryRequest): IncomingRequestPayload | undefined {
@@ -1793,6 +1816,11 @@ function HomeScreen({
     deliveryType: string;
     area: string;
     estimatedEarnings: number;
+    pickupCount?: number;
+    dropCount?: number;
+    stopsCount?: number;
+    payableDistanceMeters?: number;
+    estimatedDurationSeconds?: number;
     status: string;
     requests: DeliveryRequest[];
   };
@@ -2116,6 +2144,11 @@ function BatchDetailsView({
     deliveryType: string;
     area: string;
     estimatedEarnings: number;
+    pickupCount?: number;
+    dropCount?: number;
+    stopsCount?: number;
+    payableDistanceMeters?: number;
+    estimatedDurationSeconds?: number;
     status: string;
     requests: DeliveryRequest[];
   };
@@ -2146,7 +2179,7 @@ function BatchDetailsView({
           <View style={styles.cardMain}>
             <Text style={styles.prominentOrderId}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
             <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
-            <Text style={styles.cardMeta}>Priority {priority}</Text>
+            <Text style={styles.cardMeta}>Stop {priority} - {request.type === "customer_to_tailor" ? "PICKUP" : "DROP"}</Text>
             <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
             <TimestampBadge label={request.acceptedAt ? "Assigned" : "Request created"} value={request.acceptedAt ?? request.createdAt} />
           </View>
@@ -2154,9 +2187,9 @@ function BatchDetailsView({
         </View>
         <View style={styles.cardDivider} />
         <Text style={styles.cardCopy} numberOfLines={2}>
-          {batch.deliveryType === "PICKUP" 
-            ? `Pickup: ${request.pickupAddress}` 
-            : `Delivery: ${request.dropAddress}`}
+          {request.type === "customer_to_tailor" ? `Customer pickup: ${request.pickupAddress}` : `Tailor pickup: ${request.pickupAddress}`}
+          {"\n"}
+          Destination: {request.dropAddress}
         </Text>
         <View style={styles.rowBetween}>
           <Text style={styles.priceText}>Rs {requestEarning(request)}</Text>
@@ -2187,7 +2220,15 @@ function BatchDetailsView({
 
       <View style={styles.statsRow}>
         <Stat label="Estimated Earnings" value={`Rs ${batch.estimatedEarnings.toFixed(0)}`} tone="green" />
-        <Stat label="Type" value={batch.deliveryType} tone="blue" />
+        <Stat label="Payable Distance" value={formatKm(batch.payableDistanceMeters)} tone="blue" />
+      </View>
+      <View style={styles.statsRow}>
+        <Stat label="Jobs" value={`${batch.requests.length}`} tone="orange" />
+        <Stat label="Stops" value={`${batch.stopsCount ?? batch.requests.length}`} tone="blue" />
+      </View>
+      <View style={styles.statsRow}>
+        <Stat label="Pickup / Drop" value={`${batch.pickupCount ?? 0}/${batch.dropCount ?? 0}`} tone="orange" />
+        <Stat label="Duration" value={formatDuration(batch.estimatedDurationSeconds)} tone="blue" />
       </View>
 
       {isOffered ? (
@@ -2317,6 +2358,11 @@ function OrdersScreen({
     deliveryType: string;
     area: string;
     estimatedEarnings: number;
+    pickupCount?: number;
+    dropCount?: number;
+    stopsCount?: number;
+    payableDistanceMeters?: number;
+    estimatedDurationSeconds?: number;
     status: string;
     isInstant?: boolean;
     requests: DeliveryRequest[];
@@ -2463,6 +2509,11 @@ function OrdersScreen({
           <Text style={styles.cardCopy} numberOfLines={2}>
             {isInstant ? "Direct instant delivery request." : `Route contains ${item.requests.length} stop${item.requests.length !== 1 ? "s" : ""}.`}
           </Text>
+          {!isInstant ? (
+            <Text style={styles.cardMeta}>
+              {item.pickupCount ?? 0} pickup / {item.dropCount ?? 0} drop - {formatKm(item.payableDistanceMeters)} - {formatDuration(item.estimatedDurationSeconds)}
+            </Text>
+          ) : null}
           {item.status === "offered" ? (
             <View style={{ marginTop: 12 }}>
               <PrimaryButton
@@ -3154,15 +3205,8 @@ function MainApp({
       }
       return true;
     });
-    if (!me?.deliveryProfile) return visibleRequests;
-    const dt = me.deliveryProfile.deliveryType;
-    if (dt === "PICKUP") {
-      return visibleRequests.filter((r) => r.type === "customer_to_tailor");
-    } else if (dt === "DROP") {
-      return visibleRequests.filter((r) => r.type === "tailor_to_customer");
-    }
     return visibleRequests;
-  }, [requests, me?.deliveryProfile]);
+  }, [requests]);
 
   const batches = useMemo(() => {
     const groups: Record<string, DeliveryRequest[]> = {};
@@ -3174,7 +3218,12 @@ function MainApp({
     return Object.entries(groups).map(([batchId, list]) => {
       const sortedList = sortDeliveryTasksForRoute(list);
       const first = sortedList[0];
-      const estimatedEarnings = sortedList.reduce((sum, r) => sum + (r.estimatedEarnings ?? 0), 0);
+      const batchMetricEarnings = Number(first?.batchEstimatedEarnings ?? 0);
+      const estimatedEarnings = batchMetricEarnings > 0 ? batchMetricEarnings : sortedList.reduce((sum, r) => sum + requestEarning(r), 0);
+      const pickupCount = sortedList.filter((r) => r.type === "customer_to_tailor" || r.deliveryType === "PICKUP").length;
+      const dropCount = sortedList.filter((r) => r.type === "tailor_to_customer" || r.deliveryType === "DROP").length;
+      const payableDistanceMeters = Number(first?.batchPayableDistanceMeters ?? 0) || sortedList.reduce((sum, r) => sum + Number(r.distanceMeters ?? (r.estimatedDistanceKm ?? 0) * 1000), 0);
+      const estimatedDurationSeconds = Number(first?.batchEstimatedDurationSeconds ?? 0);
       const isCompleted = list.length > 0 && list.every((r) => r.taskStatus === "delivered");
       const isCancelled = list.length > 0 && list.every((r) => r.taskStatus === "cancelled");
       const isAssigned = list.some((r) => r.taskStatus === "accepted" || r.taskStatus === "picked_up");
@@ -3186,6 +3235,11 @@ function MainApp({
         deliveryType: first ? (first.type === "customer_to_tailor" ? "PICKUP" : "DROP") : (me?.deliveryProfile?.deliveryType || "PICKUP"),
         area: first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
         estimatedEarnings,
+        pickupCount,
+        dropCount,
+        stopsCount: sortedList.length,
+        payableDistanceMeters,
+        estimatedDurationSeconds,
         status,
         isInstant: sortedList.some((request) => request.serviceLevel === "INSTANT"),
         requests: sortedList
