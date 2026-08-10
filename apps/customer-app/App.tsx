@@ -810,9 +810,9 @@ const fabricCareTips = [
 ] as const;
 
 const urgencyOptions = [
-  { label: "Normal", helper: "Delivery Rs30", icon: "calendar-outline", deliveryFee: 30 },
-  { label: "Express", helper: "Delivery Rs40", icon: "flash-outline", deliveryFee: 40 },
-  { label: "Instant Delivery", helper: "Delivery Rs50", icon: "rocket-outline", deliveryFee: 50 }
+  { label: "Normal", helper: "Up to 7 days", icon: "calendar-outline", deliveryFee: 30 },
+  { label: "Express", helper: "3-5 days", icon: "flash-outline", deliveryFee: 40 },
+  { label: "Instant Delivery", helper: "Within 24 hours", icon: "rocket-outline", deliveryFee: 50 }
 ] as const;
 
 type MeasurementGuide = {
@@ -2753,6 +2753,7 @@ function NewRequestScreen({
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
+  const recordingActiveRef = useRef(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
@@ -2788,16 +2789,32 @@ function NewRequestScreen({
     setVoicePlaybackPaused(false);
   }
 
+  async function safeStopRecorder() {
+    if (!recordingActiveRef.current) return undefined;
+    const uriBeforeStop = audioRecorder.uri;
+    try {
+      await audioRecorder.stop();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!/already released|cannot be cast|AudioRecorder\.stop/i.test(message)) {
+        throw error;
+      }
+    } finally {
+      recordingActiveRef.current = false;
+      setRecordingActive(false);
+      setRecordingPaused(false);
+    }
+    return audioRecorder.uri ?? uriBeforeStop;
+  }
+
+  useEffect(() => {
+    recordingActiveRef.current = recordingActive;
+  }, [recordingActive]);
+
   useEffect(() => {
     return () => {
       stopVoicePlayback();
-      try {
-        audioRecorder.stop();
-      } catch {
-        // Recorder may already be released by Expo.
-      }
-      setRecordingActive(false);
-      setRecordingPaused(false);
+      void safeStopRecorder().catch(() => undefined);
     };
   }, []);
 
@@ -2922,9 +2939,7 @@ function NewRequestScreen({
     try {
       stopVoicePlayback();
       if (recordingActive) {
-        const uriBeforeStop = audioRecorder.uri;
-        await audioRecorder.stop();
-        const uri = audioRecorder.uri ?? uriBeforeStop;
+        const uri = await safeStopRecorder();
         if (uri) {
           setDraft({
             ...draft,
@@ -2945,6 +2960,7 @@ function NewRequestScreen({
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
+      recordingActiveRef.current = true;
       setRecordingActive(true);
       setRecordingPaused(false);
     } catch (error) {
@@ -8958,16 +8974,16 @@ function OrdersScreenV2({
     >
       <View style={styles.orderBatchLayout}>
         <View style={styles.orderBatchIcon}>
-          <Ionicons name="cube-outline" size={34} color={BRAND_ORANGE} />
+          <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
         </View>
         <View style={styles.orderBatchMain}>
-          <Text style={styles.orderNumber} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82}>{order.orderNumber}</Text>
+          <Text style={styles.orderNumber} numberOfLines={1}>{order.orderNumber}</Text>
           <Text style={styles.orderService} numberOfLines={2}>
             {order.draft.clothType ?? "Cloth"} - {order.draft.workType ?? "Tailoring"} - Order ID #{order.status.toUpperCase()}
           </Text>
           <View style={styles.orderCreatedPill}>
-            <Ionicons name="time-outline" size={15} color="#b91c1c" />
-            <Text style={styles.orderCreatedText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+            <Ionicons name="time-outline" size={13} color="#b91c1c" />
+            <Text style={styles.orderCreatedText} numberOfLines={1}>
               Created: {new Date(order.placedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
             </Text>
           </View>
@@ -11662,40 +11678,40 @@ function createStyles(isDark = false) {
   orderIdCard: { height: 70, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 20 },
   orderId: { color: "#dc2626", fontSize: 22, fontWeight: "900", marginTop: 4, letterSpacing: 0.4 },
   orderCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
-  orderCardV2: { borderRadius: 24, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 16 },
+  orderCardV2: { borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 12, marginBottom: 12 },
   orderSectionBlock: { marginBottom: 16 },
-  ordersHero: { paddingTop: 4, marginBottom: 18 },
-  ordersHeroTitle: { color: text, fontSize: 34, fontWeight: "900", lineHeight: 39 },
-  ordersHeroCopy: { color: muted, fontSize: 16, fontWeight: "800", lineHeight: 23, marginTop: 7 },
-  orderTabRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
-  orderTabButton: { flex: 1, height: 82, borderRadius: 16, borderWidth: 1.5, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 5 },
+  ordersHero: { paddingTop: 2, marginBottom: 14 },
+  ordersHeroTitle: { color: text, fontSize: 28, fontWeight: "900", lineHeight: 34 },
+  ordersHeroCopy: { color: muted, fontSize: 13, fontWeight: "800", lineHeight: 19, marginTop: 5 },
+  orderTabRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  orderTabButton: { flex: 1, height: 68, borderRadius: 14, borderWidth: 1.3, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 5 },
   orderTabButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
   orderTabText: { color: muted, fontSize: 11, fontWeight: "900", textAlign: "center", width: "100%" },
   orderTabTextActive: { color: BRAND_ORANGE },
   orderTabCount: { color: subtle, fontSize: 10, fontWeight: "900" },
-  orderBatchLayout: { position: "relative", flexDirection: "row", alignItems: "flex-start", gap: 14, paddingRight: 0 },
-  orderBatchIcon: { width: 70, height: 70, borderRadius: 20, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 26 },
+  orderBatchLayout: { position: "relative", flexDirection: "row", alignItems: "center", gap: 10, paddingRight: 92 },
+  orderBatchIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   orderBatchMain: { flex: 1, minWidth: 0, paddingRight: 4 },
-  orderStatusSlot: { position: "absolute", right: 0, top: 78, maxWidth: 142, alignItems: "flex-end" },
+  orderStatusSlot: { position: "absolute", right: 0, top: 8, maxWidth: 92, alignItems: "flex-end" },
   orderTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   orderTitleBlock: { flex: 1, minWidth: 0 },
   orderBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   orderTailorBlock: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
   orderTailorText: { flex: 1, minWidth: 0, marginLeft: 12 },
-  orderNumber: { color: "#dc2626", fontSize: 29, fontWeight: "900", letterSpacing: 0, lineHeight: 35 },
-  orderService: { color: muted, fontSize: 14, fontWeight: "900", lineHeight: 19, marginTop: 8, paddingRight: 124 },
-  orderCreatedPill: { alignSelf: "flex-start", minHeight: 40, maxWidth: "100%", borderRadius: 15, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, marginTop: 13 },
-  orderCreatedText: { color: "#b91c1c", fontSize: 13, fontWeight: "900", flexShrink: 1 },
+  orderNumber: { color: "#dc2626", fontSize: 18, fontWeight: "900", letterSpacing: 0, lineHeight: 23 },
+  orderService: { color: muted, fontSize: 12, fontWeight: "900", lineHeight: 16, marginTop: 3 },
+  orderCreatedPill: { alignSelf: "flex-start", minHeight: 30, maxWidth: "100%", borderRadius: 12, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 9, marginTop: 8 },
+  orderCreatedText: { color: "#b91c1c", fontSize: 11, fontWeight: "900", flexShrink: 1 },
   cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   noticeTextBlock: { flex: 1, minWidth: 0 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
   cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
-  orderCardDivider: { height: 1, backgroundColor: border, marginVertical: 14 },
+  orderCardDivider: { height: 1, backgroundColor: border, marginVertical: 10 },
   smallQuoteAvatar: { width: 38, height: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   smallQuoteAvatarImage: { width: "100%", height: "100%" },
   smallAvatarText: { color: "#111111", fontSize: 11, fontWeight: "900" },
-  orderPickupText: { flex: 1, minWidth: 0, color: muted, fontSize: 18, fontWeight: "900" },
-  orderPrice: { color: BRAND_ORANGE, fontSize: 24, fontWeight: "900" },
+  orderPickupText: { flex: 1, minWidth: 0, color: muted, fontSize: 13, fontWeight: "900" },
+  orderPrice: { color: BRAND_ORANGE, fontSize: 17, fontWeight: "900" },
   emptyState: { minHeight: 360, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
   emptyTitle: { color: text, fontSize: 20, fontWeight: "900", marginTop: 12, marginBottom: 6 },
   mutedCenter: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, textAlign: "center" },

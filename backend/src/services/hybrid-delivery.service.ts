@@ -4,6 +4,7 @@ import { emitToCustomer, emitToDeliveryPartner } from "./socket.service.js";
 import { sendPushToUsers } from "./push.service.js";
 import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
 import { batchDeliveryPayout, pointFrom, roadDistanceMatrix } from "./delivery-pricing.service.js";
+import { FirstSolutionStrategy, LocalSearchMetaheuristic, RoutingIndexManager, RoutingModel, initRouting } from "or-tools-wasm/routing";
 
 export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
@@ -15,7 +16,7 @@ const FIXED_BATCH_TIMES: BatchTime[] = [{ name: "ONE_PM", time: "13:00" }, { nam
 const DEFAULT_SETTINGS: BatchSettings = {
   pickupTimes: FIXED_BATCH_TIMES,
   dropTimes: FIXED_BATCH_TIMES,
-  lockMinutes: 60,
+  lockMinutes: 45,
   maxOrdersPerBatch: 10
 };
 
@@ -65,7 +66,7 @@ export async function getBatchSettings(): Promise<BatchSettings> {
   return {
     pickupTimes: DEFAULT_SETTINGS.pickupTimes,
     dropTimes: DEFAULT_SETTINGS.dropTimes,
-    lockMinutes: Math.max(45, Number(value?.lockMinutes) || DEFAULT_SETTINGS.lockMinutes),
+    lockMinutes: DEFAULT_SETTINGS.lockMinutes,
     maxOrdersPerBatch: Math.max(1, Number(value?.maxOrdersPerBatch) || DEFAULT_SETTINGS.maxOrdersPerBatch)
   };
 }
@@ -110,7 +111,7 @@ export async function nextOpenBatchSlot(deliveryType: DeliveryType, from = new D
       const [hour, minute] = entry.time.split(":").map(Number);
       const roundAt = istDate(day.year, day.month, day.day, hour, minute);
       const lockAt = new Date(roundAt.getTime() - settings.lockMinutes * 60 * 1000);
-      if (roundAt > from) return { deliveryRound: entry.name, roundAt, lockAt };
+      if (roundAt > from && lockAt > from) return { deliveryRound: entry.name, roundAt, lockAt };
     }
     day = nextIstDay(day);
   }
@@ -144,6 +145,58 @@ function matrixDistance(matrix: Array<Array<{ distance: number; duration: number
   return Number(matrix[from]?.[to]?.distance ?? Number.POSITIVE_INFINITY);
 }
 
+async function solveJobOrderWithOrTools(tasks: any[], matrix: Array<Array<{ distance: number; duration: number }>>) {
+  if (tasks.length <= 1) return tasks;
+  try {
+    await initRouting();
+    const size = tasks.length + 1;
+    const jobMatrix = Array.from({ length: size }, () => Array.from({ length: size }, () => 0));
+    for (let node = 1; node < size; node += 1) {
+      const taskIndex = node - 1;
+      const pickupIndex = 1 + taskIndex * 2;
+      jobMatrix[0][node] = Math.round(matrixDistance(matrix, 0, pickupIndex));
+    }
+    for (let fromNode = 1; fromNode < size; fromNode += 1) {
+      const fromTaskIndex = fromNode - 1;
+      const fromDropIndex = 1 + fromTaskIndex * 2 + 1;
+      for (let toNode = 1; toNode < size; toNode += 1) {
+        if (fromNode === toNode) continue;
+        const toTaskIndex = toNode - 1;
+        const toPickupIndex = 1 + toTaskIndex * 2;
+        jobMatrix[fromNode][toNode] = Math.round(matrixDistance(matrix, fromDropIndex, toPickupIndex));
+      }
+    }
+
+    const manager = new RoutingIndexManager(size, 1, 0);
+    const routing = new RoutingModel(manager);
+    const transitIndex = routing.RegisterTransitMatrix(jobMatrix);
+    routing.SetArcCostEvaluatorOfAllVehicles(transitIndex);
+    const solution = await routing.SolveWithParameters({
+      firstSolutionStrategy: FirstSolutionStrategy.PATH_CHEAPEST_ARC,
+      local_search_metaheuristic: LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    });
+    if (!solution) {
+      routing.delete();
+      manager.delete();
+      return tasks;
+    }
+
+    const ordered: any[] = [];
+    let index = routing.Start(0);
+    while (!routing.IsEnd(index)) {
+      const node = manager.IndexToNode(index);
+      if (node > 0) ordered.push(tasks[node - 1]);
+      index = solution.Value(routing.NextVar(index));
+    }
+    routing.delete();
+    manager.delete();
+    return ordered.length === tasks.length ? ordered : tasks;
+  } catch (error) {
+    console.warn("[delivery] OR-Tools route optimization failed, using fallback", error);
+    return tasks;
+  }
+}
+
 async function routeOrder(tasks: any[], startLocation?: unknown) {
   const points = [
     pointFrom(startLocation),
@@ -155,6 +208,10 @@ async function routeOrder(tasks: any[], startLocation?: unknown) {
   const ordered: any[] = [];
   let cursorIndex = usablePoints && pointFrom(startLocation) ? 0 : undefined;
   let cursorPoint: { lat: number; lng: number } | undefined = pointFrom(startLocation);
+
+  if (usablePoints) {
+    return { ordered: await solveJobOrderWithOrTools(tasks, matrix), matrix, usablePoints };
+  }
 
   while (remaining.length) {
     let index = 0;

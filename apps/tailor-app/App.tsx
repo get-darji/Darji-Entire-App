@@ -2,7 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, type AudioPlayer } from "expo-audio";
+import { createAudioPlayer, type AudioPlayer, type AudioStatus } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -36,6 +36,7 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   Vibration,
   View
 } from "react-native";
@@ -148,6 +149,7 @@ type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "pay
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video" | "audio"; originalName?: string; bytes?: number };
+type MediaViewerState = { items: MediaItem[]; index: number; title: string };
 type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED" };
 type HandoffOtp = {
   taskId: string;
@@ -775,23 +777,24 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
 }
 
 function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
+  const code = order.request ? `REQ-${order.request.id.slice(0, 8).toUpperCase()}` : order.orderNumber;
   return (
-    <Pressable style={[styles.orderCard, order.status === "READY" && styles.readyOrderCard]} onPress={onPress}>
-      <View style={styles.cardTopRow}>
-        <View style={styles.iconTile}>
-          <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
+    <Pressable style={[styles.orderCard, styles.tailorMiniOrderCard, order.status === "READY" && styles.readyOrderCard]} onPress={onPress}>
+      <View style={styles.tailorMiniOrderRow}>
+        <View style={styles.tailorMiniOrderIcon}>
+          <Ionicons name="cube-outline" size={18} color={BRAND_ORANGE} />
         </View>
-        <View style={styles.cardMain}>
-          <Text style={styles.prominentOrderId}>{order.orderNumber}</Text>
-          <Text style={styles.cardMeta}>{firstItem(order)} - Order ID {shortId(order.id)}</Text>
-          <TimestampBadge label={order.confirmedAt ? "Confirmed" : "Created"} value={order.confirmedAt ?? order.createdAt} />
+        <View style={styles.tailorMiniOrderMain}>
+          <Text style={styles.tailorMiniOrderId} numberOfLines={1}>{code}</Text>
+          <Text style={styles.tailorMiniOrderTitle} numberOfLines={1}>{firstItem(order)}</Text>
+          <Text style={styles.tailorMiniOrderMeta} numberOfLines={1}>
+            {order.pickupScheduledAt ? `Pickup: ${new Date(order.pickupScheduledAt).toLocaleDateString("en-IN")}` : "Pickup not scheduled"}
+          </Text>
         </View>
-        <StatusPill status={order.status} />
-      </View>
-      <View style={styles.cardDivider} />
-      <View style={styles.rowBetween}>
-        <Text style={styles.infoText}>Pickup: {order.pickupScheduledAt ? new Date(order.pickupScheduledAt).toLocaleDateString("en-IN") : "Not scheduled"}</Text>
-        <Text style={styles.priceText}>{money(order.totalAmount)}</Text>
+        <View style={styles.tailorMiniOrderSide}>
+          <StatusPill status={order.status} />
+          <Text style={styles.tailorMiniOrderPrice}>{money(order.totalAmount)}</Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -1107,7 +1110,7 @@ function RequestDetailsScreen({
   showDialog: (dialog: DialogState) => void;
   onDecline?: (request: TailoringRequest) => void;
 }) {
-  const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
+  const [selectedMedia, setSelectedMedia] = useState<MediaItem | MediaViewerState | undefined>();
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const [tileDetail, setTileDetail] = useState<{ label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string } | undefined>();
   const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | undefined>();
@@ -1538,49 +1541,80 @@ function TileDetailSheet({
   );
 }
 
-function MediaViewer({ media, onClose, showDialog }: { media?: MediaItem; onClose: () => void; showDialog: (dialog: DialogState) => void }) {
+function MediaViewer({ media, onClose, showDialog }: { media?: MediaItem | MediaViewerState; onClose: () => void; showDialog: (dialog: DialogState) => void }) {
   const [zoom, setZoom] = useState(1);
+  const { width, height } = useWindowDimensions();
+  const gallery = media && "items" in media ? media : media ? { items: [media], index: 0, title: media.resourceType === "video" ? "Video" : "Photo" } : undefined;
+  const [activeIndex, setActiveIndex] = useState(gallery?.index ?? 0);
+  const activeMedia = gallery?.items[activeIndex];
+  const galleryCount = gallery?.items.length ?? 0;
+  const galleryTitle = gallery
+    ? galleryCount > 1
+      ? `${gallery.title} ${activeIndex + 1} of ${galleryCount}`
+      : gallery.title
+    : "";
 
   useEffect(() => {
     setZoom(1);
-  }, [media?.url]);
+    setActiveIndex(gallery?.index ?? 0);
+  }, [gallery?.index, gallery?.items, media]);
 
   async function openVideo() {
-    if (!media?.url) return;
-    const canOpen = await Linking.canOpenURL(media.url);
+    if (!activeMedia?.url) return;
+    const canOpen = await Linking.canOpenURL(activeMedia.url);
     if (!canOpen) {
       showDialog({ title: "Cannot open video", message: "This video link cannot be opened on this device.", icon: "videocam-outline" });
       return;
     }
-    await Linking.openURL(media.url);
+    await Linking.openURL(activeMedia.url);
   }
 
   return (
-    <Modal visible={Boolean(media)} animationType="fade" onRequestClose={onClose}>
+    <Modal visible={Boolean(gallery)} animationType="fade" onRequestClose={onClose}>
       <SafeAreaView style={styles.mediaViewerSafe}>
         <View style={styles.mediaViewerHeader}>
           <View style={styles.mediaViewerTitleBlock}>
-            <Text style={styles.mediaViewerTitle}>{media?.resourceType === "video" ? "Video" : "Photo"}</Text>
-            {media?.originalName ? <Text style={styles.mediaViewerSubtitle} numberOfLines={1}>{media.originalName}</Text> : null}
+            <Text style={styles.mediaViewerTitle}>{galleryTitle}</Text>
           </View>
           <Pressable style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={20} color={BRAND_DEEP} />
+            <Ionicons name="close" size={20} color="#ffffff" />
           </Pressable>
         </View>
-        {media?.resourceType === "image" ? (
+        {activeMedia?.resourceType === "image" ? (
           <>
-            <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.mediaViewerHorizontal}>
-              <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.mediaViewerVertical}>
-                <Image source={{ uri: media.url }} resizeMode="contain" style={[styles.mediaViewerImage, { width: 330 * zoom, height: 440 * zoom }]} />
-              </ScrollView>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentOffset={{ x: (gallery?.index ?? 0) * width, y: 0 }}
+              onMomentumScrollEnd={(event) => {
+                const nextIndex = Math.round(event.nativeEvent.contentOffset.x / Math.max(width, 1));
+                setActiveIndex(Math.max(0, Math.min(nextIndex, galleryCount - 1)));
+              }}
+              style={styles.mediaViewerPager}
+            >
+              {(gallery?.items ?? []).map((item, index) => (
+                <View key={`${gallery?.title}-${index}-${item.url}`} style={[styles.mediaViewerPage, { width }]}>
+                  {item.resourceType === "image" ? (
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mediaViewerVertical}>
+                      <Image source={{ uri: item.url }} resizeMode="contain" style={[styles.mediaViewerImage, { width: width * 0.94 * zoom, height: Math.max(360, height * 0.68) * zoom }]} />
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.videoViewerBody}>
+                      <Ionicons name="videocam-outline" size={44} color={BRAND_ORANGE} />
+                      <Text style={styles.mediaViewerVideoText}>Video attachment</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
             </ScrollView>
             <View style={styles.zoomControls}>
               <Pressable style={styles.zoomButton} onPress={() => setZoom((value) => Math.max(1, value - 0.25))}>
-                <Ionicons name="remove" size={18} color={BRAND_DEEP} />
+                <Ionicons name="remove" size={18} color="#ffffff" />
               </Pressable>
               <Text style={styles.zoomValue}>{Math.round(zoom * 100)}%</Text>
               <Pressable style={styles.zoomButton} onPress={() => setZoom((value) => Math.min(3, value + 0.25))}>
-                <Ionicons name="add" size={18} color={BRAND_DEEP} />
+                <Ionicons name="add" size={18} color="#ffffff" />
               </Pressable>
             </View>
           </>
@@ -2029,12 +2063,16 @@ function ConfirmedDetailTile({
   icon,
   label,
   value,
-  tone
+  tone,
+  onOpen,
+  compact
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
   tone: "slate" | "purple" | "sky" | "orange" | "green" | "amber";
+  onOpen?: () => void;
+  compact?: boolean;
 }) {
   const tones = {
     slate: { bg: "#f1f5f9", icon: "#64748b" },
@@ -2045,15 +2083,15 @@ function ConfirmedDetailTile({
     amber: { bg: "#fffbeb", icon: BRAND_ORANGE }
   }[tone];
   return (
-    <View style={[styles.confirmedDetailTile, { backgroundColor: tones.bg }]}>
+    <Pressable style={[compact ? styles.confirmedQuickTile : styles.confirmedDetailTile, { backgroundColor: tones.bg }]} onPress={onOpen}>
       <View style={[styles.confirmedDetailIcon, { backgroundColor: `${tones.bg}` }]}>
         <Ionicons name={icon} size={22} color={tones.icon} />
       </View>
-      <View style={styles.confirmedDetailText}>
-        <Text style={styles.confirmedDetailLabel}>{label}</Text>
-        <Text style={styles.confirmedDetailValue} numberOfLines={2}>{value || "Not added"}</Text>
+      <View style={[styles.confirmedDetailText, compact && styles.confirmedQuickText]}>
+        <Text style={[styles.confirmedDetailLabel, compact && styles.confirmedQuickLabel]}>{label}</Text>
+        <Text style={[styles.confirmedDetailValue, compact && styles.confirmedQuickValue]} numberOfLines={2}>{value || "Not added"}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -2073,22 +2111,17 @@ function OrderDetailsScreen({
   onSessionExpired: () => void;
 }) {
   const [savingStatus, setSavingStatus] = useState<string>();
-  const [selectedMedia, setSelectedMedia] = useState<MediaItem | undefined>();
+  const [selectedMedia, setSelectedMedia] = useState<MediaItem | MediaViewerState | undefined>();
   const [uploadingProof, setUploadingProof] = useState<{ stage: "RECEIVED" | "STITCHED" }>();
   const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | undefined>();
   const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
+  const [detailTextSheet, setDetailTextSheet] = useState<{ label: string; value: string } | undefined>();
+  const [selectedDetailItemIndex, setSelectedDetailItemIndex] = useState(0);
+  const [voicePlaybackStatus, setVoicePlaybackStatus] = useState({ currentTime: 0, duration: 0 });
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
+  const voiceStatusSubscriptionRef = useRef<{ remove: () => void } | undefined>(undefined);
+  const voiceWaveProgress = useRef(new Animated.Value(0)).current;
   const acceptedRequest = order.request;
-  const acceptedVoiceNotes = acceptedRequest
-    ? Array.from(
-        new Map(
-          [
-            ...(acceptedRequest.voiceNotes ?? []),
-            ...requestItems(acceptedRequest).flatMap((item) => item.voiceNotes ?? [])
-          ].map((voice) => [voice.url, voice])
-        ).values()
-      )
-    : [];
   const requiredProofCount = acceptedRequest ? requestItemCount(acceptedRequest) : Math.max(1, order.items.length);
   const receivedProofCount = acceptedRequest?.receivedMedia?.length ?? 0;
   const stitchedProofCount = acceptedRequest?.stitchedMedia?.length ?? 0;
@@ -2100,6 +2133,8 @@ function OrderDetailsScreen({
 
   const stopVoicePlayback = useCallback(() => {
     try {
+      voiceStatusSubscriptionRef.current?.remove();
+      voiceStatusSubscriptionRef.current = undefined;
       voicePlayerRef.current?.pause();
       voicePlayerRef.current?.release();
     } catch {
@@ -2108,14 +2143,30 @@ function OrderDetailsScreen({
     voicePlayerRef.current = undefined;
     setPlayingVoiceUrl(undefined);
     setVoicePlaybackPaused(false);
+    setVoicePlaybackStatus({ currentTime: 0, duration: 0 });
+    voiceWaveProgress.setValue(0);
   }, []);
 
   useEffect(() => stopVoicePlayback, [order.id, stopVoicePlayback]);
 
-  function playVoiceNote(voice: MediaItem) {
+  useEffect(() => {
+    setSelectedDetailItemIndex(0);
+  }, [order.id]);
+
+  function formatVoiceTime(seconds: number) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+    const whole = Math.floor(seconds);
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+  }
+
+  async function playVoiceNote(voice: MediaItem) {
     try {
       if (voicePlayerRef.current && playingVoiceUrl === voice.url) {
         if (voicePlaybackPaused) {
+          if (voicePlaybackStatus.duration > 0 && voicePlaybackStatus.currentTime >= voicePlaybackStatus.duration - 0.15) {
+            await voicePlayerRef.current.seekTo(0);
+            voiceWaveProgress.setValue(0);
+          }
           voicePlayerRef.current.play();
           setVoicePlaybackPaused(false);
         } else {
@@ -2125,15 +2176,37 @@ function OrderDetailsScreen({
         return;
       }
       stopVoicePlayback();
-      const player = createAudioPlayer({ uri: voice.url });
+      const player = createAudioPlayer({ uri: voice.url }, { updateInterval: 100 });
       voicePlayerRef.current = player;
+      voiceWaveProgress.setValue(0);
       setPlayingVoiceUrl(voice.url);
       setVoicePlaybackPaused(false);
+      setVoicePlaybackStatus({ currentTime: 0, duration: 0 });
+      voiceStatusSubscriptionRef.current = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+        const duration = Math.max(0, Number(status.duration ?? 0));
+        const currentTime = Math.max(0, Number(status.currentTime ?? 0));
+        setVoicePlaybackStatus({ currentTime, duration });
+        voiceWaveProgress.setValue(duration > 0 ? Math.min(1, currentTime / duration) : 0);
+        if (status.didJustFinish) {
+          voiceWaveProgress.setValue(1);
+          setVoicePlaybackStatus({ currentTime: duration, duration });
+          setVoicePlaybackPaused(true);
+        }
+      });
       player.play();
     } catch (error) {
       stopVoicePlayback();
       showDialog({ title: "Playback failed", message: error instanceof Error ? error.message : "Could not play the voice note.", icon: "alert-circle-outline" });
     }
+  }
+
+  async function seekVoiceNote(voice: MediaItem, locationX: number) {
+    const player = voicePlayerRef.current;
+    if (!player || playingVoiceUrl !== voice.url || voicePlaybackStatus.duration <= 0) return;
+    const nextTime = Math.max(0, Math.min(voicePlaybackStatus.duration, (locationX / 120) * voicePlaybackStatus.duration));
+    await player.seekTo(nextTime);
+    setVoicePlaybackStatus({ currentTime: nextTime, duration: voicePlaybackStatus.duration });
+    voiceWaveProgress.setValue(nextTime / voicePlaybackStatus.duration);
   }
 
   async function uploadProof(stage: "RECEIVED" | "STITCHED") {
@@ -2247,19 +2320,41 @@ function OrderDetailsScreen({
   }
 
   const detailItems = acceptedRequest
-    ? requestItems(acceptedRequest).map((item, index) => ({
-        key: item.id ?? `${acceptedRequest.id}-accepted-item-${index}`,
-        title: item.clothType || "Tailoring item",
-        service: item.workType || "Tailoring",
-        gender: item.gender || "Customer",
-        work: item.selectedWorkItems?.length ? item.selectedWorkItems.join(", ") : item.otherWorkDescription || item.description || item.workType || "Custom work",
-        measurement: item.measurement?.label || (item.homeMeasurementBooked ? "Home visit" : item.sampleProvided ? "Sample" : "Not added"),
-        delivery: acceptedRequest.urgency || "Standard",
-        description: item.description,
-        measurementFields: item.measurement?.fields ?? {},
-        sampleImage: item.measurement?.imageUrl,
-        media: [...(item.media ?? []), ...(item.sampleMedia ?? [])]
-      }))
+    ? requestItems(acceptedRequest).map((item, index) => {
+        const itemVoiceNotes = item.voiceNotes ?? [];
+        const voiceNotes = Array.from(
+          new Map([
+            ...itemVoiceNotes,
+            ...(index === 0 && itemVoiceNotes.length === 0 ? acceptedRequest.voiceNotes ?? [] : [])
+          ].map((media) => [media.url, media])).values()
+        );
+        const clothMedia = Array.from(
+          new Map([
+            ...(item.media ?? []),
+            ...(index === 0 && (item.media ?? []).length === 0 ? acceptedRequest.media ?? [] : [])
+          ].filter((media) => media.resourceType !== "audio").map((media) => [media.url, media])).values()
+        );
+        const sampleMedia = Array.from(
+          new Map([
+            ...(item.sampleMedia ?? []),
+            ...(item.measurement?.imageUrl ? [{ url: item.measurement.imageUrl, resourceType: "image" as const, originalName: "Sample garment" }] : [])
+          ].map((media) => [media.url, media])).values()
+        );
+        return {
+          key: item.id ?? `${acceptedRequest.id}-accepted-item-${index}`,
+          title: item.clothType || "Tailoring item",
+          service: item.workType || "Tailoring",
+          gender: item.gender || "Customer",
+          work: item.selectedWorkItems?.length ? item.selectedWorkItems.join(", ") : item.otherWorkDescription || item.description || item.workType || "Custom work",
+          measurement: item.measurement?.label || (item.homeMeasurementBooked ? "Home visit" : item.sampleProvided ? "Sample" : "Not added"),
+          delivery: acceptedRequest.urgency || "Standard",
+          description: item.description,
+          measurementFields: item.measurement?.fields ?? {},
+          voiceNotes,
+          clothMedia,
+          sampleMedia
+        };
+      })
     : order.items.map((item, index) => ({
         key: item.id ?? `${order.id}-order-item-${index}`,
         title: item.service?.name ?? "Tailoring item",
@@ -2270,21 +2365,30 @@ function OrderDetailsScreen({
         delivery: item.service?.estimatedDelivery || "Standard",
         description: item.instructions,
         measurementFields: item.measurement?.fields ?? {},
-        sampleImage: item.measurement?.imageUrl,
-        media: [...(item.media ?? []), ...(item.sampleMedia ?? [])]
+        voiceNotes: [] as MediaItem[],
+        clothMedia: item.media ?? [],
+        sampleMedia: [
+          ...(item.sampleMedia ?? []),
+          ...(item.measurement?.imageUrl ? [{ url: item.measurement.imageUrl, resourceType: "image" as const, originalName: "Sample garment" }] : [])
+        ]
       }));
-  const primaryDetailItem = detailItems[0];
+  const activeDetailItemIndex = Math.min(selectedDetailItemIndex, Math.max(detailItems.length - 1, 0));
+  const selectedDetailItem = detailItems[activeDetailItemIndex];
+  const primaryDetailItem = selectedDetailItem ?? detailItems[0];
   const requestCode = acceptedRequest ? `REQ-${acceptedRequest.id.slice(0, 8).toUpperCase()}` : order.orderNumber;
   const displayStatus = acceptedRequest?.workStatus ?? order.status;
   const pickupDate = order.pickupScheduledAt
     ? new Date(order.pickupScheduledAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })
     : "Not scheduled";
-  const descriptionText = acceptedRequest?.description || order.instructions || primaryDetailItem?.description;
-  const referenceMedia = [
-    ...detailItems.flatMap((item) => item.media),
-    ...(acceptedRequest?.media ?? [])
-  ];
-  const firstReferenceImage = referenceMedia.find((item) => item.resourceType === "image");
+  const descriptionText = selectedDetailItem?.description || (activeDetailItemIndex === 0 ? acceptedRequest?.description : undefined) || order.instructions;
+  const selectedVoiceNotes = selectedDetailItem?.voiceNotes ?? [];
+  const clothMedia = selectedDetailItem?.clothMedia ?? [];
+  const sampleMedia = selectedDetailItem?.sampleMedia ?? [];
+  const firstReferenceImage = [...clothMedia, ...sampleMedia].find((item) => item.resourceType === "image");
+  const detailTextLines = (detailTextSheet?.value || "")
+    .split(/\r?\n|,/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const timelineSteps = [
     { label: "Accepted", icon: "mail-open-outline" as const, active: true },
     { label: "Pickup", icon: "file-tray-stacked-outline" as const, active: hasReceivedPackage },
@@ -2372,97 +2476,201 @@ function OrderDetailsScreen({
 
       <TailorHandoffOtpCard orderId={acceptedRequest?.id} status={`${acceptedRequest?.workStatus ?? ""}-${order.status}`} />
 
-      <View style={styles.confirmedSectionCard}>
-        <Text style={styles.confirmedSectionLabel}>INSTRUCTIONS</Text>
-        {acceptedVoiceNotes.length ? (
-          <View style={styles.confirmedVoiceList}>
-            {acceptedVoiceNotes.map((voice, index) => (
-              <Pressable key={voice.url} style={styles.confirmedVoiceRow} onPress={() => playVoiceNote(voice)}>
-                <View style={styles.confirmedVoicePlay}>
-                  <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={20} color="#ffffff" />
-                </View>
-                <View style={styles.confirmedVoiceMain}>
-                  <Text style={styles.confirmedVoiceTitle}>Voice Note {index + 1}</Text>
-                  <View style={styles.confirmedWaveform}>
-                    {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13, 20, 10, 16, 12, 19].map((height, barIndex) => (
-                      <View
-                        key={`${voice.url}-wave-${barIndex}`}
-                        style={[
-                          styles.confirmedWaveBar,
-                          { height, backgroundColor: barIndex < 10 ? BRAND_ORANGE : "#d7dde7" }
-                        ]}
-                      />
-                    ))}
+      {detailItems.length > 1 ? (
+        <View style={styles.segmentedControlContainer}>
+          {detailItems.map((item, index) => {
+            const active = index === activeDetailItemIndex;
+            return (
+              <Pressable
+                key={item.key}
+                style={[styles.segmentedTab, active && styles.segmentedTabActive]}
+                onPress={() => {
+                  stopVoicePlayback();
+                  setSelectedDetailItemIndex(index);
+                }}
+              >
+                <Text style={[styles.segmentedTabText, active && styles.segmentedTabTextActive]}>Item {index + 1}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {selectedDetailItem ? (
+        <>
+          <View style={styles.itemHeaderCard}>
+            <View style={[styles.itemHeaderIconBg, { backgroundColor: "#dbeafe" }]}>
+              <Ionicons name="shirt-outline" size={26} color="#2563eb" />
+            </View>
+            <View style={styles.itemHeaderTextWrap}>
+              <Text style={styles.itemHeaderTitle}>
+                {detailItems.length > 1 ? `Item ${activeDetailItemIndex + 1}: ${selectedDetailItem.title}` : selectedDetailItem.title}
+              </Text>
+              <Text style={styles.itemHeaderSubtitle}>
+                {[selectedDetailItem.gender, selectedDetailItem.service].filter(Boolean).join("  -  ")}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.confirmedQuickGrid}>
+            <ConfirmedDetailTile compact icon="people-outline" label="For" value={selectedDetailItem.gender} tone="slate" onOpen={() => setDetailTextSheet({ label: "For", value: selectedDetailItem.gender })} />
+            <ConfirmedDetailTile compact icon="shirt-outline" label="Garment" value={selectedDetailItem.title} tone="purple" onOpen={() => setDetailTextSheet({ label: "Garment", value: selectedDetailItem.title })} />
+            <ConfirmedDetailTile compact icon="cut-outline" label="Service" value={selectedDetailItem.service} tone="sky" onOpen={() => setDetailTextSheet({ label: "Service", value: selectedDetailItem.service })} />
+          </View>
+
+          <View style={styles.requestDetailCard}>
+            <View style={styles.requestDetailCardHeader}>
+              <Text style={styles.requestDetailCardTitle}>Request Details</Text>
+            </View>
+            {[
+              { icon: "color-wand-outline" as const, iconBg: "#fff7ed", iconColor: "#f97316", label: "Work", value: selectedDetailItem.work },
+              { icon: "resize-outline" as const, iconBg: "#dcfce7", iconColor: "#16a34a", label: "Measurement", value: selectedDetailItem.measurement },
+              { icon: "flash-outline" as const, iconBg: "#fff4dc", iconColor: BRAND_ORANGE, label: "Delivery", value: selectedDetailItem.delivery }
+            ].map((row, index) => (
+              <Pressable
+                key={row.label}
+                style={({ pressed }) => [
+                  index > 0 && styles.requestDetailRowBorder,
+                  pressed && { backgroundColor: "#fffaf0" }
+                ]}
+                onPress={() => setDetailTextSheet({ label: row.label, value: row.value })}
+              >
+                <View style={styles.requestDetailRow}>
+                  <View style={[styles.requestDetailIcon, { backgroundColor: row.iconBg }]}>
+                    <Ionicons name={row.icon} size={20} color={row.iconColor} />
                   </View>
-                  <Text style={styles.confirmedVoiceMeta}>{voice.originalName ?? "Customer recorded instructions"}</Text>
+                  <View style={styles.requestDetailText}>
+                    <Text style={styles.requestDetailLabel}>{row.label}</Text>
+                    <Text style={styles.requestDetailValue} numberOfLines={1} ellipsizeMode="tail">{row.value}</Text>
+                  </View>
+                  <View style={styles.requestDetailChevron}>
+                    <Ionicons name="chevron-forward" size={13} color={MUTED} />
+                  </View>
                 </View>
-                <Ionicons name="download-outline" size={22} color={MUTED} />
               </Pressable>
             ))}
           </View>
-        ) : null}
-        <View style={styles.confirmedDescriptionBox}>
-          <View style={styles.confirmedDescriptionHeader}>
-            <Ionicons name="document-text-outline" size={18} color={BRAND_DEEP} />
-            <Text style={styles.confirmedDescriptionTitle}>Description</Text>
-          </View>
-          <Text style={styles.confirmedDescriptionText}>{descriptionText || "No written instructions added by the customer."}</Text>
-        </View>
-      </View>
 
-      <View style={styles.confirmedSectionCard}>
-        <Text style={styles.confirmedSectionLabel}>ITEM DETAILS</Text>
-        {detailItems.map((item) => (
-          <View key={item.key} style={styles.confirmedItemBlock}>
-            <View style={styles.confirmedItemGrid}>
-              <ConfirmedDetailTile icon="people-outline" label="For" value={item.gender} tone="slate" />
-              <ConfirmedDetailTile icon="shirt-outline" label="Garment" value={item.title} tone="purple" />
-              <ConfirmedDetailTile icon="cut-outline" label="Service" value={item.service} tone="sky" />
-              <ConfirmedDetailTile icon="color-wand-outline" label="Work" value={item.work} tone="orange" />
-              <ConfirmedDetailTile icon="resize-outline" label="Measurement" value={item.measurement} tone="green" />
-              <ConfirmedDetailTile icon="flash-outline" label="Delivery" value={item.delivery} tone="amber" />
-            </View>
-            {Object.entries(item.measurementFields).length ? (
+          {Object.entries(selectedDetailItem.measurementFields).length ? (
+            <View style={styles.confirmedSectionCard}>
+              <Text style={styles.confirmedSectionLabel}>MEASUREMENTS</Text>
               <View style={styles.confirmedMeasurements}>
-                {Object.entries(item.measurementFields).map(([key, value]) => (
-                  <View key={`${item.key}-${key}`} style={styles.confirmedMeasurementRow}>
+                {Object.entries(selectedDetailItem.measurementFields).map(([key, value]) => (
+                  <View key={`${selectedDetailItem.key}-${key}`} style={styles.confirmedMeasurementRow}>
                     <Text style={styles.confirmedMeasurementLabel}>{key}</Text>
                     <Text style={styles.confirmedMeasurementValue}>{String(value)}</Text>
                   </View>
                 ))}
               </View>
-            ) : null}
-            {item.sampleImage ? (
-              <Pressable style={styles.confirmedSampleRow} onPress={() => setSelectedMedia({ url: item.sampleImage!, resourceType: "image" })}>
-                <Image source={{ uri: item.sampleImage }} style={styles.confirmedSampleImage} />
-                <View style={styles.confirmedSampleText}>
-                  <Text style={styles.confirmedSampleTitle}>Sample reference</Text>
-                  <Text style={styles.confirmedSampleCopy}>Customer attached a reference for fitting or design.</Text>
-                </View>
-                <Ionicons name="expand-outline" size={18} color={MUTED} />
-              </Pressable>
-            ) : null}
-          </View>
-        ))}
-      </View>
+            </View>
+          ) : null}
 
-      {referenceMedia.length ? (
-        <View style={styles.confirmedSectionCard}>
-          <Text style={styles.confirmedSectionLabel}>CUSTOMER MEDIA</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.confirmedMediaRow}>
-            {referenceMedia.map((item, index) => (
-              <Pressable key={`${item.url}-${index}`} style={styles.confirmedMediaBox} onPress={() => setSelectedMedia(item)}>
-                {item.resourceType === "image" ? (
-                  <Image source={{ uri: item.url }} style={styles.confirmedMediaImage} />
-                ) : (
-                  <>
-                    <Ionicons name={item.resourceType === "audio" ? "mic-outline" : "videocam-outline"} size={25} color={BRAND_ORANGE} />
-                    <Text style={styles.mediaTypeText}>{item.resourceType === "audio" ? "Audio" : "Video"}</Text>
-                  </>
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
+          <View style={styles.confirmedSectionCard}>
+            <Text style={styles.confirmedSectionLabel}>INSTRUCTIONS</Text>
+            {selectedVoiceNotes.length ? (
+              <View style={styles.confirmedVoiceList}>
+                {selectedVoiceNotes.map((voice, index) => (
+                  <Pressable key={`${selectedDetailItem.key}-voice-${index}-${voice.url}`} style={styles.confirmedVoiceRow} onPress={() => playVoiceNote(voice)}>
+                    <View style={styles.confirmedVoicePlay}>
+                      <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={20} color="#ffffff" />
+                    </View>
+                    <View style={styles.confirmedVoiceMain}>
+                      <Text style={styles.confirmedVoiceTitle}>Voice Note {index + 1}</Text>
+                      <View style={styles.confirmedVoiceScrubRow}>
+                        <Pressable
+                          style={styles.confirmedWaveform}
+                          onPress={(event) => seekVoiceNote(voice, event.nativeEvent.locationX)}
+                        >
+                          {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13, 20, 10, 16, 12, 19].map((height, barIndex) => (
+                            <View key={`${selectedDetailItem.key}-wave-base-${index}-${barIndex}`} style={[styles.confirmedWaveBar, { height, backgroundColor: "#d7dde7" }]} />
+                          ))}
+                          <Animated.View
+                            pointerEvents="none"
+                            style={[
+                              styles.confirmedWaveProgress,
+                              {
+                                width: playingVoiceUrl === voice.url
+                                  ? voiceWaveProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 120] })
+                                  : 0
+                              }
+                            ]}
+                          >
+                            {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13, 20, 10, 16, 12, 19].map((height, barIndex) => (
+                              <View key={`${selectedDetailItem.key}-wave-progress-${index}-${barIndex}`} style={[styles.confirmedWaveBar, { height, backgroundColor: BRAND_ORANGE }]} />
+                            ))}
+                          </Animated.View>
+                        </Pressable>
+                        <Text style={styles.confirmedVoiceDuration}>
+                          {playingVoiceUrl === voice.url
+                            ? `${formatVoiceTime(voicePlaybackStatus.currentTime)} / ${formatVoiceTime(voicePlaybackStatus.duration)}`
+                            : "0:00"}
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            <View style={styles.confirmedDescriptionBox}>
+              <View style={styles.confirmedDescriptionHeader}>
+                <Ionicons name="document-text-outline" size={18} color={BRAND_DEEP} />
+                <Text style={styles.confirmedDescriptionTitle}>Description</Text>
+              </View>
+              <Text style={styles.confirmedDescriptionText}>{descriptionText || "No written instructions added by the customer for this item."}</Text>
+            </View>
+          </View>
+        </>
+      ) : null}
+
+      {clothMedia.length || sampleMedia.length ? (
+        <View style={[styles.confirmedSectionCard, styles.confirmedMediaSectionCard]}>
+          <Text style={[styles.confirmedSectionLabel, styles.confirmedMediaSectionLabel]}>CUSTOMER MEDIA</Text>
+          {clothMedia.length ? (
+            <View style={styles.confirmedMediaGroup}>
+              <Text style={styles.confirmedMediaGroupTitle}>Cloth photos</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.confirmedMediaRow}>
+                {clothMedia.map((item, index) => (
+                  <Pressable
+                    key={`${selectedDetailItem?.key}-cloth-${index}-${item.url}`}
+                    style={styles.confirmedMediaBox}
+                    onPress={() => setSelectedMedia({ items: clothMedia, index, title: "Cloth photo" })}
+                  >
+                    {item.resourceType === "image" ? (
+                      <Image source={{ uri: item.url }} style={styles.confirmedMediaImage} />
+                    ) : (
+                      <>
+                        <Ionicons name={item.resourceType === "audio" ? "mic-outline" : "videocam-outline"} size={25} color={BRAND_ORANGE} />
+                        <Text style={styles.mediaTypeText}>{item.resourceType === "audio" ? "Audio" : "Video"}</Text>
+                      </>
+                    )}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+          {sampleMedia.length ? (
+            <View style={styles.confirmedMediaGroup}>
+              <Text style={styles.confirmedMediaGroupTitle}>Samples</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.confirmedMediaRow}>
+                {sampleMedia.map((item, index) => (
+                  <Pressable
+                    key={`${selectedDetailItem?.key}-sample-${index}-${item.url}`}
+                    style={styles.confirmedMediaBox}
+                    onPress={() => setSelectedMedia({ items: sampleMedia, index, title: "Sample" })}
+                  >
+                    {item.resourceType === "image" ? (
+                      <Image source={{ uri: item.url }} style={styles.confirmedMediaImage} />
+                    ) : (
+                      <>
+                        <Ionicons name={item.resourceType === "audio" ? "mic-outline" : "videocam-outline"} size={25} color={BRAND_ORANGE} />
+                        <Text style={styles.mediaTypeText}>{item.resourceType === "audio" ? "Audio" : "Video"}</Text>
+                      </>
+                    )}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -2565,6 +2773,30 @@ function OrderDetailsScreen({
           <Text style={styles.helperText}>You can upload proof photos and update work status once the delivery partner hands over the package.</Text>
         </View>
       )}
+      <Modal transparent visible={Boolean(detailTextSheet)} animationType="fade" onRequestClose={() => setDetailTextSheet(undefined)}>
+        <Pressable style={styles.detailTextBackdrop} onPress={() => setDetailTextSheet(undefined)}>
+          <Pressable style={styles.detailTextCard} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.detailTextLabel}>{detailTextSheet?.label}</Text>
+              <Pressable style={styles.detailTextClose} onPress={() => setDetailTextSheet(undefined)}>
+                <Ionicons name="close" size={18} color={MUTED} />
+              </Pressable>
+            </View>
+            {detailTextLines.length ? (
+              <View style={styles.detailTextList}>
+                {detailTextLines.map((line, index) => (
+                  <View key={`${detailTextSheet?.label}-${index}-${line}`} style={styles.detailTextBulletRow}>
+                    <View style={styles.detailTextBulletDot} />
+                    <Text style={styles.detailTextBulletText}>{line}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.detailTextValue}>Not added</Text>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
       <MediaViewer media={selectedMedia} onClose={() => setSelectedMedia(undefined)} showDialog={showDialog} />
     </ScrollView>
   );
@@ -5491,6 +5723,15 @@ const styles = StyleSheet.create({
   cancelledFilterChipText: { color: "#b91c1c" },
   orderCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
   readyOrderCard: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
+  tailorMiniOrderCard: { borderRadius: 16, padding: 12, marginBottom: 10 },
+  tailorMiniOrderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  tailorMiniOrderIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  tailorMiniOrderMain: { flex: 1, minWidth: 0 },
+  tailorMiniOrderId: { color: "#dc2626", fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  tailorMiniOrderTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900", marginTop: 1 },
+  tailorMiniOrderMeta: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 2 },
+  tailorMiniOrderSide: { alignItems: "flex-end", gap: 6 },
+  tailorMiniOrderPrice: { color: BRAND_ORANGE, fontSize: 15, lineHeight: 20, fontWeight: "900" },
   confirmedOrderContent: { paddingHorizontal: 18, paddingTop: 26, paddingBottom: 132 },
   confirmedOrderHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16 },
   confirmedBackButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" },
@@ -5534,14 +5775,22 @@ const styles = StyleSheet.create({
   confirmedVoicePlay: { width: 48, height: 48, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   confirmedVoiceMain: { flex: 1, minWidth: 0 },
   confirmedVoiceTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900", marginBottom: 8 },
-  confirmedWaveform: { height: 30, flexDirection: "row", alignItems: "center", gap: 3 },
+  confirmedVoiceScrubRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  confirmedWaveform: { width: 120, height: 30, flexDirection: "row", alignItems: "center", gap: 3, overflow: "hidden" },
+  confirmedWaveProgress: { position: "absolute", left: 0, top: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 3, overflow: "hidden" },
   confirmedWaveBar: { width: 3, borderRadius: 2 },
+  confirmedVoiceDuration: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900", minWidth: 62 },
   confirmedVoiceMeta: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 4 },
   confirmedDescriptionBox: { borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: "#ffffff", padding: 14 },
   confirmedDescriptionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
   confirmedDescriptionTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
   confirmedDescriptionText: { color: "#475569", fontSize: 13, lineHeight: 21, fontWeight: "700" },
   confirmedItemBlock: { marginBottom: 12 },
+  confirmedQuickGrid: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  confirmedQuickTile: { flex: 1, minHeight: 96, borderRadius: 16, borderWidth: 1, borderColor: "#eef2f7", paddingHorizontal: 8, paddingVertical: 12, alignItems: "center", justifyContent: "flex-start", gap: 7 },
+  confirmedQuickText: { alignItems: "center" },
+  confirmedQuickLabel: { textAlign: "center" },
+  confirmedQuickValue: { textAlign: "center" },
   confirmedItemGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   confirmedDetailTile: { width: "48%", minHeight: 66, borderRadius: 12, borderWidth: 1, borderColor: "#eef2f7", padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
   confirmedDetailIcon: { width: 35, height: 35, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -5552,14 +5801,27 @@ const styles = StyleSheet.create({
   confirmedMeasurementRow: { minHeight: 42, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderBottomColor: "#eef2f7" },
   confirmedMeasurementLabel: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", flex: 1 },
   confirmedMeasurementValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
-  confirmedSampleRow: { marginTop: 12, minHeight: 72, borderRadius: 15, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffbf0", padding: 10, flexDirection: "row", alignItems: "center", gap: 12 },
+  confirmedSampleRow: { marginTop: 12, marginBottom: 16, minHeight: 72, borderRadius: 15, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffbf0", padding: 10, flexDirection: "row", alignItems: "center", gap: 12 },
   confirmedSampleImage: { width: 52, height: 52, borderRadius: 12, backgroundColor: "#fff4dc" },
   confirmedSampleText: { flex: 1, minWidth: 0 },
   confirmedSampleTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
   confirmedSampleCopy: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 2 },
+  confirmedMediaSectionCard: { backgroundColor: "#111111", borderColor: "#111111" },
+  confirmedMediaSectionLabel: { color: "#f8fafc" },
+  confirmedMediaGroup: { marginTop: 4, marginBottom: 14 },
+  confirmedMediaGroupTitle: { color: BRAND_ORANGE, fontSize: 15, lineHeight: 20, fontWeight: "900", marginBottom: 9 },
   confirmedMediaRow: { gap: 10 },
   confirmedMediaBox: { width: 96, height: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   confirmedMediaImage: { width: "100%", height: "100%" },
+  detailTextBackdrop: { flex: 1, backgroundColor: "rgba(11,34,65,0.45)", alignItems: "center", justifyContent: "center", padding: 22 },
+  detailTextCard: { width: "100%", maxWidth: 420, borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 18 },
+  detailTextLabel: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  detailTextClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#f3f6fb", alignItems: "center", justifyContent: "center" },
+  detailTextValue: { color: "#334155", fontSize: 14, lineHeight: 22, fontWeight: "700", marginTop: 14 },
+  detailTextList: { marginTop: 14, gap: 10 },
+  detailTextBulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  detailTextBulletDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_ORANGE, marginTop: 8 },
+  detailTextBulletText: { flex: 1, color: "#334155", fontSize: 14, lineHeight: 22, fontWeight: "800" },
   whiteCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
   cancelledNoticeCard: { borderRadius: 18, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
@@ -5611,18 +5873,21 @@ const styles = StyleSheet.create({
   sampleReferenceBlock: { minHeight: 82, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 10, marginTop: 12 },
   sampleReferenceImage: { width: 62, height: 62, borderRadius: 14, backgroundColor: "#fff4dc" },
   sampleReferenceText: { flex: 1, minWidth: 0 },
-  mediaViewerSafe: { flex: 1, backgroundColor: SCREEN_BG },
-  mediaViewerHeader: { minHeight: 62, backgroundColor: SURFACE, borderBottomWidth: 1, borderBottomColor: BORDER, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  mediaViewerSafe: { flex: 1, backgroundColor: "#000000" },
+  mediaViewerHeader: { minHeight: 62, backgroundColor: "#000000", borderBottomWidth: 1, borderBottomColor: "#1f2937", paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   mediaViewerTitleBlock: { flex: 1, minWidth: 0 },
-  mediaViewerTitle: { color: BRAND_DEEP, fontSize: 20, fontWeight: "900" },
+  mediaViewerTitle: { color: "#ffffff", fontSize: 20, fontWeight: "900" },
   mediaViewerSubtitle: { color: MUTED, fontSize: 12, fontWeight: "700", marginTop: 3 },
-  closeButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#eef2f7", alignItems: "center", justifyContent: "center" },
+  closeButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#1f2937", alignItems: "center", justifyContent: "center" },
   mediaViewerHorizontal: { flexGrow: 1 },
-  mediaViewerVertical: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", paddingVertical: 18 },
-  mediaViewerImage: { backgroundColor: SURFACE },
-  zoomControls: { minHeight: 68, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, backgroundColor: SURFACE, borderTopWidth: 1, borderTopColor: BORDER },
-  zoomButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: BORDER, backgroundColor: "#f8fafc", alignItems: "center", justifyContent: "center" },
-  zoomValue: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", minWidth: 54, textAlign: "center" },
+  mediaViewerPager: { flex: 1, backgroundColor: "#000000" },
+  mediaViewerPage: { flex: 1, backgroundColor: "#000000" },
+  mediaViewerVertical: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingVertical: 18 },
+  mediaViewerImage: { backgroundColor: "#000000" },
+  mediaViewerVideoText: { color: "#ffffff", fontSize: 16, lineHeight: 22, fontWeight: "900", marginTop: 12 },
+  zoomControls: { minHeight: 68, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, backgroundColor: "#000000", borderTopWidth: 1, borderTopColor: "#1f2937" },
+  zoomButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: "#374151", backgroundColor: "#111827", alignItems: "center", justifyContent: "center" },
+  zoomValue: { color: "#ffffff", fontSize: 14, fontWeight: "900", minWidth: 54, textAlign: "center" },
   videoViewerBody: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   videoViewerIcon: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginBottom: 14 },
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 16 },
