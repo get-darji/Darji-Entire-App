@@ -3,6 +3,7 @@ import mongoose, { Schema, type HydratedDocument, type Model } from "mongoose";
 export type DarjiIdPrefix =
   | "ADM"
   | "ADR"
+  | "ALT"
   | "BUG"
   | "CPN"
   | "CRQ"

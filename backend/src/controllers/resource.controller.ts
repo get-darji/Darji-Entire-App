@@ -8,6 +8,7 @@ import {
   DeliveryBatchModel,
   DeliveryPartnerModel,
   NotificationModel,
+  OperationalAlertModel,
   OrderModel,
   OtpRequestModel,
   PaymentModel,
@@ -1018,6 +1019,31 @@ export async function deleteAdminAccountController(req: Request, res: Response) 
 
   const deleted = await deleteAccountByUserId(userId);
   res.json({ data: deleted });
+}
+
+export async function listOperationalAlertsController(req: Request, res: Response) {
+  const requestedStatus = typeof req.query.status === "string" ? req.query.status : undefined;
+  const status = requestedStatus && ["OPEN", "ACKNOWLEDGED", "RESOLVED"].includes(requestedStatus) ? requestedStatus as "OPEN" | "ACKNOWLEDGED" | "RESOLVED" : undefined;
+  const where = status ? { status } : {};
+  const alerts = await OperationalAlertModel.find(where).sort({ status: 1, createdAt: -1 }).limit(100);
+  res.json({ data: alerts });
+}
+
+export async function updateOperationalAlertController(req: Request, res: Response) {
+  const input = z.object({ status: z.enum(["OPEN", "ACKNOWLEDGED", "RESOLVED"]) }).parse(req.body);
+  const now = new Date();
+  const update: Record<string, unknown> = { status: input.status };
+  if (input.status === "ACKNOWLEDGED") {
+    update.acknowledgedAt = now;
+    update.acknowledgedBy = req.user!.id;
+  }
+  if (input.status === "RESOLVED") {
+    update.resolvedAt = now;
+    update.resolvedBy = req.user!.id;
+  }
+  const alert = await OperationalAlertModel.findByIdAndUpdate(String(req.params.id), { $set: update }, { returnDocument: "after" });
+  if (!alert) throw new AppError(404, "Operational alert not found");
+  res.json({ data: alert });
 }
 
 export async function inviteAdminController(req: Request, res: Response) {

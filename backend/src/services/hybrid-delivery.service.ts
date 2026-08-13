@@ -5,6 +5,7 @@ import { sendPushToUsers } from "./push.service.js";
 import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
 import { batchDeliveryPayout, pointFrom, roadDistanceMatrix } from "./delivery-pricing.service.js";
 import { FirstSolutionStrategy, LocalSearchMetaheuristic, RoutingIndexManager, RoutingModel, initRouting } from "or-tools-wasm/routing";
+import { upsertOperationalAlert } from "./operational-alert.service.js";
 
 export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
@@ -117,6 +118,25 @@ export async function nextOpenBatchSlot(deliveryType: DeliveryType, from = new D
   }
 
   throw new Error("Could not find an open delivery batch slot");
+}
+
+export async function nextTwoBatchSlotsAfter(roundAt: Date) {
+  const settings = await getBatchSettings();
+  const start = new Date(roundAt.getTime() + 60 * 1000);
+  const slots: Array<{ deliveryRound: string; roundAt: Date; lockAt: Date }> = [];
+  let day = istParts(start);
+
+  for (let offset = 0; offset < 8 && slots.length < 2; offset += 1) {
+    for (const entry of FIXED_BATCH_TIMES) {
+      const [hour, minute] = entry.time.split(":").map(Number);
+      const candidateRoundAt = istDate(day.year, day.month, day.day, hour, minute);
+      const lockAt = new Date(candidateRoundAt.getTime() - settings.lockMinutes * 60 * 1000);
+      if (candidateRoundAt > start && lockAt > new Date()) slots.push({ deliveryRound: entry.name, roundAt: candidateRoundAt, lockAt });
+      if (slots.length >= 2) break;
+    }
+    day = nextIstDay(day);
+  }
+  return slots;
 }
 
 function batchShift(round: string) {
@@ -452,7 +472,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     batchTasks
   };
 
-  await Promise.all(
+  const notificationResults = await Promise.allSettled(
     eligiblePartners.map(async (partner) => {
       emitToDeliveryPartner(partner.id, "delivery:task_created", representativePayload);
       await sendDeliveryBatchReadyNotification({
@@ -478,6 +498,27 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
       });
     })
   );
+  const failedNotifications = notificationResults.filter((result) => result.status === "rejected");
+  if (failedNotifications.length) {
+    console.error(`[delivery] Batch notification failed for ${failedNotifications.length}/${eligiblePartners.length} partner(s)`, failedNotifications.map((result) => result.status === "rejected" ? result.reason : undefined));
+    await upsertOperationalAlert({
+      type: "BATCH_NOTIFICATION_FAILED",
+      severity: "CRITICAL",
+      title: "Batch notification failed",
+      message: `${claimed.deliveryRound === "ONE_PM" ? "1 PM" : "6 PM"} batch notification failed for ${failedNotifications.length} delivery partner(s).`,
+      dedupeKey: `BATCH_NOTIFICATION_FAILED:${claimed.batchId}:${now.toISOString().slice(0, 16)}`,
+      entityType: "delivery_batch",
+      entityId: claimed.batchId,
+      metadata: {
+        batchId: claimed.batchId,
+        deliveryRound: claimed.deliveryRound,
+        roundAt: claimed.roundAt,
+        failedCount: failedNotifications.length,
+        partnerCount: eligiblePartners.length
+      },
+      sendEmail: true
+    });
+  }
 
   return { batch: await DeliveryBatchModel.findById(claimed.id), notifiedPartners: eligiblePartners.length, notifiedTasks: pendingTasks.length };
 }
@@ -713,6 +754,66 @@ export async function addTaskToSilentBatch(task: any, level: Exclude<DeliverySer
   return batch;
 }
 
+export async function moveTaskToScheduledBatch(taskId: string, slot: { deliveryRound: string; roundAt: Date; lockAt: Date }) {
+  await ensureDeliveryBatchIndexes();
+  const task = await DeliveryRequestModel.findById(taskId);
+  if (!task) throw new Error("Delivery task not found");
+  if (task.serviceLevel === "INSTANT") throw new Error("Instant deliveries cannot be rescheduled to a batch");
+  if (!["pending"].includes(String(task.taskStatus))) throw new Error("Only pending delivery tasks can be rescheduled");
+  const oldBatchId = task.batchId;
+  if (oldBatchId) {
+    const oldBatch = await DeliveryBatchModel.findOne({ batchId: oldBatchId });
+    if (oldBatch && (["locked", "active", "completed"].includes(String(oldBatch.status)) || new Date(oldBatch.lockAt) <= new Date())) {
+      throw new Error("This delivery batch is already locked");
+    }
+  }
+
+  let batch = await DeliveryBatchModel.findOne({
+    deliveryRound: slot.deliveryRound,
+    roundAt: slot.roundAt,
+    deliveryPartnerId: { $exists: false },
+    status: { $in: ["scheduled"] }
+  }).sort({ createdAt: 1 });
+  if (!batch) {
+    const existingSlotCount = await DeliveryBatchModel.countDocuments({ deliveryRound: slot.deliveryRound, roundAt: slot.roundAt, status: { $ne: "cancelled" } });
+    batch = await createBatchForSlot(
+      task.deliveryType,
+      task.serviceLevel === "EXPRESS" ? "EXPRESS" : "STANDARD",
+      slot.deliveryRound,
+      slot.roundAt,
+      slot.lockAt,
+      task.assignedArea || "unassigned",
+      existingSlotCount + 1,
+      task.id,
+      Number(task.estimatedEarnings ?? 0),
+      Number(task.estimatedDistanceKm ?? 0)
+    );
+  } else {
+    await DeliveryBatchModel.updateOne({ _id: batch.id }, { $addToSet: { tasks: task.id } });
+  }
+
+  if (oldBatchId && oldBatchId !== batch.batchId) {
+    await DeliveryBatchModel.updateOne({ batchId: oldBatchId }, { $pull: { tasks: task.id } });
+    await recalculateBatchTotals(oldBatchId);
+  }
+
+  await DeliveryRequestModel.findByIdAndUpdate(task.id, {
+    $set: {
+      batchId: batch.batchId,
+      deliveryRound: slot.deliveryRound,
+      roundAt: slot.roundAt,
+      shift: batchShift(slot.deliveryRound)
+    },
+    $unset: { notificationSentAt: 1, routePosition: 1, routeTotal: 1, etaWindowStart: 1, etaWindowEnd: 1 }
+  });
+  await Promise.all([
+    recalculateBatchTotals(batch.batchId),
+    OrderModel.findByIdAndUpdate(task.orderId, { deliveryRound: slot.deliveryRound, batchId: batch.batchId }),
+    TailoringRequestModel.findByIdAndUpdate(task.orderId, { deliveryRound: slot.deliveryRound, batchId: batch.batchId })
+  ]);
+  return DeliveryRequestModel.findById(task.id);
+}
+
 export async function assignPendingTasksToPartner(partner: any) {
   if (!partner?.isAvailable || partner.verificationStatus !== "VERIFIED") return;
 
@@ -804,7 +905,6 @@ export async function ensureDeliveryBatchesFromRequests() {
   for (const request of requests) {
     if (!request.roundAt || !request.deliveryRound) continue;
     const key = request.batchId ? `batch|${request.batchId}` : [
-      String(request.deliveryType ?? ""),
       String(request.deliveryRound ?? ""),
       new Date(request.roundAt).toISOString()
     ].join("|");
@@ -819,17 +919,23 @@ export async function ensureDeliveryBatchesFromRequests() {
     const area = String(first.assignedArea ?? "unassigned");
     const roundAt = new Date(first.roundAt);
     const lockAt = new Date(roundAt.getTime() - settings.lockMinutes * 60 * 1000);
-    const status = group.every((request) => ["delivered", "completed"].includes(String(request.taskStatus))) ? "completed" : (roundAt <= new Date() ? "active" : "scheduled");
+    const now = new Date();
+    const status = group.every((request) => ["delivered", "completed"].includes(String(request.taskStatus)))
+      ? "completed"
+      : roundAt <= now
+        ? "active"
+        : lockAt <= now
+          ? "locked"
+          : "scheduled";
     const estimatedEarnings = group.reduce((sum, request) => sum + Number(request.estimatedEarnings ?? 0), 0);
     const totalDistance = group.reduce((sum, request) => sum + Number(request.estimatedDistanceKm ?? 0), 0);
     const existingBatch = first.batchId
       ? await DeliveryBatchModel.findOne({ batchId: first.batchId, status: { $ne: "cancelled" } }).sort({ createdAt: 1 })
       : await DeliveryBatchModel.findOne({
-          deliveryType: first.deliveryType,
           deliveryRound: first.deliveryRound,
           roundAt,
           deliveryPartnerId: { $exists: false },
-          status: { $in: ["scheduled", "locked"] }
+          status: { $ne: "cancelled" }
         }).sort({ createdAt: 1 });
 
     if (existingBatch) {
@@ -839,7 +945,11 @@ export async function ensureDeliveryBatchesFromRequests() {
         await DeliveryBatchModel.updateOne(
           { _id: existingBatch._id },
           {
-            $addToSet: { tasks: { $each: missingRequests.map((request) => request.id) } }
+            $addToSet: { tasks: { $each: missingRequests.map((request) => request.id) } },
+            $set: {
+              lockAt,
+              ...(String(existingBatch.status) === "scheduled" && status !== "scheduled" ? { status } : {})
+            }
           }
         );
       }
@@ -870,7 +980,6 @@ export async function ensureDeliveryBatchesFromRequests() {
     }
 
     const existingSlotCount = await DeliveryBatchModel.countDocuments({
-      deliveryType: first.deliveryType,
       deliveryRound: first.deliveryRound,
       roundAt,
       status: { $ne: "cancelled" }

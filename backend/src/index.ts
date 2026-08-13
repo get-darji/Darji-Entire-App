@@ -12,6 +12,7 @@ import { backfillDarjiIds } from "./models.js";
 import { setupSocketServer } from "./services/socket.service.js";
 import { lockAndDispatchDueBatches } from "./services/hybrid-delivery.service.js";
 import { getPlatformStatus } from "./services/platform-status.service.js";
+import { monitorNoQuoteRequests } from "./services/operational-alert.service.js";
 
 const app = express();
 
@@ -35,6 +36,7 @@ async function processDueDeliveryBatches() {
   const platformStatus = await getPlatformStatus();
   if (platformStatus.maintenanceMode) return;
   await lockAndDispatchDueBatches();
+  await monitorNoQuoteRequests();
 }
 
 const batchLockTimer = setInterval(() => {

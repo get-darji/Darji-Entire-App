@@ -25,6 +25,7 @@ import type {
   WalletPayoutRow,
   WalletDetail,
   DeliveryFareSettings,
+  OperationalAlert,
 } from "@/src/types/admin";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
@@ -128,6 +129,19 @@ export async function getDeliveryRetries() {
 
 export async function getDeliveryBatches() {
   return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
+}
+
+export async function getOperationalAlerts(status = "OPEN") {
+  return unwrap<OperationalAlert[]>(api.get("/admin/operational-alerts", { params: { status } }));
+}
+
+export async function updateOperationalAlert(payload: { alertId: string; status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED" }) {
+  const { alertId, ...body } = payload;
+  return unwrap<OperationalAlert>(api.patch(`/admin/operational-alerts/${alertId}`, body));
+}
+
+export async function sendAdminNotification(payload: { target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string }) {
+  return unwrap<{ ok: boolean; recipients: number }>(api.post("/notifications/admin-send", payload));
 }
 
 export type NotifyDeliveryBatchResult = {

@@ -18,8 +18,17 @@ import {
   sendQuoteReceivedNotification
 } from "../services/notificationService.js";
 import { emitToAdmins, emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
+import { resolveOperationalAlert } from "../services/operational-alert.service.js";
 import { creditOrderEarning } from "../services/wallet.service.js";
-import { addTaskToSilentBatch, assignBatchToPartnerFromTask, assignPendingTasksToPartner as assignPendingDeliveryTasksToPartner, deliveryServiceLevel, nextOpenBatchSlot } from "../services/hybrid-delivery.service.js";
+import {
+  addTaskToSilentBatch,
+  assignBatchToPartnerFromTask,
+  assignPendingTasksToPartner as assignPendingDeliveryTasksToPartner,
+  deliveryServiceLevel,
+  moveTaskToScheduledBatch,
+  nextOpenBatchSlot,
+  nextTwoBatchSlotsAfter
+} from "../services/hybrid-delivery.service.js";
 import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorPoint, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
 import { getPlatformFee, getSmallOrderFee } from "@darzi/shared";
 
@@ -970,6 +979,71 @@ export async function getDeliveryRequestController(req: Request, res: Response) 
   res.json({ data: request });
 }
 
+async function assertCustomerCanManageDeliveryTask(req: Request) {
+  const task = await DeliveryRequestModel.findById(String(req.params.id));
+  if (!task) throw new AppError(404, "Delivery request not found");
+  if (req.user!.role === "CUSTOMER" && task.customerId !== req.user!.id) throw new AppError(403, "You can only reschedule your own delivery");
+  if (task.serviceLevel === "INSTANT") throw new AppError(409, "Instant deliveries cannot be rescheduled");
+  if (task.taskStatus !== "pending") throw new AppError(409, "This delivery can no longer be rescheduled");
+  if (!task.batchId) throw new AppError(409, "This delivery has not been placed in a scheduled batch yet");
+  const batch = await DeliveryBatchModel.findOne({ batchId: task.batchId });
+  if (!batch) throw new AppError(404, "Delivery batch not found");
+  const now = new Date();
+  if (["locked", "active", "completed", "cancelled"].includes(String(batch.status)) || new Date(batch.lockAt) <= now) {
+    throw new AppError(409, "This delivery batch is already locked");
+  }
+  return { task, batch };
+}
+
+function deliverySlotLabel(slot: { deliveryRound: string; roundAt: Date; lockAt: Date }) {
+  return {
+    deliveryRound: slot.deliveryRound,
+    roundAt: slot.roundAt,
+    lockAt: slot.lockAt,
+    label: `${slot.roundAt.toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", timeZone: "Asia/Kolkata" })} - ${slot.deliveryRound === DeliveryRound.ONE_PM ? "1 PM" : "6 PM"}`
+  };
+}
+
+const rescheduleDeliverySchema = z.object({
+  deliveryRound: z.enum([DeliveryRound.ONE_PM, DeliveryRound.SIX_PM]),
+  roundAt: z.coerce.date()
+});
+
+export async function listDeliveryRescheduleOptionsController(req: Request, res: Response) {
+  const { batch } = await assertCustomerCanManageDeliveryTask(req);
+  const slots = await nextTwoBatchSlotsAfter(new Date(batch.roundAt));
+  res.json({ data: slots.map(deliverySlotLabel) });
+}
+
+export async function rescheduleDeliveryTaskController(req: Request, res: Response) {
+  const { batch: currentBatch } = await assertCustomerCanManageDeliveryTask(req);
+  const input = rescheduleDeliverySchema.parse(req.body);
+  const openSlots = await nextTwoBatchSlotsAfter(new Date(currentBatch.roundAt));
+  const selected = openSlots.find((slot) => slot.deliveryRound === input.deliveryRound && slot.roundAt.getTime() === input.roundAt.getTime());
+  if (!selected) throw new AppError(400, "Choose one of the available delivery slots");
+  const batch = await moveTaskToScheduledBatch(String(req.params.id), selected);
+  if (!batch) throw new AppError(500, "Could not reschedule delivery batch");
+  const task = await DeliveryRequestModel.findById(String(req.params.id));
+  if (!task) throw new AppError(404, "Delivery request not found");
+
+  emitToCustomer(task.customerId, "customer:delivery_status_updated", {
+    taskId: task.id,
+    orderId: task.orderId,
+    tailoringRequestId: task.orderId,
+    status: "delivery_rescheduled",
+    deliveryTask: task.toJSON()
+  });
+  await sendPushToUsers([task.customerId], {
+    title: "Delivery rescheduled",
+    body: `Your delivery is now planned for ${deliverySlotLabel(selected).label}.`,
+    data: { type: "DELIVERY_RESCHEDULED", taskId: task.id, orderId: String(task.orderId), batchId: String(batch.batchId), screen: "trackOrder" },
+    channelId: "customer-orders-v2",
+    categoryId: "DARJI_ORDER",
+    sound: "ding.mp3"
+  });
+  res.json({ data: { task, batch, slot: deliverySlotLabel(selected) } });
+}
+
 export async function watchDeliveryRequestsController(req: Request, res: Response) {
   const parsedAfter = Number(req.query.after);
   const afterId = Number.isFinite(parsedAfter) ? parsedAfter : latestDeliveryEventId();
@@ -1582,6 +1656,9 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
   const tasks = await DeliveryRequestModel.find({ orderId, taskStatus: { $in: ["pending", "accepted", "picked_up"] } }).sort({ createdAt: 1 });
   let tailorId: string | undefined;
   if (req.user!.role === "TAILOR") tailorId = (await TailorModel.findOne({ userId: req.user!.id }).select("_id"))?.id;
+  const batchIds = [...new Set(tasks.map((task) => task.batchId).filter((batchId): batchId is string => typeof batchId === "string" && batchId.length > 0))];
+  const batches = batchIds.length ? await DeliveryBatchModel.find({ batchId: { $in: batchIds } }).select("batchId status lockAt roundAt deliveryRound") : [];
+  const batchById = new Map(batches.map((batch) => [batch.batchId, batch]));
 
   const visible = tasks.flatMap((task) => {
     const isCustomer = req.user!.role === "CUSTOMER" && task.customerId === req.user!.id;
@@ -1607,7 +1684,10 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
       etaWindowStart: task.etaWindowStart,
       etaWindowEnd: task.etaWindowEnd,
       routePosition: task.routePosition,
-      routeTotal: task.routeTotal
+      routeTotal: task.routeTotal,
+      batchId: task.batchId,
+      batchStatus: task.batchId ? batchById.get(task.batchId)?.status : undefined,
+      batchLockAt: task.batchId ? batchById.get(task.batchId)?.lockAt : undefined
     }];
   });
   res.json({ data: visible });
@@ -1973,6 +2053,11 @@ export async function createTailorQuoteController(req: Request, res: Response) {
     body: `${tailor.shopName} quoted Rs.${input.price} with an estimate of ${quoteEtaLabel(input)}.`,
     data: { type: "QUOTE_RECEIVED", requestId: request.id, orderId: request.id, screen: "orderDetails" }
   });
+
+  const hydratedQuote = await hydrateTailorQuote(quote);
+  emitToCustomer(request.customerId, "customer:quote_received", { requestId: request.id, quote: hydratedQuote });
+  emitToAdmins("tailoring:quote_received", { requestId: request.id, quote: hydratedQuote });
+  await resolveOperationalAlert(`NO_QUOTE:${request.id}`);
 
   res.status(201).json({ data: quote });
 }

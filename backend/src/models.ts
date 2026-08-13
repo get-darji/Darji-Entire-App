@@ -373,6 +373,32 @@ const notificationSchema = new Schema(
 );
 attachDarjiIdPlugin(notificationSchema, { field: "darjiId", prefix: "NTF" });
 
+const operationalAlertSchema = new Schema(
+  {
+    _id: stringId,
+    type: { type: String, required: true, index: true },
+    status: { type: String, enum: ["OPEN", "ACKNOWLEDGED", "RESOLVED"], default: "OPEN", index: true },
+    severity: { type: String, enum: ["INFO", "WARNING", "CRITICAL"], default: "WARNING", index: true },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    dedupeKey: { type: String, required: true, unique: true, index: true },
+    entityType: String,
+    entityId: String,
+    customerId: String,
+    customerName: String,
+    customerPhone: String,
+    metadata: { type: Schema.Types.Mixed, default: {} },
+    acknowledgedAt: Date,
+    acknowledgedBy: String,
+    resolvedAt: Date,
+    resolvedBy: String,
+    emailSentAt: Date,
+    emailError: String
+  },
+  baseOptions
+);
+attachDarjiIdPlugin(operationalAlertSchema, { field: "darjiId", prefix: "ALT" });
+
 
 const reviewSchema = new Schema(
   {
@@ -819,6 +845,7 @@ export const DeliveryPartnerModel = mongoose.model("DeliveryPartner", deliveryPa
 export const PaymentModel = mongoose.model("Payment", paymentSchema);
 export const CouponModel = mongoose.model("Coupon", couponSchema);
 export const NotificationModel = mongoose.model("Notification", notificationSchema);
+export const OperationalAlertModel = mongoose.model("OperationalAlert", operationalAlertSchema, "operational_alerts");
 export const ReviewModel = mongoose.model("Review", reviewSchema);
 export const WalletModel = mongoose.model("Wallet", walletSchema);
 export const WalletTransactionModel = mongoose.model("WalletTransaction", walletTransactionSchema);

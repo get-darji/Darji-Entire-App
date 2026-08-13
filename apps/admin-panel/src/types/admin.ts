@@ -538,10 +538,32 @@ export type DeliveryBatch = {
   slotIndex?: number;
   tasks: Array<DeliveryRequest & { request?: Partial<TailoringRequest> | null }>;
   ordersCount?: number;
+  pickupCount?: number;
+  dropCount?: number;
+  stopsCount?: number;
+  payableDistanceMeters?: number;
+  estimatedDurationSeconds?: number;
   estimatedEarnings: number;
   totalDistance?: number;
   status: "scheduled" | "locked" | "active" | "completed" | "cancelled" | string;
   partner?: DeliveryPartnerProfile | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type OperationalAlert = {
+  id: string;
+  type: string;
+  status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  title: string;
+  message: string;
+  dedupeKey: string;
+  entityType?: string;
+  entityId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  metadata?: Record<string, unknown>;
   createdAt?: string;
   updatedAt?: string;
 };

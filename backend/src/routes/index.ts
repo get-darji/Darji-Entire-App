@@ -31,6 +31,8 @@ import {
   adminWalletPayoutsController,
   listAdminDeliveryBatchesController,
   notifyDeliveryBatchController,
+  listOperationalAlertsController,
+  updateOperationalAlertController,
   getOrderController,
   getDeliveryFareSettingsController,
   listAddressesController,
@@ -97,9 +99,11 @@ import {
   failDeliveryTaskController,
   getDeliveryRequestController,
   getDeliveryTaskOtpsController,
+  listDeliveryRescheduleOptionsController,
   listDeliveryRetriesController,
   listDeliveryRequestsController,
   resolveDeliveryRetryController,
+  rescheduleDeliveryTaskController,
   rejectDeliveryRequestController,
   createTailorQuoteController,
   getTailoringRequestController,
@@ -159,6 +163,8 @@ router.get("/delivery-requests", requireAuth, requireRole("DELIVERY_PARTNER", "A
 router.get("/delivery-requests/order/:orderId/otps", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), getDeliveryTaskOtpsController);
 router.post("/delivery-requests/media", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), uploadTailoringMedia, uploadTailoringMediaController);
 router.get("/delivery-requests/events/watch", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), watchDeliveryRequestsController);
+router.get("/delivery-requests/:id/reschedule-options", requireAuth, requireRole("CUSTOMER", "ADMIN"), listDeliveryRescheduleOptionsController);
+router.patch("/delivery-requests/:id/reschedule", requireAuth, requireRole("CUSTOMER", "ADMIN"), rescheduleDeliveryTaskController);
 router.get("/delivery-requests/:id", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), getDeliveryRequestController);
 router.post("/delivery-requests/:id/accept", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), acceptDeliveryRequestController);
 router.post("/delivery-requests/:id/reject", requireAuth, requireRole("DELIVERY_PARTNER", "ADMIN"), rejectDeliveryRequestController);
@@ -174,6 +180,8 @@ router.patch("/admin/delivery-retries/:id/cancel", requireAuth, requireRole("ADM
 router.get("/admin/delivery-batches", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminDeliveryBatchesController);
 router.post("/admin/delivery-batches/:batchId/notify", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), notifyDeliveryBatchController);
 router.patch("/admin/delivery-batches/tasks/:taskId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reassignDeliveryBatchTaskController);
+router.get("/admin/operational-alerts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listOperationalAlertsController);
+router.patch("/admin/operational-alerts/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateOperationalAlertController);
 router.post("/admin/development/reset-orders", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetOrderRequestBatchDataController);
 router.post("/admin/development/reset-everything", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetEverythingDataController);
 

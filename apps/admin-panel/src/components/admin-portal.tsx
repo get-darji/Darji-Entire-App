@@ -106,6 +106,7 @@ import {
   getWalletDetail,
   createWalletPayout,
   getDeliveryFareSettings,
+  getOperationalAlerts,
   updateDeliveryFareSettings,
   getSettings,
   resetEverythingDevelopment,
@@ -137,6 +138,7 @@ import {
   resolveDeliveryRetry,
   retryDeliveryNow,
   reassignDeliveryBatchTask,
+  sendAdminNotification,
   addSupportTicketMessage,
   addBugReportMessage,
   addChangeRequestMessage,
@@ -176,7 +178,8 @@ import type {
   SupportStats,
   WalletPayoutRow,
   WalletDetail,
-  DeliveryFareSettings
+  DeliveryFareSettings,
+  OperationalAlert
 } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
@@ -479,6 +482,12 @@ export function AdminPortal() {
     queryFn: getDeliveryBatches,
     enabled: isAuthed,
     refetchInterval: 5000
+  });
+  const operationalAlertsQuery = useQuery({
+    queryKey: ["admin", "operational-alerts", "OPEN"],
+    queryFn: () => getOperationalAlerts("OPEN"),
+    enabled: isAuthed,
+    refetchInterval: 10000
   });
   const tailorsQuery = useQuery({
     queryKey: ["admin", "tailors"],
@@ -1383,6 +1392,7 @@ export function AdminPortal() {
     .slice(0, 5);
   const liveAlerts = buildLiveAlerts({
     deliveryRequests,
+    operationalAlerts: operationalAlertsQuery.data ?? [],
     orders: allOrders,
     payments,
     setActiveSection,
@@ -4010,6 +4020,17 @@ function NotificationsModule({ customers, partners, tailors }: { customers: Admi
   const [message, setMessage] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [history, setHistory] = useState<Array<{ id: string; channel: string; target: string; title: string; scheduledAt?: string; createdAt: string }>>([]);
+  const sendMutation = useMutation({
+    mutationFn: sendAdminNotification,
+    onSuccess: (result) => {
+      setHistory((current) => [{ id: crypto.randomUUID(), channel, target, title, scheduledAt, createdAt: new Date().toISOString() }, ...current]);
+      setTitle("");
+      setMessage("");
+      setScheduledAt("");
+      toast.success(`Notification sent to ${result.recipients} user${result.recipients === 1 ? "" : "s"}`);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
   const targetCount = target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
 
   return (
@@ -4041,14 +4062,8 @@ function NotificationsModule({ customers, partners, tailors }: { customers: Admi
             <Field label="Schedule time">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
             </Field>
-            <ActionButton disabled={!title.trim() || !message.trim()} onClick={() => {
-              setHistory((current) => [{ id: crypto.randomUUID(), channel, target, title, scheduledAt, createdAt: new Date().toISOString() }, ...current]);
-              setTitle("");
-              setMessage("");
-              setScheduledAt("");
-              toast.success("Notification saved locally for MVP review");
-            }}>
-              Save notification
+            <ActionButton disabled={channel !== "push" || !title.trim() || !message.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate({ target: target as "everyone" | "customers" | "tailors" | "delivery", title: title.trim(), body: message.trim() })}>
+              {sendMutation.isPending ? "Sending..." : "Send notification"}
             </ActionButton>
           </div>
         </Panel>
@@ -4552,7 +4567,6 @@ function DeliveryBatchManagement({
   pendingTaskId?: string;
 }) {
   const [statusFilter, setStatusFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"PICKUP" | "DROP">("PICKUP");
   const [selectedDate, setSelectedDate] = useState(() => localDateInputValue(new Date()));
   const sortedBatches = useMemo(
     () => [...batches].sort((a, b) => new Date(a.roundAt).getTime() - new Date(b.roundAt).getTime()),
@@ -4562,8 +4576,8 @@ function DeliveryBatchManagement({
     () => sortedBatches.filter((batch) => localDateKey(batch.roundAt) === selectedDate),
     [selectedDate, sortedBatches]
   );
-  const pickupCount = selectedDayBatches.filter((batch) => batch.deliveryType === "PICKUP").length;
-  const dropCount = selectedDayBatches.filter((batch) => batch.deliveryType === "DROP").length;
+  const pickupCount = selectedDayBatches.reduce((sum, batch) => sum + Number(batch.pickupCount ?? batch.tasks.filter((task) => task.type === "customer_to_tailor").length), 0);
+  const dropCount = selectedDayBatches.reduce((sum, batch) => sum + Number(batch.dropCount ?? batch.tasks.filter((task) => task.type === "tailor_to_customer").length), 0);
   const batchStage = (batch: DeliveryBatch) => {
     const status = String(batch.status);
     if (status === "completed") return "completed";
@@ -4573,8 +4587,7 @@ function DeliveryBatchManagement({
     return "upcoming";
   };
   const visibleBatches = selectedDayBatches.filter((batch) =>
-    (!statusFilter || batchStage(batch) === statusFilter) &&
-    batch.deliveryType === typeFilter
+    (!statusFilter || batchStage(batch) === statusFilter)
   );
   const selectedIsToday = selectedDate === localDateInputValue(new Date());
   const activeTargetBatches = sortedBatches.filter((batch) => !["completed", "cancelled"].includes(batch.status));
@@ -4589,7 +4602,7 @@ function DeliveryBatchManagement({
     <div className="space-y-6">
       <SectionIntro
         title="Batch management"
-        description="Inspect active pickup/drop batches, route orders, earnings, and move an order into another compatible batch."
+        description="Inspect mixed delivery batches, optimized routes, rider earnings, and move an order into another compatible slot."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2">
@@ -4604,14 +4617,6 @@ function DeliveryBatchManagement({
             <ActionButton className="px-4 py-2" variant="secondary" onClick={() => setSelectedDate(localDateInputValue(new Date()))}>
               Today
             </ActionButton>
-            <FilterSelect
-              value={typeFilter}
-              onChange={(value) => setTypeFilter(value === "DROP" ? "DROP" : "PICKUP")}
-              options={[
-                { label: "Pickup", value: "PICKUP" },
-                { label: "Drop", value: "DROP" }
-              ]}
-            />
             <FilterSelect
               value={statusFilter}
               onChange={setStatusFilter}
@@ -4628,30 +4633,15 @@ function DeliveryBatchManagement({
           </div>
         }
       />
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note={selectedDateLabel} tone="sky" />
-        <FinanceStatCard label="Pickup" value={pickupCount.toLocaleString("en-IN")} note="Selected day" tone="amber" />
-        <FinanceStatCard label="Drop" value={dropCount.toLocaleString("en-IN")} note="Selected day" tone="rose" />
+        <FinanceStatCard label="Pickup jobs" value={pickupCount.toLocaleString("en-IN")} note="Selected day" tone="amber" />
+        <FinanceStatCard label="Drop jobs" value={dropCount.toLocaleString("en-IN")} note="Selected day" tone="rose" />
         <FinanceStatCard label="1 PM batches" value={onePmBatches.length.toLocaleString("en-IN")} note={selectedIsToday ? "Today" : "Selected day"} tone="amber" />
         <FinanceStatCard label="6 PM batches" value={sixPmBatches.length.toLocaleString("en-IN")} note={selectedIsToday ? "Today" : "Selected day"} tone="emerald" />
       </div>
-      <div className="inline-flex rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-1">
-        {(["PICKUP", "DROP"] as const).map((type) => (
-          <button
-            key={type}
-            type="button"
-            onClick={() => setTypeFilter(type)}
-            className={cn(
-              "rounded-xl px-4 py-2 text-sm font-black transition",
-              typeFilter === type ? "bg-[var(--deep)] text-white" : "text-[var(--muted)] hover:text-[var(--deep)]"
-            )}
-          >
-            {type === "PICKUP" ? "Pickup" : "Drop"} ({type === "PICKUP" ? pickupCount : dropCount})
-          </button>
-        ))}
-      </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note={typeFilter === "PICKUP" ? "Pickup requests" : "Drop requests"} tone="emerald" />
+        <FinanceStatCard label="Orders in batches" value={totalTasks.toLocaleString("en-IN")} note="Pickup and drop requests" tone="emerald" />
         <FinanceStatCard label="Delivery earnings" value={formatCurrency(totalEarnings)} note="Partner payable" tone="rose" />
       </div>
       {error ? (
@@ -4667,14 +4657,14 @@ function DeliveryBatchManagement({
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--accent)]">Opened from Orders</p>
                 <h3 className="mt-1 text-xl font-bold text-[var(--deep)]">BATCH-{focusedBatch.batchId.slice(0, 8).toUpperCase()}</h3>
-                <p className="mt-1 text-sm text-[var(--muted)]">{formatDate(focusedBatch.roundAt, true)} - {focusedBatch.area} - {focusedBatch.deliveryType}</p>
+                <p className="mt-1 text-sm text-[var(--muted)]">{formatDate(focusedBatch.roundAt, true)} - {focusedBatch.area} - mixed route</p>
               </div>
               <Badge tone="amber">Focused batch</Badge>
             </div>
           </Panel>
         ) : null}
         <BatchSection
-          title={`${typeFilter === "PICKUP" ? "Pickup" : "Drop"} - 1 PM batches for ${selectedDateLabel}`}
+          title={`1 PM mixed batches for ${selectedDateLabel}`}
           focusBatchId={focusBatch?.batchId}
           batchCapacity={batchCapacity}
           batches={onePmBatches}
@@ -4686,7 +4676,7 @@ function DeliveryBatchManagement({
           onReassign={onReassign}
         />
         <BatchSection
-          title={`${typeFilter === "PICKUP" ? "Pickup" : "Drop"} - 6 PM batches for ${selectedDateLabel}`}
+          title={`6 PM mixed batches for ${selectedDateLabel}`}
           focusBatchId={focusBatch?.batchId}
           batchCapacity={batchCapacity}
           batches={sixPmBatches}
@@ -4836,7 +4826,6 @@ function BatchSection({
                       const order = orders.find((candidate) => candidate.id === task.orderId || candidate.request?.id === task.orderId);
                       const targetBatches = activeTargetBatches.filter((target) =>
                         target.batchId !== batch.batchId &&
-                        target.deliveryType === batch.deliveryType &&
                         target.deliveryRound === batch.deliveryRound
                       );
                       const pending = pendingTaskId === task.id;
@@ -9394,6 +9383,7 @@ function isTailorProfile(profile: TailorProfile | DeliveryPartnerProfile): profi
 
 function buildLiveAlerts({
   deliveryRequests,
+  operationalAlerts,
   orders,
   payments,
   setActiveSection,
@@ -9405,6 +9395,7 @@ function buildLiveAlerts({
   tickets
 }: {
   deliveryRequests: DeliveryRequest[];
+  operationalAlerts: OperationalAlert[];
   orders: Order[];
   payments: Payment[];
   setActiveSection: (section: SectionId) => void;
@@ -9419,6 +9410,23 @@ function buildLiveAlerts({
   const alerts: AdminAlert[] = [];
   const minutesAgo = (value?: string) => (value ? (now - new Date(value).getTime()) / 60000 : 0);
   const isOpenDelivery = (request: DeliveryRequest) => !["delivered", "completed", "cancelled", "CANCELLED"].includes(request.taskStatus);
+
+  operationalAlerts
+    .filter((alert) => alert.status === "OPEN")
+    .slice(0, 4)
+    .forEach((alert) => {
+      alerts.push({
+        detail: alert.message,
+        id: `operational-${alert.id}`,
+        onOpen: () => {
+          if (alert.entityType === "delivery_batch" || alert.type.includes("DELIVERY") || alert.type.includes("BATCH")) setActiveSection("batches");
+          else if (alert.entityType === "tailoring_request") setActiveSection("tailoring");
+          else setActiveSection("dashboard");
+        },
+        title: alert.title,
+        tone: alert.severity === "CRITICAL" ? "rose" : alert.severity === "INFO" ? "sky" : "amber"
+      });
+    });
 
   tailoringRequests
     .filter((request) => request.status === "QUOTE_REQUESTED" && minutesAgo(request.createdAt) >= 10)

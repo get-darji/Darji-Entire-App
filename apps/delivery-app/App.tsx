@@ -1927,7 +1927,7 @@ function HomeScreen({
               <StatusPill status="ACCEPTED" />
             </View>
             <View style={styles.cardDivider} />
-            <StatusRow label="Logistics Type" value={activeBatch.deliveryType} />
+            <StatusRow label="Route mix" value={`${activeBatch.pickupCount ?? activeBatch.requests.filter((r) => r.type === "customer_to_tailor" || r.deliveryType === "PICKUP").length} pickup / ${activeBatch.dropCount ?? activeBatch.requests.filter((r) => r.type === "tailor_to_customer" || r.deliveryType === "DROP").length} drop`} />
             <StatusRow label="Operational Area" value={activeBatch.area} />
             <TimestampBadge label="Batch assigned" value={activeBatch.requests[0]?.acceptedAt ?? activeBatch.roundAt} />
             <PrimaryButton icon="navigate-outline" label="Open active batch" onPress={() => onOpenBatch(activeBatch.batchId)} />
@@ -2017,7 +2017,7 @@ function OrderRequestModal({
             </View>
             <View style={styles.cardMain}>
               <Text style={[styles.popupEyebrow, isInstant && styles.instantEyebrow]}>{isBatchOffer ? "BATCH OFFER" : isInstant ? "INSTANT DELIVERY" : "NEW DELIVERY"}</Text>
-              <Text style={styles.popupTitle}>{isBatchOffer ? `${roundLabel} ${request.deliveryType === "DROP" ? "drop" : "pickup"} batch` : requestTitle(request)}</Text>
+              <Text style={styles.popupTitle}>{isBatchOffer ? `${roundLabel} route batch` : requestTitle(request)}</Text>
             </View>
             <View style={[styles.countCircle, isInstant && styles.instantCountCircle]}>
               <Text style={[styles.countText, isInstant && styles.instantCountText]}>{countdown}</Text>
@@ -2103,7 +2103,7 @@ function BatchOfferModal({
             </View>
             <View style={styles.cardMain}>
               <Text style={styles.popupEyebrow}>BATCH OFFER</Text>
-              <Text style={styles.popupTitle}>{roundLabel} {request.deliveryType === "DROP" ? "drop" : "pickup"} batch</Text>
+              <Text style={styles.popupTitle}>{roundLabel} route batch</Text>
             </View>
             <View style={styles.countCircle}>
               <Text style={styles.countText}>{countdown}</Text>
@@ -2211,7 +2211,7 @@ function BatchDetailsView({
         <View style={styles.flexOne}>
           <Text style={styles.heroLabel}>BATCH ID: {batch.batchId.slice(0, 8).toUpperCase()}</Text>
           <Text style={styles.heroTitle}>{batch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
-          <Text style={styles.heroCopy}>{batch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{batch.requests.length} orders completed • Route in {batch.area} ({batch.deliveryType === "PICKUP" ? "Pickup round" : "Drop round"})</Text>
+          <Text style={styles.heroCopy}>{batch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{batch.requests.length} orders completed • Route in {batch.area} ({batch.pickupCount ?? 0} pickup / {batch.dropCount ?? 0} drop)</Text>
         </View>
         <View style={styles.heroIcon}>
           <Ionicons name="map-outline" size={32} color="#111111" />

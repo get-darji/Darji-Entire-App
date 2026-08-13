@@ -19,6 +19,7 @@ import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   type AlertButton,
   AppState,
   BackHandler,
@@ -415,7 +416,11 @@ type HandoffOtp = {
   etaWindowEnd?: string;
   routePosition?: number;
   routeTotal?: number;
+  batchId?: string;
+  batchStatus?: string;
+  batchLockAt?: string;
 };
+type DeliveryRescheduleOption = { deliveryRound: "ONE_PM" | "SIX_PM"; roundAt: string; lockAt: string; label: string };
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
@@ -5419,6 +5424,7 @@ function OrderSummaryScreen({
 function QuotesScreen({
   draft,
   selectedQuote,
+  liveQuote,
   setSelectedQuote,
   setScreen,
   showDialog,
@@ -5426,6 +5432,7 @@ function QuotesScreen({
 }: {
   draft: RequestDraft;
   selectedQuote?: Quote;
+  liveQuote?: Quote;
   setSelectedQuote: (quote: Quote) => void;
   setScreen: (screen: Screen) => void;
   showDialog: (dialog: AppDialogState) => void;
@@ -5441,6 +5448,7 @@ function QuotesScreen({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
   const [deleting, setDeleting] = useState(false);
+  const radarPulse = useRef(new Animated.Value(0)).current;
   const itemCount = backendRequest?.itemCount ?? checkoutItemCount(draft);
   const responseCount = backendRequest?.quoteCount ?? backendQuotes.length;
   const requestSentLabel = formatRequestSentLabel(backendRequest?.createdAt);
@@ -5474,6 +5482,27 @@ function QuotesScreen({
   useEffect(() => {
     void loadQuotes();
   }, [draft.backendRequestId, token, refreshSignal]);
+
+  useEffect(() => {
+    if (backendQuotes.length) return;
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(radarPulse, { toValue: 1, duration: 1300, useNativeDriver: true }),
+        Animated.timing(radarPulse, { toValue: 0, duration: 0, useNativeDriver: true })
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [backendQuotes.length, radarPulse]);
+
+  useEffect(() => {
+    if (!liveQuote?.backendQuoteId || liveQuote.backendRequestId !== draft.backendRequestId) return;
+    setBackendQuotes((current) => {
+      if (current.some((quote) => quote.backendQuoteId === liveQuote.backendQuoteId)) return current;
+      return [...current, liveQuote];
+    });
+    setBackendRequest((current) => current ? { ...current, quoteCount: Math.max(Number(current.quoteCount ?? 0), backendQuotes.length + 1) } : current);
+  }, [draft.backendRequestId, liveQuote]);
 
   const visibleQuotes = [...backendQuotes].sort((a, b) => {
     const aFav = (a.tailorId && favoriteTailorIds.includes(a.tailorId)) || (a.tailorProfile?.id && favoriteTailorIds.includes(a.tailorProfile.id));
@@ -5557,6 +5586,15 @@ function QuotesScreen({
         {visibleQuotes.length === 0 && !loading ? (
           <View style={styles.quotesWaitingState}>
             <View style={styles.quotesIllustration}>
+              <Animated.View
+                style={[
+                  styles.quotesRadarPulse,
+                  {
+                    opacity: radarPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+                    transform: [{ scale: radarPulse.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1.35] }) }]
+                  }
+                ]}
+              />
               <View style={styles.quotesSparkLeft}>
                 <Ionicons name="sparkles-outline" size={24} color="#ffd990" />
               </View>
@@ -5567,7 +5605,7 @@ function QuotesScreen({
               <Ionicons name="paper-plane-outline" size={44} color={BRAND_ORANGE} style={styles.quotesPlaneIcon} />
             </View>
             <Text style={styles.emptyTitle}>Waiting for tailor quotes</Text>
-            <Text style={styles.quotesWaitingCopy}>Tailors in your area are reviewing your request and will send their best quotes soon.</Text>
+            <Text style={styles.quotesWaitingCopy}>Searching for available tailors near you. New quotes will appear here automatically.</Text>
           </View>
         ) : null}
 
@@ -9648,6 +9686,76 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
   );
 }
 
+function CustomerDeliveryRescheduleCard({ orderId, status }: { orderId?: string; status: string }) {
+  const token = useAppStore((state) => state.token);
+  const [task, setTask] = useState<HandoffOtp | undefined>();
+  const [options, setOptions] = useState<DeliveryRescheduleOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [savingRoundAt, setSavingRoundAt] = useState<string | undefined>();
+
+  const loadOptions = useCallback(async () => {
+    if (!token || !orderId) return;
+    setLoading(true);
+    try {
+      const tasks = await api<HandoffOtp[]>(`/delivery-requests/order/${orderId}/otps`, {}, token);
+      const now = Date.now();
+      const nextTask = tasks.find((item) => {
+        const lockAt = item.batchLockAt ? new Date(item.batchLockAt).getTime() : Number.POSITIVE_INFINITY;
+        return item.type === "tailor_to_customer" && item.taskStatus === "pending" && item.batchId && item.batchStatus === "scheduled" && lockAt > now;
+      });
+      setTask(nextTask);
+      if (!nextTask) {
+        setOptions([]);
+        return;
+      }
+      const slots = await api<DeliveryRescheduleOption[]>(`/delivery-requests/${nextTask.taskId}/reschedule-options`, {}, token);
+      setOptions(slots);
+    } catch {
+      setTask(undefined);
+      setOptions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [orderId, token]);
+
+  useEffect(() => {
+    void loadOptions();
+  }, [loadOptions, status]);
+
+  const reschedule = async (option: DeliveryRescheduleOption) => {
+    if (!token || !task) return;
+    setSavingRoundAt(option.roundAt);
+    try {
+      await api(`/delivery-requests/${task.taskId}/reschedule`, {
+        method: "PATCH",
+        body: JSON.stringify({ deliveryRound: option.deliveryRound, roundAt: option.roundAt })
+      }, token);
+      Alert.alert("Delivery updated", `Your delivery is now planned for ${option.label}.`);
+      await loadOptions();
+    } catch (error) {
+      Alert.alert("Could not reschedule", error instanceof Error ? error.message : "Please try again.");
+    } finally {
+      setSavingRoundAt(undefined);
+    }
+  };
+
+  if (loading || !task || !options.length) return null;
+  return (
+    <View style={[styles.whiteCard, styles.deliveryRescheduleCard]}>
+      <Text style={styles.cardLabel}>RESCHEDULE DELIVERY</Text>
+      <Text style={styles.addressTitle}>Need a different delivery slot?</Text>
+      <Text style={styles.mutedSmall}>You can move this delivery before the batch is locked.</Text>
+      <View style={styles.deliverySlotRow}>
+        {options.map((option) => (
+          <Pressable key={option.roundAt} style={styles.deliverySlotButton} disabled={Boolean(savingRoundAt)} onPress={() => reschedule(option)}>
+            {savingRoundAt === option.roundAt ? <ActivityIndicator color="#111111" size="small" /> : <Text style={styles.deliverySlotText}>{option.label}</Text>}
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function TrackOrderScreenV2({
   order,
   setScreen
@@ -9670,6 +9778,7 @@ function TrackOrderScreenV2({
         </View>
         <CustomerHandoffOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <CustomerEtaCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+        <CustomerDeliveryRescheduleCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <View style={styles.timeline}>
           {steps.map(([label, time, done], index) => (
             <View key={label} style={styles.timelineRow}>
@@ -9714,6 +9823,7 @@ export default function App() {
   const [dialog, setDialog] = useState<AppDialogState | undefined>();
   const [draft, setDraft] = useState<RequestDraft>(() => makeEmptyDraft());
   const [selectedQuote, setSelectedQuote] = useState<Quote | undefined>();
+  const [liveQuote, setLiveQuote] = useState<Quote | undefined>();
   const [hasLoadedRequestDraft, setHasLoadedRequestDraft] = useState(false);
   const [requestProgressScreen, setRequestProgressScreen] = useState<RequestFlowScreen>("newRequest");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
@@ -10481,6 +10591,18 @@ export default function App() {
     socket.on("customer:delivery_status_updated", ({ tailoringRequestId, status }: { tailoringRequestId?: string; status?: string }) => {
       if (tailoringRequestId && status) applyRealtimeOrderStatus(tailoringRequestId, status);
     });
+    socket.on("customer:quote_received", ({ requestId, quote }: { requestId?: string; quote?: BackendTailorQuote }) => {
+      if (!requestId || !quote) return;
+      const nextQuote = quoteFromBackend(quote);
+      setLiveQuote(nextQuote);
+      setCustomerOrders((current) =>
+        current.map((order) =>
+          order.backendOrderId === requestId || order.id === requestId
+            ? { ...order, tailor: order.tailor.backendQuoteId ? order.tailor : nextQuote }
+            : order
+        )
+      );
+    });
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -10758,7 +10880,7 @@ export default function App() {
   if (screen === "clothIssue") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} stage="work" />);
   if (screen === "measurements") return withAppChrome(<ClothIssueScreen draft={draft} setDraft={setDraft} setScreen={setScreen} stage="measurements" />);
   if (screen === "orderSummary") return withAppChrome(<OrderSummaryScreen draft={draft} setDraft={setDraft} setScreen={setScreen} showDialog={setDialog} onCancelRequest={cancelRequest} />);
-  if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => deleteIncompleteRequest(draft.backendRequestId)} />);
+  if (screen === "quotes") return withAppChrome(<QuotesScreen draft={draft} selectedQuote={selectedQuote} liveQuote={liveQuote} setSelectedQuote={setSelectedQuote} setScreen={setScreen} showDialog={setDialog} onDeleteRequest={() => deleteIncompleteRequest(draft.backendRequestId)} />);
   if (screen === "confirmOrder" && selectedQuote) return withAppChrome(<ConfirmOrderScreen quote={selectedQuote} draft={draft} setDraft={setDraft} setScreen={setScreen} onPlaceOrder={placeOrder} isPlacingOrder={Boolean(checkoutPaymentMethod)} onDeleteRequest={() => deleteIncompleteRequest(selectedQuote.backendRequestId ?? draft.backendRequestId)} />);
   if (screen === "orderDetails" && activeOrderForCustomer) return withAppChrome(<OrderDetailsScreenV2 order={activeOrderForCustomer} onUpdateOrder={updateOrder} onRequestCancel={requestCancelOrder} setScreen={setScreen} />);
   if (screen === "trackOrder" && activeOrderForCustomer) {
@@ -11498,6 +11620,7 @@ function createStyles(isDark = false) {
   quoteDetailsButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
   quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 8 },
   quotesIllustration: { width: 220, height: 220, borderRadius: 110, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 24, marginTop: 26 },
+  quotesRadarPulse: { position: "absolute", width: 190, height: 190, borderRadius: 95, borderWidth: 3, borderColor: BRAND_ORANGE, backgroundColor: "transparent" },
   quotesPlaneIcon: { position: "absolute", right: 28, top: 30, transform: [{ rotate: "-8deg" }] },
   quotesSparkLeft: { position: "absolute", left: -28, top: 86 },
   quotesSparkRight: { position: "absolute", right: -36, top: 86 },
@@ -11609,6 +11732,10 @@ function createStyles(isDark = false) {
   etaAlertTime: { color: "#dc2626", fontSize: 17, lineHeight: 23, fontWeight: "900", marginTop: 4 },
   etaAlertIssue: { color: "#991b1b", fontSize: 12, lineHeight: 18, fontWeight: "800", marginTop: 4 },
   etaQueueBadge: { overflow: "hidden", borderRadius: 16, backgroundColor: "#dc2626", color: "#ffffff", paddingHorizontal: 12, paddingVertical: 8, fontSize: 16, fontWeight: "900" },
+  deliveryRescheduleCard: { backgroundColor: "#fffaf0", borderColor: "#fde68a" },
+  deliverySlotRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 },
+  deliverySlotButton: { minHeight: 44, flexGrow: 1, flexBasis: "46%", alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: BRAND_ORANGE, paddingHorizontal: 12, paddingVertical: 10 },
+  deliverySlotText: { color: "#111111", fontSize: 13, fontWeight: "900", textAlign: "center" },
   cardLabel: { color: muted, fontSize: 12, fontWeight: "900", marginBottom: 14 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 13 },
   summaryLabel: { color: muted, fontSize: 13 },
