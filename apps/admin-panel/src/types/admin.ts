@@ -85,6 +85,8 @@ export type TailorProfile = {
   isAvailable: boolean;
   workingHours?: unknown;
   settings?: unknown;
+  tailorRoles?: string[];
+  measurementPartner?: { isEnabled?: boolean; visitPayout?: number; serviceAreas?: string[] };
   verificationStatus?: string;
   verificationSubmittedAt?: string;
   verificationReviewedAt?: string;
@@ -99,6 +101,34 @@ export type TailorProfile = {
   user?: BasicUser;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type MeasurementVisit = {
+  id: string;
+  darjiId?: string;
+  requestId: string;
+  customerId: string;
+  stitchingTailorId: string;
+  offeredTailorId?: string;
+  assignedTailorId?: string;
+  status: "OFFERED_TO_STITCHING_TAILOR" | "POOL" | "ACCEPTED" | "IN_PROGRESS" | "SUBMITTED" | "CANCELLED" | "EXPIRED" | string;
+  scheduledAt: string;
+  visitPayout?: number;
+  customerName?: string;
+  customerPhone?: string;
+  pickupAddress?: string;
+  garmentSummary?: string;
+  submittedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  submission?: {
+    measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+    fitPreferences?: string[];
+    notes?: string;
+    specialInstructions?: string;
+    voiceNotes?: Array<{ url: string; originalName?: string; durationMs?: number; mimeType?: string }>;
+    photos?: Array<{ url: string; originalName?: string; mimeType?: string }>;
+  };
 };
 
 export type TailorSample = {

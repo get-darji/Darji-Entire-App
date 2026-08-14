@@ -10,6 +10,7 @@ export type SectionId =
   | "tailoring"
   | "delivery"
   | "batches"
+  | "measurements"
   | "tailors"
   | "samples"
   | "partners"

@@ -9,6 +9,7 @@ const apiUrl =
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
 const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
+const REQUEST_TIMEOUT_MS = 15000;
 
 async function performAccessTokenRefresh() {
   const refreshToken = useAppStore.getState().refreshToken;
@@ -58,26 +59,36 @@ export async function getPlatformStatus() {
 }
 
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${apiUrl}${path}`, {
+      ...options,
+      signal: options.signal ?? controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers
+      }
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const issues = body.issues?.fieldErrors;
+      const issueMessage = issues && typeof issues === "object"
+        ? Object.entries(issues)
+            .flatMap(([field, messages]) => Array.isArray(messages) ? messages.map((message) => `${field}: ${message}`) : [])
+            .join("\n")
+        : "";
+      throw new Error(issueMessage || body.message || "Request failed");
     }
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const issues = body.issues?.fieldErrors;
-    const issueMessage = issues && typeof issues === "object"
-      ? Object.entries(issues)
-          .flatMap(([field, messages]) => Array.isArray(messages) ? messages.map((message) => `${field}: ${message}`) : [])
-          .join("\n")
-      : "";
-    throw new Error(issueMessage || body.message || "Request failed");
+    return body.data as T;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error("Backend connection timed out. Make sure the backend is running on this network.");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return body.data as T;
 }
 
 export async function api<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {

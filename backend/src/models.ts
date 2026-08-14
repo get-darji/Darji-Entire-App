@@ -267,6 +267,12 @@ const tailorSchema = new Schema(
     isAvailable: { type: Boolean, default: true, index: true },
     workingHours: { type: Schema.Types.Mixed },
     settings: { type: Schema.Types.Mixed },
+    tailorRoles: { type: [String], enum: ["STITCHING_TAILOR", "MEASUREMENT_PARTNER"], default: ["STITCHING_TAILOR"], index: true },
+    measurementPartner: {
+      isEnabled: { type: Boolean, default: false, index: true },
+      visitPayout: { type: Number, default: 75 },
+      serviceAreas: { type: [String], default: [] }
+    },
     verificationStatus: { type: String, enum: ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"], default: "NOT_SUBMITTED", index: true },
     verificationSubmittedAt: Date,
     verificationReviewedAt: Date,
@@ -398,6 +404,58 @@ const operationalAlertSchema = new Schema(
   baseOptions
 );
 attachDarjiIdPlugin(operationalAlertSchema, { field: "darjiId", prefix: "ALT" });
+
+const measurementVisitMediaSchema = new Schema(
+  {
+    url: { type: String, required: true },
+    publicId: { type: String, required: true },
+    resourceType: { type: String, enum: ["image", "video", "audio"], required: true },
+    bytes: { type: Number, required: true },
+    format: String,
+    originalName: String
+  },
+  { _id: false, versionKey: false }
+);
+
+const measurementVisitSchema = new Schema(
+  {
+    _id: stringId,
+    darjiId: { type: String, unique: true, sparse: true },
+    requestId: { type: String, required: true, unique: true, index: true },
+    customerId: { type: String, required: true, index: true },
+    stitchingTailorId: { type: String, required: true, index: true },
+    offeredTailorId: { type: String, index: true },
+    assignedTailorId: { type: String, index: true },
+    declinedTailorIds: { type: [String], default: [] },
+    status: {
+      type: String,
+      enum: ["OFFERED_TO_STITCHING_TAILOR", "POOL", "ACCEPTED", "IN_PROGRESS", "SUBMITTED", "CANCELLED", "EXPIRED"],
+      default: "OFFERED_TO_STITCHING_TAILOR",
+      index: true
+    },
+    scheduledAt: { type: Date, required: true, index: true },
+    visitPayout: { type: Number, default: 75 },
+    customerName: String,
+    customerPhone: String,
+    pickupAddress: String,
+    garmentSummary: String,
+    poolOpenedAt: Date,
+    acceptedAt: Date,
+    submittedAt: Date,
+    cancelledAt: Date,
+    otpVerifiedAt: Date,
+    submission: {
+      measurement: measurementSchema,
+      fitPreferences: { type: [String], default: [] },
+      notes: String,
+      specialInstructions: String,
+      voiceNotes: { type: [measurementVisitMediaSchema], default: [] },
+      photos: { type: [measurementVisitMediaSchema], default: [] }
+    }
+  },
+  baseOptions
+);
+attachDarjiIdPlugin(measurementVisitSchema, { field: "darjiId", prefix: "MVS" });
 
 
 const reviewSchema = new Schema(
@@ -846,6 +904,7 @@ export const PaymentModel = mongoose.model("Payment", paymentSchema);
 export const CouponModel = mongoose.model("Coupon", couponSchema);
 export const NotificationModel = mongoose.model("Notification", notificationSchema);
 export const OperationalAlertModel = mongoose.model("OperationalAlert", operationalAlertSchema, "operational_alerts");
+export const MeasurementVisitModel = mongoose.model("MeasurementVisit", measurementVisitSchema, "measurement_visits");
 export const ReviewModel = mongoose.model("Review", reviewSchema);
 export const WalletModel = mongoose.model("Wallet", walletSchema);
 export const WalletTransactionModel = mongoose.model("WalletTransaction", walletTransactionSchema);

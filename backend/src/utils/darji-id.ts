@@ -13,6 +13,7 @@ export type DarjiIdPrefix =
   | "DPP"
   | "DRQ"
   | "INV"
+  | "MVS"
   | "NTF"
   | "ORD"
   | "PAY"

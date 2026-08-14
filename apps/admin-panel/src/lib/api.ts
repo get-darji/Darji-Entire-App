@@ -12,6 +12,7 @@ import type {
   DeliveryPartnerProfile,
   DeliveryBatch,
   DeliveryRequest,
+  MeasurementVisit,
   MeResponse,
   Order,
   Payment,
@@ -129,6 +130,15 @@ export async function getDeliveryRetries() {
 
 export async function getDeliveryBatches() {
   return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
+}
+
+export async function getMeasurementVisits() {
+  return unwrap<MeasurementVisit[]>(api.get("/measurement-visits"));
+}
+
+export async function assignMeasurementVisit(payload: { visitId: string; tailorId: string }) {
+  const { visitId, ...body } = payload;
+  return unwrap<MeasurementVisit>(api.patch(`/admin/measurement-visits/${visitId}/assign`, body));
 }
 
 export async function getOperationalAlerts(status = "OPEN") {

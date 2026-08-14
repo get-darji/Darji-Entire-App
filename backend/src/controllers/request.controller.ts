@@ -19,6 +19,7 @@ import {
 } from "../services/notificationService.js";
 import { emitToAdmins, emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
 import { resolveOperationalAlert } from "../services/operational-alert.service.js";
+import { createMeasurementVisitForConfirmedRequest } from "../services/measurement-visit.service.js";
 import { creditOrderEarning } from "../services/wallet.service.js";
 import {
   addTaskToSilentBatch,
@@ -850,6 +851,7 @@ async function finalizeTailoringRequestConfirmation(
       actions: ["View Order"]
     });
 
+    await createMeasurementVisitForConfirmedRequest(request.id, quote.id);
     deliveryRequest = await createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId);
   } catch (error) {
     console.error("[checkout] post-confirmation side effects failed", {

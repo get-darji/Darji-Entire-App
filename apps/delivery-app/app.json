@@ -53,7 +53,7 @@
       ]
     },
     "extra": {
-      "apiUrl": "https://backend-production-5a7e4.up.railway.app/api",
+      "apiUrl": "http://192.168.1.2:4000/api",
       "eas": {
         "projectId": "bf4d321e-74c1-4a09-abfa-d457fc813430"
       }

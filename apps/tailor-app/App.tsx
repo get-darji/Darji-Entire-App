@@ -144,7 +144,7 @@ export function getFallbackAvatar(name?: string, gender?: string) {
     : `https://avatar.iran.liara.run/public/girl?username=${encodeURIComponent(str)}`;
 }
 
-type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "earnings" | "earningDetails" | "profile" | "transactions";
+type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "measurementVisits" | "earnings" | "earningDetails" | "profile" | "transactions";
 type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
 type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
@@ -247,6 +247,8 @@ type TailorProfile = {
   isAvailable: boolean;
   earnings: number;
   workingHours?: { from?: string; to?: string };
+  tailorRoles?: string[];
+  measurementPartner?: { isEnabled?: boolean; visitPayout?: number; serviceAreas?: string[] };
   settings?: { notifications?: boolean; soundAlerts?: boolean; compactCards?: boolean; autoOpenNewRequests?: boolean; maxOrdersPerDay?: number };
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verificationSubmittedAt?: string;
@@ -257,6 +259,29 @@ type TailorProfile = {
   verificationLastRejectedAt?: string;
   verification?: TailorVerificationPayload;
   verificationDraft?: Partial<VerificationDraft>;
+};
+type MeasurementVisit = {
+  id: string;
+  requestId: string;
+  customerId: string;
+  stitchingTailorId: string;
+  offeredTailorId?: string;
+  assignedTailorId?: string;
+  status: "OFFERED_TO_STITCHING_TAILOR" | "POOL" | "ACCEPTED" | "IN_PROGRESS" | "SUBMITTED" | "CANCELLED" | "EXPIRED";
+  scheduledAt: string;
+  visitPayout?: number;
+  customerName?: string;
+  customerPhone?: string;
+  pickupAddress?: string;
+  garmentSummary?: string;
+  submission?: {
+    measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+    fitPreferences?: string[];
+    notes?: string;
+    specialInstructions?: string;
+    voiceNotes?: MediaItem[];
+    photos?: MediaItem[];
+  };
 };
 type MeResponse = {
   id: string;
@@ -862,6 +887,14 @@ function DashboardScreen({
           <Text style={styles.statValue}>{money(estimatedEarnings)}</Text>
           <Text style={styles.statLabel}>Earnings</Text>
           <Text style={styles.statMeta}>Total earnings</Text>
+        </Pressable>
+        <Pressable style={styles.statCard} onPress={() => setScreen("measurementVisits")}>
+          <View style={[styles.statIcon, { backgroundColor: "#e0f2fe" }]}>
+            <Ionicons name="resize-outline" size={20} color="#0284c7" />
+          </View>
+          <Text style={styles.statValue}>Visit</Text>
+          <Text style={styles.statLabel}>Measurements</Text>
+          <Text style={styles.statMeta}>Home visit work</Text>
         </Pressable>
       </View>
 
@@ -4597,6 +4630,201 @@ function SettingsSwitch({ title, copy, value, onValueChange }: { title: string; 
   );
 }
 
+function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshProfile }: {
+  me?: MeResponse;
+  token?: string | null;
+  setScreen: (screen: Screen) => void;
+  showDialog: (dialog: DialogState) => void;
+  onRefreshProfile: () => void | Promise<void>;
+}) {
+  const [visits, setVisits] = useState<MeasurementVisit[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState<string>();
+  const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
+  const [otp, setOtp] = useState("");
+  const [fields, setFields] = useState({ chest: "", waist: "", shoulder: "", length: "" });
+  const [notes, setNotes] = useState("");
+  const measurementEnabled = Boolean(me?.tailorProfile?.measurementPartner?.isEnabled);
+  const stitchingEnabled = !me?.tailorProfile?.tailorRoles?.length || me.tailorProfile.tailorRoles.includes("STITCHING_TAILOR");
+
+  const loadVisits = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const data = await api<MeasurementVisit[]>("/measurement-visits", {}, token);
+      setVisits(data);
+    } catch (error) {
+      showDialog({ title: "Measurement sync failed", message: error instanceof Error ? error.message : "Could not load measurement visits.", icon: "cloud-offline-outline" });
+    } finally {
+      setLoading(false);
+    }
+  }, [showDialog, token]);
+
+  useEffect(() => {
+    void loadVisits();
+  }, [loadVisits]);
+
+  async function toggleMeasurementPartner(value: boolean) {
+    if (!token) return;
+    try {
+      await api("/tailors/me/measurement-capabilities", {
+        method: "PATCH",
+        body: JSON.stringify({
+          stitchingTailor: stitchingEnabled,
+          measurementPartner: value,
+          visitPayout: me?.tailorProfile?.measurementPartner?.visitPayout ?? 75
+        })
+      }, token);
+      await onRefreshProfile();
+      showDialog({ title: value ? "Measurement partner enabled" : "Measurement partner disabled", message: value ? "You can now accept home measurement visits from the pool." : "You will only see visits offered directly to you.", icon: "resize-outline" });
+      void loadVisits();
+    } catch (error) {
+      showDialog({ title: "Could not update", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    }
+  }
+
+  async function updateVisit(visit: MeasurementVisit, action: "accept" | "decline") {
+    if (!token) return;
+    setSavingId(visit.id);
+    try {
+      await api(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
+      await loadVisits();
+    } catch (error) {
+      showDialog({ title: `Could not ${action}`, message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setSavingId(undefined);
+    }
+  }
+
+  async function submitVisit() {
+    if (!token || !activeVisit) return;
+    const measurementFields = Object.fromEntries(
+      Object.entries(fields)
+        .map(([key, value]) => [key, value.trim()])
+        .filter(([, value]) => value)
+    );
+    if (otp.trim().length !== 4) {
+      showDialog({ title: "OTP required", message: "Enter the 4 digit customer OTP before submitting measurements.", icon: "keypad-outline" });
+      return;
+    }
+    setSavingId(activeVisit.id);
+    try {
+      await api(`/measurement-visits/${activeVisit.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          otp,
+          measurement: { label: "Home Visit", fields: measurementFields },
+          notes,
+          specialInstructions: notes
+        })
+      }, token);
+      setActiveVisit(undefined);
+      setOtp("");
+      setFields({ chest: "", waist: "", shoulder: "", length: "" });
+      setNotes("");
+      await loadVisits();
+      showDialog({ title: "Measurements submitted", message: "The stitching tailor can now see these details in the order.", icon: "checkmark-circle-outline" });
+    } catch (error) {
+      showDialog({ title: "Could not submit", message: error instanceof Error ? error.message : "Please check the OTP and try again.", icon: "alert-circle-outline" });
+    } finally {
+      setSavingId(undefined);
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <Header title="Measurement Visits" subtitle="Home visit offers and partner pool work" onBack={() => setScreen("dashboard")} />
+        <View style={styles.whiteCard}>
+          <View style={styles.cardTopRow}>
+            <View style={styles.iconTile}>
+              <Ionicons name="resize-outline" size={22} color={BRAND_ORANGE} />
+            </View>
+            <View style={styles.cardMain}>
+              <Text style={styles.cardTitle}>Measurement partner</Text>
+              <Text style={styles.cardMeta}>Accept home measurement visits when selected tailors decline.</Text>
+            </View>
+            <Switch value={measurementEnabled} onValueChange={toggleMeasurementPartner} thumbColor="#ffffff" trackColor={{ true: BRAND_ORANGE, false: "#dbe1e9" }} />
+          </View>
+        </View>
+
+        {loading ? (
+          <View style={styles.whiteCard}>
+            <ActivityIndicator color={BRAND_ORANGE} />
+            <Text style={[styles.cardMeta, { textAlign: "center", marginTop: 8 }]}>Loading visits...</Text>
+          </View>
+        ) : null}
+
+        {!loading && !visits.length ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="calendar-outline" size={38} color={BRAND_ORANGE} />
+            <Text style={styles.emptyTitle}>No measurement visits</Text>
+            <Text style={styles.cardMeta}>New home measurement offers will appear here.</Text>
+          </View>
+        ) : null}
+
+        {visits.map((visit) => {
+          const canAccept = visit.status === "OFFERED_TO_STITCHING_TAILOR" || visit.status === "POOL";
+          const canSubmit = visit.status === "ACCEPTED" || visit.status === "IN_PROGRESS";
+          return (
+            <View key={visit.id} style={styles.whiteCard}>
+              <View style={styles.cardTopRow}>
+                <View style={styles.iconTile}>
+                  <Ionicons name={visit.status === "POOL" ? "people-outline" : "home-outline"} size={22} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.cardMain}>
+                  <Text style={styles.cardTitle}>{visit.garmentSummary ?? "Measurement visit"}</Text>
+                  <Text style={styles.cardMeta}>{visit.customerName ?? "Customer"} • Rs {Number(visit.visitPayout ?? 0).toFixed(0)}</Text>
+                </View>
+                <StatusPill status={visit.status} />
+              </View>
+              <Text style={styles.notesText}>{visit.pickupAddress ?? "Address not available"}</Text>
+              <Text style={styles.cardMeta}>Scheduled: {new Date(visit.scheduledAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })}</Text>
+              {canAccept ? (
+                <View style={styles.popupActions}>
+                  <Pressable style={[styles.primaryButton, savingId === visit.id && styles.disabledButton]} onPress={() => updateVisit(visit, "accept")} disabled={savingId === visit.id}>
+                    {savingId === visit.id ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Accept</Text>}
+                  </Pressable>
+                  <Pressable style={[styles.primaryButton, styles.popupSecondaryButton]} onPress={() => updateVisit(visit, "decline")} disabled={savingId === visit.id}>
+                    <Text style={[styles.primaryButtonText, styles.popupSecondaryText]}>Decline</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {canSubmit ? (
+                <Pressable style={styles.primaryButton} onPress={() => setActiveVisit(visit)}>
+                  <Text style={styles.primaryButtonText}>Submit measurements</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      <Modal transparent visible={Boolean(activeVisit)} animationType="slide" onRequestClose={() => setActiveVisit(undefined)}>
+        <View style={styles.popupBackdrop}>
+          <View style={styles.popupCard}>
+            <Text style={styles.popupTitle}>Submit Measurements</Text>
+            <Text style={styles.popupCopy}>Enter customer OTP and garment measurements.</Text>
+            <TextInput style={styles.input} keyboardType="number-pad" maxLength={4} placeholder="Customer OTP" placeholderTextColor="#94a3b8" value={otp} onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 4))} />
+            {(["chest", "waist", "shoulder", "length"] as const).map((key) => (
+              <TextInput key={key} style={styles.input} placeholder={key[0].toUpperCase() + key.slice(1)} placeholderTextColor="#94a3b8" value={fields[key]} onChangeText={(value) => setFields((current) => ({ ...current, [key]: value }))} />
+            ))}
+            <TextInput style={[styles.input, { minHeight: 84, textAlignVertical: "top" }]} multiline placeholder="Notes / fit preferences / special instructions" placeholderTextColor="#94a3b8" value={notes} onChangeText={setNotes} />
+            <View style={styles.popupActions}>
+              <Pressable style={styles.popupActionButton} onPress={submitVisit} disabled={savingId === activeVisit?.id}>
+                {savingId === activeVisit?.id ? <ActivityIndicator color="#111111" /> : <Text style={styles.popupActionText}>Submit</Text>}
+              </Pressable>
+              <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={() => setActiveVisit(undefined)}>
+                <Text style={[styles.popupActionText, styles.popupSecondaryText]}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
 function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen: Screen) => void }) {
   const language = useAppStore((state) => state.language);
   const insets = useSafeAreaInsets();
@@ -5374,6 +5602,7 @@ export default function App() {
   if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
+  if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} setScreen={setScreen} showDialog={setDialog} onRefreshProfile={() => refreshWorkspace()} />;
   if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setScreen("earningDetails"); }} showDialog={setDialog} />;
   if (screen === "earningDetails") body = <EarningDetailsScreen detail={earningDetail} wallet={wallet} onBack={goBack} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
   if (screen === "transactions") body = <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
@@ -5407,6 +5636,10 @@ export default function App() {
         if (destination.screen === "support_center" || destination.screen === "contactSupport") {
           setInitialSupportScreen("support_center");
           setScreen("profile");
+          return;
+        }
+        if (destination.screen === "measurementVisits" || String(destination.data?.type ?? "").startsWith("MEASUREMENT_")) {
+          setScreen("measurementVisits");
           return;
         }
         if (destination.actionIdentifier === "DECLINE" && destination.entityId) {

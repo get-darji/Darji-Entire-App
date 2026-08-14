@@ -26,6 +26,7 @@ import {
   Image,
   type ImageSourcePropType,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -421,6 +422,7 @@ type HandoffOtp = {
   batchLockAt?: string;
 };
 type DeliveryRescheduleOption = { deliveryRound: "ONE_PM" | "SIX_PM"; roundAt: string; lockAt: string; label: string };
+type MeasurementVisitOtp = { visitId: string; requestId: string; otp: string; status: string; scheduledAt?: string };
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
@@ -9686,6 +9688,34 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
   );
 }
 
+function CustomerMeasurementOtpCard({ orderId, status }: { orderId?: string; status: string }) {
+  const token = useAppStore((state) => state.token);
+  const [visit, setVisit] = useState<MeasurementVisitOtp | undefined>();
+
+  useEffect(() => {
+    if (!token || !orderId) return;
+    void api<MeasurementVisitOtp>(`/tailoring-requests/${orderId}/measurement-visit/otp`, {}, token)
+      .then(setVisit)
+      .catch(() => setVisit(undefined));
+  }, [orderId, status, token]);
+
+  if (!visit || ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)) return null;
+  return (
+    <View style={[styles.whiteCard, styles.measurementOtpCard]}>
+      <Text style={styles.cardLabel}>MEASUREMENT VISIT OTP</Text>
+      <View style={styles.handoffOtpRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.addressTitle}>Share this only at your home visit</Text>
+          <Text style={styles.mutedSmall}>
+            {visit.scheduledAt ? `Scheduled ${formatDeliveryTime(visit.scheduledAt)}. ` : ""}The visiting tailor needs this OTP to submit your measurements.
+          </Text>
+        </View>
+        <Text style={styles.handoffOtpCode}>{visit.otp}</Text>
+      </View>
+    </View>
+  );
+}
+
 function CustomerDeliveryRescheduleCard({ orderId, status }: { orderId?: string; status: string }) {
   const token = useAppStore((state) => state.token);
   const [task, setTask] = useState<HandoffOtp | undefined>();
@@ -9777,6 +9807,7 @@ function TrackOrderScreenV2({
           <StatusPill status={order.status} />
         </View>
         <CustomerHandoffOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+        <CustomerMeasurementOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <CustomerEtaCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <CustomerDeliveryRescheduleCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <View style={styles.timeline}>
@@ -10478,6 +10509,25 @@ export default function App() {
                   }}
                   onMessage={(event) => {
                     void handlePaymentSheetMessage(event.nativeEvent.data);
+                  }}
+                  onShouldStartLoadWithRequest={(request) => {
+                    const url = request.url;
+                    if (!url || /^(https?:|about:blank)/i.test(url)) return true;
+                    void Linking.canOpenURL(url)
+                      .then((supported) => supported ? Linking.openURL(url) : Promise.reject(new Error("No app found")))
+                      .catch(() => {
+                        setPaymentSheet(undefined);
+                        setSelectedQuote(paymentSheet.quote);
+                        setDraft(paymentSheet.draft);
+                        setRequestProgressScreen("confirmOrder");
+                        setScreen("confirmOrder");
+                        setDialog({
+                          title: "Payment app not found",
+                          message: "No app on this phone can open that payment option. Please choose COD or another online payment method.",
+                          actions: [{ label: "OK" }]
+                        });
+                      });
+                    return false;
                   }}
                   startInLoadingState
                   renderLoading={() => (
@@ -11726,6 +11776,7 @@ function createStyles(isDark = false) {
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },
+  measurementOtpCard: { backgroundColor: "#f8fafc", borderColor: "#111111" },
   etaAlertCard: { borderColor: "#ef4444", borderWidth: 2, backgroundColor: "#fff1f2" },
   etaAlertLabel: { color: "#b91c1c", fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginBottom: 10 },
   etaAlertTitle: { color: "#7f1d1d", fontSize: 16, fontWeight: "900" },

@@ -87,6 +87,7 @@ import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType } 
 import { toast } from "sonner";
 import {
   assignOrder,
+  assignMeasurementVisit,
   cancelDeliveryRetry,
   createCoupon,
   deleteAdminAccount,
@@ -99,6 +100,7 @@ import {
   getDeliveryRequests,
   getDeliveryRetries,
   getMe,
+  getMeasurementVisits,
   getOrders,
   getPayments,
   getPlatformStatus,
@@ -165,6 +167,7 @@ import type {
   DeliveryPartnerProfile,
   DeliveryBatch,
   DeliveryRequest,
+  MeasurementVisit,
   MeResponse,
   Order,
   Payment,
@@ -324,6 +327,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "tailoring", icon: Scissors, label: "Tailoring Requests", description: "Quote-led requests and work status" },
   { id: "delivery", icon: Truck, label: "Delivery Ops", description: "Pickup and delivery tasks" },
   { id: "batches", icon: PackageCheck, label: "Batch Management", description: "Delivery batch routing and reassignment" },
+  { id: "measurements", icon: CalendarDays, label: "Measurements", description: "Home visit assignment and submissions" },
   { id: "tailors", icon: ShieldCheck, label: "Tailors", description: "Availability, verification, earnings" },
   { id: "samples", icon: ImageIcon, label: "Sample Work", description: "Approve tailor profile photos" },
   { id: "partners", icon: Users, label: "Delivery Partners", description: "Fleet management and ratings" },
@@ -482,6 +486,12 @@ export function AdminPortal() {
     queryFn: getDeliveryBatches,
     enabled: isAuthed,
     refetchInterval: 5000
+  });
+  const measurementVisitsQuery = useQuery({
+    queryKey: ["admin", "measurement-visits"],
+    queryFn: getMeasurementVisits,
+    enabled: isAuthed,
+    refetchInterval: 10000
   });
   const operationalAlertsQuery = useQuery({
     queryKey: ["admin", "operational-alerts", "OPEN"],
@@ -920,6 +930,18 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
+  const measurementAssignMutation = useMutation({
+    mutationFn: assignMeasurementVisit,
+    onSuccess: async () => {
+      toast.success("Measurement visit assigned");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "measurement-visits"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "operational-alerts"] })
+      ]);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
   const notifyBatchMutation = useMutation({
     mutationFn: notifyDeliveryBatch,
     onSuccess: async (result) => {
@@ -1180,6 +1202,7 @@ export function AdminPortal() {
   }
 
   const { analytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
+  const measurementVisits = measurementVisitsQuery.data ?? [];
   
   const confirmedTailoringRequests: Order[] = tailoringRequests
     .filter((request) => request.status === "TAILOR_SELECTED" || !!request.orderStatus)
@@ -2238,6 +2261,16 @@ export function AdminPortal() {
             onOpenOrder={(order) => setOrderDetail(order)}
             onReassign={(taskId, batchId) => batchReassignMutation.mutate({ taskId, batchId })}
             onNotifyBatch={(batchId) => notifyBatchMutation.mutate(batchId)}
+          />
+        ) : null}
+
+        {activeSection === "measurements" ? (
+          <MeasurementVisitsModule
+            error={measurementVisitsQuery.isError ? extractError(measurementVisitsQuery.error) : undefined}
+            onAssign={(visitId, tailorId) => measurementAssignMutation.mutate({ visitId, tailorId })}
+            pendingVisitId={measurementAssignMutation.isPending ? measurementAssignMutation.variables?.visitId : undefined}
+            tailors={tailors}
+            visits={measurementVisits}
           />
         ) : null}
 
@@ -4692,6 +4725,156 @@ function DeliveryBatchManagement({
             message={sortedBatches.length ? `No delivery batches found for ${selectedDateLabel} and the current filters.` : "No delivery batches found yet."}
           />
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function MeasurementVisitsModule({
+  error,
+  onAssign,
+  pendingVisitId,
+  tailors,
+  visits
+}: {
+  error?: string;
+  onAssign: (visitId: string, tailorId: string) => void;
+  pendingVisitId?: string;
+  tailors: TailorProfile[];
+  visits: MeasurementVisit[];
+}) {
+  const [statusFilter, setStatusFilter] = useState("");
+  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
+  const sortedVisits = useMemo(
+    () => [...visits].sort((a, b) => new Date(b.createdAt ?? b.scheduledAt ?? 0).getTime() - new Date(a.createdAt ?? a.scheduledAt ?? 0).getTime()),
+    [visits]
+  );
+  const visibleVisits = sortedVisits.filter((visit) => !statusFilter || visit.status === statusFilter);
+  const pendingCount = visits.filter((visit) => ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(visit.status)).length;
+  const assignedCount = visits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)).length;
+  const submittedCount = visits.filter((visit) => visit.status === "SUBMITTED").length;
+  const capableTailors = [...tailors].sort((a, b) => getTailorDisplayName(a).localeCompare(getTailorDisplayName(b)));
+
+  return (
+    <div className="space-y-6">
+      <SectionIntro
+        title="Home measurement visits"
+        description="Offer, assign, reassign, and review tailor-at-home measurement jobs."
+        action={
+          <FilterSelect
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { label: "All statuses", value: "" },
+              { label: "Offered", value: "OFFERED_TO_STITCHING_TAILOR" },
+              { label: "Pool", value: "POOL" },
+              { label: "Accepted", value: "ACCEPTED" },
+              { label: "In progress", value: "IN_PROGRESS" },
+              { label: "Submitted", value: "SUBMITTED" },
+              { label: "Cancelled", value: "CANCELLED" },
+              { label: "Expired", value: "EXPIRED" }
+            ]}
+          />
+        }
+      />
+      <div className="grid gap-4 md:grid-cols-4">
+        <FinanceStatCard label="Total visits" value={visits.length.toLocaleString("en-IN")} note="Measurement jobs" tone="sky" />
+        <FinanceStatCard label="Needs action" value={pendingCount.toLocaleString("en-IN")} note="Offered or in pool" tone="amber" />
+        <FinanceStatCard label="Assigned" value={assignedCount.toLocaleString("en-IN")} note="Accepted / in progress" tone="violet" />
+        <FinanceStatCard label="Submitted" value={submittedCount.toLocaleString("en-IN")} note="Sent to stitching tailor" tone="emerald" />
+      </div>
+      {error ? (
+        <Panel className="border-red-200 bg-red-50 text-red-700">
+          <p className="text-sm font-semibold">Measurement endpoint unavailable</p>
+          <p className="mt-1 text-xs">{error}</p>
+        </Panel>
+      ) : null}
+      <div className="space-y-4">
+        {visibleVisits.map((visit) => {
+          const selectedTailorId = assignmentDrafts[visit.id] ?? visit.assignedTailorId ?? visit.offeredTailorId ?? visit.stitchingTailorId ?? "";
+          const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId);
+          const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId);
+          const stitchingTailor = tailors.find((tailor) => tailor.id === visit.stitchingTailorId);
+          const measurementFields = Object.entries(visit.submission?.measurement?.fields ?? {});
+          const notes = [visit.submission?.notes, visit.submission?.specialInstructions].map(cleanText).filter(Boolean);
+          return (
+            <Panel key={visit.id} className="overflow-hidden p-0">
+              <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-bold text-[var(--deep)]">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</h3>
+                    <StatusBadge value={visit.status} />
+                    <Badge tone="amber">{formatCurrency(visit.visitPayout ?? 0)}</Badge>
+                  </div>
+                  <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{cleanText(visit.customerName) ?? "Customer"} {visit.customerPhone ? `- ${visit.customerPhone}` : ""}</p>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{cleanText(visit.garmentSummary) ?? "Garment details pending"}</p>
+                </div>
+                <div className="grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-2 lg:min-w-[360px]">
+                  <span>Scheduled: <strong className="text-[var(--foreground)]">{formatDate(visit.scheduledAt, true)}</strong></span>
+                  <span>Request: <strong className="text-[var(--foreground)]">{visit.requestId}</strong></span>
+                  <span>Stitching tailor: <strong className="text-[var(--foreground)]">{stitchingTailor ? getTailorDisplayName(stitchingTailor) : visit.stitchingTailorId}</strong></span>
+                  <span>Assigned: <strong className="text-[var(--foreground)]">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? `${getTailorDisplayName(offeredTailor)} (offered)` : "Unassigned"}</strong></span>
+                </div>
+              </div>
+              <div className="grid gap-4 p-5 xl:grid-cols-[1.2fr_0.8fr]">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--muted)]">Customer address</p>
+                    <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{cleanText(visit.pickupAddress) ?? "Address not available"}</p>
+                  </div>
+                  {visit.status === "SUBMITTED" ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Submitted measurements</p>
+                        {measurementFields.length ? (
+                          <ul className="mt-2 space-y-1 text-sm font-medium text-[var(--foreground)]">
+                            {measurementFields.map(([label, value]) => <li key={`${visit.id}-${label}`}>{formatStatus(label)}: {String(value)}</li>)}
+                          </ul>
+                        ) : <p className="mt-2 text-sm text-[var(--muted)]">No measurement fields added.</p>}
+                      </div>
+                      <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">Notes</p>
+                        {notes.length ? (
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-medium text-[var(--foreground)]">
+                            {notes.map((note, index) => <li key={`${visit.id}-note-${index}`}>{note}</li>)}
+                          </ul>
+                        ) : <p className="mt-2 text-sm text-[var(--muted)]">No notes submitted.</p>}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="rounded-2xl border border-[var(--panel-border)] bg-white p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--muted)]">Manual assignment</p>
+                  <div className="mt-3 flex flex-col gap-3">
+                    <FilterSelect
+                      value={selectedTailorId}
+                      onChange={(tailorId) => setAssignmentDrafts((current) => ({ ...current, [visit.id]: tailorId }))}
+                      options={[
+                        { label: "Select tailor / measurement partner", value: "" },
+                        ...capableTailors.map((tailor) => {
+                          const isMeasurementPartner = tailor.measurementPartner?.isEnabled || tailor.tailorRoles?.includes("MEASUREMENT_PARTNER");
+                          return {
+                            label: `${getTailorDisplayName(tailor)}${tailor.darjiTailorId ? ` (${tailor.darjiTailorId})` : ""}${isMeasurementPartner ? " - measurement" : ""}`,
+                            value: tailor.id
+                          };
+                        })
+                      ]}
+                    />
+                    <ActionButton
+                      disabled={!selectedTailorId || pendingVisitId === visit.id}
+                      onClick={() => onAssign(visit.id, selectedTailorId)}
+                    >
+                      {pendingVisitId === visit.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <UserRoundPlus className="h-4 w-4" />}
+                      {visit.assignedTailorId ? "Reassign visit" : "Assign visit"}
+                    </ActionButton>
+                    <p className="text-xs leading-5 text-[var(--muted)]">Admin assignment moves the visit to the selected tailor immediately and clears the unassigned alert.</p>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+          );
+        })}
+        {!visibleVisits.length ? <EmptyState message={visits.length ? "No measurement visits match this filter." : "No home measurement visits have been created yet."} /> : null}
       </div>
     </div>
   );
