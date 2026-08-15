@@ -9,7 +9,7 @@ const apiUrl =
 
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
-const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
+const sessionErrorPattern = /invalid or expired token|invalid refresh token|authentication required|invalid session|session expired|signed in on another device/i;
 const transientUploadPattern = /backend connection|network request failed|network error|timed out|timeout|failed to fetch/i;
 const REQUEST_TIMEOUT_MS = 15000;
 

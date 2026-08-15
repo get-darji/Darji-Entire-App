@@ -2,7 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, type AudioPlayer } from "expo-audio";
+import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -2914,6 +2914,7 @@ function NewRequestScreen({
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const recordingActiveRef = useRef(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
   const savedItemCount = draft.items?.length ?? 0;
@@ -2950,7 +2951,8 @@ function NewRequestScreen({
 
   async function safeStopRecorder() {
     if (!recordingActiveRef.current) return undefined;
-    const uriBeforeStop = audioRecorder.uri;
+    const statusBeforeStop = audioRecorder.getStatus();
+    const uriBeforeStop = audioRecorder.uri ?? statusBeforeStop.url;
     try {
       await audioRecorder.stop();
     } catch (error) {
@@ -2963,7 +2965,12 @@ function NewRequestScreen({
       setRecordingActive(false);
       setRecordingPaused(false);
     }
-    return audioRecorder.uri ?? uriBeforeStop;
+    const stoppedUri = audioRecorder.uri ?? uriBeforeStop;
+    if (stoppedUri) return stoppedUri;
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const statusAfterStop = audioRecorder.getStatus();
+    return audioRecorder.uri ?? statusAfterStop.url ?? uriBeforeStop;
   }
 
   useEffect(() => {
@@ -3013,6 +3020,14 @@ function NewRequestScreen({
     setDraft({ ...draft, pickup: displayAddressFields(fields) });
   }
 
+  function withUploadTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+  }
+
   async function uploadAndContinue() {
     if (!token) {
       Alert.alert("Login required", "Please login again.");
@@ -3032,8 +3047,27 @@ function NewRequestScreen({
     }
     try {
       setUploading(true);
-      const uploaded = await uploadMedia(draft.media, token);
-      const uploadedVoiceNotes = draft.voiceNotes?.length ? await uploadMedia(draft.voiceNotes, token) : draft.uploadedVoiceNotes ?? [];
+      const hasVideo = draft.media.some((item) => item.type === "video");
+      const uploaded = await withUploadTimeout(
+        uploadMedia(draft.media, token),
+        hasVideo ? 180000 : 90000,
+        hasVideo
+          ? "Video upload is taking too long. Try a shorter video or photos first."
+          : "Photo upload is taking too long. Check internet and try again."
+      );
+      let uploadedVoiceNotes = draft.uploadedVoiceNotes ?? [];
+      if (draft.voiceNotes?.length) {
+        try {
+          uploadedVoiceNotes = await withUploadTimeout(
+            uploadMedia(draft.voiceNotes, token),
+            30000,
+            "Voice note upload timed out"
+          );
+        } catch (voiceError) {
+          console.log("Voice note upload skipped", voiceError);
+          uploadedVoiceNotes = [];
+        }
+      }
       setDraft({ ...draft, uploadedMedia: uploaded, uploadedVoiceNotes });
       setScreen("clothIssue");
     } catch (error) {
@@ -3098,15 +3132,23 @@ function NewRequestScreen({
     try {
       stopVoicePlayback();
       if (recordingActive) {
+        const durationMillis = audioRecorderState.durationMillis || audioRecorder.getStatus().durationMillis || 0;
         const uri = await safeStopRecorder();
+        if (durationMillis < 700) {
+          Alert.alert("Voice note too short", "Please record for at least one second so your tailor can hear it.");
+          await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
+          return;
+        }
         if (uri) {
           setDraft({
             ...draft,
             voiceNotes: [{ uri, type: "audio", name: `voice-note-${Date.now()}.m4a` }],
             uploadedVoiceNotes: []
           });
+        } else {
+          Alert.alert("Voice note failed", "The recording was not saved. Please try recording again.");
         }
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
         setRecordingActive(false);
         setRecordingPaused(false);
         return;
@@ -3116,7 +3158,7 @@ function NewRequestScreen({
         Alert.alert("Permission needed", "Allow microphone access to record voice instructions for your tailor.");
         return;
       }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, shouldPlayInBackground: false });
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
       recordingActiveRef.current = true;
@@ -3156,10 +3198,12 @@ function NewRequestScreen({
         return;
       }
       stopVoicePlayback();
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
       setPlayingVoiceUri(uri);
       const player = createAudioPlayer({ uri });
+      player.volume = 1;
       voicePlayerRef.current = player;
+      await player.seekTo(0).catch(() => undefined);
       player.play();
     } catch (error) {
       Alert.alert("Playback failed", error instanceof Error ? error.message : "Could not play the voice note.");
@@ -3277,7 +3321,7 @@ function NewRequestScreen({
           </View>
           <View style={styles.voiceNoteText}>
             <Text style={styles.addressTitle}>{recordingActive ? recordingPaused ? "Recording paused" : "Recording..." : draft.voiceNotes?.length ? "Voice note added" : "Record a voice note"}</Text>
-            <Text style={styles.mutedSmall}>{recordingActive ? "Tap play to continue or Done to save." : draft.voiceNotes?.length ? "Tailor can listen to your instructions." : "Optional, useful for detailed fitting instructions."}</Text>
+            <Text style={styles.mutedSmall}>{recordingActive ? `${Math.max(0, Math.round(audioRecorderState.durationMillis / 1000))}s recorded. Tap Done to save.` : draft.voiceNotes?.length ? "Tap play to check your voice note." : "Optional, useful for detailed fitting instructions."}</Text>
           </View>
           {draft.voiceNotes?.[0]?.uri && !recordingActive ? (
             <Pressable style={styles.voiceRoundButton} onPress={() => toggleVoicePlayback(draft.voiceNotes![0].uri)}>
