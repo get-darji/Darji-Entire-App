@@ -71,9 +71,9 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
       title: "Measurement visit requested",
       body: `${customer?.name ?? "Customer"} needs an at-home measurement visit. Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
       data: { type: "MEASUREMENT_VISIT_OFFERED", visitId: visit.id, requestId: request.id, screen: "measurementVisits" },
-      channelId: "tailor-pickup-updates-v2",
-      categoryId: "DARJI_ORDER",
-      sound: "ding.mp3",
+      channelId: "darji-incoming-orders-v3",
+      categoryId: "TAILOR_MEASUREMENT_VISIT",
+      sound: "requests.mp3",
       targetApps: ["tailor"]
     });
     emitToTailor(quote.tailorId, "measurement:visit_offered", { visit: visit.toJSON() });
@@ -122,9 +122,9 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
       title: "Measurement visit available",
       body: `${visit.customerName ?? "Customer"} needs measurements at home. Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
       data: { type: "MEASUREMENT_VISIT_POOL", visitId: visit.id, requestId: visit.requestId, screen: "measurementVisits" },
-      channelId: "tailor-pickup-updates-v2",
-      categoryId: "DARJI_ORDER",
-      sound: "ding.mp3",
+      channelId: "darji-incoming-orders-v3",
+      categoryId: "TAILOR_MEASUREMENT_VISIT",
+      sound: "requests.mp3",
       targetApps: ["tailor"]
     });
   }

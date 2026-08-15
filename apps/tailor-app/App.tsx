@@ -534,7 +534,7 @@ function incomingPayloadFromTailoringRequest(request?: TailoringRequest): Incomi
 
 function isSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return /authentication required|invalid session|invalid or expired token|session expired|signed in on another device/i.test(message);
+  return /authentication required|invalid session|invalid or expired token|invalid refresh token|session expired|signed in on another device/i.test(message);
 }
 
 function firstItem(order: Order) {
@@ -6087,15 +6087,47 @@ export default function App() {
     try {
       if (showLoader) setLoading(true);
       setLoadingWallet(true);
-      const [profile, openRequestData, selectedRequestData, orderData, visitData, walletData, transactionData] = await Promise.all([
-        api<MeResponse>("/auth/me", {}, token),
+      const profile = await api<MeResponse>("/auth/me", {}, token);
+      setMe(profile);
+
+      const [openRequestsResult, selectedRequestsResult, ordersResult, visitsResult, walletResult, transactionsResult] = await Promise.allSettled([
         api<TailoringRequest[]>("/tailoring-requests", {}, token),
         api<TailoringRequest[]>("/tailoring-requests?status=TAILOR_SELECTED", {}, token),
         api<Order[]>("/orders", {}, token),
-        api<MeasurementVisit[]>("/measurement-visits", {}, token).catch(() => [] as MeasurementVisit[]),
+        api<MeasurementVisit[]>("/measurement-visits", {}, token),
         api<PartnerWalletSummary>("/wallet", {}, token),
         api<PartnerWalletTransaction[]>("/transactions", {}, token)
       ]);
+
+      const workspaceFailures = [
+        openRequestsResult,
+        selectedRequestsResult,
+        ordersResult,
+        visitsResult,
+        walletResult,
+        transactionsResult
+      ].filter((result) => result.status === "rejected");
+      const sessionFailure = workspaceFailures.find((result) => result.status === "rejected" && isSessionError(result.reason));
+      if (sessionFailure?.status === "rejected") throw sessionFailure.reason;
+
+      const openRequestData = openRequestsResult.status === "fulfilled" ? openRequestsResult.value : [];
+      const selectedRequestData = selectedRequestsResult.status === "fulfilled" ? selectedRequestsResult.value : [];
+      const orderData = ordersResult.status === "fulfilled" ? ordersResult.value : [];
+      const visitData = visitsResult.status === "fulfilled" ? visitsResult.value : [];
+      const walletData = walletResult.status === "fulfilled" ? walletResult.value : emptyPartnerWallet();
+      const transactionData = transactionsResult.status === "fulfilled" ? transactionsResult.value : [];
+
+      if (showLoader && workspaceFailures.length) {
+        const firstFailure = workspaceFailures[0];
+        setDialog({
+          title: "Partially synced",
+          message: firstFailure.status === "rejected" && firstFailure.reason instanceof Error
+            ? firstFailure.reason.message
+            : "Some workspace data could not be loaded. Pull down to retry.",
+          icon: "cloud-offline-outline"
+        });
+      }
+
       const acceptedRequests = selectedRequestData.filter((request) => request.ownQuote?.status === "ACCEPTED");
       const requestData = [
         ...openRequestData,
@@ -6103,7 +6135,6 @@ export default function App() {
       ];
       const acceptedRequestOrders = acceptedRequests.map(orderFromAcceptedRequest);
       const workspaceOrders = [...acceptedRequestOrders, ...orderData].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
-      setMe(profile);
       setRequests(openRequestData);
       setOrders(workspaceOrders);
       setMeasurementVisits(visitData);
@@ -6352,6 +6383,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.safe}>
         <LoadingOverlay visible />
+        <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
         {incomingAlertPermissionGuide}
       </SafeAreaView>
     );

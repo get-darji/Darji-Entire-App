@@ -49,7 +49,7 @@ function resolveTargetApps(payload: PushPayload) {
 }
 
 function isIncomingRequestType(type?: string) {
-  return /incoming|new_request|request_created|assignment|delivery_batch_ready|task_created|pickup_assigned/i.test(type ?? "");
+  return /incoming|new_request|request_created|assignment|measurement_visit|delivery_batch_ready|task_created|pickup_assigned/i.test(type ?? "");
 }
 
 function customerPreferenceKind(payload: PushPayload, data: Record<string, string>) {

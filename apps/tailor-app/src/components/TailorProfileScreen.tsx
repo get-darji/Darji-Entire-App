@@ -165,7 +165,7 @@ type Props = {
 
 function isSessionError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return /authentication required|invalid session|invalid or expired token|session expired/i.test(message);
+  return /authentication required|invalid session|invalid or expired token|invalid refresh token|session expired|signed in on another device/i.test(message);
 }
 
 function getDeviceOsLabel() {

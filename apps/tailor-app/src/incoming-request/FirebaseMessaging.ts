@@ -7,7 +7,7 @@ declare const require: (moduleName: string) => { default?: typeof messaging };
 export function isIncomingRequestData(data: Record<string, unknown>) {
   if (String(data.darjiIncomingRequest).toLowerCase() === "true") return true;
   const type = String(data.type ?? data.event ?? data.notificationType ?? "");
-  return /incoming|new_request|request_created|assignment|delivery_batch_ready|task_created|pickup_assigned/i.test(type);
+  return /incoming|new_request|request_created|assignment|measurement_visit|delivery_batch_ready|task_created|pickup_assigned/i.test(type);
 }
 
 function stringData(data?: FirebaseMessagingTypes.RemoteMessage["data"]) {

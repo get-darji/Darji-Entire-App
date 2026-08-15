@@ -58,10 +58,10 @@ internal object IncomingAlertManager {
     if (payload.optString("darjiIncomingRequest").equals("true", ignoreCase = true)) return true
     if (payload.optString("channelId") == CHANNEL_ID || payload.optString("channelId") == "darji-incoming-requests-v1") return true
     val category = payload.optString("categoryId") + " " + payload.optString("categoryIdentifier")
-    if (category.contains("TAILOR_NEW_REQUEST") || category.contains("DELIVERY_PICKUP_REQUEST")) return true
+    if (category.contains("TAILOR_NEW_REQUEST") || category.contains("TAILOR_MEASUREMENT_VISIT") || category.contains("DELIVERY_PICKUP_REQUEST")) return true
     val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
     return kind.contains("INCOMING") || kind.contains("NEW_REQUEST") || kind.contains("REQUEST_CREATED") ||
-      kind.contains("TASK_CREATED") || kind.contains("DELIVERY_BATCH_READY") || kind.contains("PICKUP_ASSIGNED")
+      kind.contains("MEASUREMENT_VISIT") || kind.contains("TASK_CREATED") || kind.contains("DELIVERY_BATCH_READY") || kind.contains("PICKUP_ASSIGNED")
   }
 
   fun requestKey(payload: JSONObject): String {
@@ -252,6 +252,11 @@ internal object IncomingAlertManager {
   }
 
   fun performAction(context: Context, action: String, payload: JSONObject) {
+    if (action == "DECLINE") {
+      dismiss(context, requestKey(payload))
+      return
+    }
+
     val pending = JSONObject().put("actionIdentifier", action).put("data", payload)
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PENDING_ACTION, pending.toString()).commit()
     dismiss(context, requestKey(payload))

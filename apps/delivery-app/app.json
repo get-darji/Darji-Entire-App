@@ -53,7 +53,7 @@
       ]
     },
     "extra": {
-      "apiUrl": "http://192.168.1.2:4000/api",
+      "apiUrl": "https://darji-entire-app-production.up.railway.app/api",
       "eas": {
         "projectId": "bf4d321e-74c1-4a09-abfa-d457fc813430"
       }
