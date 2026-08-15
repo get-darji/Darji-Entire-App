@@ -5,7 +5,7 @@ import type { PlatformStatus } from "../../../shared/src/platform-status";
 const apiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "https://backend-production-5a7e4.up.railway.app/api";
+  "https://darji-entire-app-production.up.railway.app/api";
 
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;

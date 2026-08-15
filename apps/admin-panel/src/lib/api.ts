@@ -29,7 +29,7 @@ import type {
   OperationalAlert,
 } from "@/src/types/admin";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://darji-entire-app-production.up.railway.app/api";
 let adminRefreshPromise: Promise<string | undefined> | undefined;
 
 export const api = axios.create({
