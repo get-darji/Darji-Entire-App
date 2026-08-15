@@ -23,6 +23,7 @@ import {
   type AlertButton,
   AppState,
   BackHandler,
+  type DimensionValue,
   Image,
   type ImageSourcePropType,
   KeyboardAvoidingView,
@@ -397,6 +398,7 @@ type AddressFields = {
   state: string;
   postalCode: string;
   landmark: string;
+  sourceAddress?: string;
 };
 type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number; fields?: AddressFields };
 type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
@@ -556,6 +558,7 @@ const MAX_MEDIA_FILES = 6;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const REQUEST_DESCRIPTION_MIN = 10;
+const QUOTE_WAIT_SECONDS = 90;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
 const CUSTOMER_REQUEST_DRAFT_STORAGE_PREFIX = "darji.customerRequestDraft.v1";
 const CUSTOMER_NOTIFICATION_PREFS_KEY = "darji.customerNotificationPreferences.v1";
@@ -1192,28 +1195,34 @@ function emptyAddressFields(): AddressFields {
 }
 
 function addressFieldsFromGeo(geo: Awaited<ReturnType<typeof backendReverseGeocode>>): AddressFields {
+  const parsed = addressFieldsFromText(geo.formattedAddress);
   return {
-    buildingNo: geo.houseNumber ?? "",
-    street: geo.route ?? "",
-    area: geo.area || geo.route || "",
-    city: geo.city ?? "",
-    state: geo.state ?? "",
-    postalCode: geo.postalCode ?? "",
-    landmark: ""
+    buildingNo: geo.houseNumber || parsed.buildingNo,
+    street: geo.route || parsed.street,
+    area: geo.area || parsed.area || geo.route || "",
+    city: geo.city || parsed.city,
+    state: geo.state || parsed.state,
+    postalCode: geo.postalCode || parsed.postalCode,
+    landmark: parsed.landmark,
+    sourceAddress: geo.formattedAddress
   };
 }
 
 function addressFieldsFromText(address?: string): AddressFields {
   if (!address?.trim()) return emptyAddressFields();
   const parts = address.split(",").map((part) => part.trim()).filter(Boolean);
+  const postalCode = address.match(/\b\d{5,6}\b/)?.[0] ?? "";
+  const statePartIndex = parts.findIndex((part) => postalCode && part.includes(postalCode));
+  const state = (statePartIndex >= 0 ? parts[statePartIndex] : parts[4] ?? "").replace(/\b\d{5,6}\b/g, "").trim();
   return {
     buildingNo: parts[0] ?? "",
     street: parts[1] ?? "",
     area: parts[2] ?? "",
-    city: parts[3] ?? "",
-    state: parts[4]?.replace(/\b\d{5,6}\b/g, "").trim() ?? "",
-    postalCode: address.match(/\b\d{5,6}\b/)?.[0] ?? "",
-    landmark: ""
+    city: parts[3] ?? parts[Math.max(0, statePartIndex - 1)] ?? "",
+    state,
+    postalCode,
+    landmark: parts.length > 5 ? parts.slice(5).join(", ") : "",
+    sourceAddress: address
   };
 }
 
@@ -1228,6 +1237,10 @@ function formatAddressFields(fields: AddressFields) {
   ].map((part) => part.trim()).filter(Boolean).join(", ");
 }
 
+function displayAddressFields(fields: AddressFields) {
+  return fields.sourceAddress?.trim() || formatAddressFields(fields);
+}
+
 function missingAddressFields(fields: AddressFields) {
   const required: Array<[keyof AddressFields, string]> = [
     ["buildingNo", "building / flat number"],
@@ -1236,7 +1249,91 @@ function missingAddressFields(fields: AddressFields) {
     ["state", "state"],
     ["postalCode", "pincode"]
   ];
-  return required.filter(([key]) => !fields[key].trim()).map(([, label]) => label);
+  return required.filter(([key]) => !String(fields[key] ?? "").trim()).map(([, label]) => label);
+}
+
+const ADDRESS_FIELD_META: Array<{
+  key: keyof AddressFields;
+  label: string;
+  placeholder: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  wide?: boolean;
+  keyboardType?: "default" | "number-pad";
+}> = [
+  { key: "buildingNo", label: "Building / Flat No.", placeholder: "A-5, Flat 302", icon: "business-outline", wide: true },
+  { key: "street", label: "Street / Society", placeholder: "Street, society or road", icon: "git-commit-outline", wide: true },
+  { key: "area", label: "Area", placeholder: "Area", icon: "map-outline" },
+  { key: "city", label: "City", placeholder: "City", icon: "business-outline" },
+  { key: "state", label: "State", placeholder: "State", icon: "ellipse-outline" },
+  { key: "postalCode", label: "Pincode", placeholder: "110001", icon: "storefront-outline", keyboardType: "number-pad" },
+  { key: "landmark", label: "Landmark", placeholder: "Near...", icon: "location-outline", wide: true }
+];
+
+function StructuredAddressForm({
+  fields,
+  missingFields,
+  formattedAddress,
+  onChange,
+  styles
+}: {
+  fields: AddressFields;
+  missingFields: string[];
+  formattedAddress: string;
+  onChange: (key: keyof AddressFields, value: string) => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.structuredAddressCard}>
+      <View style={styles.addressRequiredBanner}>
+        <Ionicons name="information-circle-outline" size={18} color={BRAND_ORANGE} />
+        <Text style={styles.addressRequiredText}>
+          <Text style={styles.addressRequiredStrong}>Required: </Text>
+          building, area, city, state and pincode.
+        </Text>
+      </View>
+      <View style={styles.addressFieldGrid}>
+        {ADDRESS_FIELD_META.map((item) => {
+          const hasError = missingFields.some((field) => {
+            if (item.key === "buildingNo") return field.includes("building");
+            if (item.key === "area") return field.includes("area");
+            if (item.key === "postalCode") return field.includes("pincode");
+            return field === item.key;
+          });
+          return (
+            <View key={item.key} style={item.wide ? styles.addressFieldWide : styles.addressFieldHalf}>
+              <Text style={styles.addressFieldLabel}>{item.label}{item.key === "landmark" ? <Text style={styles.addressOptionalLabel}> (Optional)</Text> : null}</Text>
+              <View style={[styles.addressFieldShell, hasError && styles.addressFieldShellError]}>
+                <Ionicons name={item.icon} size={21} color={hasError ? "#ef4444" : "#536078"} />
+                <TextInput
+                  style={styles.addressFieldInput}
+                  value={fields[item.key]}
+                  onChangeText={(value) => onChange(item.key, item.key === "postalCode" ? value.replace(/[^\d]/g, "").slice(0, 6) : value)}
+                  placeholder={item.placeholder}
+                  placeholderTextColor="#a4afc0"
+                  keyboardType={item.keyboardType}
+                />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      {missingFields.length ? (
+        <View style={styles.addressMissingRow}>
+          <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
+          <Text style={styles.addressMissingText}>Missing: {missingFields.join(", ")}</Text>
+        </View>
+      ) : (
+        <View style={styles.addressReadyRow}>
+          <Ionicons name="checkmark-circle-outline" size={18} color="#15803d" />
+          <Text style={styles.addressReadyText}>Address looks complete</Text>
+        </View>
+      )}
+      <View style={styles.addressPreviewBox}>
+        <Text style={styles.addressPreviewLabel}>Full address</Text>
+        <Text style={styles.addressPreviewText}>{formattedAddress || "Full address will appear here as you fill the fields."}</Text>
+      </View>
+    </View>
+  );
 }
 
 function makeDefaultNotifications(): AppNotification[] {
@@ -2683,6 +2780,28 @@ function AppDialog({
   );
 }
 
+function notificationTone(item: AppNotification) {
+  const text = `${item.title} ${item.text}`.toLowerCase();
+  if (/confirmed|delivered|complete|success/.test(text)) {
+    return { accent: "#2f9469", background: "#f7fffa", border: "#cdebdc", iconBg: "#e9f7ef" };
+  }
+  if (/quote|message|chat/.test(text)) {
+    return { accent: "#22aeea", background: "#fbfdff", border: "#d7eefb", iconBg: "#eaf8ff" };
+  }
+  if (/pickup|scheduled|bag/.test(text)) {
+    return { accent: "#6b7280", background: "#ffffff", border: "#e5e7eb", iconBg: "#f1f3f7" };
+  }
+  return { accent: BRAND_ORANGE, background: "#ffffff", border: "#edf1f5", iconBg: "#fff4dc" };
+}
+
+function notificationDayLabel(time: string) {
+  const value = time.trim();
+  if (/^(now|just now)$/i.test(value) || /\bago\b/i.test(value) || /\btoday\b/i.test(value)) return "Today";
+  if (/\byesterday\b/i.test(value)) return "Yesterday";
+  const withoutTime = value.replace(/,\s*\d{1,2}:\d{2}\s*(AM|PM)?/i, "").trim();
+  return withoutTime || "Other dates";
+}
+
 function NotificationsScreen({
   notifications,
   onMarkAllRead,
@@ -2693,35 +2812,68 @@ function NotificationsScreen({
   setScreen: (screen: Screen) => void;
 }) {
   const unreadCount = notifications.filter((item) => !item.read).length;
+  const groupedNotifications = notifications.reduce<Record<string, AppNotification[]>>((groups, item) => {
+    const key = notificationDayLabel(item.time);
+    groups[key] = [...(groups[key] ?? []), item];
+    return groups;
+  }, {});
+  const notificationGroups = [
+    ...["Today", "Yesterday"].filter((key) => groupedNotifications[key]?.length),
+    ...Object.keys(groupedNotifications).filter((key) => key !== "Today" && key !== "Yesterday")
+  ];
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
-        <Header title={t(useAppStore.getState().language, "notifications")} onBack={() => setScreen("home")} />
-        <View style={styles.rowBetween}>
+        <Header
+          title={t(useAppStore.getState().language, "notifications")}
+          onBack={() => setScreen("home")}
+          right={(
+            <Pressable style={styles.roundIconButton} onPress={() => setScreen("notificationPreferences")}>
+              <Ionicons name="settings-outline" size={20} color={BRAND_DEEP} />
+            </Pressable>
+          )}
+        />
+        <View style={styles.notificationCenterHeader}>
           <View>
-            <Text style={styles.listTitle}>Notification Center</Text>
-            <Text style={styles.mutedSmall}>{unreadCount} unread updates</Text>
+            <Text style={styles.notificationCenterTitle}>Notification Center</Text>
+            <Text style={styles.notificationCenterSub}>{unreadCount} unread updates</Text>
           </View>
-          <Pressable style={styles.outlinePill} onPress={onMarkAllRead} disabled={!notifications.length}>
-            <Text style={styles.orangeSmall}>Mark all read</Text>
+          <Pressable style={styles.notificationMarkReadButton} onPress={onMarkAllRead} disabled={!notifications.length}>
+            <Text style={styles.notificationMarkReadText}>Mark all read</Text>
           </Pressable>
         </View>
-        <View style={{ marginTop: 20 }}>
+        <View style={styles.notificationTimelineWrap}>
           {notifications.length ? (
-            notifications.map((item) => (
-              <View key={item.id} style={[styles.notificationCard, item.dark && styles.darkNotificationCard]}>
-                <View style={[styles.notificationIcon, item.dark && styles.darkNotificationIcon]}>
-                  <Ionicons name={item.icon} size={18} color={item.dark ? "#8793ff" : BRAND_ORANGE} />
+            notificationGroups.map((group) => (
+              <View key={group} style={styles.notificationGroup}>
+                <Text style={styles.notificationGroupTitle}>{group}</Text>
+                <View style={styles.notificationTimeline}>
+                  <View style={styles.notificationTimelineRail} />
+                  {groupedNotifications[group].map((item) => {
+                    const tone = notificationTone(item);
+                    return (
+                      <View key={item.id} style={styles.notificationTimelineItem}>
+                        <View style={[styles.notificationTimelineDot, { backgroundColor: item.read ? "#d1d5db" : tone.accent }]} />
+                          <View style={[styles.notificationTimelineCard, { borderColor: tone.border, backgroundColor: tone.background }]}>
+                            <View style={[styles.notificationTimelineIcon, { backgroundColor: tone.iconBg }]}>
+                            <Ionicons name={item.icon} size={19} color={tone.accent} />
+                          </View>
+                          <View style={styles.notificationTimelineBody}>
+                            <View style={styles.notificationTimelineTop}>
+                              <Text style={styles.notificationTimelineTitle} numberOfLines={1}>{item.title}</Text>
+                              <View style={styles.notificationTimeWrap}>
+                                <Text style={styles.notificationTimelineTime} numberOfLines={1}>{item.time}</Text>
+                                <View style={[styles.notificationUnreadDot, { backgroundColor: item.read ? "#b8bec8" : tone.accent }]} />
+                              </View>
+                            </View>
+                            <Text style={styles.notificationTimelineCopy} numberOfLines={3}>{item.text}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
                 </View>
-                <View style={styles.notificationBody}>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.notificationTitle, item.dark && styles.darkText]}>{item.title}</Text>
-                    <Text style={[styles.notificationTime, item.dark && styles.darkMuted]}>{item.time}</Text>
-                  </View>
-                  <Text style={[styles.notificationCopy, item.dark && styles.darkMuted]}>{item.text}</Text>
-                </View>
-                {!item.read ? <View style={styles.smallDot} /> : null}
               </View>
             ))
           ) : (
@@ -2769,7 +2921,7 @@ function NewRequestScreen({
   const currentItemNumber = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) + 1 || savedItemCount + 1 : savedItemCount + 1;
   const descriptionLength = draft.description.trim().length;
   const descriptionRemaining = Math.max(REQUEST_DESCRIPTION_MIN - descriptionLength, 0);
-  const pickupAddressText = formatAddressFields(pickupAddressFields);
+  const pickupAddressText = displayAddressFields(pickupAddressFields);
   const pickupAddressMissing = missingAddressFields(pickupAddressFields);
   const canContinueRequest = draft.media.length > 0 && descriptionLength >= REQUEST_DESCRIPTION_MIN && (!needsPickupAddress || pickupAddressMissing.length === 0);
   const isAddingAnotherItem = savedItemCount > 0 && !draft.editingItemId;
@@ -2851,14 +3003,14 @@ function NewRequestScreen({
   }
 
   function updatePickupAddressField(key: keyof AddressFields, value: string) {
-    const next = { ...pickupAddressFields, [key]: value };
+    const next = { ...pickupAddressFields, [key]: value, sourceAddress: undefined };
     setPickupAddressFields(next);
     setDraft({ ...draft, pickup: formatAddressFields(next) });
   }
 
   function applyPickupAddress(fields: AddressFields) {
     setPickupAddressFields(fields);
-    setDraft({ ...draft, pickup: formatAddressFields(fields) });
+    setDraft({ ...draft, pickup: displayAddressFields(fields) });
   }
 
   async function uploadAndContinue() {
@@ -3145,47 +3297,21 @@ function NewRequestScreen({
         {needsPickupAddress ? (
           <>
             <Text style={styles.formLabel}>Pickup Address</Text>
-            <View style={styles.structuredAddressCard}>
-              <View style={styles.addressHelperLine}>
-                <Ionicons name="information-circle-outline" size={12} color={BRAND_ORANGE} />
-                <Text style={styles.addressHelperText}>Required: building, area, city, state and pincode.</Text>
-              </View>
-              <View style={styles.addressFieldGrid}>
-                <View style={styles.addressFieldWide}>
-                  <Text style={styles.addressFieldLabel}>Building / Flat No.</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.buildingNo} onChangeText={(value) => updatePickupAddressField("buildingNo", value)} placeholder="A-5, Flat 302" placeholderTextColor="#98a4b6" />
-                </View>
-                <View style={styles.addressFieldWide}>
-                  <Text style={styles.addressFieldLabel}>Street / Society</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.street} onChangeText={(value) => updatePickupAddressField("street", value)} placeholder="Street, society or road" placeholderTextColor="#98a4b6" />
-                </View>
-                <View style={styles.addressFieldHalf}>
-                  <Text style={styles.addressFieldLabel}>Area</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.area} onChangeText={(value) => updatePickupAddressField("area", value)} placeholder="Area" placeholderTextColor="#98a4b6" />
-                </View>
-                <View style={styles.addressFieldHalf}>
-                  <Text style={styles.addressFieldLabel}>City</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.city} onChangeText={(value) => updatePickupAddressField("city", value)} placeholder="City" placeholderTextColor="#98a4b6" />
-                </View>
-                <View style={styles.addressFieldHalf}>
-                  <Text style={styles.addressFieldLabel}>State</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.state} onChangeText={(value) => updatePickupAddressField("state", value)} placeholder="State" placeholderTextColor="#98a4b6" />
-                </View>
-                <View style={styles.addressFieldHalf}>
-                  <Text style={styles.addressFieldLabel}>Pincode</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.postalCode} onChangeText={(value) => updatePickupAddressField("postalCode", value.replace(/[^\d]/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="110001" placeholderTextColor="#98a4b6" />
-                </View>
-                <View style={styles.addressFieldWide}>
-                  <Text style={styles.addressFieldLabel}>Landmark</Text>
-                  <TextInput style={styles.addressFieldInput} value={pickupAddressFields.landmark} onChangeText={(value) => updatePickupAddressField("landmark", value)} placeholder="Near..." placeholderTextColor="#98a4b6" />
-                </View>
-              </View>
-              {pickupAddressMissing.length ? <Text style={styles.addressMissingText}>Missing: {pickupAddressMissing.join(", ")}</Text> : <Text style={styles.addressPreviewText}>{pickupAddressText}</Text>}
-            </View>
+            <StructuredAddressForm
+              fields={pickupAddressFields}
+              missingFields={pickupAddressMissing}
+              formattedAddress={pickupAddressText}
+              onChange={updatePickupAddressField}
+              styles={styles}
+            />
             <View style={styles.addressActions}>
-              <Pressable style={styles.addressActionButton} onPress={useCurrentLocation} disabled={locating}>
-                {locating ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={15} color={BRAND_ORANGE} />}
-                <Text style={styles.addPhotoText}>Use current location</Text>
+              <Pressable style={styles.currentLocationButton} onPress={useCurrentLocation} disabled={locating}>
+                {locating ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={26} color={BRAND_ORANGE} />}
+                <View style={styles.currentLocationTextBlock}>
+                  <Text style={styles.currentLocationText}>{locating ? "Finding your location..." : "Use current location"}</Text>
+                  <Text style={styles.currentLocationSubtext}>Auto-fill your current address</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#98a4b6" />
               </Pressable>
             </View>
             {addresses.length ? (
@@ -5159,6 +5285,17 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
   ];
 }
 
+function orderMeasurementEntries(order: CustomerOrder) {
+  return clothingItemsForDraft(order.draft)
+    .map((item, index) => ({
+      id: item.id ?? `${order.id}-measurement-${index}`,
+      title: clothingItemSummary(item),
+      fields: Object.entries(item.measurements ?? {}).filter(([, value]) => String(value).trim()),
+      notes: item.measurementNotes?.trim()
+    }))
+    .filter((item) => item.fields.length || item.notes);
+}
+
 function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder?: CustomerOrder): CustomerOrder | undefined {
   const selectedQuote = request.selectedQuote ? quoteFromBackend(request.selectedQuote) : existingOrder?.tailor ?? {
     id: `pending-${request.id}`,
@@ -5450,10 +5587,17 @@ function QuotesScreen({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
   const [deleting, setDeleting] = useState(false);
-  const radarPulse = useRef(new Animated.Value(0)).current;
+  const noQuoteAlertSentRef = useRef(false);
+  const waitTimerStartedAtRef = useRef<number | undefined>(undefined);
+  const [waitProgressPercent, setWaitProgressPercent] = useState(0);
+  const [waitProgressComplete, setWaitProgressComplete] = useState(false);
   const itemCount = backendRequest?.itemCount ?? checkoutItemCount(draft);
   const responseCount = backendRequest?.quoteCount ?? backendQuotes.length;
   const requestSentLabel = formatRequestSentLabel(backendRequest?.createdAt);
+  const waitProgressWidth: DimensionValue = `${waitProgressPercent}%`;
+  const remainingSeconds = Math.max(0, Math.ceil(QUOTE_WAIT_SECONDS - (waitProgressPercent / 100) * QUOTE_WAIT_SECONDS));
+  const waitTimeLabel = waitProgressComplete ? "00:00" : `${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}`;
+  const circularProgressRotation = `${Math.min(360, (waitProgressPercent / 100) * 360)}deg`;
 
   async function loadQuotes() {
     if (!token || !draft.backendRequestId) {
@@ -5486,16 +5630,45 @@ function QuotesScreen({
   }, [draft.backendRequestId, token, refreshSignal]);
 
   useEffect(() => {
-    if (backendQuotes.length) return;
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(radarPulse, { toValue: 1, duration: 1300, useNativeDriver: true }),
-        Animated.timing(radarPulse, { toValue: 0, duration: 0, useNativeDriver: true })
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [backendQuotes.length, radarPulse]);
+    if (backendQuotes.length) {
+      setWaitProgressComplete(false);
+      noQuoteAlertSentRef.current = false;
+      return;
+    }
+    waitTimerStartedAtRef.current = Date.now();
+    setWaitProgressPercent(0);
+    setWaitProgressComplete(false);
+    noQuoteAlertSentRef.current = false;
+    const sendNoQuoteAlert = () => {
+      setWaitProgressComplete(true);
+      setWaitProgressPercent(100);
+      if (!draft.backendRequestId || !token || noQuoteAlertSentRef.current) return;
+      noQuoteAlertSentRef.current = true;
+      void api(`/tailoring-requests/${draft.backendRequestId}/no-quote-alert`, { method: "POST" }, token).catch((error) => {
+        noQuoteAlertSentRef.current = false;
+        console.warn("[quotes] Failed to send no-quote admin alert", error instanceof Error ? error.message : error);
+      });
+    };
+    setWaitProgressPercent(1);
+    let didComplete = false;
+    let frameId = 0;
+    const tick = () => {
+      const startedAt = waitTimerStartedAtRef.current ?? Date.now();
+      const elapsedMs = Date.now() - startedAt;
+      const nextPercent = Math.min(100, (elapsedMs / (QUOTE_WAIT_SECONDS * 1000)) * 100);
+      setWaitProgressPercent(nextPercent);
+      if (nextPercent >= 100 && !didComplete) {
+        didComplete = true;
+        sendNoQuoteAlert();
+        return;
+      }
+      frameId = requestAnimationFrame(tick);
+    };
+    frameId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [backendQuotes.length, draft.backendRequestId, token]);
 
   useEffect(() => {
     if (!liveQuote?.backendQuoteId || liveQuote.backendRequestId !== draft.backendRequestId) return;
@@ -5566,7 +5739,7 @@ function QuotesScreen({
             </Pressable>
           )}
         />
-        <View style={styles.quotesSummaryCard}>
+        {visibleQuotes.length > 0 || loading ? <View style={styles.quotesSummaryCard}>
           <View style={styles.quotesSummaryTop}>
             <View style={styles.quoteClockIcon}>
               <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
@@ -5583,31 +5756,54 @@ function QuotesScreen({
               </Pressable>
             </View>
           </View>
-        </View>
+        </View> : null}
 
         {visibleQuotes.length === 0 && !loading ? (
           <View style={styles.quotesWaitingState}>
             <View style={styles.quotesIllustration}>
-              <Animated.View
-                style={[
-                  styles.quotesRadarPulse,
-                  {
-                    opacity: radarPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
-                    transform: [{ scale: radarPulse.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1.35] }) }]
-                  }
-                ]}
-              />
-              <View style={styles.quotesSparkLeft}>
-                <Ionicons name="sparkles-outline" size={24} color="#ffd990" />
+              <View style={styles.quotesRadarRingOuter} />
+              <View style={styles.quotesRadarRingMiddle} />
+              <View style={styles.quotesRadarRingInner} />
+              <View style={[styles.quotesCircleProgressArc, { transform: [{ rotate: circularProgressRotation }] }]}>
+                <View style={styles.quotesCircleProgressLine} />
+                <View style={styles.quotesCircleProgressDot} />
               </View>
-              <View style={styles.quotesSparkRight}>
-                <Ionicons name="sparkles-outline" size={24} color="#ffd990" />
+              <View style={styles.quotesCircleSparkLeft} />
+              <View style={styles.quotesCircleSparkRight} />
+              <View style={styles.quotesRadarCenter}>
+                <Ionicons name="shirt-outline" size={58} color="#111111" />
               </View>
-              <Ionicons name="shirt-outline" size={88} color={BRAND_DEEP} />
-              <Ionicons name="paper-plane-outline" size={44} color={BRAND_ORANGE} style={styles.quotesPlaneIcon} />
             </View>
-            <Text style={styles.emptyTitle}>Waiting for tailor quotes</Text>
-            <Text style={styles.quotesWaitingCopy}>Searching for available tailors near you. New quotes will appear here automatically.</Text>
+            <Text style={styles.quotesScanningTitle}>{waitProgressComplete ? "Don't worry!" : "Searching for tailors..."}</Text>
+            <Text style={styles.quotesScanningSubtext}>{waitProgressComplete ? "We are connecting you with a tailor shortly. Please wait." : "We're finding the best tailors near you.\nNew quotes will appear here automatically."}</Text>
+            <View style={styles.quotesWaitClockBlock}>
+              <View style={styles.quotesWaitClockRow}>
+                <Ionicons name="time-outline" size={25} color={BRAND_ORANGE} />
+                <Text style={styles.quotesWaitClockText}>{waitTimeLabel}</Text>
+              </View>
+              <Text style={styles.quotesWaitClockLabel}>Estimated wait time</Text>
+            </View>
+            <View style={styles.quotesTimeline}>
+              <View style={styles.quotesTimelineBaseLine} />
+              <View style={[styles.quotesTimelineActiveLine, { width: waitProgressWidth }]} />
+              {[
+                ["Searching", 0],
+                ["Notifying tailors", 33],
+                ["Receiving quotes", 66],
+                ["Almost there", 100]
+              ].map(([label, threshold]) => {
+                const active = waitProgressPercent >= Number(threshold);
+                return (
+                <View key={label as string} style={styles.quotesTimelineStep}>
+                  <Text style={[styles.quotesTimelineText, active && styles.quotesTimelineTextActive]}>{label as string}</Text>
+                </View>
+                );
+              })}
+            </View>
+            <Pressable style={styles.quoteWaitingDetailsButton} onPress={() => setDetailsOpen(true)}>
+              <Text style={styles.quoteWaitingDetailsText}>View Details</Text>
+              <Ionicons name="chevron-forward" size={25} color="#ffffff" />
+            </Pressable>
           </View>
         ) : null}
 
@@ -5712,7 +5908,7 @@ function QuotesScreen({
         ) : null}
 
         {draft.backendRequestId && onDeleteRequest ? (
-          <Pressable style={[styles.cancelOrderButton, { marginTop: selectedQuote ? 8 : 24, marginBottom: 28 }]} onPress={requestDeleteRequest} disabled={deleting}>
+          <Pressable style={[styles.cancelOrderButton, { marginTop: selectedQuote ? 8 : 12, marginBottom: 20 }]} onPress={requestDeleteRequest} disabled={deleting}>
             <Ionicons name="trash-outline" size={20} color="#c24141" />
             <Text style={styles.cancelOrderText}>Delete Request</Text>
           </Pressable>
@@ -7156,11 +7352,11 @@ function AddAddressScreen({
   const [addressFields, setAddressFields] = useState<AddressFields>(() => emptyAddressFields());
   const [location, setLocation] = useState<{ lat?: number; lng?: number }>({});
   const [locating, setLocating] = useState(false);
-  const formattedAddress = formatAddressFields(addressFields);
+  const formattedAddress = displayAddressFields(addressFields);
   const missingFields = missingAddressFields(addressFields);
 
   function updateAddressField(key: keyof AddressFields, value: string) {
-    setAddressFields((current) => ({ ...current, [key]: value }));
+    setAddressFields((current) => ({ ...current, [key]: value, sourceAddress: undefined }));
   }
 
   async function useCurrentLocation() {
@@ -7208,7 +7404,10 @@ function AddAddressScreen({
     <ProfileSubPage title={t(useAppStore.getState().language, "addAddress")} setScreen={setScreen} backScreen="savedAddresses">
       <View style={styles.addressHintCard}>
         <Ionicons name="location-outline" size={26} color={BRAND_ORANGE} />
-        <Text style={styles.addressHintText}>Add your address so our tailors can reach you with ease.</Text>
+        <View style={styles.profileRowText}>
+          <Text style={styles.addressHintTitle}>Pickup Address</Text>
+          <Text style={styles.addressHintText}>Enter accurate address for smooth pickup</Text>
+        </View>
       </View>
       <Text style={styles.formLabel}>Address Label</Text>
       <View style={styles.addressLabelGrid}>
@@ -7228,47 +7427,20 @@ function AddAddressScreen({
         })}
       </View>
       <Text style={styles.formLabel}>Address Details</Text>
-      <View style={styles.addressHelperLine}>
-        <Ionicons name="location" size={10} color={BRAND_ORANGE} />
-        <Text style={styles.addressHelperText}>Use current location to auto-fill, then complete missing fields.</Text>
-      </View>
-      <View style={styles.structuredAddressCard}>
-        <View style={styles.addressFieldGrid}>
-          <View style={styles.addressFieldWide}>
-            <Text style={styles.addressFieldLabel}>Building / Flat No.</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.buildingNo} onChangeText={(value) => updateAddressField("buildingNo", value)} placeholder="A-5, Flat 302" placeholderTextColor="#98a4b6" />
-          </View>
-          <View style={styles.addressFieldWide}>
-            <Text style={styles.addressFieldLabel}>Street / Society</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.street} onChangeText={(value) => updateAddressField("street", value)} placeholder="Street, society or road" placeholderTextColor="#98a4b6" />
-          </View>
-          <View style={styles.addressFieldHalf}>
-            <Text style={styles.addressFieldLabel}>Area</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.area} onChangeText={(value) => updateAddressField("area", value)} placeholder="Area" placeholderTextColor="#98a4b6" />
-          </View>
-          <View style={styles.addressFieldHalf}>
-            <Text style={styles.addressFieldLabel}>City</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.city} onChangeText={(value) => updateAddressField("city", value)} placeholder="City" placeholderTextColor="#98a4b6" />
-          </View>
-          <View style={styles.addressFieldHalf}>
-            <Text style={styles.addressFieldLabel}>State</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.state} onChangeText={(value) => updateAddressField("state", value)} placeholder="State" placeholderTextColor="#98a4b6" />
-          </View>
-          <View style={styles.addressFieldHalf}>
-            <Text style={styles.addressFieldLabel}>Pincode</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.postalCode} onChangeText={(value) => updateAddressField("postalCode", value.replace(/[^\d]/g, "").slice(0, 6))} keyboardType="number-pad" placeholder="110001" placeholderTextColor="#98a4b6" />
-          </View>
-          <View style={styles.addressFieldWide}>
-            <Text style={styles.addressFieldLabel}>Landmark</Text>
-            <TextInput style={styles.addressFieldInput} value={addressFields.landmark} onChangeText={(value) => updateAddressField("landmark", value)} placeholder="Near..." placeholderTextColor="#98a4b6" />
-          </View>
-        </View>
-        {missingFields.length ? <Text style={styles.addressMissingText}>Missing: {missingFields.join(", ")}</Text> : <Text style={styles.addressPreviewText}>{formattedAddress}</Text>}
-      </View>
+      <StructuredAddressForm
+        fields={addressFields}
+        missingFields={missingFields}
+        formattedAddress={formattedAddress}
+        onChange={updateAddressField}
+        styles={styles}
+      />
       <View style={styles.addressActions}>
         <Pressable style={styles.currentLocationButton} onPress={useCurrentLocation} disabled={locating}>
-          {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={17} color={BRAND_ORANGE} />}
-          <Text style={styles.currentLocationText}>{locating ? "Finding..." : "Use Current Location"}</Text>
+          {locating ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="navigate-outline" size={26} color={BRAND_ORANGE} />}
+          <View style={styles.currentLocationTextBlock}>
+            <Text style={styles.currentLocationText}>{locating ? "Finding your location..." : "Use current location"}</Text>
+            <Text style={styles.currentLocationSubtext}>Auto-fill your current address</Text>
+          </View>
           <Ionicons name="chevron-forward" size={18} color="#98a4b6" />
         </Pressable>
       </View>
@@ -9370,6 +9542,7 @@ function OrderDetailsScreenV2({
   const pickupSchedule = pickupScheduleForOrder(order);
   const estimatedTime = estimatedTimeForOrder(order);
   const orderItems = clothingItemsForDraft(order.draft);
+  const measurementEntries = orderMeasurementEntries(order);
   const itemTotal = Math.max(
     order.total -
       (order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)) -
@@ -9449,6 +9622,7 @@ function OrderDetailsScreenV2({
         <Text style={styles.sectionTitle}>Order Progress</Text>
         <OrderProgressStrip status={order.status} />
         <CustomerHandoffOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+        <CustomerMeasurementOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
         <CustomerEtaCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
 
         <Text style={styles.sectionTitle}>Order Items</Text>
@@ -9470,6 +9644,36 @@ function OrderDetailsScreenV2({
             );
           })}
         </View>
+
+        {measurementEntries.length ? (
+          <>
+            <Text style={styles.sectionTitle}>Submitted Measurements</Text>
+            <View style={styles.orderMeasurementsCard}>
+              {measurementEntries.map((item, index) => (
+                <View key={item.id} style={[styles.customerMeasurementBlock, index > 0 && styles.customerMeasurementBlockBorder]}>
+                  <View style={styles.orderIssueRow}>
+                    <View style={styles.customerMeasurementIcon}>
+                      <Ionicons name="resize-outline" size={20} color="#0891b2" />
+                    </View>
+                    <View style={styles.profileRowText}>
+                      <Text style={styles.addressTitle}>{item.title}</Text>
+                      <Text style={styles.mutedSmall}>{item.fields.length} measurements submitted by tailor</Text>
+                    </View>
+                  </View>
+                  <View style={styles.customerMeasurementGrid}>
+                    {item.fields.map(([label, value]) => (
+                      <View key={`${item.id}-${label}`} style={styles.customerMeasurementPill}>
+                        <Text style={styles.customerMeasurementLabel}>{label}</Text>
+                        <Text style={styles.customerMeasurementValue}>{String(value)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {item.notes ? <Text style={styles.customerMeasurementNote}>{item.notes}</Text> : null}
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Text style={styles.sectionTitle}>Order Summary</Text>
         <View style={styles.orderDetailsCard}>
@@ -11357,6 +11561,27 @@ function createStyles(isDark = false) {
   darkText: { color: "#f6f7fa" },
   darkMuted: { color: "#7f8796" },
   smallDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: BRAND_ORANGE, marginTop: 10, marginLeft: 8 },
+  notificationCenterHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, marginBottom: 18 },
+  notificationCenterTitle: { color: text, fontSize: 17, lineHeight: 22, fontWeight: "900" },
+  notificationCenterSub: { color: muted, fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 3 },
+  notificationMarkReadButton: { minHeight: 36, borderRadius: 18, borderWidth: 1.2, borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  notificationMarkReadText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  notificationTimelineWrap: { gap: 16 },
+  notificationGroup: { width: "100%" },
+  notificationGroupTitle: { color: "#3f4651", fontSize: 13, lineHeight: 18, fontWeight: "900", marginBottom: 10 },
+  notificationTimeline: { position: "relative", gap: 10, paddingLeft: 30 },
+  notificationTimelineRail: { position: "absolute", left: 7, top: 0, bottom: -6, width: 2, borderRadius: 1, backgroundColor: "#e5e7eb" },
+  notificationTimelineItem: { position: "relative" },
+  notificationTimelineDot: { position: "absolute", left: -27, top: 39, width: 8, height: 8, borderRadius: 4 },
+  notificationTimelineCard: { minHeight: 72, borderRadius: 17, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.035, shadowRadius: 14, elevation: 1 },
+  notificationTimelineIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  notificationTimelineBody: { flex: 1, minWidth: 0 },
+  notificationTimelineTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  notificationTimelineTitle: { flex: 1, minWidth: 0, color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  notificationTimeWrap: { flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 0, maxWidth: 112 },
+  notificationTimelineTime: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "800" },
+  notificationUnreadDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
+  notificationTimelineCopy: { color: muted, fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 4 },
   stepBadge: { overflow: "hidden", borderRadius: 15, backgroundColor: "#fff2d8", color: BRAND_ORANGE, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: "900" },
   requestHintCard: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14 },
   requestSafetyCard: { minHeight: 68, borderRadius: 14, borderWidth: 1, borderColor: isDark ? "#14532d" : "#bbf7d0", backgroundColor: isDark ? "#0d2416" : "#f0fdf4", flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14 },
@@ -11432,14 +11657,25 @@ function createStyles(isDark = false) {
   addressTextWrap: { flex: 1, marginLeft: 14 },
   addressInlineEdit: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   addressInput: { minHeight: 46, color: text, fontSize: 13, lineHeight: 19, padding: 0, textAlignVertical: "top" },
-  structuredAddressCard: { borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14 },
-  addressFieldGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+  structuredAddressCard: { borderRadius: 20, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.04, shadowRadius: 20, elevation: 2 },
+  addressRequiredBanner: { minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: "#fde3b0", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
+  addressRequiredText: { flex: 1, minWidth: 0, color: "#4f5664", fontSize: 12, fontWeight: "700", lineHeight: 18 },
+  addressRequiredStrong: { color: BRAND_ORANGE, fontWeight: "900" },
+  addressFieldGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   addressFieldWide: { width: "100%" },
-  addressFieldHalf: { width: "48.4%" },
-  addressFieldLabel: { color: muted, fontSize: 11, fontWeight: "900", marginBottom: 6 },
-  addressFieldInput: { minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, color: text, paddingHorizontal: 12, fontSize: 13, fontWeight: "800" },
-  addressMissingText: { color: "#b91c1c", fontSize: 11, fontWeight: "900", lineHeight: 16, marginTop: 10 },
-  addressPreviewText: { color: "#15803d", fontSize: 11, fontWeight: "800", lineHeight: 17, marginTop: 10 },
+  addressFieldHalf: { width: "48%" },
+  addressFieldLabel: { color: text, fontSize: 12, fontWeight: "900", marginBottom: 6 },
+  addressOptionalLabel: { color: muted, fontWeight: "800" },
+  addressFieldShell: { minHeight: 48, borderRadius: 14, borderWidth: 1.2, borderColor: border, backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11 },
+  addressFieldShellError: { borderColor: "#ff7b7b" },
+  addressFieldInput: { flex: 1, minWidth: 0, minHeight: 44, color: text, paddingVertical: 0, fontSize: 13, fontWeight: "800" },
+  addressMissingRow: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 7, marginTop: 12 },
+  addressMissingText: { flex: 1, minWidth: 0, color: "#ef4444", fontSize: 12, fontWeight: "900", lineHeight: 17 },
+  addressReadyRow: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 7, marginTop: 12 },
+  addressReadyText: { flex: 1, minWidth: 0, color: "#15803d", fontSize: 12, fontWeight: "900", lineHeight: 17 },
+  addressPreviewBox: { borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10 },
+  addressPreviewLabel: { color: muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginBottom: 4 },
+  addressPreviewText: { color: text, fontSize: 12, fontWeight: "800", lineHeight: 18 },
   addressActions: { flexDirection: "row", gap: 10, marginTop: 12 },
   addressActionButton: { flex: 1, minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#efbd65", backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
   savedAddressList: { gap: 10 },
@@ -11668,12 +11904,32 @@ function createStyles(isDark = false) {
   quotesSummaryItem: { color: text, fontSize: 15, fontWeight: "900", lineHeight: 21, marginTop: 2 },
   quoteDetailsButton: { minHeight: 48, alignSelf: "stretch", borderRadius: 12, backgroundColor: BRAND_DEEP, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
   quoteDetailsButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
-  quotesWaitingState: { alignItems: "center", paddingHorizontal: 12, paddingBottom: 8 },
-  quotesIllustration: { width: 220, height: 220, borderRadius: 110, backgroundColor: isDark ? "#181f2b" : "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 24, marginTop: 26 },
-  quotesRadarPulse: { position: "absolute", width: 190, height: 190, borderRadius: 95, borderWidth: 3, borderColor: BRAND_ORANGE, backgroundColor: "transparent" },
-  quotesPlaneIcon: { position: "absolute", right: 28, top: 30, transform: [{ rotate: "-8deg" }] },
-  quotesSparkLeft: { position: "absolute", left: -28, top: 86 },
-  quotesSparkRight: { position: "absolute", right: -36, top: 86 },
+  quotesWaitingState: { alignItems: "center", paddingHorizontal: 4, paddingBottom: 8 },
+  quotesScanningTitle: { color: text, fontSize: 22, lineHeight: 27, fontWeight: "900", textAlign: "center", marginTop: 2 },
+  quotesScanningSubtext: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 8 },
+  quotesIllustration: { width: 238, height: 238, alignItems: "center", justifyContent: "center", marginBottom: 14, marginTop: 18 },
+  quotesRadarRingOuter: { position: "absolute", width: 204, height: 204, borderRadius: 102, borderWidth: 1.2, borderStyle: "dashed", borderColor: "#d7dbe2" },
+  quotesRadarRingMiddle: { position: "absolute", width: 166, height: 166, borderRadius: 83, borderWidth: 1, borderColor: "#eef0f3" },
+  quotesRadarRingInner: { position: "absolute", width: 124, height: 124, borderRadius: 62, backgroundColor: "rgba(250, 178, 22, 0.12)" },
+  quotesCircleProgressArc: { position: "absolute", width: 204, height: 204, borderRadius: 102, borderWidth: 4, borderColor: "transparent", borderTopColor: BRAND_ORANGE, borderRightColor: BRAND_ORANGE },
+  quotesCircleProgressLine: { width: 0, height: 0 },
+  quotesCircleProgressDot: { width: 0, height: 0 },
+  quotesCircleSparkLeft: { position: "absolute", left: 16, top: 116, width: 12, height: 12, borderRadius: 6, backgroundColor: "rgba(250, 178, 22, 0.22)" },
+  quotesCircleSparkRight: { position: "absolute", right: 42, top: 30, width: 15, height: 15, borderRadius: 8, backgroundColor: "rgba(250, 178, 22, 0.16)" },
+  quotesRadarCenter: { width: 112, height: 112, borderRadius: 56, backgroundColor: surface, alignItems: "center", justifyContent: "center", shadowColor: "#0b2241", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.07, shadowRadius: 22, elevation: 3 },
+  quotesWaitClockBlock: { alignItems: "center", marginTop: 22, marginBottom: 22 },
+  quotesWaitClockRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  quotesWaitClockText: { color: BRAND_ORANGE, fontSize: 23, lineHeight: 29, fontWeight: "900" },
+  quotesWaitClockLabel: { color: muted, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 8 },
+  quotesTimeline: { width: "100%", minHeight: 46, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, position: "relative", paddingTop: 15 },
+  quotesTimelineBaseLine: { position: "absolute", left: 2, right: 2, top: 0, height: 4, borderRadius: 2, backgroundColor: "#e5e7eb" },
+  quotesTimelineActiveLine: { position: "absolute", left: 2, top: 0, height: 4, borderRadius: 2, backgroundColor: BRAND_ORANGE, maxWidth: "100%" },
+  quotesTimelineStep: { flex: 1, minWidth: 0, alignItems: "center", position: "relative", paddingHorizontal: 2 },
+  quotesTimelineText: { color: "#8d8d8d", fontSize: 10, fontWeight: "800", lineHeight: 14, textAlign: "center" },
+  quotesTimelineTextActive: { color: BRAND_ORANGE, fontWeight: "900" },
+  quoteWaitingDetailsButton: { width: "100%", minHeight: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 2, marginBottom: 0 },
+  quoteWaitingDetailsText: { color: "#ffffff", fontSize: 17, fontWeight: "900" },
+  quotesNotifyCard: { width: "100%", minHeight: 80, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 },
   quotesWaitingCopy: { color: muted, fontSize: 16, lineHeight: 25, fontWeight: "700", textAlign: "center", maxWidth: 322, marginBottom: 24 },
   quotesListHeader: { marginBottom: 18 },
   quotesTrustCard: { width: "100%", minHeight: 96, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "stretch", padding: 12, marginBottom: 16 },
@@ -11847,6 +12103,15 @@ function createStyles(isDark = false) {
   orderProgressLabel: { color: muted, fontSize: 9, fontWeight: "900", lineHeight: 13, textAlign: "center", marginTop: 7, paddingHorizontal: 2 },
   orderProgressLabelDone: { color: text },
   orderDetailsCard: { borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginBottom: 14 },
+  orderMeasurementsCard: { borderRadius: 16, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: isDark ? "#0b2530" : "#ecfeff", padding: 14, marginBottom: 14 },
+  customerMeasurementBlock: { gap: 10 },
+  customerMeasurementBlockBorder: { borderTopWidth: 1, borderTopColor: isDark ? "#164e63" : "#99f6e4", paddingTop: 12, marginTop: 12 },
+  customerMeasurementIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: isDark ? "#164e63" : "#ccfbf1", alignItems: "center", justifyContent: "center" },
+  customerMeasurementGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  customerMeasurementPill: { width: "47.5%", borderRadius: 12, borderWidth: 1, borderColor: isDark ? "#164e63" : "#99f6e4", backgroundColor: surface, paddingHorizontal: 10, paddingVertical: 8 },
+  customerMeasurementLabel: { color: muted, fontSize: 10, lineHeight: 13, fontWeight: "900" },
+  customerMeasurementValue: { color: text, fontSize: 13, lineHeight: 17, fontWeight: "900", marginTop: 2 },
+  customerMeasurementNote: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "800" },
   orderItemLine: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
   orderItemLineBorder: { borderTopWidth: 1, borderTopColor: border },
   orderLineThumb: { width: 56, height: 56, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
@@ -12096,8 +12361,9 @@ function createStyles(isDark = false) {
   notificationRowTitle: { color: text, fontSize: 12, fontWeight: "900", lineHeight: 17 },
   notificationRowCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 2 },
   notificationTimingValue: { maxWidth: 92, color: text, fontSize: 9, fontWeight: "900", textAlign: "right" },
-  addressHintCard: { minHeight: 60, borderRadius: 9, backgroundColor: "#fff7ea", flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20 },
-  addressHintText: { flex: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "800", lineHeight: 17, fontStyle: "italic" },
+  addressHintCard: { minHeight: 76, borderRadius: 22, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 2 },
+  addressHintTitle: { color: text, fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  addressHintText: { flex: 1, minWidth: 0, color: muted, fontSize: 13, fontWeight: "800", lineHeight: 19, marginTop: 2 },
   addressLabelGrid: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 20 },
   addressLabelCard: { flex: 1, height: 64, borderRadius: 13, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 6, padding: 7 },
   addressLabelActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fffdf9" },
@@ -12120,17 +12386,20 @@ function createStyles(isDark = false) {
   addressFullInput: { flex: 1, minHeight: 28, maxHeight: 88, color: text, fontSize: 12, fontWeight: "800", lineHeight: 18, padding: 0, textAlignVertical: "top" },
   currentLocationButton: {
     flex: 1,
-    minHeight: 46,
-    borderRadius: 9,
-    borderWidth: 1,
+    minHeight: 70,
+    borderRadius: 20,
+    borderWidth: 1.4,
     borderColor: "#efbd65",
-    backgroundColor: inputSurface,
+    backgroundColor: surfaceAlt,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 13
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 13
   },
-  currentLocationText: { flex: 1, minWidth: 0, color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  currentLocationTextBlock: { flex: 1, minWidth: 0 },
+  currentLocationText: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900", lineHeight: 21 },
+  currentLocationSubtext: { color: muted, fontSize: 12, fontWeight: "800", lineHeight: 17, marginTop: 2 },
   helpGroupCard: {
     borderRadius: 9,
     borderWidth: 1,

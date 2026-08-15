@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, MeasurementVisitModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -18,7 +18,7 @@ import {
   sendQuoteReceivedNotification
 } from "../services/notificationService.js";
 import { emitToAdmins, emitToCustomer, emitToDeliveryPartner, emitToDeliveryPartners, emitToTailor, emitToTailors } from "../services/socket.service.js";
-import { resolveOperationalAlert } from "../services/operational-alert.service.js";
+import { resolveOperationalAlert, upsertOperationalAlert } from "../services/operational-alert.service.js";
 import { createMeasurementVisitForConfirmedRequest } from "../services/measurement-visit.service.js";
 import { creditOrderEarning } from "../services/wallet.service.js";
 import {
@@ -1998,7 +1998,17 @@ export async function getTailoringRequestController(req: Request, res: Response)
   if (req.user!.role === "TAILOR" && request.status !== "QUOTE_REQUESTED") {
     const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id");
     const ownQuote = await TailorQuoteModel.findOne({ requestId: request.id, tailorId: tailor?.id ?? "__none__" }).select("_id");
-    if (!ownQuote) throw new AppError(403, "Forbidden");
+    const ownMeasurementVisit = tailor
+      ? await MeasurementVisitModel.findOne({
+          requestId: request.id,
+          $or: [
+            { stitchingTailorId: tailor.id },
+            { offeredTailorId: tailor.id },
+            { assignedTailorId: tailor.id }
+          ]
+        }).select("_id")
+      : null;
+    if (!ownQuote && !ownMeasurementVisit) throw new AppError(403, "Forbidden");
   }
   res.json({ data: await hydrateTailoringRequest(request, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
 }
@@ -2077,6 +2087,46 @@ export async function listTailorQuotesController(req: Request, res: Response) {
 
   const quotes = await TailorQuoteModel.find(where).sort({ price: 1, createdAt: 1 });
   res.json({ data: await Promise.all(quotes.map((quote) => hydrateTailorQuote(quote))) });
+}
+
+export async function alertNoQuoteWaitController(req: Request, res: Response) {
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+
+  const quoteCount = await TailorQuoteModel.countDocuments({ requestId: request.id, status: { $in: ["SUBMITTED", "RESERVED", "ACCEPTED"] } });
+  if (quoteCount > 0) {
+    await resolveOperationalAlert(`NO_QUOTE:${request.id}`);
+    return res.json({ data: { alerted: false, quoteCount } });
+  }
+
+  const customer = await UserModel.findById(request.customerId).select("name phone");
+  const waitingSeconds = Math.max(0, Math.floor((Date.now() - new Date(request.createdAt).getTime()) / 1000));
+  const alert = await upsertOperationalAlert({
+    type: "NO_QUOTE",
+    severity: "WARNING",
+    title: "Customer waiting for tailor",
+    message: `${request.clothType} request has crossed the customer wait timer without a tailor quote.`,
+    dedupeKey: `NO_QUOTE:${request.id}`,
+    entityType: "tailoring_request",
+    entityId: request.id,
+    customerId: request.customerId,
+    customerName: customer?.name ?? undefined,
+    customerPhone: customer?.phone ?? undefined,
+    metadata: {
+      requestId: request.id,
+      service: request.workType,
+      garment: request.clothType,
+      location: request.pickupAddress,
+      requestTime: request.createdAt,
+      waitingSeconds,
+      source: "customer_wait_progress"
+    },
+    sendEmail: true
+  });
+
+  emitToAdmins("operational_alert:new", alert?.toJSON?.() ?? alert);
+  return res.json({ data: { alerted: true, alert } });
 }
 
 export async function startTailoringCheckoutController(req: Request, res: Response) {

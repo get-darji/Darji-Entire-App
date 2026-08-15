@@ -121,7 +121,6 @@ type TailorSettings = {
   soundAlerts?: boolean;
   compactCards?: boolean;
   autoOpenNewRequests?: boolean;
-  maxOrdersPerDay?: number;
   darkMode?: boolean;
 };
 type TailorProfile = {
@@ -189,10 +188,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const settingsFromServer = useMemo(() => profile?.settings ?? {}, [profile?.settings]);
-  const maxOrdersPerDay = settingsFromServer.maxOrdersPerDay ?? 8;
   const activeOrders = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
   const completedOrders = orders.filter((order) => ["READY", "DELIVERED", "STITCHING_COMPLETED"].includes(order.status)).length;
-  const maxReached = activeOrders >= maxOrdersPerDay;
   const ratingValues = orders
     .map((order) => order.tailorRating ?? order.review?.rating ?? order.rating)
     .filter((rating): rating is number => typeof rating === "number" && rating > 0);
@@ -288,8 +285,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             settings: {
               notifications: notifications.newOrderAlerts,
               soundAlerts: notifications.sound,
-              darkMode: general.darkMode,
-              maxOrdersPerDay
+              darkMode: general.darkMode
             }
           })
         },
@@ -620,7 +616,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
                 <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>SHOP CONFIGURATION</Text>
               </View>
               <InfoRow icon="storefront-outline" title="Shop Name" value={shopName} styles={styles} />
-              <InfoRow icon="time-outline" title="Stitching Capacity" value={`${maxOrdersPerDay} orders limit per day`} styles={styles} />
+              <InfoRow icon="time-outline" title="Active Work" value={`${activeOrders} orders in progress`} styles={styles} />
               <InfoRow icon="ribbon-outline" title="Specializations" value={profile?.specialization?.join(", ") || "Custom tailoring"} styles={styles} />
             </View>
 

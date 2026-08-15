@@ -96,6 +96,7 @@ import {
   getMeasurementVisitOtpController,
   getMeasurementVisitOtpForRequestController,
   listMeasurementVisitsController,
+  verifyMeasurementVisitOtpController,
   submitMeasurementVisitController,
   updateTailorMeasurementCapabilitiesController
 } from "../controllers/measurement.controller.js";
@@ -115,6 +116,7 @@ import {
   resolveDeliveryRetryController,
   rescheduleDeliveryTaskController,
   rejectDeliveryRequestController,
+  alertNoQuoteWaitController,
   createTailorQuoteController,
   getTailoringRequestController,
   listTailorQuotesController,
@@ -165,6 +167,7 @@ router.post("/tailoring-requests/:id/checkout", requireAuth, requireRole("CUSTOM
 router.post("/tailoring-requests/:id/checkout/verify", requireAuth, requireRole("CUSTOMER", "ADMIN"), verifyTailoringCheckoutController);
 router.post("/tailoring-requests/:id/cancel", requireAuth, requireRole("CUSTOMER", "ADMIN"), cancelTailoringRequestController);
 router.post("/tailoring-requests/:id/decline", requireAuth, requireRole("TAILOR", "ADMIN"), declineTailoringRequestController);
+router.post("/tailoring-requests/:id/no-quote-alert", requireAuth, requireRole("CUSTOMER", "ADMIN"), alertNoQuoteWaitController);
 router.get("/tailoring-requests/:id/quotes", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), listTailorQuotesController);
 router.post("/tailoring-requests/:id/quotes", requireAuth, requireRole("TAILOR", "ADMIN"), createTailorQuoteController);
 router.post("/tailoring-requests/:id/quotes/:quoteId/select", requireAuth, requireRole("CUSTOMER", "ADMIN"), selectTailorQuoteController);
@@ -174,6 +177,7 @@ router.get("/measurement-visits/:id/otp", requireAuth, requireRole("CUSTOMER", "
 router.get("/tailoring-requests/:requestId/measurement-visit/otp", requireAuth, requireRole("CUSTOMER", "ADMIN", "SUPER_ADMIN"), getMeasurementVisitOtpForRequestController);
 router.post("/measurement-visits/:id/accept", requireAuth, requireRole("TAILOR"), acceptMeasurementVisitController);
 router.post("/measurement-visits/:id/decline", requireAuth, requireRole("TAILOR"), declineMeasurementVisitController);
+router.post("/measurement-visits/:id/verify-otp", requireAuth, requireRole("TAILOR"), verifyMeasurementVisitOtpController);
 router.post("/measurement-visits/:id/submit", requireAuth, requireRole("TAILOR"), submitMeasurementVisitController);
 router.patch("/admin/measurement-visits/:id/assign", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminAssignMeasurementVisitController);
 router.patch("/tailors/me/measurement-capabilities", requireAuth, requireRole("TAILOR"), updateTailorMeasurementCapabilitiesController);

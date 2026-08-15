@@ -12,7 +12,7 @@ import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
-import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, forwardRef, type Dispatch, type SetStateAction, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -197,6 +197,7 @@ type TailoringRequest = {
   urgency: string;
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
+  homeMeasurementBooked?: boolean;
   pickupAddress: string;
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
   orderStatus?: string;
@@ -249,7 +250,7 @@ type TailorProfile = {
   workingHours?: { from?: string; to?: string };
   tailorRoles?: string[];
   measurementPartner?: { isEnabled?: boolean; visitPayout?: number; serviceAreas?: string[] };
-  settings?: { notifications?: boolean; soundAlerts?: boolean; compactCards?: boolean; autoOpenNewRequests?: boolean; maxOrdersPerDay?: number };
+  settings?: { notifications?: boolean; soundAlerts?: boolean; compactCards?: boolean; autoOpenNewRequests?: boolean };
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verificationSubmittedAt?: string;
   verificationReviewedAt?: string;
@@ -276,6 +277,7 @@ type MeasurementVisit = {
   garmentSummary?: string;
   submission?: {
     measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+    itemMeasurements?: Array<{ itemId?: string; label?: string; fields?: Record<string, string | number>; notes?: string }>;
     fitPreferences?: string[];
     notes?: string;
     specialInstructions?: string;
@@ -555,7 +557,8 @@ function requestItems(request: TailoringRequest): TailoringRequestItem[] {
       measurement: request.measurement,
       measurementNotes: request.measurementNotes,
       media: request.media ?? [],
-      voiceNotes: request.voiceNotes ?? []
+      voiceNotes: request.voiceNotes ?? [],
+      homeMeasurementBooked: request.homeMeasurementBooked
     }
   ];
 }
@@ -825,10 +828,200 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   );
 }
 
+function formatVisitDate(value?: string) {
+  if (!value) return "Date not set";
+  return new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatVisitTime(value?: string) {
+  if (!value) return "Time not set";
+  return new Date(value).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatVisitSlot(value?: string) {
+  if (!value) return "Preferred slot not set";
+  const start = new Date(value);
+  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+  return `${formatVisitTime(start.toISOString())} - ${formatVisitTime(end.toISOString())}`;
+}
+
+function isActionableMeasurementVisit(visit: MeasurementVisit) {
+  return visit.status === "OFFERED_TO_STITCHING_TAILOR" || visit.status === "POOL";
+}
+
+function isActiveMeasurementVisit(visit: MeasurementVisit) {
+  return visit.status === "ACCEPTED" || visit.status === "IN_PROGRESS";
+}
+
+function isOwnCustomerMeasurementVisit(visit: MeasurementVisit, tailorId?: string) {
+  return Boolean(tailorId && visit.stitchingTailorId === tailorId);
+}
+
+function measurementVisitNote(visit: MeasurementVisit) {
+  return visit.submission?.notes || visit.submission?.specialInstructions || "Customer needs a home measurement visit. Please measure accurately.";
+}
+
+function measurementFieldLabelsForGarment(label?: string) {
+  const text = String(label ?? "").toLowerCase();
+  if (/pant|trouser|jean|lower|salwar|palazzo|skirt/.test(text)) {
+    return ["Waist", "Hip", "Length", "Inseam", "Thigh", "Knee", "Bottom Opening"];
+  }
+  if (/shirt|kurta|top|t.?shirt|blouse|coat|jacket|waistcoat/.test(text)) {
+    return ["Neck", "Chest", "Waist", "Shoulder", "Sleeve Length", "Armhole", "Full Length"];
+  }
+  if (/dress|gown|suit|lehenga|saree/.test(text)) {
+    return ["Bust", "Waist", "Hip", "Shoulder", "Sleeve Length", "Full Length", "Armhole"];
+  }
+  return ["Chest", "Waist", "Shoulder", "Sleeve Length", "Full Length"];
+}
+
+function sortedMeasurementVisits(visits: MeasurementVisit[]) {
+  return [...visits].sort((a, b) => new Date(a.scheduledAt ?? 0).getTime() - new Date(b.scheduledAt ?? 0).getTime());
+}
+
+function isVisitToday(visit: MeasurementVisit) {
+  const date = new Date(visit.scheduledAt);
+  const today = new Date();
+  return date.toDateString() === today.toDateString();
+}
+
+function measurementFieldsText(fields?: Record<string, string | number>) {
+  const entries = Object.entries(fields ?? {});
+  return entries.map(([key, value]) => `${key}: ${String(value)}`).join("\n");
+}
+
+function measurementDetailsText(fields?: Record<string, string | number>, itemNotes?: string, visitNotes?: string) {
+  return [
+    measurementFieldsText(fields),
+    itemNotes?.trim() ? `Item notes:\n${itemNotes.trim()}` : undefined,
+    visitNotes?.trim() ? `Visit notes:\n${visitNotes.trim()}` : undefined
+  ].filter(Boolean).join("\n\n");
+}
+
+function measurementItemId(item: TailoringRequestItem) {
+  return item.id ?? `${item.clothType}-${item.workType}`;
+}
+
+function measurementVisitRequestItems(request: TailoringRequest) {
+  const items = requestItems(request);
+  const requestedItems = items.filter((item) => item.homeMeasurementBooked);
+  return requestedItems.length ? requestedItems : items;
+}
+
+function MeasurementVisitCard({
+  visit,
+  tailorId,
+  saving,
+  onAccept,
+  onDecline,
+  onSubmit
+}: {
+  visit: MeasurementVisit;
+  tailorId?: string;
+  saving?: boolean;
+  onAccept?: (visit: MeasurementVisit) => void;
+  onDecline?: (visit: MeasurementVisit) => void;
+  onSubmit?: (visit: MeasurementVisit) => void;
+}) {
+  const canAccept = isActionableMeasurementVisit(visit);
+  const canSubmit = isActiveMeasurementVisit(visit);
+  const isOwnCustomer = isOwnCustomerMeasurementVisit(visit, tailorId);
+  const address = visit.pickupAddress ?? "Address not available";
+
+  return (
+    <View style={styles.measureVisitCard}>
+      <View style={styles.measureVisitHeader}>
+        <View style={styles.measureVisitIcon}>
+          <Ionicons name={visit.status === "POOL" ? "people-outline" : "home-outline"} size={20} color={BRAND_ORANGE} />
+        </View>
+        <View style={styles.measureVisitTitleWrap}>
+          <Text style={styles.measureVisitOrderId}>REQ-{visit.requestId.slice(0, 8).toUpperCase()}</Text>
+          <View style={styles.measureVisitTitleRow}>
+            <Text style={styles.measureVisitTitle} numberOfLines={2}>{visit.garmentSummary ?? "Measurement visit"}</Text>
+            {isOwnCustomer ? (
+              <View style={styles.yourCustomerBadge}>
+                <Text style={styles.yourCustomerBadgeText}>Your Customer</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.measureVisitCustomer} numberOfLines={1}>{visit.customerName ?? "Customer"}</Text>
+        </View>
+        <StatusPill status={visit.status} />
+      </View>
+
+      <View style={styles.measureVisitInfoGrid}>
+        <View style={styles.measureVisitInfoBlock}>
+          <Ionicons name="location-outline" size={16} color={BRAND_ORANGE} />
+          <View style={styles.measureVisitInfoText}>
+            <Text style={styles.measureVisitLabel}>Location</Text>
+            <Text style={styles.measureVisitValue} numberOfLines={3}>{address}</Text>
+            {visit.pickupAddress ? (
+              <Text
+                style={styles.measureVisitMapLink}
+                onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`)}
+              >
+                View on map
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        <View style={styles.measureVisitInfoBlock}>
+          <Ionicons name="calendar-outline" size={16} color={BRAND_ORANGE} />
+          <View style={styles.measureVisitInfoText}>
+            <Text style={styles.measureVisitLabel}>Date</Text>
+            <Text style={styles.measureVisitValue}>{formatVisitDate(visit.scheduledAt)}</Text>
+          </View>
+        </View>
+        <View style={styles.measureVisitInfoBlock}>
+          <Ionicons name="time-outline" size={16} color={BRAND_ORANGE} />
+          <View style={styles.measureVisitInfoText}>
+            <Text style={styles.measureVisitLabel}>Preferred time</Text>
+            <Text style={styles.measureVisitValue}>{formatVisitSlot(visit.scheduledAt)}</Text>
+          </View>
+        </View>
+        <View style={styles.measureVisitInfoBlock}>
+          <Ionicons name="wallet-outline" size={16} color={BRAND_ORANGE} />
+          <View style={styles.measureVisitInfoText}>
+            <Text style={styles.measureVisitLabel}>Earnings</Text>
+            <Text style={styles.measureVisitEarnings}>Rs {Number(visit.visitPayout ?? 0).toFixed(0)}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.measureVisitNoteBox}>
+        <Ionicons name="document-text-outline" size={16} color={MUTED} />
+        <View style={styles.measureVisitNoteText}>
+          <Text style={styles.measureVisitLabel}>Note</Text>
+          <Text style={styles.measureVisitValue}>{measurementVisitNote(visit)}</Text>
+        </View>
+      </View>
+
+      {canAccept ? (
+        <View style={styles.measureVisitActions}>
+          <Pressable style={[styles.measureVisitAcceptButton, saving && styles.disabledButton]} onPress={() => onAccept?.(visit)} disabled={saving}>
+            {saving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.measureVisitAcceptText}>Accept Visit</Text>}
+          </Pressable>
+          <Pressable style={[styles.measureVisitDeclineButton, saving && styles.disabledButton]} onPress={() => onDecline?.(visit)} disabled={saving}>
+            <Text style={styles.measureVisitDeclineText}>Decline</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {canSubmit ? (
+        <Pressable style={styles.measureVisitAcceptButton} onPress={() => onSubmit?.(visit)}>
+          <Text style={styles.measureVisitAcceptText}>Submit measurements</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 function DashboardScreen({
   me,
   requests,
   orders,
+  measurementVisits,
+  onToggleMeasurementPartner,
+  onOpenMeasurementRequests,
   setScreen,
   setActiveRequest,
   setActiveOrder
@@ -836,11 +1029,18 @@ function DashboardScreen({
   me?: MeResponse;
   requests: TailoringRequest[];
   orders: Order[];
+  measurementVisits: MeasurementVisit[];
+  onToggleMeasurementPartner: (value: boolean) => void | Promise<void>;
+  onOpenMeasurementRequests: () => void;
   setScreen: (screen: Screen) => void;
   setActiveRequest: (request: TailoringRequest) => void;
   setActiveOrder: (order: Order) => void;
 }) {
   const openRequests = requests.filter((request) => request.status === "QUOTE_REQUESTED");
+  const newMeasurementVisits = measurementVisits.filter(isActionableMeasurementVisit);
+  const todayMeasurementVisits = measurementVisits.filter((visit) => isActionableMeasurementVisit(visit) && isVisitToday(visit));
+  const nearestAcceptedVisit = sortedMeasurementVisits(measurementVisits.filter(isActiveMeasurementVisit))[0];
+  const measurementEnabled = Boolean(me?.tailorProfile?.measurementPartner?.isEnabled);
   const readyOrders = orders.filter((order) => ["READY", "DELIVERED"].includes(order.status));
   const estimatedEarnings = readyOrders.reduce((sum, order) => sum + Number(order.totalAmount) * 0.45, 0);
   const shopTitle = me?.tailorProfile?.shopName?.trim() || "Your Workplace";
@@ -852,7 +1052,7 @@ function DashboardScreen({
         <Text style={styles.dashboardTitle}>{shopTitle}</Text>
         <Text style={styles.dashboardSubtitle}>{dayGreeting()}, {tailorName}</Text>
       </View>
-      <View style={styles.heroCard}>
+      <Pressable style={styles.heroCard} onPress={() => setScreen(openRequests.length ? "requests" : "orders")}>
         <View>
           <Text style={styles.heroLabel}>TODAY</Text>
           <Text style={styles.heroTitle}>{openRequests.length} new requests</Text>
@@ -861,7 +1061,7 @@ function DashboardScreen({
         <View style={styles.heroIcon}>
           <Ionicons name="cut-outline" size={30} color="#111111" />
         </View>
-      </View>
+      </Pressable>
 
       <View style={styles.statsRow}>
         <Pressable style={styles.statCard} onPress={() => setScreen("requests")}>
@@ -888,13 +1088,35 @@ function DashboardScreen({
           <Text style={styles.statLabel}>Earnings</Text>
           <Text style={styles.statMeta}>Total earnings</Text>
         </Pressable>
-        <Pressable style={styles.statCard} onPress={() => setScreen("measurementVisits")}>
-          <View style={[styles.statIcon, { backgroundColor: "#e0f2fe" }]}>
-            <Ionicons name="resize-outline" size={20} color="#0284c7" />
+      </View>
+
+      <View style={styles.measureHomeCard}>
+        <View style={styles.measureHomeTop}>
+          <View style={styles.measureHomeIcon}>
+            <Ionicons name="resize-outline" size={22} color="#0891b2" />
           </View>
-          <Text style={styles.statValue}>Visit</Text>
-          <Text style={styles.statLabel}>Measurements</Text>
-          <Text style={styles.statMeta}>Home visit work</Text>
+          <View style={styles.measureHomeMain}>
+            <Text style={styles.measureHomeEyebrow}>Measurement Partner</Text>
+            <Text style={styles.measureHomeTitle}>Measurement Visits</Text>
+            <Text style={styles.measureHomeCopy} numberOfLines={1}>
+              {nearestAcceptedVisit ? `Next accepted: ${formatVisitDate(nearestAcceptedVisit.scheduledAt)}, ${formatVisitTime(nearestAcceptedVisit.scheduledAt)}` : "No accepted visits scheduled yet"}
+            </Text>
+          </View>
+          <Switch value={measurementEnabled} onValueChange={onToggleMeasurementPartner} thumbColor="#ffffff" trackColor={{ true: "#0891b2", false: "#dbe1e9" }} />
+        </View>
+        <View style={styles.measureHomeStats}>
+          <View style={styles.measureHomeStat}>
+            <Text style={styles.measureHomeStatValue}>{newMeasurementVisits.length}</Text>
+            <Text style={styles.measureHomeStatLabel}>New requests</Text>
+          </View>
+          <View style={styles.measureHomeStat}>
+            <Text style={styles.measureHomeStatValue}>{todayMeasurementVisits.length}</Text>
+            <Text style={styles.measureHomeStatLabel}>Upcoming today</Text>
+          </View>
+        </View>
+        <Pressable style={styles.measureHomeButton} onPress={onOpenMeasurementRequests}>
+          <Text style={styles.measureHomeButtonText}>View Requests</Text>
+          <Ionicons name="chevron-forward" size={16} color="#ffffff" />
         </Pressable>
       </View>
 
@@ -937,39 +1159,404 @@ function DashboardScreen({
   );
 }
 
-function RequestsScreen({ requests, setScreen, setActiveRequest }: { requests: TailoringRequest[]; setScreen: (screen: Screen) => void; setActiveRequest: (request: TailoringRequest) => void }) {
+function RequestsScreen({
+  requests,
+  measurementVisits,
+  initialTab,
+  tailorId,
+  token,
+  setScreen,
+  setActiveRequest,
+  showDialog,
+  onRefresh
+}: {
+  requests: TailoringRequest[];
+  measurementVisits: MeasurementVisit[];
+  initialTab?: "stitching" | "measurement";
+  tailorId?: string;
+  token?: string | null;
+  setScreen: (screen: Screen) => void;
+  setActiveRequest: (request: TailoringRequest) => void;
+  showDialog: (dialog: DialogState) => void;
+  onRefresh: () => void | Promise<void>;
+}) {
+  const [tab, setTab] = useState<"stitching" | "measurement">(initialTab ?? "stitching");
+  const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted">("incoming");
   const [filter, setFilter] = useState<"QUOTE_REQUESTED" | "QUOTED">("QUOTE_REQUESTED");
+  const [savingVisitId, setSavingVisitId] = useState<string>();
+  const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
+  const [activeVisitRequest, setActiveVisitRequest] = useState<TailoringRequest>();
+  const [loadingVisitRequest, setLoadingVisitRequest] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [fields, setFields] = useState<Record<string, Record<string, string>>>({});
+  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState("");
   const filteredRequests = requests.filter((request) => (filter === "QUOTED" ? Boolean(request.ownQuote) : request.status === "QUOTE_REQUESTED" && !request.ownQuote));
   const isSent = filter === "QUOTED";
+  const actionableVisits = measurementVisits.filter(isActionableMeasurementVisit);
+  const incomingMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter(isActionableMeasurementVisit));
+  const acceptedMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter((visit) => ["ACCEPTED", "IN_PROGRESS", "SUBMITTED"].includes(visit.status)));
+  const visibleMeasurementVisits = measurementVisitTab === "incoming" ? incomingMeasurementVisits : acceptedMeasurementVisits;
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (!activeVisit || !activeVisitRequest) return;
+    const items = measurementVisitRequestItems(activeVisitRequest);
+    setFields(Object.fromEntries(items.map((item) => [measurementItemId(item), Object.fromEntries(measurementFieldLabelsForGarment(item.clothType || item.workType || activeVisit.garmentSummary).map((field) => [field, ""]))])));
+    setItemNotes(Object.fromEntries(items.map((item) => [measurementItemId(item), ""])));
+  }, [activeVisit?.id, activeVisitRequest?.id]);
+
+  async function updateVisit(visit: MeasurementVisit, action: "accept" | "decline") {
+    if (!token) return;
+    setSavingVisitId(visit.id);
+    try {
+      await api(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
+      await onRefresh();
+      if (action === "accept") setMeasurementVisitTab("accepted");
+    } catch (error) {
+      showDialog({ title: `Could not ${action}`, message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setSavingVisitId(undefined);
+    }
+  }
+
+  async function openSubmitMeasurement(visit: MeasurementVisit) {
+    if (!token) return;
+    setActiveVisit(visit);
+    setActiveVisitRequest(undefined);
+    setOtp("");
+    setOtpVerified(false);
+    setFields({});
+    setItemNotes({});
+    setNotes("");
+    setLoadingVisitRequest(true);
+    try {
+      const request = await api<TailoringRequest>(`/tailoring-requests/${visit.requestId}`, {}, token);
+      setActiveVisitRequest(request);
+    } catch (error) {
+      showDialog({ title: "Could not load items", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setLoadingVisitRequest(false);
+    }
+  }
+
+  async function verifyVisitOtp() {
+    if (!token || !activeVisit) return;
+    if (otp.trim().length !== 4) {
+      showDialog({ title: "OTP required", message: "Enter the 4 digit customer OTP before verifying.", icon: "keypad-outline" });
+      return;
+    }
+    setSavingVisitId(activeVisit.id);
+    try {
+      await api(`/measurement-visits/${activeVisit.id}/verify-otp`, { method: "POST", body: JSON.stringify({ otp }) }, token);
+      setOtpVerified(true);
+      showDialog({ title: "OTP verified", message: "You can now enter item measurements.", icon: "checkmark-circle-outline" });
+    } catch (error) {
+      setOtpVerified(false);
+      showDialog({ title: "Invalid OTP", message: error instanceof Error ? error.message : "Please check the OTP shown in the customer app.", icon: "alert-circle-outline" });
+    } finally {
+      setSavingVisitId(undefined);
+    }
+  }
+
+  async function submitMeasurementVisit() {
+    if (!token || !activeVisit || !activeVisitRequest) return;
+    if (!otpVerified) {
+      showDialog({ title: "Verify OTP first", message: "Customer OTP must be verified before submitting measurements.", icon: "keypad-outline" });
+      return;
+    }
+    const itemMeasurements = measurementVisitRequestItems(activeVisitRequest).map((item) => {
+      const itemId = measurementItemId(item);
+      const measurementFields = Object.fromEntries(
+        Object.entries(fields[itemId] ?? {})
+          .map(([key, value]) => [key, value.trim()])
+          .filter(([, value]) => value)
+      );
+      return { itemId, label: item.clothType || item.workType || "Home Visit", fields: measurementFields, notes: itemNotes[itemId]?.trim() || undefined };
+    });
+    if (!itemMeasurements.length || itemMeasurements.some((item) => !Object.keys(item.fields).length)) {
+      showDialog({ title: "Measurements needed", message: "Add at least one measurement for each requested item.", icon: "resize-outline" });
+      return;
+    }
+    setSavingVisitId(activeVisit.id);
+    try {
+      await api(`/measurement-visits/${activeVisit.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          otp,
+          measurement: { label: itemMeasurements[0].label, fields: itemMeasurements[0].fields },
+          itemMeasurements,
+          notes,
+          specialInstructions: notes
+        })
+      }, token);
+      setActiveVisit(undefined);
+      setActiveVisitRequest(undefined);
+      setOtp("");
+      setOtpVerified(false);
+      setFields({});
+      setItemNotes({});
+      setNotes("");
+      await onRefresh();
+      setMeasurementVisitTab("accepted");
+      showDialog({ title: "Measurements submitted", message: "The stitching tailor and customer can now see these measurements.", icon: "checkmark-circle-outline" });
+    } catch (error) {
+      showDialog({ title: "Could not submit", message: error instanceof Error ? error.message : "Please check the OTP and try again.", icon: "alert-circle-outline" });
+    } finally {
+      setSavingVisitId(undefined);
+    }
+  }
+
+  const modalItems = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
+  const canSubmitMeasurements = otpVerified && modalItems.length > 0 && modalItems.every((item) => Object.values(fields[measurementItemId(item)] ?? {}).some((value) => value.trim()));
+
+  if (activeVisit) {
+    return (
+      <MeasurementSubmitScreen
+        activeVisit={activeVisit}
+        activeVisitRequest={activeVisitRequest}
+        canSubmitMeasurements={canSubmitMeasurements}
+        fields={fields}
+        itemNotes={itemNotes}
+        loadingVisitRequest={loadingVisitRequest}
+        notes={notes}
+        otp={otp}
+        otpVerified={otpVerified}
+        saving={savingVisitId === activeVisit.id}
+        onBack={() => {
+          setActiveVisit(undefined);
+          setActiveVisitRequest(undefined);
+        }}
+        setFields={setFields}
+        setItemNotes={setItemNotes}
+        setNotes={setNotes}
+        setOtp={setOtp}
+        submitVisit={() => void submitMeasurementVisit()}
+        verifyVisitOtp={() => void verifyVisitOtp()}
+      />
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={[styles.pageContent, styles.requestsPageContent]} showsVerticalScrollIndicator={false}>
       <View style={styles.requestsHeader}>
-        <Text style={styles.requestsTitle}>Customer App Requests</Text>
-        <Text style={styles.requestsSubtitle}>{filteredRequests.length} {isSent ? "sent requests" : "new requests"}</Text>
+        <Text style={styles.requestsTitle}>Requests</Text>
+        <Text style={styles.requestsSubtitle}>{tab === "stitching" ? `${filteredRequests.length} ${isSent ? "sent stitching requests" : "new stitching requests"}` : `${actionableVisits.length} measurement visits`}</Text>
       </View>
-      <View style={styles.filterRow}>
-        <Pressable style={[styles.filterChip, filter === "QUOTE_REQUESTED" && styles.filterChipActive]} onPress={() => setFilter("QUOTE_REQUESTED")}>
-          <Ionicons name="briefcase-outline" size={15} color={filter === "QUOTE_REQUESTED" ? BRAND_ORANGE : MUTED} />
-          <Text style={[styles.filterChipText, filter === "QUOTE_REQUESTED" && styles.filterChipTextActive]}>New Requests</Text>
+      <View style={styles.requestTypeTabs}>
+        <Pressable style={[styles.requestTypeTab, tab === "stitching" && styles.requestTypeTabActive]} onPress={() => setTab("stitching")}>
+          <Text style={[styles.requestTypeTabText, tab === "stitching" && styles.requestTypeTabTextActive]}>Stitching Requests</Text>
+          <Text style={[styles.requestTypeCount, tab === "stitching" && styles.requestTypeCountActive]}>{requests.filter((request) => request.status === "QUOTE_REQUESTED" && !request.ownQuote).length}</Text>
         </Pressable>
-        <Pressable style={[styles.filterChip, filter === "QUOTED" && styles.filterChipActive]} onPress={() => setFilter("QUOTED")}>
-          <Ionicons name="paper-plane-outline" size={15} color={filter === "QUOTED" ? BRAND_ORANGE : MUTED} />
-          <Text style={[styles.filterChipText, filter === "QUOTED" && styles.filterChipTextActive]}>Sent Requests</Text>
+        <Pressable style={[styles.requestTypeTab, tab === "measurement" && styles.requestTypeTabActive]} onPress={() => setTab("measurement")}>
+          <Text style={[styles.requestTypeTabText, tab === "measurement" && styles.requestTypeTabTextActive]}>Measurement Visits</Text>
+          <Text style={[styles.requestTypeCount, tab === "measurement" && styles.requestTypeCountActive]}>{actionableVisits.length}</Text>
         </Pressable>
       </View>
-      {filteredRequests.length === 0 ? <RequestsEmptyState sent={isSent} /> : null}
-      {filteredRequests.map((request) => (
-        <RequestCard
-          key={request.id}
-          request={request}
-          onPress={() => {
-            setActiveRequest(request);
-            setScreen("requestDetails");
-          }}
-        />
-      ))}
+      {tab === "stitching" ? (
+        <>
+          <View style={styles.filterRow}>
+            <Pressable style={[styles.filterChip, filter === "QUOTE_REQUESTED" && styles.filterChipActive]} onPress={() => setFilter("QUOTE_REQUESTED")}>
+              <Ionicons name="briefcase-outline" size={15} color={filter === "QUOTE_REQUESTED" ? BRAND_ORANGE : MUTED} />
+              <Text style={[styles.filterChipText, filter === "QUOTE_REQUESTED" && styles.filterChipTextActive]}>New Requests</Text>
+            </Pressable>
+            <Pressable style={[styles.filterChip, filter === "QUOTED" && styles.filterChipActive]} onPress={() => setFilter("QUOTED")}>
+              <Ionicons name="paper-plane-outline" size={15} color={filter === "QUOTED" ? BRAND_ORANGE : MUTED} />
+              <Text style={[styles.filterChipText, filter === "QUOTED" && styles.filterChipTextActive]}>Sent Requests</Text>
+            </Pressable>
+          </View>
+          {filteredRequests.length === 0 ? <RequestsEmptyState sent={isSent} /> : null}
+          {filteredRequests.map((request) => (
+            <RequestCard
+              key={request.id}
+              request={request}
+              onPress={() => {
+                setActiveRequest(request);
+                setScreen("requestDetails");
+              }}
+            />
+          ))}
+        </>
+      ) : (
+        <>
+          <View style={styles.measureVisitTabs}>
+            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "incoming" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("incoming")}>
+              <Text style={[styles.measureVisitTabText, measurementVisitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming Requests</Text>
+              <Text style={[styles.measureVisitTabCount, measurementVisitTab === "incoming" && styles.measureVisitTabCountActive]}>{incomingMeasurementVisits.length}</Text>
+            </Pressable>
+            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "accepted" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("accepted")}>
+              <Text style={[styles.measureVisitTabText, measurementVisitTab === "accepted" && styles.measureVisitTabTextActive]}>Accepted</Text>
+              <Text style={[styles.measureVisitTabCount, measurementVisitTab === "accepted" && styles.measureVisitTabCountActive]}>{acceptedMeasurementVisits.length}</Text>
+            </Pressable>
+          </View>
+          {visibleMeasurementVisits.length === 0 ? <MeasurementVisitsEmptyState accepted={measurementVisitTab === "accepted"} /> : null}
+          {visibleMeasurementVisits.map((visit) => (
+            <MeasurementVisitCard
+              key={visit.id}
+              visit={visit}
+              tailorId={tailorId}
+              saving={savingVisitId === visit.id}
+              onAccept={(item) => updateVisit(item, "accept")}
+              onDecline={(item) => updateVisit(item, "decline")}
+              onSubmit={(item) => void openSubmitMeasurement(item)}
+            />
+          ))}
+        </>
+      )}
     </ScrollView>
+  );
+}
+
+function MeasurementVisitsEmptyState({ accepted = false }: { accepted?: boolean }) {
+  return (
+    <View style={styles.requestsEmptyState}>
+      <View style={styles.requestsEmptyIcon}>
+        <Ionicons name="resize-outline" size={38} color={BRAND_ORANGE} />
+      </View>
+      <Text style={styles.requestsEmptyTitle}>{accepted ? "No accepted visits" : "No measurement visits"}</Text>
+      <Text style={styles.requestsEmptyCopy}>{accepted ? "Accepted measurement visits will appear here." : "New home visit offers will appear here."}</Text>
+    </View>
+  );
+}
+
+function MeasurementSubmitScreen({
+  activeVisit,
+  activeVisitRequest,
+  canSubmitMeasurements,
+  fields,
+  itemNotes,
+  loadingVisitRequest,
+  notes,
+  otp,
+  otpVerified,
+  saving,
+  onBack,
+  setFields,
+  setItemNotes,
+  setNotes,
+  setOtp,
+  submitVisit,
+  verifyVisitOtp
+}: {
+  activeVisit: MeasurementVisit;
+  activeVisitRequest?: TailoringRequest;
+  canSubmitMeasurements: boolean;
+  fields: Record<string, Record<string, string>>;
+  itemNotes: Record<string, string>;
+  loadingVisitRequest: boolean;
+  notes: string;
+  otp: string;
+  otpVerified: boolean;
+  saving: boolean;
+  onBack: () => void;
+  setFields: Dispatch<SetStateAction<Record<string, Record<string, string>>>>;
+  setItemNotes: Dispatch<SetStateAction<Record<string, string>>>;
+  setNotes: (value: string) => void;
+  setOtp: (value: string) => void;
+  submitVisit: () => void;
+  verifyVisitOtp: () => void;
+}) {
+  const modalItems = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
+  const orderId = `REQ-${activeVisit.requestId.slice(0, 8).toUpperCase()}`;
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.measureSubmitScreenWrap}>
+      <ScrollView contentContainerStyle={styles.measureSubmitScreenContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Header title="Submit Measurements" subtitle={`Order ${orderId}`} onBack={onBack} />
+
+        <View style={styles.measureSubmitHeroCard}>
+          <View style={styles.measureSubmitHeroTop}>
+            <View style={styles.measureSubmitHeroIcon}>
+              <Ionicons name="home-outline" size={22} color="#0891b2" />
+            </View>
+            <View style={styles.cardMain}>
+              <Text style={styles.measurementPopupEyebrow}>HOME VISIT</Text>
+              <Text style={styles.measureSubmitHeroTitle}>{activeVisit.garmentSummary ?? "Measurement visit"}</Text>
+              <Text style={styles.measureSubmitHeroCopy} numberOfLines={2}>{activeVisit.customerName ?? "Customer"} - {formatVisitDate(activeVisit.scheduledAt)} - {formatVisitSlot(activeVisit.scheduledAt)}</Text>
+            </View>
+          </View>
+          <View style={styles.measureSubmitOrderRow}>
+            <Text style={styles.measureSubmitOrderLabel}>Order ID</Text>
+            <Text style={styles.measureSubmitOrderValue}>{orderId}</Text>
+          </View>
+          <Text style={styles.measureSubmitAddress} numberOfLines={2}>{activeVisit.pickupAddress ?? "Pickup address not available"}</Text>
+        </View>
+
+        <View style={styles.measureSubmitSectionCard}>
+          <View style={styles.measureSubmitSectionHeader}>
+            <Text style={styles.measureSubmitSectionTitle}>Customer OTP</Text>
+            {otpVerified ? (
+              <View style={styles.measureVerifiedBadge}>
+                <Ionicons name="checkmark-circle" size={14} color="#0891b2" />
+                <Text style={styles.measureVerifiedBadgeText}>Verified</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.measureSubmitCopy}>Verify the OTP once. After verification it is locked and measurement fields unlock.</Text>
+          <View style={styles.otpVerifyCard}>
+            <TextInput editable={!otpVerified && !saving} style={[styles.otpVerifyInput, otpVerified && styles.inputReadOnly]} keyboardType="number-pad" maxLength={4} placeholder="OTP" placeholderTextColor="#94a3b8" value={otp} onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 4))} />
+            <Pressable style={[styles.otpVerifyButton, (otpVerified || otp.length !== 4 || saving) && styles.disabledButton]} onPress={verifyVisitOtp} disabled={otpVerified || otp.length !== 4 || saving}>
+              {saving && !otpVerified ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.otpVerifyButtonText}>{otpVerified ? "Locked" : "Verify OTP"}</Text>}
+            </Pressable>
+          </View>
+        </View>
+
+        {loadingVisitRequest ? (
+          <View style={styles.measureLockedPanel}>
+            <ActivityIndicator color="#0891b2" />
+            <Text style={styles.measureLockedText}>Loading requested items...</Text>
+          </View>
+        ) : null}
+
+        {modalItems.map((item, index) => {
+          const itemId = measurementItemId(item);
+          return (
+            <View key={itemId} style={[styles.measureSubmitItemCard, !otpVerified && styles.measureSubmitItemLocked]}>
+              <View style={styles.rowBetween}>
+                <View style={styles.cardMain}>
+                  <Text style={styles.measureSubmitItemTitle}>Item {index + 1}: {item.clothType}</Text>
+                  <Text style={styles.measureSubmitItemMeta}>{item.workType}</Text>
+                </View>
+                <Ionicons name={otpVerified ? "lock-open-outline" : "lock-closed-outline"} size={18} color={otpVerified ? "#0891b2" : MUTED} />
+              </View>
+              <View style={styles.measureSubmitGrid}>
+                {Object.keys(fields[itemId] ?? {}).map((field) => (
+                  <TextInput
+                    key={`${itemId}-${field}`}
+                    editable={otpVerified}
+                    style={[styles.measureSubmitInput, !otpVerified && styles.inputReadOnly]}
+                    placeholder={`${field} (cm)`}
+                    placeholderTextColor="#94a3b8"
+                    value={fields[itemId]?.[field] ?? ""}
+                    onChangeText={(value) => setFields((current) => ({ ...current, [itemId]: { ...(current[itemId] ?? {}), [field]: value } }))}
+                  />
+                ))}
+              </View>
+              <TextInput
+                editable={otpVerified}
+                style={[styles.measureSubmitNotes, !otpVerified && styles.inputReadOnly]}
+                multiline
+                placeholder="Notes for this item"
+                placeholderTextColor="#94a3b8"
+                value={itemNotes[itemId] ?? ""}
+                onChangeText={(value) => setItemNotes((current) => ({ ...current, [itemId]: value }))}
+              />
+            </View>
+          );
+        })}
+
+        <View style={styles.measureSubmitSectionCard}>
+          <Text style={styles.measureSubmitSectionTitle}>Visit notes</Text>
+          <TextInput editable={otpVerified} style={[styles.measureSubmitNotes, !otpVerified && styles.inputReadOnly]} multiline placeholder="Overall visit notes" placeholderTextColor="#94a3b8" value={notes} onChangeText={setNotes} />
+        </View>
+        <Pressable style={[styles.measureSubmitButton, (!canSubmitMeasurements || saving) && styles.disabledButton]} onPress={submitVisit} disabled={!canSubmitMeasurements || saving}>
+          {saving && otpVerified ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.measureSubmitButtonText}>Submit Measurements</Text>}
+        </Pressable>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1689,9 +2276,7 @@ function QuoteScreen({
   onDone,
   setScreen,
   showDialog,
-  onSessionExpired,
-  activeOrderCount,
-  maxOrdersPerDay
+  onSessionExpired
 }: {
   request: TailoringRequest;
   token?: string;
@@ -1699,8 +2284,6 @@ function QuoteScreen({
   setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void;
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
-  activeOrderCount: number;
-  maxOrdersPerDay: number;
 }) {
   const [price, setPrice] = useState("");
   const quoteWindow = urgencyWindow(request.urgency);
@@ -1712,14 +2295,6 @@ function QuoteScreen({
 
   async function submitQuote() {
     if (!token) return;
-    if (activeOrderCount >= maxOrdersPerDay) {
-      showDialog({
-        title: "Order limit reached",
-        message: `Admin has set your limit to ${maxOrdersPerDay} active orders. Complete an order before accepting more work.`,
-        icon: "lock-closed-outline"
-      });
-      return;
-    }
     const amount = Number(price);
     const eta = Number(estimatedTime);
     if (!amount || amount <= 0 || amount > 99999 || !Number.isInteger(eta) || eta < quoteWindow.min || eta > quoteWindow.max) {
@@ -2383,6 +2958,8 @@ function OrderDetailsScreen({
           delivery: acceptedRequest.urgency || "Standard",
           description: item.description,
           measurementFields: item.measurement?.fields ?? {},
+          measurementNotes: item.measurementNotes,
+          visitMeasurementNotes: acceptedRequest.measurementNotes,
           voiceNotes,
           clothMedia,
           sampleMedia
@@ -2398,6 +2975,8 @@ function OrderDetailsScreen({
         delivery: item.service?.estimatedDelivery || "Standard",
         description: item.instructions,
         measurementFields: item.measurement?.fields ?? {},
+        measurementNotes: undefined as string | undefined,
+        visitMeasurementNotes: undefined as string | undefined,
         voiceNotes: [] as MediaItem[],
         clothMedia: item.media ?? [],
         sampleMedia: [
@@ -2417,6 +2996,10 @@ function OrderDetailsScreen({
   const selectedVoiceNotes = selectedDetailItem?.voiceNotes ?? [];
   const clothMedia = selectedDetailItem?.clothMedia ?? [];
   const sampleMedia = selectedDetailItem?.sampleMedia ?? [];
+  const submittedMeasurementFields = selectedDetailItem?.measurementFields ?? {};
+  const submittedMeasurementNote = selectedDetailItem?.measurementNotes?.trim();
+  const submittedVisitNote = selectedDetailItem?.visitMeasurementNotes?.trim();
+  const hasSubmittedMeasurementInfo = Object.entries(submittedMeasurementFields).length > 0 || Boolean(submittedMeasurementNote || submittedVisitNote);
   const firstReferenceImage = [...clothMedia, ...sampleMedia].find((item) => item.resourceType === "image");
   const detailTextLines = (detailTextSheet?.value || "")
     .split(/\r?\n|,/)
@@ -2584,17 +3167,49 @@ function OrderDetailsScreen({
             ))}
           </View>
 
-          {Object.entries(selectedDetailItem.measurementFields).length ? (
+          {hasSubmittedMeasurementInfo ? (
+            <Pressable
+              style={styles.measurementReadyCard}
+              onPress={() => setDetailTextSheet({ label: "Submitted Measurements", value: measurementDetailsText(submittedMeasurementFields, submittedMeasurementNote, submittedVisitNote) })}
+            >
+              <View style={styles.measurementReadyIcon}>
+                <Ionicons name="resize-outline" size={21} color="#0891b2" />
+              </View>
+              <View style={styles.cardMain}>
+                <Text style={styles.measurementReadyTitle}>View submitted measurements</Text>
+                <Text style={styles.measurementReadyCopy}>
+                  {Object.keys(submittedMeasurementFields).length} measurements{submittedMeasurementNote || submittedVisitNote ? " + notes" : ""} available for this item
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#0891b2" />
+            </Pressable>
+          ) : null}
+
+          {hasSubmittedMeasurementInfo ? (
             <View style={styles.confirmedSectionCard}>
               <Text style={styles.confirmedSectionLabel}>MEASUREMENTS</Text>
-              <View style={styles.confirmedMeasurements}>
-                {Object.entries(selectedDetailItem.measurementFields).map(([key, value]) => (
-                  <View key={`${selectedDetailItem.key}-${key}`} style={styles.confirmedMeasurementRow}>
-                    <Text style={styles.confirmedMeasurementLabel}>{key}</Text>
-                    <Text style={styles.confirmedMeasurementValue}>{String(value)}</Text>
-                  </View>
-                ))}
-              </View>
+              {Object.entries(submittedMeasurementFields).length ? (
+                <View style={styles.confirmedMeasurements}>
+                  {Object.entries(submittedMeasurementFields).map(([key, value]) => (
+                    <View key={`${selectedDetailItem.key}-${key}`} style={styles.confirmedMeasurementRow}>
+                      <Text style={styles.confirmedMeasurementLabel}>{key}</Text>
+                      <Text style={styles.confirmedMeasurementValue}>{String(value)}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {submittedMeasurementNote ? (
+                <View style={styles.confirmedMeasurementNoteBox}>
+                  <Text style={styles.confirmedMeasurementNoteLabel}>Item notes</Text>
+                  <Text style={styles.confirmedMeasurementNoteText}>{submittedMeasurementNote}</Text>
+                </View>
+              ) : null}
+              {submittedVisitNote ? (
+                <View style={styles.confirmedMeasurementNoteBox}>
+                  <Text style={styles.confirmedMeasurementNoteLabel}>Visit notes</Text>
+                  <Text style={styles.confirmedMeasurementNoteText}>{submittedVisitNote}</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -4630,22 +5245,30 @@ function SettingsSwitch({ title, copy, value, onValueChange }: { title: string; 
   );
 }
 
-function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshProfile }: {
+function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDialog, onRefreshProfile, onVisitsChanged }: {
   me?: MeResponse;
   token?: string | null;
+  initialVisits?: MeasurementVisit[];
   setScreen: (screen: Screen) => void;
   showDialog: (dialog: DialogState) => void;
   onRefreshProfile: () => void | Promise<void>;
+  onVisitsChanged?: (visits: MeasurementVisit[]) => void;
 }) {
-  const [visits, setVisits] = useState<MeasurementVisit[]>([]);
+  const [visits, setVisits] = useState<MeasurementVisit[]>(initialVisits ?? []);
+  const [visitTab, setVisitTab] = useState<"incoming" | "accepted">("incoming");
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string>();
   const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
+  const [activeVisitRequest, setActiveVisitRequest] = useState<TailoringRequest>();
+  const [loadingVisitRequest, setLoadingVisitRequest] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
   const [otp, setOtp] = useState("");
-  const [fields, setFields] = useState({ chest: "", waist: "", shoulder: "", length: "" });
+  const [fields, setFields] = useState<Record<string, Record<string, string>>>({});
+  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
   const measurementEnabled = Boolean(me?.tailorProfile?.measurementPartner?.isEnabled);
   const stitchingEnabled = !me?.tailorProfile?.tailorRoles?.length || me.tailorProfile.tailorRoles.includes("STITCHING_TAILOR");
+  const tailorId = me?.tailorProfile?.id;
 
   const loadVisits = useCallback(async () => {
     if (!token) return;
@@ -4653,16 +5276,67 @@ function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshPr
     try {
       const data = await api<MeasurementVisit[]>("/measurement-visits", {}, token);
       setVisits(data);
+      onVisitsChanged?.(data);
     } catch (error) {
       showDialog({ title: "Measurement sync failed", message: error instanceof Error ? error.message : "Could not load measurement visits.", icon: "cloud-offline-outline" });
     } finally {
       setLoading(false);
     }
-  }, [showDialog, token]);
+  }, [onVisitsChanged, showDialog, token]);
 
   useEffect(() => {
     void loadVisits();
   }, [loadVisits]);
+
+  useEffect(() => {
+    setVisits(initialVisits ?? []);
+  }, [initialVisits]);
+
+  useEffect(() => {
+    if (!activeVisit) return;
+    const items = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
+    setFields(Object.fromEntries(items.map((item) => [measurementItemId(item), Object.fromEntries(measurementFieldLabelsForGarment(item.clothType || item.workType || activeVisit.garmentSummary).map((field) => [field, ""]))])));
+    setItemNotes(Object.fromEntries(items.map((item) => [measurementItemId(item), ""])));
+  }, [activeVisit?.id, activeVisitRequest?.id]);
+
+  async function openSubmitMeasurement(visit: MeasurementVisit) {
+    if (!token) return;
+    setActiveVisit(visit);
+    setActiveVisitRequest(undefined);
+    setOtp("");
+    setOtpVerified(false);
+    setNotes("");
+    setFields({});
+    setItemNotes({});
+    setLoadingVisitRequest(true);
+    try {
+      const request = await api<TailoringRequest>(`/tailoring-requests/${visit.requestId}`, {}, token);
+      setActiveVisitRequest(request);
+    } catch (error) {
+      showDialog({ title: "Could not load items", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setLoadingVisitRequest(false);
+    }
+  }
+
+  async function verifyVisitOtp() {
+    if (!token || !activeVisit) return;
+    if (otp.trim().length !== 4) {
+      showDialog({ title: "OTP required", message: "Enter the 4 digit customer OTP before verifying.", icon: "keypad-outline" });
+      return;
+    }
+    setSavingId(activeVisit.id);
+    try {
+      await api(`/measurement-visits/${activeVisit.id}/verify-otp`, { method: "POST", body: JSON.stringify({ otp }) }, token);
+      setOtpVerified(true);
+      showDialog({ title: "OTP verified", message: "You can now enter item measurements.", icon: "checkmark-circle-outline" });
+    } catch (error) {
+      setOtpVerified(false);
+      showDialog({ title: "Invalid OTP", message: error instanceof Error ? error.message : "Please check the OTP shown in the customer app.", icon: "alert-circle-outline" });
+    } finally {
+      setSavingId(undefined);
+    }
+  }
 
   async function toggleMeasurementPartner(value: boolean) {
     if (!token) return;
@@ -4698,29 +5372,48 @@ function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshPr
 
   async function submitVisit() {
     if (!token || !activeVisit) return;
-    const measurementFields = Object.fromEntries(
-      Object.entries(fields)
-        .map(([key, value]) => [key, value.trim()])
-        .filter(([, value]) => value)
-    );
-    if (otp.trim().length !== 4) {
-      showDialog({ title: "OTP required", message: "Enter the 4 digit customer OTP before submitting measurements.", icon: "keypad-outline" });
+    if (!otpVerified) {
+      showDialog({ title: "Verify OTP first", message: "Customer OTP must be verified before submitting measurements.", icon: "keypad-outline" });
       return;
     }
+    const items = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
+    const itemMeasurements = items.map((item) => {
+      const itemId = measurementItemId(item);
+      const measurementFields = Object.fromEntries(
+        Object.entries(fields[itemId] ?? {})
+          .map(([key, value]) => [key, value.trim()])
+          .filter(([, value]) => value)
+      );
+      return {
+        itemId,
+        label: item.clothType || item.workType || "Home Visit",
+        fields: measurementFields,
+        notes: itemNotes[itemId]?.trim() || undefined
+      };
+    });
+    if (!itemMeasurements.length || itemMeasurements.some((item) => !Object.keys(item.fields).length)) {
+      showDialog({ title: "Measurements needed", message: "Add at least one measurement for each requested item.", icon: "resize-outline" });
+      return;
+    }
+    const firstMeasurement = itemMeasurements[0];
     setSavingId(activeVisit.id);
     try {
       await api(`/measurement-visits/${activeVisit.id}/submit`, {
         method: "POST",
         body: JSON.stringify({
           otp,
-          measurement: { label: "Home Visit", fields: measurementFields },
+          measurement: { label: firstMeasurement.label, fields: firstMeasurement.fields },
+          itemMeasurements,
           notes,
           specialInstructions: notes
         })
       }, token);
       setActiveVisit(undefined);
+      setActiveVisitRequest(undefined);
+      setOtpVerified(false);
       setOtp("");
-      setFields({ chest: "", waist: "", shoulder: "", length: "" });
+      setFields({});
+      setItemNotes({});
       setNotes("");
       await loadVisits();
       showDialog({ title: "Measurements submitted", message: "The stitching tailor can now see these details in the order.", icon: "checkmark-circle-outline" });
@@ -4731,11 +5424,46 @@ function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshPr
     }
   }
 
+  const incomingVisits = sortedMeasurementVisits(visits.filter(isActionableMeasurementVisit));
+  const acceptedVisits = sortedMeasurementVisits(visits.filter((visit) => ["ACCEPTED", "IN_PROGRESS", "SUBMITTED"].includes(visit.status)));
+  const visibleVisits = visitTab === "incoming" ? incomingVisits : acceptedVisits;
+  const modalItems = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
+  const canSubmitMeasurements = otpVerified && modalItems.length > 0 && modalItems.every((item) => Object.values(fields[measurementItemId(item)] ?? {}).some((value) => value.trim()));
+
+  if (activeVisit) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <MeasurementSubmitScreen
+          activeVisit={activeVisit}
+          activeVisitRequest={activeVisitRequest}
+          canSubmitMeasurements={canSubmitMeasurements}
+          fields={fields}
+          itemNotes={itemNotes}
+          loadingVisitRequest={loadingVisitRequest}
+          notes={notes}
+          otp={otp}
+          otpVerified={otpVerified}
+          saving={savingId === activeVisit.id}
+          onBack={() => {
+            setActiveVisit(undefined);
+            setActiveVisitRequest(undefined);
+          }}
+          setFields={setFields}
+          setItemNotes={setItemNotes}
+          setNotes={setNotes}
+          setOtp={setOtp}
+          submitVisit={() => void submitVisit()}
+          verifyVisitOtp={() => void verifyVisitOtp()}
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title="Measurement Visits" subtitle="Home visit offers and partner pool work" onBack={() => setScreen("dashboard")} />
-        <View style={styles.whiteCard}>
+        <View style={styles.measurePartnerCard}>
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
               <Ionicons name="resize-outline" size={22} color={BRAND_ORANGE} />
@@ -4748,6 +5476,17 @@ function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshPr
           </View>
         </View>
 
+        <View style={styles.measureVisitTabs}>
+          <Pressable style={[styles.measureVisitTab, visitTab === "incoming" && styles.measureVisitTabActive]} onPress={() => setVisitTab("incoming")}>
+            <Text style={[styles.measureVisitTabText, visitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming Requests</Text>
+            <Text style={[styles.measureVisitTabCount, visitTab === "incoming" && styles.measureVisitTabCountActive]}>{incomingVisits.length}</Text>
+          </Pressable>
+          <Pressable style={[styles.measureVisitTab, visitTab === "accepted" && styles.measureVisitTabActive]} onPress={() => setVisitTab("accepted")}>
+            <Text style={[styles.measureVisitTabText, visitTab === "accepted" && styles.measureVisitTabTextActive]}>Accepted</Text>
+            <Text style={[styles.measureVisitTabCount, visitTab === "accepted" && styles.measureVisitTabCountActive]}>{acceptedVisits.length}</Text>
+          </Pressable>
+        </View>
+
         {loading ? (
           <View style={styles.whiteCard}>
             <ActivityIndicator color={BRAND_ORANGE} />
@@ -4755,72 +5494,28 @@ function MeasurementVisitsScreen({ me, token, setScreen, showDialog, onRefreshPr
           </View>
         ) : null}
 
-        {!loading && !visits.length ? (
+        {!loading && !visibleVisits.length ? (
           <View style={styles.emptyState}>
             <Ionicons name="calendar-outline" size={38} color={BRAND_ORANGE} />
-            <Text style={styles.emptyTitle}>No measurement visits</Text>
-            <Text style={styles.cardMeta}>New home measurement offers will appear here.</Text>
+            <Text style={styles.emptyTitle}>{visitTab === "incoming" ? "No incoming visits" : "No accepted visits"}</Text>
+            <Text style={styles.cardMeta}>{visitTab === "incoming" ? "New home measurement offers will appear here." : "Accepted and submitted measurement visits will appear here."}</Text>
           </View>
         ) : null}
 
-        {visits.map((visit) => {
-          const canAccept = visit.status === "OFFERED_TO_STITCHING_TAILOR" || visit.status === "POOL";
-          const canSubmit = visit.status === "ACCEPTED" || visit.status === "IN_PROGRESS";
-          return (
-            <View key={visit.id} style={styles.whiteCard}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.iconTile}>
-                  <Ionicons name={visit.status === "POOL" ? "people-outline" : "home-outline"} size={22} color={BRAND_ORANGE} />
-                </View>
-                <View style={styles.cardMain}>
-                  <Text style={styles.cardTitle}>{visit.garmentSummary ?? "Measurement visit"}</Text>
-                  <Text style={styles.cardMeta}>{visit.customerName ?? "Customer"} • Rs {Number(visit.visitPayout ?? 0).toFixed(0)}</Text>
-                </View>
-                <StatusPill status={visit.status} />
-              </View>
-              <Text style={styles.notesText}>{visit.pickupAddress ?? "Address not available"}</Text>
-              <Text style={styles.cardMeta}>Scheduled: {new Date(visit.scheduledAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })}</Text>
-              {canAccept ? (
-                <View style={styles.popupActions}>
-                  <Pressable style={[styles.primaryButton, savingId === visit.id && styles.disabledButton]} onPress={() => updateVisit(visit, "accept")} disabled={savingId === visit.id}>
-                    {savingId === visit.id ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Accept</Text>}
-                  </Pressable>
-                  <Pressable style={[styles.primaryButton, styles.popupSecondaryButton]} onPress={() => updateVisit(visit, "decline")} disabled={savingId === visit.id}>
-                    <Text style={[styles.primaryButtonText, styles.popupSecondaryText]}>Decline</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-              {canSubmit ? (
-                <Pressable style={styles.primaryButton} onPress={() => setActiveVisit(visit)}>
-                  <Text style={styles.primaryButtonText}>Submit measurements</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          );
-        })}
+        {visibleVisits.map((visit) => (
+          <MeasurementVisitCard
+            key={visit.id}
+            visit={visit}
+            tailorId={tailorId}
+            saving={savingId === visit.id}
+            onAccept={(item) => updateVisit(item, "accept")}
+            onDecline={(item) => updateVisit(item, "decline")}
+            onSubmit={(item) => void openSubmitMeasurement(item)}
+          />
+        ))}
+
       </ScrollView>
 
-      <Modal transparent visible={Boolean(activeVisit)} animationType="slide" onRequestClose={() => setActiveVisit(undefined)}>
-        <View style={styles.popupBackdrop}>
-          <View style={styles.popupCard}>
-            <Text style={styles.popupTitle}>Submit Measurements</Text>
-            <Text style={styles.popupCopy}>Enter customer OTP and garment measurements.</Text>
-            <TextInput style={styles.input} keyboardType="number-pad" maxLength={4} placeholder="Customer OTP" placeholderTextColor="#94a3b8" value={otp} onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 4))} />
-            {(["chest", "waist", "shoulder", "length"] as const).map((key) => (
-              <TextInput key={key} style={styles.input} placeholder={key[0].toUpperCase() + key.slice(1)} placeholderTextColor="#94a3b8" value={fields[key]} onChangeText={(value) => setFields((current) => ({ ...current, [key]: value }))} />
-            ))}
-            <TextInput style={[styles.input, { minHeight: 84, textAlignVertical: "top" }]} multiline placeholder="Notes / fit preferences / special instructions" placeholderTextColor="#94a3b8" value={notes} onChangeText={setNotes} />
-            <View style={styles.popupActions}>
-              <Pressable style={styles.popupActionButton} onPress={submitVisit} disabled={savingId === activeVisit?.id}>
-                {savingId === activeVisit?.id ? <ActivityIndicator color="#111111" /> : <Text style={styles.popupActionText}>Submit</Text>}
-              </Pressable>
-              <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={() => setActiveVisit(undefined)}>
-                <Text style={[styles.popupActionText, styles.popupSecondaryText]}>Cancel</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -4842,6 +5537,7 @@ function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen:
         const active = screen === tab.key
           || (screen === "requestDetails" && tab.key === "requests")
           || (screen === "quote" && tab.key === "requests")
+          || (screen === "measurementVisits" && tab.key === "requests")
           || (screen === "orderDetails" && tab.key === "orders")
           || ((screen === "earningDetails" || screen === "transactions") && tab.key === "earnings");
         return (
@@ -4946,6 +5642,55 @@ function NewRequestPopup({
             </Pressable>
             <Pressable style={[styles.popupActionButton, styles.popupGhostButton]} onPress={onClose}>
               <Text style={[styles.popupActionText, styles.popupGhostText]}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function MeasurementVisitPopup({
+  visit,
+  saving,
+  onAccept,
+  onView,
+  onClose
+}: {
+  visit?: MeasurementVisit;
+  saving?: boolean;
+  onAccept: () => void;
+  onView: () => void;
+  onClose: () => void;
+}) {
+  if (!visit) return null;
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+      <View style={styles.popupBackdropMeasurement}>
+        <View style={styles.measurementPopupCard}>
+          <View style={styles.rowBetween}>
+            <View style={styles.measurementPopupIcon}>
+              <Ionicons name="resize-outline" size={25} color="#0891b2" />
+            </View>
+            <Pressable style={styles.popupCloseButton} onPress={onClose}>
+              <Ionicons name="close" size={18} color={BRAND_DEEP} />
+            </Pressable>
+          </View>
+          <Text style={styles.measurementPopupEyebrow}>MEASUREMENT VISIT</Text>
+          <Text style={styles.popupTitle}>{visit.garmentSummary ?? "Home measurement request"}</Text>
+          <Text style={styles.popupCopy} numberOfLines={3}>
+            {visit.customerName ?? "Customer"} - {formatVisitDate(visit.scheduledAt)}, {formatVisitTime(visit.scheduledAt)}
+          </Text>
+          <View style={styles.measurementPopupInfo}>
+            <Ionicons name="location-outline" size={18} color="#0891b2" />
+            <Text style={styles.measurementPopupInfoText} numberOfLines={2}>{visit.pickupAddress ?? "Address not available"}</Text>
+          </View>
+          <View style={styles.popupActions}>
+            <Pressable style={styles.measurementPopupPrimary} onPress={onAccept} disabled={saving}>
+              {saving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.measurementPopupPrimaryText}>Accept Visit</Text>}
+            </Pressable>
+            <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={onView}>
+              <Text style={[styles.popupActionText, styles.popupSecondaryText]}>View Request</Text>
             </Pressable>
           </View>
         </View>
@@ -5067,6 +5812,8 @@ export default function App() {
   }, []);
   const [requests, setRequests] = useState<TailoringRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [measurementVisits, setMeasurementVisits] = useState<MeasurementVisit[]>([]);
+  const [requestsInitialTab, setRequestsInitialTab] = useState<"stitching" | "measurement" | undefined>();
   const [wallet, setWallet] = useState<PartnerWalletSummary>(emptyPartnerWallet);
   const [earningDetail, setEarningDetail] = useState<EarningDetailKey>("pending");
   const [loadingWallet, setLoadingWallet] = useState(false);
@@ -5077,6 +5824,8 @@ export default function App() {
   const [dialog, setDialog] = useState<DialogState>();
   const updatePromptShownRef = useRef(false);
   const [newRequestPopup, setNewRequestPopup] = useState<TailoringRequest>();
+  const [measurementVisitPopup, setMeasurementVisitPopup] = useState<MeasurementVisit>();
+  const [measurementPopupSaving, setMeasurementPopupSaving] = useState(false);
   const [newRequestSecondsLeft, setNewRequestSecondsLeft] = useState(30);
   const [alertFlashVisible, setAlertFlashVisible] = useState(false);
   const [alertFlashOn, setAlertFlashOn] = useState(false);
@@ -5088,14 +5837,13 @@ export default function App() {
   const knownRequestIdsRef = useRef<Set<string>>(new Set());
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const alertedRequestIdsRef = useRef<Set<string>>(new Set());
+  const alertedMeasurementVisitIdsRef = useRef<Set<string>>(new Set());
   const acceptedQuoteIdsRef = useRef<Set<string>>(new Set());
   const notificationAuthTokenRef = useRef(token);
   useRegisterPushNotifications({ authToken: token, app: "tailor", userId: sessionUser?.id });
   const hasLoadedWorkspaceRef = useRef(false);
-  const maxOrdersPerDay = Number(me?.tailorProfile?.settings?.maxOrdersPerDay ?? 8);
   const newRequestNotificationsEnabled = me?.tailorProfile?.settings?.notifications !== false;
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
-  const activeTailorOrderCount = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
 
   useEffect(() => {
     async function checkForAppUpdate() {
@@ -5183,9 +5931,11 @@ export default function App() {
     knownRequestIdsRef.current.clear();
     dismissedRequestIdsRef.current.clear();
     alertedRequestIdsRef.current.clear();
+    alertedMeasurementVisitIdsRef.current.clear();
     acceptedQuoteIdsRef.current.clear();
     hasLoadedWorkspaceRef.current = false;
     setNewRequestPopup(undefined);
+    setMeasurementVisitPopup(undefined);
     setAcceptedQuoteRequest(undefined);
   }
 
@@ -5226,6 +5976,7 @@ export default function App() {
     setDialog({ title: "Session expired", message: "Please log in again to continue managing requests.", icon: "lock-closed-outline" });
     setRequests([]);
     setOrders([]);
+    setMeasurementVisits([]);
     setWallet(emptyPartnerWallet());
     setMe(undefined);
     setActiveRequest(undefined);
@@ -5325,16 +6076,6 @@ export default function App() {
 
   function openPopupRequest(screenName: "quote" | "requestDetails") {
     if (!newRequestPopup) return;
-    if (screenName === "quote" && activeTailorOrderCount >= maxOrdersPerDay) {
-      dismissedRequestIdsRef.current.add(newRequestPopup.id);
-      setNewRequestPopup(undefined);
-      setDialog({
-        title: "Order limit reached",
-        message: `Admin has set your limit to ${maxOrdersPerDay} active orders. Complete an order before accepting more work.`,
-        icon: "lock-closed-outline"
-      });
-      return;
-    }
     setActiveRequest(newRequestPopup);
     dismissedRequestIdsRef.current.add(newRequestPopup.id);
     setNewRequestPopup(undefined);
@@ -5346,11 +6087,12 @@ export default function App() {
     try {
       if (showLoader) setLoading(true);
       setLoadingWallet(true);
-      const [profile, openRequestData, selectedRequestData, orderData, walletData, transactionData] = await Promise.all([
+      const [profile, openRequestData, selectedRequestData, orderData, visitData, walletData, transactionData] = await Promise.all([
         api<MeResponse>("/auth/me", {}, token),
         api<TailoringRequest[]>("/tailoring-requests", {}, token),
         api<TailoringRequest[]>("/tailoring-requests?status=TAILOR_SELECTED", {}, token),
         api<Order[]>("/orders", {}, token),
+        api<MeasurementVisit[]>("/measurement-visits", {}, token).catch(() => [] as MeasurementVisit[]),
         api<PartnerWalletSummary>("/wallet", {}, token),
         api<PartnerWalletTransaction[]>("/transactions", {}, token)
       ]);
@@ -5364,6 +6106,7 @@ export default function App() {
       setMe(profile);
       setRequests(openRequestData);
       setOrders(workspaceOrders);
+      setMeasurementVisits(visitData);
       setWallet({ ...walletData, transactions: transactionData, payments: walletData.payments ?? [] });
       setActiveRequest((current) => requestData.find((request) => request.id === current?.id) ?? current);
       setActiveOrder((current) => workspaceOrders.find((order) => order.id === current?.id) ?? current);
@@ -5380,6 +6123,68 @@ export default function App() {
       setLoading(false);
       setLoadingWallet(false);
     }
+  }
+
+  function showMeasurementVisitPopup(visit: MeasurementVisit) {
+    if (!visit?.id || alertedMeasurementVisitIdsRef.current.has(visit.id)) return;
+    if (!isActionableMeasurementVisit(visit)) return;
+    alertedMeasurementVisitIdsRef.current.add(visit.id);
+    setMeasurementVisitPopup(visit);
+    void displayIncomingRequestNotification({
+      title: "Measurement visit request",
+      body: `${visit.customerName ?? "Customer"} needs ${visit.garmentSummary ?? "a home measurement"}.`,
+      data: {
+        darjiIncomingRequest: "true",
+        type: visit.status === "POOL" ? "MEASUREMENT_VISIT_POOL" : "MEASUREMENT_VISIT_OFFERED",
+        categoryId: "TAILOR_MEASUREMENT_VISIT",
+        screen: "measurementVisits",
+        id: visit.id,
+        visitId: visit.id,
+        requestId: visit.requestId,
+        customerName: visit.customerName ?? "Customer",
+        pickupAddress: visit.pickupAddress ?? "",
+        title: "Measurement visit request",
+        body: `${visit.garmentSummary ?? "Home measurement"} - ${formatVisitDate(visit.scheduledAt)}`
+      }
+    });
+  }
+
+  async function acceptMeasurementVisitFromPopup() {
+    if (!token || !measurementVisitPopup) return;
+    try {
+      setMeasurementPopupSaving(true);
+      await api(`/measurement-visits/${measurementVisitPopup.id}/accept`, { method: "POST" }, token);
+      setMeasurementVisitPopup(undefined);
+      await refreshWorkspace(false);
+      setScreen("measurementVisits");
+    } catch (error) {
+      setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setMeasurementPopupSaving(false);
+    }
+  }
+
+  async function toggleMeasurementPartner(value: boolean) {
+    if (!token) return;
+    const stitchingEnabled = !me?.tailorProfile?.tailorRoles?.length || me.tailorProfile.tailorRoles.includes("STITCHING_TAILOR");
+    try {
+      await api("/tailors/me/measurement-capabilities", {
+        method: "PATCH",
+        body: JSON.stringify({
+          stitchingTailor: stitchingEnabled,
+          measurementPartner: value,
+          visitPayout: me?.tailorProfile?.measurementPartner?.visitPayout ?? 75
+        })
+      }, token);
+      await refreshWorkspace(false);
+    } catch (error) {
+      setDialog({ title: "Could not update", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    }
+  }
+
+  function openMeasurementRequestsTab() {
+    setRequestsInitialTab("measurement");
+    setScreen("requests");
   }
 
   async function refreshVisibleTailorScreen() {
@@ -5465,6 +6270,20 @@ export default function App() {
       void refreshWorkspace();
     });
     socket.on("tailoring:delivery_status_updated", () => {
+      void refreshWorkspace();
+    });
+    socket.on("measurement:visit_offered", ({ visit }: { visit?: MeasurementVisit }) => {
+      if (visit) showMeasurementVisitPopup(visit);
+      void refreshWorkspace();
+    });
+    socket.on("measurement:visit_pool", ({ visit }: { visit?: MeasurementVisit }) => {
+      if (visit) showMeasurementVisitPopup(visit);
+      void refreshWorkspace();
+    });
+    socket.on("measurement:visit_assigned", () => {
+      void refreshWorkspace();
+    });
+    socket.on("measurement:submitted", () => {
       void refreshWorkspace();
     });
     return () => {
@@ -5567,8 +6386,8 @@ export default function App() {
   }
 
   let body;
-  if (screen === "dashboard") body = <DashboardScreen me={me} requests={requests} orders={orders} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
-  if (screen === "requests") body = <RequestsScreen requests={requests} setScreen={setScreen} setActiveRequest={setActiveRequest} />;
+  if (screen === "dashboard") body = <DashboardScreen me={me} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
   const declineActiveRequest = (request: TailoringRequest) => {
     setDialog({
       title: "Decline request?",
@@ -5598,11 +6417,11 @@ export default function App() {
   };
 
   if (screen === "requestDetails" && activeRequest) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
-  if (screen === "quote" && activeRequest && activeRequest.status === "QUOTE_REQUESTED" && !activeRequest.ownQuote) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} activeOrderCount={activeTailorOrderCount} maxOrdersPerDay={maxOrdersPerDay} onDone={(quote) => { setActiveRequest({ ...activeRequest, ownQuote: quote }); setRequests((current) => current.map((item) => item.id === activeRequest.id ? { ...item, ownQuote: quote } : item)); void refreshWorkspace(); setScreen("requestDetails", { replace: true }); }} />;
+  if (screen === "quote" && activeRequest && activeRequest.status === "QUOTE_REQUESTED" && !activeRequest.ownQuote) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onDone={(quote) => { setActiveRequest({ ...activeRequest, ownQuote: quote }); setRequests((current) => current.map((item) => item.id === activeRequest.id ? { ...item, ownQuote: quote } : item)); void refreshWorkspace(); setScreen("requestDetails", { replace: true }); }} />;
   if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
-  if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} setScreen={setScreen} showDialog={setDialog} onRefreshProfile={() => refreshWorkspace()} />;
+  if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} initialVisits={measurementVisits} setScreen={setScreen} showDialog={setDialog} onRefreshProfile={() => refreshWorkspace()} onVisitsChanged={setMeasurementVisits} />;
   if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setScreen("earningDetails"); }} showDialog={setDialog} />;
   if (screen === "earningDetails") body = <EarningDetailsScreen detail={earningDetail} wallet={wallet} onBack={goBack} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
   if (screen === "transactions") body = <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
@@ -5623,7 +6442,7 @@ export default function App() {
       />
     );
   }
-  if (!body) body = <DashboardScreen me={me} requests={requests} orders={orders} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (!body) body = <DashboardScreen me={me} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
 
   return (
     <SafeAreaProvider>
@@ -5639,7 +6458,7 @@ export default function App() {
           return;
         }
         if (destination.screen === "measurementVisits" || String(destination.data?.type ?? "").startsWith("MEASUREMENT_")) {
-          setScreen("measurementVisits");
+          openMeasurementRequestsTab();
           return;
         }
         if (destination.actionIdentifier === "DECLINE" && destination.entityId) {
@@ -5719,6 +6538,16 @@ export default function App() {
           onAccept={() => openPopupRequest("quote")}
           onViewDetails={() => openPopupRequest("requestDetails")}
           onClose={closeNewRequestPopup}
+        />
+        <MeasurementVisitPopup
+          visit={measurementVisitPopup}
+          saving={measurementPopupSaving}
+          onAccept={() => void acceptMeasurementVisitFromPopup()}
+          onView={() => {
+            setMeasurementVisitPopup(undefined);
+            openMeasurementRequestsTab();
+          }}
+          onClose={() => setMeasurementVisitPopup(undefined)}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
         {incomingAlertPermissionGuide}
@@ -5856,6 +6685,42 @@ const styles = StyleSheet.create({
   mediaThumbnailIndexText: { color: "#ffffff", fontSize: 10, fontWeight: "900" },
   mediaEmptyRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
   mediaEmptyText: { color: MUTED, fontSize: 13, fontWeight: "700" },
+  measurePartnerCard: { borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 14, marginBottom: 14 },
+  measureVisitCard: { borderRadius: 16, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#f3dfb9", padding: 13, marginBottom: 13 },
+  measureVisitHeader: { flexDirection: "row", alignItems: "flex-start", gap: 11, marginBottom: 12 },
+  measureVisitIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  measureVisitTitleWrap: { flex: 1, minWidth: 0 },
+  measureVisitTitleRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
+  measureVisitOrderId: { color: "#dc2626", fontSize: 12, lineHeight: 16, fontWeight: "900", letterSpacing: 0.4, marginBottom: 2 },
+  measureVisitTitle: { color: BRAND_DEEP, fontSize: 15, lineHeight: 20, fontWeight: "900", flexShrink: 1 },
+  measureVisitCustomer: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", marginTop: 2 },
+  yourCustomerBadge: { minWidth: 102, borderRadius: 7, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", paddingHorizontal: 9, paddingVertical: 4, alignItems: "center" },
+  yourCustomerBadgeText: { color: "#dc2626", fontSize: 10, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
+  measureVisitInfoGrid: { flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderTopColor: "#f3dfb9", paddingTop: 11, rowGap: 10 },
+  measureVisitInfoBlock: { width: "50%", flexDirection: "row", alignItems: "flex-start", gap: 7, paddingRight: 8 },
+  measureVisitInfoText: { flex: 1, minWidth: 0 },
+  measureVisitLabel: { color: MUTED, fontSize: 10, lineHeight: 13, fontWeight: "900" },
+  measureVisitValue: { color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 2 },
+  measureVisitEarnings: { color: SUCCESS, fontSize: 17, lineHeight: 21, fontWeight: "900", marginTop: 1 },
+  measureVisitMapLink: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900", marginTop: 5 },
+  measureVisitNoteBox: { marginTop: 11, borderTopWidth: 1, borderTopColor: "#f3dfb9", paddingTop: 10, flexDirection: "row", gap: 8, alignItems: "flex-start" },
+  measureVisitNoteText: { flex: 1, minWidth: 0 },
+  measureVisitActions: { flexDirection: "row", gap: 9, marginTop: 12 },
+  measureVisitAcceptButton: { flex: 1, minHeight: 46, borderRadius: 11, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, marginTop: 12 },
+  measureVisitAcceptText: { color: "#ffffff", fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  measureVisitDeclineButton: { flex: 0.86, minHeight: 46, borderRadius: 11, borderWidth: 1.2, borderColor: BRAND_DEEP, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, marginTop: 12 },
+  measureVisitDeclineText: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  measurementReadyCard: { minHeight: 72, borderRadius: 16, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ecfeff", padding: 13, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 11 },
+  measurementReadyIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
+  measurementReadyTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900" },
+  measurementReadyCopy: { color: "#475569", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },
+  measureVisitTabs: { flexDirection: "row", gap: 9, marginBottom: 13 },
+  measureVisitTab: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 10 },
+  measureVisitTabActive: { borderColor: "#0891b2", backgroundColor: "#ecfeff" },
+  measureVisitTabText: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "center", flexShrink: 1 },
+  measureVisitTabTextActive: { color: "#0891b2" },
+  measureVisitTabCount: { minWidth: 20, height: 20, borderRadius: 10, overflow: "hidden", backgroundColor: "#eef2f7", color: MUTED, textAlign: "center", fontSize: 10, lineHeight: 20, fontWeight: "900" },
+  measureVisitTabCountActive: { backgroundColor: "#0891b2", color: "#ffffff" },
   // -- Tile Detail Sheet --
   tileSheetBackdrop: { flex: 1, backgroundColor: "rgba(11,34,65,0.55)", alignItems: "center", justifyContent: "center", padding: 28 },
   tileSheetCard: { width: "100%", backgroundColor: SURFACE, borderRadius: 26, padding: 24, shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 16 },
@@ -5913,12 +6778,25 @@ const styles = StyleSheet.create({
   heroTitle: { color: "#ffffff", fontSize: 23, lineHeight: 29, fontWeight: "900", marginTop: 6 },
   heroCopy: { color: "#f2e8dc", fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 5 },
   heroIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
-  statsRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  statsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   statCard: { flex: 1, minHeight: 104, borderRadius: 9, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 10, alignItems: "center", justifyContent: "center" },
   statIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", marginBottom: 7 },
   statValue: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900" },
   statLabel: { color: BRAND_DEEP, fontSize: 11, lineHeight: 15, fontWeight: "900" },
   statMeta: { color: MUTED, fontSize: 9, lineHeight: 12, fontWeight: "700", marginTop: 3, textAlign: "center" },
+  measureHomeCard: { borderRadius: 18, borderWidth: 1.4, borderColor: "#99f6e4", backgroundColor: "#ecfeff", padding: 14, marginBottom: 14, shadowColor: "#0891b2", shadowOpacity: 0.14, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 4 },
+  measureHomeTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  measureHomeIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
+  measureHomeMain: { flex: 1, minWidth: 0 },
+  measureHomeEyebrow: { color: "#0891b2", fontSize: 10, lineHeight: 13, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
+  measureHomeTitle: { color: BRAND_DEEP, fontSize: 16, lineHeight: 21, fontWeight: "900", marginTop: 1 },
+  measureHomeCopy: { color: "#475569", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },
+  measureHomeStats: { flexDirection: "row", gap: 9, marginTop: 13 },
+  measureHomeStat: { flex: 1, minHeight: 54, borderRadius: 12, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
+  measureHomeStatValue: { color: "#0891b2", fontSize: 21, lineHeight: 25, fontWeight: "900" },
+  measureHomeStatLabel: { color: MUTED, fontSize: 10, lineHeight: 13, fontWeight: "900", marginTop: 2 },
+  measureHomeButton: { minHeight: 42, borderRadius: 12, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, marginTop: 12 },
+  measureHomeButtonText: { color: "#ffffff", fontSize: 13, lineHeight: 17, fontWeight: "900" },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 7, marginBottom: 8 },
   sectionTitle: { color: BRAND_DEEP, fontSize: 15, lineHeight: 20, fontWeight: "900" },
   linkText: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900" },
@@ -5930,6 +6808,13 @@ const styles = StyleSheet.create({
   filterChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff5df" },
   filterChipText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "900", textAlign: "center" },
   filterChipTextActive: { color: BRAND_ORANGE },
+  requestTypeTabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  requestTypeTab: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
+  requestTypeTabActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff5df" },
+  requestTypeTabText: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "center", flexShrink: 1 },
+  requestTypeTabTextActive: { color: BRAND_DEEP },
+  requestTypeCount: { minWidth: 21, height: 21, borderRadius: 11, overflow: "hidden", backgroundColor: "#eef2f7", color: MUTED, textAlign: "center", fontSize: 11, lineHeight: 21, fontWeight: "900" },
+  requestTypeCountActive: { backgroundColor: BRAND_ORANGE, color: "#ffffff" },
   requestsEmptyState: { minHeight: 252, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, paddingVertical: 26, marginTop: 2 },
   requestsEmptyIcon: { width: 86, height: 86, borderRadius: 43, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 18 },
   requestsEmptyIconSent: { backgroundColor: "#ecfdf5" },
@@ -6034,6 +6919,9 @@ const styles = StyleSheet.create({
   confirmedMeasurementRow: { minHeight: 42, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderBottomColor: "#eef2f7" },
   confirmedMeasurementLabel: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", flex: 1 },
   confirmedMeasurementValue: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  confirmedMeasurementNoteBox: { marginTop: 10, borderRadius: 12, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ecfeff", padding: 11 },
+  confirmedMeasurementNoteLabel: { color: "#0891b2", fontSize: 11, lineHeight: 14, fontWeight: "900", marginBottom: 4 },
+  confirmedMeasurementNoteText: { color: BRAND_DEEP, fontSize: 12, lineHeight: 18, fontWeight: "800" },
   confirmedSampleRow: { marginTop: 12, marginBottom: 16, minHeight: 72, borderRadius: 15, borderWidth: 1, borderColor: "#f3dfb9", backgroundColor: "#fffbf0", padding: 10, flexDirection: "row", alignItems: "center", gap: 12 },
   confirmedSampleImage: { width: 52, height: 52, borderRadius: 12, backgroundColor: "#fff4dc" },
   confirmedSampleText: { flex: 1, minWidth: 0 },
@@ -6265,9 +7153,56 @@ const styles = StyleSheet.create({
   activeTabText: { color: BRAND_ORANGE },
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupBackdropAlert: { backgroundColor: "rgba(246, 163, 19, 0.42)" },
+  popupBackdropMeasurement: { flex: 1, backgroundColor: "rgba(8, 145, 178, 0.28)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 26, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#f3d7a3", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   popupCardSuccess: { maxWidth: 360, borderRadius: 18, borderColor: "#e5e7eb", paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20 },
   requestPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20 },
+  measurementPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: "#f0fdff", borderWidth: 1.2, borderColor: "#67e8f9", padding: 20, shadowColor: "#0891b2", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  measurementPopupIcon: { width: 48, height: 48, borderRadius: 18, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
+  measurementPopupEyebrow: { color: "#0891b2", fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 0.9, marginTop: 18 },
+  measurementPopupInfo: { minHeight: 52, borderRadius: 14, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 9, marginTop: 14 },
+  measurementPopupInfoText: { flex: 1, minWidth: 0, color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  measurementPopupPrimary: { minHeight: 52, borderRadius: 16, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  measurementPopupPrimaryText: { color: "#ffffff", fontSize: 15, lineHeight: 20, fontWeight: "900" },
+  measureSubmitScreenWrap: { flex: 1 },
+  measureSubmitScreenContent: { paddingHorizontal: 18, paddingTop: 28, paddingBottom: 124 },
+  measureSubmitHeroCard: { borderRadius: 18, borderWidth: 1.2, borderColor: "#99f6e4", backgroundColor: "#ecfeff", padding: 14, marginBottom: 12 },
+  measureSubmitHeroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  measureSubmitHeroIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
+  measureSubmitHeroTitle: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900", marginTop: 2 },
+  measureSubmitHeroCopy: { color: "#475569", fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 3 },
+  measureSubmitOrderRow: { minHeight: 42, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#99f6e4", paddingHorizontal: 12, marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  measureSubmitOrderLabel: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900" },
+  measureSubmitOrderValue: { color: "#dc2626", fontSize: 14, lineHeight: 18, fontWeight: "900", letterSpacing: 0.3 },
+  measureSubmitAddress: { color: "#475569", fontSize: 12, lineHeight: 18, fontWeight: "800", marginTop: 9 },
+  measureSubmitSectionCard: { borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, padding: 13, marginBottom: 12 },
+  measureSubmitSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  measureSubmitSectionTitle: { color: BRAND_DEEP, fontSize: 15, lineHeight: 20, fontWeight: "900" },
+  measureVerifiedBadge: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, backgroundColor: "#ecfeff", borderWidth: 1, borderColor: "#99f6e4", paddingHorizontal: 9, paddingVertical: 5 },
+  measureVerifiedBadgeText: { color: "#0891b2", fontSize: 11, lineHeight: 14, fontWeight: "900" },
+  measureSubmitKeyboardWrap: { width: "100%", alignItems: "center", justifyContent: "center" },
+  measureSubmitSheet: { width: "100%", maxWidth: 430, maxHeight: "86%", borderRadius: 22, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#99f6e4", padding: 16, paddingTop: 22, position: "relative", shadowColor: "#0891b2", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  measureSubmitHeader: { paddingRight: 62 },
+  measureSubmitTitle: { color: BRAND_DEEP, fontSize: 27, lineHeight: 32, fontWeight: "900", marginTop: 6 },
+  measureSubmitCopy: { color: MUTED, fontSize: 14, lineHeight: 20, fontWeight: "800", marginTop: 8, paddingRight: 10 },
+  measureSubmitClose: { position: "absolute", top: 14, right: 14, zIndex: 20 },
+  otpVerifyCard: { minHeight: 54, borderRadius: 15, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ecfeff", flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginTop: 12 },
+  otpVerifyInput: { flex: 1, height: 40, borderRadius: 12, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ffffff", color: BRAND_DEEP, fontSize: 17, fontWeight: "900", textAlign: "center", letterSpacing: 4 },
+  otpVerifyButton: { minWidth: 104, height: 40, borderRadius: 12, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  otpVerifyButtonText: { color: "#ffffff", fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  measureLockedPanel: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: "#f8fafc", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10 },
+  measureLockedText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800" },
+  measureSubmitList: { maxHeight: 380, marginTop: 10 },
+  measureSubmitListContent: { paddingBottom: 4 },
+  measureSubmitItemCard: { borderRadius: 15, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#f0fdff", padding: 11, marginBottom: 10 },
+  measureSubmitItemLocked: { borderColor: BORDER, backgroundColor: "#f8fafc" },
+  measureSubmitItemTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900" },
+  measureSubmitItemMeta: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },
+  measureSubmitGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 9 },
+  measureSubmitInput: { width: "47.8%", minHeight: 40, borderRadius: 12, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: SURFACE, color: BRAND_DEEP, paddingHorizontal: 10, fontSize: 12, fontWeight: "800" },
+  measureSubmitNotes: { minHeight: 60, borderRadius: 13, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, color: BRAND_DEEP, padding: 10, fontSize: 12, lineHeight: 17, fontWeight: "800", textAlignVertical: "top", marginTop: 9 },
+  measureSubmitButton: { minHeight: 48, borderRadius: 14, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", marginTop: 10 },
+  measureSubmitButtonText: { color: "#ffffff", fontSize: 14, lineHeight: 19, fontWeight: "900" },
   popupIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: "#fff4dc", borderWidth: 1, borderColor: "#ffd88a", alignItems: "center", justifyContent: "center", marginBottom: 14 },
   popupIconSuccess: { width: 82, height: 82, borderRadius: 41, backgroundColor: "#eafaf0", borderWidth: 0, marginBottom: 12 },
   popupIconCheckBadge: { position: "absolute", right: 10, bottom: 9, width: 24, height: 24, borderRadius: 12, backgroundColor: "#22c55e", borderWidth: 2, borderColor: SURFACE, alignItems: "center", justifyContent: "center" },

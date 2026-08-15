@@ -417,6 +417,16 @@ const measurementVisitMediaSchema = new Schema(
   { _id: false, versionKey: false }
 );
 
+const itemMeasurementSubmissionSchema = new Schema(
+  {
+    itemId: String,
+    label: String,
+    fields: { type: Schema.Types.Mixed, default: {} },
+    notes: String
+  },
+  { _id: false, versionKey: false }
+);
+
 const measurementVisitSchema = new Schema(
   {
     _id: stringId,
@@ -446,6 +456,7 @@ const measurementVisitSchema = new Schema(
     otpVerifiedAt: Date,
     submission: {
       measurement: measurementSchema,
+      itemMeasurements: { type: [itemMeasurementSubmissionSchema], default: [] },
       fitPreferences: { type: [String], default: [] },
       notes: String,
       specialInstructions: String,

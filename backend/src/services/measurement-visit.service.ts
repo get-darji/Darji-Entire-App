@@ -169,6 +169,7 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
 export async function submitMeasurementVisit(visitId: string, tailorId: string, input: {
   otp: string;
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+  itemMeasurements?: Array<{ itemId: string; label?: string; fields?: Record<string, string | number>; notes?: string }>;
   fitPreferences?: string[];
   notes?: string;
   specialInstructions?: string;
@@ -189,6 +190,7 @@ export async function submitMeasurementVisit(visitId: string, tailorId: string, 
         otpVerifiedAt: new Date(),
         submission: {
           measurement: input.measurement,
+          itemMeasurements: input.itemMeasurements ?? [],
           fitPreferences: input.fitPreferences ?? [],
           notes: input.notes,
           specialInstructions: input.specialInstructions,
@@ -201,17 +203,32 @@ export async function submitMeasurementVisit(visitId: string, tailorId: string, 
   );
   if (!updated) return null;
 
-  const request = await TailoringRequestModel.findByIdAndUpdate(
-    updated.requestId,
-    {
-      $set: {
-        measurement: input.measurement,
-        measurementNotes: [input.notes, input.specialInstructions].filter(Boolean).join("\n"),
-        orderStatus: "tailor_accepted"
-      }
-    },
-    { returnDocument: "after" }
-  );
+  const request = await TailoringRequestModel.findById(updated.requestId);
+  if (request) {
+    const itemMeasurements = input.itemMeasurements ?? [];
+    const fallbackMeasurement = itemMeasurements[0];
+    const rootMeasurement = input.measurement ?? (fallbackMeasurement
+      ? {
+          label: fallbackMeasurement.label,
+          fields: fallbackMeasurement.fields
+        }
+      : undefined);
+    const rootNotes = [input.notes, input.specialInstructions].filter(Boolean).join("\n");
+    request.set("orderStatus", "tailor_accepted");
+    if (rootMeasurement) request.set("measurement", rootMeasurement);
+    if (rootNotes) request.set("measurementNotes", rootNotes);
+
+    if (Array.isArray(request.items) && request.items.length && itemMeasurements.length) {
+      itemMeasurements.forEach((entry) => {
+        const item = request.items.find((candidate) => String(candidate._id) === entry.itemId);
+        if (!item) return;
+        item.set("measurement", { label: entry.label ?? "Home Visit", fields: entry.fields ?? {} });
+        if (entry.notes) item.set("measurementNotes", entry.notes);
+      });
+      request.markModified("items");
+    }
+    await request.save();
+  }
   const stitchingTailor = await TailorModel.findById(updated.stitchingTailorId).select("userId");
   if (stitchingTailor?.userId) {
     await sendPushToUsers([stitchingTailor.userId], {

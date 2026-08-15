@@ -89,7 +89,6 @@ const tailorProfileSchema = z.object({
       soundAlerts: z.boolean().optional(),
       compactCards: z.boolean().optional(),
       autoOpenNewRequests: z.boolean().optional(),
-      maxOrdersPerDay: z.number().int().positive().max(50).optional(),
       darkMode: z.boolean().optional(),
       measurementUnits: z.enum(["Centimeters", "Inches"]).optional()
     })
