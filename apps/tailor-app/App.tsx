@@ -270,6 +270,7 @@ type MeasurementVisit = {
   assignedTailorId?: string;
   status: "OFFERED_TO_STITCHING_TAILOR" | "POOL" | "ACCEPTED" | "IN_PROGRESS" | "SUBMITTED" | "CANCELLED" | "EXPIRED";
   scheduledAt: string;
+  preferredMeasurementSlot?: string;
   visitPayout?: number;
   customerName?: string;
   customerPhone?: string;
@@ -979,7 +980,7 @@ function MeasurementVisitCard({
           <Ionicons name="time-outline" size={16} color={BRAND_ORANGE} />
           <View style={styles.measureVisitInfoText}>
             <Text style={styles.measureVisitLabel}>Preferred time</Text>
-            <Text style={styles.measureVisitValue}>{formatVisitSlot(visit.scheduledAt)}</Text>
+            <Text style={styles.measureVisitValue}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
           </View>
         </View>
         <View style={styles.measureVisitInfoBlock}>

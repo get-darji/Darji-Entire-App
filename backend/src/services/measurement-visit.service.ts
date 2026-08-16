@@ -77,6 +77,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         offeredTailorId: quote.tailorId,
         status: "OFFERED_TO_STITCHING_TAILOR",
         scheduledAt: resolveScheduledAt((request as any).preferredMeasurementSlot),
+        preferredMeasurementSlot: (request as any).preferredMeasurementSlot ?? "",
         visitPayout: Number(stitchingTailor?.measurementPartner?.visitPayout ?? DEFAULT_VISIT_PAYOUT),
         customerName: customer?.name ?? "Customer",
         customerPhone: customer?.phone ?? "",
@@ -90,8 +91,16 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
   if (stitchingTailor?.userId) {
     await sendPushToUsers([stitchingTailor.userId], {
       title: "Measurement visit requested",
-      body: `${customer?.name ?? "Customer"} needs an at-home measurement visit. Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
-      data: { type: "MEASUREMENT_VISIT_OFFERED", visitId: visit.id, requestId: request.id, screen: "measurementVisits" },
+      body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${(request as any).preferredMeasurementSlot || "slot specified"}). Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
+      data: {
+        type: "MEASUREMENT_VISIT_OFFERED",
+        visitId: visit.id,
+        requestId: request.id,
+        preferredMeasurementSlot: (request as any).preferredMeasurementSlot ?? "",
+        pickupAddress: request.pickupAddress,
+        customerName: customer?.name ?? "Customer",
+        screen: "measurementVisits"
+      },
       channelId: "darji-incoming-orders-v3",
       categoryId: "TAILOR_MEASUREMENT_VISIT",
       sound: "requests.mp3",

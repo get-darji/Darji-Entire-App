@@ -47,10 +47,16 @@ function registerBackgroundHandler() {
   const messagingModule = getFirebaseMessaging();
   if (!messagingModule) return;
   backgroundHandlerRegistered = true;
-  // The shared Android receiver has already rendered the alert before headless
-  // React starts. Keeping this handler registered preserves RNFirebase delivery
-  // semantics without producing a second notification.
-  messagingModule().setBackgroundMessageHandler(async () => undefined);
+  messagingModule().setBackgroundMessageHandler(async (message) => {
+    if (!message) return;
+    const data = stringData(message.data);
+    if (!isIncomingRequestData(data)) return;
+    await displayIncomingRequestNotification({
+      title: message.notification?.title ?? data.title ?? "Incoming Request",
+      body: message.notification?.body ?? data.body ?? "You have a new order",
+      data
+    });
+  });
 }
 
 registerBackgroundHandler();

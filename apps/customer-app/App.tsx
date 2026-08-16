@@ -1281,7 +1281,7 @@ const ADDRESS_FIELD_META: Array<{
   { key: "street", label: "Street / Society", placeholder: "Street, society or road", icon: "git-commit-outline", wide: true },
   { key: "area", label: "Area", placeholder: "Area", icon: "map-outline" },
   { key: "city", label: "City", placeholder: "City", icon: "business-outline" },
-  { key: "state", label: "State", placeholder: "State", icon: "ellipse-outline" },
+  { key: "state", label: "State", placeholder: "State", icon: "flag-outline" },
   { key: "postalCode", label: "Pincode", placeholder: "110001", icon: "storefront-outline", keyboardType: "number-pad" },
   { key: "landmark", label: "Landmark", placeholder: "Near...", icon: "location-outline", wide: true }
 ];
@@ -10823,23 +10823,6 @@ export default function App() {
         description: ${JSON.stringify(paymentSheet.config.description)},
         order_id: ${JSON.stringify(paymentSheet.config.orderId)},
         prefill: ${JSON.stringify(paymentSheet.config.prefill ?? {})},
-        method: ${JSON.stringify(paymentSheet.paymentMethod === "UPI" ? { upi: true } : { upi: true, card: true, netbanking: true, wallet: true })},
-        config: ${JSON.stringify(paymentSheet.paymentMethod === "UPI" ? {
-          display: {
-            blocks: {
-              upi: {
-                name: "Pay using UPI",
-                instruments: [{ method: "upi" }]
-              }
-            },
-            sequence: ["block.upi"],
-            preferences: { show_default_blocks: true }
-          }
-        } : {
-          display: {
-            preferences: { show_default_blocks: true }
-          }
-        })},
         theme: { color: "#F6A313" },
         handler: function (response) { send({ type: "success", ...response }); }
       };

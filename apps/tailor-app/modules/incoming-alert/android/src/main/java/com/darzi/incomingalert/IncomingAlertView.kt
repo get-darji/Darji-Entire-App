@@ -44,14 +44,20 @@ internal class IncomingAlertView(
 
   init {
     val tailor = IncomingAlertManager.isTailor(payload)
+    val category = payload.optString("categoryId") + payload.optString("categoryIdentifier")
+    val kind = payload.optString("type") + payload.optString("event")
+    val isMeasurementVisit = category.contains("MEASUREMENT", ignoreCase = true) || kind.contains("MEASUREMENT", ignoreCase = true)
+
     val level = serviceLevel()
     val instantDelivery = !tailor && level.contains("INSTANT", ignoreCase = true)
-    val accent = if (instantDelivery) Color.rgb(220, 38, 38) else Color.rgb(246, 163, 19)
-    val deep = Color.rgb(11, 34, 65)
-    val muted = Color.rgb(101, 116, 138)
-    val cardBackground = if (instantDelivery) Color.rgb(255, 245, 245) else Color.WHITE
 
-    setBackgroundColor(if (instantDelivery) Color.argb(238, 58, 8, 8) else Color.argb(238, 7, 13, 24))
+    val accent = if (isMeasurementVisit) Color.rgb(6, 182, 212) else if (instantDelivery) Color.rgb(220, 38, 38) else Color.rgb(246, 163, 19)
+    val deep = if (isMeasurementVisit) Color.WHITE else Color.rgb(11, 34, 65)
+    val muted = if (isMeasurementVisit) Color.rgb(165, 243, 252) else Color.rgb(101, 116, 138)
+    val cardBackground = if (isMeasurementVisit) Color.rgb(7, 26, 43) else if (instantDelivery) Color.rgb(255, 245, 245) else Color.WHITE
+    val strokeColor = if (isMeasurementVisit) Color.rgb(6, 182, 212) else if (instantDelivery) Color.rgb(248, 113, 113) else Color.rgb(239, 207, 146)
+
+    setBackgroundColor(if (isMeasurementVisit) Color.argb(245, 4, 15, 26) else if (instantDelivery) Color.argb(238, 58, 8, 8) else Color.argb(238, 7, 13, 24))
     isClickable = true
     setPadding(dp(18), dp(36), dp(18), dp(36))
 
@@ -59,7 +65,7 @@ internal class IncomingAlertView(
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_HORIZONTAL
       setPadding(dp(22), dp(22), dp(22), dp(22))
-      background = rounded(cardBackground, 8f, if (instantDelivery) Color.rgb(248, 113, 113) else Color.rgb(239, 207, 146), 1)
+      background = rounded(cardBackground, 8f, strokeColor, 2)
       elevation = dp(12).toFloat()
     }
     addView(card, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
@@ -75,22 +81,28 @@ internal class IncomingAlertView(
 
     val headingColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     header.addView(headingColumn, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-    headingColumn.addView(label(payload.optString("title").ifBlank { "Incoming order" }, 22f, deep, Typeface.BOLD))
-    headingColumn.addView(label(if (instantDelivery) "Instant response needed" else "Immediate response requested", 13f, muted, Typeface.BOLD).apply {
+    headingColumn.addView(label(payload.optString("title").ifBlank { if (isMeasurementVisit) "Measurement Visit Request" else "Incoming order" }, 22f, deep, Typeface.BOLD))
+    headingColumn.addView(label(if (isMeasurementVisit) "At-home customer measurement visit" else if (instantDelivery) "Instant response needed" else "Immediate response requested", 13f, muted, Typeface.BOLD).apply {
       setPadding(0, dp(4), 0, 0)
     })
 
     timer.apply {
-      setTextColor(accent)
+      setTextColor(if (isMeasurementVisit) Color.rgb(250, 204, 21) else accent)
       textSize = 16f
       typeface = Typeface.DEFAULT_BOLD
       gravity = Gravity.CENTER
       setPadding(dp(12), dp(10), dp(12), dp(10))
-      background = rounded(Color.rgb(17, 17, 17), 12f)
+      background = rounded(if (isMeasurementVisit) Color.rgb(15, 42, 66) else Color.rgb(17, 17, 17), 12f, if (isMeasurementVisit) Color.rgb(6, 182, 212) else null, 1)
     }
     header.addView(timer, LinearLayout.LayoutParams(dp(72), LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(12) })
 
-    card.addView(chip(if (level.isBlank()) if (tailor) "TAILOR REQUEST" else "DELIVERY REQUEST" else level, accent).apply {
+    val chipLabel = when {
+      isMeasurementVisit -> "MEASUREMENT VISIT"
+      level.isNotBlank() -> level
+      tailor -> "TAILOR REQUEST"
+      else -> "DELIVERY REQUEST"
+    }
+    card.addView(chip(chipLabel, accent).apply {
       setPadding(dp(12), dp(8), dp(12), dp(8))
     }, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
       topMargin = dp(18)
@@ -98,7 +110,7 @@ internal class IncomingAlertView(
     })
 
     val body = payload.optString("body").ifBlank { "A new order is waiting for your response." }
-    card.addView(label(body, 14f, Color.rgb(37, 42, 51), Typeface.NORMAL).apply {
+    card.addView(label(body, 14f, if (isMeasurementVisit) Color.rgb(226, 232, 240) else Color.rgb(37, 42, 51), Typeface.NORMAL).apply {
       setPadding(0, dp(12), 0, dp(12))
       setLineSpacing(0f, 1.14f)
       maxLines = 3
@@ -210,6 +222,7 @@ internal class IncomingAlertView(
   private fun details(tailor: Boolean): List<Pair<String, String>> {
     val rows = mutableListOf<Pair<String, String>>()
     if (tailor) {
+      addIfPresent(rows, "Slot", first("preferredMeasurementSlot", "slot"))
       addIfPresent(rows, "Cloth", first("clothType", "cloth", "itemType"))
       addIfPresent(rows, "Work", first("workType", "stitchingType", "service"))
       addIfPresent(rows, "Customer", first("customerName", "customer"))

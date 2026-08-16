@@ -276,29 +276,25 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
     const tag = data.taskId || data.requestId || data.orderId || "darzi-order";
     const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
       tokens,
-      ...(!isIncomingRequest ? {
-        notification: {
-          title: payload.title,
-          body: payload.body,
-          imageUrl: payload.imageUrl
-        }
-      } : {}),
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        imageUrl: payload.imageUrl
+      },
       data,
       android: {
         priority: "high",
         ...(isIncomingRequest ? { ttl: 35_000, collapseKey: `incoming-${tag}` } : {}),
-        ...(!isIncomingRequest ? {
-          notification: {
-            channelId: payload.channelId ?? "darji-alerts-v2",
-            color: "#F98A04",
-            sound: payload.sound ?? "ding.mp3",
-            imageUrl: payload.imageUrl,
-            priority: "max",
-            visibility: "public",
-            notificationCount: 1,
-            tag
-          }
-        } : {})
+        notification: {
+          channelId: payload.channelId ?? (isIncomingRequest ? "darji-incoming-orders-v3" : "darji-alerts-v2"),
+          color: isIncomingRequest ? "#06B6D4" : "#F98A04",
+          sound: payload.sound ?? "requests.mp3",
+          imageUrl: payload.imageUrl,
+          priority: "max",
+          visibility: "public",
+          notificationCount: 1,
+          tag
+        }
       },
       apns: {
         headers: { "apns-priority": "10" },

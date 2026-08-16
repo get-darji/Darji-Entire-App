@@ -444,6 +444,7 @@ const measurementVisitSchema = new Schema(
       index: true
     },
     scheduledAt: { type: Date, required: true, index: true },
+    preferredMeasurementSlot: String,
     visitPayout: { type: Number, default: 75 },
     customerName: String,
     customerPhone: String,
