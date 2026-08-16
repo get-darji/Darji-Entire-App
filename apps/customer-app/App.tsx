@@ -223,6 +223,7 @@ type ClothingItemDraft = {
   sampleMedia?: LocalMedia;
   uploadedSampleMedia?: UploadedMedia;
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
   voiceNotes?: LocalMedia[];
@@ -465,6 +466,7 @@ type RequestDraft = {
   sampleMedia?: LocalMedia;
   uploadedSampleMedia?: UploadedMedia;
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
   pickup: string;
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
@@ -1174,6 +1176,21 @@ function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" |
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function parseIntentUrl(url: string): string {
+  if (!url.startsWith("intent://")) return url;
+  const parts = url.slice(9).split("#Intent;");
+  const pathAndQuery = parts[0];
+  let scheme = "upi";
+  const params = parts[1] ? parts[1].split(";") : [];
+  for (const param of params) {
+    const [key, value] = param.split("=");
+    if (key === "scheme" && value) {
+      scheme = value;
+    }
+  }
+  return `${scheme}://${pathAndQuery}`;
 }
 
 function isSessionError(error: unknown) {
@@ -4360,6 +4377,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const hasWorkSelection = selectedService?.label === "Other"
     ? Boolean(draft.otherWorkDescription?.trim())
     : selectedWorkItems.length > 0;
+  const hasTimeSlotSelection = !draft.homeMeasurementBooked || Boolean(draft.preferredMeasurementSlot);
   const canContinue = Boolean(
     draft.gender &&
     draft.clothType &&
@@ -4367,7 +4385,8 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     selectedService &&
     hasWorkSelection &&
     draft.urgency &&
-    (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked)
+    (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked) &&
+    hasTimeSlotSelection
   );
   const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && hasOtherClothType && selectedService && hasWorkSelection);
   const savedItemCount = draft.items?.length ?? 0;
@@ -4872,7 +4891,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 </Pressable>
                 <Pressable
                   style={[styles.measurementMethodCard, draft.homeMeasurementBooked && styles.measurementMethodCardSelected]}
-                  onPress={() => !requiresHomeMeasurement && setDraft({ ...draft, homeMeasurementBooked: !draft.homeMeasurementBooked })}
+                  onPress={() => !requiresHomeMeasurement && setDraft({ ...draft, homeMeasurementBooked: !draft.homeMeasurementBooked, preferredMeasurementSlot: undefined })}
                 >
                   <Ionicons name={draft.homeMeasurementBooked ? "checkbox" : "square-outline"} size={23} color={draft.homeMeasurementBooked ? BRAND_ORANGE : "#7d8491"} style={styles.measurementMethodCheck} />
                   <View style={styles.measurementMethodIcon}>
@@ -4887,6 +4906,36 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 <Text style={[styles.measurementInfoText, requiresHomeMeasurement && styles.measurementInfoTextRequired]}>{requiresHomeMeasurement ? "Home measurement is mandatory for new stitching. You can also add a sample." : "You can select one or both options"}</Text>
                 <Ionicons name="chevron-forward" size={18} color={requiresHomeMeasurement ? "#dc2626" : "#7d8491"} />
               </View>
+              {draft.homeMeasurementBooked ? (
+                <View style={{ marginTop: 18, borderTopWidth: 1, borderColor: "#e2e8f0", paddingTop: 16 }}>
+                  <Text style={styles.measurementMethodTitle}>Select Preferred Time Slot</Text>
+                  <Text style={{ fontSize: 12, color: "#64748b", marginTop: 4, marginBottom: 12 }}>A tailor will visit your home within this 2-hour window</Text>
+                  <View style={styles.searchFilterChipRow}>
+                    {[
+                      "08:00 AM - 10:00 AM",
+                      "10:00 AM - 12:00 PM",
+                      "12:00 PM - 02:00 PM",
+                      "02:00 PM - 04:00 PM",
+                      "04:00 PM - 06:00 PM",
+                      "06:00 PM - 08:00 PM",
+                      "08:00 PM - 10:00 PM"
+                    ].map((slot) => {
+                      const isSelected = draft.preferredMeasurementSlot === slot;
+                      return (
+                        <Pressable
+                          key={slot}
+                          style={[styles.searchFilterChip, isSelected && styles.searchFilterChipActive]}
+                          onPress={() => setDraft({ ...draft, preferredMeasurementSlot: slot })}
+                        >
+                          <Text style={[styles.searchFilterChipText, isSelected && styles.searchFilterChipTextActive]}>
+                            {slot}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
               {draft.sampleProvided ? (
                 <>
                   <Pressable style={styles.sampleUploadButton} onPress={pickSampleImage}>
@@ -5514,6 +5563,7 @@ function OrderSummaryScreen({
             ...primary,
             urgency: draft.urgency,
             pickupAddress: draft.pickup,
+            preferredMeasurementSlot: draft.preferredMeasurementSlot,
             items: itemPayloads
           })
         },
@@ -5671,6 +5721,10 @@ function QuotesScreen({
 
   useEffect(() => {
     void loadQuotes();
+    const interval = setInterval(() => {
+      void loadQuotes();
+    }, 4000);
+    return () => clearInterval(interval);
   }, [draft.backendRequestId, token, refreshSignal]);
 
   useEffect(() => {
@@ -5818,8 +5872,8 @@ function QuotesScreen({
                 <Ionicons name="shirt-outline" size={58} color="#111111" />
               </View>
             </View>
-            <Text style={styles.quotesScanningTitle}>{waitProgressComplete ? "Don't worry!" : "Searching for tailors..."}</Text>
-            <Text style={styles.quotesScanningSubtext}>{waitProgressComplete ? "We are connecting you with a tailor shortly. Please wait." : "We're finding the best tailors near you.\nNew quotes will appear here automatically."}</Text>
+            <Text style={styles.quotesScanningTitle}>{waitProgressComplete ? "Connecting Directly" : "Searching for tailors..."}</Text>
+            <Text style={styles.quotesScanningSubtext}>{waitProgressComplete ? "We noticed you didn't get any tailor quotes, so we are connecting you with a tailor directly shortly. Hang tight!" : "We're finding the best tailors near you.\nNew quotes will appear here automatically."}</Text>
             <View style={styles.quotesWaitClockBlock}>
               <View style={styles.quotesWaitClockRow}>
                 <Ionicons name="time-outline" size={25} color={BRAND_ORANGE} />
@@ -10684,7 +10738,20 @@ export default function App() {
               "Do you really want to cancel the payment for this order?",
               [
                 { text: "No, continue", style: "cancel" },
-                { text: "Yes, cancel", style: "destructive", onPress: () => setPaymentSheet(undefined) }
+                {
+                  text: "Yes, cancel",
+                  style: "destructive",
+                  onPress: () => {
+                    const quote = paymentSheet?.quote;
+                    const draftState = paymentSheet?.draft;
+                    setPaymentSheet(undefined);
+                    if (quote) setSelectedQuote(quote);
+                    if (draftState) setDraft(draftState);
+                    setRequestProgressScreen("confirmOrder");
+                    setScreen("confirmOrder");
+                    void refreshCustomerOrders();
+                  }
+                }
               ]
             );
           }}
@@ -10759,10 +10826,12 @@ export default function App() {
                     void handlePaymentSheetMessage(event.nativeEvent.data);
                   }}
                   onShouldStartLoadWithRequest={(request) => {
-                    const url = request.url;
+                    let url = request.url;
                     if (!url || /^(https?:|about:blank)/i.test(url)) return true;
-                    void Linking.canOpenURL(url)
-                      .then((supported) => supported ? Linking.openURL(url) : Promise.reject(new Error("No app found")))
+                    if (url.startsWith("intent://")) {
+                      url = parseIntentUrl(url);
+                    }
+                    void Linking.openURL(url)
                       .catch(() => {
                         setPaymentSheet(undefined);
                         setSelectedQuote(paymentSheet.quote);

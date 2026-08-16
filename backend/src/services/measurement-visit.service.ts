@@ -23,6 +23,27 @@ function defaultScheduledAt() {
   return new Date(now.getTime() + 2 * 60 * 60 * 1000);
 }
 
+function resolveScheduledAt(slot?: string) {
+  const now = new Date();
+  if (!slot) return defaultScheduledAt();
+
+  const match = slot.match(/^(\d{2}):(\d{2})\s*(AM|PM)/i);
+  let hour = 12;
+  let minute = 0;
+  if (match) {
+    hour = parseInt(match[1], 10);
+    minute = parseInt(match[2], 10);
+    const ampm = match[3].toUpperCase();
+    if (ampm === "PM" && hour < 12) hour += 12;
+    if (ampm === "AM" && hour === 12) hour = 0;
+  }
+
+  const scheduled = new Date(now);
+  scheduled.setDate(now.getDate() + 1);
+  scheduled.setHours(hour, minute, 0, 0);
+  return scheduled;
+}
+
 export function measurementVisitOtp(visitId: string) {
   const digest = createHmac("sha256", env.JWT_ACCESS_SECRET).update(`measurement:${visitId}`).digest();
   return String(digest.readUInt32BE(0) % 10000).padStart(4, "0");
@@ -55,7 +76,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         stitchingTailorId: quote.tailorId,
         offeredTailorId: quote.tailorId,
         status: "OFFERED_TO_STITCHING_TAILOR",
-        scheduledAt: defaultScheduledAt(),
+        scheduledAt: resolveScheduledAt((request as any).preferredMeasurementSlot),
         visitPayout: Number(stitchingTailor?.measurementPartner?.visitPayout ?? DEFAULT_VISIT_PAYOUT),
         customerName: customer?.name ?? "Customer",
         customerPhone: customer?.phone ?? "",
@@ -213,7 +234,7 @@ export async function submitMeasurementVisit(visitId: string, tailorId: string, 
           fields: fallbackMeasurement.fields
         }
       : undefined);
-    const rootNotes = [input.notes, input.specialInstructions].filter(Boolean).join("\n");
+    const rootNotes = [...new Set([input.notes, input.specialInstructions].filter(Boolean))].join("\n");
     request.set("orderStatus", "tailor_accepted");
     if (rootMeasurement) request.set("measurement", rootMeasurement);
     if (rootNotes) request.set("measurementNotes", rootNotes);

@@ -891,10 +891,13 @@ function measurementFieldsText(fields?: Record<string, string | number>) {
 }
 
 function measurementDetailsText(fields?: Record<string, string | number>, itemNotes?: string, visitNotes?: string) {
+  const normalizedItem = itemNotes?.trim() || "";
+  const normalizedVisit = visitNotes?.trim() || "";
+  const showVisit = normalizedVisit && normalizedVisit.replace(/\s+/g, "") !== normalizedItem.replace(/\s+/g, "");
   return [
     measurementFieldsText(fields),
-    itemNotes?.trim() ? `Item notes:\n${itemNotes.trim()}` : undefined,
-    visitNotes?.trim() ? `Visit notes:\n${visitNotes.trim()}` : undefined
+    normalizedItem ? `Item notes:\n${normalizedItem}` : undefined,
+    showVisit ? `Visit notes:\n${normalizedVisit}` : undefined
   ].filter(Boolean).join("\n\n");
 }
 
@@ -1181,7 +1184,7 @@ function RequestsScreen({
   onRefresh: () => void | Promise<void>;
 }) {
   const [tab, setTab] = useState<"stitching" | "measurement">(initialTab ?? "stitching");
-  const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted">("incoming");
+  const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted" | "history">("incoming");
   const [filter, setFilter] = useState<"QUOTE_REQUESTED" | "QUOTED">("QUOTE_REQUESTED");
   const [savingVisitId, setSavingVisitId] = useState<string>();
   const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
@@ -1196,8 +1199,13 @@ function RequestsScreen({
   const isSent = filter === "QUOTED";
   const actionableVisits = measurementVisits.filter(isActionableMeasurementVisit);
   const incomingMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter(isActionableMeasurementVisit));
-  const acceptedMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter((visit) => ["ACCEPTED", "IN_PROGRESS", "SUBMITTED"].includes(visit.status)));
-  const visibleMeasurementVisits = measurementVisitTab === "incoming" ? incomingMeasurementVisits : acceptedMeasurementVisits;
+  const acceptedMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)));
+  const historyMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter((visit) => ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)));
+  const visibleMeasurementVisits = measurementVisitTab === "incoming"
+    ? incomingMeasurementVisits
+    : measurementVisitTab === "accepted"
+    ? acceptedMeasurementVisits
+    : historyMeasurementVisits;
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
@@ -1385,15 +1393,19 @@ function RequestsScreen({
         <>
           <View style={styles.measureVisitTabs}>
             <Pressable style={[styles.measureVisitTab, measurementVisitTab === "incoming" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("incoming")}>
-              <Text style={[styles.measureVisitTabText, measurementVisitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming Requests</Text>
+              <Text style={[styles.measureVisitTabText, measurementVisitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming</Text>
               <Text style={[styles.measureVisitTabCount, measurementVisitTab === "incoming" && styles.measureVisitTabCountActive]}>{incomingMeasurementVisits.length}</Text>
             </Pressable>
             <Pressable style={[styles.measureVisitTab, measurementVisitTab === "accepted" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("accepted")}>
               <Text style={[styles.measureVisitTabText, measurementVisitTab === "accepted" && styles.measureVisitTabTextActive]}>Accepted</Text>
               <Text style={[styles.measureVisitTabCount, measurementVisitTab === "accepted" && styles.measureVisitTabCountActive]}>{acceptedMeasurementVisits.length}</Text>
             </Pressable>
+            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "history" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("history")}>
+              <Text style={[styles.measureVisitTabText, measurementVisitTab === "history" && styles.measureVisitTabTextActive]}>History</Text>
+              <Text style={[styles.measureVisitTabCount, measurementVisitTab === "history" && styles.measureVisitTabCountActive]}>{historyMeasurementVisits.length}</Text>
+            </Pressable>
           </View>
-          {visibleMeasurementVisits.length === 0 ? <MeasurementVisitsEmptyState accepted={measurementVisitTab === "accepted"} /> : null}
+          {visibleMeasurementVisits.length === 0 ? <MeasurementVisitsEmptyState tab={measurementVisitTab} /> : null}
           {visibleMeasurementVisits.map((visit) => (
             <MeasurementVisitCard
               key={visit.id}
@@ -1411,14 +1423,25 @@ function RequestsScreen({
   );
 }
 
-function MeasurementVisitsEmptyState({ accepted = false }: { accepted?: boolean }) {
+function MeasurementVisitsEmptyState({ tab = "incoming" }: { tab?: "incoming" | "accepted" | "history" }) {
+  const isAccepted = tab === "accepted";
+  const isHistory = tab === "history";
+  let title = "No incoming visits";
+  let copy = "New home visit offers will appear here.";
+  if (isAccepted) {
+    title = "No accepted visits";
+    copy = "Accepted measurement visits will appear here.";
+  } else if (isHistory) {
+    title = "No history";
+    copy = "Submitted and past measurement visits will appear here.";
+  }
   return (
     <View style={styles.requestsEmptyState}>
       <View style={styles.requestsEmptyIcon}>
         <Ionicons name="resize-outline" size={38} color={BRAND_ORANGE} />
       </View>
-      <Text style={styles.requestsEmptyTitle}>{accepted ? "No accepted visits" : "No measurement visits"}</Text>
-      <Text style={styles.requestsEmptyCopy}>{accepted ? "Accepted measurement visits will appear here." : "New home visit offers will appear here."}</Text>
+      <Text style={styles.requestsEmptyTitle}>{title}</Text>
+      <Text style={styles.requestsEmptyCopy}>{copy}</Text>
     </View>
   );
 }
@@ -3204,7 +3227,7 @@ function OrderDetailsScreen({
                   <Text style={styles.confirmedMeasurementNoteText}>{submittedMeasurementNote}</Text>
                 </View>
               ) : null}
-              {submittedVisitNote ? (
+              {submittedVisitNote && submittedVisitNote.replace(/\s+/g, "") !== submittedMeasurementNote?.replace(/\s+/g, "") ? (
                 <View style={styles.confirmedMeasurementNoteBox}>
                   <Text style={styles.confirmedMeasurementNoteLabel}>Visit notes</Text>
                   <Text style={styles.confirmedMeasurementNoteText}>{submittedVisitNote}</Text>
@@ -3229,7 +3252,7 @@ function OrderDetailsScreen({
                           style={styles.confirmedWaveform}
                           onPress={(event) => seekVoiceNote(voice, event.nativeEvent.locationX)}
                         >
-                          {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13, 20, 10, 16, 12, 19].map((height, barIndex) => (
+                          {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13].map((height, barIndex) => (
                             <View key={`${selectedDetailItem.key}-wave-base-${index}-${barIndex}`} style={[styles.confirmedWaveBar, { height, backgroundColor: "#d7dde7" }]} />
                           ))}
                           <Animated.View
@@ -3238,12 +3261,12 @@ function OrderDetailsScreen({
                               styles.confirmedWaveProgress,
                               {
                                 width: playingVoiceUrl === voice.url
-                                  ? voiceWaveProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 120] })
+                                  ? voiceWaveProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 80] })
                                   : 0
                               }
                             ]}
                           >
-                            {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13, 20, 10, 16, 12, 19].map((height, barIndex) => (
+                            {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13].map((height, barIndex) => (
                               <View key={`${selectedDetailItem.key}-wave-progress-${index}-${barIndex}`} style={[styles.confirmedWaveBar, { height, backgroundColor: BRAND_ORANGE }]} />
                             ))}
                           </Animated.View>
@@ -5255,7 +5278,7 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
   onVisitsChanged?: (visits: MeasurementVisit[]) => void;
 }) {
   const [visits, setVisits] = useState<MeasurementVisit[]>(initialVisits ?? []);
-  const [visitTab, setVisitTab] = useState<"incoming" | "accepted">("incoming");
+  const [visitTab, setVisitTab] = useState<"incoming" | "accepted" | "history">("incoming");
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string>();
   const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
@@ -5425,8 +5448,13 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
   }
 
   const incomingVisits = sortedMeasurementVisits(visits.filter(isActionableMeasurementVisit));
-  const acceptedVisits = sortedMeasurementVisits(visits.filter((visit) => ["ACCEPTED", "IN_PROGRESS", "SUBMITTED"].includes(visit.status)));
-  const visibleVisits = visitTab === "incoming" ? incomingVisits : acceptedVisits;
+  const acceptedVisits = sortedMeasurementVisits(visits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)));
+  const historyVisits = sortedMeasurementVisits(visits.filter((visit) => ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)));
+  const visibleVisits = visitTab === "incoming"
+    ? incomingVisits
+    : visitTab === "accepted"
+    ? acceptedVisits
+    : historyVisits;
   const modalItems = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
   const canSubmitMeasurements = otpVerified && modalItems.length > 0 && modalItems.every((item) => Object.values(fields[measurementItemId(item)] ?? {}).some((value) => value.trim()));
 
@@ -5478,12 +5506,16 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
 
         <View style={styles.measureVisitTabs}>
           <Pressable style={[styles.measureVisitTab, visitTab === "incoming" && styles.measureVisitTabActive]} onPress={() => setVisitTab("incoming")}>
-            <Text style={[styles.measureVisitTabText, visitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming Requests</Text>
+            <Text style={[styles.measureVisitTabText, visitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming</Text>
             <Text style={[styles.measureVisitTabCount, visitTab === "incoming" && styles.measureVisitTabCountActive]}>{incomingVisits.length}</Text>
           </Pressable>
           <Pressable style={[styles.measureVisitTab, visitTab === "accepted" && styles.measureVisitTabActive]} onPress={() => setVisitTab("accepted")}>
             <Text style={[styles.measureVisitTabText, visitTab === "accepted" && styles.measureVisitTabTextActive]}>Accepted</Text>
             <Text style={[styles.measureVisitTabCount, visitTab === "accepted" && styles.measureVisitTabCountActive]}>{acceptedVisits.length}</Text>
+          </Pressable>
+          <Pressable style={[styles.measureVisitTab, visitTab === "history" && styles.measureVisitTabActive]} onPress={() => setVisitTab("history")}>
+            <Text style={[styles.measureVisitTabText, visitTab === "history" && styles.measureVisitTabTextActive]}>History</Text>
+            <Text style={[styles.measureVisitTabCount, visitTab === "history" && styles.measureVisitTabCountActive]}>{historyVisits.length}</Text>
           </Pressable>
         </View>
 
@@ -5497,8 +5529,16 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
         {!loading && !visibleVisits.length ? (
           <View style={styles.emptyState}>
             <Ionicons name="calendar-outline" size={38} color={BRAND_ORANGE} />
-            <Text style={styles.emptyTitle}>{visitTab === "incoming" ? "No incoming visits" : "No accepted visits"}</Text>
-            <Text style={styles.cardMeta}>{visitTab === "incoming" ? "New home measurement offers will appear here." : "Accepted and submitted measurement visits will appear here."}</Text>
+            <Text style={styles.emptyTitle}>
+              {visitTab === "incoming" ? "No incoming visits" : visitTab === "accepted" ? "No accepted visits" : "No history"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              {visitTab === "incoming"
+                ? "New home measurement offers will appear here."
+                : visitTab === "accepted"
+                ? "Accepted measurement visits will appear here."
+                : "Submitted and past measurement visits will appear here."}
+            </Text>
           </View>
         ) : null}
 
@@ -6746,13 +6786,13 @@ const styles = StyleSheet.create({
   measurementReadyIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
   measurementReadyTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900" },
   measurementReadyCopy: { color: "#475569", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },
-  measureVisitTabs: { flexDirection: "row", gap: 9, marginBottom: 13 },
-  measureVisitTab: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 10 },
-  measureVisitTabActive: { borderColor: "#0891b2", backgroundColor: "#ecfeff" },
-  measureVisitTabText: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "center", flexShrink: 1 },
-  measureVisitTabTextActive: { color: "#0891b2" },
-  measureVisitTabCount: { minWidth: 20, height: 20, borderRadius: 10, overflow: "hidden", backgroundColor: "#eef2f7", color: MUTED, textAlign: "center", fontSize: 10, lineHeight: 20, fontWeight: "900" },
-  measureVisitTabCountActive: { backgroundColor: "#0891b2", color: "#ffffff" },
+  measureVisitTabs: { flexDirection: "row", gap: 6, marginBottom: 14, backgroundColor: "#f1f5f9", borderRadius: 20, padding: 4, alignSelf: "flex-start" },
+  measureVisitTab: { minHeight: 32, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 14 },
+  measureVisitTabActive: { backgroundColor: SURFACE },
+  measureVisitTabText: { color: "#64748b", fontSize: 11, lineHeight: 15, fontWeight: "800" },
+  measureVisitTabTextActive: { color: BRAND_DEEP, fontWeight: "900" },
+  measureVisitTabCount: { minWidth: 18, height: 18, borderRadius: 9, overflow: "hidden", backgroundColor: "#e2e8f0", color: "#64748b", textAlign: "center", fontSize: 9, lineHeight: 18, fontWeight: "800", paddingHorizontal: 4 },
+  measureVisitTabCountActive: { backgroundColor: BRAND_ORANGE, color: SURFACE },
   // -- Tile Detail Sheet --
   tileSheetBackdrop: { flex: 1, backgroundColor: "rgba(11,34,65,0.55)", alignItems: "center", justifyContent: "center", padding: 28 },
   tileSheetCard: { width: "100%", backgroundColor: SURFACE, borderRadius: 26, padding: 24, shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 16 },
@@ -6926,8 +6966,8 @@ const styles = StyleSheet.create({
   confirmedVoiceMain: { flex: 1, minWidth: 0 },
   confirmedVoiceTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 17, fontWeight: "900", marginBottom: 8 },
   confirmedVoiceScrubRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  confirmedWaveform: { width: 120, height: 30, flexDirection: "row", alignItems: "center", gap: 3, overflow: "hidden" },
-  confirmedWaveProgress: { position: "absolute", left: 0, top: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 3, overflow: "hidden" },
+  confirmedWaveform: { width: 80, height: 30, flexDirection: "row", alignItems: "center", gap: 2, overflow: "hidden" },
+  confirmedWaveProgress: { position: "absolute", left: 0, top: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 2, overflow: "hidden" },
   confirmedWaveBar: { width: 3, borderRadius: 2 },
   confirmedVoiceDuration: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900", minWidth: 62 },
   confirmedVoiceMeta: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 4 },

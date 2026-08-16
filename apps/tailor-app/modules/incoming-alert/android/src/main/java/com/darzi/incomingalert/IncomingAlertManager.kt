@@ -46,7 +46,19 @@ internal object IncomingAlertManager {
     for (key in bundle.keySet()) {
       if (key.startsWith("google.") || key.startsWith("gcm.") || key == "from" || key == "collapse_key") continue
       when (val value = bundle.get(key)) {
-        is String, is Number, is Boolean -> payload.put(key, value)
+        is String -> {
+          payload.put(key, value)
+          val trimmed = value.trim()
+          if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+              val nested = JSONObject(trimmed)
+              for (nestedKey in nested.keys()) {
+                payload.put(nestedKey, nested.get(nestedKey))
+              }
+            } catch (_: Exception) {}
+          }
+        }
+        is Number, is Boolean -> payload.put(key, value)
       }
     }
     bundle.getString("gcm.n.title")?.let { if (!payload.has("title")) payload.put("title", it) }

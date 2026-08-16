@@ -248,6 +248,7 @@ const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
   urgency: z.string().trim().min(2).max(80),
   pickupAddress: z.string().trim().min(8).max(500),
   pickupLocation: z.object({ lat: z.number(), lng: z.number() }).optional(),
+  preferredMeasurementSlot: z.string().trim().optional(),
   items: z.array(tailoringRequestItemInputSchema).min(1).max(20).optional()
 });
 

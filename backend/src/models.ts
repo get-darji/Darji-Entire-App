@@ -750,7 +750,8 @@ const tailoringRequestSchema = new Schema(
     },
     workStatus: { type: String, enum: ["ACCEPTED", "WORKING", "READY"], default: "ACCEPTED", index: true },
     status: { type: String, enum: ["QUOTE_REQUESTED", "PAYMENT_PENDING", "TAILOR_SELECTED", "CANCELLED"], default: "QUOTE_REQUESTED", index: true },
-    timelineEvents: { type: [timelineEventSchema], default: [] }
+    timelineEvents: { type: [timelineEventSchema], default: [] },
+    preferredMeasurementSlot: String
   },
   baseOptions
 );
