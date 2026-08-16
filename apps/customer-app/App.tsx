@@ -5693,6 +5693,8 @@ function QuotesScreen({
   const waitTimeLabel = waitProgressComplete ? "00:00" : `${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}`;
   const circularProgressRotation = `${Math.min(360, (waitProgressPercent / 100) * 360)}deg`;
 
+  const notFoundAlertedRef = useRef(false);
+
   async function loadQuotes() {
     if (!token || !draft.backendRequestId) {
       setBackendQuotes([]);
@@ -5708,12 +5710,32 @@ function QuotesScreen({
       const allowedStatuses = new Set(["SUBMITTED", "RESERVED", "ACCEPTED"]);
       setBackendRequest(request);
       setBackendQuotes(data.filter((quote) => allowedStatuses.has(quote.status)).map(quoteFromBackend));
+      notFoundAlertedRef.current = false;
     } catch (error) {
-      showDialog({
-        title: "Quotes unavailable",
-        message: error instanceof Error ? error.message : "Could not load tailor quotes.",
-        actions: [{ label: "OK" }]
-      });
+      const message = error instanceof Error ? error.message : String(error);
+      if (/not found/i.test(message)) {
+        if (!notFoundAlertedRef.current) {
+          notFoundAlertedRef.current = true;
+          showDialog({
+            title: "Quotes unavailable",
+            message: "Tailoring request not found.",
+            actions: [
+              {
+                label: "OK",
+                onPress: () => {
+                  if (onDeleteRequest) {
+                    void onDeleteRequest();
+                  } else {
+                    setScreen("home");
+                  }
+                }
+              }
+            ]
+          });
+        }
+      } else {
+        console.warn("[quotes] Could not load quotes:", message);
+      }
     } finally {
       setLoading(false);
     }
@@ -10435,11 +10457,18 @@ export default function App() {
       });
       void refreshCustomerOrders();
     } catch (error) {
-      setDialog({
-        title: "Delete failed",
-        message: error instanceof Error ? error.message : "Could not delete this request.",
-        actions: [{ label: "OK" }]
-      });
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/not found/i.test(msg)) {
+        resetRequestDraft();
+        setSelectedQuote(undefined);
+        setScreen("home");
+      } else {
+        setDialog({
+          title: "Delete failed",
+          message: msg,
+          actions: [{ label: "OK" }]
+        });
+      }
     }
   }
 
