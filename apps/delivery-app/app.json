@@ -36,19 +36,6 @@
         "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.USE_FULL_SCREEN_INTENT",
-        "android.permission.WAKE_LOCK",
-        "android.permission.TURN_SCREEN_ON",
-        "android.permission.VIBRATE",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
@@ -93,7 +80,12 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "ios": {},
+    "ios": {
+      "bundleIdentifier": "com.darzi.delivery",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "updates": {
       "url": "https://u.expo.dev/bf4d321e-74c1-4a09-abfa-d457fc813430"
     }

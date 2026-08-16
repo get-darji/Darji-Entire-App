@@ -29,13 +29,6 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "CAMERA",
-        "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
@@ -64,7 +57,12 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "ios": {},
+    "ios": {
+      "bundleIdentifier": "com.darzi.customer",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "updates": {
       "url": "https://u.expo.dev/1b0c3e4d-4e0f-4c5b-ab58-f90f732877c4"
     }
