@@ -90,7 +90,8 @@ module.exports = function withIncomingAlert(config) {
           "android:turnScreenOn": "true",
           "android:excludeFromRecents": "true",
           "android:taskAffinity": "",
-          "android:theme": "@style/Theme.AppCompat.NoActionBar"
+          "android:theme": "@style/Theme.AppCompat.NoActionBar",
+          "tools:replace": "android:theme"
         }
       });
     }
