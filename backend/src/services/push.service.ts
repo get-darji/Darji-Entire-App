@@ -16,6 +16,7 @@ export type PushPayload = {
 };
 
 let firebaseReady = false;
+const pushBuild = "incoming-fullscreen-v3";
 
 const channelAppMap = {
   "customer-orders-v2": "customer",
@@ -88,6 +89,14 @@ function firebaseCredential() {
     });
   }
   return undefined;
+}
+
+export function pushRuntimeStatus() {
+  return {
+    build: pushBuild,
+    firebaseReady,
+    firebaseConfigured: Boolean(env.FCM_SERVICE_ACCOUNT_JSON || (env.FCM_PROJECT_ID && env.FCM_CLIENT_EMAIL && env.FCM_PRIVATE_KEY))
+  };
 }
 
 export function initFirebaseAdmin() {

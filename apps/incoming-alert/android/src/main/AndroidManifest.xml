@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <application>
     <receiver
       android:name=".IncomingAlertFirebaseReceiver"
@@ -12,6 +12,18 @@
     <receiver
       android:name=".IncomingAlertActionReceiver"
       android:exported="false" />
+
+    <service
+      android:name=".IncomingAlertMessagingService"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+
+    <service
+      android:name="io.invertase.firebase.messaging.ReactNativeFirebaseMessagingService"
+      tools:node="remove" />
 
     <service
       android:name=".IncomingAlertOverlayService"

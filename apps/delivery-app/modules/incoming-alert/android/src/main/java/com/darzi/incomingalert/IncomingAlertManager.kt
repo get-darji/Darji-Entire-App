@@ -150,6 +150,9 @@ internal object IncomingAlertManager {
     createChannel(appContext)
     startAlertSignal(appContext)
     appContext.getSystemService(NotificationManager::class.java).notify(id, buildNotification(appContext, payload))
+    if (isDeviceLocked(appContext)) {
+      launchFullScreenActivity(appContext, payload)
+    }
 
     val serviceIntent = Intent(appContext, IncomingAlertOverlayService::class.java).putExtra(EXTRA_PAYLOAD, payload.toString())
     try {
@@ -158,6 +161,18 @@ internal object IncomingAlertManager {
     } catch (_: Exception) {
       // High-priority FCM normally permits this start. If Android/OEM policy rejects
       // it, the already-posted heads-up/full-screen notification remains the fallback.
+    }
+  }
+
+  private fun launchFullScreenActivity(context: Context, payload: JSONObject) {
+    try {
+      val activityIntent = Intent(context, IncomingAlertActivity::class.java)
+        .putExtra(EXTRA_PAYLOAD, payload.toString())
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      context.startActivity(activityIntent)
+    } catch (_: Exception) {
+      // Android may block background activity starts on some devices. The
+      // full-screen notification remains as the next fallback.
     }
   }
 

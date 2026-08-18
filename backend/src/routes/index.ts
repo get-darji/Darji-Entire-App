@@ -89,6 +89,7 @@ import {
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { notificationRoutes } from "./notificationRoutes.js";
+import { pushRuntimeStatus } from "../services/push.service.js";
 import {
   acceptMeasurementVisitController,
   adminAssignMeasurementVisitController,
@@ -139,7 +140,7 @@ import {
 
 export const router = Router();
 
-router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend" } }));
+router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend", push: pushRuntimeStatus() } }));
 router.get("/platform-status", platformStatusController);
 router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
