@@ -4,10 +4,11 @@ import {
   openIncomingAlertOverlaySettings
 } from "@darzi/incoming-alert";
 import { Ionicons } from "@expo/vector-icons";
+import * as Notifications from "../notifications/expoNotifications";
 import { useEffect, useRef, useState } from "react";
 import { Animated, AppState, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-type PermissionIssue = "overlay" | "fullscreen" | null;
+type PermissionIssue = "notifications" | "overlay" | "fullscreen" | null;
 
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
@@ -35,7 +36,9 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
         const state = await getIncomingAlertPermissionState();
         if (!active || !state) return;
 
-        const nextIssue: PermissionIssue = !state.canDrawOverlays
+        const nextIssue: PermissionIssue = !state.notificationsEnabled
+          ? "notifications"
+          : !state.canDrawOverlays
           ? "overlay"
           : state.androidApiLevel >= 34 && !state.canUseFullScreenIntent
             ? "fullscreen"
@@ -87,6 +90,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
 
   if (!enabled || Platform.OS !== "android" || !issue) return null;
 
+  const isNotifications = issue === "notifications";
   const isOverlay = issue === "overlay";
   const appName = app === "tailor" ? "Darji Tailor" : "Darji Delivery";
 
@@ -95,11 +99,13 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
       <View style={styles.backdrop}>
         <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetContent} bounces={false}>
           <View style={styles.iconWrap}>
-            <Ionicons name={isOverlay ? "albums-outline" : "phone-portrait-outline"} size={26} color={BRAND_ORANGE} />
+            <Ionicons name={isNotifications ? "notifications-outline" : isOverlay ? "albums-outline" : "phone-portrait-outline"} size={26} color={BRAND_ORANGE} />
           </View>
-          <Text style={styles.title}>{isOverlay ? "Allow order popups" : "Allow locked-screen alerts"}</Text>
+          <Text style={styles.title}>{isNotifications ? "Allow request notifications" : isOverlay ? "Allow order popups" : "Allow locked-screen alerts"}</Text>
           <Text style={styles.copy}>
-            {isOverlay
+            {isNotifications
+              ? `${appName} needs notification permission so urgent requests can ring, vibrate, and launch the incoming request popup.`
+              : isOverlay
               ? `${appName} uses Display over other apps only while a live request is waiting, so Accept, Reject, and View details can appear over the home screen or another app.`
               : "Android 14 can limit full-screen alerts. This setting improves locked-screen request visibility while the overlay handles normal app and home-screen popups."}
           </Text>
@@ -143,14 +149,16 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
           <View style={styles.steps}>
             <View style={styles.stepRow}>
               <Text style={styles.stepNumber}>1</Text>
-              <Text style={styles.stepText}>{isOverlay ? "Tap Open App info below." : "Tap Review setting below."}</Text>
+              <Text style={styles.stepText}>{isNotifications ? "Tap Allow notifications below." : isOverlay ? "Tap Open App info below." : "Tap Review setting below."}</Text>
             </View>
             <View style={styles.stepRow}>
               <Text style={styles.stepNumber}>2</Text>
               <Text style={styles.stepText}>
                 {isOverlay
                   ? "Tap the three-dot menu and choose Allow restricted settings. If that option is absent, continue to the next step."
-                  : `Allow full-screen alerts for ${appName}.`}
+                  : isNotifications
+                    ? `Approve notifications for ${appName}. If Android does not show a popup, app notification settings will open.`
+                    : `Allow full-screen alerts for ${appName}.`}
               </Text>
             </View>
             {isOverlay ? (
@@ -173,7 +181,15 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
             <Pressable
               style={styles.primaryButton}
               onPress={() => {
-                if (isOverlay) {
+                if (isNotifications) {
+                  void Notifications.requestPermissionsAsync()
+                    .then(async (permission) => {
+                      if (permission.status !== Notifications.PermissionStatus.GRANTED) {
+                        await Linking.openSettings();
+                      }
+                    })
+                    .catch(() => void Linking.openSettings());
+                } else if (isOverlay) {
                   continueToOverlayRef.current = true;
                   void Linking.openSettings().catch(() => {
                     continueToOverlayRef.current = false;
@@ -184,7 +200,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
                 }
               }}
             >
-              <Text style={styles.primaryText}>{isOverlay ? "Open App info" : "Review setting"}</Text>
+              <Text style={styles.primaryText}>{isNotifications ? "Allow notifications" : isOverlay ? "Open App info" : "Review setting"}</Text>
               <Ionicons name="arrow-forward" size={18} color="#111111" />
             </Pressable>
           </View>

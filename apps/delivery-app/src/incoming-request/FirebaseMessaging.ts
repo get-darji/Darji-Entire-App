@@ -44,9 +44,16 @@ function registerBackgroundHandler() {
   const messagingModule = getFirebaseMessaging();
   if (!messagingModule) return;
   backgroundHandlerRegistered = true;
-  // Native Android owns background display; headless JS intentionally does not
-  // create another alert when RNFirebase wakes the process.
-  messagingModule().setBackgroundMessageHandler(async () => undefined);
+  messagingModule().setBackgroundMessageHandler(async (message) => {
+    if (!message) return;
+    const data = stringData(message.data);
+    if (!isIncomingRequestData(data)) return;
+    await displayIncomingRequestNotification({
+      title: message.notification?.title ?? data.title ?? "Incoming Request",
+      body: message.notification?.body ?? data.body ?? "You have a new order",
+      data
+    });
+  });
 }
 
 registerBackgroundHandler();
