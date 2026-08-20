@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <application>
     <receiver
-      android:name=".IncomingAlertFirebaseReceiver"
+      android:name="com.darzi.incomingalert.IncomingAlertFirebaseReceiver"
       android:exported="true"
       android:permission="com.google.android.c2dm.permission.SEND">
       <intent-filter android:priority="999">
@@ -10,11 +10,11 @@
     </receiver>
 
     <receiver
-      android:name=".IncomingAlertActionReceiver"
+      android:name="com.darzi.incomingalert.IncomingAlertActionReceiver"
       android:exported="false" />
 
     <service
-      android:name=".IncomingAlertMessagingService"
+      android:name="com.darzi.incomingalert.IncomingAlertMessagingService"
       android:exported="false">
       <intent-filter>
         <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -26,7 +26,7 @@
       tools:node="remove" />
 
     <service
-      android:name=".IncomingAlertOverlayService"
+      android:name="com.darzi.incomingalert.IncomingAlertOverlayService"
       android:exported="false"
       android:foregroundServiceType="specialUse"
       android:stopWithTask="false">
@@ -36,7 +36,7 @@
     </service>
 
     <activity
-      android:name=".IncomingAlertActivity"
+      android:name="com.darzi.incomingalert.IncomingAlertActivity"
       android:excludeFromRecents="true"
       android:exported="false"
       android:launchMode="singleTop"
