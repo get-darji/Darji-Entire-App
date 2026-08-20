@@ -427,8 +427,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     ? await DeliveryPartnerModel.find({ _id: claimed.deliveryPartnerId }).select("userId assignedArea")
     : await DeliveryPartnerModel.find({
         isAvailable: true,
-        verificationStatus: "VERIFIED",
-        ...(claimed.area !== "unassigned" ? { assignedArea: claimed.area } : {})
+        verificationStatus: "VERIFIED"
       }).select("userId assignedArea").sort({ updatedAt: 1 });
 
   const batchTasksForOffer = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: { $ne: "cancelled" } }).sort({ routePosition: 1, createdAt: 1 });
@@ -817,18 +816,11 @@ export async function moveTaskToScheduledBatch(taskId: string, slot: { deliveryR
 export async function assignPendingTasksToPartner(partner: any) {
   if (!partner?.isAvailable || partner.verificationStatus !== "VERIFIED") return;
 
-  const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
-  const enableAreaFiltering = areaFilteringSetting?.value === true;
-  if (enableAreaFiltering && partner.assignedArea === "unassigned") return;
-
   const pendingTasksQuery: Record<string, any> = {
     serviceLevel: "INSTANT",
     taskStatus: "pending",
     retryStatus: { $ne: "ACTION_REQUIRED" }
   };
-  if (enableAreaFiltering) {
-    pendingTasksQuery.$or = [{ assignedArea: partner.assignedArea }, { assignedArea: "unassigned" }];
-  }
 
   const pendingTasks = await DeliveryRequestModel.find(pendingTasksQuery).sort({ retryCount: -1, nextScheduledBatch: 1, createdAt: 1 });
   if (!pendingTasks.length) return;

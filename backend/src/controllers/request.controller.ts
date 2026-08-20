@@ -572,9 +572,6 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const areas = activePartners.map((p) => p.assignedArea).filter((a): a is string => typeof a === "string");
   const assignedArea = matchAddressToArea(customerAddress, areas);
 
-  const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
-  const enableAreaFiltering = areaFilteringSetting?.value === true;
-
   const deliveryType: DeliveryType = type === "customer_to_tailor" ? DeliveryType.PICKUP : DeliveryType.DROP;
   const slot = serviceLevel === "INSTANT"
     ? { deliveryRound: DeliveryRound.ONE_PM, roundAt: new Date() }
@@ -585,9 +582,6 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
     isAvailable: true,
     verificationStatus: "VERIFIED"
   };
-  if (enableAreaFiltering && assignedArea !== "unassigned") {
-    availablePartnersQuery.assignedArea = assignedArea;
-  }
 
   const taskStatus = "pending";
   let batchId = "";
