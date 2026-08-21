@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import org.json.JSONObject
@@ -53,6 +54,8 @@ class IncomingAlertOverlayService : Service() {
 
     if (Settings.canDrawOverlays(this) && !IncomingAlertManager.isDeviceLocked(this)) {
       showOverlay(payload)
+    } else {
+      Log.d("DarjiIncomingAlert", "Overlay skipped overlays=${Settings.canDrawOverlays(this)} locked=${IncomingAlertManager.isDeviceLocked(this)}")
     }
     return START_NOT_STICKY
   }
@@ -86,7 +89,9 @@ class IncomingAlertOverlayService : Service() {
       manager.addView(view, params)
       windowManager = manager
       overlay = view
-    } catch (_: Exception) {
+      Log.d("DarjiIncomingAlert", "Overlay added key=${IncomingAlertManager.requestKey(payload)}")
+    } catch (error: Exception) {
+      Log.w("DarjiIncomingAlert", "Failed to add overlay key=${IncomingAlertManager.requestKey(payload)}", error)
       view.dispose()
     }
   }

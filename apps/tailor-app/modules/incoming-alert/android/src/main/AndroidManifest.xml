@@ -26,6 +26,10 @@
       tools:node="remove" />
 
     <service
+      android:name="expo.modules.notifications.service.ExpoFirebaseMessagingService"
+      tools:node="remove" />
+
+    <service
       android:name="com.darzi.incomingalert.IncomingAlertOverlayService"
       android:exported="false"
       android:foregroundServiceType="specialUse"

@@ -67,7 +67,7 @@
         {
           "icon": "./darji-notification.png",
           "color": "#F6A313",
-          "defaultChannel": "darji-incoming-orders-v3",
+          "defaultChannel": "darji-incoming-orders-v4",
           "sounds": [
             "./ding.mp3",
             "./requests.mp3"

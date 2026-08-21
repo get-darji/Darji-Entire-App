@@ -16,7 +16,7 @@ export type PushPayload = {
 };
 
 let firebaseReady = false;
-const pushBuild = "incoming-fullscreen-v3";
+const pushBuild = "incoming-fullscreen-v4";
 
 const channelAppMap = {
   "customer-orders-v2": "customer",
@@ -47,7 +47,7 @@ function resolveTargetApps(payload: PushPayload) {
   if (explicitApps.length) return explicitApps;
   const category = String(payload.categoryId ?? payload.data?.categoryId ?? payload.data?.categoryIdentifier ?? "");
   const type = String(payload.data?.type ?? payload.data?.event ?? "");
-  if (payload.channelId === "darji-incoming-orders-v3" || payload.channelId === "darji-incoming-requests-v1") {
+  if (payload.channelId === "darji-incoming-orders-v4" || payload.channelId === "darji-incoming-orders-v3" || payload.channelId === "darji-incoming-requests-v1") {
     if (/tailor|measurement/i.test(`${category} ${type}`)) return ["tailor"];
     if (/delivery|pickup|batch|task/i.test(`${category} ${type}`)) return ["delivery"];
   }
@@ -244,7 +244,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       eligibleUsers.flatMap((user) => {
         const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string }> };
         const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app)).map((item) => item.token!);
-        const legacyToken = !shouldFilterByApp && json.fcmToken ? [json.fcmToken] : [];
+        const legacyToken = json.fcmToken && (!shouldFilterByApp || matchingFcmTokens.length === 0) ? [json.fcmToken] : [];
         return [...legacyToken, ...matchingFcmTokens];
       })
     )
@@ -256,9 +256,8 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
         fcmTokens?: Array<{ token?: string; app?: string }>;
         expoPushTokens?: Array<{ token?: string; platform?: string; app?: string }>;
       };
-      const hasUsableFcm = firebaseReady && Boolean(
-        (shouldFilterByApp ? false : json.fcmToken) || json.fcmTokens?.some((item) => item.token && matchesTargetApp(item.app))
-      );
+      const matchingFcmCount = json.fcmTokens?.filter((item) => item.token && matchesTargetApp(item.app)).length ?? 0;
+      const hasUsableFcm = firebaseReady && Boolean(json.fcmToken || matchingFcmCount > 0);
       return (json.expoPushTokens ?? [])
         .filter((item) => item.token && matchesTargetApp(item.app) && (item.platform !== "android" || !hasUsableFcm))
         .map((item) => item.token!);
@@ -271,7 +270,8 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
   }
 
   try {
-    const isIncomingRequest = payload.channelId === "darji-incoming-orders-v3" ||
+    const isIncomingRequest = payload.channelId === "darji-incoming-orders-v4" ||
+      payload.channelId === "darji-incoming-orders-v3" ||
       payload.channelId === "darji-incoming-requests-v1" ||
       isIncomingRequestType(normalizedPayloadData.type) ||
       isIncomingRequestType(normalizedPayloadData.event);
@@ -342,7 +342,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       ]);
     }
     const expoResult = await sendExpoPushNotifications(expoTokens, payload, data);
-    console.log(`[Push] fcmSent=${result.successCount} fcmFailed=${result.failureCount} expoSent=${expoResult.successCount} expoFailed=${expoResult.failureCount} title="${payload.title}"`);
+    console.log(`[Push] build=${pushBuild} app=${targetApps.join(",") || "all"} incoming=${isIncomingRequest} fcmTokens=${tokens.length} expoTokens=${expoTokens.length} fcmSent=${result.successCount} fcmFailed=${result.failureCount} expoSent=${expoResult.successCount} expoFailed=${expoResult.failureCount} title="${payload.title}"`);
   } catch (error) {
     console.error("[FCM] Push delivery failed", error);
   }

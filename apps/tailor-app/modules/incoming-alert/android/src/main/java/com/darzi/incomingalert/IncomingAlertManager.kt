@@ -18,13 +18,16 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.util.Log
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
 internal object IncomingAlertManager {
-  const val CHANNEL_ID = "darji-incoming-orders-v3"
+  const val CHANNEL_ID = "darji-incoming-orders-v4"
+  private const val LEGACY_CHANNEL_ID = "darji-incoming-orders-v3"
+  private const val TAG = "DarjiIncomingAlert"
   const val EXTRA_PAYLOAD = "darji.incomingAlert.payload"
   const val EXTRA_ACTION = "darji.incomingAlert.action"
   const val ACTION_ACCEPT = "com.darzi.incomingalert.ACCEPT"
@@ -68,7 +71,8 @@ internal object IncomingAlertManager {
 
   fun isIncoming(payload: JSONObject): Boolean {
     if (payload.optString("darjiIncomingRequest").equals("true", ignoreCase = true)) return true
-    if (payload.optString("channelId") == CHANNEL_ID || payload.optString("channelId") == "darji-incoming-requests-v1") return true
+    val channelId = payload.optString("channelId")
+    if (channelId == CHANNEL_ID || channelId == LEGACY_CHANNEL_ID || channelId == "darji-incoming-requests-v1") return true
     val category = payload.optString("categoryId") + " " + payload.optString("categoryIdentifier")
     if (category.contains("TAILOR_NEW_REQUEST") || category.contains("TAILOR_MEASUREMENT_VISIT") || category.contains("DELIVERY_PICKUP_REQUEST")) return true
     val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
@@ -151,17 +155,29 @@ internal object IncomingAlertManager {
   }
 
   fun show(context: Context, payload: JSONObject) {
-    if (!isIncoming(payload) || remainingMs(payload) <= 0) return
+    if (!isIncoming(payload)) {
+      Log.d(TAG, "Ignoring non-incoming payload keys=${payload.keys().asSequence().joinToString(",")}")
+      return
+    }
+    if (remainingMs(payload) <= 0) {
+      Log.d(TAG, "Ignoring expired incoming alert key=${requestKey(payload)}")
+      return
+    }
     val appContext = context.applicationContext
     val key = requestKey(payload)
     val id = notificationId(key)
+    Log.d(TAG, "Showing incoming alert key=$key channel=${payload.optString("channelId")} foreground=${isAppInForeground(appContext)} locked=${isDeviceLocked(appContext)} overlays=${canDrawOverlays(appContext)} fsi=${canUseFullScreenIntent(appContext)} notifications=${notificationsEnabled(appContext)}")
     appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putString(CURRENT_PAYLOAD, payload.toString())
       .putString(CURRENT_KEY, key)
       .apply()
     createChannel(appContext)
     startAlertSignal(appContext)
-    appContext.getSystemService(NotificationManager::class.java).notify(id, buildNotification(appContext, payload))
+    try {
+      appContext.getSystemService(NotificationManager::class.java).notify(id, buildNotification(appContext, payload))
+    } catch (error: Exception) {
+      Log.w(TAG, "Failed to post incoming notification key=$key", error)
+    }
     if (isDeviceLocked(appContext)) {
       launchFullScreenActivity(appContext, payload)
     }
@@ -170,7 +186,8 @@ internal object IncomingAlertManager {
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) appContext.startForegroundService(serviceIntent)
       else appContext.startService(serviceIntent)
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+      Log.w(TAG, "Failed to start incoming overlay service key=$key", error)
       // High-priority FCM normally permits this start. If Android/OEM policy rejects
       // it, the already-posted heads-up/full-screen notification remains the fallback.
     }
@@ -182,7 +199,8 @@ internal object IncomingAlertManager {
         .putExtra(EXTRA_PAYLOAD, payload.toString())
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
       context.startActivity(activityIntent)
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+      Log.w(TAG, "Failed to launch full-screen activity key=${requestKey(payload)}", error)
       // Android may block background activity starts on some devices. The
       // full-screen notification remains as the next fallback.
     }

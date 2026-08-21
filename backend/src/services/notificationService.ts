@@ -33,7 +33,7 @@ async function sendEventNotification(input: NotificationEventInput, defaults: No
 
 export function sendNewRequestNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
-    channelId: "darji-incoming-orders-v3",
+    channelId: "darji-incoming-orders-v4",
     categoryId: "TAILOR_NEW_REQUEST",
     actions: ["Send Quote", "Reject", "View Details"],
     targetApps: ["tailor"]
@@ -58,7 +58,7 @@ export function sendOrderConfirmedNotification(input: NotificationEventInput) {
 
 export function sendPickupAssignedNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
-    channelId: "darji-incoming-orders-v3",
+    channelId: "darji-incoming-orders-v4",
     categoryId: "DELIVERY_PICKUP_REQUEST",
     actions: ["Accept", "Reject", "View Details"],
     targetApps: ["delivery"]
@@ -67,7 +67,7 @@ export function sendPickupAssignedNotification(input: NotificationEventInput) {
 
 export function sendDeliveryBatchReadyNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
-    channelId: "darji-incoming-orders-v3",
+    channelId: "darji-incoming-orders-v4",
     categoryId: "DELIVERY_PICKUP_REQUEST",
     actions: ["Accept", "Reject", "View Details"],
     targetApps: ["delivery"]

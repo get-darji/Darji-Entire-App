@@ -25,6 +25,17 @@ function ensureComponent(application, kind, name, value) {
   }
 }
 
+function removeComponent(application, kind, name) {
+  application[kind] = application[kind] || [];
+  application[kind] = application[kind].filter((item) => item?.$?.["android:name"] !== name);
+  application[kind].push({
+    $: {
+      "android:name": name,
+      "tools:node": "remove"
+    }
+  });
+}
+
 module.exports = function withIncomingAlert(config) {
   return withAndroidManifest(config, (modConfig) => {
     const manifest = modConfig.modResults.manifest;
@@ -69,6 +80,8 @@ module.exports = function withIncomingAlert(config) {
           action: [{ $: { "android:name": "com.google.firebase.MESSAGING_EVENT" } }]
         }]
       });
+      removeComponent(application, "service", "io.invertase.firebase.messaging.ReactNativeFirebaseMessagingService");
+      removeComponent(application, "service", "expo.modules.notifications.service.ExpoFirebaseMessagingService");
       ensureComponent(application, "service", "com.darzi.incomingalert.IncomingAlertOverlayService", {
         $: {
           "android:name": "com.darzi.incomingalert.IncomingAlertOverlayService",

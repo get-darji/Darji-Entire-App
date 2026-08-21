@@ -101,7 +101,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         customerName: customer?.name ?? "Customer",
         screen: "measurementVisits"
       },
-      channelId: "darji-incoming-orders-v3",
+      channelId: "darji-incoming-orders-v4",
       categoryId: "TAILOR_MEASUREMENT_VISIT",
       sound: "requests.mp3",
       targetApps: ["tailor"]
@@ -152,7 +152,7 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
       title: "Measurement visit available",
       body: `${visit.customerName ?? "Customer"} needs measurements at home. Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
       data: { type: "MEASUREMENT_VISIT_POOL", visitId: visit.id, requestId: visit.requestId, screen: "measurementVisits" },
-      channelId: "darji-incoming-orders-v3",
+      channelId: "darji-incoming-orders-v4",
       categoryId: "TAILOR_MEASUREMENT_VISIT",
       sound: "requests.mp3",
       targetApps: ["tailor"]
