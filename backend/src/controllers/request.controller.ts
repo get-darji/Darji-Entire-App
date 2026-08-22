@@ -238,6 +238,7 @@ const tailoringRequestItemInputSchema = z.object({
   measurement: tailoringMeasurementSchema.optional(),
   measurementNotes: z.string().trim().max(1000).optional(),
   homeMeasurementBooked: z.boolean().default(false),
+  preferredMeasurementSlot: z.string().trim().optional(),
   sampleProvided: z.boolean().default(false),
   media: z.array(tailoringMediaSchema).max(MAX_FILES).default([]),
   voiceNotes: z.array(tailoringMediaSchema).max(3).default([]),

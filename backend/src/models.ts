@@ -677,7 +677,8 @@ const tailoringRequestItemSchema = new Schema(
     voiceNotes: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
-    homeMeasurementBooked: { type: Boolean, default: false }
+    homeMeasurementBooked: { type: Boolean, default: false },
+    preferredMeasurementSlot: String
   },
   {
     versionKey: false,

@@ -48,7 +48,7 @@ import { api, getPlatformStatus, refreshAccessToken, uploadMedia, type UploadedM
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 // Calls GET /api/location/reverse-geocode which uses Google Geocoding API server-side
-async function backendReverseGeocode(lat: number, lng: number): Promise<{
+async function backendReverseGeocode(lat: number, lng: number, accuracyMeters?: number): Promise<{
   formattedAddress: string;
   houseNumber: string;
   route: string;
@@ -58,7 +58,8 @@ async function backendReverseGeocode(lat: number, lng: number): Promise<{
   postalCode: string;
 }> {
   try {
-    return await api(`/location/reverse-geocode?lat=${lat}&lng=${lng}`, {});
+    const accuracy = Number.isFinite(accuracyMeters) ? `&accuracy=${Math.round(Number(accuracyMeters))}` : "";
+    return await api(`/location/reverse-geocode?lat=${lat}&lng=${lng}${accuracy}`, {});
   } catch (error) {
     try {
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
@@ -303,6 +304,7 @@ type BackendTailoringRequestItem = {
   sampleProvided?: boolean;
   sampleMedia?: UploadedMedia[];
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
 };
 type BackendTailoringRequest = {
   id: string;
@@ -322,6 +324,7 @@ type BackendTailoringRequest = {
   sampleProvided?: boolean;
   sampleMedia?: UploadedMedia[];
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
   orderStatus?: string;
   paymentMethod?: string;
@@ -820,6 +823,36 @@ const fabricCareTips = [
   { title: "Blazer Care", copy: "Brush after use, air it out, and avoid frequent washing unless there is visible dirt.", icon: "business-outline" },
   { title: "Ironing Heat", copy: "Start with low heat for synthetics, medium for cotton blends, and steam only when safe.", icon: "flame-outline" }
 ] as const;
+
+const howItWorksSteps = [
+  {
+    icon: "camera-outline",
+    title: "Share cloth details",
+    text: "Add photos, describe the work, and include measurements, samples, or voice notes so tailors understand the job clearly."
+  },
+  {
+    icon: "chatbubbles-outline",
+    title: "Compare live quotes",
+    text: "Verified nearby tailors review your request and send pricing, expected completion time, and any useful notes."
+  },
+  {
+    icon: "card-outline",
+    title: "Confirm securely",
+    text: "Choose the tailor you prefer, review fees and pickup details, then pay online or select COD where available."
+  },
+  {
+    icon: "cube-outline",
+    title: "Doorstep pickup",
+    text: "Darji coordinates pickup, tailor handover, stitching progress, quality checks, and delivery updates."
+  },
+  {
+    icon: "checkmark-done-outline",
+    title: "Receive and rate",
+    text: "Get your finished garment delivered home, then rate the tailor and delivery experience to help improve Darji."
+  }
+] as const;
+
+const MAX_VOICE_NOTES_PER_ITEM = 3;
 
 const urgencyOptions = [
   { label: "Normal", helper: "Up to 7 days", icon: "calendar-outline", deliveryFee: 30 },
@@ -1589,6 +1622,11 @@ function totalForQuote(quote: Quote, draft: RequestDraft, coupon?: Coupon) {
   return Math.max(subtotal - calculateCouponDiscount(coupon, subtotal), 0);
 }
 
+function measurementSlotForDraft(draft: RequestDraft) {
+  const itemSlot = clothingItemsForDraft(draft).find((item) => item.homeMeasurementBooked && item.preferredMeasurementSlot)?.preferredMeasurementSlot;
+  return itemSlot ?? draft.preferredMeasurementSlot;
+}
+
 function greetingForNow() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -2224,15 +2262,13 @@ function LegacyHomeScreen({
         </ScrollView>
         <View style={styles.howItWorksCard}>
           <Text style={styles.cardLabel}>HOW DARJI WORKS</Text>
-          {[
-            ["camera-outline", "Upload"],
-            ["chatbubbles-outline", "Get quotes"],
-            ["shirt-outline", "Stitching"],
-            ["bicycle-outline", "Delivery"]
-          ].map(([icon, label]) => (
-            <View key={label} style={styles.workflowItem}>
-              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
-              <Text style={styles.workflowText}>{label}</Text>
+          {howItWorksSteps.slice(0, 4).map((step) => (
+            <View key={step.title} style={styles.workflowItem}>
+              <Ionicons name={step.icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
+              <View style={styles.profileRowText}>
+                <Text style={styles.workflowText}>{step.title}</Text>
+                <Text style={styles.mutedSmall}>{step.text}</Text>
+              </View>
             </View>
           ))}
         </View>
@@ -2297,13 +2333,6 @@ function HomeScreen({
     { label: "Repair", icon: "construct-outline" },
     { label: "Restyle", icon: "sparkles-outline" },
     { label: "Custom Stitching", icon: "shirt-outline" }
-  ] as const;
-  const howItWorks = [
-    ["camera-outline", "Upload", "Add cloth photos"],
-    ["chatbubbles-outline", "Get Quotes", "Tailors respond"],
-    ["card-outline", "Choose & Pay", "Confirm quote"],
-    ["cube-outline", "Pickup & Stitch", "We handle pickup"],
-    ["checkmark-done-outline", "Delivered", "Get order delivered"]
   ] as const;
   return (
     <SafeAreaView style={styles.safe}>
@@ -2510,14 +2539,14 @@ function HomeScreen({
           <Text style={styles.listTitle}>How It Works</Text>
         </View>
         <View style={styles.homeStepsRow}>
-          {howItWorks.map(([icon, title, copy], index) => (
-            <View key={title} style={styles.homeStepItem}>
+          {howItWorksSteps.map((step, index) => (
+            <View key={step.title} style={styles.homeStepItem}>
               <Text style={styles.stepNumber}>{index + 1}</Text>
               <View style={styles.stepIconBox}>
-                <Ionicons name={icon} size={22} color={BRAND_DEEP} />
+                <Ionicons name={step.icon} size={22} color={BRAND_DEEP} />
               </View>
-              <Text style={styles.stepTitle}>{title}</Text>
-              <Text style={styles.stepCopy}>{copy}</Text>
+              <Text style={styles.stepTitle}>{step.title}</Text>
+              <Text style={styles.stepCopy}>{step.text}</Text>
             </View>
           ))}
         </View>
@@ -2815,8 +2844,26 @@ function notificationDayLabel(time: string) {
   const value = time.trim();
   if (/^(now|just now)$/i.test(value) || /\bago\b/i.test(value) || /\btoday\b/i.test(value)) return "Today";
   if (/\byesterday\b/i.test(value)) return "Yesterday";
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) {
+    const date = new Date(parsed);
+    const today = new Date();
+    const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const diffDays = Math.round((startToday - startDate) / 86400000);
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  }
   const withoutTime = value.replace(/,\s*\d{1,2}:\d{2}\s*(AM|PM)?/i, "").trim();
-  return withoutTime || "Other dates";
+  return withoutTime || "Older";
+}
+
+function notificationGroupRank(group: string) {
+  if (group === "Today") return 0;
+  if (group === "Yesterday") return 1;
+  const parsed = Date.parse(group);
+  return Number.isFinite(parsed) ? 2 + (Date.now() - parsed) / 86400000 : 999;
 }
 
 function NotificationsScreen({
@@ -2835,9 +2882,8 @@ function NotificationsScreen({
     return groups;
   }, {});
   const notificationGroups = [
-    ...["Today", "Yesterday"].filter((key) => groupedNotifications[key]?.length),
-    ...Object.keys(groupedNotifications).filter((key) => key !== "Today" && key !== "Yesterday")
-  ];
+    ...Object.keys(groupedNotifications)
+  ].sort((a, b) => notificationGroupRank(a) - notificationGroupRank(b));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -2930,6 +2976,8 @@ function NewRequestScreen({
   const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const recordingActiveRef = useRef(false);
+  const playbackMonitorRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const playingVoiceUriRef = useRef<string | undefined>(undefined);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
   const token = useAppStore((state) => state.token);
@@ -2955,6 +3003,10 @@ function NewRequestScreen({
   }
 
   function stopVoicePlayback() {
+    if (playbackMonitorRef.current) {
+      clearInterval(playbackMonitorRef.current);
+      playbackMonitorRef.current = undefined;
+    }
     try {
       voicePlayerRef.current?.pause();
       voicePlayerRef.current?.release();
@@ -2962,6 +3014,24 @@ function NewRequestScreen({
       // Best-effort cleanup; stale audio players should never survive screen changes.
     }
     voicePlayerRef.current = undefined;
+    playingVoiceUriRef.current = undefined;
+    setPlayingVoiceUri(undefined);
+    setVoicePlaybackPaused(false);
+  }
+
+  function resetFinishedVoicePlayback(uri: string) {
+    if (playingVoiceUriRef.current !== uri) return;
+    if (playbackMonitorRef.current) {
+      clearInterval(playbackMonitorRef.current);
+      playbackMonitorRef.current = undefined;
+    }
+    try {
+      voicePlayerRef.current?.pause();
+      void voicePlayerRef.current?.seekTo(0).catch(() => undefined);
+    } catch {
+      // Playback can finish while the native player is releasing.
+    }
+    playingVoiceUriRef.current = undefined;
     setPlayingVoiceUri(undefined);
     setVoicePlaybackPaused(false);
   }
@@ -3157,9 +3227,11 @@ function NewRequestScreen({
           return;
         }
         if (uri) {
+          const currentVoiceNotes = draft.voiceNotes ?? [];
+          const voiceNote: LocalMedia = { uri, type: "audio", name: `voice-note-${Date.now()}.m4a` };
           setDraft({
             ...draft,
-            voiceNotes: [{ uri, type: "audio", name: `voice-note-${Date.now()}.m4a` }],
+            voiceNotes: [...currentVoiceNotes, voiceNote].slice(0, MAX_VOICE_NOTES_PER_ITEM),
             uploadedVoiceNotes: []
           });
         } else {
@@ -3168,6 +3240,10 @@ function NewRequestScreen({
         await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
         setRecordingActive(false);
         setRecordingPaused(false);
+        return;
+      }
+      if ((draft.voiceNotes?.length ?? 0) >= MAX_VOICE_NOTES_PER_ITEM) {
+        Alert.alert("Voice note limit", `You can add up to ${MAX_VOICE_NOTES_PER_ITEM} voice clips for this item.`);
         return;
       }
       const permission = await requestRecordingPermissionsAsync();
@@ -3216,12 +3292,22 @@ function NewRequestScreen({
       }
       stopVoicePlayback();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
+      playingVoiceUriRef.current = uri;
       setPlayingVoiceUri(uri);
       const player = createAudioPlayer({ uri });
       player.volume = 1;
       voicePlayerRef.current = player;
       await player.seekTo(0).catch(() => undefined);
       player.play();
+      playbackMonitorRef.current = setInterval(() => {
+        const active = voicePlayerRef.current;
+        if (!active || playingVoiceUriRef.current !== uri) return;
+        const duration = Number(active.duration ?? 0);
+        const currentTime = Number(active.currentTime ?? 0);
+        if (duration > 0 && currentTime >= duration - 0.15) {
+          resetFinishedVoicePlayback(uri);
+        }
+      }, 250);
     } catch (error) {
       Alert.alert("Playback failed", error instanceof Error ? error.message : "Could not play the voice note.");
     }
@@ -3235,11 +3321,18 @@ function NewRequestScreen({
         Alert.alert("Permission needed", "Allow location access to select your current pickup address. Your location is safe with Darji and is used only for pickup and delivery.");
         return;
       }
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const lastKnown = await Location.getLastKnownPositionAsync({ requiredAccuracy: 40, maxAge: 15000 }).catch(() => null);
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.BestForNavigation,
+        mayShowUserSettingsDialog: true,
+        timeInterval: 1000,
+        distanceInterval: 0
+      }).catch(() => lastKnown);
+      if (!position) throw new Error("Unable to get a precise GPS fix. Please make sure location is enabled and try again near an open area.");
       let address: string;
       let fields: AddressFields | undefined;
       try {
-        const geo = await backendReverseGeocode(position.coords.latitude, position.coords.longitude);
+        const geo = await backendReverseGeocode(position.coords.latitude, position.coords.longitude, position.coords.accuracy ?? undefined);
         address = geo.formattedAddress;
         fields = addressFieldsFromGeo(geo);
       } catch {
@@ -3337,23 +3430,53 @@ function NewRequestScreen({
             <Ionicons name={recordingActive ? "radio-button-on" : "mic-outline"} size={22} color={recordingActive ? "#dc2626" : BRAND_ORANGE} />
           </View>
           <View style={styles.voiceNoteText}>
-            <Text style={styles.addressTitle}>{recordingActive ? recordingPaused ? "Recording paused" : "Recording..." : draft.voiceNotes?.length ? "Voice note added" : "Record a voice note"}</Text>
-            <Text style={styles.mutedSmall}>{recordingActive ? `${Math.max(0, Math.round(audioRecorderState.durationMillis / 1000))}s recorded. Tap Done to save.` : draft.voiceNotes?.length ? "Tap play to check your voice note." : "Optional, useful for detailed fitting instructions."}</Text>
+            <Text style={styles.addressTitle}>{recordingActive ? recordingPaused ? "Recording paused" : "Recording..." : draft.voiceNotes?.length ? `${draft.voiceNotes.length}/${MAX_VOICE_NOTES_PER_ITEM} voice clips added` : "Record a voice note"}</Text>
+            <Text style={styles.mutedSmall}>{recordingActive ? `${Math.max(0, Math.round(audioRecorderState.durationMillis / 1000))}s recorded. Tap Done to save.` : draft.voiceNotes?.length ? "Tap any clip to replay it, or add another short instruction." : "Optional, useful for detailed fitting instructions."}</Text>
           </View>
-          {draft.voiceNotes?.[0]?.uri && !recordingActive ? (
-            <Pressable style={styles.voiceRoundButton} onPress={() => toggleVoicePlayback(draft.voiceNotes![0].uri)}>
-              <Ionicons name={playingVoiceUri && !voicePlaybackPaused ? "pause" : "play"} size={17} color={BRAND_DEEP} />
-            </Pressable>
-          ) : null}
           {recordingActive ? (
             <Pressable style={styles.voiceRoundButton} onPress={toggleRecordingPause}>
               <Ionicons name={recordingPaused ? "play" : "pause"} size={17} color={BRAND_DEEP} />
             </Pressable>
           ) : null}
-          <Pressable style={[styles.voiceRecordButton, recordingActive && styles.voiceRecordButtonActive]} onPress={toggleVoiceRecording}>
-            <Text style={styles.voiceRecordButtonText}>{recordingActive ? "Done" : draft.voiceNotes?.length ? "Re-record" : "Record"}</Text>
+          <Pressable
+            style={[
+              styles.voiceRecordButton,
+              recordingActive && styles.voiceRecordButtonActive,
+              !recordingActive && (draft.voiceNotes?.length ?? 0) >= MAX_VOICE_NOTES_PER_ITEM && styles.voiceRecordButtonDisabled
+            ]}
+            onPress={toggleVoiceRecording}
+            disabled={!recordingActive && (draft.voiceNotes?.length ?? 0) >= MAX_VOICE_NOTES_PER_ITEM}
+          >
+            <Text style={styles.voiceRecordButtonText}>{recordingActive ? "Done" : draft.voiceNotes?.length ? "Add Clip" : "Record"}</Text>
           </Pressable>
         </View>
+        {draft.voiceNotes?.length ? (
+          <View style={styles.voiceClipList}>
+            {draft.voiceNotes.map((note, index) => {
+              const isPlaying = playingVoiceUri === note.uri && !voicePlaybackPaused;
+              return (
+                <View key={`${note.uri}-${index}`} style={styles.voiceClipRow}>
+                  <Pressable style={styles.voiceClipPlayButton} onPress={() => toggleVoicePlayback(note.uri)}>
+                    <Ionicons name={isPlaying ? "pause" : "play"} size={16} color={BRAND_DEEP} />
+                  </Pressable>
+                  <View style={styles.voiceClipText}>
+                    <Text style={styles.voiceClipTitle}>Voice clip {index + 1}</Text>
+                    <Text style={styles.mutedSmall}>{isPlaying ? "Playing..." : "Ready to replay"}</Text>
+                  </View>
+                  <Pressable
+                    style={styles.voiceClipDeleteButton}
+                    onPress={() => {
+                      if (playingVoiceUri === note.uri) stopVoicePlayback();
+                      setDraft({ ...draft, voiceNotes: (draft.voiceNotes ?? []).filter((_, noteIndex) => noteIndex !== index), uploadedVoiceNotes: [] });
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#c24141" />
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         {needsPickupAddress ? (
           <>
@@ -3412,7 +3535,7 @@ function NewRequestScreen({
             <Text style={styles.secondaryWideButtonText}>Cancel This Item</Text>
           </Pressable>
         ) : null}
-        <Pressable style={[styles.primaryWideButton, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={!canContinueRequest || uploading}>
+        <Pressable style={({ pressed }) => [styles.primaryWideButton, pressed && canContinueRequest && !uploading && styles.buttonPressed, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={!canContinueRequest || uploading}>
           {uploading ? (
             <ActivityIndicator color="#111111" />
           ) : (
@@ -4849,10 +4972,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 
         <Pressable
           disabled={!canContinueToMeasurements}
-          style={[styles.primaryWideButton, !canContinueToMeasurements && styles.disabledDarkButton]}
+          style={({ pressed }) => [styles.primaryWideButton, pressed && canContinueToMeasurements && styles.buttonPressed, !canContinueToMeasurements && styles.disabledDarkButton]}
           onPress={() => setScreen("measurements")}
         >
-          <Text style={[styles.primaryWideButtonText, !canContinueToMeasurements && styles.disabledText]}>Continue to Measurements</Text>
+            <Text style={[styles.primaryWideButtonText, !canContinueToMeasurements && styles.disabledText]}>Continue to Measurements</Text>
           <Ionicons name="chevron-forward" size={18} color={canContinueToMeasurements ? "#111111" : "#777777"} />
         </Pressable>
           </>
@@ -5080,7 +5203,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 
         {stage === "measurements" ? (
         <>
-        <Pressable disabled={!canContinue || Boolean(savingAction)} style={[styles.primaryWideButton, (!canContinue || Boolean(savingAction)) && styles.disabledDarkButton]} onPress={continueToSummary}>
+        <Pressable disabled={!canContinue || Boolean(savingAction)} style={({ pressed }) => [styles.primaryWideButton, pressed && canContinue && !savingAction && styles.buttonPressed, (!canContinue || Boolean(savingAction)) && styles.disabledDarkButton]} onPress={continueToSummary}>
           {savingAction === "summary" ? (
             <ActivityIndicator color="#777777" />
           ) : (
@@ -5352,6 +5475,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       sampleProvided: item.sampleProvided,
       uploadedSampleMedia: item.sampleMedia?.[0],
       homeMeasurementBooked: item.homeMeasurementBooked,
+      preferredMeasurementSlot: request.preferredMeasurementSlot,
       media: [],
       uploadedMedia: item.media ?? []
     }));
@@ -5372,6 +5496,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       sampleProvided: request.sampleProvided,
       uploadedSampleMedia: request.sampleMedia?.[0],
       homeMeasurementBooked: request.homeMeasurementBooked,
+      preferredMeasurementSlot: request.preferredMeasurementSlot,
       media: [],
       uploadedMedia: request.media ?? []
     }
@@ -5420,6 +5545,7 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     sampleProvided: primaryItem?.sampleProvided ?? request.sampleProvided,
     uploadedSampleMedia: primaryItem?.uploadedSampleMedia,
     homeMeasurementBooked: primaryItem?.homeMeasurementBooked,
+    preferredMeasurementSlot: primaryItem?.preferredMeasurementSlot ?? request.preferredMeasurementSlot,
     media: primaryItem?.media ?? [],
     uploadedMedia: primaryItem?.uploadedMedia ?? [],
     items,
@@ -5479,6 +5605,7 @@ function payloadForClothingItem(item: ClothingItemDraft) {
       : undefined,
     measurementNotes: measurementNotes || undefined,
     homeMeasurementBooked: item.homeMeasurementBooked === true,
+    preferredMeasurementSlot: item.preferredMeasurementSlot,
     sampleProvided: item.sampleProvided === true,
     media: item.uploadedMedia,
     voiceNotes: item.uploadedVoiceNotes ?? [],
@@ -5555,6 +5682,7 @@ function OrderSummaryScreen({
       setSubmitting(true);
       const itemPayloads = items.map(payloadForClothingItem);
       const primary = itemPayloads[0];
+      const preferredMeasurementSlot = items.find((item) => item.homeMeasurementBooked && item.preferredMeasurementSlot)?.preferredMeasurementSlot ?? draft.preferredMeasurementSlot;
       const request = await api<BackendTailoringRequest>(
         "/tailoring-requests",
         {
@@ -5563,7 +5691,7 @@ function OrderSummaryScreen({
             ...primary,
             urgency: draft.urgency,
             pickupAddress: draft.pickup,
-            preferredMeasurementSlot: draft.preferredMeasurementSlot,
+            preferredMeasurementSlot,
             items: itemPayloads
           })
         },
@@ -5587,6 +5715,7 @@ function OrderSummaryScreen({
         uploadedMedia: items[0].uploadedMedia,
         voiceNotes: items[0].voiceNotes,
         uploadedVoiceNotes: items[0].uploadedVoiceNotes,
+        preferredMeasurementSlot,
         items,
         backendRequestId: request.id
       });
@@ -5677,6 +5806,7 @@ function QuotesScreen({
   const [backendQuotes, setBackendQuotes] = useState<Quote[]>([]);
   const [backendRequest, setBackendRequest] = useState<BackendTailoringRequest | undefined>();
   const [loading, setLoading] = useState(false);
+  const [hasLoadedQuotesOnce, setHasLoadedQuotesOnce] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
@@ -5708,8 +5838,10 @@ function QuotesScreen({
         api<BackendTailorQuote[]>(`/tailoring-requests/${draft.backendRequestId}/quotes`, {}, token)
       ]);
       const allowedStatuses = new Set(["SUBMITTED", "RESERVED", "ACCEPTED"]);
+      const nextQuotes = data.filter((quote) => allowedStatuses.has(quote.status)).map(quoteFromBackend);
       setBackendRequest(request);
-      setBackendQuotes(data.filter((quote) => allowedStatuses.has(quote.status)).map(quoteFromBackend));
+      setBackendQuotes((current) => (nextQuotes.length > 0 || current.length === 0 ? nextQuotes : current));
+      setHasLoadedQuotesOnce(true);
       notFoundAlertedRef.current = false;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -5738,6 +5870,7 @@ function QuotesScreen({
       }
     } finally {
       setLoading(false);
+      setHasLoadedQuotesOnce(true);
     }
   }
 
@@ -5859,7 +5992,7 @@ function QuotesScreen({
             </Pressable>
           )}
         />
-        {visibleQuotes.length > 0 || loading ? <View style={styles.quotesSummaryCard}>
+        {(visibleQuotes.length > 0 || !hasLoadedQuotesOnce) ? <View style={styles.quotesSummaryCard}>
           <View style={styles.quotesSummaryTop}>
             <View style={styles.quoteClockIcon}>
               <Ionicons name="time-outline" size={30} color={BRAND_ORANGE} />
@@ -5878,7 +6011,7 @@ function QuotesScreen({
           </View>
         </View> : null}
 
-        {visibleQuotes.length === 0 && !loading ? (
+        {visibleQuotes.length === 0 && hasLoadedQuotesOnce ? (
           <View style={styles.quotesWaitingState}>
             <View style={styles.quotesIllustration}>
               <View style={styles.quotesRadarRingOuter} />
@@ -6017,7 +6150,7 @@ function QuotesScreen({
         ) : null}
 
         {selectedQuote ? (
-          <Pressable disabled={confirming} style={[styles.primaryWideButton, { marginTop: 24, marginBottom: 8 }]} onPress={() => void confirmTailor(selectedQuote)}>
+          <Pressable disabled={confirming} style={({ pressed }) => [styles.primaryWideButton, { marginTop: 24, marginBottom: 8 }, pressed && !confirming && styles.buttonPressed]} onPress={() => void confirmTailor(selectedQuote)}>
             {confirming ? <ActivityIndicator color="#ffffff" /> : (
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Text style={styles.primaryWideButtonText}>Continue</Text>
@@ -6147,6 +6280,7 @@ function ConfirmOrderScreen({
   const discount = calculateCouponDiscount(appliedCoupon, subtotal);
   const total = Math.max(subtotal - discount, 0);
   const buttonLabel = payment === "COD" ? `Confirm COD Rs${total}` : payment === "UPI" ? `Pay UPI Rs${total}` : `Pay Online Rs${total}`;
+  const measurementSlot = measurementSlotForDraft(draft);
 
   useEffect(() => {
     if (!token) return;
@@ -6222,8 +6356,8 @@ function ConfirmOrderScreen({
               <Ionicons name="calendar-outline" size={18} color="#047857" />
             </View>
             <View style={styles.checkoutBandText}>
-              <Text style={styles.checkoutBandLabel}>Pickup Slot</Text>
-              <Text style={styles.checkoutPickupValue}>Today, 2:00 - 4:00 PM</Text>
+              <Text style={styles.checkoutBandLabel}>{measurementSlot ? "Measurement Visit Slot" : "Pickup Slot"}</Text>
+              <Text style={styles.checkoutPickupValue}>{measurementSlot ?? "Assigned after confirmation"}</Text>
             </View>
           </View>
           <View style={styles.checkoutPriceBox}>
@@ -6302,7 +6436,7 @@ function ConfirmOrderScreen({
           ))}
         </View>
 
-        <Pressable style={[styles.primaryWideButton, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee })} disabled={isPlacingOrder}>
+        <Pressable style={({ pressed }) => [styles.primaryWideButton, pressed && !isPlacingOrder && styles.buttonPressed, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee })} disabled={isPlacingOrder}>
           {isPlacingOrder ? (
             <ActivityIndicator color="#111111" />
           ) : (
@@ -6456,6 +6590,7 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} tone="negative" /> : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
+          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Measurement slot" value={measurementSlotForDraft(order.draft)!} /> : null}
           {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${order.total}`} strong />
@@ -6703,7 +6838,6 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
             ["Custom Stitching", "shirt-outline"],
             ["Alterations", "cut-outline"],
             ["Repairs", "construct-outline"],
-            ["Press & Iron", "sparkles-outline"],
             ["Pickup & Delivery", "bicycle-outline"]
           ].map(([label, icon]) => (
             <Pressable key={label} style={styles.searchPopularCard} onPress={() => onStartRequest(requestPresetForService(label))}>
@@ -7865,7 +7999,7 @@ function hasUnreadMessages(ticketOrBug: any): boolean {
 
 function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean; orders: any[]; socket: any }) {
   const token = useAppStore((state) => state.token);
-  const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "new_chat");
+  const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "center");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -8829,9 +8963,10 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
               <Pressable
                 android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
-                style={[
+                style={({ pressed }) => [
                   styles.supportPrimaryButton,
                   styles.bugSubmitButton,
+                  pressed && !(bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.buttonPressed,
                   (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.bugSubmitButtonDisabled
                 ]}
                 disabled={bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending}
@@ -8943,7 +9078,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
         if (!/review already submitted/i.test(error instanceof Error ? error.message : "")) throw error;
       });
       onSave(rating, review.trim());
-      Alert.alert("Saved", "Thanks for rating Darji.");
+      Alert.alert("Thank you for helping Darji improve", "Your rating has been saved. Reviews like yours help us keep trusted tailors, smoother pickups, and better stitching experiences for every customer.");
       setScreen("home");
     } finally {
       setSubmitting(false);
@@ -8953,9 +9088,11 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "rateReview")} setScreen={setScreen} backScreen="home">
       <View style={styles.rateHero}>
-        <Ionicons name="thumbs-up-outline" size={34} color={BRAND_ORANGE} />
-        <Text style={styles.profileName}>How was your experience?</Text>
-        <Text style={styles.mutedSmall}>Your feedback helps us improve our service.</Text>
+        <View style={styles.rateHeroIcon}>
+          <Ionicons name="sparkles-outline" size={32} color={BRAND_ORANGE} />
+        </View>
+        <Text style={styles.profileName}>How did Darji feel?</Text>
+        <Text style={styles.mutedCenter}>Your review helps us reward great work and make every pickup, quote, and delivery feel better.</Text>
       </View>
       <View style={styles.ratingCard}>
         <Text style={styles.profileName}>Rate Darji app</Text>
@@ -8973,7 +9110,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
           onChangeText={setReview}
           multiline
           maxLength={500}
-          placeholder="Share your experience with Darji..."
+          placeholder="Tell us what felt good, what could be smoother, or which moment made the service useful for you..."
           placeholderTextColor="#98a4b6"
         />
         <Text style={styles.reviewCounter}>{review.length}/500</Text>
@@ -8994,7 +9131,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
           ) : null}
         </View>
       </View>
-      <Pressable style={[styles.primaryWideButton, submitting && styles.buttonDisabled]} onPress={submit} disabled={submitting}>
+      <Pressable style={({ pressed }) => [styles.primaryWideButton, pressed && !submitting && styles.buttonPressed, submitting && styles.buttonDisabled]} onPress={submit} disabled={submitting}>
         {submitting ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryWideButtonText}>Submit Review</Text>}
       </Pressable>
     </ProfileSubPage>
@@ -9024,7 +9161,7 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
         <InfoRow label="App" value="Darji Customer" />
         <InfoRow label="Version" value="0.1.0" />
         <InfoRow label="Build" value="Development" />
-        <InfoRow label="API" value="Connected to local backend" />
+        <InfoRow label="API" value="Connected to deployed backend" />
       </View>
     </ProfileSubPage>
   );
@@ -9511,6 +9648,7 @@ function LegacyOrderDetailsScreenV2({
           ) : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
+          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Measurement slot" value={measurementSlotForDraft(order.draft)!} /> : null}
           {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${order.total}`} strong />
@@ -9804,6 +9942,7 @@ function OrderDetailsScreenV2({
             <SummaryRow label="Small Order Fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} />
           ) : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
+          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Measurement Slot" value={measurementSlotForDraft(order.draft)!} /> : null}
           {order.discountAmount ? <SummaryRow label={`Discount ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total Amount" value={`Rs${order.total}`} strong />
@@ -10449,7 +10588,7 @@ export default function App() {
       if (activeOrder?.backendOrderId === requestId || activeOrder?.id === requestId) setActiveOrder(cancelledOrder);
       resetRequestDraft();
       setSelectedQuote(undefined);
-      setScreen("orders");
+      setScreen("orders", { resetStack: true });
       setDialog({
         title: "Request deleted",
         message: `Request REQ-${requestId.slice(0, 8).toUpperCase()} has been moved to cancelled orders.`,
@@ -10461,7 +10600,7 @@ export default function App() {
       if (/not found/i.test(msg)) {
         resetRequestDraft();
         setSelectedQuote(undefined);
-        setScreen("home");
+        setScreen("home", { resetStack: true });
       } else {
         setDialog({
           title: "Delete failed",
@@ -10691,7 +10830,8 @@ export default function App() {
       const nextOrder = orderFromBackendRequest(cancelled, order) ?? { ...order, status: "Cancelled" as const };
       updateOrder(nextOrder);
       setPendingCancellationOrder(undefined);
-      setScreen("orderDetails");
+      resetRequestDraft();
+      setScreen("orderDetails", { resetStack: true });
       setDialog({
         title: "Order cancelled",
         message: `Order ${nextOrder.orderNumber} is cancelled.`,
@@ -10793,6 +10933,13 @@ export default function App() {
             {paymentSheet ? (
               <View style={styles.paymentSheetWrap}>
                 <WebView
+                  originWhitelist={["*"]}
+                  javaScriptEnabled
+                  domStorageEnabled
+                  sharedCookiesEnabled
+                  thirdPartyCookiesEnabled
+                  setSupportMultipleWindows={false}
+                  mixedContentMode="always"
                   source={{
                     html: `<!doctype html>
 <html>
@@ -10836,6 +10983,27 @@ export default function App() {
                   }}
                   onMessage={(event) => {
                     void handlePaymentSheetMessage(event.nativeEvent.data);
+                  }}
+                  onError={(event) => {
+                    const message = event.nativeEvent.description || "The payment page could not be opened.";
+                    setPaymentSheet(undefined);
+                    setSelectedQuote(paymentSheet.quote);
+                    setDraft(paymentSheet.draft);
+                    setRequestProgressScreen("confirmOrder");
+                    setScreen("confirmOrder");
+                    setDialog({
+                      title: "Payment page failed",
+                      message,
+                      actions: [{ label: "OK" }]
+                    });
+                  }}
+                  onHttpError={(event) => {
+                    if (event.nativeEvent.statusCode < 400) return;
+                    setDialog({
+                      title: "Payment page error",
+                      message: `Razorpay returned HTTP ${event.nativeEvent.statusCode}. Please try again or choose COD.`,
+                      actions: [{ label: "OK" }]
+                    });
                   }}
                   onShouldStartLoadWithRequest={(request) => {
                     let url = request.url;
@@ -11813,6 +11981,7 @@ function createStyles(isDark = false) {
   requestRequirementText: { flex: 1, minWidth: 0, color: "#8a5600", fontSize: 11, fontWeight: "800", lineHeight: 17 },
   primaryWideButton: { height: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 24 },
   primaryWideButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
+  buttonPressed: { backgroundColor: "#d98a06", transform: [{ scale: 0.99 }] },
   onboardingContinueButton: { height: 48, borderRadius: 9, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 16, marginTop: 14 },
   emptyActionButton: { alignSelf: "stretch", paddingHorizontal: 18 },
   twoCol: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
@@ -11905,8 +12074,15 @@ function createStyles(isDark = false) {
   voiceNoteText: { flex: 1, minWidth: 0 },
   voiceRoundButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#efcf92", flexShrink: 0 },
   voiceRecordButton: { minHeight: 36, borderRadius: 13, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-  voiceRecordButtonActive: { backgroundColor: "#fecaca" },
+  voiceRecordButtonActive: { backgroundColor: BRAND_ORANGE, borderWidth: 1, borderColor: "#111111" },
+  voiceRecordButtonDisabled: { backgroundColor: "#e5e7eb" },
   voiceRecordButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
+  voiceClipList: { gap: 8, marginTop: -6, marginBottom: 16 },
+  voiceClipRow: { minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10 },
+  voiceClipPlayButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center" },
+  voiceClipText: { flex: 1, minWidth: 0 },
+  voiceClipTitle: { color: text, fontSize: 13, fontWeight: "900" },
+  voiceClipDeleteButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#fff1f1", alignItems: "center", justifyContent: "center" },
   homeMeasurementButton: {
     minHeight: 74,
     borderRadius: 18,
@@ -12384,6 +12560,7 @@ function createStyles(isDark = false) {
   policyCaseRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingTop: 12, marginTop: 12, borderTopWidth: 1, borderTopColor: border },
   policyCaseText: { flex: 1, minWidth: 0 },
   rateHero: { alignItems: "center", justifyContent: "center", paddingVertical: 12, marginBottom: 12, gap: 8 },
+  rateHeroIcon: { width: 72, height: 72, borderRadius: 24, backgroundColor: "#fff4dc", borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center", marginBottom: 4 },
   ratingCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   starPicker: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 18 },
   ratingMoodText: { color: BRAND_ORANGE, fontSize: 13, lineHeight: 18, fontWeight: "900" },
