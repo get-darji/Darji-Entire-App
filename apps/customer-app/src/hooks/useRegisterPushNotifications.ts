@@ -33,7 +33,6 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     }
 
     let cancelled = false;
-    let registeredTokens: { expoPushToken?: string; fcmToken?: string } | undefined;
     async function saveTokens(nativeToken?: Notifications.DevicePushToken) {
       let expoPushToken: string | undefined;
       try {
@@ -54,7 +53,6 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
       if (!expoPushToken && !fcmToken) throw new Error("No push token could be generated");
       const registrationKey = `${app}:${userId ?? "unknown"}:${expoPushToken ?? ""}:${fcmToken ? String(fcmToken.data) : ""}`;
       const storageKey = `darji.push-registration.v2.${app}.${userId ?? "unknown"}`;
-      if ((await AsyncStorage.getItem(storageKey)) === registrationKey) return;
       if (completedRegistrations.has(registrationKey)) return;
       const existingRegistration = pendingRegistrations.get(registrationKey);
       if (existingRegistration) {
@@ -78,7 +76,6 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
       pendingRegistrations.set(registrationKey, registration);
       try {
         await registration;
-        registeredTokens = { expoPushToken, fcmToken: fcmToken ? String(fcmToken.data) : undefined };
         completedRegistrations.add(registrationKey);
         await AsyncStorage.setItem(storageKey, registrationKey);
       } finally {
@@ -111,12 +108,6 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     void register();
     return () => {
       cancelled = true;
-      if (authToken && registeredTokens && (registeredTokens.expoPushToken || registeredTokens.fcmToken)) {
-        void api("/notifications/device-token", {
-          method: "DELETE",
-          body: JSON.stringify(registeredTokens)
-        }, authToken).catch(() => undefined);
-      }
     };
   }, [app, authToken, userId]);
 

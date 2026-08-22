@@ -44,7 +44,8 @@ export function sendQuoteReceivedNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "customer-orders-v2",
     categoryId: "DARJI_ORDER",
-    actions: ["View Order"]
+    actions: ["View Order"],
+    targetApps: ["customer"]
   });
 }
 

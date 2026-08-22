@@ -178,9 +178,7 @@ internal object IncomingAlertManager {
     } catch (error: Exception) {
       Log.w(TAG, "Failed to post incoming notification key=$key", error)
     }
-    if (isDeviceLocked(appContext)) {
-      launchFullScreenActivity(appContext, payload)
-    }
+    launchFullScreenActivity(appContext, payload)
 
     val serviceIntent = Intent(appContext, IncomingAlertOverlayService::class.java).putExtra(EXTRA_PAYLOAD, payload.toString())
     try {

@@ -827,27 +827,27 @@ const fabricCareTips = [
 const howItWorksSteps = [
   {
     icon: "camera-outline",
-    title: "Share cloth details",
+    title: "Share Your Request",
     text: "Add photos, describe the work, and include measurements, samples, or voice notes so tailors understand the job clearly."
   },
   {
     icon: "chatbubbles-outline",
-    title: "Compare live quotes",
+    title: "Compare Live Quotes",
     text: "Verified nearby tailors review your request and send pricing, expected completion time, and any useful notes."
   },
   {
     icon: "card-outline",
-    title: "Confirm securely",
+    title: "Confirm Securely",
     text: "Choose the tailor you prefer, review fees and pickup details, then pay online or select COD where available."
   },
   {
     icon: "cube-outline",
-    title: "Doorstep pickup",
+    title: "Doorstep Pickup",
     text: "Darji coordinates pickup, tailor handover, stitching progress, quality checks, and delivery updates."
   },
   {
     icon: "checkmark-done-outline",
-    title: "Receive and rate",
+    title: "Receive & Rate",
     text: "Get your finished garment delivered home, then rate the tailor and delivery experience to help improve Darji."
   }
 ] as const;
@@ -2535,20 +2535,38 @@ function HomeScreen({
           ))}
         </View>
 
-        <View style={styles.sectionHeader}>
+        <View style={styles.homeWorkflowHeader}>
           <Text style={styles.listTitle}>How It Works</Text>
+          <Text style={styles.homeWorkflowSubtitle}>Darji makes tailoring simple, secure and convenient from start to finish.</Text>
         </View>
-        <View style={styles.homeStepsRow}>
+        <View style={styles.homeStepsList}>
           {howItWorksSteps.map((step, index) => (
-            <View key={step.title} style={styles.homeStepItem}>
-              <Text style={styles.stepNumber}>{index + 1}</Text>
-              <View style={styles.stepIconBox}>
-                <Ionicons name={step.icon} size={22} color={BRAND_DEEP} />
+            <View key={step.title} style={styles.homeWorkflowStep}>
+              <View style={styles.homeWorkflowRail}>
+                <Text style={styles.stepNumber}>{index + 1}</Text>
+                {index < howItWorksSteps.length - 1 ? <View style={styles.homeWorkflowLine} /> : null}
               </View>
-              <Text style={styles.stepTitle}>{step.title}</Text>
-              <Text style={styles.stepCopy}>{step.text}</Text>
+              <View style={styles.homeStepCard}>
+                <View style={styles.stepIconBox}>
+                  <Ionicons name={step.icon} size={24} color={BRAND_DEEP} />
+                </View>
+                <View style={styles.homeStepCopyBlock}>
+                  <Text style={styles.stepTitle}>{step.title}</Text>
+                  <Text style={styles.stepCopy}>{step.text}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#c7ced8" />
+              </View>
             </View>
           ))}
+        </View>
+        <View style={styles.homeWorkflowTrust}>
+          <View style={styles.homeWorkflowTrustIcon}>
+            <Ionicons name="shield-checkmark-outline" size={24} color={BRAND_ORANGE} />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.homeWorkflowTrustTitle}>Trusted. Transparent. Tailored for you.</Text>
+            <Text style={styles.homeWorkflowTrustCopy}>Secure payments - Verified tailors - Doorstep service</Text>
+          </View>
         </View>
 
         <View style={styles.sectionHeader}>
@@ -2760,10 +2778,7 @@ function FeatureSoonScreen({ setScreen, onNotify }: { setScreen: (screen: Screen
             <Text style={styles.workflowText}>Delivered back to your doorstep</Text>
           </View>
         </View>
-        <Pressable style={styles.primaryWideButton} onPress={onNotify}>
-          <Ionicons name="notifications-outline" size={18} color="#111111" />
-          <Text style={styles.primaryWideButtonText}>Notify Me</Text>
-        </Pressable>
+        <RequestFlowCta label="Notify Me" onPress={onNotify} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -3535,18 +3550,61 @@ function NewRequestScreen({
             <Text style={styles.secondaryWideButtonText}>Cancel This Item</Text>
           </Pressable>
         ) : null}
-        <Pressable style={({ pressed }) => [styles.primaryWideButton, pressed && canContinueRequest && !uploading && styles.buttonPressed, (!canContinueRequest || uploading) && styles.disabledDarkButton]} onPress={uploadAndContinue} disabled={!canContinueRequest || uploading}>
-          {uploading ? (
-            <ActivityIndicator color="#111111" />
-          ) : (
-            <>
-              <Text style={[styles.primaryWideButtonText, !canContinueRequest && styles.disabledText]}>Continue</Text>
-              <Ionicons name="chevron-forward" size={18} color={canContinueRequest ? "#111111" : "#777777"} />
-            </>
-          )}
-        </Pressable>
+        <RequestFlowCta
+          label="Continue"
+          onPress={uploadAndContinue}
+          disabled={!canContinueRequest || uploading}
+          loading={uploading}
+        />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function RequestFlowCta({
+  label,
+  onPress,
+  disabled = false,
+  loading = false
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const unavailable = disabled || loading;
+
+  return (
+    <View style={styles.requestFlowCtaSlot}>
+      <Pressable
+        onPress={onPress}
+        disabled={unavailable}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled: unavailable }}
+      >
+        {({ pressed }) => (
+          <View
+            style={[
+              styles.requestFlowCtaSurface,
+              unavailable && styles.requestFlowCtaDisabled,
+              pressed && !unavailable && styles.requestFlowCtaPressed
+            ]}
+          >
+            {loading ? (
+              <ActivityIndicator color="#8b95a5" />
+            ) : (
+              <>
+                <Text style={[styles.requestFlowCtaLabel, unavailable && styles.requestFlowCtaLabelDisabled]}>{label}</Text>
+                <View style={[styles.requestFlowCtaArrow, unavailable && styles.requestFlowCtaArrowDisabled]}>
+                  <Ionicons name="chevron-forward" size={18} color={unavailable ? "#8b95a5" : "#111111"} />
+                </View>
+              </>
+            )}
+          </View>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
@@ -4471,6 +4529,8 @@ function PendingRequestStep({ number, title, helper }: { number: number; title: 
 
 function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draft: RequestDraft; setDraft: (draft: RequestDraft) => void; setScreen: (screen: Screen) => void; stage?: "work" | "measurements" }) {
   const scrollViewRef = useRef<RNScrollView>(null);
+  const manualMeasurementsYRef = useRef(0);
+  const focusManualMeasurementsRef = useRef(false);
   const [savingAction, setSavingAction] = useState<"summary" | "another" | undefined>();
   const [garmentSearch, setGarmentSearch] = useState("");
   const [showSizeChart, setShowSizeChart] = useState(false);
@@ -4660,6 +4720,15 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     });
   }
 
+  function toggleManualMeasurements() {
+    if (showManualMeasurements) {
+      setShowManualMeasurements(false);
+      return;
+    }
+    focusManualMeasurementsRef.current = true;
+    setShowManualMeasurements(true);
+  }
+
   async function saveClothingItem() {
     if (!canContinue || !token) return;
     const hasMeasurement = showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked;
@@ -4788,19 +4857,14 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
             <Text style={styles.warningAgreementText}>I have checked my fabric and understand the information above.</Text>
           </Pressable>
 
-          <Pressable
-            style={[styles.primaryWideButton, !clothWarningAccepted && styles.disabledDarkButton]}
+          <RequestFlowCta
+            label="Continue"
             onPress={() => {
-              if (!clothWarningAccepted) {
-                setClothWarningMessage("Please check the box to continue.");
-                return;
-              }
               setShowStitchingWarning(false);
               setStitchingWarningDismissed(true);
             }}
-          >
-            <Text style={[styles.primaryWideButtonText, !clothWarningAccepted && styles.disabledText]}>Continue</Text>
-          </Pressable>
+            disabled={!clothWarningAccepted}
+          />
         </ScrollView>
       ) : (
         <ScrollView ref={scrollViewRef} contentContainerStyle={styles.pageContent}>
@@ -4970,14 +5034,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
           <PendingRequestStep number={4} title="Select Work" helper="Choose a service category to see work options." />
         ) : null}
 
-        <Pressable
-          disabled={!canContinueToMeasurements}
-          style={({ pressed }) => [styles.primaryWideButton, pressed && canContinueToMeasurements && styles.buttonPressed, !canContinueToMeasurements && styles.disabledDarkButton]}
+        <RequestFlowCta
+          label="Continue to Measurements"
           onPress={() => setScreen("measurements")}
-        >
-            <Text style={[styles.primaryWideButtonText, !canContinueToMeasurements && styles.disabledText]}>Continue to Measurements</Text>
-          <Ionicons name="chevron-forward" size={18} color={canContinueToMeasurements ? "#111111" : "#777777"} />
-        </Pressable>
+          disabled={!canContinueToMeasurements}
+        />
           </>
         ) : null}
 
@@ -4993,7 +5054,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
             <View style={styles.measurementChoiceHeader}>
               <Text style={styles.measurementChoiceHeading}>How would you like to provide measurements?</Text>
             </View>
-            <Pressable style={styles.manualMeasureLink} onPress={() => setShowManualMeasurements((current) => !current)}>
+            <Pressable style={styles.manualMeasureLink} onPress={toggleManualMeasurements}>
               <Text style={styles.manualMeasureText}>Enter measurement manually?</Text>
               <Ionicons name="create-outline" size={18} color={BRAND_ORANGE} />
             </Pressable>
@@ -5084,7 +5145,15 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
         ) : null}
 
         {stage === "measurements" && showManualMeasurements ? (
-          <View style={styles.measurementCard}>
+          <View
+            style={styles.measurementCard}
+            onLayout={({ nativeEvent }) => {
+              manualMeasurementsYRef.current = nativeEvent.layout.y;
+              if (!focusManualMeasurementsRef.current) return;
+              focusManualMeasurementsRef.current = false;
+              requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: Math.max(0, manualMeasurementsYRef.current - 20), animated: true }));
+            }}
+          >
             <View style={styles.rowBetween}>
               <View style={styles.measurementTitleBlock}>
                 <Text style={styles.cardLabel}>MEASUREMENTS</Text>
@@ -5203,16 +5272,12 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 
         {stage === "measurements" ? (
         <>
-        <Pressable disabled={!canContinue || Boolean(savingAction)} style={({ pressed }) => [styles.primaryWideButton, pressed && canContinue && !savingAction && styles.buttonPressed, (!canContinue || Boolean(savingAction)) && styles.disabledDarkButton]} onPress={continueToSummary}>
-          {savingAction === "summary" ? (
-            <ActivityIndicator color="#777777" />
-          ) : (
-            <>
-              <Text style={[styles.primaryWideButtonText, !canContinue && styles.disabledText]}>Continue to Pricing</Text>
-              <Ionicons name="chevron-forward" size={18} color={canContinue ? "#111111" : "#777777"} />
-            </>
-          )}
-        </Pressable>
+        <RequestFlowCta
+          label="Continue to Pricing"
+          onPress={continueToSummary}
+          disabled={!canContinue || Boolean(savingAction)}
+          loading={savingAction === "summary"}
+        />
         <Pressable disabled={!canContinue || Boolean(savingAction)} style={[styles.secondaryWideButton, (!canContinue || Boolean(savingAction)) && styles.buttonDisabled]} onPress={addAnotherCloth}>
           {savingAction === "another" ? (
             <ActivityIndicator color={BRAND_ORANGE} />
@@ -5251,15 +5316,13 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
               >
                 <Text style={styles.secondaryWideButtonText}>Remove</Text>
               </Pressable>
-              <Pressable
-                style={[styles.primaryWideButton, styles.homeMeasurementModalButton]}
+              <RequestFlowCta
+                label={`Add Rs${HOME_MEASUREMENT_FEE}`}
                 onPress={() => {
                   setDraft({ ...draft, homeMeasurementBooked: true });
                   setShowHomeMeasurementModal(false);
                 }}
-              >
-                <Text style={styles.primaryWideButtonText}>Add Rs{HOME_MEASUREMENT_FEE}</Text>
-              </Pressable>
+              />
             </View>
           </View>
         </View>
@@ -5775,9 +5838,12 @@ function OrderSummaryScreen({
           <Ionicons name="add-circle-outline" size={18} color={BRAND_ORANGE} />
           <Text style={styles.secondaryWideButtonText}>Add Another Cloth</Text>
         </Pressable>
-        <Pressable style={[styles.primaryWideButton, (items.length === 0 || submitting) && styles.disabledDarkButton]} onPress={requestQuotes} disabled={items.length === 0 || submitting}>
-          {submitting ? <ActivityIndicator color="#111111" /> : <Text style={[styles.primaryWideButtonText, items.length === 0 && styles.disabledText]}>Continue to Pricing</Text>}
-        </Pressable>
+        <RequestFlowCta
+          label="Continue to Pricing"
+          onPress={requestQuotes}
+          disabled={items.length === 0 || submitting}
+          loading={submitting}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -5812,11 +5878,12 @@ function QuotesScreen({
   const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
   const [deleting, setDeleting] = useState(false);
   const noQuoteAlertSentRef = useRef(false);
+  const waitExpiredDialogShownRef = useRef(false);
   const waitTimerStartedAtRef = useRef<number | undefined>(undefined);
   const [waitProgressPercent, setWaitProgressPercent] = useState(0);
   const [waitProgressComplete, setWaitProgressComplete] = useState(false);
   const itemCount = backendRequest?.itemCount ?? checkoutItemCount(draft);
-  const responseCount = backendRequest?.quoteCount ?? backendQuotes.length;
+  const responseCount = backendQuotes.length;
   const requestSentLabel = formatRequestSentLabel(backendRequest?.createdAt);
   const waitProgressWidth: DimensionValue = `${waitProgressPercent}%`;
   const remainingSeconds = Math.max(0, Math.ceil(QUOTE_WAIT_SECONDS - (waitProgressPercent / 100) * QUOTE_WAIT_SECONDS));
@@ -5875,32 +5942,54 @@ function QuotesScreen({
   }
 
   useEffect(() => {
+    if (waitProgressComplete && backendQuotes.length === 0) return undefined;
     void loadQuotes();
     const interval = setInterval(() => {
       void loadQuotes();
     }, 4000);
     return () => clearInterval(interval);
-  }, [draft.backendRequestId, token, refreshSignal]);
+  }, [backendQuotes.length, draft.backendRequestId, refreshSignal, token, waitProgressComplete]);
 
   useEffect(() => {
+    if (!hasLoadedQuotesOnce) {
+      setWaitProgressPercent(0);
+      setWaitProgressComplete(false);
+      return;
+    }
     if (backendQuotes.length) {
       setWaitProgressComplete(false);
       noQuoteAlertSentRef.current = false;
+      waitExpiredDialogShownRef.current = false;
       return;
     }
     waitTimerStartedAtRef.current = Date.now();
     setWaitProgressPercent(0);
     setWaitProgressComplete(false);
     noQuoteAlertSentRef.current = false;
+    waitExpiredDialogShownRef.current = false;
     const sendNoQuoteAlert = () => {
       setWaitProgressComplete(true);
       setWaitProgressPercent(100);
-      if (!draft.backendRequestId || !token || noQuoteAlertSentRef.current) return;
-      noQuoteAlertSentRef.current = true;
-      void api(`/tailoring-requests/${draft.backendRequestId}/no-quote-alert`, { method: "POST" }, token).catch((error) => {
-        noQuoteAlertSentRef.current = false;
-        console.warn("[quotes] Failed to send no-quote admin alert", error instanceof Error ? error.message : error);
-      });
+      if (draft.backendRequestId && token && !noQuoteAlertSentRef.current) {
+        noQuoteAlertSentRef.current = true;
+        void api(`/tailoring-requests/${draft.backendRequestId}/no-quote-alert`, { method: "POST" }, token).catch((error) => {
+          noQuoteAlertSentRef.current = false;
+          console.warn("[quotes] Failed to send no-quote admin alert", error instanceof Error ? error.message : error);
+        });
+      }
+      if (!waitExpiredDialogShownRef.current) {
+        waitExpiredDialogShownRef.current = true;
+        showDialog({
+          title: "We are still finding a tailor",
+          message: "We are very sorry that you did not find a tailor yet. Do not worry, we are connecting you with a tailor shortly. Please wait, and sorry for the inconvenience.",
+          actions: [
+            {
+              label: "Go Home",
+              onPress: () => setScreen("home")
+            }
+          ]
+        });
+      }
     };
     setWaitProgressPercent(1);
     let didComplete = false;
@@ -5921,7 +6010,7 @@ function QuotesScreen({
     return () => {
       cancelAnimationFrame(frameId);
     };
-  }, [backendQuotes.length, draft.backendRequestId, token]);
+  }, [backendQuotes.length, draft.backendRequestId, hasLoadedQuotesOnce, token]);
 
   useEffect(() => {
     if (!liveQuote?.backendQuoteId || liveQuote.backendRequestId !== draft.backendRequestId) return;
@@ -6150,14 +6239,12 @@ function QuotesScreen({
         ) : null}
 
         {selectedQuote ? (
-          <Pressable disabled={confirming} style={({ pressed }) => [styles.primaryWideButton, { marginTop: 24, marginBottom: 8 }, pressed && !confirming && styles.buttonPressed]} onPress={() => void confirmTailor(selectedQuote)}>
-            {confirming ? <ActivityIndicator color="#ffffff" /> : (
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Text style={styles.primaryWideButtonText}>Continue</Text>
-                <Ionicons name="chevron-forward" size={18} color="#ffffff" />
-              </View>
-            )}
-          </Pressable>
+          <RequestFlowCta
+            label="Continue"
+            onPress={() => void confirmTailor(selectedQuote)}
+            disabled={confirming}
+            loading={confirming}
+          />
         ) : null}
 
         {draft.backendRequestId && onDeleteRequest ? (
@@ -6436,13 +6523,12 @@ function ConfirmOrderScreen({
           ))}
         </View>
 
-        <Pressable style={({ pressed }) => [styles.primaryWideButton, pressed && !isPlacingOrder && styles.buttonPressed, isPlacingOrder && styles.buttonDisabled]} onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee })} disabled={isPlacingOrder}>
-          {isPlacingOrder ? (
-            <ActivityIndicator color="#111111" />
-          ) : (
-            <Text style={styles.primaryWideButtonText}>{buttonLabel}</Text>
-          )}
-        </Pressable>
+        <RequestFlowCta
+          label={buttonLabel}
+          onPress={() => onPlaceOrder(payment, { couponCode: appliedCoupon?.code, totalAmount: total, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee })}
+          disabled={Boolean(isPlacingOrder)}
+          loading={Boolean(isPlacingOrder)}
+        />
       </ScrollView>
       {quote.backendRequestId && onDeleteRequest && !isPlacingOrder ? (
         <View style={styles.checkoutDeleteWrap}>
@@ -6499,9 +6585,7 @@ function OrdersScreen({
             <Ionicons name="cube-outline" size={34} color={BRAND_ORANGE} />
             <Text style={styles.emptyTitle}>No orders yet</Text>
             <Text style={styles.helperText}>Your confirmed tailoring orders will appear here.</Text>
-            <Pressable style={[styles.primaryWideButton, styles.emptyActionButton]} onPress={() => setScreen("newRequest")}>
-              <Text style={styles.primaryWideButtonText}>Start a Request</Text>
-            </Pressable>
+            <RequestFlowCta label="Start a Request" onPress={() => setScreen("newRequest")} />
           </View>
         ) : (
           orders.map((order) => (
@@ -6601,10 +6685,7 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <Text style={styles.addressTitle}>{order.draft.pickup}</Text>
         </View>
 
-        <Pressable style={styles.primaryWideButton} onPress={() => setScreen("trackOrder")}>
-          <Text style={styles.primaryWideButtonText}>Track Order</Text>
-          <Ionicons name="chevron-forward" size={18} color="#111111" />
-        </Pressable>
+        <RequestFlowCta label="Track Order" onPress={() => setScreen("trackOrder")} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -6769,7 +6850,7 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
               <Text style={styles.seeAll}>View all</Text>
             </View>
             <View style={styles.searchCategoryGrid}>
-              {(query ? categoryResults : searchCategories).map((category) => (
+              {(query || serviceFilter ? categoryResults : searchCategories).map((category) => (
                 <Pressable key={category.title} style={styles.searchCategoryCard} onPress={() => onStartRequest(requestPresetForSearchCategory(category.title))}>
                   <View style={styles.searchCategoryImage}>
                     <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={31} color={BRAND_ORANGE} />
@@ -6847,14 +6928,13 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
           ))}
         </ScrollView>
 
-        <Pressable style={styles.searchTrustBanner} onPress={() => setScreen("helpCenter")}>
+        <View style={styles.searchTrustBanner}>
           <Ionicons name="shield-checkmark-outline" size={26} color={BRAND_ORANGE} />
           <View style={styles.profileRowText}>
             <Text style={styles.addressTitle}>Trusted tailors. Quality stitching.</Text>
             <Text style={styles.mutedSmall}>Verified professionals - On-time delivery - 100% satisfaction</Text>
           </View>
-          <Ionicons name="chevron-forward" size={22} color="#111827" />
-        </Pressable>
+        </View>
       </ScrollView>
       <TailorProfileModal profile={selectedTailorProfile} onClose={() => setSelectedTailorProfile(undefined)} />
       <BottomTabs active="search" setScreen={setScreen} />
@@ -7312,9 +7392,7 @@ function EditProfileScreen({
           <Text style={styles.addressTitle}>+91 {profile.phone}</Text>
           <Text style={styles.mutedSmall}>Phone number is used for OTP login</Text>
         </View>
-        <Pressable style={styles.primaryWideButton} onPress={save}>
-          <Text style={styles.primaryWideButtonText}>Save Changes</Text>
-        </Pressable>
+        <RequestFlowCta label="Save Changes" onPress={save} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -7585,10 +7663,7 @@ function SavedAddressesScreen({
           </Pressable>
         </View>
       ))}
-      <Pressable style={styles.primaryWideButton} onPress={() => setScreen("addAddress")}>
-        <Ionicons name="add" size={18} color="#111111" />
-        <Text style={styles.primaryWideButtonText}>Add New Address</Text>
-      </Pressable>
+      <RequestFlowCta label="Add New Address" onPress={() => setScreen("addAddress")} />
     </ProfileSubPage>
   );
 }
@@ -7866,10 +7941,7 @@ function HelpTopicScreen({ topicId, setScreen }: { topicId: string; setScreen: (
           </View>
         ))}
       </View>
-      <Pressable style={styles.primaryWideButton} onPress={() => setScreen("contactSupport")}>
-        <Ionicons name="chatbubble-ellipses-outline" size={18} color="#111111" />
-        <Text style={styles.primaryWideButtonText}>Still Need Help?</Text>
-      </Pressable>
+      <RequestFlowCta label="Still Need Help?" onPress={() => setScreen("contactSupport")} />
     </ProfileSubPage>
   );
 }
@@ -9131,9 +9203,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
           ) : null}
         </View>
       </View>
-      <Pressable style={({ pressed }) => [styles.primaryWideButton, pressed && !submitting && styles.buttonPressed, submitting && styles.buttonDisabled]} onPress={submit} disabled={submitting}>
-        {submitting ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryWideButtonText}>Submit Review</Text>}
-      </Pressable>
+      <RequestFlowCta label="Submit Review" onPress={submit} disabled={submitting} loading={submitting} />
     </ProfileSubPage>
   );
 }
@@ -9733,10 +9803,7 @@ function LegacyOrderDetailsScreenV2({
             <Text style={styles.cancelOrderText}>Cancel Order</Text>
           </Pressable>
         ) : null}
-        <Pressable style={styles.primaryWideButton} onPress={() => setScreen("trackOrder")}>
-          <Text style={styles.primaryWideButtonText}>Track Order</Text>
-          <Ionicons name="chevron-forward" size={18} color="#111111" />
-        </Pressable>
+        <RequestFlowCta label="Track Order" onPress={() => setScreen("trackOrder")} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -9952,6 +10019,7 @@ function OrderDetailsScreenV2({
         <View style={styles.orderDetailsCard}>
           <SummaryRow label="Pickup Address" value={order.draft.pickup || "Not selected"} />
           <SummaryRow label="Pickup Time" value={`${pickupSchedule.date}, ${pickupSchedule.timeSlot}`} />
+          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Preferred Tailor Visit" value={measurementSlotForDraft(order.draft)!} /> : null}
           <SummaryRow label="Estimated Delivery" value={estimatedTime.delivery} />
           <SummaryRow label="Payment Method" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Tailor" value={order.tailor.name} />
@@ -10048,10 +10116,7 @@ function OrderDetailsScreenV2({
             <Text style={styles.cancelOrderText}>Cancel Order</Text>
           </Pressable>
         ) : null}
-        <Pressable style={styles.primaryWideButton} onPress={() => setScreen("trackOrder")}>
-          <Text style={styles.primaryWideButtonText}>Track Order</Text>
-          <Ionicons name="chevron-forward" size={18} color="#111111" />
-        </Pressable>
+        <RequestFlowCta label="Track Order" onPress={() => setScreen("trackOrder")} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -11773,12 +11838,22 @@ function createStyles(isDark = false) {
   whyIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   whyTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 17 },
   whyCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 16, marginTop: 4 },
-  homeStepsRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 22 },
-  homeStepItem: { flex: 1, alignItems: "center", minWidth: 0 },
-  stepNumber: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 10, backgroundColor: BRAND_ORANGE, color: "#111111", width: 20, height: 20, lineHeight: 20, textAlign: "center", fontSize: 10, fontWeight: "900", marginBottom: -8, zIndex: 1 },
-  stepIconBox: { width: 52, height: 52, borderRadius: 16, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  stepTitle: { color: text, fontSize: 10, fontWeight: "900", textAlign: "center", minHeight: 28 },
-  stepCopy: { color: muted, fontSize: 9, fontWeight: "700", lineHeight: 13, textAlign: "center", marginTop: 3 },
+  homeWorkflowHeader: { marginTop: 2, marginBottom: 14 },
+  homeWorkflowSubtitle: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 5, maxWidth: 330 },
+  homeStepsList: { width: "100%", marginBottom: 12 },
+  homeWorkflowStep: { width: "100%", flexDirection: "row", alignItems: "stretch" },
+  homeWorkflowRail: { width: 36, alignItems: "center" },
+  homeWorkflowLine: { flex: 1, width: 1.5, minHeight: 14, backgroundColor: border, marginVertical: 4 },
+  stepNumber: { overflow: "hidden", borderRadius: 15, backgroundColor: BRAND_ORANGE, color: "#111111", width: 30, height: 30, lineHeight: 30, textAlign: "center", fontSize: 13, fontWeight: "900", marginTop: 18 },
+  homeStepCard: { flex: 1, minWidth: 0, minHeight: 102, borderRadius: 12, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12, paddingVertical: 12, marginLeft: 8, marginBottom: 12, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 1 },
+  stepIconBox: { width: 46, height: 46, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  homeStepCopyBlock: { flex: 1, minWidth: 0 },
+  stepTitle: { color: text, fontSize: 14, lineHeight: 19, fontWeight: "900" },
+  stepCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 4 },
+  homeWorkflowTrust: { minHeight: 72, borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 22 },
+  homeWorkflowTrustIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  homeWorkflowTrustTitle: { color: text, fontSize: 12, lineHeight: 17, fontWeight: "900" },
+  homeWorkflowTrustCopy: { color: muted, fontSize: 10, lineHeight: 15, fontWeight: "700", marginTop: 3 },
   storyRow: { gap: 14, paddingBottom: 16 },
   largeReviewCard: { width: 264, minHeight: 206, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 12, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 14, elevation: 2 },
   reviewHeader: { flexDirection: "row", alignItems: "center", gap: 9, minHeight: 48 },
@@ -11982,6 +12057,14 @@ function createStyles(isDark = false) {
   primaryWideButton: { height: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 24 },
   primaryWideButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
   buttonPressed: { backgroundColor: "#d98a06", transform: [{ scale: 0.99 }] },
+  requestFlowCtaSlot: { width: "100%", marginTop: 18, marginBottom: 24 },
+  requestFlowCtaSurface: { position: "relative", alignSelf: "center", width: "88%", maxWidth: 360, height: 48, borderRadius: 12, borderWidth: 1, borderColor: "#d88a05", backgroundColor: "#f6a609", alignItems: "center", justifyContent: "center", paddingHorizontal: 48, overflow: "hidden" },
+  requestFlowCtaDisabled: { borderColor: isDark ? "#303030" : "#d5dbe3", backgroundColor: isDark ? "#1b1b1b" : "#e8ecf1" },
+  requestFlowCtaPressed: { backgroundColor: "#df9000", transform: [{ scale: 0.99 }] },
+  requestFlowCtaLabel: { color: "#111111", fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: "center" },
+  requestFlowCtaLabelDisabled: { color: isDark ? "#6f7782" : "#8b95a5" },
+  requestFlowCtaArrow: { position: "absolute", right: 6, width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.32)", alignItems: "center", justifyContent: "center" },
+  requestFlowCtaArrowDisabled: { backgroundColor: isDark ? "#242424" : "#dde2e8" },
   onboardingContinueButton: { height: 48, borderRadius: 9, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 16, marginTop: 14 },
   emptyActionButton: { alignSelf: "stretch", paddingHorizontal: 18 },
   twoCol: { flexDirection: "row", flexWrap: "wrap", gap: 12 },

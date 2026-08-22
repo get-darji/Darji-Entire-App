@@ -57,7 +57,7 @@ class IncomingAlertOverlayService : Service() {
     } else {
       Log.d("DarjiIncomingAlert", "Overlay skipped overlays=${Settings.canDrawOverlays(this)} locked=${IncomingAlertManager.isDeviceLocked(this)}")
     }
-    return START_NOT_STICKY
+    return START_REDELIVER_INTENT
   }
 
   private fun showOverlay(payload: JSONObject) {

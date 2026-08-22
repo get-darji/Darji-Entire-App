@@ -123,7 +123,11 @@ export async function saveFcmToken(userId: string, input: { token: string; platf
   const token = input.token.trim();
   if (!token) return null;
   const app = normalizeAppName(input.app) ?? input.app?.trim();
-  await UserModel.updateOne({ _id: userId }, { $pull: { fcmTokens: { token } } });
+  await Promise.all([
+    UserModel.updateMany({ _id: { $ne: userId } }, { $pull: { fcmTokens: { token } } }),
+    UserModel.updateMany({ _id: { $ne: userId }, fcmToken: token }, { $unset: { fcmToken: "" } }),
+    UserModel.updateOne({ _id: userId }, { $pull: { fcmTokens: { token } } })
+  ]);
   return UserModel.findByIdAndUpdate(
     userId,
     {
@@ -153,7 +157,9 @@ export async function saveDeviceTokens(
   if (fcmToken) updates.push(saveFcmToken(userId, { token: fcmToken, platform: input.platform, app }));
   if (expoPushToken) {
     updates.push(
-      UserModel.updateOne({ _id: userId }, { $pull: { expoPushTokens: { token: expoPushToken } } }).then(() =>
+      UserModel.updateMany({ _id: { $ne: userId } }, { $pull: { expoPushTokens: { token: expoPushToken } } }).then(() =>
+        UserModel.updateOne({ _id: userId }, { $pull: { expoPushTokens: { token: expoPushToken } } })
+      ).then(() =>
         UserModel.findByIdAndUpdate(userId, {
           $push: {
             expoPushTokens: {

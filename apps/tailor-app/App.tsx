@@ -184,6 +184,7 @@ type TailoringRequestItem = {
   sampleProvided?: boolean;
   sampleMedia?: MediaItem[];
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
 };
 type TailoringRequest = {
   id: string;
@@ -198,6 +199,7 @@ type TailoringRequest = {
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   measurementNotes?: string;
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
   pickupAddress: string;
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
   orderStatus?: string;
@@ -648,6 +650,30 @@ function AuthButton({ label, loading, onPress }: { label: string; loading: boole
   );
 }
 
+function TailorPrimaryCta({ label, loading = false, disabled = false, onPress }: { label: string; loading?: boolean; disabled?: boolean; onPress: () => void }) {
+  const unavailable = loading || disabled;
+  return (
+    <View style={styles.tailorPrimaryCtaSlot}>
+      <Pressable onPress={onPress} disabled={unavailable} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: unavailable }}>
+        {({ pressed }) => (
+          <View style={[styles.tailorPrimaryCtaSurface, unavailable && styles.tailorPrimaryCtaDisabled, pressed && !unavailable && styles.tailorPrimaryCtaPressed]}>
+            {loading ? (
+              <ActivityIndicator color="#7b8493" />
+            ) : (
+              <>
+                <Text style={[styles.tailorPrimaryCtaText, unavailable && styles.tailorPrimaryCtaTextDisabled]}>{label}</Text>
+                <View style={[styles.tailorPrimaryCtaArrow, unavailable && styles.tailorPrimaryCtaArrowDisabled]}>
+                  <Ionicons name="chevron-forward" size={18} color={unavailable ? "#8b95a5" : "#111111"} />
+                </View>
+              </>
+            )}
+          </View>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
 function AuthScreen() {
   const [otpRequested, setOtpRequested] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
@@ -778,8 +804,9 @@ function StatusPill({ status }: { status: string }) {
 
 function RequestCard({ request, onPress }: { request: TailoringRequest; onPress: () => void }) {
   const itemCount = requestItemCount(request);
+  const isInstant = request.urgency?.toUpperCase().includes("INSTANT");
   return (
-    <Pressable style={styles.requestCard} onPress={onPress}>
+    <Pressable style={[styles.requestCard, isInstant && styles.instantRequestCard]} onPress={onPress}>
       <View style={styles.requestCardTopRow}>
         <View style={styles.iconTile}>
           <Ionicons name={request.media?.length ? "images-outline" : "shirt-outline"} size={22} color={BRAND_ORANGE} />
@@ -807,8 +834,9 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
 
 function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   const code = order.request ? `REQ-${order.request.id.slice(0, 8).toUpperCase()}` : order.orderNumber;
+  const isInstant = order.request?.urgency?.toUpperCase().includes("INSTANT");
   return (
-    <Pressable style={[styles.orderCard, styles.tailorMiniOrderCard, order.status === "READY" && styles.readyOrderCard]} onPress={onPress}>
+    <Pressable style={[styles.orderCard, styles.tailorMiniOrderCard, order.status === "READY" && styles.readyOrderCard, isInstant && styles.instantRequestCard]} onPress={onPress}>
       <View style={styles.tailorMiniOrderRow}>
         <View style={styles.tailorMiniOrderIcon}>
           <Ionicons name="cube-outline" size={18} color={BRAND_ORANGE} />
@@ -1011,9 +1039,7 @@ function MeasurementVisitCard({
         </View>
       ) : null}
       {canSubmit ? (
-        <Pressable style={styles.measureVisitAcceptButton} onPress={() => onSubmit?.(visit)}>
-          <Text style={styles.measureVisitAcceptText}>Submit measurements</Text>
-        </Pressable>
+        <TailorPrimaryCta label="Submit Measurements" onPress={() => onSubmit?.(visit)} />
       ) : null}
     </View>
   );
@@ -1499,7 +1525,7 @@ function MeasurementSubmitScreen({
             <View style={styles.cardMain}>
               <Text style={styles.measurementPopupEyebrow}>HOME VISIT</Text>
               <Text style={styles.measureSubmitHeroTitle}>{activeVisit.garmentSummary ?? "Measurement visit"}</Text>
-              <Text style={styles.measureSubmitHeroCopy} numberOfLines={2}>{activeVisit.customerName ?? "Customer"} - {formatVisitDate(activeVisit.scheduledAt)} - {formatVisitSlot(activeVisit.scheduledAt)}</Text>
+              <Text style={styles.measureSubmitHeroCopy} numberOfLines={3}>{activeVisit.customerName ?? "Customer"} - {formatVisitDate(activeVisit.scheduledAt)} - {activeVisit.preferredMeasurementSlot || formatVisitSlot(activeVisit.scheduledAt)}</Text>
             </View>
           </View>
           <View style={styles.measureSubmitOrderRow}>
@@ -1576,9 +1602,7 @@ function MeasurementSubmitScreen({
           <Text style={styles.measureSubmitSectionTitle}>Visit notes</Text>
           <TextInput editable={otpVerified} style={[styles.measureSubmitNotes, !otpVerified && styles.inputReadOnly]} multiline placeholder="Overall visit notes" placeholderTextColor="#94a3b8" value={notes} onChangeText={setNotes} />
         </View>
-        <Pressable style={[styles.measureSubmitButton, (!canSubmitMeasurements || saving) && styles.disabledButton]} onPress={submitVisit} disabled={!canSubmitMeasurements || saving}>
-          {saving && otpVerified ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.measureSubmitButtonText}>Submit Measurements</Text>}
-        </Pressable>
+        <TailorPrimaryCta label="Submit Measurements" onPress={submitVisit} disabled={!canSubmitMeasurements || saving} loading={saving && otpVerified} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -2419,9 +2443,7 @@ function QuoteScreen({
         <Text style={styles.formLabel}>Message</Text>
         <TextInput style={styles.textArea} value={message} onChangeText={setMessage} placeholder="Add fitting or pickup notes..." placeholderTextColor="#9aa6b8" multiline />
       </View>
-      <Pressable style={styles.primaryButton} onPress={submitQuote} disabled={saving}>
-        {saving ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Quote</Text>}
-      </Pressable>
+      <TailorPrimaryCta label="Submit Quote" onPress={submitQuote} disabled={saving} loading={saving} />
     </ScrollView>
   );
 }
@@ -5720,16 +5742,21 @@ function MeasurementVisitPopup({
           <Text style={styles.measurementPopupEyebrow}>MEASUREMENT VISIT</Text>
           <Text style={styles.popupTitle}>{visit.garmentSummary ?? "Home measurement request"}</Text>
           <Text style={styles.popupCopy} numberOfLines={3}>
-            {visit.customerName ?? "Customer"} - {formatVisitDate(visit.scheduledAt)}, {formatVisitTime(visit.scheduledAt)}
+            {visit.customerName ?? "Customer"} - {formatVisitDate(visit.scheduledAt)}
           </Text>
           <View style={styles.measurementPopupInfo}>
-            <Ionicons name="location-outline" size={18} color="#0891b2" />
+            <Ionicons name="time-outline" size={18} color={BRAND_ORANGE} />
+            <View style={styles.cardMain}>
+              <Text style={styles.measureVisitLabel}>Preferred visit time</Text>
+              <Text style={styles.measurementPopupInfoText}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
+            </View>
+          </View>
+          <View style={styles.measurementPopupInfo}>
+            <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
             <Text style={styles.measurementPopupInfoText} numberOfLines={2}>{visit.pickupAddress ?? "Address not available"}</Text>
           </View>
           <View style={styles.popupActions}>
-            <Pressable style={styles.measurementPopupPrimary} onPress={onAccept} disabled={saving}>
-              {saving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.measurementPopupPrimaryText}>Accept Visit</Text>}
-            </Pressable>
+            <TailorPrimaryCta label="Accept Visit" onPress={onAccept} disabled={saving} loading={saving} />
             <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={onView}>
               <Text style={[styles.popupActionText, styles.popupSecondaryText]}>View Request</Text>
             </Pressable>
@@ -6661,6 +6688,14 @@ const styles = StyleSheet.create({
   primaryButton: { minHeight: 56, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 20, paddingHorizontal: 18 },
   primaryButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
   disabledButton: { opacity: 0.55 },
+  tailorPrimaryCtaSlot: { width: "100%", marginTop: 14 },
+  tailorPrimaryCtaSurface: { position: "relative", width: "100%", height: 48, borderRadius: 12, borderWidth: 1, borderColor: "#d88a05", backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 46, overflow: "hidden" },
+  tailorPrimaryCtaDisabled: { borderColor: "#d5dbe3", backgroundColor: "#e8ecf1" },
+  tailorPrimaryCtaPressed: { backgroundColor: "#df9000", transform: [{ scale: 0.99 }] },
+  tailorPrimaryCtaText: { color: "#111111", fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: "center" },
+  tailorPrimaryCtaTextDisabled: { color: "#8b95a5" },
+  tailorPrimaryCtaArrow: { position: "absolute", right: 6, width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.34)", alignItems: "center", justifyContent: "center" },
+  tailorPrimaryCtaArrowDisabled: { backgroundColor: "#dde2e8" },
   secondaryButton: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 12 },
   secondaryButtonText: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   textButton: { alignItems: "center", marginTop: 18 },
@@ -6874,6 +6909,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: BRAND_DEEP, fontSize: 15, lineHeight: 20, fontWeight: "900" },
   linkText: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900" },
   requestCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
+  instantRequestCard: { backgroundColor: "rgba(239, 68, 68, 0.10)", borderColor: "rgba(220, 38, 38, 0.45)", borderWidth: 1.5 },
   requestCardTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   requestChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12, marginLeft: 60 },
   filterRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
@@ -7226,25 +7262,23 @@ const styles = StyleSheet.create({
   activeTabText: { color: BRAND_ORANGE },
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupBackdropAlert: { backgroundColor: "rgba(246, 163, 19, 0.42)" },
-  popupBackdropMeasurement: { flex: 1, backgroundColor: "rgba(8, 145, 178, 0.28)", alignItems: "center", justifyContent: "center", padding: 20 },
+  popupBackdropMeasurement: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.58)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 26, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#f3d7a3", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   popupCardSuccess: { maxWidth: 360, borderRadius: 18, borderColor: "#e5e7eb", paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20 },
   requestPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20 },
-  measurementPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: "#f0fdff", borderWidth: 1.2, borderColor: "#67e8f9", padding: 20, shadowColor: "#0891b2", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
-  measurementPopupIcon: { width: 48, height: 48, borderRadius: 18, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
-  measurementPopupEyebrow: { color: "#0891b2", fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 0.9, marginTop: 18 },
-  measurementPopupInfo: { minHeight: 52, borderRadius: 14, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 9, marginTop: 14 },
+  measurementPopupCard: { width: "100%", maxWidth: 410, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  measurementPopupIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  measurementPopupEyebrow: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 0.9, marginTop: 14 },
+  measurementPopupInfo: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 9, marginTop: 10 },
   measurementPopupInfoText: { flex: 1, minWidth: 0, color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800" },
-  measurementPopupPrimary: { minHeight: 52, borderRadius: 16, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
-  measurementPopupPrimaryText: { color: "#ffffff", fontSize: 15, lineHeight: 20, fontWeight: "900" },
   measureSubmitScreenWrap: { flex: 1 },
   measureSubmitScreenContent: { paddingHorizontal: 18, paddingTop: 28, paddingBottom: 124 },
-  measureSubmitHeroCard: { borderRadius: 18, borderWidth: 1.2, borderColor: "#99f6e4", backgroundColor: "#ecfeff", padding: 14, marginBottom: 12 },
+  measureSubmitHeroCard: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 14, marginBottom: 12 },
   measureSubmitHeroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  measureSubmitHeroIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center" },
+  measureSubmitHeroIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   measureSubmitHeroTitle: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900", marginTop: 2 },
   measureSubmitHeroCopy: { color: "#475569", fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 3 },
-  measureSubmitOrderRow: { minHeight: 42, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#99f6e4", paddingHorizontal: 12, marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  measureSubmitOrderRow: { minHeight: 42, borderRadius: 12, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#efcf92", paddingHorizontal: 12, marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   measureSubmitOrderLabel: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "900" },
   measureSubmitOrderValue: { color: "#dc2626", fontSize: 14, lineHeight: 18, fontWeight: "900", letterSpacing: 0.3 },
   measureSubmitAddress: { color: "#475569", fontSize: 12, lineHeight: 18, fontWeight: "800", marginTop: 9 },
@@ -7259,23 +7293,21 @@ const styles = StyleSheet.create({
   measureSubmitTitle: { color: BRAND_DEEP, fontSize: 27, lineHeight: 32, fontWeight: "900", marginTop: 6 },
   measureSubmitCopy: { color: MUTED, fontSize: 14, lineHeight: 20, fontWeight: "800", marginTop: 8, paddingRight: 10 },
   measureSubmitClose: { position: "absolute", top: 14, right: 14, zIndex: 20 },
-  otpVerifyCard: { minHeight: 54, borderRadius: 15, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ecfeff", flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginTop: 12 },
-  otpVerifyInput: { flex: 1, height: 40, borderRadius: 12, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#ffffff", color: BRAND_DEEP, fontSize: 17, fontWeight: "900", textAlign: "center", letterSpacing: 4 },
-  otpVerifyButton: { minWidth: 104, height: 40, borderRadius: 12, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  otpVerifyCard: { minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 8, padding: 8, marginTop: 12 },
+  otpVerifyInput: { flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#ffffff", color: BRAND_DEEP, fontSize: 17, fontWeight: "900", textAlign: "center", letterSpacing: 4 },
+  otpVerifyButton: { minWidth: 104, height: 40, borderRadius: 10, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   otpVerifyButtonText: { color: "#ffffff", fontSize: 12, lineHeight: 16, fontWeight: "900" },
   measureLockedPanel: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: "#f8fafc", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10 },
   measureLockedText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800" },
   measureSubmitList: { maxHeight: 380, marginTop: 10 },
   measureSubmitListContent: { paddingBottom: 4 },
-  measureSubmitItemCard: { borderRadius: 15, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#f0fdff", padding: 11, marginBottom: 10 },
+  measureSubmitItemCard: { borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 11, marginBottom: 10 },
   measureSubmitItemLocked: { borderColor: BORDER, backgroundColor: "#f8fafc" },
   measureSubmitItemTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900" },
   measureSubmitItemMeta: { color: MUTED, fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },
   measureSubmitGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 9 },
   measureSubmitInput: { width: "47.8%", minHeight: 40, borderRadius: 12, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: SURFACE, color: BRAND_DEEP, paddingHorizontal: 10, fontSize: 12, fontWeight: "800" },
   measureSubmitNotes: { minHeight: 60, borderRadius: 13, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, color: BRAND_DEEP, padding: 10, fontSize: 12, lineHeight: 17, fontWeight: "800", textAlignVertical: "top", marginTop: 9 },
-  measureSubmitButton: { minHeight: 48, borderRadius: 14, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", marginTop: 10 },
-  measureSubmitButtonText: { color: "#ffffff", fontSize: 14, lineHeight: 19, fontWeight: "900" },
   popupIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: "#fff4dc", borderWidth: 1, borderColor: "#ffd88a", alignItems: "center", justifyContent: "center", marginBottom: 14 },
   popupIconSuccess: { width: 82, height: 82, borderRadius: 41, backgroundColor: "#eafaf0", borderWidth: 0, marginBottom: 12 },
   popupIconCheckBadge: { position: "absolute", right: 10, bottom: 9, width: 24, height: 24, borderRadius: 12, backgroundColor: "#22c55e", borderWidth: 2, borderColor: SURFACE, alignItems: "center", justifyContent: "center" },
