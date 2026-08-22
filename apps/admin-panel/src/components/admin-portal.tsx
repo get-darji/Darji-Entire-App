@@ -7326,7 +7326,7 @@ function ProfileDialog({
                       <h3 className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">{displayName}</h3>
                       {isDelivery ? <DeliveryRoleBadge partner={profile as DeliveryPartnerProfile} /> : null}
                       <StatusBadge value={profile.verificationStatus} />
-                      <Badge tone={profile.isAvailable ? "emerald" : "slate"}>{profile.isAvailable ? "Available" : "Offline"}</Badge>
+                      <Badge tone={profile.isAvailable ? "emerald" : "slate"}>{profile.isAvailable ? "Online" : "Offline"}</Badge>
                     </div>
                     <p className="mt-1 text-sm font-medium text-[#6f614c]">{headline}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--muted)]">
@@ -7433,7 +7433,7 @@ function ProfileDialog({
                 <InspectGrid
                   items={[
                     { label: "Phone", value: profile.user?.phone ?? "-" },
-                    { label: "Availability", value: profile.isAvailable ? "Available" : "Offline" },
+                    { label: "Current status", value: profile.isAvailable ? "Online" : "Offline" },
                     { label: "Verification", value: <StatusBadge value={profile.verificationStatus} /> },
                     { label: "Rating", value: typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-" },
                     ...(isDelivery ? [
@@ -9020,9 +9020,9 @@ function getTailorColumns({
     },
     {
       id: "availability",
-      header: "Availability",
+      header: "Current status",
       accessorFn: (row) => String(row.isAvailable),
-      cell: ({ row }) => <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Available" : "Offline"}</Badge>
+      cell: ({ row }) => <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Online" : "Offline"}</Badge>
     },
     {
       id: "actions",
@@ -9097,9 +9097,9 @@ function getPartnerColumns({
     },
     {
       id: "availability",
-      header: "Availability",
+      header: "Current status",
       accessorFn: (row) => String(row.isAvailable),
-      cell: ({ row }) => <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Available" : "Offline"}</Badge>
+      cell: ({ row }) => <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Online" : "Offline"}</Badge>
     },
     {
       accessorKey: "weeklyEarnings",

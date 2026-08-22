@@ -67,11 +67,13 @@ export async function listMeasurementVisitsController(req: Request, res: Respons
   const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
   const where: Record<string, unknown> = {
     $or: [
-      { stitchingTailorId: tailor.id, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] }, declinedTailorIds: { $ne: tailor.id } },
       { assignedTailorId: tailor.id, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED"] } }
     ]
   };
-  if (canMeasure) {
+  if (tailor.isAvailable) {
+    (where.$or as unknown[]).push({ stitchingTailorId: tailor.id, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] }, declinedTailorIds: { $ne: tailor.id } });
+  }
+  if (tailor.isAvailable && canMeasure) {
     (where.$or as unknown[]).push({ status: "POOL", declinedTailorIds: { $ne: tailor.id }, stitchingTailorId: { $ne: tailor.id } });
   }
   const visits = await MeasurementVisitModel.find(where).sort({ status: 1, scheduledAt: 1, createdAt: -1 }).limit(100);
@@ -94,6 +96,7 @@ export async function getMeasurementVisitOtpForRequestController(req: Request, r
 
 export async function acceptMeasurementVisitController(req: Request, res: Response) {
   const tailor = await currentTailor(req);
+  if (!tailor.isAvailable) throw new AppError(400, "Go online before accepting measurement visits");
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));

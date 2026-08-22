@@ -1047,6 +1047,9 @@ function MeasurementVisitCard({
 
 function DashboardScreen({
   me,
+  online,
+  changingOnline,
+  onToggleOnline,
   requests,
   orders,
   measurementVisits,
@@ -1057,6 +1060,9 @@ function DashboardScreen({
   setActiveOrder
 }: {
   me?: MeResponse;
+  online: boolean;
+  changingOnline: boolean;
+  onToggleOnline: (value: boolean) => void | Promise<void>;
   requests: TailoringRequest[];
   orders: Order[];
   measurementVisits: MeasurementVisit[];
@@ -1079,9 +1085,28 @@ function DashboardScreen({
   return (
     <ScrollView contentContainerStyle={[styles.pageContent, styles.dashboardPageContent]} showsVerticalScrollIndicator={false}>
       <View style={styles.dashboardHeader}>
-        <Text style={styles.dashboardTitle}>{shopTitle}</Text>
-        <Text style={styles.dashboardSubtitle}>{dayGreeting()}, {tailorName}</Text>
+        <View style={styles.dashboardHeadingCopy}>
+          <Text style={styles.dashboardTitle}>{shopTitle}</Text>
+          <Text style={styles.dashboardSubtitle}>{dayGreeting()}, {tailorName}</Text>
+        </View>
+        <Pressable
+          style={[styles.onlineControl, online ? styles.onlineControlActive : styles.onlineControlInactive]}
+          onPress={() => void onToggleOnline(!online)}
+          disabled={changingOnline}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: online, disabled: changingOnline }}
+          accessibilityLabel={`Tailor is ${online ? "online" : "offline"}`}
+        >
+          <View style={[styles.onlineIndicator, online && styles.onlineIndicatorActive]} />
+          <Text style={[styles.onlineControlText, online && styles.onlineControlTextActive]}>{changingOnline ? "Updating" : online ? "Online" : "Offline"}</Text>
+        </Pressable>
       </View>
+      {!online ? (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="moon-outline" size={18} color="#64748b" />
+          <Text style={styles.offlineNoticeText}>New stitching and measurement requests are paused.</Text>
+        </View>
+      ) : null}
       <Pressable style={styles.heroCard} onPress={() => setScreen(openRequests.length ? "requests" : "orders")}>
         <View>
           <Text style={styles.heroLabel}>TODAY</Text>
@@ -5899,6 +5924,7 @@ export default function App() {
   const [alertFlashOn, setAlertFlashOn] = useState(false);
   const [acceptedQuoteRequest, setAcceptedQuoteRequest] = useState<TailoringRequest>();
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
+  const [changingOnline, setChangingOnline] = useState(false);
   const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const socketRef = useRef<any>(null);
   const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
@@ -5910,7 +5936,8 @@ export default function App() {
   const notificationAuthTokenRef = useRef(token);
   useRegisterPushNotifications({ authToken: token, app: "tailor", userId: sessionUser?.id });
   const hasLoadedWorkspaceRef = useRef(false);
-  const newRequestNotificationsEnabled = me?.tailorProfile?.settings?.notifications !== false;
+  const tailorOnline = Boolean(me?.tailorProfile?.isAvailable);
+  const newRequestNotificationsEnabled = tailorOnline && me?.tailorProfile?.settings?.notifications !== false;
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
 
   useEffect(() => {
@@ -6008,7 +6035,7 @@ export default function App() {
   }
 
   function showNewRequestPopup(request: TailoringRequest) {
-    if (!newRequestNotificationsEnabled) return;
+    if (!tailorOnline || !newRequestNotificationsEnabled) return;
     if (request.status !== "QUOTE_REQUESTED" || request.ownQuote || dismissedRequestIdsRef.current.has(request.id)) return;
 
     knownRequestIdsRef.current.add(request.id);
@@ -6225,6 +6252,7 @@ export default function App() {
   }
 
   function showMeasurementVisitPopup(visit: MeasurementVisit) {
+    if (!tailorOnline) return;
     if (!visit?.id || alertedMeasurementVisitIdsRef.current.has(visit.id)) return;
     if (!isActionableMeasurementVisit(visit)) return;
     alertedMeasurementVisitIdsRef.current.add(visit.id);
@@ -6281,6 +6309,31 @@ export default function App() {
     }
   }
 
+  async function toggleTailorOnline(value: boolean) {
+    if (!token || changingOnline) return;
+    const previous = me;
+    setChangingOnline(true);
+    setMe((current) => current?.tailorProfile ? {
+      ...current,
+      tailorProfile: { ...current.tailorProfile, isAvailable: value }
+    } : current);
+    if (!value) {
+      setNewRequestPopup(undefined);
+      setMeasurementVisitPopup(undefined);
+      setRequests((current) => current.filter((request) => request.status !== "QUOTE_REQUESTED" || Boolean(request.ownQuote)));
+      void cancelIncomingRequestNotifications({});
+    }
+    try {
+      await api("/tailors/me/availability", { method: "PATCH", body: JSON.stringify({ isAvailable: value }) }, token);
+      await refreshWorkspace(false);
+    } catch (error) {
+      setMe(previous);
+      setDialog({ title: "Availability failed", message: error instanceof Error ? error.message : "Could not update your availability.", icon: "cloud-offline-outline" });
+    } finally {
+      setChangingOnline(false);
+    }
+  }
+
   function openMeasurementRequestsTab() {
     setRequestsInitialTab("measurement");
     setScreen("requests");
@@ -6297,7 +6350,7 @@ export default function App() {
   }
 
   const showRequestFromEvent = useCallback(async (requestId: string) => {
-    if (!token || dismissedRequestIdsRef.current.has(requestId)) return;
+    if (!token || !tailorOnline || dismissedRequestIdsRef.current.has(requestId)) return;
     try {
       const request = await api<TailoringRequest>(`/tailoring-requests/${requestId}`, {}, token);
       showNewRequestPopup(request);
@@ -6307,7 +6360,7 @@ export default function App() {
         handleSessionExpired();
       }
     }
-  }, [token, newRequestNotificationsEnabled]);
+  }, [token, tailorOnline, newRequestNotificationsEnabled]);
 
   useEffect(() => {
     if (token) {
@@ -6336,7 +6389,7 @@ export default function App() {
     socketRef.current = socket;
 
     socket.on("tailoring:request_created", (request: TailoringRequest) => {
-      if (!request?.id) return;
+      if (!tailorOnline || !request?.id) return;
       setRequests((current) => current.some((item) => item.id === request.id) ? current : [request, ...current]);
       showNewRequestPopup(request);
     });
@@ -6372,11 +6425,11 @@ export default function App() {
       void refreshWorkspace();
     });
     socket.on("measurement:visit_offered", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (visit) showMeasurementVisitPopup(visit);
+      if (tailorOnline && visit) showMeasurementVisitPopup(visit);
       void refreshWorkspace();
     });
     socket.on("measurement:visit_pool", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (visit) showMeasurementVisitPopup(visit);
+      if (tailorOnline && visit) showMeasurementVisitPopup(visit);
       void refreshWorkspace();
     });
     socket.on("measurement:visit_assigned", () => {
@@ -6390,7 +6443,7 @@ export default function App() {
       socketRef.current = null;
       setConnectionStatus("Offline");
     };
-  }, [token, showRequestFromEvent, newRequestPopup?.id, me?.tailorProfile?.id]);
+  }, [token, tailorOnline, showRequestFromEvent, newRequestPopup?.id, me?.tailorProfile?.id]);
 
   useEffect(() => {
     if (!newRequestPopup) return undefined;
@@ -6486,7 +6539,7 @@ export default function App() {
   }
 
   let body;
-  if (screen === "dashboard") body = <DashboardScreen me={me} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
   if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
   const declineActiveRequest = (request: TailoringRequest) => {
     setDialog({
@@ -6542,7 +6595,7 @@ export default function App() {
       />
     );
   }
-  if (!body) body = <DashboardScreen me={me} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
 
   return (
     <SafeAreaProvider>
@@ -6689,12 +6742,12 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
   disabledButton: { opacity: 0.55 },
   tailorPrimaryCtaSlot: { width: "100%", marginTop: 14 },
-  tailorPrimaryCtaSurface: { position: "relative", width: "100%", height: 48, borderRadius: 12, borderWidth: 1, borderColor: "#d88a05", backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 46, overflow: "hidden" },
+  tailorPrimaryCtaSurface: { position: "relative", width: "100%", minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: "#d88a05", backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 52, paddingVertical: 15, overflow: "hidden" },
   tailorPrimaryCtaDisabled: { borderColor: "#d5dbe3", backgroundColor: "#e8ecf1" },
   tailorPrimaryCtaPressed: { backgroundColor: "#df9000", transform: [{ scale: 0.99 }] },
-  tailorPrimaryCtaText: { color: "#111111", fontSize: 14, lineHeight: 18, fontWeight: "900", textAlign: "center" },
+  tailorPrimaryCtaText: { color: "#111111", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
   tailorPrimaryCtaTextDisabled: { color: "#8b95a5" },
-  tailorPrimaryCtaArrow: { position: "absolute", right: 6, width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.34)", alignItems: "center", justifyContent: "center" },
+  tailorPrimaryCtaArrow: { position: "absolute", right: 7, width: 40, height: 40, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.34)", alignItems: "center", justifyContent: "center" },
   tailorPrimaryCtaArrowDisabled: { backgroundColor: "#dde2e8" },
   secondaryButton: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 12 },
   secondaryButtonText: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
@@ -6704,7 +6757,7 @@ const styles = StyleSheet.create({
   topDisclaimerText: { flex: 1, minWidth: 0 },
   topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
   topDisclaimerCopy: { color: "#b91c1c", fontSize: 12, fontWeight: "700", marginTop: 2 },
-  pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 118 },
+  pageContent: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 88 },
   requestDetailsContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 132 },
   // -- Request Details Header --
   rdHeader: { minHeight: 64, flexDirection: "row", alignItems: "center", marginBottom: 20, gap: 14 },
@@ -6872,7 +6925,17 @@ const styles = StyleSheet.create({
   requestsTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 29, fontWeight: "900" },
   requestsSubtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 4 },
   dashboardPageContent: { paddingTop: 18 },
-  dashboardHeader: { marginBottom: 12 },
+  dashboardHeader: { marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  dashboardHeadingCopy: { flex: 1, minWidth: 0 },
+  onlineControl: { minWidth: 94, minHeight: 40, borderRadius: 20, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 12 },
+  onlineControlActive: { backgroundColor: "#ecfdf5", borderColor: "#86efac" },
+  onlineControlInactive: { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1" },
+  onlineIndicator: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#94a3b8" },
+  onlineIndicatorActive: { backgroundColor: "#16a34a" },
+  onlineControlText: { color: "#64748b", fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  onlineControlTextActive: { color: "#15803d" },
+  offlineNotice: { minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#f8fafc", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 13, marginBottom: 12 },
+  offlineNoticeText: { flex: 1, color: "#64748b", fontSize: 11, lineHeight: 16, fontWeight: "800" },
   dashboardTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 28, fontWeight: "900" },
   dashboardSubtitle: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 2 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", marginBottom: 18 },

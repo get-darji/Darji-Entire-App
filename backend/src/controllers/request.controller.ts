@@ -1924,7 +1924,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
   });
 
   emitTailoringEvent({ type: "REQUEST_CREATED", requestId: request.id });
-  const verifiedTailors = await TailorModel.find({ verificationStatus: "VERIFIED" }).select("userId");
+  const verifiedTailors = await TailorModel.find({ verificationStatus: "VERIFIED", isAvailable: true }).select("userId");
   for (const tailor of verifiedTailors) emitToTailor(tailor.id, "tailoring:request_created", request.toJSON());
   await Promise.all(
     verifiedTailors.map((tailor) => sendNewRequestNotification({
@@ -1968,7 +1968,11 @@ export async function listTailoringRequestsController(req: Request, res: Respons
   if (req.user!.role === "CUSTOMER") {
     where.customerId = req.user!.id;
   } else if (req.user!.role === "TAILOR") {
-    const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id");
+    const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id isAvailable");
+    if ((!status || status === "QUOTE_REQUESTED") && !tailor?.isAvailable) {
+      res.json({ data: [] });
+      return;
+    }
     if (status && status !== "QUOTE_REQUESTED") {
       const ownQuotes = await TailorQuoteModel.find({
         tailorId: tailor?.id ?? "__none__",
@@ -2032,6 +2036,7 @@ export async function createTailorQuoteController(req: Request, res: Response) {
     { $setOnInsert: { userId: req.user!.id, shopName: "Darji Tailor", specialization: [] } },
     { upsert: true, returnDocument: "after" }
   );
+  if (!tailor.isAvailable) throw new AppError(400, "Go online before sending quotes");
 
   const existingQuote = await TailorQuoteModel.exists({ requestId: request.id, tailorId: tailor.id });
   if (existingQuote) throw new AppError(409, "Quote already submitted.");

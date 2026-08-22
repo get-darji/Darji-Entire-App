@@ -64,7 +64,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
 
   const [customer, stitchingTailor] = await Promise.all([
     UserModel.findById(request.customerId).select("name phone"),
-    TailorModel.findById(quote.tailorId).select("userId measurementPartner")
+    TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner")
   ]);
 
   const visit = await MeasurementVisitModel.findOneAndUpdate(
@@ -88,7 +88,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     { upsert: true, returnDocument: "after" }
   );
 
-  if (stitchingTailor?.userId) {
+  if (stitchingTailor?.userId && stitchingTailor.isAvailable) {
     await sendPushToUsers([stitchingTailor.userId], {
       title: "Measurement visit requested",
       body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${(request as any).preferredMeasurementSlot || "slot specified"}). Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
