@@ -79,13 +79,15 @@ function customerPushAllowed(preferences: unknown, payload: PushPayload, data: R
 
 function firebaseCredential() {
   if (env.FCM_SERVICE_ACCOUNT_JSON) {
-    return admin.credential.cert(JSON.parse(env.FCM_SERVICE_ACCOUNT_JSON.replace(/\\n/g, "\n")));
+    const serviceAccountJson = env.FCM_SERVICE_ACCOUNT_JSON.trim().replace(/^['"]|['"]$/g, "").replace(/\\n/g, "\n");
+    return admin.credential.cert(JSON.parse(serviceAccountJson));
   }
   if (env.FCM_PROJECT_ID && env.FCM_CLIENT_EMAIL && env.FCM_PRIVATE_KEY) {
+    const privateKey = env.FCM_PRIVATE_KEY.trim().replace(/^['"]|['"]$/g, "").replace(/\\n/g, "\n");
     return admin.credential.cert({
       projectId: env.FCM_PROJECT_ID,
       clientEmail: env.FCM_CLIENT_EMAIL,
-      privateKey: env.FCM_PRIVATE_KEY.replace(/\\n/g, "\n")
+      privateKey
     });
   }
   return undefined;
@@ -108,8 +110,13 @@ export function initFirebaseAdmin() {
   const credential = firebaseCredential();
   if (!credential) return;
 
-  admin.initializeApp({ credential, projectId: env.FCM_PROJECT_ID });
-  firebaseReady = true;
+  try {
+    admin.initializeApp({ credential, projectId: env.FCM_PROJECT_ID });
+    firebaseReady = true;
+  } catch (error) {
+    firebaseReady = false;
+    console.error("Firebase Admin initialization failed. Push notifications are disabled until FCM credentials are fixed.", error);
+  }
 }
 
 export async function saveFcmToken(userId: string, input: { token: string; platform?: string; app?: string }) {
