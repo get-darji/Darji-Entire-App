@@ -51,13 +51,13 @@ internal class IncomingAlertView(
     val level = serviceLevel()
     val isInstant = level.contains("INSTANT", ignoreCase = true)
 
-    val accent = if (isMeasurementVisit) Color.rgb(6, 182, 212) else if (isInstant) Color.rgb(220, 38, 38) else Color.rgb(246, 163, 19)
-    val deep = if (isMeasurementVisit) Color.WHITE else if (isInstant) Color.rgb(127, 29, 29) else Color.rgb(11, 34, 65)
-    val muted = if (isMeasurementVisit) Color.rgb(165, 243, 252) else if (isInstant) Color.rgb(153, 27, 27) else Color.rgb(101, 116, 138)
-    val cardBackground = if (isMeasurementVisit) Color.rgb(7, 26, 43) else if (isInstant) Color.rgb(254, 242, 242) else Color.WHITE
-    val strokeColor = if (isMeasurementVisit) Color.rgb(6, 182, 212) else if (isInstant) Color.rgb(220, 38, 38) else Color.rgb(239, 207, 146)
+    val accent = if (isInstant) Color.rgb(220, 38, 38) else Color.rgb(246, 163, 19)
+    val deep = Color.rgb(11, 34, 65)
+    val muted = Color.rgb(101, 116, 138)
+    val cardBackground = if (isInstant) Color.rgb(255, 245, 245) else Color.WHITE
+    val strokeColor = if (isInstant) Color.rgb(248, 113, 113) else Color.rgb(239, 207, 146)
 
-    setBackgroundColor(if (isMeasurementVisit) Color.argb(245, 4, 15, 26) else if (isInstant) Color.argb(242, 69, 10, 10) else Color.argb(238, 7, 13, 24))
+    setBackgroundColor(if (isInstant) Color.argb(238, 58, 8, 8) else Color.argb(238, 7, 13, 24))
     isClickable = true
     setPadding(dp(18), dp(36), dp(18), dp(36))
 
@@ -65,7 +65,7 @@ internal class IncomingAlertView(
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_HORIZONTAL
       setPadding(dp(22), dp(22), dp(22), dp(22))
-      background = rounded(cardBackground, 8f, strokeColor, if (isInstant) 3 else 2)
+      background = rounded(cardBackground, 8f, strokeColor, 1)
       elevation = dp(12).toFloat()
     }
     addView(card, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
@@ -87,12 +87,12 @@ internal class IncomingAlertView(
     })
 
     timer.apply {
-      setTextColor(if (isMeasurementVisit) Color.rgb(250, 204, 21) else accent)
+      setTextColor(accent)
       textSize = 16f
       typeface = Typeface.DEFAULT_BOLD
       gravity = Gravity.CENTER
       setPadding(dp(12), dp(10), dp(12), dp(10))
-      background = rounded(if (isMeasurementVisit) Color.rgb(15, 42, 66) else Color.rgb(17, 17, 17), 12f, if (isMeasurementVisit) Color.rgb(6, 182, 212) else null, 1)
+      background = rounded(Color.rgb(17, 17, 17), 12f)
     }
     header.addView(timer, LinearLayout.LayoutParams(dp(72), LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(12) })
 
@@ -110,7 +110,7 @@ internal class IncomingAlertView(
     })
 
     val body = payload.optString("body").ifBlank { "A new order is waiting for your response." }
-    card.addView(label(body, 14f, if (isMeasurementVisit) Color.rgb(226, 232, 240) else if (isInstant) Color.rgb(127, 29, 29) else Color.rgb(37, 42, 51), Typeface.NORMAL).apply {
+    card.addView(label(body, 14f, Color.rgb(37, 42, 51), Typeface.NORMAL).apply {
       setPadding(0, dp(12), 0, dp(12))
       setLineSpacing(0f, 1.14f)
       maxLines = 3
@@ -146,7 +146,7 @@ internal class IncomingAlertView(
       rightMargin = dp(5)
     })
     buttons.addView(
-      button(if (tailor) "Send quote" else "Accept", accent, if (isInstant) Color.WHITE else Color.rgb(17, 17, 17), onAccept),
+      button(if (tailor) "Send quote" else "Accept", accent, Color.rgb(17, 17, 17), onAccept),
       LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(5) }
     )
 

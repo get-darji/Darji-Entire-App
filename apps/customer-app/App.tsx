@@ -1201,11 +1201,11 @@ function measurementStatusForItem(item: Pick<ClothingItemDraft, "sampleProvided"
   return "Not added";
 }
 
-function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" | "sampleProvided" | "homeMeasurementBooked">) {
+function notesForClothingItem(item: Pick<ClothingItemDraft, "measurementNotes" | "sampleProvided" | "homeMeasurementBooked" | "preferredMeasurementSlot">) {
   return [
     item.measurementNotes?.trim(),
     item.sampleProvided ? "Customer will provide a non-stretch sample garment as a reference." : undefined,
-    item.homeMeasurementBooked ? `Customer requested an at-home measurement visit. Fee: Rs${HOME_MEASUREMENT_FEE}.` : undefined
+    item.homeMeasurementBooked ? `Preferred tailor visit: ${item.preferredMeasurementSlot || "Time slot selected by customer"}.` : undefined
   ]
     .filter(Boolean)
     .join("\n");
@@ -9504,16 +9504,24 @@ function OrdersScreenV2({
     { key: "history" as const, label: "History", shortLabel: "History", icon: "time-outline" as const, items: historyOrders },
     { key: "cancelled" as const, label: "Cancelled", shortLabel: "Cancelled", icon: "close-circle-outline" as const, items: cancelledOrders }
   ];
+  const tabTones = {
+    incomplete: { color: "#2563eb", backgroundColor: "#eff6ff", borderColor: "#bfdbfe", iconBackground: "#dbeafe" },
+    active: { color: "#c76f00", backgroundColor: "#fff7ed", borderColor: "#fed7aa", iconBackground: "#ffedd5" },
+    history: { color: "#15803d", backgroundColor: "#f0fdf4", borderColor: "#bbf7d0", iconBackground: "#dcfce7" },
+    cancelled: { color: "#b91c1c", backgroundColor: "#fff1f2", borderColor: "#fecaca", iconBackground: "#fee2e2" }
+  };
   const activeItems = tabs.find((tab) => tab.key === activeTab)?.items ?? incompleteOrders;
-  const renderOrderCard = (order: CustomerOrder) => (
+  const renderOrderCard = (order: CustomerOrder) => {
+    const tone = tabTones[activeTab];
+    return (
     <Pressable
       key={order.id}
-      style={styles.orderCardV2}
+      style={[styles.orderCardV2, { backgroundColor: tone.backgroundColor, borderColor: tone.borderColor }]}
       onPress={() => onOpenOrder(order)}
     >
       <View style={styles.orderBatchLayout}>
-        <View style={styles.orderBatchIcon}>
-          <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
+        <View style={[styles.orderBatchIcon, { backgroundColor: tone.iconBackground }]}>
+          <Ionicons name="cube-outline" size={22} color={tone.color} />
         </View>
         <View style={styles.orderBatchMain}>
           <Text style={styles.orderNumber} numberOfLines={1}>{order.orderNumber}</Text>
@@ -9534,10 +9542,11 @@ function OrdersScreenV2({
       <View style={styles.orderCardDivider} />
       <View style={styles.orderBottomRow}>
         <Text style={styles.orderPickupText} numberOfLines={1}>{order.status === "Cancelled" ? "Order cancelled" : `Pickup: ${order.pickupWindow}`}</Text>
-        <Text style={styles.orderPrice}>Rs{order.total}</Text>
+        <Text style={[styles.orderPrice, { color: tone.color }]}>Rs{order.total}</Text>
       </View>
     </Pressable>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -9561,13 +9570,17 @@ function OrdersScreenV2({
         ) : (
           <>
             <View style={styles.orderTabRow}>
-              {tabs.map((tab) => (
-                <Pressable key={tab.key} style={[styles.orderTabButton, activeTab === tab.key && styles.orderTabButtonActive]} onPress={() => setActiveTab(tab.key)}>
-                  <Ionicons name={tab.icon} size={23} color={activeTab === tab.key ? BRAND_ORANGE : "#65748a"} />
-                  <Text style={[styles.orderTabText, activeTab === tab.key && styles.orderTabTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{tab.shortLabel}</Text>
-                  <Text style={styles.orderTabCount}>{tab.items.length}</Text>
-                </Pressable>
-              ))}
+              {tabs.map((tab) => {
+                const tone = tabTones[tab.key];
+                const selected = activeTab === tab.key;
+                return (
+                  <Pressable key={tab.key} style={[styles.orderTabButton, { borderColor: tone.borderColor, backgroundColor: tone.backgroundColor, opacity: selected ? 1 : 0.72 }]} onPress={() => setActiveTab(tab.key)}>
+                    <Ionicons name={tab.icon} size={23} color={tone.color} />
+                    <Text style={[styles.orderTabText, { color: tone.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{tab.shortLabel}</Text>
+                    <Text style={[styles.orderTabCount, { color: tone.color }]}>{tab.items.length}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
             <Text style={styles.helperText}>
               {activeTab === "incomplete"
@@ -11746,8 +11759,8 @@ function createStyles(isDark = false) {
   dialogDestructiveButton: { backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1" },
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
-  pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 118 },
-  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 118 },
+  pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 88 },
+  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 88 },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
   mutedSmall: { color: subtle, fontSize: 12 },
@@ -12687,7 +12700,7 @@ function createStyles(isDark = false) {
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
   liveMapCard: { minHeight: 138, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", padding: 16, gap: 8 },
-  preferencePageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 132 },
+  preferencePageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 88 },
   preferenceIntro: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 19, marginTop: -8, marginBottom: 18, maxWidth: 268 },
   preferenceSectionLabel: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", marginTop: 10, marginBottom: 8, letterSpacing: 0.3 },
   languageOptionList: { gap: 12, marginTop: 28 },
@@ -12869,7 +12882,7 @@ function createStyles(isDark = false) {
   faqIcon: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   faqQuestion: { flex: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "900", lineHeight: 16 },
   faqAnswer: { color: muted, fontSize: 10, fontWeight: "800", lineHeight: 15, marginTop: 8, paddingLeft: 31 },
-  searchPageContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 104 },
+  searchPageContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 88 },
   searchHeroHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
   profileRowTextNoMargin: { flex: 1, minWidth: 0 },
   searchHeroTitle: { color: text, fontSize: 29, fontWeight: "900", lineHeight: 34 },

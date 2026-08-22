@@ -2319,17 +2319,17 @@ function getQueueTabStyle(item: "requested" | "accepted" | "history" | "cancelle
   let text = "#64748b";
   
   if (item === "requested") {
-    bg = active ? "#fff7ed" : "#ffffff";
-    border = active ? "#f97316" : "#cbd5e1";
-    text = "#ea580c";
-  } else if (item === "accepted") {
-    bg = active ? "#e8f8f0" : "#ffffff";
-    border = active ? "#22c55e" : "#cbd5e1";
-    text = "#16a34a";
-  } else if (item === "history") {
     bg = active ? "#eff6ff" : "#ffffff";
     border = active ? "#3b82f6" : "#cbd5e1";
     text = "#2563eb";
+  } else if (item === "accepted") {
+    bg = active ? "#fff7ed" : "#ffffff";
+    border = active ? "#f97316" : "#cbd5e1";
+    text = "#c2410c";
+  } else if (item === "history") {
+    bg = active ? "#f0fdf4" : "#ffffff";
+    border = active ? "#22c55e" : "#cbd5e1";
+    text = "#15803d";
   } else if (item === "cancelled") {
     bg = active ? "#fef2f2" : "#ffffff";
     border = active ? "#ef4444" : "#cbd5e1";
@@ -2466,18 +2466,21 @@ function OrdersScreen({
         
         const isInstant = item.isInstant || item.requests.some((request) => request.serviceLevel === "INSTANT");
         const isActiveTime = queue === "accepted" && !isInstant && item.deliveryRound === expectedRound;
+        const queueCardStyle = queue === "requested" ? styles.requestedOrderCard : queue === "accepted" ? styles.activeOrderCard : queue === "history" ? styles.completedOrderCard : styles.cancelledOrderCard;
+        const queueIconStyle = queue === "requested" ? styles.requestedOrderIcon : queue === "accepted" ? styles.activeOrderIcon : queue === "history" ? styles.completedOrderIcon : styles.cancelledOrderIcon;
 
         return (
         <Pressable 
           style={[
             styles.orderCard, 
+            queueCardStyle,
             isInstant && styles.instantOrderCard,
             isActiveTime && { borderColor: "#10b981", borderWidth: 2 }
           ]} 
           onPress={() => onOpenBatch(item.batchId)}
         >
           <View style={styles.cardTopRow}>
-            <View style={[styles.iconTile, isInstant && styles.instantIconTile]}>
+            <View style={[styles.iconTile, queueIconStyle, isInstant && styles.instantIconTile]}>
               <Ionicons name={isInstant ? "flash-outline" : item.deliveryType === "PICKUP" ? "arrow-up-circle-outline" : "arrow-down-circle-outline"} size={22} color={isInstant ? "#dc2626" : isActiveTime ? "#10b981" : BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
@@ -4444,6 +4447,14 @@ const styles = StyleSheet.create({
   countdownCopy: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 3 },
   helperWarning: { color: "#8a5600", backgroundColor: "#fff4dc", overflow: "hidden", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 12, lineHeight: 18, fontWeight: "900", marginTop: 10, marginBottom: 4 },
   orderCard: { borderRadius: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 13 },
+  requestedOrderCard: { backgroundColor: "#eff6ff", borderColor: "#bfdbfe" },
+  activeOrderCard: { backgroundColor: "#fff7ed", borderColor: "#fed7aa" },
+  completedOrderCard: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },
+  cancelledOrderCard: { backgroundColor: "#fff1f2", borderColor: "#fecaca" },
+  requestedOrderIcon: { backgroundColor: "#dbeafe" },
+  activeOrderIcon: { backgroundColor: "#ffedd5" },
+  completedOrderIcon: { backgroundColor: "#dcfce7" },
+  cancelledOrderIcon: { backgroundColor: "#fee2e2" },
   instantOrderCard: { backgroundColor: "#fff7f7", borderColor: "#fecaca", borderWidth: 2 },
   instantIconTile: { backgroundColor: "#fee2e2" },
   priceText: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900", marginTop: 10 },
