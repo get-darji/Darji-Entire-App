@@ -10,7 +10,7 @@ import type { DeliveryPartnerProfile } from "../types/admin";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
-  "https://darji-entire-app-production.up.railway.app/api";
+  "https://backend-production-5a7e4.up.railway.app/api";
 const SOCKET_URL = API_URL.replace(/\/api$/, "");
 const STALE_MS = 5 * 60 * 1000;
 const addressCache = new Map<string, string>();

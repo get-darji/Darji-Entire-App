@@ -170,7 +170,7 @@ export default function SupportCommandCenter({
   useEffect(() => {
     if (!token) return;
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://darji-entire-app-production.up.railway.app/api";
+    const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
     const SOCKET_URL = API_URL.replace(/\/api$/, "");
 
     const socket = io(SOCKET_URL, {
