@@ -5,8 +5,9 @@ import { displayIncomingRequestNotification } from "./NotificationService";
 declare const require: (moduleName: string) => { default?: typeof messaging };
 
 export function isIncomingRequestData(data: Record<string, unknown>) {
-  if (String(data.darjiIncomingRequest).toLowerCase() === "true") return true;
   const type = String(data.type ?? data.event ?? data.notificationType ?? "");
+  if (/measurement[_:\s-]*visit[_:\s-]*assigned/i.test(type)) return false;
+  if (String(data.darjiIncomingRequest).toLowerCase() === "true") return true;
   return /incoming|new_request|request_created|assignment|measurement_visit|delivery_batch_ready|task_created|pickup_assigned/i.test(type);
 }
 

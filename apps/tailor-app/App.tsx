@@ -5766,7 +5766,7 @@ function MeasurementVisitPopup({
             <Ionicons name="time-outline" size={18} color="#0891b2" />
             <View style={styles.cardMain}>
               <Text style={styles.measureVisitLabel}>Preferred visit time</Text>
-              <Text style={styles.measurementPopupInfoText}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
+              <Text style={[styles.measurementPopupInfoText, styles.measurementPopupSlotText]}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
             </View>
           </View>
           <View style={styles.measurementPopupInfo}>
@@ -7351,6 +7351,7 @@ const styles = StyleSheet.create({
   measurementPopupEyebrow: { color: "#0891b2", fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 0.9, marginTop: 14 },
   measurementPopupInfo: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: "#67e8f9", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 9, marginTop: 10 },
   measurementPopupInfoText: { flex: 1, minWidth: 0, color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  measurementPopupSlotText: { color: "#dc2626", fontSize: 14, lineHeight: 19, fontWeight: "900" },
   measurementPopupActions: { flexDirection: "row", gap: 10, marginTop: 14 },
   measurementPopupDenyButton: { flex: 1, minHeight: 52, borderRadius: 14, borderWidth: 1.2, borderColor: BRAND_DEEP, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   measurementPopupDenyText: { color: BRAND_DEEP, fontSize: 14, lineHeight: 18, fontWeight: "900" },

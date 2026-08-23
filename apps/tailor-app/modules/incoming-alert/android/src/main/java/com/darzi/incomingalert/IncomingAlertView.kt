@@ -216,7 +216,12 @@ internal class IncomingAlertView(
     setPadding(0, dp(8), 0, dp(8))
     if (!last) background = rounded(Color.TRANSPARENT, 0f, Color.rgb(238, 242, 247), 1)
     addView(label(caption, 12f, Color.rgb(101, 116, 138), Typeface.BOLD), LinearLayout.LayoutParams(dp(92), LayoutParams.WRAP_CONTENT))
-    addView(label(value, 14f, if (caption == "Type") accent else Color.rgb(11, 34, 65), Typeface.BOLD).apply {
+    val valueColor = when (caption) {
+      "Slot" -> Color.rgb(220, 38, 38)
+      "Type" -> accent
+      else -> Color.rgb(11, 34, 65)
+    }
+    addView(label(value, 14f, valueColor, Typeface.BOLD).apply {
       gravity = Gravity.END
       maxLines = 2
     }, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))

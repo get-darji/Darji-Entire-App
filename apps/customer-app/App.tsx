@@ -9877,11 +9877,18 @@ function OrderDetailsScreenV2({
 }) {
   const token = useAppStore((state) => state.token);
   const [savingRating, setSavingRating] = useState<"tailor" | "delivery" | undefined>();
+  const [measurementVisit, setMeasurementVisit] = useState<MeasurementVisitOtp | undefined>();
+  const handleMeasurementVisitLoaded = useCallback((visit?: MeasurementVisitOtp) => {
+    setMeasurementVisit(visit);
+  }, []);
+  useEffect(() => {
+    setMeasurementVisit(undefined);
+  }, [order.id]);
   const pickupSchedule = pickupScheduleForOrder(order);
   const estimatedTime = estimatedTimeForOrder(order);
   const orderItems = clothingItemsForDraft(order.draft);
   const measurementEntries = orderMeasurementEntries(order);
-  const measurementSlot = measurementSlotForDraft(order.draft);
+  const measurementSlot = measurementSlotForDraft(order.draft) ?? measurementVisit?.preferredMeasurementSlot?.trim();
   const itemTotal = Math.max(
     order.total -
       (order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)) -
@@ -9961,7 +9968,7 @@ function OrderDetailsScreenV2({
         <Text style={styles.sectionTitle}>Order Progress</Text>
         <OrderProgressStrip status={order.status} />
         <CustomerHandoffOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
-        <CustomerMeasurementOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
+        <CustomerMeasurementOtpCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} onVisitLoaded={handleMeasurementVisitLoaded} />
         <CustomerEtaCard orderId={order.backendOrderId ?? order.tailor.backendRequestId} status={order.status} />
 
         <Text style={styles.sectionTitle}>Order Items</Text>
@@ -10248,16 +10255,25 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
   );
 }
 
-function CustomerMeasurementOtpCard({ orderId, status }: { orderId?: string; status: string }) {
+function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderId?: string; status: string; onVisitLoaded?: (visit?: MeasurementVisitOtp) => void }) {
   const token = useAppStore((state) => state.token);
   const [visit, setVisit] = useState<MeasurementVisitOtp | undefined>();
 
   useEffect(() => {
-    if (!token || !orderId) return;
+    if (!token || !orderId) {
+      onVisitLoaded?.(undefined);
+      return;
+    }
     void api<MeasurementVisitOtp>(`/tailoring-requests/${orderId}/measurement-visit/otp`, {}, token)
-      .then(setVisit)
-      .catch(() => setVisit(undefined));
-  }, [orderId, status, token]);
+      .then((nextVisit) => {
+        setVisit(nextVisit);
+        onVisitLoaded?.(nextVisit);
+      })
+      .catch(() => {
+        setVisit(undefined);
+        onVisitLoaded?.(undefined);
+      });
+  }, [onVisitLoaded, orderId, status, token]);
 
   if (!visit || ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)) return null;
   const preferredSlot = visit.preferredMeasurementSlot?.trim();
