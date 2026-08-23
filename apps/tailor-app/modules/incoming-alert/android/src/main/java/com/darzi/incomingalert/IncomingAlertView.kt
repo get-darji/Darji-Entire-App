@@ -51,13 +51,29 @@ internal class IncomingAlertView(
     val level = serviceLevel()
     val isInstant = level.contains("INSTANT", ignoreCase = true)
 
-    val accent = if (isInstant) Color.rgb(220, 38, 38) else Color.rgb(246, 163, 19)
+    val accent = when {
+      isMeasurementVisit -> Color.rgb(8, 145, 178)
+      isInstant -> Color.rgb(220, 38, 38)
+      else -> Color.rgb(246, 163, 19)
+    }
     val deep = Color.rgb(11, 34, 65)
     val muted = Color.rgb(101, 116, 138)
-    val cardBackground = if (isInstant) Color.rgb(255, 245, 245) else Color.WHITE
-    val strokeColor = if (isInstant) Color.rgb(248, 113, 113) else Color.rgb(239, 207, 146)
+    val cardBackground = when {
+      isMeasurementVisit -> Color.rgb(236, 254, 255)
+      isInstant -> Color.rgb(255, 245, 245)
+      else -> Color.WHITE
+    }
+    val strokeColor = when {
+      isMeasurementVisit -> Color.rgb(103, 232, 249)
+      isInstant -> Color.rgb(248, 113, 113)
+      else -> Color.rgb(239, 207, 146)
+    }
 
-    setBackgroundColor(if (isInstant) Color.argb(238, 58, 8, 8) else Color.argb(238, 7, 13, 24))
+    setBackgroundColor(when {
+      isMeasurementVisit -> Color.argb(238, 6, 55, 69)
+      isInstant -> Color.argb(238, 58, 8, 8)
+      else -> Color.argb(238, 7, 13, 24)
+    })
     isClickable = true
     setPadding(dp(18), dp(36), dp(18), dp(36))
 
@@ -140,15 +156,20 @@ internal class IncomingAlertView(
       gravity = Gravity.CENTER
     }
     card.addView(buttons, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(58)))
-    buttons.addView(button("Reject", Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(5) })
-    buttons.addView(button("View details", Color.WHITE, deep, onViewDetails, Color.rgb(219, 226, 236)), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
-      leftMargin = dp(5)
-      rightMargin = dp(5)
-    })
-    buttons.addView(
-      button(if (tailor) "Send quote" else "Accept", accent, Color.rgb(17, 17, 17), onAccept),
-      LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(5) }
-    )
+    if (isMeasurementVisit) {
+      buttons.addView(button("Deny", Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(6) })
+      buttons.addView(button("Accept", accent, Color.WHITE, onAccept), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(6) })
+    } else {
+      buttons.addView(button("Reject", Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(5) })
+      buttons.addView(button("View details", Color.WHITE, deep, onViewDetails, Color.rgb(219, 226, 236)), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+        leftMargin = dp(5)
+        rightMargin = dp(5)
+      })
+      buttons.addView(
+        button(IncomingAlertManager.labelForAccept(payload), accent, Color.rgb(17, 17, 17), onAccept),
+        LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(5) }
+      )
+    }
 
     handler.post(tick)
   }
@@ -221,7 +242,13 @@ internal class IncomingAlertView(
 
   private fun details(tailor: Boolean): List<Pair<String, String>> {
     val rows = mutableListOf<Pair<String, String>>()
-    if (tailor) {
+    if (IncomingAlertManager.isMeasurementVisit(payload)) {
+      addIfPresent(rows, "Slot", first("preferredMeasurementSlot", "slot"))
+      addIfPresent(rows, "Address", first("pickupAddress", "pickup", "pickupArea"))
+      addIfPresent(rows, "Payout", payoutLabel(first("visitPayout", "expectedEarnings", "payout", "earnings")))
+      addIfPresent(rows, "Customer", first("customerName", "customer"))
+      addIfPresent(rows, "Cloth", first("garmentSummary", "clothType", "cloth", "itemType"))
+    } else if (tailor) {
       addIfPresent(rows, "Slot", first("preferredMeasurementSlot", "slot"))
       addIfPresent(rows, "Cloth", first("clothType", "cloth", "itemType"))
       addIfPresent(rows, "Work", first("workType", "stitchingType", "service"))
@@ -252,6 +279,11 @@ internal class IncomingAlertView(
 
   private fun addIfPresent(rows: MutableList<Pair<String, String>>, label: String, value: String) {
     if (value.isNotBlank()) rows.add(label to value)
+  }
+
+  private fun payoutLabel(value: String): String {
+    if (value.isBlank()) return ""
+    return if (value.startsWith("Rs", ignoreCase = true) || value.startsWith("₹")) value else "Rs $value"
   }
 
   private fun first(vararg keys: String): String {

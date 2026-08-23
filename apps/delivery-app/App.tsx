@@ -14,7 +14,6 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   AppState,
   BackHandler,
   FlatList,
@@ -425,32 +424,6 @@ type PullToRefreshState = {
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
 
-function PullRefreshReveal({ visible }: { visible: boolean }) {
-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.timing(progress, {
-      duration: visible ? 220 : 160,
-      toValue: visible ? 1 : 0,
-      useNativeDriver: false
-    }).start();
-  }, [progress, visible]);
-
-  return (
-    <Animated.View
-      style={{
-        alignItems: "center",
-        height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 54] }),
-        justifyContent: "center",
-        opacity: progress,
-        overflow: "hidden"
-      }}
-    >
-      <ActivityIndicator color={BRAND_ORANGE} />
-    </Animated.View>
-  );
-}
-
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
   const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
@@ -460,16 +433,17 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollV
       horizontal={horizontal}
       refreshControl={canRefresh ? (
         <RefreshControl
-          colors={["transparent"]}
-          progressBackgroundColor="transparent"
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
           refreshing={pullToRefresh.refreshing}
-          tintColor="transparent"
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
           onRefresh={pullToRefresh.onRefresh ?? (() => undefined)}
         />
       ) : refreshControl}
       {...props}
     >
-      {canRefresh ? <PullRefreshReveal visible={pullToRefresh.refreshing} /> : null}
       {children}
     </RNScrollView>
   );
@@ -2401,15 +2375,16 @@ function OrdersScreen({
       keyExtractor={(item) => item.batchId}
       refreshControl={
         <RefreshControl
-          colors={["transparent"]}
-          progressBackgroundColor="transparent"
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
           refreshing={pullToRefresh.refreshing}
-          tintColor="transparent"
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
           onRefresh={pullToRefresh.onRefresh}
         />
       }
       ListHeaderComponent={<>
-        <PullRefreshReveal visible={pullToRefresh.refreshing} />
         <Header
           subtitle={
             queue === "requested" ? "View new delivery batches waiting for your response." :

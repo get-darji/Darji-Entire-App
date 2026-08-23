@@ -9881,6 +9881,7 @@ function OrderDetailsScreenV2({
   const estimatedTime = estimatedTimeForOrder(order);
   const orderItems = clothingItemsForDraft(order.draft);
   const measurementEntries = orderMeasurementEntries(order);
+  const measurementSlot = measurementSlotForDraft(order.draft);
   const itemTotal = Math.max(
     order.total -
       (order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)) -
@@ -9987,6 +9988,12 @@ function OrderDetailsScreenV2({
           <>
             <Text style={styles.sectionTitle}>Submitted Measurements</Text>
             <View style={styles.orderMeasurementsCard}>
+              {measurementSlot ? (
+                <View style={styles.customerMeasurementSlotBox}>
+                  <Text style={styles.customerMeasurementSlotLabel}>Preferred Tailor Visit</Text>
+                  <Text style={styles.customerMeasurementSlotValue}>{measurementSlot}</Text>
+                </View>
+              ) : null}
               {measurementEntries.map((item, index) => (
                 <View key={item.id} style={[styles.customerMeasurementBlock, index > 0 && styles.customerMeasurementBlockBorder]}>
                   <View style={styles.orderIssueRow}>
@@ -10022,7 +10029,7 @@ function OrderDetailsScreenV2({
             <SummaryRow label="Small Order Fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} />
           ) : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
-          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Measurement Slot" value={measurementSlotForDraft(order.draft)!} /> : null}
+          {measurementSlot ? <SummaryRow label="Measurement Slot" value={measurementSlot} /> : null}
           {order.discountAmount ? <SummaryRow label={`Discount ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total Amount" value={`Rs${order.total}`} strong />
@@ -10032,7 +10039,7 @@ function OrderDetailsScreenV2({
         <View style={styles.orderDetailsCard}>
           <SummaryRow label="Pickup Address" value={order.draft.pickup || "Not selected"} />
           <SummaryRow label="Pickup Time" value={`${pickupSchedule.date}, ${pickupSchedule.timeSlot}`} />
-          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Preferred Tailor Visit" value={measurementSlotForDraft(order.draft)!} /> : null}
+          {measurementSlot ? <SummaryRow label="Preferred Tailor Visit" value={measurementSlot} tone="negative" /> : null}
           <SummaryRow label="Estimated Delivery" value={estimatedTime.delivery} />
           <SummaryRow label="Payment Method" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Tailor" value={order.tailor.name} />
@@ -10190,6 +10197,17 @@ function formatDeliveryTime(value?: string) {
   return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
+function deliveryBatchWindowLabel(task: HandoffOtp) {
+  const round = String(task.deliveryRound ?? "").toUpperCase();
+  if (round !== "ONE_PM" && round !== "SIX_PM") return undefined;
+  const rawDate = task.roundAt ?? task.nextScheduledBatch ?? task.etaWindowStart;
+  const date = rawDate ? new Date(rawDate) : undefined;
+  const dateLabel = date && !Number.isNaN(date.getTime())
+    ? `${date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}, `
+    : "";
+  return `${dateLabel}${round === "ONE_PM" ? "1:00 PM - 2:00 PM" : "6:00 PM - 7:00 PM"}`;
+}
+
 function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string }) {
   const token = useAppStore((state) => state.token);
   const [tasks, setTasks] = useState<HandoffOtp[]>([]);
@@ -10206,7 +10224,8 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
     <View style={[styles.whiteCard, styles.etaAlertCard]}>
       <Text style={styles.etaAlertLabel}>EXPECTED DELIVERY TIME</Text>
       {visibleTasks.map((task) => {
-        const start = formatDeliveryTime(task.etaWindowStart ?? task.nextScheduledBatch ?? task.roundAt);
+        const batchWindow = deliveryBatchWindowLabel(task);
+        const start = batchWindow || formatDeliveryTime(task.etaWindowStart ?? task.nextScheduledBatch ?? task.roundAt);
         const end = formatDeliveryTime(task.etaWindowEnd);
         const label = task.type === "customer_to_tailor" ? "Pickup window" : "Delivery window";
         return (
@@ -10214,7 +10233,7 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
             <View style={{ flex: 1 }}>
               <Text style={styles.etaAlertTitle}>{label}</Text>
               <Text style={styles.etaAlertTime}>
-                {start}{end ? ` - ${end}` : ""}
+                {start}{!batchWindow && end ? ` - ${end}` : ""}
                 {task.retryStatus === "PENDING_RETRY" ? ` • Retry ${task.retryCount ?? 0}/3` : ""}
               </Text>
               {task.lastFailureReason ? <Text style={styles.etaAlertIssue}>Last issue: {task.lastFailureReason}</Text> : null}
@@ -12509,6 +12528,9 @@ function createStyles(isDark = false) {
   customerMeasurementLabel: { color: muted, fontSize: 10, lineHeight: 13, fontWeight: "900" },
   customerMeasurementValue: { color: text, fontSize: 13, lineHeight: 17, fontWeight: "900", marginTop: 2 },
   customerMeasurementNote: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "800" },
+  customerMeasurementSlotBox: { borderRadius: 13, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
+  customerMeasurementSlotLabel: { color: "#991b1b", fontSize: 11, lineHeight: 15, fontWeight: "900", textTransform: "uppercase" },
+  customerMeasurementSlotValue: { color: "#dc2626", fontSize: 17, lineHeight: 22, fontWeight: "900", marginTop: 3 },
   orderItemLine: { minHeight: 74, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
   orderItemLineBorder: { borderTopWidth: 1, borderTopColor: border },
   orderLineThumb: { width: 56, height: 56, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },

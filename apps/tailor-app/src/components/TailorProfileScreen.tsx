@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { ActivityIndicator, Animated, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
 import { api, deleteTailorSample, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -78,18 +78,6 @@ type PullToRefreshState = {
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
 
-function PullRefreshReveal({ visible }: { visible: boolean }) {
-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(progress, { duration: visible ? 220 : 160, toValue: visible ? 1 : 0, useNativeDriver: false }).start();
-  }, [progress, visible]);
-  return (
-    <Animated.View style={{ alignItems: "center", height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 54] }), justifyContent: "center", opacity: progress, overflow: "hidden" }}>
-      <ActivityIndicator color={BRAND_ORANGE} />
-    </Animated.View>
-  );
-}
-
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
   const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
@@ -99,16 +87,17 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScr
       horizontal={horizontal}
       refreshControl={canRefresh ? (
         <RefreshControl
-          colors={["transparent"]}
-          progressBackgroundColor="transparent"
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
           refreshing={pullToRefresh.refreshing}
-          tintColor="transparent"
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
           onRefresh={pullToRefresh.onRefresh}
         />
       ) : refreshControl}
       {...props}
     >
-      {canRefresh ? <PullRefreshReveal visible={pullToRefresh.refreshing} /> : null}
       {children}
     </RNScrollView>
   );

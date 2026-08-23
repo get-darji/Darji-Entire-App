@@ -21,6 +21,7 @@ const BRAND_DEEP = "#0b2241";
 const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
+const MEASUREMENT_CYAN = "#0891b2";
 
 function formatTimer(seconds: number) {
   return `00:${String(seconds).padStart(2, "0")}`;
@@ -115,39 +116,44 @@ export function IncomingRequestScreen({
 
   if (!request) return null;
   const rows = request.rows ?? [];
+  const isMeasurementVisit =
+    request.requestType === "measurement" ||
+    /measurement/i.test(`${request.title} ${request.subtitle ?? ""}`) ||
+    rows.some((row) => /measurement|preferred visit|slot/i.test(row.label));
+  const accent = isMeasurementVisit ? MEASUREMENT_CYAN : BRAND_ORANGE;
   const title = request.title || (request.requestType === "pickup" ? "Incoming Pickup Request" : "Incoming Delivery Request");
   const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.02] });
 
   return (
     <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={() => undefined}>
-      <StatusBar barStyle="light-content" backgroundColor="#070d18" translucent />
+      <StatusBar barStyle="light-content" backgroundColor={isMeasurementVisit ? "#063745" : "#070d18"} translucent />
       <Animated.View style={[styles.backdrop, { opacity: fade }]}>
         <SafeAreaView style={styles.safe}>
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            <Animated.View style={[styles.card, { transform: [{ translateY: slide }] }]}>
+            <Animated.View style={[styles.card, isMeasurementVisit && styles.measurementCard, { transform: [{ translateY: slide }] }]}>
               <View style={styles.header}>
-                <View style={styles.iconWrap}>
-                  <Ionicons name={request.requestType === "pickup" ? "cube-outline" : "bicycle-outline"} size={28} color={BRAND_ORANGE} />
+                <View style={[styles.iconWrap, isMeasurementVisit && styles.measurementIconWrap]}>
+                  <Ionicons name={isMeasurementVisit ? "resize-outline" : request.requestType === "pickup" ? "cube-outline" : "bicycle-outline"} size={28} color={accent} />
                 </View>
                 <View style={styles.headerText}>
                   <Text style={styles.title}>{title}</Text>
                   <Text style={styles.subtitle}>{request.subtitle ?? "You have a new order"}</Text>
                 </View>
                 <View style={styles.timerPill}>
-                  <Text style={styles.timerText}>{formatTimer(secondsLeft)}</Text>
+                  <Text style={[styles.timerText, isMeasurementVisit && styles.measurementTimerText]}>{formatTimer(secondsLeft)}</Text>
                 </View>
               </View>
 
               <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+                <View style={[styles.progressFill, isMeasurementVisit && styles.measurementProgressFill, { width: `${progress * 100}%` }]} />
               </View>
 
               <View style={styles.rows}>
                 {rows.map((row) => (
                   <View key={row.label} style={styles.row}>
                     <View style={styles.rowIcon}>
-                      <Ionicons name={row.icon} size={17} color={BRAND_ORANGE} />
+                      <Ionicons name={row.icon} size={17} color={accent} />
                     </View>
                     <Text style={styles.rowLabel}>{row.label}</Text>
                     <Text style={styles.rowValue} numberOfLines={2}>{row.value ?? "Not available"}</Text>
@@ -168,9 +174,9 @@ export function IncomingRequestScreen({
                   <Text style={styles.rejectText}>{rejectLabel}</Text>
                 </Pressable>
                 <View style={styles.acceptWrap}>
-                  <Animated.View style={[styles.acceptPulse, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
+                  <Animated.View style={[styles.acceptPulse, isMeasurementVisit && styles.measurementAcceptPulse, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
                   <Pressable
-                    style={[styles.acceptButton, loading && styles.disabled]}
+                    style={[styles.acceptButton, isMeasurementVisit && styles.measurementAcceptButton, loading && styles.disabled]}
                     disabled={loading}
                     onPress={() => {
                       stopCurrentRequestAlerts();
@@ -195,15 +201,19 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { flexGrow: 1, justifyContent: "center", padding: 18 },
   card: { width: "100%", maxWidth: 430, alignSelf: "center", borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20, shadowColor: "#000000", shadowOpacity: 0.28, shadowRadius: 26, elevation: 10 },
+  measurementCard: { backgroundColor: "#ecfeff", borderColor: "#67e8f9" },
   header: { flexDirection: "row", alignItems: "center", gap: 12 },
   iconWrap: { width: 54, height: 54, borderRadius: 20, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  measurementIconWrap: { backgroundColor: "#cffafe" },
   headerText: { flex: 1, minWidth: 0 },
   title: { color: BRAND_DEEP, fontSize: 23, lineHeight: 29, fontWeight: "900" },
   subtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 3 },
   timerPill: { minWidth: 64, minHeight: 42, borderRadius: 16, backgroundColor: "#111111", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   timerText: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900" },
+  measurementTimerText: { color: "#67e8f9" },
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: "#eef2f7", overflow: "hidden", marginTop: 16 },
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
+  measurementProgressFill: { backgroundColor: MEASUREMENT_CYAN },
   rows: { marginTop: 12 },
   row: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#eef2f7", paddingVertical: 8 },
   rowIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
@@ -214,7 +224,9 @@ const styles = StyleSheet.create({
   rejectText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
   acceptWrap: { flex: 1 },
   acceptPulse: { ...StyleSheet.absoluteFill, borderRadius: 18, backgroundColor: BRAND_ORANGE },
+  measurementAcceptPulse: { backgroundColor: MEASUREMENT_CYAN },
   acceptButton: { minHeight: 58, borderRadius: 18, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12 },
+  measurementAcceptButton: { backgroundColor: "#06b6d4" },
   acceptText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   disabled: { opacity: 0.62 },
 });

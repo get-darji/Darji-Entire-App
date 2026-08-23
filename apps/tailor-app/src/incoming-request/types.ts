@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import type { Ionicons } from "@expo/vector-icons";
 
-export type IncomingRequestType = "pickup" | "delivery";
+export type IncomingRequestType = "pickup" | "delivery" | "measurement";
 
 export type IncomingRequestInfoRow = {
   label: string;

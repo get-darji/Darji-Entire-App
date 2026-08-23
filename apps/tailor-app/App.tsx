@@ -373,32 +373,6 @@ type PullToRefreshState = {
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
 
-function PullRefreshReveal({ visible }: { visible: boolean }) {
-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.timing(progress, {
-      duration: visible ? 220 : 160,
-      toValue: visible ? 1 : 0,
-      useNativeDriver: false
-    }).start();
-  }, [progress, visible]);
-
-  return (
-    <Animated.View
-      style={{
-        alignItems: "center",
-        height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 54] }),
-        justifyContent: "center",
-        opacity: progress,
-        overflow: "hidden"
-      }}
-    >
-      <ActivityIndicator color={BRAND_ORANGE} />
-    </Animated.View>
-  );
-}
-
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
   const canRefresh = !horizontal && !refreshControl && pullToRefresh.onRefresh;
@@ -408,16 +382,17 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollV
       horizontal={horizontal}
       refreshControl={canRefresh ? (
         <RefreshControl
-          colors={["transparent"]}
-          progressBackgroundColor="transparent"
+          colors={[BRAND_ORANGE]}
+          progressBackgroundColor="#fffaf0"
           refreshing={pullToRefresh.refreshing}
-          tintColor="transparent"
+          tintColor={BRAND_ORANGE}
+          title="Refreshing Darji..."
+          titleColor={BRAND_DEEP}
           onRefresh={pullToRefresh.onRefresh}
         />
       ) : refreshControl}
       {...props}
     >
-      {canRefresh ? <PullRefreshReveal visible={pullToRefresh.refreshing} /> : null}
       {children}
     </RNScrollView>
   );
@@ -5748,13 +5723,13 @@ function MeasurementVisitPopup({
   visit,
   saving,
   onAccept,
-  onView,
+  onDecline,
   onClose
 }: {
   visit?: MeasurementVisit;
   saving?: boolean;
   onAccept: () => void;
-  onView: () => void;
+  onDecline: () => void;
   onClose: () => void;
 }) {
   if (!visit) return null;
@@ -5764,7 +5739,7 @@ function MeasurementVisitPopup({
         <View style={styles.measurementPopupCard}>
           <View style={styles.rowBetween}>
             <View style={styles.measurementPopupIcon}>
-              <Ionicons name="resize-outline" size={25} color={BRAND_ORANGE} />
+              <Ionicons name="resize-outline" size={25} color="#0891b2" />
             </View>
             <Pressable style={styles.popupCloseButton} onPress={onClose}>
               <Ionicons name="close" size={18} color={BRAND_DEEP} />
@@ -5776,20 +5751,32 @@ function MeasurementVisitPopup({
             {visit.customerName ?? "Customer"} - {formatVisitDate(visit.scheduledAt)}
           </Text>
           <View style={styles.measurementPopupInfo}>
-            <Ionicons name="time-outline" size={18} color={BRAND_ORANGE} />
+            <Ionicons name="time-outline" size={18} color="#0891b2" />
             <View style={styles.cardMain}>
               <Text style={styles.measureVisitLabel}>Preferred visit time</Text>
               <Text style={styles.measurementPopupInfoText}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
             </View>
           </View>
           <View style={styles.measurementPopupInfo}>
-            <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.measurementPopupInfoText} numberOfLines={2}>{visit.pickupAddress ?? "Address not available"}</Text>
+            <Ionicons name="wallet-outline" size={18} color="#0891b2" />
+            <View style={styles.cardMain}>
+              <Text style={styles.measureVisitLabel}>Measurement payout</Text>
+              <Text style={styles.measurementPopupInfoText}>Rs {Number(visit.visitPayout ?? 0).toFixed(0)}</Text>
+            </View>
           </View>
-          <View style={styles.popupActions}>
-            <TailorPrimaryCta label="Accept Visit" onPress={onAccept} disabled={saving} loading={saving} />
-            <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={onView}>
-              <Text style={[styles.popupActionText, styles.popupSecondaryText]}>View Request</Text>
+          <View style={styles.measurementPopupInfo}>
+            <Ionicons name="location-outline" size={18} color="#0891b2" />
+            <View style={styles.cardMain}>
+              <Text style={styles.measureVisitLabel}>Customer address</Text>
+              <Text style={styles.measurementPopupInfoText} numberOfLines={3}>{visit.pickupAddress ?? "Address not available"}</Text>
+            </View>
+          </View>
+          <View style={styles.measurementPopupActions}>
+            <Pressable style={[styles.measurementPopupDenyButton, saving && styles.disabledButton]} onPress={onDecline} disabled={saving}>
+              <Text style={styles.measurementPopupDenyText}>Deny</Text>
+            </Pressable>
+            <Pressable style={[styles.measurementPopupAcceptButton, saving && styles.disabledButton]} onPress={onAccept} disabled={saving}>
+              {saving ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.measurementPopupAcceptText}>Accept</Text>}
             </Pressable>
           </View>
         </View>
@@ -6280,6 +6267,10 @@ export default function App() {
         requestId: visit.requestId,
         customerName: visit.customerName ?? "Customer",
         pickupAddress: visit.pickupAddress ?? "",
+        garmentSummary: visit.garmentSummary ?? "Home measurement",
+        visitPayout: String(visit.visitPayout ?? 0),
+        preferredMeasurementSlot: visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt),
+        slot: visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt),
         title: "Measurement visit request",
         body: `${visit.garmentSummary ?? "Home measurement"} - ${formatVisitDate(visit.scheduledAt)}`
       }
@@ -6296,6 +6287,20 @@ export default function App() {
       setScreen("measurementVisits");
     } catch (error) {
       setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setMeasurementPopupSaving(false);
+    }
+  }
+
+  async function declineMeasurementVisitFromPopup() {
+    if (!token || !measurementVisitPopup) return;
+    try {
+      setMeasurementPopupSaving(true);
+      await api(`/measurement-visits/${measurementVisitPopup.id}/decline`, { method: "POST" }, token);
+      setMeasurementVisitPopup(undefined);
+      await refreshWorkspace(false);
+    } catch (error) {
+      setDialog({ title: "Could not deny", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
     } finally {
       setMeasurementPopupSaving(false);
     }
@@ -6619,6 +6624,32 @@ export default function App() {
           setScreen("profile");
           return;
         }
+        if (String(destination.data?.type ?? "").startsWith("MEASUREMENT_") && destination.actionIdentifier === "DECLINE") {
+          const visitId = String(destination.data?.visitId ?? destination.data?.id ?? destination.entityId ?? "");
+          if (visitId) {
+            setMeasurementVisitPopup((current) => current?.id === visitId ? undefined : current);
+            void api(`/measurement-visits/${visitId}/decline`, { method: "POST" }, token)
+              .then(() => refreshWorkspace(false))
+              .catch((error) => {
+                setDialog({ title: "Could not deny", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+              });
+          }
+          openMeasurementRequestsTab();
+          return;
+        }
+        if (String(destination.data?.type ?? "").startsWith("MEASUREMENT_") && destination.actionIdentifier === "ACCEPT") {
+          const visitId = String(destination.data?.visitId ?? destination.data?.id ?? destination.entityId ?? "");
+          if (visitId) {
+            setMeasurementVisitPopup((current) => current?.id === visitId ? undefined : current);
+            void api(`/measurement-visits/${visitId}/accept`, { method: "POST" }, token)
+              .then(() => refreshWorkspace(false))
+              .catch((error) => {
+                setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+              });
+          }
+          openMeasurementRequestsTab();
+          return;
+        }
         if (destination.screen === "measurementVisits" || String(destination.data?.type ?? "").startsWith("MEASUREMENT_")) {
           openMeasurementRequestsTab();
           return;
@@ -6705,10 +6736,7 @@ export default function App() {
           visit={measurementVisitPopup}
           saving={measurementPopupSaving}
           onAccept={() => void acceptMeasurementVisitFromPopup()}
-          onView={() => {
-            setMeasurementVisitPopup(undefined);
-            openMeasurementRequestsTab();
-          }}
+          onDecline={() => void declineMeasurementVisitFromPopup()}
           onClose={() => setMeasurementVisitPopup(undefined)}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
@@ -7340,15 +7368,20 @@ const styles = StyleSheet.create({
   activeTabText: { color: BRAND_ORANGE },
   popupBackdrop: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.48)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupBackdropAlert: { backgroundColor: "rgba(246, 163, 19, 0.42)" },
-  popupBackdropMeasurement: { flex: 1, backgroundColor: "rgba(7, 13, 24, 0.58)", alignItems: "center", justifyContent: "center", padding: 20 },
+  popupBackdropMeasurement: { flex: 1, backgroundColor: "rgba(8, 145, 178, 0.34)", alignItems: "center", justifyContent: "center", padding: 20 },
   popupCard: { width: "100%", maxWidth: 390, borderRadius: 26, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#f3d7a3", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   popupCardSuccess: { maxWidth: 360, borderRadius: 18, borderColor: "#e5e7eb", paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20 },
   requestPopupCard: { width: "100%", maxWidth: 410, borderRadius: 24, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 20 },
-  measurementPopupCard: { width: "100%", maxWidth: 410, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
-  measurementPopupIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
-  measurementPopupEyebrow: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 0.9, marginTop: 14 },
-  measurementPopupInfo: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 9, marginTop: 10 },
+  measurementPopupCard: { width: "100%", maxWidth: 410, borderRadius: 18, backgroundColor: "#ecfeff", borderWidth: 1, borderColor: "#67e8f9", padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  measurementPopupIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#cffafe", alignItems: "center", justifyContent: "center" },
+  measurementPopupEyebrow: { color: "#0891b2", fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 0.9, marginTop: 14 },
+  measurementPopupInfo: { minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: "#67e8f9", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, paddingVertical: 9, marginTop: 10 },
   measurementPopupInfoText: { flex: 1, minWidth: 0, color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  measurementPopupActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  measurementPopupDenyButton: { flex: 1, minHeight: 52, borderRadius: 14, borderWidth: 1.2, borderColor: BRAND_DEEP, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  measurementPopupDenyText: { color: BRAND_DEEP, fontSize: 14, lineHeight: 18, fontWeight: "900" },
+  measurementPopupAcceptButton: { flex: 1, minHeight: 52, borderRadius: 14, backgroundColor: "#0891b2", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  measurementPopupAcceptText: { color: "#ffffff", fontSize: 14, lineHeight: 18, fontWeight: "900" },
   measureSubmitScreenWrap: { flex: 1 },
   measureSubmitScreenContent: { paddingHorizontal: 18, paddingTop: 28, paddingBottom: 88 },
   measureSubmitHeroCard: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 14, marginBottom: 12 },

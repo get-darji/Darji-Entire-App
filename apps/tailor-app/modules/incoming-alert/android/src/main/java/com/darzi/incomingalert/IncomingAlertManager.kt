@@ -217,8 +217,8 @@ internal object IncomingAlertManager {
       activityIntent,
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-    val acceptAction = if (isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
-    val acceptLabel = if (isTailor(payload)) "Send quote" else "Accept"
+    val acceptAction = actionForAccept(payload)
+    val acceptLabel = labelForAccept(payload)
     val acceptIntent = actionPendingIntent(context, id, ACTION_ACCEPT, acceptAction, payloadString)
     val declineIntent = actionPendingIntent(context, id, ACTION_DECLINE, "DECLINE", payloadString)
     val viewIntent = actionPendingIntent(context, id, ACTION_VIEW, "VIEW_DETAILS", payloadString)
@@ -243,9 +243,17 @@ internal object IncomingAlertManager {
       .setOnlyAlertOnce(true)
       .setWhen(System.currentTimeMillis())
       .setShowWhen(true)
-      .addAction(Notification.Action.Builder(iconId, acceptLabel, acceptIntent).build())
-      .addAction(Notification.Action.Builder(iconId, "View details", viewIntent).build())
-      .addAction(Notification.Action.Builder(iconId, "Reject", declineIntent).build())
+
+    if (isMeasurementVisit(payload)) {
+      builder
+        .addAction(Notification.Action.Builder(iconId, "Deny", declineIntent).build())
+        .addAction(Notification.Action.Builder(iconId, acceptLabel, acceptIntent).build())
+    } else {
+      builder
+        .addAction(Notification.Action.Builder(iconId, acceptLabel, acceptIntent).build())
+        .addAction(Notification.Action.Builder(iconId, "View details", viewIntent).build())
+        .addAction(Notification.Action.Builder(iconId, "Reject", declineIntent).build())
+    }
 
     if (canUseFullScreenIntent(context)) {
       builder.setFullScreenIntent(activityPendingIntent, true)
@@ -289,13 +297,25 @@ internal object IncomingAlertManager {
     return category.contains("TAILOR", ignoreCase = true) || kind.contains("TAILOR", ignoreCase = true)
   }
 
+  fun isMeasurementVisit(payload: JSONObject): Boolean {
+    val category = payload.optString("categoryId") + payload.optString("categoryIdentifier")
+    val kind = payload.optString("type") + payload.optString("event")
+    return category.contains("MEASUREMENT", ignoreCase = true) || kind.contains("MEASUREMENT", ignoreCase = true)
+  }
+
   fun currentPayload(context: Context): JSONObject? {
     val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CURRENT_PAYLOAD, null) ?: return null
     return try { JSONObject(value) } catch (_: Exception) { null }
   }
 
+  fun actionForAccept(payload: JSONObject): String =
+    if (isMeasurementVisit(payload)) "ACCEPT" else if (isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
+
+  fun labelForAccept(payload: JSONObject): String =
+    if (isMeasurementVisit(payload)) "Accept" else if (isTailor(payload)) "Send quote" else "Accept"
+
   fun performAction(context: Context, action: String, payload: JSONObject) {
-    if (action == "DECLINE") {
+    if (action == "DECLINE" && !isMeasurementVisit(payload)) {
       dismiss(context, requestKey(payload))
       return
     }

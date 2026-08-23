@@ -67,7 +67,7 @@ class IncomingAlertOverlayService : Service() {
       this,
       payload,
       onAccept = {
-        val action = if (IncomingAlertManager.isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
+        val action = IncomingAlertManager.actionForAccept(payload)
         IncomingAlertManager.performAction(this, action, payload)
       },
       onDecline = { IncomingAlertManager.performAction(this, "DECLINE", payload) },
