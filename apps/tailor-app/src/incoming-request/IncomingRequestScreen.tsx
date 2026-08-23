@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useIncomingRequest } from "./useIncomingRequest";
 import type { IncomingRequestPayload } from "./types";
-import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./NotificationService";
+import { cancelIncomingRequestNotifications } from "./NotificationService";
 
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
@@ -68,25 +68,6 @@ export function IncomingRequestScreen({
     stopAlerts();
     void cancelIncomingRequestNotifications(request);
   }
-
-  useEffect(() => {
-    if (visible && request) {
-      const detail = request.rows?.slice(0, 3).map((row) => `${row.label}: ${row.value ?? "Not available"}`).join(" | ");
-      void displayIncomingRequestNotification({
-        title: request.title || "Incoming tailoring request",
-        body: detail || request.subtitle || "A new customer order is waiting for your quote.",
-        data: {
-          darjiIncomingRequest: "true",
-          type: "INCOMING_TAILORING_REQUEST",
-          categoryId: "TAILOR_NEW_REQUEST",
-          id: request.id,
-          requestId: request.id,
-          orderId: request.orderId ?? request.id,
-          expiresAt: request.expiresAt ?? ""
-        }
-      });
-    }
-  }, [request?.id, visible]);
 
   useEffect(() => {
     if (!visible && request) void cancelIncomingRequestNotifications(request);

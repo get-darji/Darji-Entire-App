@@ -428,7 +428,7 @@ type HandoffOtp = {
   batchLockAt?: string;
 };
 type DeliveryRescheduleOption = { deliveryRound: "ONE_PM" | "SIX_PM"; roundAt: string; lockAt: string; label: string };
-type MeasurementVisitOtp = { visitId: string; requestId: string; otp: string; status: string; scheduledAt?: string };
+type MeasurementVisitOtp = { visitId: string; requestId: string; otp: string; status: string; scheduledAt?: string; preferredMeasurementSlot?: string };
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
@@ -10260,14 +10260,16 @@ function CustomerMeasurementOtpCard({ orderId, status }: { orderId?: string; sta
   }, [orderId, status, token]);
 
   if (!visit || ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)) return null;
+  const preferredSlot = visit.preferredMeasurementSlot?.trim();
   return (
     <View style={[styles.whiteCard, styles.measurementOtpCard]}>
       <Text style={styles.cardLabel}>MEASUREMENT VISIT OTP</Text>
       <View style={styles.handoffOtpRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.addressTitle}>Share this only at your home visit</Text>
+          {preferredSlot ? <Text style={styles.customerMeasurementSlotValue}>Preferred visit: {preferredSlot}</Text> : null}
           <Text style={styles.mutedSmall}>
-            {visit.scheduledAt ? `Scheduled ${formatDeliveryTime(visit.scheduledAt)}. ` : ""}The visiting tailor needs this OTP to submit your measurements.
+            {preferredSlot ? "" : visit.scheduledAt ? `Scheduled ${formatDeliveryTime(visit.scheduledAt)}. ` : ""}The visiting tailor needs this OTP to submit your measurements.
           </Text>
         </View>
         <Text style={styles.handoffOtpCode}>{visit.otp}</Text>

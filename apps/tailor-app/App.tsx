@@ -96,7 +96,7 @@ async function backendReverseGeocode(lat: number, lng: number): Promise<{
   }
 }
 import { registerIncomingRequestMessaging } from "./src/incoming-request/FirebaseMessaging";
-import { cancelIncomingRequestNotifications, displayIncomingRequestNotification } from "./src/incoming-request/NotificationService";
+import { cancelIncomingRequestNotifications } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
 import { NotificationProvider } from "./src/components/NotificationProvider";
@@ -104,7 +104,7 @@ import { TailorProfileScreen } from "./src/components/TailorProfileScreen";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
 import { configureForegroundNotificationHandler } from "./src/notifications/handlers";
 import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
-import { playAppSound } from "./src/services/soundService";
+import { playAppSound, stopAppSound } from "./src/services/soundService";
 import { useAppStore } from "./src/store";
 import { localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
@@ -412,6 +412,18 @@ async function playTailorAlert(title: string, body: string, soundEnabled = true)
   }
   await playAppSound(title.toLowerCase().includes("accepted") ? "confirmation" : "request", soundEnabled);
   void body;
+}
+
+function stopTailorRequestAlert(data?: { requestId?: string; id?: string; orderId?: string }) {
+  Vibration.cancel();
+  stopAppSound("request");
+  void cancelIncomingRequestNotifications(data);
+}
+
+function stopMeasurementVisitAlert(visit?: { id?: string; requestId?: string }) {
+  Vibration.cancel();
+  stopAppSound("request");
+  void cancelIncomingRequestNotifications({ id: visit?.id, requestId: visit?.requestId, orderId: visit?.requestId });
 }
 
 function formatStatus(status: string) {
@@ -5979,7 +5991,7 @@ export default function App() {
     notificationAuthTokenRef.current = token;
   }, [token]);
 
-  useEffect(() => registerIncomingRequestMessaging(() => Boolean(notificationAuthTokenRef.current)), []);
+  useEffect(() => registerIncomingRequestMessaging(() => Boolean(notificationAuthTokenRef.current) && AppState.currentState !== "active"), []);
 
   function setScreen(nextScreen: Screen, options?: { resetStack?: boolean; replace?: boolean }) {
     if (nextScreen === screen) return;
@@ -6020,6 +6032,7 @@ export default function App() {
   }, [acceptedQuoteRequest, dialog, newRequestPopup, screen, screenStack]);
 
   function resetWorkspaceTracking() {
+    stopTailorRequestAlert({});
     knownRequestIdsRef.current.clear();
     dismissedRequestIdsRef.current.clear();
     alertedRequestIdsRef.current.clear();
@@ -6039,29 +6052,6 @@ export default function App() {
     if (alertedRequestIdsRef.current.has(request.id)) return;
     alertedRequestIdsRef.current.add(request.id);
     setNewRequestPopup(request);
-    const payload = incomingPayloadFromTailoringRequest(request);
-    if (!payload) return;
-    void displayIncomingRequestNotification({
-      title: payload.title || "Incoming tailoring request",
-      body: requestSummary(request),
-      data: {
-        darjiIncomingRequest: "true",
-        type: "INCOMING_TAILORING_REQUEST",
-        categoryId: "TAILOR_NEW_REQUEST",
-        screen: "requestDetails",
-        id: request.id,
-        requestId: request.id,
-        orderId: request.id,
-        expiresAt: payload.expiresAt ?? "",
-        clothType: request.clothType,
-        workType: request.workType,
-        urgency: request.urgency,
-        orderType: request.urgency?.toUpperCase().includes("INSTANT") ? "INSTANT" : request.urgency?.toUpperCase().includes("EXPRESS") ? "EXPRESS" : request.urgency?.toUpperCase().includes("SAME") ? "SAME_DAY" : "STANDARD",
-        customerName: request.customer?.name ?? "Customer",
-        pickupAddress: request.pickupAddress,
-        rows: payload.rows ?? []
-      }
-    });
   }
 
   function handleSessionExpired() {
@@ -6148,6 +6138,7 @@ export default function App() {
 
   function closeNewRequestPopup() {
     if (newRequestPopup) dismissedRequestIdsRef.current.add(newRequestPopup.id);
+    if (newRequestPopup) stopTailorRequestAlert({ requestId: newRequestPopup.id, id: newRequestPopup.id, orderId: newRequestPopup.id });
     setNewRequestPopup(undefined);
   }
 
@@ -6156,6 +6147,7 @@ export default function App() {
     const requestId = newRequestPopup.id;
     dismissedRequestIdsRef.current.add(requestId);
     setNewRequestPopup(undefined);
+    stopTailorRequestAlert({ requestId, id: requestId, orderId: requestId });
     if (token) {
       void api(`/tailoring-requests/${requestId}/decline`, { method: "POST", body: JSON.stringify({ reason }) }, token).catch(() => undefined);
     }
@@ -6170,6 +6162,7 @@ export default function App() {
     if (!newRequestPopup) return;
     setActiveRequest(newRequestPopup);
     dismissedRequestIdsRef.current.add(newRequestPopup.id);
+    stopTailorRequestAlert({ requestId: newRequestPopup.id, id: newRequestPopup.id, orderId: newRequestPopup.id });
     setNewRequestPopup(undefined);
     setScreen(screenName);
   }
@@ -6254,27 +6247,6 @@ export default function App() {
     if (!isActionableMeasurementVisit(visit)) return;
     alertedMeasurementVisitIdsRef.current.add(visit.id);
     setMeasurementVisitPopup(visit);
-    void displayIncomingRequestNotification({
-      title: "Measurement visit request",
-      body: `${visit.customerName ?? "Customer"} needs ${visit.garmentSummary ?? "a home measurement"}.`,
-      data: {
-        darjiIncomingRequest: "true",
-        type: visit.status === "POOL" ? "MEASUREMENT_VISIT_POOL" : "MEASUREMENT_VISIT_OFFERED",
-        categoryId: "TAILOR_MEASUREMENT_VISIT",
-        screen: "measurementVisits",
-        id: visit.id,
-        visitId: visit.id,
-        requestId: visit.requestId,
-        customerName: visit.customerName ?? "Customer",
-        pickupAddress: visit.pickupAddress ?? "",
-        garmentSummary: visit.garmentSummary ?? "Home measurement",
-        visitPayout: String(visit.visitPayout ?? 0),
-        preferredMeasurementSlot: visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt),
-        slot: visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt),
-        title: "Measurement visit request",
-        body: `${visit.garmentSummary ?? "Home measurement"} - ${formatVisitDate(visit.scheduledAt)}`
-      }
-    });
   }
 
   async function acceptMeasurementVisitFromPopup() {
@@ -6282,6 +6254,7 @@ export default function App() {
     try {
       setMeasurementPopupSaving(true);
       await api(`/measurement-visits/${measurementVisitPopup.id}/accept`, { method: "POST" }, token);
+      stopMeasurementVisitAlert(measurementVisitPopup);
       setMeasurementVisitPopup(undefined);
       await refreshWorkspace(false);
       setScreen("measurementVisits");
@@ -6297,6 +6270,7 @@ export default function App() {
     try {
       setMeasurementPopupSaving(true);
       await api(`/measurement-visits/${measurementVisitPopup.id}/decline`, { method: "POST" }, token);
+      stopMeasurementVisitAlert(measurementVisitPopup);
       setMeasurementVisitPopup(undefined);
       await refreshWorkspace(false);
     } catch (error) {
@@ -6333,7 +6307,7 @@ export default function App() {
       setNewRequestPopup(undefined);
       setMeasurementVisitPopup(undefined);
       setRequests((current) => current.filter((request) => request.status !== "QUOTE_REQUESTED" || Boolean(request.ownQuote)));
-      void cancelIncomingRequestNotifications({});
+      stopTailorRequestAlert({});
     }
     try {
       const updated = await api<TailorProfile>("/tailors/me/availability", { method: "PATCH", body: JSON.stringify({ isAvailable: value }) }, token);
@@ -6410,7 +6384,7 @@ export default function App() {
     socket.on("tailoring:request_closed", ({ requestId, acceptedTailorId }: { requestId: string; acceptedTailorId?: string }) => {
       setRequests((current) => current.filter((request) => request.id !== requestId));
       if (newRequestPopup?.id === requestId) setNewRequestPopup(undefined);
-      void cancelIncomingRequestNotifications({ requestId });
+      stopTailorRequestAlert({ requestId, id: requestId, orderId: requestId });
       if (acceptedTailorId !== me?.tailorProfile?.id) dismissedRequestIdsRef.current.add(requestId);
       void refreshWorkspace();
     });

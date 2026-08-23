@@ -84,14 +84,14 @@ export async function getMeasurementVisitOtpController(req: Request, res: Respon
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   if (req.user!.role === "CUSTOMER" && visit.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
-  res.json({ data: { visitId: visit.id, otp: measurementVisitOtp(visit.id), status: visit.status } });
+  res.json({ data: { visitId: visit.id, requestId: visit.requestId, otp: measurementVisitOtp(visit.id), status: visit.status, scheduledAt: visit.scheduledAt, preferredMeasurementSlot: visit.preferredMeasurementSlot } });
 }
 
 export async function getMeasurementVisitOtpForRequestController(req: Request, res: Response) {
   const visit = await MeasurementVisitModel.findOne({ requestId: String(req.params.requestId) });
   if (!visit) throw new AppError(404, "Measurement visit not found");
   if (req.user!.role === "CUSTOMER" && visit.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
-  res.json({ data: { visitId: visit.id, requestId: visit.requestId, otp: measurementVisitOtp(visit.id), status: visit.status, scheduledAt: visit.scheduledAt } });
+  res.json({ data: { visitId: visit.id, requestId: visit.requestId, otp: measurementVisitOtp(visit.id), status: visit.status, scheduledAt: visit.scheduledAt, preferredMeasurementSlot: visit.preferredMeasurementSlot } });
 }
 
 export async function acceptMeasurementVisitController(req: Request, res: Response) {

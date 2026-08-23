@@ -38,13 +38,6 @@ async function resetAutoVerifiedTailorProfile(userId: string) {
       { returnDocument: "after" }
     );
   }
-  if (profile?.verificationStatus === "VERIFIED" && profile.isAvailable !== true) {
-    return TailorModel.findByIdAndUpdate(
-      profile.id,
-      { isAvailable: true },
-      { returnDocument: "after" }
-    );
-  }
   return profile;
 }
 

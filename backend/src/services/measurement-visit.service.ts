@@ -23,11 +23,20 @@ function defaultScheduledAt() {
   return new Date(now.getTime() + 2 * 60 * 60 * 1000);
 }
 
+function selectedMeasurementSlot(request: any) {
+  const rootSlot = typeof request?.preferredMeasurementSlot === "string" ? request.preferredMeasurementSlot.trim() : "";
+  if (rootSlot) return rootSlot;
+  const item = Array.isArray(request?.items)
+    ? request.items.find((candidate: any) => candidate?.homeMeasurementBooked && typeof candidate.preferredMeasurementSlot === "string" && candidate.preferredMeasurementSlot.trim())
+    : undefined;
+  return typeof item?.preferredMeasurementSlot === "string" ? item.preferredMeasurementSlot.trim() : "";
+}
+
 function resolveScheduledAt(slot?: string) {
   const now = new Date();
   if (!slot) return defaultScheduledAt();
 
-  const match = slot.match(/^(\d{2}):(\d{2})\s*(AM|PM)/i);
+  const match = slot.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   let hour = 12;
   let minute = 0;
   if (match) {
@@ -67,6 +76,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner")
   ]);
 
+  const preferredSlot = selectedMeasurementSlot(request);
   const visit = await MeasurementVisitModel.findOneAndUpdate(
     { requestId: request.id },
     {
@@ -76,8 +86,8 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         stitchingTailorId: quote.tailorId,
         offeredTailorId: quote.tailorId,
         status: "OFFERED_TO_STITCHING_TAILOR",
-        scheduledAt: resolveScheduledAt((request as any).preferredMeasurementSlot),
-        preferredMeasurementSlot: (request as any).preferredMeasurementSlot ?? "",
+        scheduledAt: resolveScheduledAt(preferredSlot),
+        preferredMeasurementSlot: preferredSlot,
         visitPayout: Number(stitchingTailor?.measurementPartner?.visitPayout ?? DEFAULT_VISIT_PAYOUT),
         customerName: customer?.name ?? "Customer",
         customerPhone: customer?.phone ?? "",
@@ -91,14 +101,17 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
   if (stitchingTailor?.userId && stitchingTailor.isAvailable) {
     await sendPushToUsers([stitchingTailor.userId], {
       title: "Measurement visit requested",
-      body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${(request as any).preferredMeasurementSlot || "slot specified"}). Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
+      body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${preferredSlot || "slot specified"}). Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
       data: {
         type: "MEASUREMENT_VISIT_OFFERED",
         visitId: visit.id,
         requestId: request.id,
-        preferredMeasurementSlot: (request as any).preferredMeasurementSlot ?? "",
+        preferredMeasurementSlot: preferredSlot,
+        slot: preferredSlot,
         pickupAddress: request.pickupAddress,
         customerName: customer?.name ?? "Customer",
+        garmentSummary: itemSummary(request),
+        visitPayout: String(Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)),
         screen: "measurementVisits"
       },
       channelId: "darji-incoming-orders-v4",
@@ -151,7 +164,18 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
     await sendPushToUsers(userIds, {
       title: "Measurement visit available",
       body: `${visit.customerName ?? "Customer"} needs measurements at home. Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
-      data: { type: "MEASUREMENT_VISIT_POOL", visitId: visit.id, requestId: visit.requestId, screen: "measurementVisits" },
+      data: {
+        type: "MEASUREMENT_VISIT_POOL",
+        visitId: visit.id,
+        requestId: visit.requestId,
+        preferredMeasurementSlot: visit.preferredMeasurementSlot ?? "",
+        slot: visit.preferredMeasurementSlot ?? "",
+        pickupAddress: visit.pickupAddress ?? "",
+        customerName: visit.customerName ?? "Customer",
+        garmentSummary: visit.garmentSummary ?? "Home measurement",
+        visitPayout: String(Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)),
+        screen: "measurementVisits"
+      },
       channelId: "darji-incoming-orders-v4",
       categoryId: "TAILOR_MEASUREMENT_VISIT",
       sound: "requests.mp3",
