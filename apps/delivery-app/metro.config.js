@@ -4,12 +4,13 @@ const path = require("path");
 
 const projectRoot = __dirname;
 const sharedRoot = path.resolve(projectRoot, "../../shared");
+const incomingAlertRoot = path.resolve(projectRoot, "modules/incoming-alert");
 const rootNodeModules = path.resolve(projectRoot, "../../node_modules");
 const appRequestPrefix = `/apps/${path.basename(projectRoot)}/`;
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [sharedRoot, rootNodeModules];
+config.watchFolders = [sharedRoot, incomingAlertRoot, rootNodeModules];
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   rootNodeModules,
@@ -17,7 +18,10 @@ config.resolver.nodeModulesPaths = [
 config.resolver.extraNodeModules = new Proxy(
   {},
   {
-    get: (_, name) => path.join(rootNodeModules, name),
+    get: (_, name) => {
+      if (name === "@darzi/incoming-alert") return incomingAlertRoot;
+      return path.join(rootNodeModules, name);
+    },
   },
 );
 config.server = {
