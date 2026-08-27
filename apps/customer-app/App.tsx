@@ -405,7 +405,7 @@ type AddressFields = {
   sourceAddress?: string;
 };
 type SavedAddress = { id: string; label: string; address: string; isDefault: boolean; lat?: number; lng?: number; fields?: AddressFields };
-type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; dark?: boolean; read: boolean };
+type AppNotification = { id: string; icon: keyof typeof Ionicons.glyphMap; title: string; text: string; time: string; createdAt?: string; dark?: boolean; read: boolean };
 type HandoffOtp = {
   taskId: string;
   type: "customer_to_tailor" | "tailor_to_customer";
@@ -1639,6 +1639,25 @@ function formatInvoiceDate(date = new Date()) {
   return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function supportOrderDate(value?: string) {
+  const date = value ? new Date(value) : undefined;
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+    : "Not available";
+}
+
+function supportOrderTime(value?: string) {
+  const date = value ? new Date(value) : undefined;
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+    : "Not available";
+}
+
+function supportOrderAmount(value?: number) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `Rs ${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "Not available";
+}
+
 function formatDateInput(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -2285,7 +2304,9 @@ function HomeScreen({
   unreadCount,
   defaultAddress,
   orders,
-  appReviews
+  appReviews,
+  initialScrollOffset,
+  onScrollOffsetChange
 }: {
   setScreen: (screen: Screen) => void;
   onStartRequest: (preset?: RequestPreset) => void;
@@ -2294,11 +2315,11 @@ function HomeScreen({
   defaultAddress?: SavedAddress;
   orders: CustomerOrder[];
   appReviews: AppReviewDraft[];
+  initialScrollOffset: number;
+  onScrollOffsetChange: (offset: number) => void;
 }) {
   const token = useAppStore((state) => state.token);
   const { refreshSignal } = useContext(PullToRefreshContext);
-  const { width } = useWindowDimensions();
-  const popularCardWidth = Math.max(86, (width - 76) / 4);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [featuredStories, setFeaturedStories] = useState<CustomerStory[]>([]);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
@@ -2328,15 +2349,15 @@ function HomeScreen({
     { title: "Restyle", text: "Convert old clothes", icon: "sparkles-outline" },
     { title: "Custom Stitching", text: "Stitch from scratch", icon: "shirt-outline" }
   ] as const;
-  const popularServices = [
-    { label: "Alteration", icon: "cut-outline" },
-    { label: "Repair", icon: "construct-outline" },
-    { label: "Restyle", icon: "sparkles-outline" },
-    { label: "Custom Stitching", icon: "shirt-outline" }
-  ] as const;
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.homeContent}
+        showsVerticalScrollIndicator={false}
+        contentOffset={{ x: 0, y: initialScrollOffset }}
+        onScroll={(event) => onScrollOffsetChange(event.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={32}
+      >
         <View style={styles.homeTop}>
           <View>
             <Text style={styles.homeGreeting}>{greetingForNow()}</Text>
@@ -2418,18 +2439,6 @@ function HomeScreen({
           </View>
         ) : null}
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.listTitle}>Popular Services</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularServiceRow}>
-          {popularServices.map((service) => (
-            <Pressable key={service.label} style={[styles.popularServiceCard, { width: popularCardWidth }]} onPress={() => onStartRequest(requestPresetForService(service.label))}>
-              <Ionicons name={service.icon} size={28} color={BRAND_ORANGE} />
-              <Text style={styles.popularServiceText}>{service.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
         <View style={styles.launchBand}>
           <View style={styles.launchTextBlock}>
             <Text style={styles.launchBadge}>COMING SOON</Text>
@@ -2506,11 +2515,6 @@ function HomeScreen({
               <Ionicons name="chevron-forward" size={18} color="#6b7890" />
             </Pressable>
           )}
-          <Pressable style={styles.offerCard} onPress={() => setScreen("orders")}>
-            <Ionicons name="navigate-outline" size={24} color="#2563eb" />
-            <Text style={styles.offerTitle}>Live Tracking</Text>
-            <Text style={styles.offerCopy}>Track pickup, stitching and delivery updates.</Text>
-          </Pressable>
         </View>
 
         <View style={styles.sectionHeader}>
@@ -2855,13 +2859,18 @@ function notificationTone(item: AppNotification) {
   return { accent: BRAND_ORANGE, background: "#ffffff", border: "#edf1f5", iconBg: "#fff4dc" };
 }
 
-function notificationDayLabel(time: string) {
+function notificationDate(item: AppNotification) {
+  const createdAt = item.createdAt ? new Date(item.createdAt) : undefined;
+  if (createdAt && Number.isFinite(createdAt.getTime())) return createdAt;
+  const parsed = new Date(item.time);
+  return Number.isFinite(parsed.getTime()) ? parsed : new Date();
+}
+
+function notificationDayLabel(item: AppNotification) {
+  const time = item.time;
   const value = time.trim();
-  if (/^(now|just now)$/i.test(value) || /\bago\b/i.test(value) || /\btoday\b/i.test(value)) return "Today";
-  if (/\byesterday\b/i.test(value)) return "Yesterday";
-  const parsed = Date.parse(value);
-  if (Number.isFinite(parsed)) {
-    const date = new Date(parsed);
+  const date = notificationDate(item);
+  if (item.createdAt || Number.isFinite(Date.parse(value))) {
     const today = new Date();
     const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
@@ -2870,8 +2879,8 @@ function notificationDayLabel(time: string) {
     if (diffDays === 1) return "Yesterday";
     return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   }
-  const withoutTime = value.replace(/,\s*\d{1,2}:\d{2}\s*(AM|PM)?/i, "").trim();
-  return withoutTime || "Older";
+  if (/\byesterday\b/i.test(value)) return "Yesterday";
+  return "Today";
 }
 
 function notificationGroupRank(group: string) {
@@ -2892,7 +2901,7 @@ function NotificationsScreen({
 }) {
   const unreadCount = notifications.filter((item) => !item.read).length;
   const groupedNotifications = notifications.reduce<Record<string, AppNotification[]>>((groups, item) => {
-    const key = notificationDayLabel(item.time);
+    const key = notificationDayLabel(item);
     groups[key] = [...(groups[key] ?? []), item];
     return groups;
   }, {});
@@ -2928,7 +2937,7 @@ function NotificationsScreen({
                 <Text style={styles.notificationGroupTitle}>{group}</Text>
                 <View style={styles.notificationTimeline}>
                   <View style={styles.notificationTimelineRail} />
-                  {groupedNotifications[group].map((item) => {
+                  {[...groupedNotifications[group]].sort((a, b) => notificationDate(b).getTime() - notificationDate(a).getTime()).map((item) => {
                     const tone = notificationTone(item);
                     return (
                       <View key={item.id} style={styles.notificationTimelineItem}>
@@ -4387,6 +4396,9 @@ function ClothGuideModal({ visible, onClose }: { visible: boolean; onClose: () =
 function MeasurementOverviewGuide({ compact = false }: { compact?: boolean }) {
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const imageWidth = Math.max(320, screenWidth - 24);
+  const imageHeight = Math.max(420, screenHeight - 170);
 
   return (
     <>
@@ -4402,9 +4414,9 @@ function MeasurementOverviewGuide({ compact = false }: { compact?: boolean }) {
               <Ionicons name="close" size={18} color={BRAND_DEEP} />
             </Pressable>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.imageZoomHorizontalContent}>
+          <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.imageZoomHorizontalContent} minimumZoomScale={1} maximumZoomScale={3} pinchGestureEnabled>
             <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.imageZoomVerticalContent}>
-              <Image source={measurementsImage} resizeMode="contain" style={[styles.zoomedMeasurementImage, { width: 320 * zoom, height: 356 * zoom }]} />
+              <Image source={measurementsImage} resizeMode="contain" style={[styles.zoomedMeasurementImage, { width: imageWidth * zoom, height: imageHeight * zoom }]} />
             </ScrollView>
           </ScrollView>
           <View style={styles.imageZoomControls}>
@@ -5364,7 +5376,8 @@ function compactLocation(value?: string) {
 
 function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorProfileSummary | undefined {
   if (!tailor) return undefined;
-  const shopName = tailor.shopName || tailor.user?.name || "Darji Tailor";
+  const shopName = tailor.shopName?.trim() || tailor.user?.name?.trim();
+  if (!shopName) return undefined;
   const specializations = (tailor.specialization ?? []).filter(Boolean);
   const address =
     tailor.verification?.shop?.shopAddress ||
@@ -5499,7 +5512,7 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
               ) : null}
               <View style={styles.tailorVerifiedRow}>
                 <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
-                <Text style={styles.tailorVerifiedText}>{profile.verificationStatus === "VERIFIED" ? "Verified tailor profile" : "Tailor profile from Darji backend"}</Text>
+                <Text style={styles.tailorVerifiedText}>{profile.verificationStatus === "VERIFIED" ? "Identity and shop verified by Darji" : "Profile verification in progress"}</Text>
               </View>
             </>
           ) : null}
@@ -6748,17 +6761,13 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
   const { refreshSignal } = useContext(PullToRefreshContext);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"categories" | "tailors">("categories");
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [serviceFilter, setServiceFilter] = useState<string | undefined>();
   const [tailors, setTailors] = useState<TailorProfileSummary[]>([]);
   const [tailorsLoading, setTailorsLoading] = useState(false);
   const [selectedTailorProfile, setSelectedTailorProfile] = useState<TailorProfileSummary | undefined>();
   const normalizedQuery = query.trim().toLowerCase();
-  const serviceFilters = ["Alteration", "Repair", "Custom Stitching", "Embroidery"] as const;
   const matchesQuery = (value: string) => !normalizedQuery || value.toLowerCase().includes(normalizedQuery);
-  const matchesService = (value: string) => !serviceFilter || value.toLowerCase().includes(serviceFilter.toLowerCase().replace("custom stitching", "stitch"));
-  const categoryResults = searchCategories.filter((category) => matchesQuery([category.title, category.subtitle].join(" ")) && matchesService([category.title, category.subtitle].join(" ")));
-  const tailorResults = tailors.filter((tailor) => matchesQuery([tailor.shopName, tailor.displayName, tailor.area, tailor.specialty].join(" ")) && matchesService(tailor.specialty));
+  const categoryResults = searchCategories.filter((category) => matchesQuery([category.title, category.subtitle].join(" ")));
+  const tailorResults = tailors.filter((tailor) => matchesQuery([tailor.shopName, tailor.displayName, tailor.area, tailor.specialty].join(" ")));
 
   const loadTailors = useCallback(() => {
     if (!token) {
@@ -6767,7 +6776,14 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
     }
     setTailorsLoading(true);
     void api<BackendTailorProfile[]>("/tailors", {}, token)
-      .then((data) => setTailors(data.map(tailorProfileFromBackend).filter((item): item is TailorProfileSummary => Boolean(item))))
+      .then((data) => {
+        const unique = new Map<string, TailorProfileSummary>();
+        data.map(tailorProfileFromBackend)
+          .filter((item): item is TailorProfileSummary => Boolean(item))
+          .filter((item) => item.isAvailable !== false)
+          .forEach((item) => unique.set(item.id, item));
+        setTailors([...unique.values()]);
+      })
       .catch(() => setTailors([]))
       .finally(() => setTailorsLoading(false));
   }, [token]);
@@ -6810,27 +6826,7 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
               </Pressable>
             ) : null}
           </View>
-          <Pressable style={[styles.filterButton, (filtersOpen || serviceFilter) && styles.filterButtonActive]} onPress={() => setFiltersOpen((value) => !value)}>
-            <Ionicons name="options-outline" size={18} color="#111827" />
-            <Text style={styles.filterButtonText}>{serviceFilter ?? "Filter"}</Text>
-          </Pressable>
         </View>
-
-        {filtersOpen ? (
-          <View style={styles.searchFilterPanel}>
-            <Text style={styles.cardLabel}>FILTER SERVICES</Text>
-            <View style={styles.searchFilterChipRow}>
-              <Pressable style={[styles.searchFilterChip, !serviceFilter && styles.searchFilterChipActive]} onPress={() => setServiceFilter(undefined)}>
-                <Text style={[styles.searchFilterChipText, !serviceFilter && styles.searchFilterChipTextActive]}>All</Text>
-              </Pressable>
-              {serviceFilters.map((filter) => (
-                <Pressable key={filter} style={[styles.searchFilterChip, serviceFilter === filter && styles.searchFilterChipActive]} onPress={() => setServiceFilter(filter)}>
-                  <Text style={[styles.searchFilterChipText, serviceFilter === filter && styles.searchFilterChipTextActive]}>{filter}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        ) : null}
 
         <View style={styles.searchSegment}>
           <Pressable style={[styles.searchSegmentOption, mode === "categories" && styles.searchSegmentActive]} onPress={() => setMode("categories")}>
@@ -6847,10 +6843,9 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
           <>
             <View style={styles.sectionHeader}>
               <Text style={styles.searchSectionTitle}>Browse by Category</Text>
-              <Text style={styles.seeAll}>View all</Text>
             </View>
             <View style={styles.searchCategoryGrid}>
-              {(query || serviceFilter ? categoryResults : searchCategories).map((category) => (
+              {(query ? categoryResults : searchCategories).map((category) => (
                 <Pressable key={category.title} style={styles.searchCategoryCard} onPress={() => onStartRequest(requestPresetForSearchCategory(category.title))}>
                   <View style={styles.searchCategoryImage}>
                     <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={31} color={BRAND_ORANGE} />
@@ -6865,7 +6860,6 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
 
         <View style={styles.sectionHeader}>
           <Text style={styles.searchSectionTitle}>Top Tailors Near You</Text>
-          <Text style={styles.seeAll}>View all</Text>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchTailorRow}>
           {tailorsLoading ? (
@@ -6896,7 +6890,10 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
                     {tailor.avatarUrl ? <Image source={{ uri: tailor.avatarUrl }} style={styles.smallQuoteAvatarImage} /> : <Text style={styles.smallAvatarText}>{tailor.initials}</Text>}
                   </View>
                   <View style={styles.profileRowTextNoMargin}>
-                    <Text style={styles.addressTitle}>{tailor.shopName} <Ionicons name="checkmark-circle" size={14} color={BRAND_ORANGE} /></Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingRight: 28 }}>
+                      <Text style={[styles.addressTitle, { flexShrink: 1 }]} numberOfLines={1}>{tailor.shopName}</Text>
+                      {tailor.verificationStatus === "VERIFIED" ? <Ionicons name="checkmark-circle" size={15} color={BRAND_ORANGE} /> : null}
+                    </View>
                     <Text style={styles.ratingLine}>Rating {tailor.rating} <Text style={styles.mutedSmall}>({tailor.reviews})</Text></Text>
                   </View>
                 </View>
@@ -6911,21 +6908,6 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
               </Pressable>
             );
           })}
-        </ScrollView>
-
-        <Text style={styles.searchSectionTitle}>Popular Services</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularServiceRow}>
-          {[
-            ["Custom Stitching", "shirt-outline"],
-            ["Alterations", "cut-outline"],
-            ["Repairs", "construct-outline"],
-            ["Pickup & Delivery", "bicycle-outline"]
-          ].map(([label, icon]) => (
-            <Pressable key={label} style={styles.searchPopularCard} onPress={() => onStartRequest(requestPresetForService(label))}>
-              <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={22} color={BRAND_ORANGE} />
-              <Text style={styles.popularServiceText}>{label}</Text>
-            </Pressable>
-          ))}
         </ScrollView>
 
         <View style={styles.searchTrustBanner}>
@@ -7146,7 +7128,9 @@ function ProfileScreen({
   addresses,
   onDeleteAccount,
   settings,
-  language
+  language,
+  initialScrollOffset,
+  onScrollOffsetChange
 }: {
   setScreen: (screen: Screen) => void;
   orders: CustomerOrder[];
@@ -7155,6 +7139,8 @@ function ProfileScreen({
   onDeleteAccount: () => void;
   settings: AppSettings;
   language: AppLanguage;
+  initialScrollOffset: number;
+  onScrollOffsetChange: (offset: number) => void;
 }) {
   const { user, signOut, favoriteTailorIds = [] } = useAppStore();
   const profileStyles = createStyles(settings.darkMode);
@@ -7162,7 +7148,12 @@ function ProfileScreen({
 
   return (
     <SafeAreaView style={profileStyles.safe}>
-      <ScrollView contentContainerStyle={profileStyles.pageContent}>
+      <ScrollView
+        contentContainerStyle={profileStyles.pageContent}
+        contentOffset={{ x: 0, y: initialScrollOffset }}
+        onScroll={(event) => onScrollOffsetChange(event.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={32}
+      >
         <Header title={t(language, "profile")} />
         <View style={profileStyles.profileHero}>
           <Image source={profile.avatarUri ? { uri: profile.avatarUri } : getDefaultAvatarSource(profile)} style={profileStyles.profileAvatarImage} />
@@ -7319,14 +7310,27 @@ function EditProfileScreen({
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
   const [avatarUri, setAvatarUri] = useState(profile.avatarUri);
+  const [saving, setSaving] = useState(false);
 
-  function save() {
+  async function save() {
     if (name.trim().length < 2) {
       Alert.alert("Name required", "Enter your full name.");
       return;
     }
-    setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri, avatarPreset: avatarUri ? undefined : profile.avatarPreset, hasCompletedOnboarding: true });
-    setScreen("profile");
+    try {
+      setSaving(true);
+      let syncedAvatarUri = avatarUri;
+      if (avatarUri && !/^https?:/i.test(avatarUri)) {
+        const uploaded = await uploadMedia([{ uri: avatarUri, type: "image", name: `profile-${Date.now()}.jpg` }]);
+        syncedAvatarUri = uploaded[0]?.url ?? avatarUri;
+      }
+      setProfile({ ...profile, name: name.trim(), gender, dateOfBirth: dateOfBirth.trim(), avatarUri: syncedAvatarUri, avatarPreset: syncedAvatarUri ? undefined : profile.avatarPreset, hasCompletedOnboarding: true });
+      setScreen("profile");
+    } catch (error) {
+      Alert.alert("Profile not saved", error instanceof Error ? error.message : "Could not save your profile. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function pickProfilePhoto(source: "camera" | "gallery") {
@@ -7392,7 +7396,7 @@ function EditProfileScreen({
           <Text style={styles.addressTitle}>+91 {profile.phone}</Text>
           <Text style={styles.mutedSmall}>Phone number is used for OTP login</Text>
         </View>
-        <RequestFlowCta label="Save Changes" onPress={save} />
+        <RequestFlowCta label={saving ? "Saving..." : "Save Changes"} onPress={() => void save()} disabled={saving} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -7509,7 +7513,7 @@ function NotificationPreferencesScreen({
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.preferencePageContent}>
         <Header title="Notifications" onBack={() => setScreen("profile")} />
-        <Text style={styles.preferenceIntro}>Choose what updates you want to receive and when.</Text>
+        <Text style={styles.preferenceIntro}>Choose the alerts you want to receive.</Text>
         <Text style={styles.preferenceSectionLabel}>NOTIFICATION ALERTS</Text>
         <View style={styles.notificationPanel}>
           <NotificationAlertRow icon="notifications-outline" label="Order updates" value="Get notified about your order status, pickup, delivery and more." enabled={settings.orderUpdates && settings.notifications} onPress={() => toggle("orderUpdates")} first />
@@ -7518,15 +7522,6 @@ function NotificationPreferencesScreen({
           <NotificationAlertRow icon="checkmark-circle-outline" label="Delivery updates" value="Get notified when your order is dispatched and delivered." enabled={settings.deliveryUpdates && settings.notifications} onPress={() => toggle("deliveryUpdates")} />
         </View>
 
-        <Text style={styles.preferenceSectionLabel}>NOTIFICATION TIMING</Text>
-        <View style={styles.notificationPanel}>
-          <NotificationTimingRow icon="time-outline" label="Quiet hours" value="No notifications during this time" detail="10:00 PM - 8:00 AM" onPress={() => toggle("quietHours")} first />
-          <NotificationTimingRow icon="notifications-circle-outline" label="Receiving notifications" value="Choose how often you want to receive notifications" detail={settings.receivingNotifications ? "Always" : "Paused"} onPress={() => toggle("receivingNotifications")} />
-        </View>
-        <View style={styles.infoBanner}>
-          <Ionicons name="information-circle-outline" size={17} color={BRAND_ORANGE} />
-          <Text style={styles.infoBannerText}>You will still receive important updates during quiet hours.</Text>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -8071,6 +8066,7 @@ function hasUnreadMessages(ticketOrBug: any): boolean {
 
 function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean; orders: any[]; socket: any }) {
   const token = useAppStore((state) => state.token);
+  const insets = useSafeAreaInsets();
   const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "center");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
@@ -8078,6 +8074,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
   // New ticket form
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [orderPreview, setOrderPreview] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [description, setDescription] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -8091,6 +8088,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   // Active chat
   const [activeTicket, setActiveTicket] = useState<any>(null);
   const [chatMessage, setChatMessage] = useState("");
+  const [chatInputFocused, setChatInputFocused] = useState(false);
   const [sending, setSending] = useState(false);
 
   const scrollViewRef = useRef<RNScrollView>(null);
@@ -8500,8 +8498,8 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 12 : 12 }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20} style={{ flex: 1 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: bg }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
             <Header title={t(useAppStore.getState().language, "supportCenter")} onBack={() => setScreen("profile")} />
@@ -8673,14 +8671,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                       <Pressable
                         key={o._id || o.id}
                         style={[styles.supportOrderCard, isSelected && styles.supportOrderCardActive]}
-                        onPress={() => setSelectedOrder(o)}
+                        onPress={() => setOrderPreview(o)}
                       >
                         <View style={styles.supportTinyIcon}>
                           <Ionicons name="bag-handle-outline" size={15} color={BRAND_ORANGE} />
                         </View>
                         <View style={styles.supportOrderText}>
                           <Text style={styles.supportOrderTitle}>#{o.orderNumber || o.id.slice(-6).toUpperCase()}</Text>
-                          <Text style={styles.supportOrderCopy}>{o.status.replace(/_/g, " ")}</Text>
+                          <Text style={styles.supportOrderCopy}>{o.draft?.clothType || o.draft?.items?.[0]?.clothType || "Tailoring order"} · {String(o.status).replace(/_/g, " ")}</Text>
                         </View>
                         <Ionicons name="chevron-forward" size={16} color={BRAND_ORANGE} />
                       </Pressable>
@@ -8742,10 +8740,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     {uploading ? (
                       <ActivityIndicator color={BRAND_ORANGE} />
                     ) : (
-                      <>
-                        <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
-                        <Text style={styles.supportPhotoButtonText}>Add Photo</Text>
-                      </>
+                      <Ionicons name="camera-outline" size={24} color={BRAND_ORANGE} accessibilityLabel="Add support photo" />
                     )}
                   </Pressable>
                   <Text style={styles.supportPhotoHelper}>Add images if it helps us understand the issue better.</Text>
@@ -8777,6 +8772,43 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 )}
               </TouchableOpacity>
             </ScrollView>
+            <Modal visible={Boolean(orderPreview)} transparent animationType="slide" onRequestClose={() => setOrderPreview(null)}>
+              <View style={[styles.modalBackdrop, { justifyContent: "flex-end" }]}>
+                <View style={{ width: "100%", maxHeight: "82%", backgroundColor: cardBg, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 20 }}>
+                  <View style={styles.rowBetween}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardLabel}>SELECT AN ORDER</Text>
+                      <Text style={[styles.profileName, { color: text }]}>{orderPreview?.orderNumber || `#${String(orderPreview?.id || "").slice(-6).toUpperCase()}`}</Text>
+                    </View>
+                    <Pressable style={styles.iconMiniButton} onPress={() => setOrderPreview(null)}>
+                      <Ionicons name="close" size={19} color={text} />
+                    </Pressable>
+                  </View>
+                  <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 16 }}>
+                    <View style={styles.orderDetailsCard}>
+                      <SummaryRow label="Garment" value={orderPreview?.draft?.clothType || orderPreview?.draft?.items?.[0]?.clothType || "Not specified"} />
+                      <SummaryRow label="Work requested" value={orderPreview?.draft?.workType || orderPreview?.draft?.items?.[0]?.workType || orderPreview?.draft?.serviceCategory || "Not specified"} />
+                      <SummaryRow label="Status" value={String(orderPreview?.status || "Pending").replace(/_/g, " ")} />
+                      <SummaryRow label="Order date" value={supportOrderDate(orderPreview?.placedAt)} />
+                      <SummaryRow label="Order time" value={supportOrderTime(orderPreview?.placedAt)} />
+                      <SummaryRow label="Amount" value={supportOrderAmount(orderPreview?.total)} strong />
+                      <SummaryRow label="Description" value={orderPreview?.draft?.description || orderPreview?.draft?.items?.[0]?.description || "No description added"} />
+                    </View>
+                    {(orderPreview?.draft?.media?.length || orderPreview?.draft?.uploadedMedia?.length) ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                        {(orderPreview?.draft?.media?.length ? orderPreview.draft.media : orderPreview?.draft?.uploadedMedia || []).map((media: any, index: number) => (
+                          <Image key={`${media.uri || media.url}-${index}`} source={{ uri: media.uri || media.url }} style={{ width: 112, height: 112, borderRadius: 16, backgroundColor: "#eef2f7" }} />
+                        ))}
+                      </ScrollView>
+                    ) : <Text style={styles.mutedSmall}>No reference photos were added to this order.</Text>}
+                  </ScrollView>
+                  <Pressable style={styles.supportPrimaryButton} onPress={() => { setSelectedOrder(orderPreview); setOrderPreview(null); }}>
+                    <Ionicons name="checkmark-circle-outline" size={19} color="#111111" />
+                    <Text style={styles.supportPrimaryButtonText}>Link this order</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Modal>
           </View>
         )}
 
@@ -8897,7 +8929,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
             {/* Composer/Input bar */}
             {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && activeTicket.status !== "FIXED" ? (
-              <View style={styles.chatComposerWrap}>
+              <View style={[styles.chatComposerWrap, { paddingBottom: chatInputFocused ? Math.max(18, insets.bottom) : Math.max(8, insets.bottom) }]}>
                 {attachments.length > 0 && (
                   <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
                     {attachments.map((url, idx) => (
@@ -8926,9 +8958,17 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     style={styles.chatInput}
                     value={chatMessage}
                     onChangeText={setChatMessage}
+                    onFocus={() => {
+                      setChatInputFocused(true);
+                      requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
+                    }}
+                    onBlur={() => setChatInputFocused(false)}
                     placeholder="Type a message..."
                     placeholderTextColor={placeholderText}
                     multiline
+                    textAlignVertical="center"
+                    returnKeyType="default"
+                    blurOnSubmit={false}
                   />
                   <Pressable 
                     style={[styles.chatSendButton, (chatMessage.trim().length < 2 || sending) ? { opacity: 0.6 } : null]}
@@ -10417,6 +10457,7 @@ function TrackOrderScreenV2({
 export default function App() {
   const token = useAppStore((state) => state.token);
   const user = useAppStore((state) => state.user);
+  const setUser = useAppStore((state) => state.setUser);
   const signOut = useAppStore((state) => state.signOut);
   const sessionNotice = useAppStore((state) => state.sessionNotice);
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
@@ -10447,6 +10488,8 @@ export default function App() {
   const paymentMessageHandledRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   const updatePromptShownRef = useRef(false);
+  const homeScrollOffsetRef = useRef(0);
+  const profileScrollOffsetRef = useRef(0);
 
   useEffect(() => {
     const nativeAlert = Alert.alert;
@@ -10505,7 +10548,7 @@ export default function App() {
   const defaultAddress = addresses.find((address) => address.isDefault) ?? addresses[0];
   const unreadCount = notifications.filter((item) => !item.read).length;
   const activeOrderForCustomer = activeOrder && orders.some((order) => order.id === activeOrder.id) ? activeOrder : undefined;
-  const pushNotificationsEnabled = settings.notifications && settings.receivingNotifications;
+  const pushNotificationsEnabled = settings.notifications;
   useRegisterPushNotifications({ authToken: pushNotificationsEnabled ? token : undefined, app: "customer", userId: user?.id });
 
   useEffect(() => {
@@ -10519,9 +10562,7 @@ export default function App() {
           orderUpdates: settings.orderUpdates,
           offersPromotions: settings.offersPromotions,
           pickupReminders: settings.pickupReminders,
-          deliveryUpdates: settings.deliveryUpdates,
-          quietHours: settings.quietHours,
-          receivingNotifications: settings.receivingNotifications
+          deliveryUpdates: settings.deliveryUpdates
         })
       }, token).catch(() => undefined);
     }
@@ -10739,6 +10780,18 @@ export default function App() {
 
   function setCustomerProfile(nextProfile: ProfileData) {
     updateCustomerData((data) => ({ ...data, profile: nextProfile }));
+    if (token && user) {
+      const payload = {
+        name: nextProfile.name,
+        gender: nextProfile.gender,
+        dateOfBirth: nextProfile.dateOfBirth,
+        avatarPreset: nextProfile.avatarPreset,
+        ...(nextProfile.avatarUri && /^https?:/i.test(nextProfile.avatarUri) ? { avatarUri: nextProfile.avatarUri } : {})
+      };
+      void api<typeof user>("/auth/me", { method: "PATCH", body: JSON.stringify(payload) }, token)
+        .then((updatedUser) => setUser({ ...user, ...updatedUser }))
+        .catch((error) => Alert.alert("Profile sync failed", error instanceof Error ? error.message : "Your profile could not be synced."));
+    }
   }
 
   function setCustomerSettings(nextSettings: AppSettings) {
@@ -10756,8 +10809,6 @@ export default function App() {
   function addCustomerNotification(kind: "order" | "pickup" | "delivery" | "offer", notification: AppNotification) {
     const allowed =
       settings.notifications &&
-      settings.receivingNotifications &&
-      (!settings.quietHours || !isInQuietHoursNow()) &&
       (kind === "order"
         ? settings.orderUpdates
         : kind === "pickup"
@@ -10849,6 +10900,7 @@ export default function App() {
       title: "Order update",
       text: nextStatus,
       time: "Now",
+      createdAt: new Date().toISOString(),
       read: false
     });
   }
@@ -11234,6 +11286,33 @@ export default function App() {
   }, [token, hasLoadedCustomerData]);
 
   useEffect(() => {
+    if (!token || !hasLoadedCustomerData || !user) return;
+    let cancelled = false;
+    void api<typeof user>("/auth/me", {}, token)
+      .then((backendUser) => {
+        if (cancelled) return;
+        setUser({ ...user, ...backendUser });
+        updateCustomerData((data) => ({
+          ...data,
+          profile: {
+            ...data.profile,
+            name: backendUser.name?.trim() || data.profile.name,
+            phone: backendUser.phone || data.profile.phone,
+            gender: (backendUser.gender as ProfileGender | undefined) ?? data.profile.gender,
+            dateOfBirth: backendUser.dateOfBirth ?? data.profile.dateOfBirth,
+            avatarUri: backendUser.avatarUrl || backendUser.avatarUri || data.profile.avatarUri,
+            avatarPreset: (backendUser.avatarPreset as AvatarPreset | undefined) ?? data.profile.avatarPreset,
+            hasCompletedOnboarding: Boolean(backendUser.name?.trim()) || data.profile.hasCompletedOnboarding
+          }
+        }));
+      })
+      .catch((error) => {
+        if (isSessionError(error)) signOut();
+      });
+    return () => { cancelled = true; };
+  }, [hasLoadedCustomerData, token, user?.id]);
+
+  useEffect(() => {
     if (!token || !hasLoadedCustomerData) return undefined;
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") void refreshCustomerOrders();
@@ -11361,6 +11440,7 @@ export default function App() {
       title: nextOrder.status === "Awaiting Payment" ? "Payment pending" : "Order confirmed",
       text: `${nextOrder.orderNumber} is now ${nextOrder.status.toLowerCase()}.`,
       time: "Now",
+      createdAt: new Date().toISOString(),
       read: false
     });
     setActiveOrder(nextOrder);
@@ -11532,7 +11612,7 @@ export default function App() {
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} setLanguagePreference={setLanguagePreference} />);
 
-  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} onStartRequest={startRequest} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} />);
+  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} onStartRequest={startRequest} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} initialScrollOffset={homeScrollOffsetRef.current} onScrollOffsetChange={(offset) => { homeScrollOffsetRef.current = offset; }} />);
   if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} onStartRequest={startRequest} />);
   if (screen === "featureSoon") return withAppChrome(<FeatureSoonScreen setScreen={setScreen} onNotify={notifyForPressLaunch} />);
   if (screen === "notifications") return withAppChrome(<NotificationsScreen notifications={notifications} onMarkAllRead={markNotificationsRead} setScreen={setScreen} />);
@@ -11577,7 +11657,7 @@ export default function App() {
   if (screen === "profile" || PROFILE_SUBSCREENS.has(screen)) {
     return withAppChrome(
       <>
-        <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} settings={settings} language={language} />
+        <ProfileScreen setScreen={setScreen} orders={orders} profile={profile} addresses={addresses} onDeleteAccount={requestDeleteCustomerAccount} settings={settings} language={language} initialScrollOffset={profileScrollOffsetRef.current} onScrollOffsetChange={(offset) => { profileScrollOffsetRef.current = offset; }} />
         
         <Modal visible={screen === "favoriteTailors"} onRequestClose={goBack} animationType="slide">
           <FavoriteTailorsScreen setScreen={setScreen} />
@@ -12902,11 +12982,11 @@ function createStyles(isDark = false) {
   chatComposer: { minHeight: 58, borderRadius: 15, backgroundColor: surface, borderWidth: 1, borderColor: "#edf1f5", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 7, shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 12, elevation: 2 },
   chatMediaButton: { alignItems: "center", justifyContent: "center", width: 36, height: 44 },
   chatMediaText: { color: muted, fontSize: 8, fontWeight: "800", marginTop: 1 },
-  chatInput: { flex: 1, minHeight: 40, maxHeight: 92, borderWidth: 1, borderColor: "#edf1f5", borderRadius: 20, paddingHorizontal: 14, color: text, fontSize: 12, fontWeight: "800" },
+  chatInput: { flex: 1, minWidth: 0, minHeight: 42, maxHeight: 92, borderWidth: 1, borderColor: "#edf1f5", borderRadius: 20, paddingHorizontal: 14, paddingTop: 9, paddingBottom: 9, color: text, fontSize: 12, lineHeight: 18, fontWeight: "800", textAlignVertical: "center" },
   chatSendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#ffc45c", alignItems: "center", justifyContent: "center" },
   bugUploadButton: { width: "100%", minHeight: 56, borderRadius: 13, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface, flexDirection: "row", gap: 8 },
-  bugSubmitButton: { width: "100%", alignSelf: "stretch", backgroundColor: BRAND_ORANGE, marginTop: 10 },
-  bugSubmitButtonDisabled: { backgroundColor: "#ffc45c", opacity: 1 },
+  bugSubmitButton: { width: "100%", minHeight: 58, alignSelf: "stretch", backgroundColor: BRAND_ORANGE, borderRadius: 16, marginTop: 10, marginBottom: 8, borderWidth: 1, borderColor: "#e89608", shadowColor: "#c47a00", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 5 },
+  bugSubmitButtonDisabled: { backgroundColor: "#ffe0a3", borderColor: "#f2c978", shadowOpacity: 0, elevation: 0, opacity: 0.75 },
   bugInfoCard: { borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, paddingHorizontal: 12 },
   bugInfoRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 },
   bugInfoRowBorder: { borderTopWidth: 1, borderTopColor: "#edf1f5" },

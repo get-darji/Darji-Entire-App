@@ -1770,7 +1770,14 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
       });
       return;
     }
-    if (!token) return;
+    if (!token) {
+      showDialog({
+        title: "Sign in required",
+        message: "Your session has expired. Please sign in again before submitting a bug report.",
+        icon: "alert-circle-outline"
+      });
+      return;
+    }
     try {
       setSubmitting(true);
       let screenshotUrl = screenshot?.uploadedUrl;
@@ -1836,9 +1843,25 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
           <InfoRow icon="phone-portrait-outline" title="Your device" value={deviceOsLabel} styles={styles} noBorder />
           <InfoRow icon="information-circle-outline" title="App version" value="0.1.0 (Dev Build)" styles={styles} />
         </View>
-        <Pressable style={styles.primaryButton} onPress={submitBugReport} disabled={submitting}>
-          {submitting ? <ActivityIndicator color="#111111" /> : <><Ionicons name="bug-outline" size={18} color="#111111" /><Text style={styles.primaryButtonText}>Submit Bug Report</Text></>}
-        </Pressable>
+        <View style={[styles.bugSubmitButton, submitting && styles.bugSubmitButtonDisabled]}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Submit bug report"
+            activeOpacity={0.72}
+            style={styles.bugSubmitButtonTouchTarget}
+            onPress={submitBugReport}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#111111" />
+            ) : (
+              <>
+                <Ionicons name="bug-outline" size={20} color="#111111" />
+                <Text numberOfLines={1} style={styles.bugSubmitButtonText}>Submit Bug Report</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -2416,6 +2439,10 @@ function createStyles(palette: typeof lightPalette) {
     inlineInput: { flex: 1, minWidth: 0 },
     primaryButton: { minHeight: 50, borderRadius: 12, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 14 },
     primaryButtonText: { color: "#111111", fontSize: 14, fontWeight: "900" },
+    bugSubmitButton: { width: "100%", height: 54, marginTop: 18, borderRadius: 14, overflow: "hidden", backgroundColor: BRAND_ORANGE },
+    bugSubmitButtonDisabled: { opacity: 0.72 },
+    bugSubmitButtonTouchTarget: { width: "100%", height: "100%", paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center" },
+    bugSubmitButtonText: { marginLeft: 9, color: "#111111", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
     row: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: 1, borderTopColor: palette.border },
     disabledRow: { opacity: 0.58 },
     rowMain: { flex: 1, minWidth: 0 },
