@@ -843,7 +843,7 @@ const howItWorksSteps = [
   {
     icon: "cube-outline",
     title: "Doorstep Pickup",
-    text: "Darji coordinates pickup, tailor handover, stitching progress, quality checks, and delivery updates."
+    text: "We pick up your clothes from your location and keep you updated at every step."
   },
   {
     icon: "checkmark-done-outline",
@@ -851,6 +851,8 @@ const howItWorksSteps = [
     text: "Get your finished garment delivered home, then rate the tailor and delivery experience to help improve Darji."
   }
 ] as const;
+
+const workflowIconBackgrounds = ["#fff7e5", "#effaf1", "#f5efff", "#edf5ff"] as const;
 
 const MAX_VOICE_NOTES_PER_ITEM = 3;
 
@@ -2540,25 +2542,22 @@ function HomeScreen({
         </View>
 
         <View style={styles.homeWorkflowHeader}>
-          <Text style={styles.listTitle}>How It Works</Text>
-          <Text style={styles.homeWorkflowSubtitle}>Darji makes tailoring simple, secure and convenient from start to finish.</Text>
+          <View style={styles.homeWorkflowHeadingCopy}>
+            <Text maxFontSizeMultiplier={1.15} style={styles.homeWorkflowTitle}>How It Works</Text>
+            <Text maxFontSizeMultiplier={1.15} style={styles.homeWorkflowSubtitle}>Darji makes tailoring simple, secure and convenient from start to finish.</Text>
+          </View>
         </View>
         <View style={styles.homeStepsList}>
-          {howItWorksSteps.map((step, index) => (
+          {howItWorksSteps.slice(0, 4).map((step, index) => (
             <View key={step.title} style={styles.homeWorkflowStep}>
-              <View style={styles.homeWorkflowRail}>
-                <Text style={styles.stepNumber}>{index + 1}</Text>
-                {index < howItWorksSteps.length - 1 ? <View style={styles.homeWorkflowLine} /> : null}
-              </View>
               <View style={styles.homeStepCard}>
-                <View style={styles.stepIconBox}>
-                  <Ionicons name={step.icon} size={24} color={BRAND_DEEP} />
+                <View style={[styles.stepIconBox, { backgroundColor: workflowIconBackgrounds[index] }]}>
+                  <Ionicons name={step.icon} size={22} color={BRAND_DEEP} />
                 </View>
                 <View style={styles.homeStepCopyBlock}>
-                  <Text style={styles.stepTitle}>{step.title}</Text>
-                  <Text style={styles.stepCopy}>{step.text}</Text>
+                  <Text maxFontSizeMultiplier={1.1} style={styles.stepTitle}>{step.title}</Text>
+                  <Text maxFontSizeMultiplier={1.1} style={styles.stepCopy}>{step.text}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="#c7ced8" />
               </View>
             </View>
           ))}
@@ -2568,8 +2567,8 @@ function HomeScreen({
             <Ionicons name="shield-checkmark-outline" size={24} color={BRAND_ORANGE} />
           </View>
           <View style={styles.profileRowText}>
-            <Text style={styles.homeWorkflowTrustTitle}>Trusted. Transparent. Tailored for you.</Text>
-            <Text style={styles.homeWorkflowTrustCopy}>Secure payments - Verified tailors - Doorstep service</Text>
+            <Text style={styles.homeWorkflowTrustTitle}>Trusted. Verified. Hassle-free.</Text>
+            <Text style={styles.homeWorkflowTrustCopy}>Your clothes are in safe hands.</Text>
           </View>
         </View>
 
@@ -2758,31 +2757,35 @@ function ServicesScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scr
 
 function FeatureSoonScreen({ setScreen, onNotify }: { setScreen: (screen: Screen) => void; onNotify: () => void }) {
   const feature = homeMediaFeatures[0];
+  const launchBenefits = [
+    { icon: "shirt-outline", title: "Doorstep Pickup", copy: "We pick up your clothes from your location." },
+    { icon: "ribbon-outline", title: "Quality Ironing", copy: "Professionally ironed with care and precision." },
+    { icon: "home-outline", title: "Delivered to You", copy: "Freshly ironed and delivered back to you." }
+  ] as const;
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
         <Header title={t(useAppStore.getState().language, "launchingSoon")} onBack={() => setScreen("home")} />
-        <Image source={typeof feature.image === "string" ? { uri: feature.image } : feature.image} style={styles.launchImage} resizeMode="contain" />
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>UPCOMING SERVICE</Text>
-          <Text style={styles.launchTitle}>{feature.title}</Text>
-          <Text style={styles.infoCopy}>
-            Get your clothes picked up, professionally ironed, and delivered back to your doorstep. We are getting everything ready to bring this service to you soon.
-          </Text>
-          <View style={styles.launchPointRow}>
-            <Ionicons name="shirt-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.workflowText}>Doorstep pickup for ironing</Text>
-          </View>
-          <View style={styles.launchPointRow}>
-            <Ionicons name="sparkles-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.workflowText}>Professionally ironed and quality checked</Text>
-          </View>
-          <View style={styles.launchPointRow}>
-            <Ionicons name="bicycle-outline" size={18} color={BRAND_ORANGE} />
-            <Text style={styles.workflowText}>Delivered back to your doorstep</Text>
-          </View>
+        <View style={styles.launchHeroCard}>
+          <Image source={typeof feature.image === "string" ? { uri: feature.image } : feature.image} style={styles.launchImage} resizeMode="contain" />
+          <Text style={styles.launchHeroTitle}>Ironing <Text style={{ color: BRAND_ORANGE }}>Service</Text></Text>
         </View>
-        <RequestFlowCta label="Notify Me" onPress={onNotify} />
+        <View style={[styles.whiteCard, styles.launchDetailsCard]}>
+          <Text style={styles.launchEyebrow}>COMING SOON</Text>
+          <Text style={styles.launchTitle}>Doorstep Ironing Service</Text>
+          <Text style={styles.infoCopy}>Your clothes, professionally ironed and delivered back to your doorstep.</Text>
+          <View style={styles.summaryDivider} />
+          {launchBenefits.map((benefit) => (
+            <View key={benefit.title} style={styles.launchPointRow}>
+              <View style={styles.launchPointIcon}><Ionicons name={benefit.icon} size={21} color={BRAND_ORANGE} /></View>
+              <View style={styles.profileRowTextNoMargin}>
+                <Text style={styles.addressTitle}>{benefit.title}</Text>
+                <Text style={styles.mutedSmall}>{benefit.copy}</Text>
+              </View>
+            </View>
+          ))}
+          <RequestFlowCta label="Notify Me" onPress={onNotify} />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -4396,16 +4399,38 @@ function ClothGuideModal({ visible, onClose }: { visible: boolean; onClose: () =
 function MeasurementOverviewGuide({ compact = false }: { compact?: boolean }) {
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [gender, setGender] = useState<"Men" | "Women">("Men");
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const imageWidth = Math.max(320, screenWidth - 24);
   const imageHeight = Math.max(420, screenHeight - 170);
+  const guideViewportWidth = Math.max(260, screenWidth - (compact ? 76 : 40));
+  const guideViewportHeight = compact ? 330 : 440;
 
   return (
     <>
-      <Pressable style={[styles.measurementImageCard, compact && styles.measurementImageCardCompact]} onPress={() => setZoomOpen(true)}>
-        <Image source={measurementsImage} style={[styles.measurementGuideImage, compact && styles.measurementGuideImageCompact]} resizeMode="contain" />
+      <View style={[styles.measurementImageCard, compact && styles.measurementImageCardCompact]}>
+        <View style={styles.measurementGenderTabs}>
+          {(["Men", "Women"] as const).map((item) => (
+            <Pressable key={item} style={[styles.measurementGenderTab, gender === item && styles.measurementGenderTabActive]} onPress={() => setGender(item)}>
+              <Text style={[styles.measurementGenderTabText, gender === item && styles.measurementGenderTabTextActive]}>{item}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable
+          accessibilityRole="imagebutton"
+          accessibilityLabel={`${gender} measurement guide. Tap to zoom.`}
+          style={[styles.measurementGuideViewport, { width: guideViewportWidth, height: guideViewportHeight }]}
+          onPress={() => setZoomOpen(true)}
+        >
+          <Image
+            source={measurementsImage}
+            style={{ width: guideViewportWidth * 2, height: guideViewportHeight, transform: [{ translateX: gender === "Women" ? -guideViewportWidth : 0 }] }}
+            resizeMode="stretch"
+          />
+        </Pressable>
         <Text style={styles.measurementImageNote}>Tap image to zoom. Use it to understand where to measure. Enter all measurements in this app in cm.</Text>
-      </Pressable>
+        <Text style={styles.measurementSwipeHint}>Choose Men or Women to switch the guide.</Text>
+      </View>
       <Modal visible={zoomOpen} animationType="fade" onRequestClose={() => setZoomOpen(false)}>
         <SafeAreaView style={styles.imageZoomSafe}>
           <View style={styles.imageZoomHeader}>
@@ -5468,7 +5493,7 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
             </View>
           </View>
           {profile ? (
-            <>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.tailorProfileContent}>
               <View style={styles.tailorProfileHero}>
                 <View style={styles.tailorProfileAvatar}>
                   {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.tailorProfileAvatarImage} /> : <Text style={styles.tailorProfileAvatarText}>{profile.initials}</Text>}
@@ -5478,7 +5503,8 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
                   <Text style={styles.mutedSmall}>{profile.displayName}</Text>
                   <View style={styles.ratingRow}>
                     <Ionicons name="star" size={16} color={BRAND_ORANGE} />
-                    <Text style={styles.quoteMeta}>{Number(profile.rating) > 0 ? `${profile.rating} (${profile.reviews})` : "New tailor"}</Text>
+                    <Text style={styles.tailorProfileRating}>{Number(profile.rating) > 0 ? profile.rating : "New"}</Text>
+                    <Text style={styles.tailorProfileReviews}>{Number(profile.rating) > 0 ? `${profile.reviews} reviews` : "No reviews yet"}</Text>
                   </View>
                 </View>
               </View>
@@ -5511,10 +5537,13 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
                 </>
               ) : null}
               <View style={styles.tailorVerifiedRow}>
-                <Ionicons name="shield-checkmark-outline" size={18} color="#15803d" />
-                <Text style={styles.tailorVerifiedText}>{profile.verificationStatus === "VERIFIED" ? "Identity and shop verified by Darji" : "Profile verification in progress"}</Text>
+                <View style={styles.tailorVerifiedIcon}><Ionicons name="shield-checkmark" size={22} color="#15803d" /></View>
+                <View style={styles.tailorVerifiedCopy}>
+                  <Text style={styles.tailorVerifiedText}>Trusted verified professional</Text>
+                  <Text style={styles.tailorVerifiedCaption}>Verified by Darji</Text>
+                </View>
               </View>
-            </>
+            </ScrollView>
           ) : null}
         </View>
       </View>
@@ -5551,7 +5580,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       sampleProvided: item.sampleProvided,
       uploadedSampleMedia: item.sampleMedia?.[0],
       homeMeasurementBooked: item.homeMeasurementBooked,
-      preferredMeasurementSlot: request.preferredMeasurementSlot,
+      preferredMeasurementSlot: item.preferredMeasurementSlot ?? request.preferredMeasurementSlot,
       media: [],
       uploadedMedia: item.media ?? []
     }));
@@ -8659,8 +8688,12 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
         {view === "new_chat" && (
           <View style={styles.supportPage}>
-            <Header title="Contact Support" onBack={() => setScreen("profile")} />
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.supportFormContent}>
+            <Header title="Contact Support" onBack={() => setView("center")} />
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[styles.supportFormContent, { paddingBottom: Math.max(48, insets.bottom + 28) }]}
+            >
               <Text style={styles.supportIntro}>We're here to help. Tell us what's going on.</Text>
               <View>
                 <Text style={styles.supportLabel}>Related Order (Optional)</Text>
@@ -8820,7 +8853,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   style={styles.chatBackButton}
                   onPress={() => {
                     setActiveTicket(null);
-                    setView("new_chat");
+                    setView("center");
                   }}
                 >
                   <Ionicons name="chevron-back" size={20} color={text} />
@@ -8867,14 +8900,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                   <View style={{ gap: 6 }}>
                     <View style={styles.chatBubbleMine}>
                       <Text style={{ color: "#000000", fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: 0.6 }}>You</Text>
-                      <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
                       {activeTicket.attachments && activeTicket.attachments.length > 0 && (
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6, marginBottom: 8 }}>
                           {activeTicket.attachments.map((url: string) => (
                             <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
                           ))}
                         </View>
                       )}
+                      <Text style={{ color: "#000000", fontSize: 14, fontWeight: "700" }}>{activeTicket.message}</Text>
                       <Text style={{ color: "#000000", fontSize: 9, textAlign: "right", marginTop: 4, opacity: 0.5 }}>
                         {new Date(activeTicket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </Text>
@@ -8908,15 +8941,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                       <Text style={{ color: isClient ? "#000000" : BRAND_ORANGE, fontWeight: "900", fontSize: 10, textTransform: "uppercase", marginBottom: 2, opacity: isClient ? 0.6 : 1 }}>
                         {isClient ? "You" : "Darji Support"}
                       </Text>
-                      <Text style={{ color: isClient ? "#000000" : text, fontSize: 14, fontWeight: "700" }}>{msg.text}</Text>
-                      
                       {msg.attachments && msg.attachments.length > 0 && (
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6, marginBottom: 8 }}>
                           {msg.attachments.map((url: string) => (
                             <Image key={url} source={{ uri: url }} style={{ width: 80, height: 80, borderRadius: 8 }} />
                           ))}
                         </View>
                       )}
+                      <Text style={{ color: isClient ? "#000000" : text, fontSize: 14, fontWeight: "700" }}>{msg.text}</Text>
 
                       <Text style={{ color: isClient ? "rgba(0,0,0,0.5)" : mutedText, fontSize: 9, textAlign: "right", marginTop: 4 }}>
                         {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -8996,7 +9028,11 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
         {view === "bug" && (
           <View style={styles.supportPage}>
             <Header title="Report a Bug" onBack={() => setScreen("profile")} />
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.supportFormContent}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[styles.supportFormContent, { paddingBottom: Math.max(72, insets.bottom + 48) }]}
+            >
               <Text style={styles.supportIntro}>Found something that's not working right? Let us know and we'll fix it.</Text>
               
               <View>
@@ -9073,25 +9109,22 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 </View>
               </View>
 
-              <Pressable
-                android_ripple={{ color: "rgba(0, 0, 0, 0.1)" }}
-                style={({ pressed }) => [
-                  styles.supportPrimaryButton,
-                  styles.bugSubmitButton,
-                  pressed && !(bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.buttonPressed,
-                  (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.bugSubmitButtonDisabled
-                ]}
+            </ScrollView>
+            <View style={[styles.bugSubmitFooter, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+              <TouchableOpacity
+                activeOpacity={0.82}
+                style={[styles.bugSubmitFixedButton, (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.bugSubmitFixedButtonDisabled]}
                 disabled={bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending}
                 onPress={handleSubmitBug}
               >
                 {sending ? <ActivityIndicator color="#111111" /> : (
                   <>
-                    <Ionicons name="bug-outline" size={17} color="#111111" />
-                    <Text numberOfLines={1} style={styles.supportPrimaryButtonText}>Submit Bug Report</Text>
+                    <Ionicons name="bug-outline" size={20} color="#111111" />
+                    <Text style={styles.bugSubmitFixedText}>Submit Bug Report</Text>
                   </>
                 )}
-              </Pressable>
-            </ScrollView>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
         {loading && (
@@ -9279,12 +9312,18 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
 
 function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) => void; isDark: boolean }) {
   const profileStyles = createStyles(isDark);
+  const promises = [["shield-checkmark-outline", "Verified Tailors"], ["home-outline", "Doorstep Service"], ["card-outline", "Transparent Pricing"], ["headset-outline", "Dedicated Support"]] as const;
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "aboutDarji")} setScreen={setScreen} styles={profileStyles}>
+      <View style={profileStyles.aboutHero}>
+        <Image source={darjiLogo} style={profileStyles.aboutLogo} resizeMode="contain" />
+        <Text style={profileStyles.aboutTagline}>We bring doorstep tailoring,{"\n"}so you never have to step outside</Text>
+        <View style={profileStyles.aboutOrnament}><View style={profileStyles.aboutOrnamentLine} /><Text style={{ color: BRAND_ORANGE }}>◆</Text><View style={profileStyles.aboutOrnamentLine} /></View>
+      </View>
       <View style={profileStyles.whiteCard}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
-          <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-          <Text style={[profileStyles.cardLabel, { color: BRAND_ORANGE, marginBottom: 0, fontWeight: "900", letterSpacing: 0.5 }]}>OUR MISSION</Text>
+          <View style={profileStyles.aboutIcon}><Ionicons name="locate-outline" size={23} color={BRAND_ORANGE} /></View>
+          <Text style={profileStyles.aboutSectionTitle}>Our Mission</Text>
         </View>
         <Text style={profileStyles.infoCopy}>
           Darji is a modern tailoring ecosystem designed to bring custom clothing to your doorstep. We connect you with expert local tailors, facilitate live fabric and measurements collection, and ensure perfect-fit garments are delivered directly back to you.
@@ -9301,6 +9340,17 @@ function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) =
           • Pickup & Stitching: Delivery partners collect fabric, and tailors craft your garment.{"\n"}
           • Handoff: Receive your custom garment at your door.
         </Text>
+      </View>
+      <View style={profileStyles.whiteCard}>
+        <Text style={profileStyles.aboutSectionTitle}>The Darji Promise</Text>
+        <View style={profileStyles.aboutPromiseRow}>
+          {promises.map(([icon, label]) => (
+            <View key={label} style={profileStyles.aboutPromiseItem}>
+              <Ionicons name={icon} size={23} color={BRAND_ORANGE} />
+              <Text style={profileStyles.aboutPromiseText}>{label}</Text>
+            </View>
+          ))}
+        </View>
       </View>
     </ProfileSubPage>
   );
@@ -10031,7 +10081,7 @@ function OrderDetailsScreenV2({
           })}
         </View>
 
-        {measurementEntries.length ? (
+        {orderItems.some((item) => item.homeMeasurementBooked) && measurementEntries.length ? (
           <>
             <Text style={styles.sectionTitle}>Submitted Measurements</Text>
             <View style={styles.orderMeasurementsCard}>
@@ -11969,21 +12019,20 @@ function createStyles(isDark = false) {
   whyTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 17 },
   whyCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 16, marginTop: 4 },
   homeWorkflowHeader: { marginTop: 2, marginBottom: 14 },
-  homeWorkflowSubtitle: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 5, maxWidth: 330 },
-  homeStepsList: { width: "100%", marginBottom: 12 },
-  homeWorkflowStep: { width: "100%", flexDirection: "row", alignItems: "stretch" },
-  homeWorkflowRail: { width: 36, alignItems: "center" },
-  homeWorkflowLine: { flex: 1, width: 1.5, minHeight: 14, backgroundColor: border, marginVertical: 4 },
-  stepNumber: { overflow: "hidden", borderRadius: 15, backgroundColor: BRAND_ORANGE, color: "#111111", width: 30, height: 30, lineHeight: 30, textAlign: "center", fontSize: 13, fontWeight: "900", marginTop: 18 },
-  homeStepCard: { flex: 1, minWidth: 0, minHeight: 102, borderRadius: 12, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12, paddingVertical: 12, marginLeft: 8, marginBottom: 12, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 1 },
-  stepIconBox: { width: 46, height: 46, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  homeStepCopyBlock: { flex: 1, minWidth: 0 },
-  stepTitle: { color: text, fontSize: 14, lineHeight: 19, fontWeight: "900" },
-  stepCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 4 },
-  homeWorkflowTrust: { minHeight: 72, borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 22 },
-  homeWorkflowTrustIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
-  homeWorkflowTrustTitle: { color: text, fontSize: 12, lineHeight: 17, fontWeight: "900" },
-  homeWorkflowTrustCopy: { color: muted, fontSize: 10, lineHeight: 15, fontWeight: "700", marginTop: 3 },
+  homeWorkflowHeadingCopy: { flex: 1, minWidth: 0 },
+  homeWorkflowTitle: { color: text, fontSize: 20, lineHeight: 26, fontWeight: "900" },
+  homeWorkflowSubtitle: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 5, maxWidth: 310 },
+  homeStepsList: { width: "100%", gap: 10, marginBottom: 12 },
+  homeWorkflowStep: { width: "100%" },
+  homeStepCard: { width: "100%", minHeight: 90, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 12, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.05, shadowRadius: 7, elevation: 1 },
+  stepIconBox: { width: 48, height: 48, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  homeStepCopyBlock: { flex: 1, minWidth: 0, alignSelf: "stretch", justifyContent: "center" },
+  stepTitle: { color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  stepCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 3 },
+  homeWorkflowTrust: { minHeight: 68, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 22 },
+  homeWorkflowTrustIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
+  homeWorkflowTrustTitle: { color: text, fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  homeWorkflowTrustCopy: { color: muted, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 2 },
   storyRow: { gap: 14, paddingBottom: 16 },
   largeReviewCard: { width: 264, minHeight: 206, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 12, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 14, elevation: 2 },
   reviewHeader: { flexDirection: "row", alignItems: "center", gap: 9, minHeight: 48 },
@@ -12026,9 +12075,14 @@ function createStyles(isDark = false) {
   mediaFeatureText: { position: "absolute", left: 12, right: 12, bottom: 12 },
   mediaFeatureTitle: { color: "#ffffff", fontSize: 17, fontWeight: "900" },
   mediaFeatureCopy: { color: "#d6deea", fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: 4 },
-  launchImage: { width: "100%", height: 210, borderRadius: 22, marginBottom: 16, backgroundColor: surface },
+  launchHeroCard: { borderRadius: 24, borderWidth: 1, borderColor: "#f0dfc1", backgroundColor: surfaceAlt, padding: 18, alignItems: "center", marginBottom: 18, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 14, elevation: 2 },
+  launchImage: { width: "100%", height: 190, borderRadius: 22, backgroundColor: surfaceAlt },
+  launchHeroTitle: { color: text, fontSize: 25, lineHeight: 31, fontWeight: "900", marginTop: 4 },
+  launchDetailsCard: { padding: 20 },
+  launchEyebrow: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "900", letterSpacing: 1.1, marginBottom: 8 },
   launchTitle: { color: text, fontSize: 28, fontWeight: "900", lineHeight: 34, marginBottom: 10 },
-  launchPointRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14 },
+  launchPointRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: border },
+  launchPointIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
   workflowItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
@@ -12322,8 +12376,15 @@ function createStyles(isDark = false) {
   chartCloseButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   sizeChartHelp: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 12, marginBottom: 14 },
   sizeChartSectionTitle: { color: text, fontSize: 13, fontWeight: "900", marginTop: 4, marginBottom: 10 },
-  measurementImageCard: { borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 8, marginBottom: 16, overflow: "hidden" },
+  measurementImageCard: { borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 8, marginBottom: 16, overflow: "hidden", alignItems: "center" },
   measurementImageCardCompact: { marginBottom: 12 },
+  measurementGenderTabs: { width: "100%", flexDirection: "row", gap: 8, padding: 4, marginBottom: 8, borderRadius: 14, backgroundColor: "#f1f5f9" },
+  measurementGenderTab: { flex: 1, minHeight: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  measurementGenderTabActive: { backgroundColor: BRAND_DEEP },
+  measurementGenderTabText: { color: muted, fontSize: 13, fontWeight: "900" },
+  measurementGenderTabTextActive: { color: "#ffffff" },
+  measurementGuideViewport: { overflow: "hidden", borderRadius: 12, backgroundColor: "#ffffff" },
+  measurementSwipeHint: { color: muted, fontSize: 10, fontWeight: "800", textAlign: "center", marginTop: 4, marginBottom: 4 },
   measurementGuideImage: { width: "100%", height: 360 },
   measurementGuideImageCompact: { height: 240 },
   measurementImageNote: { color: "#8a5600", fontSize: 11, fontWeight: "900", lineHeight: 16, textAlign: "center", marginTop: 6 },
@@ -12524,12 +12585,15 @@ function createStyles(isDark = false) {
   quoteSelectButtonText: { color: "#ffffff", fontSize: 15, fontWeight: "900" },
   quoteProfileModalHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 16, marginBottom: 14 },
   quoteProfileModalAvatar: { width: 62, height: 62, borderRadius: 31 },
-  tailorProfileModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
+  tailorProfileModal: { width: "100%", maxWidth: 390, maxHeight: "84%", borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18, overflow: "hidden" },
+  tailorProfileContent: { paddingBottom: 2 },
   tailorProfileHero: { flexDirection: "row", alignItems: "center", gap: 13, marginTop: 16, marginBottom: 16 },
   tailorProfileAvatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
   tailorProfileAvatarImage: { width: "100%", height: "100%" },
   tailorProfileAvatarText: { color: "#111111", fontSize: 18, fontWeight: "900" },
   tailorProfileShop: { color: text, fontSize: 19, fontWeight: "900", lineHeight: 24 },
+  tailorProfileRating: { color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  tailorProfileReviews: { color: muted, fontSize: 11, lineHeight: 16, fontWeight: "700" },
   tailorProfileInfoGrid: { flexDirection: "row", gap: 10, marginBottom: 16 },
   tailorProfileInfoCard: { flex: 1, minHeight: 78, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12 },
   tailorProfileInfoLabel: { color: muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginTop: 7 },
@@ -12538,11 +12602,24 @@ function createStyles(isDark = false) {
   tailorSampleImage: { width: 112, height: 132, borderRadius: 14, backgroundColor: iconBg },
   tailorSpecialtyWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: -4, marginBottom: 14 },
   tailorSpecialtyChip: { overflow: "hidden", borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, color: "#8a5600", paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
-  tailorVerifiedRow: { minHeight: 42, borderRadius: 13, backgroundColor: isDark ? "#0d2416" : "#f0fdf4", borderWidth: 1, borderColor: "#bbf7d0", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 },
-  tailorVerifiedText: { flex: 1, minWidth: 0, color: "#15803d", fontSize: 12, fontWeight: "900" },
+  tailorVerifiedRow: { minHeight: 68, borderRadius: 16, backgroundColor: isDark ? "#0d2416" : "#f0fdf4", borderWidth: 1, borderColor: "#86efac", flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 14, paddingVertical: 11 },
+  tailorVerifiedIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: isDark ? "#13351f" : "#dcfce7", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  tailorVerifiedCopy: { flex: 1, minWidth: 0, justifyContent: "center" },
+  tailorVerifiedText: { color: "#15803d", fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  tailorVerifiedCaption: { color: "#15803d", fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 2 },
   quoteConfirmButton: { backgroundColor: BRAND_DEEP, borderRadius: 14, marginTop: 22 },
   quoteConfirmButtonText: { color: "#ffffff" },
   whiteCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
+  aboutHero: { alignItems: "center", paddingVertical: 10, marginBottom: 16 },
+  aboutLogo: { width: 220, height: 100 },
+  aboutTagline: { color: text, fontSize: 16, lineHeight: 24, fontWeight: "900", textAlign: "center", marginTop: 4 },
+  aboutOrnament: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
+  aboutOrnamentLine: { width: 50, height: 1, backgroundColor: BRAND_ORANGE },
+  aboutIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginRight: 12 },
+  aboutSectionTitle: { color: text, fontSize: 18, lineHeight: 24, fontWeight: "900" },
+  aboutPromiseRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 18 },
+  aboutPromiseItem: { width: "23%", alignItems: "center", gap: 7 },
+  aboutPromiseText: { color: text, fontSize: 9, lineHeight: 13, fontWeight: "900", textAlign: "center" },
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },
@@ -12987,6 +13064,10 @@ function createStyles(isDark = false) {
   bugUploadButton: { width: "100%", minHeight: 56, borderRadius: 13, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface, flexDirection: "row", gap: 8 },
   bugSubmitButton: { width: "100%", minHeight: 58, alignSelf: "stretch", backgroundColor: BRAND_ORANGE, borderRadius: 16, marginTop: 10, marginBottom: 8, borderWidth: 1, borderColor: "#e89608", shadowColor: "#c47a00", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 5 },
   bugSubmitButtonDisabled: { backgroundColor: "#ffe0a3", borderColor: "#f2c978", shadowOpacity: 0, elevation: 0, opacity: 0.75 },
+  bugSubmitFooter: { backgroundColor: pageBg, paddingTop: 10, paddingHorizontal: 2, borderTopWidth: 1, borderTopColor: border },
+  bugSubmitFixedButton: { width: "100%", minHeight: 58, borderRadius: 16, backgroundColor: BRAND_ORANGE, borderWidth: 1, borderColor: "#e89608", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, shadowColor: "#c47a00", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.22, shadowRadius: 12, elevation: 6 },
+  bugSubmitFixedButtonDisabled: { backgroundColor: "#ffd88e", borderColor: "#efbd65", opacity: 0.72, shadowOpacity: 0, elevation: 0 },
+  bugSubmitFixedText: { color: "#111111", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },
   bugInfoCard: { borderRadius: 10, borderWidth: 1, borderColor: "#edf1f5", backgroundColor: surface, paddingHorizontal: 12 },
   bugInfoRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 },
   bugInfoRowBorder: { borderTopWidth: 1, borderTopColor: "#edf1f5" },
