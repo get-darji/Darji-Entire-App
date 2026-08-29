@@ -172,6 +172,15 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid rgba(246, 163, 19, 0.48);
+  outline-offset: 2px;
+}
+
 input,
 select,
 textarea {
@@ -255,6 +264,17 @@ textarea {
 
 .animate-slide-up-fade {
   animation: slide-up-fade 0.55s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .darji-support-shell {

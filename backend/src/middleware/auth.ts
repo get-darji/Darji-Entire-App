@@ -80,7 +80,12 @@ export function requireRole(...roles: Role[]) {
     if (!req.user) {
       return next(new AppError(401, "Authentication required"));
     }
-    if (!roles.includes(req.user.role)) {
+    // SUPER_ADMIN is an elevated ADMIN role and must inherit every route that
+    // permits ADMIN. Routes that explicitly require SUPER_ADMIN remain
+    // restricted because regular admins do not receive the reverse mapping.
+    const hasRequiredRole = roles.includes(req.user.role) ||
+      (req.user.role === "SUPER_ADMIN" && roles.includes("ADMIN"));
+    if (!hasRequiredRole) {
       return next(new AppError(403, "You do not have access to this resource"));
     }
     return next();

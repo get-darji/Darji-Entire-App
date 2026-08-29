@@ -3,7 +3,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { defaultPlatformStatus, orderStatuses, type PlatformStatus } from "@darzi/shared";
-import Image from "next/image";
 import {
   useMutation,
   useQuery,
@@ -580,34 +579,58 @@ export function AdminPortal() {
     queryFn: getAdminReviews,
     enabled: isAuthed
   });
-  const dashboardData = !analyticsQuery.data ||
-    !meQuery.data ||
-    !ordersQuery.data ||
-    !tailoringQuery.data ||
-    !deliveryQuery.data ||
-    !tailorsQuery.data ||
-    !partnersQuery.data ||
-    !usersQuery.data ||
-    !paymentsQuery.data ||
-    !couponsQuery.data ||
-    !supportQuery.data ||
-    !settingsQuery.data
+  const emptyAnalytics: AnalyticsSummary = {
+    totalOrders: 0,
+    activeOrders: 0,
+    completedOrders: 0,
+    cancelledOrders: 0,
+    pendingOrders: 0,
+    activeTailors: 0,
+    activeDeliveryPartners: 0,
+    revenue: 0,
+    expenses: 0,
+    netProfit: 0,
+    pendingPayouts: 0
+  };
+  const dashboardData = !meQuery.data
     ? null
     : {
-        analytics: analyticsQuery.data,
+        analytics: analyticsQuery.data ?? emptyAnalytics,
         me: meQuery.data,
-        orders: ordersQuery.data,
-        tailoringRequests: tailoringQuery.data,
-        deliveryRequests: deliveryQuery.data,
+        orders: ordersQuery.data ?? [],
+        tailoringRequests: tailoringQuery.data ?? [],
+        deliveryRequests: deliveryQuery.data ?? [],
         deliveryBatches: deliveryBatchesQuery.data ?? [],
-        tailors: tailorsQuery.data,
-        partners: partnersQuery.data,
-        users: usersQuery.data,
-        payments: paymentsQuery.data,
-        coupons: couponsQuery.data,
-        tickets: supportQuery.data,
-        settings: settingsQuery.data
+        tailors: tailorsQuery.data ?? [],
+        partners: partnersQuery.data ?? [],
+        users: usersQuery.data ?? [],
+        payments: paymentsQuery.data ?? [],
+        coupons: couponsQuery.data ?? [],
+        tickets: supportQuery.data ?? [],
+        settings: settingsQuery.data ?? []
       };
+
+  const failedBootQuery = [
+    { label: "Analytics", query: analyticsQuery },
+    { label: "Orders", query: ordersQuery },
+    { label: "Tailoring requests", query: tailoringQuery },
+    { label: "Delivery requests", query: deliveryQuery },
+    { label: "Tailors", query: tailorsQuery },
+    { label: "Delivery partners", query: partnersQuery },
+    { label: "Users", query: usersQuery },
+    { label: "Payments", query: paymentsQuery },
+    { label: "Coupons", query: couponsQuery },
+    { label: "Support", query: supportQuery },
+    { label: "Settings", query: settingsQuery }
+  ].find(({ query }) => query.isError);
+  const bootQueryError = failedBootQuery?.query.error;
+  const bootQueryErrorLabel = failedBootQuery?.label;
+
+  useEffect(() => {
+    if (bootQueryError) {
+      toast.error(`${bootQueryErrorLabel ?? "Dashboard data"} could not be loaded: ${extractError(bootQueryError)}`, { id: "dashboard-partial-load" });
+    }
+  }, [bootQueryError, bootQueryErrorLabel]);
 
   useEffect(() => {
     if (settingsQuery.data) {
@@ -757,9 +780,9 @@ export function AdminPortal() {
     ]);
 
   const assignMutation = useMutation({
-    mutationFn: assignOrder,
-    onSuccess: async () => {
-      toast.success("Order assignment updated");
+    mutationFn: (assignments: Parameters<typeof assignOrder>[0][]) => Promise.all(assignments.map(assignOrder)),
+    onSuccess: async (updatedAssignments) => {
+      toast.success(updatedAssignments.length === 1 ? "Order assignment updated" : "All order assignments updated");
       setAssignOrderTarget(null);
       await refreshData();
     },
@@ -1180,6 +1203,36 @@ export function AdminPortal() {
     supportQuery,
     settingsQuery
   ].some((query) => query.isLoading);
+
+  if (meQuery.isError) {
+    return (
+      <PortalFrame
+        activeSection={activeSection}
+        alertCount={0}
+        globalSearch={globalSearch}
+        globalSearchResults={[]}
+        onGlobalSearchChange={setGlobalSearch}
+        onLogout={logout}
+        onOpenSidebar={() => setSidebarOpen(true)}
+        onSectionChange={setActiveSection}
+        sidebarOpen={sidebarOpen}
+        supportCount={0}
+      >
+        <Panel className="mx-auto max-w-2xl p-8 text-center">
+          <AlertCircle className="mx-auto h-10 w-10 text-rose-500" />
+          <h2 className="mt-4 text-xl font-semibold">Unable to load your admin session</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">{extractError(meQuery.error)}</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <ActionButton disabled={meQuery.isFetching} onClick={() => void meQuery.refetch()}>
+              {meQuery.isFetching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+              Retry
+            </ActionButton>
+            <ActionButton onClick={logout} variant="secondary">Sign in again</ActionButton>
+          </div>
+        </Panel>
+      </PortalFrame>
+    );
+  }
 
   if (!dashboardData || isBootLoading) {
     return (
@@ -2816,15 +2869,21 @@ export function AdminPortal() {
         }}
         onSubmit={() => {
           if (!assignOrderTarget) return;
+          const assignments: Parameters<typeof assignOrder>[0][] = [];
           if (assignTailorId && assignTailorId !== assignOrderTarget.tailorId) {
-            assignMutation.mutate({ orderId: assignOrderTarget.id, tailorId: assignTailorId });
+            assignments.push({ orderId: assignOrderTarget.id, tailorId: assignTailorId });
           }
           if (assignPickupPartnerId && assignPickupPartnerId !== assignOrderTarget.pickupPartnerId) {
-            assignMutation.mutate({ orderId: assignOrderTarget.id, deliveryPartnerId: assignPickupPartnerId, mode: "pickup" });
+            assignments.push({ orderId: assignOrderTarget.id, deliveryPartnerId: assignPickupPartnerId, mode: "pickup" });
           }
           if (assignDeliveryPartnerId && assignDeliveryPartnerId !== assignOrderTarget.deliveryPartnerId) {
-            assignMutation.mutate({ orderId: assignOrderTarget.id, deliveryPartnerId: assignDeliveryPartnerId, mode: "delivery" });
+            assignments.push({ orderId: assignOrderTarget.id, deliveryPartnerId: assignDeliveryPartnerId, mode: "delivery" });
           }
+          if (!assignments.length) {
+            toast.info("No assignment changes to save");
+            return;
+          }
+          assignMutation.mutate(assignments);
         }}
         pending={assignMutation.isPending}
       />
@@ -2845,10 +2904,9 @@ function LoginPanel({
   onVerifyOtp: (phone: string, otp: string) => void;
   returnedOtp?: string;
 }) {
-  const [phone, setPhone] = useState("9999999999");
+  const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [requested, setRequested] = useState(false);
-  const [rememberDevice, setRememberDevice] = useState(true);
   const cleanPhoneInput = (value: string) => value.replace(/\D/g, "").slice(0, 10);
 
   return (
@@ -2864,7 +2922,7 @@ function LoginPanel({
       <section className="mx-auto grid min-h-[100dvh] max-w-[1540px] items-center gap-4 px-3 py-3 sm:gap-6 sm:px-5 sm:py-6 xl:grid-cols-[1fr_0.92fr] xl:gap-8 xl:px-10 xl:py-8">
         <div className="relative order-2 flex min-h-0 flex-col justify-between overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_top,rgba(255,213,94,0.16),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.4),rgba(255,248,231,0.72))] p-5 sm:rounded-[36px] sm:p-8 xl:order-1 xl:min-h-[760px] xl:rounded-[42px] xl:p-12">
           <div>
-            <Image alt="Darji" className="h-auto w-[170px] sm:w-[210px] xl:w-[240px]" height={146} priority src="/darji-logo.png" width={240} style={{ height: "auto" }} />
+            <img alt="Darji" className="h-auto w-[170px] sm:w-[210px] xl:w-[240px]" fetchPriority="high" src="/darji-logo.png" />
             <p className="mt-3 pl-2 text-[15px] font-medium text-[#59483a]">Stitching Made Simple</p>
 
             <div className="mt-7 max-w-[520px] sm:mt-10 xl:mt-12">
@@ -2950,29 +3008,17 @@ function LoginPanel({
                 ) : null}
 
                 <div className="flex flex-col items-start gap-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <label className="inline-flex items-center gap-3 text-[#6a6460]">
-                    <input
-                      checked={rememberDevice}
-                      className="h-4 w-4 rounded border-[#d4c9b5] accent-[#f6a313]"
-                      onChange={(event) => setRememberDevice(event.target.checked)}
-                      type="checkbox"
-                    />
-                    Remember this device
-                  </label>
-                  <button className="font-medium text-[#ff9d00]" type="button">
+                  <span className="text-[#6a6460]">Secure admin access</span>
+                  <a className="font-medium text-[#d88500] underline-offset-4 hover:underline" href="mailto:support@darji.app?subject=Admin%20portal%20login%20help">
                     Need help?
-                  </button>
+                  </a>
                 </div>
 
                   {returnedOtp ? (
                     <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                       Current test OTP: <span className="font-semibold">{returnedOtp}</span>
                     </div>
-                  ) : (
-                    <div className="rounded-[18px] border border-[#f2dfb8] bg-[#fff8e6] px-4 py-3 text-sm text-[#7d6b58]">
-                      Temporary login OTP: <span className="font-semibold text-[#4a3620]">123456</span>
-                    </div>
-                  )}
+                  ) : null}
 
                 <ActionButton
                   className="h-[58px] w-full justify-center rounded-[18px] text-[1.05rem] font-semibold shadow-[0_18px_32px_rgba(246,163,19,0.22)]"
@@ -3515,7 +3561,7 @@ function LoadingDashboard() {
 function LogoMark() {
   return (
     <div className="pl-1">
-      <Image alt="Darji" className="h-auto w-[112px]" height={72} priority src="/darji-logo.png" width={112} style={{ height: "auto" }} />
+      <img alt="Darji" className="h-auto w-[112px]" fetchPriority="high" src="/darji-logo.png" />
       <p className="mt-1 pl-1 text-[11px] font-semibold tracking-[0.04em] text-[#7d6d58]">Stitching Made Simple</p>
     </div>
   );
@@ -4441,7 +4487,7 @@ function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders
   ] as const;
   return (
     <div className="space-y-6">
-      <SectionIntro title="Export Center" description="Central MVP export hub. CSV is enabled now; Excel/PDF can be layered on the same datasets." />
+      <SectionIntro title="Export Center" description="Download operational data as CSV or Excel, or create a print-ready PDF report." />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {exports.map(([label, filename, rows]) => (
           <Panel key={label}>
@@ -4449,8 +4495,8 @@ function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders
             <p className="mt-1 text-sm text-[var(--muted)]">{rows.length} rows available</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <ActionButton onClick={() => downloadCsv(filename, rows)}>CSV</ActionButton>
-              <ActionButton variant="secondary" onClick={() => toast.info("Excel export is planned for the next backend/reporting pass.")}>Excel</ActionButton>
-              <ActionButton variant="secondary" onClick={() => toast.info("PDF export is planned for the next backend/reporting pass.")}>PDF</ActionButton>
+              <ActionButton variant="secondary" onClick={() => downloadExcel(filename.replace(/\.csv$/i, ".xls"), label, rows)}>Excel</ActionButton>
+              <ActionButton variant="secondary" onClick={() => printTableReport(label, rows)}>PDF</ActionButton>
             </div>
           </Panel>
         ))}
@@ -8804,9 +8850,6 @@ function getOrderColumns({
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-red-50" onSelect={() => onStatusChange(row.original.id, "CANCELLED")}>
                   <Trash2 size={14} className="text-red-500" /> Cancel Order
                 </DropdownMenu.Item>
-                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-red-600 outline-none hover:bg-red-50" onSelect={() => toast.info("Delete Order is not wired to the backend yet.")}>
-                  <Trash2 size={14} /> Delete Order
-                </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
@@ -10201,6 +10244,36 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function downloadExcel(filename: string, title: string, rows: Array<Record<string, unknown>>) {
+  if (!rows.length) {
+    toast.error("Nothing to export");
+    return;
+  }
+  const headers = Object.keys(rows[0]);
+  const table = `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows
+    .map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(row[header] ?? ""))}</td>`).join("")}</tr>`)
+    .join("")}</tbody></table>`;
+  const workbook = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body>${table}</body></html>`;
+  downloadBlob(filename, `\ufeff${workbook}`, "application/vnd.ms-excel;charset=utf-8");
+  toast.success(`${title} Excel export downloaded`);
+}
+
+function printTableReport(title: string, rows: Array<Record<string, unknown>>) {
+  if (!rows.length) {
+    toast.error("Nothing to export");
+    return;
+  }
+  const reportWindow = window.open("", "_blank", "noopener,noreferrer");
+  if (!reportWindow) {
+    toast.error("Allow pop-ups to create the PDF report");
+    return;
+  }
+  const headers = Object.keys(rows[0]);
+  const cells = rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(row[header] ?? ""))}</td>`).join("")}</tr>`).join("");
+  reportWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} report</title><style>@page{size:landscape;margin:12mm}body{font:12px Arial,sans-serif;color:#172033}h1{font-size:22px;margin:0 0 4px}p{color:#667085;margin:0 0 18px}table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #d7dce3;padding:7px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#fff1cf;color:#3b2a0c}tr:nth-child(even){background:#f8fafc}</style></head><body><h1>Darji — ${escapeHtml(title)}</h1><p>${rows.length} rows · Generated ${escapeHtml(new Date().toLocaleString("en-IN"))}</p><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table><script>window.addEventListener('load',()=>window.print())<\/script></body></html>`);
+  reportWindow.document.close();
 }
 
 function downloadBlob(filename: string, content: string, mimeType: string) {
