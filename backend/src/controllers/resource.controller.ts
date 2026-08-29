@@ -1547,12 +1547,13 @@ export async function updateSupportTicketController(req: Request, res: Response)
 }
 
 export async function listSupportTicketsController(req: Request, res: Response) {
-  const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  const where = isAdmin ? {} : { userId: req.user!.id };
   const tickets = await SupportTicketModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
     tickets.map(async (ticket) => {
       const ticketJson = ticket.toJSON() as any;
-      if (req.user!.role !== "ADMIN" && ticketJson.messages) {
+      if (!isAdmin && ticketJson.messages) {
         ticketJson.messages = ticketJson.messages.filter((m: any) => m.sender !== "internal");
       }
       return {
@@ -1576,6 +1577,33 @@ export async function createCouponController(req: Request, res: Response) {
   res.status(201).json({ data: coupon });
 }
 
+async function deliveryPartnerCostForOrder(orderId: string) {
+  const tasks = await DeliveryRequestModel.find({ orderId, taskStatus: { $ne: "cancelled" } })
+    .select("batchId finalPayout estimatedPayout estimatedEarnings");
+  let cost = 0;
+  const batchTaskCounts = new Map<string, number>();
+
+  for (const task of tasks) {
+    const batchId = String(task.batchId ?? "");
+    if (!batchId) {
+      cost += Number(task.finalPayout ?? task.estimatedPayout ?? task.estimatedEarnings ?? 0);
+    } else {
+      batchTaskCounts.set(batchId, (batchTaskCounts.get(batchId) ?? 0) + 1);
+    }
+  }
+
+  await Promise.all([...batchTaskCounts].map(async ([batchId, orderTaskCount]) => {
+    const [batch, activeTaskCount] = await Promise.all([
+      DeliveryBatchModel.findOne({ batchId }).select("finalPayout estimatedPayout estimatedEarnings"),
+      DeliveryRequestModel.countDocuments({ batchId, taskStatus: { $ne: "cancelled" } })
+    ]);
+    const batchPayout = Number(batch?.finalPayout ?? batch?.estimatedPayout ?? batch?.estimatedEarnings ?? 0);
+    if (activeTaskCount > 0) cost += batchPayout * (orderTaskCount / activeTaskCount);
+  }));
+
+  return Number(cost.toFixed(2));
+}
+
 export async function paymentsController(req: Request, res: Response) {
   const payments = await PaymentModel.find().sort({ createdAt: -1 });
   const data = await Promise.all(
@@ -1583,12 +1611,11 @@ export async function paymentsController(req: Request, res: Response) {
       const order = await OrderModel.findById(payment.orderId).select("orderNumber customerId status totalAmount");
       if (order) {
         if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN" && order.customerId !== req.user!.id) return null;
-        const [customer, deliveryTasks] = await Promise.all([
+        const [customer, deliveryEarnings] = await Promise.all([
           UserModel.findById(order.customerId).select("name phone"),
-          DeliveryRequestModel.find({ orderId: order.id }).select("estimatedEarnings")
+          deliveryPartnerCostForOrder(order.id)
         ]);
         const tailorQuote = Number(order.totalAmount ?? payment.amount ?? 0) * 0.45;
-        const deliveryEarnings = deliveryTasks.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
         return {
           ...payment.toJSON(),
           source: "ORDER",
@@ -1610,13 +1637,12 @@ export async function paymentsController(req: Request, res: Response) {
       if (!tailoringRequest) return req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN" ? { ...payment.toJSON(), source: "ORDER" } : null;
       if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN" && tailoringRequest.customerId !== req.user!.id) return null;
 
-      const [customer, selectedQuote, deliveryTasks] = await Promise.all([
+      const [customer, selectedQuote, deliveryEarnings] = await Promise.all([
         UserModel.findById(tailoringRequest.customerId).select("name phone"),
         tailoringRequest.selectedQuoteId ? TailorQuoteModel.findById(tailoringRequest.selectedQuoteId).select("price") : null,
-        DeliveryRequestModel.find({ orderId: tailoringRequest.id }).select("estimatedEarnings")
+        deliveryPartnerCostForOrder(tailoringRequest.id)
       ]);
       const tailorQuote = Number(tailoringRequest.quoteAmount ?? selectedQuote?.price ?? 0);
-      const deliveryEarnings = deliveryTasks.reduce((sum, task) => sum + Number(task.estimatedEarnings ?? 0), 0);
 
       return {
         ...payment.toJSON(),
@@ -1688,7 +1714,8 @@ export async function analyticsController(_req: Request, res: Response) {
     tailoringCancelledCount,
     tailoringPendingCount,
     tailors,
-    deliveryPartners
+    deliveryPartners,
+    partnerWallets
   ] = await Promise.all([
     TransactionModel.find(),
     OrderModel.countDocuments(),
@@ -1709,8 +1736,9 @@ export async function analyticsController(_req: Request, res: Response) {
         { orderStatus: "payment_pending" }
       ]
     }),
-    TailorModel.find({ isAvailable: true }).select("earnings"),
-    DeliveryPartnerModel.find({ isAvailable: true }).select("dailyEarnings weeklyEarnings monthlyEarnings")
+    TailorModel.find({ isAvailable: true, verificationStatus: "VERIFIED" }).select("_id"),
+    DeliveryPartnerModel.find({ isAvailable: true, verificationStatus: "VERIFIED" }).select("_id"),
+    WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("balance")
   ]);
 
   const totalOrders = ordersCount + tailoringTotalCount;
@@ -1730,9 +1758,7 @@ export async function analyticsController(_req: Request, res: Response) {
     }
   });
 
-  const pendingPayouts = 
-    tailors.reduce((sum, t) => sum + (t.earnings || 0), 0) + 
-    deliveryPartners.reduce((sum, d) => sum + (d.monthlyEarnings || 0), 0);
+  const pendingPayouts = partnerWallets.reduce((sum, wallet) => sum + Number(wallet.balance ?? 0), 0);
   
   res.json({
     data: {
@@ -1873,7 +1899,7 @@ export async function createBugReportController(req: Request, res: Response) {
 }
 
 export async function listBugReportsController(req: Request, res: Response) {
-  const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
+  const where = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN" ? {} : { userId: req.user!.id };
   const bugs = await BugReportModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
     bugs.map(async (bug) => ({
@@ -1984,7 +2010,7 @@ export async function createAccountChangeRequestController(req: Request, res: Re
 }
 
 export async function listAccountChangeRequestsController(req: Request, res: Response) {
-  const where = req.user!.role === "ADMIN" ? {} : { userId: req.user!.id };
+  const where = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN" ? {} : { userId: req.user!.id };
   const requests = await AccountChangeRequestModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
     requests.map(async (request) => {
@@ -2289,7 +2315,7 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
     return;
   }
 
-  const isAdmin = req.user!.role === "ADMIN";
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
@@ -2384,7 +2410,7 @@ export async function addBugReportMessageController(req: Request, res: Response)
     return;
   }
 
-  const isAdmin = req.user!.role === "ADMIN";
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
@@ -2460,7 +2486,7 @@ export async function addChangeRequestMessageController(req: Request, res: Respo
     return;
   }
 
-  const isAdmin = req.user!.role === "ADMIN";
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");

@@ -1313,7 +1313,7 @@ export function AdminPortal() {
     tailors.filter((tailor) => tailor.verificationStatus === "PENDING").length +
     partners.filter((partner) => partner.verificationStatus === "PENDING").length;
 
-  const financeSummary = buildFinanceSummary(payments, tailoringRequests, deliveryRequests);
+  const financeSummary = buildFinanceSummary(payments, tailoringRequests, deliveryRequests, deliveryBatches);
   const metrics = buildMetrics(allOrders, tailors, partners, payments, financeSummary);
   const revenueSeries = buildRevenueSeries(payments, "monthly", financeSummary.byPaymentId);
   const orderSeries = buildWeekdayOrderSeries(allOrders);
@@ -1455,14 +1455,16 @@ export function AdminPortal() {
       share: categoryTotal ? Math.round((item.value / categoryTotal) * 100) : 0
     }))
     .slice(0, 4);
+  const tailorWalletByUser = new Map((tailorPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
+  const deliveryWalletByUser = new Map((deliveryPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
   const topTailors = [...tailors]
-    .sort((left, right) => (right.earnings ?? 0) - (left.earnings ?? 0) || (right.rating ?? 0) - (left.rating ?? 0))
+    .sort((left, right) => Number(tailorWalletByUser.get(right.userId)?.currentWeekEarnings ?? 0) - Number(tailorWalletByUser.get(left.userId)?.currentWeekEarnings ?? 0) || (right.rating ?? 0) - (left.rating ?? 0))
     .slice(0, 5);
   const topPartners = [...partners]
     .sort(
       (left, right) =>
-        (right.weeklyEarnings ?? right.monthlyEarnings ?? right.dailyEarnings ?? 0) -
-          (left.weeklyEarnings ?? left.monthlyEarnings ?? left.dailyEarnings ?? 0) ||
+        Number(deliveryWalletByUser.get(right.userId)?.currentWeekEarnings ?? 0) -
+          Number(deliveryWalletByUser.get(left.userId)?.currentWeekEarnings ?? 0) ||
         (right.rating ?? 0) - (left.rating ?? 0)
     )
     .slice(0, 5);
@@ -1472,6 +1474,7 @@ export function AdminPortal() {
     orders: allOrders,
     payments,
     setActiveSection,
+    setBatchFocus,
     setDeliveryDetail,
     setOrderDetail,
     setTicketDetail,
@@ -1495,7 +1498,8 @@ export function AdminPortal() {
       value: (analytics?.totalOrders || 0).toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "orders" as SectionId
+      target: "orders" as SectionId,
+      orderFilter: ""
     },
     {
       icon: PackageCheck,
@@ -1505,7 +1509,8 @@ export function AdminPortal() {
       value: (analytics?.activeOrders || 0).toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "orders" as SectionId
+      target: "orders" as SectionId,
+      orderFilter: "__ACTIVE__"
     },
     {
       icon: CheckCircle2,
@@ -1515,7 +1520,8 @@ export function AdminPortal() {
       value: (analytics?.completedOrders || 0).toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "orders" as SectionId
+      target: "orders" as SectionId,
+      orderFilter: "__COMPLETED__"
     },
     {
       icon: AlertCircle,
@@ -1525,7 +1531,8 @@ export function AdminPortal() {
       value: (analytics?.cancelledOrders || 0).toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "orders" as SectionId
+      target: "orders" as SectionId,
+      orderFilter: "__CANCELLED__"
     },
     {
       icon: BarChart3,
@@ -1575,7 +1582,8 @@ export function AdminPortal() {
       value: (analytics?.pendingOrders || 0).toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "orders" as SectionId
+      target: "orders" as SectionId,
+      orderFilter: "__PENDING__"
     },
     {
       icon: Truck,
@@ -1605,6 +1613,7 @@ export function AdminPortal() {
       note: `${percentage(metrics.cancellationRate)} cancelled`,
       tone: "emerald" as const,
       value: percentage(metrics.completionRate),
+      target: "orders" as SectionId,
       data: orderSeries.map((point) => ({
         label: point.label,
         value: sumOrderPoint(point) ? Number(((point.completed / sumOrderPoint(point)) * 100).toFixed(1)) : 0
@@ -1616,6 +1625,7 @@ export function AdminPortal() {
       note: revenueDelta.label,
       tone: "amber" as const,
       value: formatCurrency(metrics.averageOrderValue),
+      target: "payments" as SectionId,
       data: revenueSeries.map((point) => ({ label: point.label, value: point.revenue }))
     },
     {
@@ -1624,6 +1634,7 @@ export function AdminPortal() {
       note: buildCountMeta(latestGrowthPoint.customers).label,
       tone: "violet" as const,
       value: latestGrowthPoint.customers.toLocaleString("en-IN"),
+      target: "users" as SectionId,
       data: growthSeries.map((point) => ({ label: point.label, value: point.customers }))
     },
     {
@@ -1632,6 +1643,7 @@ export function AdminPortal() {
       note: buildCountMeta(latestGrowthPoint.tailors).label,
       tone: "amber" as const,
       value: latestGrowthPoint.tailors.toLocaleString("en-IN"),
+      target: "tailors" as SectionId,
       data: growthSeries.map((point) => ({ label: point.label, value: point.tailors }))
     },
     {
@@ -1640,6 +1652,7 @@ export function AdminPortal() {
       note: buildCountMeta(latestGrowthPoint.partners).label,
       tone: "sky" as const,
       value: latestGrowthPoint.partners.toLocaleString("en-IN"),
+      target: "partners" as SectionId,
       data: growthSeries.map((point) => ({ label: point.label, value: point.partners }))
     }
   ];
@@ -1672,7 +1685,14 @@ export function AdminPortal() {
 
       const orderPartnerId = String(order.deliveryPartner?.id ?? order.pickupPartner?.id ?? "");
       const partnerMatch = !deliveryPartnerFilter || orderPartnerId === deliveryPartnerFilter;
-      return (!query || content.includes(query)) && (!orderFilter || order.status === orderFilter) && partnerMatch;
+      const normalizedStatus = String(order.status).toUpperCase();
+      const statusMatch = !orderFilter ||
+        (orderFilter === "__ACTIVE__" && !["DELIVERED", "COMPLETED", "CANCELLED", "FAILED", "ORDER_PLACED", "PAYMENT_PENDING"].includes(normalizedStatus)) ||
+        (orderFilter === "__COMPLETED__" && ["DELIVERED", "COMPLETED"].includes(normalizedStatus)) ||
+        (orderFilter === "__CANCELLED__" && ["CANCELLED", "FAILED"].includes(normalizedStatus)) ||
+        (orderFilter === "__PENDING__" && ["ORDER_PLACED", "PAYMENT_PENDING", "PENDING"].includes(normalizedStatus)) ||
+        normalizedStatus === orderFilter;
+      return (!query || content.includes(query)) && statusMatch && partnerMatch;
     })
     .sort((a, b) => new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime());
 
@@ -2035,7 +2055,7 @@ export function AdminPortal() {
 
             <div className="grid gap-4 xl:grid-cols-12">
               <LiveAlertsWidget className="xl:col-span-7" alerts={liveAlerts} />
-              <TodayOperationsWidget className="xl:col-span-5" items={todayOperations} />
+              <TodayOperationsWidget className="xl:col-span-5" items={todayOperations} onOpen={setActiveSection} />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -2049,7 +2069,15 @@ export function AdminPortal() {
                   value={item.value}
                   change={item.change}
                   changeTone={item.changeTone}
-                  onClick={() => setActiveSection(item.target)}
+                  onClick={() => {
+                    if ("orderFilter" in item) setOrderFilter(item.orderFilter ?? "");
+                    if (item.label === "Gross Paid" || item.label === "Net Revenue" || item.label === "Partner Cost") {
+                      setPaymentFilter("PAID");
+                      setPaymentsSubTab("ledger");
+                    }
+                    if (item.label === "Pending Payouts") setPaymentsSubTab("tailors");
+                    setActiveSection(item.target);
+                  }}
                 />
               ))}
             </div>
@@ -2150,11 +2178,12 @@ export function AdminPortal() {
                 className="xl:col-span-3"
                 title="Top Tailors"
                 description="Highest earners this cycle."
+                onViewAll={() => setActiveSection("tailors")}
                 items={topTailors.map((tailor) => ({
                   id: tailor.id,
                   name: getTailorDisplayName(tailor),
                   subtitle: `${countTailorOrders(orders, tailor.id)} orders`,
-                  value: formatCurrency(tailor.earnings ?? 0),
+                  value: formatCurrency(tailorWalletByUser.get(tailor.userId)?.currentWeekEarnings ?? 0),
                   rating: tailor.rating ? tailor.rating.toFixed(1) : undefined,
                   onClick: () => setTailorDetail(tailor)
                 }))}
@@ -2163,11 +2192,12 @@ export function AdminPortal() {
                 className="xl:col-span-3"
                 title="Top Delivery Partners"
                 description="Top performing delivery network."
+                onViewAll={() => setActiveSection("partners")}
                 items={topPartners.map((partner) => ({
                   id: partner.id,
                   name: getPartnerDisplayName(partner),
                   subtitle: `${getPartnerRoleLabel(partner)} - ${countPartnerOrders(orders, partner.id)} orders`,
-                  value: formatCurrency(partner.weeklyEarnings ?? partner.monthlyEarnings ?? partner.dailyEarnings ?? 0),
+                  value: formatCurrency(deliveryWalletByUser.get(partner.userId)?.currentWeekEarnings ?? 0),
                   rating: partner.rating ? partner.rating.toFixed(1) : undefined,
                   onClick: () => setPartnerDetail(partner)
                 }))}
@@ -2176,7 +2206,11 @@ export function AdminPortal() {
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               {miniTrendCards.map((item) => (
-                <MiniTrendCard key={item.label} data={item.data} icon={item.icon} label={item.label} note={item.note} tone={item.tone} value={item.value} />
+                <MiniTrendCard key={item.label} data={item.data} icon={item.icon} label={item.label} note={item.note} tone={item.tone} value={item.value} onClick={() => {
+                  if (item.label === "Completion Rate") setOrderFilter("__COMPLETED__");
+                  if (item.label === "Average Order Value") setPaymentFilter("PAID");
+                  setActiveSection(item.target);
+                }} />
               ))}
             </div>
           </div>
@@ -3865,6 +3899,7 @@ function FinanceStatCard({
 }: {
   label: string;
   note: string;
+  onClick?: () => void;
   tone: "amber" | "emerald" | "rose" | "sky" | "violet";
   value: string;
 }) {
@@ -4075,17 +4110,17 @@ function LiveAlertsWidget({ alerts, className }: { alerts: AdminAlert[]; classNa
   );
 }
 
-function TodayOperationsWidget({ className, items }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet" }> }) {
+function TodayOperationsWidget({ className, items, onOpen }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet"; target: SectionId }>; onOpen: (target: SectionId) => void }) {
   return (
     <Panel className={className}>
       <h3 className="text-lg font-semibold text-[var(--deep)]">Today&apos;s Operations</h3>
       <p className="mt-1 text-sm text-[var(--muted)]">Live operational summary from existing order and delivery data.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {items.map((item) => (
-          <div key={item.label} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
+          <button key={item.label} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]" onClick={() => onOpen(item.target)} type="button">
             <Badge tone={item.tone}>{item.label}</Badge>
             <p className="mt-3 text-2xl font-bold text-[var(--deep)]">{item.value}</p>
-          </div>
+          </button>
         ))}
       </div>
     </Panel>
@@ -6040,11 +6075,13 @@ function LeaderboardCard({
   className,
   description,
   items,
+  onViewAll,
   title
 }: {
   className?: string;
   description: string;
   items: Array<{ id: string; name: string; subtitle: string; value: string; rating?: string; onClick?: () => void }>;
+  onViewAll: () => void;
   title: string;
 }) {
   return (
@@ -6054,7 +6091,7 @@ function LeaderboardCard({
           <h3 className="text-lg font-semibold text-[var(--deep)]">{title}</h3>
           <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
         </div>
-        <ActionButton className="px-3 py-2 text-xs font-semibold" variant="secondary">
+        <ActionButton className="px-3 py-2 text-xs font-semibold" onClick={onViewAll} variant="secondary">
           View All
         </ActionButton>
       </div>
@@ -6099,6 +6136,7 @@ function MiniTrendCard({
   icon: Icon,
   label,
   note,
+  onClick,
   tone,
   value
 }: {
@@ -6106,6 +6144,7 @@ function MiniTrendCard({
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   note: string;
+  onClick?: () => void;
   tone: "emerald" | "amber" | "violet" | "sky";
   value: string;
 }) {
@@ -6117,7 +6156,8 @@ function MiniTrendCard({
   };
 
   return (
-    <Panel className="p-4">
+    <Panel className={cn("p-4", onClick && "cursor-pointer transition hover:-translate-y-0.5 hover:border-[var(--accent)]")}>
+      <button className="block w-full text-left" onClick={onClick} type="button">
       <div className="flex items-start justify-between gap-4">
         <div>
           <span className={cn("inline-flex rounded-2xl p-2.5", tone === "amber" && "bg-[#fff1d8] text-[#cf7d00]", tone === "emerald" && "bg-emerald-500/12 text-emerald-700", tone === "sky" && "bg-sky-500/12 text-sky-700", tone === "violet" && "bg-violet-500/12 text-violet-700")}>
@@ -6135,6 +6175,7 @@ function MiniTrendCard({
           </ResponsiveContainer>
         </div>
       </div>
+      </button>
     </Panel>
   );
 }
@@ -9613,6 +9654,7 @@ function buildLiveAlerts({
   orders,
   payments,
   setActiveSection,
+  setBatchFocus,
   setDeliveryDetail,
   setOrderDetail,
   setTicketDetail,
@@ -9625,6 +9667,7 @@ function buildLiveAlerts({
   orders: Order[];
   payments: Payment[];
   setActiveSection: (section: SectionId) => void;
+  setBatchFocus: (target: BatchFocusTarget) => void;
   setDeliveryDetail: (request: DeliveryRequest) => void;
   setOrderDetail: (order: Order) => void;
   setTicketDetail: (ticket: SupportTicket) => void;
@@ -9641,12 +9684,46 @@ function buildLiveAlerts({
     .filter((alert) => alert.status === "OPEN")
     .slice(0, 4)
     .forEach((alert) => {
+      const metadata = alert.metadata ?? {};
+      const candidateIds = [
+        alert.entityId,
+        metadata.taskId,
+        metadata.orderId,
+        metadata.requestId,
+        metadata.paymentId,
+        metadata.batchId
+      ].filter(Boolean).map(String);
+      const relatedDelivery = deliveryRequests.find((request) => candidateIds.includes(request.id) || candidateIds.includes(request.taskId) || candidateIds.includes(request.orderId));
+      const relatedOrder = orders.find((order) => candidateIds.includes(order.id) || candidateIds.includes(String(order.darjiId ?? "")) || candidateIds.includes(String(order.orderNumber ?? "")));
+      const relatedTailoring = tailoringRequests.find((request) => candidateIds.includes(request.id) || candidateIds.includes(String(request.darjiId ?? "")));
+      const relatedPayment = payments.find((payment) => candidateIds.includes(payment.id) || candidateIds.includes(payment.orderId));
+      const relatedBatch = deliveryRequests.find((request) => candidateIds.includes(String((request as DeliveryRequest & { batchId?: string }).batchId ?? "")));
       alerts.push({
         detail: alert.message,
         id: `operational-${alert.id}`,
         onOpen: () => {
-          if (alert.entityType === "delivery_batch" || alert.type.includes("DELIVERY") || alert.type.includes("BATCH")) setActiveSection("batches");
-          else if (alert.entityType === "tailoring_request") setActiveSection("tailoring");
+          if (relatedDelivery) {
+            setDeliveryDetail(relatedDelivery);
+            setActiveSection("delivery");
+          } else if (relatedOrder) {
+            setOrderDetail(relatedOrder);
+            setActiveSection("orders");
+          } else if (relatedTailoring) {
+            setTailoringDetail(relatedTailoring);
+            setActiveSection("tailoring");
+          } else if (relatedPayment) {
+            const paymentOrder = orders.find((order) => order.id === relatedPayment.orderId);
+            const paymentRequest = tailoringRequests.find((request) => request.id === relatedPayment.orderId);
+            if (paymentOrder) setOrderDetail(paymentOrder);
+            else if (paymentRequest) setTailoringDetail(paymentRequest);
+            setActiveSection(paymentOrder ? "orders" : paymentRequest ? "tailoring" : "payments");
+          } else if (alert.entityType === "delivery_batch" || alert.type.includes("BATCH")) {
+            const batchId = String(metadata.batchId ?? alert.entityId ?? "");
+            const roundAt = String(metadata.roundAt ?? relatedBatch?.createdAt ?? new Date().toISOString());
+            if (batchId) setBatchFocus({ batchId, roundAt });
+            setActiveSection("batches");
+          } else if (alert.entityType === "tailoring_request") setActiveSection("tailoring");
+          else if (alert.type.includes("DELIVERY") || alert.type.includes("COD")) setActiveSection("delivery");
           else setActiveSection("dashboard");
         },
         title: alert.title,
@@ -9774,26 +9851,38 @@ function buildTodayOperationsSummary({
   const pendingDropBatches = deliveryBatches.filter((batch) => batch.deliveryType === "DROP" && !["completed", "cancelled"].includes(String(batch.status))).length;
 
   return [
-    { label: "Pickups today", value: pickupTasks.length.toLocaleString("en-IN"), tone: "amber" as const },
-    { label: "Drops today", value: dropTasks.length.toLocaleString("en-IN"), tone: "sky" as const },
-    { label: "Completed tasks", value: completedTasks.length.toLocaleString("en-IN"), tone: "emerald" as const },
-    { label: "In stitching", value: stitchingNow.toLocaleString("en-IN"), tone: "violet" as const },
-    { label: "Ready orders", value: readyNow.toLocaleString("en-IN"), tone: "emerald" as const },
-    { label: "Drop batches", value: pendingDropBatches.toLocaleString("en-IN"), tone: "rose" as const },
-    { label: "Active tailors", value: activeTailors.toLocaleString("en-IN"), tone: "amber" as const },
-    { label: "Active partners", value: activePartners.toLocaleString("en-IN"), tone: "sky" as const }
+    { label: "Pickups today", value: pickupTasks.length.toLocaleString("en-IN"), tone: "amber" as const, target: "delivery" as SectionId },
+    { label: "Drops today", value: dropTasks.length.toLocaleString("en-IN"), tone: "sky" as const, target: "delivery" as SectionId },
+    { label: "Completed tasks", value: completedTasks.length.toLocaleString("en-IN"), tone: "emerald" as const, target: "delivery" as SectionId },
+    { label: "In stitching", value: stitchingNow.toLocaleString("en-IN"), tone: "violet" as const, target: "tailoring" as SectionId },
+    { label: "Ready orders", value: readyNow.toLocaleString("en-IN"), tone: "emerald" as const, target: "tailoring" as SectionId },
+    { label: "Drop batches", value: pendingDropBatches.toLocaleString("en-IN"), tone: "rose" as const, target: "batches" as SectionId },
+    { label: "Active tailors", value: activeTailors.toLocaleString("en-IN"), tone: "amber" as const, target: "tailors" as SectionId },
+    { label: "Active partners", value: activePartners.toLocaleString("en-IN"), tone: "sky" as const, target: "partners" as SectionId }
   ];
 }
 
-function buildFinanceSummary(payments: Payment[], tailoringRequests: TailoringRequest[], deliveryRequests: DeliveryRequest[]): FinanceSummary {
+function buildFinanceSummary(payments: Payment[], tailoringRequests: TailoringRequest[], deliveryRequests: DeliveryRequest[], deliveryBatches: DeliveryBatch[]): FinanceSummary {
   const tailoringCosts = new Map<string, number>();
   tailoringRequests.forEach((request) => {
     tailoringCosts.set(request.id, Number(request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0));
   });
 
   const deliveryCosts = new Map<string, number>();
-  deliveryRequests.forEach((request) => {
-    deliveryCosts.set(request.orderId, (deliveryCosts.get(request.orderId) ?? 0) + Number(request.estimatedEarnings ?? 0));
+  const activeTasks = deliveryRequests.filter((request) => String(request.taskStatus).toLowerCase() !== "cancelled");
+  activeTasks.filter((request) => !request.batchId).forEach((request) => {
+    const payout = Number(request.finalPayout ?? request.estimatedPayout ?? request.estimatedEarnings ?? 0);
+    deliveryCosts.set(request.orderId, (deliveryCosts.get(request.orderId) ?? 0) + payout);
+  });
+  const batchMap = new Map(deliveryBatches.map((batch) => [batch.batchId, batch]));
+  const batchIds = [...new Set(activeTasks.map((request) => request.batchId).filter((value): value is string => Boolean(value)))];
+  batchIds.forEach((batchId) => {
+    const tasks = activeTasks.filter((request) => request.batchId === batchId);
+    if (!tasks.length) return;
+    const batch = batchMap.get(batchId);
+    const payout = Number(batch?.finalPayout ?? batch?.estimatedPayout ?? batch?.estimatedEarnings ?? 0);
+    const perTaskCost = payout / tasks.length;
+    tasks.forEach((request) => deliveryCosts.set(request.orderId, (deliveryCosts.get(request.orderId) ?? 0) + perTaskCost));
   });
 
   const byPaymentId = new Map<string, PaymentBreakdown>();

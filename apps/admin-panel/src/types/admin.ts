@@ -519,10 +519,14 @@ export type DeliveryRequest = {
   customerId: string;
   type: "customer_to_tailor" | "tailor_to_customer";
   assignedDeliveryPartnerId?: string;
+  batchId?: string;
+  serviceLevel?: "STANDARD" | "EXPRESS" | "INSTANT";
   taskStatus: string;
   shift: string;
   estimatedDistanceKm?: number;
   estimatedEarnings: number;
+  estimatedPayout?: number;
+  finalPayout?: number;
   pickupAddress: string;
   dropAddress: string;
   customerName?: string;
@@ -574,6 +578,8 @@ export type DeliveryBatch = {
   payableDistanceMeters?: number;
   estimatedDurationSeconds?: number;
   estimatedEarnings: number;
+  estimatedPayout?: number;
+  finalPayout?: number;
   totalDistance?: number;
   status: "scheduled" | "locked" | "active" | "completed" | "cancelled" | string;
   partner?: DeliveryPartnerProfile | null;
