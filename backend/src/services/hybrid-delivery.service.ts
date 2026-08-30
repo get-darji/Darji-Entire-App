@@ -104,7 +104,11 @@ async function createBatchForSlot(
 
 export async function nextOpenBatchSlot(deliveryType: DeliveryType, from = new Date()) {
   const settings = await getBatchSettings();
-  const times = deliveryType === DeliveryType.PICKUP ? settings.pickupTimes : settings.dropTimes;
+  // Pickup and drop jobs share the same operational batches. Keep the argument
+  // for API compatibility, but always schedule against the common 1 PM / 6 PM
+  // timetable.
+  void deliveryType;
+  const times = FIXED_BATCH_TIMES;
   let day = istParts(from);
 
   for (let offset = 0; offset < 8; offset += 1) {
@@ -353,6 +357,8 @@ async function recalculateBatchTotals(batchId?: string) {
         deliveryJobIds: optimized.ordered.map((task) => task.id),
         optimizedStops: optimized.ordered.map((task, index) => ({ taskId: task.id, orderId: task.orderId, stop: index + 1, type: task.deliveryType, jobType: task.type, pickupAddress: task.pickupAddress, dropAddress: task.dropAddress })),
         ordersCount: tasks.length,
+        pickupCount: tasks.filter((task) => task.deliveryType === DeliveryType.PICKUP).length,
+        dropCount: tasks.filter((task) => task.deliveryType === DeliveryType.DROP).length,
         estimatedEarnings: optimized.estimatedPayout,
         estimatedPayout: optimized.estimatedPayout,
         finalPayout: allCompleted ? optimized.estimatedPayout : undefined,
@@ -662,12 +668,14 @@ async function claimLockedBatchTask(task: any, partner: any, now = new Date()): 
 export async function addTaskToSilentBatch(task: any, level: Exclude<DeliveryServiceLevel, "INSTANT">) {
   await ensureDeliveryBatchIndexes();
   const slot = await nextOpenBatchSlot(task.deliveryType);
+  const settings = await getBatchSettings();
   const area = task.assignedArea || "unassigned";
   const batchQuery = {
     deliveryRound: slot.deliveryRound,
     roundAt: slot.roundAt,
     deliveryPartnerId: { $exists: false },
-    status: { $in: ["scheduled", "locked"] }
+    status: "scheduled",
+    ordersCount: { $lt: settings.maxOrdersPerBatch }
   } as Record<string, any>;
   let batch: any = await DeliveryBatchModel.findOne(batchQuery).sort({ createdAt: 1 });
 
@@ -767,11 +775,13 @@ export async function moveTaskToScheduledBatch(taskId: string, slot: { deliveryR
     }
   }
 
+  const settings = await getBatchSettings();
   let batch = await DeliveryBatchModel.findOne({
     deliveryRound: slot.deliveryRound,
     roundAt: slot.roundAt,
     deliveryPartnerId: { $exists: false },
-    status: { $in: ["scheduled"] }
+    status: { $in: ["scheduled"] },
+    ordersCount: { $lt: settings.maxOrdersPerBatch }
   }).sort({ createdAt: 1 });
   if (!batch) {
     const existingSlotCount = await DeliveryBatchModel.countDocuments({ deliveryRound: slot.deliveryRound, roundAt: slot.roundAt, status: { $ne: "cancelled" } });

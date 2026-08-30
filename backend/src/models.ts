@@ -888,6 +888,8 @@ const deliveryBatchSchema = new Schema(
     slotIndex: { type: Number, default: 1, index: true },
     tasks: [{ type: String, required: true }],
     ordersCount: { type: Number, default: 0 },
+    pickupCount: { type: Number, default: 0 },
+    dropCount: { type: Number, default: 0 },
     estimatedEarnings: { type: Number, default: 0 },
     totalDistance: { type: Number, default: 0 },
     status: { type: String, enum: ["scheduled", "locked", "active", "completed", "cancelled"], default: "scheduled", index: true }

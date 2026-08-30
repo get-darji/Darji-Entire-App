@@ -878,8 +878,8 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
   if (targetBatch.status === "cancelled" || targetBatch.status === "completed") {
     throw new AppError(409, "Cannot move orders into a completed or cancelled batch");
   }
-  if (targetBatch.deliveryType !== task.deliveryType || targetBatch.deliveryRound !== task.deliveryRound) {
-    throw new AppError(409, "Pickup orders can only move to pickup batches and drop orders can only move to drop batches");
+  if (targetBatch.deliveryRound !== task.deliveryRound) {
+    throw new AppError(409, "Delivery tasks can only move to a batch in the same time round");
   }
 
   const previousBatchId = String(task.batchId ?? "");
@@ -1254,6 +1254,11 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
       if (transaction.transactionType !== "CREDIT" || transaction.category !== "ORDER_EARNING") return sum;
       return createdAt >= weekStartValue && createdAt <= weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
     }, 0);
+    const payoutsInPeriod = transactions.reduce((sum: number, transaction: any) => {
+      const createdAt = new Date(transaction.createdAt ?? 0);
+      if (transaction.transactionType !== "DEBIT" || transaction.category !== "WEEKLY_PAYOUT") return sum;
+      return createdAt >= weekStartValue && createdAt <= weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
+    }, 0);
     return {
       userId: profile.userId,
       profileId: profile.id,
@@ -1262,6 +1267,7 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
       phone: user?.phone ?? "",
       walletBalance: Number(wallet?.balance ?? 0),
       currentWeekEarnings,
+      periodPendingAmount: Math.max(0, Number((currentWeekEarnings - payoutsInPeriod).toFixed(2))),
       pendingAmount: Number(wallet?.balance ?? 0),
       lastPayment,
       status: Number(wallet?.balance ?? 0) > 0 ? "DUE" : "SETTLED"
@@ -2625,7 +2631,7 @@ export async function reverseGeocodeController(req: Request, res: Response) {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
     res.status(400).json({ message: "Invalid lat/lng parameters" });
     return;
   }

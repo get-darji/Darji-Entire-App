@@ -118,6 +118,7 @@ export default function RiderLiveMap({
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const socketRef = useRef<Socket | null>(null);
+  const partnersRef = useRef(partners);
   const hasAnyLocation = partners.some((p) => p.currentLocation?.coordinates);
   const [showOverlay, setShowOverlay] = useState(!hasAnyLocation);
 
@@ -135,16 +136,6 @@ export default function RiderLiveMap({
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
     mapRef.current = map;
 
-    partners.forEach((partner) => {
-      const loc = partner.currentLocation;
-      if (!loc?.coordinates || loc.coordinates.length < 2) return;
-      const [lng, lat] = loc.coordinates;
-      const marker = L.marker([lat, lng], { icon: makeIcon(getMarkerColor(partner)) })
-        .addTo(map);
-      bindPopupWithAddress(marker, partner, lat, lng, undefined, token);
-      markersRef.current.set(partner.id, marker);
-    });
-
     return () => {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current.clear();
@@ -153,6 +144,45 @@ export default function RiderLiveMap({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Partner data is loaded after the map mounts. Keep the marker collection in
+  // sync with every API refresh so offline riders retain their last real phone
+  // location and newly loaded riders are not omitted.
+  useEffect(() => {
+    partnersRef.current = partners;
+    const map = mapRef.current;
+    if (!map) return;
+    const locatedPartnerIds = new Set<string>();
+    const bounds: L.LatLngExpression[] = [];
+
+    partners.forEach((partner) => {
+      const coordinates = partner.currentLocation?.coordinates;
+      if (!coordinates || coordinates.length < 2) return;
+      const [lng, lat] = coordinates.map(Number);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return;
+      locatedPartnerIds.add(partner.id);
+      bounds.push([lat, lng]);
+      const existing = markersRef.current.get(partner.id);
+      if (existing) {
+        existing.setLatLng([lat, lng]);
+        existing.setIcon(makeIcon(getMarkerColor(partner)));
+        bindPopupWithAddress(existing, partner, lat, lng, partner.lastLocationUpdatedAt ?? undefined, token);
+      } else {
+        const marker = L.marker([lat, lng], { icon: makeIcon(getMarkerColor(partner)) }).addTo(map);
+        bindPopupWithAddress(marker, partner, lat, lng, partner.lastLocationUpdatedAt ?? undefined, token);
+        markersRef.current.set(partner.id, marker);
+      }
+    });
+
+    markersRef.current.forEach((marker, partnerId) => {
+      if (locatedPartnerIds.has(partnerId)) return;
+      marker.remove();
+      markersRef.current.delete(partnerId);
+    });
+    setShowOverlay(bounds.length === 0);
+    if (bounds.length === 1) map.setView(bounds[0], 15);
+    else if (bounds.length > 1) map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40], maxZoom: 15 });
+  }, [partners, token]);
 
   // Socket.IO — only the affected marker moves, zero React re-renders
   useEffect(() => {
@@ -164,7 +194,7 @@ export default function RiderLiveMap({
       const map = mapRef.current;
       if (!map) return;
       const { partnerId, latitude, longitude, lastLocationUpdatedAt } = data;
-      const partner = partners.find((p) => p.id === partnerId);
+      const partner = partnersRef.current.find((p) => p.id === partnerId);
       const age = Date.now() - new Date(lastLocationUpdatedAt).getTime();
       const color = age > STALE_MS ? "#f97316" : (partner?.isAvailable ? "#22c55e" : "#94a3b8");
 
@@ -187,7 +217,6 @@ export default function RiderLiveMap({
       socket.disconnect();
       socketRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   return (
@@ -222,9 +251,12 @@ export default function RiderLiveMap({
             color: "#64748b", pointerEvents: "none",
           }}
         >
-          No riders have shared their location yet. They will appear here when online.
+          No verified rider has shared phone GPS yet. Location permission and an internet connection are required.
         </div>
       )}
+      <div style={{ position: "absolute", top: 12, left: 52, zIndex: 1000, background: "white", borderRadius: 8, padding: "7px 10px", boxShadow: "0 2px 8px rgba(0,0,0,0.15)", fontSize: 12, fontWeight: 700, pointerEvents: "none" }}>
+        Showing {partners.filter((partner) => partner.currentLocation?.coordinates).length} of {partners.length} partners with real phone GPS
+      </div>
     </div>
   );
 }

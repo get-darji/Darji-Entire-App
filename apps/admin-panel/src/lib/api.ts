@@ -141,8 +141,8 @@ export async function assignMeasurementVisit(payload: { visitId: string; tailorI
   return unwrap<MeasurementVisit>(api.patch(`/admin/measurement-visits/${visitId}/assign`, body));
 }
 
-export async function getOperationalAlerts(status = "OPEN") {
-  return unwrap<OperationalAlert[]>(api.get("/admin/operational-alerts", { params: { status } }));
+export async function getOperationalAlerts(status?: "OPEN" | "ACKNOWLEDGED" | "RESOLVED") {
+  return unwrap<OperationalAlert[]>(api.get("/admin/operational-alerts", { params: status ? { status } : undefined }));
 }
 
 export async function updateOperationalAlert(payload: { alertId: string; status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED" }) {
@@ -198,8 +198,8 @@ export async function getPayments() {
   return unwrap<Payment[]>(api.get("/payments"));
 }
 
-export async function getWalletPayouts(userType: "TAILOR" | "DELIVERY_PARTNER") {
-  return unwrap<WalletPayoutRow[]>(api.get("/admin/wallet-payouts", { params: { userType } }));
+export async function getWalletPayouts(userType: "TAILOR" | "DELIVERY_PARTNER", period?: { weekStart?: string; weekEnd?: string }) {
+  return unwrap<WalletPayoutRow[]>(api.get("/admin/wallet-payouts", { params: { userType, ...period } }));
 }
 
 export async function getWalletDetail(userId: string) {

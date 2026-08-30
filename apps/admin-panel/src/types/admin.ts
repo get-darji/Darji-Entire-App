@@ -429,6 +429,7 @@ export type WalletPayoutRow = {
   phone: string;
   walletBalance: number;
   currentWeekEarnings: number;
+  periodPendingAmount?: number;
   pendingAmount: number;
   lastPayment?: PaymentHistory | null;
   status: "DUE" | "SETTLED";
@@ -521,6 +522,8 @@ export type DeliveryRequest = {
   assignedDeliveryPartnerId?: string;
   batchId?: string;
   serviceLevel?: "STANDARD" | "EXPRESS" | "INSTANT";
+  deliveryRound?: string;
+  roundAt?: string;
   taskStatus: string;
   shift: string;
   estimatedDistanceKm?: number;

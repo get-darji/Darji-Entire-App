@@ -952,6 +952,26 @@ function MeasurementVisitCard({
   const isOwnCustomer = isOwnCustomerMeasurementVisit(visit, tailorId);
   const address = visit.pickupAddress ?? "Address not available";
 
+  async function openMeasurementRoute() {
+    if (!visit.pickupAddress) return;
+    try {
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Location access required", "Allow location access to navigate from your current position to the customer's measurement address.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings() }
+        ]);
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const origin = `${position.coords.latitude},${position.coords.longitude}`;
+      await Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(visit.pickupAddress)}&travelmode=driving`);
+    } catch {
+      Alert.alert("Route unavailable", "Could not fetch your current phone location. Check device location services and try again.");
+    }
+  }
+
   return (
     <View style={styles.measureVisitCard}>
       <View style={styles.measureVisitHeader}>
@@ -982,9 +1002,9 @@ function MeasurementVisitCard({
             {visit.pickupAddress ? (
               <Text
                 style={styles.measureVisitMapLink}
-                onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`)}
+                onPress={() => void openMeasurementRoute()}
               >
-                View on map
+                View route on map
               </Text>
             ) : null}
           </View>

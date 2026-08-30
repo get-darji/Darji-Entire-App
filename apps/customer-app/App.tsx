@@ -852,7 +852,7 @@ const howItWorksSteps = [
   }
 ] as const;
 
-const workflowIconBackgrounds = ["#fff7e5", "#effaf1", "#f5efff", "#edf5ff"] as const;
+const workflowIconBackgrounds = ["#fff7e5", "#effaf1", "#f5efff", "#edf5ff", "#fff1d6"] as const;
 
 const MAX_VOICE_NOTES_PER_ITEM = 3;
 
@@ -2283,7 +2283,7 @@ function LegacyHomeScreen({
         </ScrollView>
         <View style={styles.howItWorksCard}>
           <Text style={styles.cardLabel}>HOW DARJI WORKS</Text>
-          {howItWorksSteps.slice(0, 4).map((step) => (
+          {howItWorksSteps.map((step) => (
             <View key={step.title} style={styles.workflowItem}>
               <Ionicons name={step.icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
               <View style={styles.profileRowText}>
@@ -2348,7 +2348,7 @@ function HomeScreen({
   const needs = [
     { title: "Alteration", text: "Fit and size changes", icon: "cut-outline" },
     { title: "Repair", text: "Tear, hole, zipper and more", icon: "construct-outline" },
-    { title: "Restyle", text: "Convert old clothes", icon: "sparkles-outline" },
+    { title: "Embroidery", text: "Decorative and custom work", icon: "color-palette-outline" },
     { title: "Custom Stitching", text: "Stitch from scratch", icon: "shirt-outline" }
   ] as const;
   return (
@@ -2548,7 +2548,7 @@ function HomeScreen({
           </View>
         </View>
         <View style={styles.homeStepsList}>
-          {howItWorksSteps.slice(0, 4).map((step, index) => (
+          {howItWorksSteps.map((step, index) => (
             <View key={step.title} style={styles.homeWorkflowStep}>
               <View style={styles.homeStepCard}>
                 <View style={[styles.stepIconBox, { backgroundColor: workflowIconBackgrounds[index] }]}>
@@ -2564,7 +2564,7 @@ function HomeScreen({
         </View>
         <View style={styles.homeWorkflowTrust}>
           <View style={styles.homeWorkflowTrustIcon}>
-            <Ionicons name="shield-checkmark-outline" size={24} color={BRAND_ORANGE} />
+            <Ionicons name="shield-checkmark" size={23} color={BRAND_DEEP} />
           </View>
           <View style={styles.profileRowText}>
             <Text style={styles.homeWorkflowTrustTitle}>Trusted. Verified. Hassle-free.</Text>
@@ -9187,6 +9187,12 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
   const [review, setReview] = useState("");
   const [photos, setPhotos] = useState<LocalMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+
+  function finishReview() {
+    setReviewSubmitted(false);
+    setScreen("home");
+  }
 
   async function pickReviewPhotos() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -9223,8 +9229,7 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
         if (!/review already submitted/i.test(error instanceof Error ? error.message : "")) throw error;
       });
       onSave(rating, review.trim());
-      Alert.alert("Thank you for helping Darji improve", "Your rating has been saved. Reviews like yours help us keep trusted tailors, smoother pickups, and better stitching experiences for every customer.");
-      setScreen("home");
+      setReviewSubmitted(true);
     } finally {
       setSubmitting(false);
     }
@@ -9277,6 +9282,20 @@ function RateAppScreen({ onSave, setScreen }: { onSave: (rating: number, review:
         </View>
       </View>
       <RequestFlowCta label="Submit Review" onPress={submit} disabled={submitting} loading={submitting} />
+      <Modal visible={reviewSubmitted} transparent animationType="fade" onRequestClose={finishReview}>
+        <View style={styles.reviewThanksBackdrop}>
+          <View style={styles.reviewThanksCard}>
+            <View style={styles.reviewThanksIconWrap}>
+              <Ionicons name="star-outline" size={38} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.reviewThanksTitle}>Your feedback{"\n"}means a lot to us</Text>
+            <Text style={styles.reviewThanksCopy}>We’re building Darji one customer experience at a time. Thank you for helping us improve and grow.</Text>
+            <Pressable accessibilityRole="button" style={styles.reviewThanksButton} onPress={finishReview}>
+              <Text style={styles.reviewThanksButtonText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ProfileSubPage>
   );
 }
@@ -11402,16 +11421,22 @@ export default function App() {
   }, [token]);
 
   useEffect(() => {
+    if (!token) return undefined;
+    updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
+    });
+    return () => subscription.remove();
+  }, [token]);
+
+  useEffect(() => {
     if (!token || customerData.hasCapturedCurrentAddress) return;
     let cancelled = false;
 
     async function captureCurrentAddress() {
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) {
-          updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
-          return;
-        }
+        if (!permission.granted) return;
 
         const current = await Promise.race([
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
@@ -11442,9 +11467,7 @@ export default function App() {
           addresses: [currentAddress, ...data.addresses.filter((item) => item.id !== "current-location").map((item) => ({ ...item, isDefault: false }))]
         }));
         setDraft((currentDraft) => (hasRequestDraftData(currentDraft) ? currentDraft : { ...currentDraft, pickup: resolvedAddress }));
-      } catch {
-        updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
-      }
+      } catch { /* Keep the previous genuine location and retry next time the app opens. */ }
     }
 
     captureCurrentAddress();
@@ -12857,6 +12880,13 @@ function createStyles(isDark = false) {
   ratingCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
   starPicker: { flexDirection: "row", gap: 12, marginTop: 18, marginBottom: 18 },
   ratingMoodText: { color: BRAND_ORANGE, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  reviewThanksBackdrop: { flex: 1, backgroundColor: "rgba(7, 15, 28, 0.68)", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  reviewThanksCard: { width: "100%", maxWidth: 350, borderRadius: 24, borderWidth: 1, borderColor: "#f2e5ca", backgroundColor: "#fffdf8", alignItems: "center", paddingHorizontal: 22, paddingTop: 28, paddingBottom: 22, shadowColor: "#000000", shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.24, shadowRadius: 24, elevation: 14 },
+  reviewThanksIconWrap: { width: 72, height: 72, borderRadius: 22, backgroundColor: "#fff2d2", alignItems: "center", justifyContent: "center" },
+  reviewThanksTitle: { color: BRAND_DEEP, fontSize: 23, lineHeight: 29, fontWeight: "900", textAlign: "center", marginTop: 20 },
+  reviewThanksCopy: { maxWidth: 290, color: "#69768c", fontSize: 14, lineHeight: 21, fontWeight: "700", textAlign: "center", marginTop: 13 },
+  reviewThanksButton: { width: "100%", minHeight: 50, borderRadius: 17, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 22, shadowColor: BRAND_ORANGE, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 10, elevation: 3 },
+  reviewThanksButtonText: { color: "#111111", fontSize: 17, fontWeight: "900" },
   rateReviewInput: { minHeight: 116, marginTop: 14 },
   reviewCounter: { color: muted, fontSize: 11, fontWeight: "800", alignSelf: "flex-end", marginTop: 7 },
   reviewPhotoRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },

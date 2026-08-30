@@ -55,6 +55,12 @@
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Darji Tailor uses your phone location only when you open navigation for a measurement visit or customer route."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Darji accesses only the verification photos you choose. Your information is safe with us.",

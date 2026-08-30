@@ -40,6 +40,12 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Darji uses your phone location to show your current pickup location and calculate routes for your orders."
+        }
+      ],
       "expo-font",
       "expo-sharing",
       [

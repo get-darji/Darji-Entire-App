@@ -51,12 +51,15 @@ import {
   Menu,
   MessageSquareText,
   Mail,
+  Package,
   PackageCheck,
   PencilLine,
   Phone,
   PhoneCall,
+  Plus,
   Printer,
   ReceiptIndianRupee,
+  RotateCcw,
   Scissors,
   Search,
   Settings,
@@ -80,9 +83,10 @@ import {
   Copy,
   Flag,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Hourglass
 } from "lucide-react";
-import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType } from "react";
+import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import {
   assignOrder,
@@ -108,6 +112,7 @@ import {
   createWalletPayout,
   getDeliveryFareSettings,
   getOperationalAlerts,
+  updateOperationalAlert,
   updateDeliveryFareSettings,
   getSettings,
   resetEverythingDevelopment,
@@ -187,6 +192,7 @@ import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
 
 type TrendRange = "daily" | "weekly" | "monthly";
+type DashboardPeriodPreset = "lifetime" | "this_month" | "last_3_months" | "last_6_months" | "last_12_months" | "custom";
 
 type QueryBundle = {
   analytics: AnalyticsSummary;
@@ -345,7 +351,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
-const pieColors = ["#f6a313", "#0b2241", "#2a79ff", "#f97316"];
+const pieColors = ["#f6a313", "#0b2241", "#2a79ff", "#f97316", "#10b981"];
 const darziChartPalette = {
   deep: "#0b2241",
   orange: "#f6a313",
@@ -385,9 +391,21 @@ export function AdminPortal() {
   }, [clearSessionNotice, sessionNotice]);
   const [orderSearch, setOrderSearch] = useState("");
   const [range] = useState<TrendRange>("monthly");
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriodPreset>("last_6_months");
+  const [dashboardFromMonth, setDashboardFromMonth] = useState(() => monthInputValue(new Date(new Date().getFullYear(), new Date().getMonth() - 5, 1)));
+  const [dashboardToMonth, setDashboardToMonth] = useState(() => monthInputValue(new Date()));
+  const payoutPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
+  const payoutPeriodParams = {
+    weekStart: (payoutPeriodBounds.start ?? new Date(0)).toISOString(),
+    weekEnd: (payoutPeriodBounds.endExclusive ?? new Date(2100, 0, 1)).toISOString()
+  };
   const [orderFilter, setOrderFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [deliveryPartnerFilter, setDeliveryPartnerFilter] = useState("");
+  const [orderCategoryFilter, setOrderCategoryFilter] = useState("");
+  const [orderTailorFilter, setOrderTailorFilter] = useState("");
+  const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState("");
+  const [orderDateFilter, setOrderDateFilter] = useState("");
   const [tailorVerificationFilter, setTailorVerificationFilter] = useState<"submitted" | "not_submitted" | "all">("submitted");
   const [deliveryVerificationFilter, setDeliveryVerificationFilter] = useState<"submitted" | "not_submitted" | "all">("submitted");
   const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
@@ -493,8 +511,8 @@ export function AdminPortal() {
     refetchInterval: 10000
   });
   const operationalAlertsQuery = useQuery({
-    queryKey: ["admin", "operational-alerts", "OPEN"],
-    queryFn: () => getOperationalAlerts("OPEN"),
+    queryKey: ["admin", "operational-alerts", "ALL"],
+    queryFn: () => getOperationalAlerts(),
     enabled: isAuthed,
     refetchInterval: 10000
   });
@@ -519,13 +537,13 @@ export function AdminPortal() {
     enabled: isAuthed
   });
   const tailorPayoutsQuery = useQuery({
-    queryKey: ["admin", "wallet-payouts", "tailors"],
-    queryFn: () => getWalletPayouts("TAILOR"),
+    queryKey: ["admin", "wallet-payouts", "tailors", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
+    queryFn: () => getWalletPayouts("TAILOR", payoutPeriodParams),
     enabled: isAuthed
   });
   const deliveryPayoutsQuery = useQuery({
-    queryKey: ["admin", "wallet-payouts", "delivery"],
-    queryFn: () => getWalletPayouts("DELIVERY_PARTNER"),
+    queryKey: ["admin", "wallet-payouts", "delivery", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
+    queryFn: () => getWalletPayouts("DELIVERY_PARTNER", payoutPeriodParams),
     enabled: isAuthed
   });
   const walletDetailQuery = useQuery({
@@ -778,6 +796,12 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "change-requests"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] })
     ]);
+
+  const notificationReadMutation = useMutation({
+    mutationFn: async (alertIds: string[]) => Promise.all(alertIds.map((alertId) => updateOperationalAlert({ alertId, status: "ACKNOWLEDGED" }))),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "operational-alerts"] }),
+    onError: (error) => toast.error(extractError(error))
+  });
 
   const assignMutation = useMutation({
     mutationFn: (assignments: Parameters<typeof assignOrder>[0][]) => Promise.all(assignments.map(assignOrder)),
@@ -1305,24 +1329,35 @@ export function AdminPortal() {
     });
 
   const allOrders = [...orders, ...confirmedTailoringRequests];
+  const dashboardPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
+  const dashboardOrders = allOrders.filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds));
+  const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.createdAt, dashboardPeriodBounds));
+  const dashboardTailoringRequestsForPeriod = tailoringRequests.filter((request) => isDateInDashboardPeriod(request.confirmedAt ?? request.createdAt, dashboardPeriodBounds));
+  const dashboardDeliveryRequestsForPeriod = deliveryRequests.filter((request) => isDateInDashboardPeriod(request.createdAt, dashboardPeriodBounds));
+  const dashboardTailors = tailors.filter((tailor) => isDateInDashboardPeriod(tailor.createdAt, dashboardPeriodBounds));
+  const dashboardPartners = partners.filter((partner) => isDateInDashboardPeriod(partner.createdAt, dashboardPeriodBounds));
+  const dashboardMonthSlots = buildDashboardMonthSlots(dashboardPeriodBounds, [
+    ...allOrders.map((order) => order.createdAt),
+    ...payments.map((payment) => payment.createdAt),
+    ...tailors.map((tailor) => tailor.createdAt),
+    ...partners.map((partner) => partner.createdAt)
+  ]);
 
   const searchTerm = globalSearch.trim().toLowerCase();
-  const alertCount =
-    tickets.filter((ticket) => ticket.status === "OPEN").length +
-    payments.filter((payment) => payment.status === "PENDING").length +
-    tailors.filter((tailor) => tailor.verificationStatus === "PENDING").length +
-    partners.filter((partner) => partner.verificationStatus === "PENDING").length;
+  const headerNotifications = operationalAlertsQuery.data ?? [];
+  const unreadHeaderNotifications = headerNotifications.filter((alert) => alert.status === "OPEN");
+  const alertCount = unreadHeaderNotifications.length;
 
-  const financeSummary = buildFinanceSummary(payments, tailoringRequests, deliveryRequests, deliveryBatches);
-  const metrics = buildMetrics(allOrders, tailors, partners, payments, financeSummary);
-  const revenueSeries = buildRevenueSeries(payments, "monthly", financeSummary.byPaymentId);
-  const orderSeries = buildWeekdayOrderSeries(allOrders);
-  const growthSeries = buildGrowthSeries(allOrders, tailors, partners, "monthly");
-  const serviceMix = buildServiceMix(allOrders);
-  const completedOrders = allOrders.filter((order) => order.status === "DELIVERED").length;
-  const cancelledOrders = allOrders.filter((order) => order.status === "CANCELLED").length;
-  const pendingOrders = allOrders.length - completedOrders - cancelledOrders;
-  const recentOrders = [...allOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
+  const financeSummary = buildFinanceSummary(dashboardPayments, tailoringRequests, deliveryRequests, deliveryBatches);
+  const metrics = buildMetrics(dashboardOrders, dashboardTailors, dashboardPartners, dashboardPayments, financeSummary);
+  const revenueSeries = buildRevenueSeries(dashboardPayments, "monthly", financeSummary.byPaymentId, dashboardMonthSlots);
+  const orderSeries = buildOrderTrendSeries(dashboardOrders, "monthly", dashboardMonthSlots);
+  const growthSeries = buildGrowthSeries(dashboardOrders, dashboardTailors, dashboardPartners, "monthly", dashboardMonthSlots);
+  const serviceMix = buildServiceMix(dashboardOrders);
+  const completedOrders = dashboardOrders.filter((order) => order.status === "DELIVERED").length;
+  const cancelledOrders = dashboardOrders.filter((order) => order.status === "CANCELLED").length;
+  const pendingOrders = dashboardOrders.length - completedOrders - cancelledOrders;
+  const recentOrders = [...dashboardOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
   const customerUsers = users.filter((user) => user.role === "CUSTOMER" && !user.tailorProfile && !user.deliveryProfile);
   const adminUsers = users.filter((user) => user.role === "ADMIN" || user.role === "SUPER_ADMIN");
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
@@ -1436,7 +1471,7 @@ export function AdminPortal() {
 
     return results.slice(0, 8);
   })();
-  const dateRangeLabel = buildDashboardDateRangeLabel(range);
+  const dateRangeLabel = buildDashboardPeriodLabel(dashboardPeriod, dashboardPeriodBounds);
   const latestGrowthPoint = growthSeries[growthSeries.length - 1] ?? { customers: 0, tailors: 0, partners: 0 };
   const revenueDelta = buildTrendMeta(latestValue(revenueSeries, "revenue"), previousValue(revenueSeries, "revenue"));
   const orderDelta = buildTrendMeta(sumOrderPoint(lastOrderPoint(orderSeries)), sumOrderPoint(previousOrderPoint(orderSeries)));
@@ -1446,17 +1481,20 @@ export function AdminPortal() {
   const verificationDelta = buildCountMeta(metrics.pendingVerifications, true);
   const collectionDelta = buildCountMeta(metrics.pendingCollections, true);
   const cancellationDelta = buildCountMeta(Number(metrics.cancellationRate.toFixed(1)), true, "%");
-  const statusBreakdown = buildLiveOrderStatus(allOrders);
+  const statusBreakdown = buildLiveOrderStatus(dashboardOrders);
   const categoryTotal = serviceMix.reduce((sum, item) => sum + item.value, 0);
-  const categoryBreakdown = [...serviceMix]
-    .sort((left, right) => right.value - left.value)
+  const categoryChartData = buildCategoryChartData(serviceMix, 4);
+  const categoryBreakdown = categoryChartData
     .map((item) => ({
       ...item,
       share: categoryTotal ? Math.round((item.value / categoryTotal) * 100) : 0
-    }))
-    .slice(0, 4);
+    }));
+  const hasRevenueData = revenueSeries.some((point) => point.revenue !== 0);
+  const hasOrderChartData = orderSeries.some((point) => point.completed || point.cancelled || point.pending);
   const tailorWalletByUser = new Map((tailorPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
   const deliveryWalletByUser = new Map((deliveryPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
+  const periodPendingPayouts = [...(tailorPayoutsQuery.data ?? []), ...(deliveryPayoutsQuery.data ?? [])]
+    .reduce((sum, row) => sum + Number(row.periodPendingAmount ?? row.pendingAmount ?? 0), 0);
   const topTailors = [...tailors]
     .sort((left, right) => Number(tailorWalletByUser.get(right.userId)?.currentWeekEarnings ?? 0) - Number(tailorWalletByUser.get(left.userId)?.currentWeekEarnings ?? 0) || (right.rating ?? 0) - (left.rating ?? 0))
     .slice(0, 5);
@@ -1469,33 +1507,34 @@ export function AdminPortal() {
     )
     .slice(0, 5);
   const liveAlerts = buildLiveAlerts({
-    deliveryRequests,
-    operationalAlerts: operationalAlertsQuery.data ?? [],
-    orders: allOrders,
-    payments,
+    deliveryRequests: dashboardDeliveryRequestsForPeriod,
+    operationalAlerts: (operationalAlertsQuery.data ?? []).filter((alert) => isDateInDashboardPeriod(alert.createdAt, dashboardPeriodBounds)),
+    orders: dashboardOrders,
+    payments: dashboardPayments,
     setActiveSection,
     setBatchFocus,
     setDeliveryDetail,
     setOrderDetail,
     setTicketDetail,
     setTailoringDetail,
-    tailoringRequests,
-    tickets
+    tailoringRequests: dashboardTailoringRequestsForPeriod,
+    tickets: tickets.filter((ticket) => isDateInDashboardPeriod(ticket.createdAt, dashboardPeriodBounds))
   });
   const todayOperations = buildTodayOperationsSummary({
-    deliveryBatches,
-    deliveryRequests,
-    partners,
-    tailoringRequests,
-    tailors
+    deliveryBatches: deliveryBatches.filter((batch) => isDateInDashboardPeriod(batch.roundAt, dashboardPeriodBounds)),
+    deliveryRequests: dashboardDeliveryRequestsForPeriod,
+    partners: dashboardPartners,
+    tailoringRequests: dashboardTailoringRequestsForPeriod,
+    tailors: dashboardTailors,
+    periodScoped: true
   });
   const dashboardStats = [
     {
       icon: LayoutGrid,
       label: "Total Orders",
-      note: "All time",
+      note: dateRangeLabel,
       tone: "sky" as const,
-      value: (analytics?.totalOrders || 0).toLocaleString("en-IN"),
+      value: dashboardOrders.length.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
@@ -1506,7 +1545,7 @@ export function AdminPortal() {
       label: "Active Orders",
       note: "In progress",
       tone: "teal" as const,
-      value: (analytics?.activeOrders || 0).toLocaleString("en-IN"),
+      value: dashboardOrders.filter((order) => !["DELIVERED", "COMPLETED", "CANCELLED", "FAILED", "ORDER_PLACED", "PAYMENT_PENDING"].includes(String(order.status).toUpperCase())).length.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
@@ -1517,7 +1556,7 @@ export function AdminPortal() {
       label: "Completed Orders",
       note: "Successfully delivered",
       tone: "emerald" as const,
-      value: (analytics?.completedOrders || 0).toLocaleString("en-IN"),
+      value: completedOrders.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
@@ -1528,7 +1567,7 @@ export function AdminPortal() {
       label: "Cancelled Orders",
       note: "Discarded",
       tone: "rose" as const,
-      value: (analytics?.cancelledOrders || 0).toLocaleString("en-IN"),
+      value: cancelledOrders.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
@@ -1567,9 +1606,9 @@ export function AdminPortal() {
     {
       icon: PackageCheck,
       label: "Pending Payouts",
-      note: "Owed to partners",
+      note: "Unpaid in selected period",
       tone: "amber" as const,
-      value: formatCurrency(analytics?.pendingPayouts || 0),
+      value: formatCurrency(periodPendingPayouts),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId
@@ -1579,7 +1618,7 @@ export function AdminPortal() {
       label: "Pending Orders",
       note: "Awaiting action",
       tone: "amber" as const,
-      value: (analytics?.pendingOrders || 0).toLocaleString("en-IN"),
+      value: pendingOrders.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
@@ -1590,7 +1629,7 @@ export function AdminPortal() {
       label: "Delivery Partners",
       note: "Active fleet",
       tone: "cyan" as const,
-      value: (analytics?.activeDeliveryPartners || 0).toLocaleString("en-IN"),
+      value: dashboardPartners.filter((partner) => partner.isAvailable && partner.verificationStatus === "VERIFIED").length.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "partners" as SectionId
@@ -1600,7 +1639,7 @@ export function AdminPortal() {
       label: "Active Tailors",
       note: "Available for work",
       tone: "amber" as const,
-      value: (analytics?.activeTailors || 0).toLocaleString("en-IN"),
+      value: dashboardTailors.filter((tailor) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED").length.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "tailors" as SectionId
@@ -1685,6 +1724,11 @@ export function AdminPortal() {
 
       const orderPartnerId = String(order.deliveryPartner?.id ?? order.pickupPartner?.id ?? "");
       const partnerMatch = !deliveryPartnerFilter || orderPartnerId === deliveryPartnerFilter;
+      const categoryMatch = !orderCategoryFilter || (order.items ?? []).some((item) => (item.service?.category?.name ?? "General") === orderCategoryFilter);
+      const tailorMatch = !orderTailorFilter || order.tailor?.id === orderTailorFilter;
+      const paymentMethodMatch = !paymentFilter || String(order.paymentMethod).toUpperCase() === paymentFilter;
+      const paymentStatusMatch = !orderPaymentStatusFilter || String(order.paymentStatus).toUpperCase() === orderPaymentStatusFilter;
+      const dateMatch = !orderDateFilter || Boolean(order.createdAt && new Date(order.createdAt).toISOString().slice(0, 10) === orderDateFilter);
       const normalizedStatus = String(order.status).toUpperCase();
       const statusMatch = !orderFilter ||
         (orderFilter === "__ACTIVE__" && !["DELIVERED", "COMPLETED", "CANCELLED", "FAILED", "ORDER_PLACED", "PAYMENT_PENDING"].includes(normalizedStatus)) ||
@@ -1692,7 +1736,7 @@ export function AdminPortal() {
         (orderFilter === "__CANCELLED__" && ["CANCELLED", "FAILED"].includes(normalizedStatus)) ||
         (orderFilter === "__PENDING__" && ["ORDER_PLACED", "PAYMENT_PENDING", "PENDING"].includes(normalizedStatus)) ||
         normalizedStatus === orderFilter;
-      return (!query || content.includes(query)) && statusMatch && partnerMatch;
+      return (!query || content.includes(query)) && statusMatch && partnerMatch && categoryMatch && tailorMatch && paymentMethodMatch && paymentStatusMatch && dateMatch;
     })
     .sort((a, b) => new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime());
 
@@ -2013,18 +2057,46 @@ export function AdminPortal() {
   const ticketColumns = getTicketColumns({ onOpen: setTicketDetail });
   const changeRequestColumns = getChangeRequestColumns({ onOpen: setActiveChangeRequest });
   const bugReportColumns = getBugReportColumns({ onOpen: setActiveBugReport, users });
+  const openHeaderNotification = (alert: OperationalAlert) => {
+    if (alert.status === "OPEN") notificationReadMutation.mutate([alert.id]);
+    const metadata = alert.metadata ?? {};
+    const ids = [alert.entityId, metadata.taskId, metadata.orderId, metadata.requestId, metadata.paymentId, metadata.batchId].filter(Boolean).map(String);
+    const delivery = deliveryRequests.find((request) => ids.includes(request.id) || ids.includes(request.taskId) || ids.includes(request.orderId));
+    const order = allOrders.find((item) => ids.includes(item.id) || ids.includes(String(item.darjiId ?? "")) || ids.includes(String(item.orderNumber ?? "")));
+    const tailoring = tailoringRequests.find((request) => ids.includes(request.id) || ids.includes(String(request.darjiId ?? "")));
+    if (delivery) {
+      setDeliveryDetail(delivery);
+      setActiveSection("delivery");
+    } else if (order) {
+      setOrderDetail(order);
+      setActiveSection("orders");
+    } else if (tailoring) {
+      setTailoringDetail(tailoring);
+      setActiveSection("tailoring");
+    } else if (alert.entityType === "delivery_batch" || alert.type.includes("BATCH")) {
+      const batchId = String(metadata.batchId ?? alert.entityId ?? "");
+      if (batchId) setBatchFocus({ batchId, roundAt: String(metadata.roundAt ?? new Date().toISOString()) });
+      setActiveSection("batches");
+    } else if (alert.type.includes("PAYMENT")) setActiveSection("payments");
+    else if (alert.type.includes("SUPPORT")) setActiveSection("support");
+    else setActiveSection("dashboard");
+  };
 
   return (
     <>
       <PortalFrame
         activeSection={activeSection}
         alertCount={alertCount}
+        headerDateControl={<DashboardPeriodPicker compact fromMonth={dashboardFromMonth} label={dateRangeLabel} onFromMonthChange={setDashboardFromMonth} onPresetChange={setDashboardPeriod} onToMonthChange={setDashboardToMonth} preset={dashboardPeriod} toMonth={dashboardToMonth} />}
+        notifications={headerNotifications}
         globalSearch={globalSearch}
         globalSearchResults={globalSearchResults}
         me={me}
         onGlobalSearchChange={setGlobalSearch}
         onLogout={logout}
         onOpenSidebar={() => setSidebarOpen(true)}
+        onMarkAllNotificationsRead={() => notificationReadMutation.mutate(unreadHeaderNotifications.map((alert) => alert.id))}
+        onNotificationOpen={openHeaderNotification}
         onSectionChange={(section) => {
           setActiveSection(section);
           setSidebarOpen(false);
@@ -2046,16 +2118,43 @@ export function AdminPortal() {
                   </h2>
                   <p className="mt-1.5 text-sm text-[#6f614c]">Here&apos;s what&apos;s happening with Darji today.</p>
                 </div>
-                <div className="darji-date-pill flex items-center gap-3 self-start rounded-2xl border border-[#ecd8b6] bg-white/90 px-4 py-2.5 text-sm font-medium text-[var(--deep)] shadow-[0_12px_30px_rgba(199,153,56,0.08)]">
-                  <CalendarDays size={16} className="text-[#c1840f]" />
-                  {dateRangeLabel}
-                </div>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button className="darji-date-pill flex min-w-[250px] items-center justify-between gap-3 self-start rounded-2xl border border-[#ecd8b6] bg-white/90 px-4 py-2.5 text-sm font-medium text-[var(--deep)] shadow-[0_12px_30px_rgba(199,153,56,0.08)] transition hover:border-[var(--accent)]" type="button">
+                      <span className="flex items-center gap-3"><CalendarDays size={16} className="text-[#c1840f]" />{dateRangeLabel}</span>
+                      <ChevronDown size={15} className="text-[var(--muted)]" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content align="end" className="z-50 w-[min(360px,calc(100vw-24px))] rounded-3xl border border-[var(--panel-border)] bg-white p-3 shadow-[0_22px_55px_rgba(60,42,12,0.16)]">
+                      <p className="px-2 pb-2 text-sm font-bold text-[var(--deep)]">Dashboard period</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          ["lifetime", "Lifetime"],
+                          ["this_month", "This month"],
+                          ["last_3_months", "Last 3 months"],
+                          ["last_6_months", "Last 6 months"],
+                          ["last_12_months", "Last 12 months"]
+                        ] as Array<[DashboardPeriodPreset, string]>).map(([value, label]) => (
+                          <button key={value} className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", dashboardPeriod === value ? "border-orange-400 bg-orange-50 text-orange-600" : "border-[var(--panel-border)] hover:bg-orange-50/60")} onClick={() => setDashboardPeriod(value)} type="button">{label}</button>
+                        ))}
+                      </div>
+                      <div className="my-3 h-px bg-[var(--panel-border)]" />
+                      <p className="px-1 text-xs font-semibold text-[var(--muted)]">Custom multi-month range</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2" onPointerDown={(event) => event.stopPropagation()}>
+                        <label className="text-[11px] font-semibold text-[var(--muted)]">From month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={dashboardFromMonth} onChange={(event) => { setDashboardFromMonth(event.target.value); setDashboardPeriod("custom"); }} /></label>
+                        <label className="text-[11px] font-semibold text-[var(--muted)]">To month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={dashboardToMonth} onChange={(event) => { setDashboardToMonth(event.target.value); setDashboardPeriod("custom"); }} /></label>
+                      </div>
+                      <p className="mt-2 px-1 text-[11px] text-[var(--muted)]">Both boundary months are included in dashboard totals.</p>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
               </div>
             </Panel>
 
             <div className="grid gap-4 xl:grid-cols-12">
               <LiveAlertsWidget className="xl:col-span-7" alerts={liveAlerts} />
-              <TodayOperationsWidget className="xl:col-span-5" items={todayOperations} onOpen={setActiveSection} />
+              <TodayOperationsWidget className="xl:col-span-5" items={todayOperations} onOpen={setActiveSection} title={`${dateRangeLabel} Operations`} />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -2086,8 +2185,8 @@ export function AdminPortal() {
               <ChartCard
                 title="Revenue Overview"
                 description="Net revenue from paid payments after tailor quote and delivery earnings."
-                className="xl:col-span-5"
-                action={<SelectPill label="Monthly" />}
+                className="xl:col-span-6 p-5"
+                action={<SelectPill label={dateRangeLabel} />}
               >
                 <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                   <div>
@@ -2101,8 +2200,14 @@ export function AdminPortal() {
                     <MetricChip label="AOV" value={formatCurrency(metrics.averageOrderValue)} />
                   </div>
                 </div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={revenueSeries}>
+                {hasRevenueData ? <ResponsiveContainer width="100%" height={190}>
+                  {revenueSeries.length === 1 ? <BarChart data={revenueSeries} barSize={46}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(201, 175, 131, 0.26)" vertical={false} />
+                    <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
+                    <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => formatCurrency(Number(value ?? 0))} />
+                    <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
+                    <Bar dataKey="revenue" fill={darziChartPalette.orange} radius={[9, 9, 0, 0]} />
+                  </BarChart> : <AreaChart data={revenueSeries}>
                     <defs>
                       <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#f6a313" stopOpacity={0.42} />
@@ -2113,18 +2218,18 @@ export function AdminPortal() {
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
                     <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
-                    <Area dataKey="revenue" fill="url(#revenueFill)" stroke={darziChartPalette.orange} strokeWidth={3} type="monotone" />
-                  </AreaChart>
-                </ResponsiveContainer>
+                    <Area dataKey="revenue" dot={{ fill: darziChartPalette.orange, r: 3, strokeWidth: 0 }} fill="url(#revenueFill)" stroke={darziChartPalette.orange} strokeWidth={3} type="monotone" />
+                  </AreaChart>}
+                </ResponsiveContainer> : <CompactChartEmptyState message="No paid revenue in this period." />}
               </ChartCard>
 
-              <ChartCard title="Orders Overview" description="Completed, cancelled, and pending orders." className="xl:col-span-3" action={<SelectPill label="Weekly" />}>
+              <ChartCard title="Orders Overview" description="Completed, cancelled, and pending orders." className="xl:col-span-6 p-5" action={<SelectPill label={dateRangeLabel} />}>
                 <div className="mb-3 flex flex-wrap gap-3 text-sm">
                   <LegendDot color={darziChartPalette.success} label={`Completed ${completedOrders}`} />
                   <LegendDot color={darziChartPalette.rose} label={`Cancelled ${cancelledOrders}`} />
                   <LegendDot color={darziChartPalette.orange} label={`Pending ${pendingOrders}`} />
                 </div>
-                <ResponsiveContainer width="100%" height={220}>
+                {hasOrderChartData ? <ResponsiveContainer width="100%" height={190}>
                   <BarChart data={orderSeries} barGap={8}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(201, 175, 131, 0.2)" vertical={false} />
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
@@ -2134,16 +2239,16 @@ export function AdminPortal() {
                     <Bar dataKey="cancelled" fill={darziChartPalette.rose} radius={[8, 8, 0, 0]} />
                     <Bar dataKey="pending" fill={darziChartPalette.orange} radius={[8, 8, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer> : <CompactChartEmptyState message="No orders in this period." />}
               </ChartCard>
 
-              <ChartCard title="Order Category" description="Service split across current orders." className="xl:col-span-2" action={<SelectPill label="This Month" />}>
-                <div className="grid gap-5">
-                  <div className="relative mx-auto h-[180px] w-full max-w-[180px]">
+              <ChartCard title="Order Category" description="Service split across selected orders." className="xl:col-span-7 p-5" action={<SelectPill label={dateRangeLabel} />}>
+                <div className="grid items-center gap-5 sm:grid-cols-[180px_1fr]">
+                  <div className="relative mx-auto h-[160px] w-full max-w-[160px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
-                        <Pie data={serviceMix} dataKey="value" innerRadius={42} outerRadius={70} paddingAngle={4}>
-                          {serviceMix.map((entry, index) => (
+                        <Pie data={categoryChartData} dataKey="value" innerRadius={40} outerRadius={64} paddingAngle={3}>
+                          {categoryChartData.map((entry, index) => (
                             <Cell key={entry.name} fill={pieColors[index % pieColors.length]} />
                           ))}
                         </Pie>
@@ -2151,7 +2256,7 @@ export function AdminPortal() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-2xl font-semibold text-[var(--deep)]">{(analytics?.totalOrders || 0).toLocaleString("en-IN")}</span>
+                      <span className="text-2xl font-semibold text-[var(--deep)]">{dashboardOrders.length.toLocaleString("en-IN")}</span>
                       <span className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">Total orders</span>
                     </div>
                   </div>
@@ -2169,7 +2274,7 @@ export function AdminPortal() {
                 </div>
               </ChartCard>
 
-              <LiveStatusPanel className="xl:col-span-2" items={statusBreakdown} />
+              <LiveStatusPanel className="xl:col-span-5 p-5" items={statusBreakdown} />
             </div>
 
             <div className="grid gap-4 xl:grid-cols-12">
@@ -2217,96 +2322,42 @@ export function AdminPortal() {
         ) : null}
 
         {activeSection === "orders" ? (
-          <div className="space-y-6">
-            <SectionIntro
-              title="Order Management"
-              description="Manage orders, assignments and deliveries from one place."
-              action={
-                <div className="flex items-center gap-2">
-                  <ActionButton variant="secondary" onClick={() => toast.info("Orders filters are available in the row below.")}>
-                    <Filter size={16} className="mr-1.5" />
-                    Filters
-                  </ActionButton>
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-orders.csv", filteredOrders.map(orderToCsv))}>
-                    Export CSV
-                  </ActionButton>
-                </div>
-              }
-            />
-            {(() => {
-              const total = Math.max(allOrders.length, 1);
-              const counts = {
-                pending: allOrders.filter((order) => ["ORDER_PLACED", "PICKUP_ASSIGNED", "PENDING"].includes(order.status)).length,
-                progress: allOrders.filter((order) => ["PICKUP_ASSIGNED", "TAILOR_ASSIGNED", "STITCHING_STARTED", "OUT_FOR_DELIVERY", "READY"].includes(order.status)).length,
-                completed: allOrders.filter((order) => ["DELIVERED", "COMPLETED"].includes(order.status)).length,
-                cancelled: allOrders.filter((order) => ["CANCELLED", "FAILED"].includes(order.status)).length
-              };
-              return (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                  <FinanceStatCard label="Total Orders" value={String(allOrders.length)} note="100% of orders" tone="amber" />
-                  <FinanceStatCard label="Pending" value={String(counts.pending)} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" />
-                  <FinanceStatCard label="In Progress" value={String(counts.progress)} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" />
-                  <FinanceStatCard label="Completed" value={String(counts.completed)} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" />
-                  <FinanceStatCard label="Cancelled" value={String(counts.cancelled)} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" />
-                </div>
-              );
-            })()}
-            <Panel className="p-0">
-              <div className="border-b border-[var(--panel-border)] p-4">
-                <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(3,0.9fr)_auto]">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} />
-                    <input
-                      className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] pl-11 pr-4 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
-                      onChange={(event) => setOrderSearch(event.target.value)}
-                      placeholder="Search orders..."
-                      value={orderSearch}
-                    />
-                  </div>
-                  <FilterSelect
-                    value={orderFilter}
-                    onChange={setOrderFilter}
-                    options={[
-                      { label: "All statuses", value: "" },
-                      ...orderStatuses.map((status) => ({ label: formatStatus(status), value: status }))
-                    ]}
-                  />
-                  <FilterSelect
-                    value={deliveryPartnerFilter}
-                    onChange={setDeliveryPartnerFilter}
-                    options={[
-                      { label: "All delivery partners", value: "" },
-                      ...orderPartnerOptions.map((partner) => ({ label: getPartnerDisplayName(partner), value: partner.id }))
-                    ]}
-                  />
-                  <FilterSelect
-                    value={paymentFilter}
-                    onChange={setPaymentFilter}
-                    options={[
-                      { label: "All payment methods", value: "" },
-                      { label: "COD", value: "COD" },
-                      { label: "Paid", value: "PAID" },
-                      { label: "Online", value: "ONLINE" },
-                      { label: "Unknown", value: "UNKNOWN" }
-                    ]}
-                  />
-                  <ActionButton
-                    className="h-12 px-4"
-                    variant="secondary"
-                    onClick={() => {
-                      setOrderSearch("");
-                      setOrderFilter("");
-                      setDeliveryPartnerFilter("");
-                      setPaymentFilter("");
-                    }}
-                  >
-                    Reset
-                  </ActionButton>
-                </div>
-              </div>
-              <DataTable columns={orderColumns} data={filteredOrders} emptyMessage="No orders match the current filters." />
-            </Panel>
-          </div>
+          <OrdersManagementView
+            allOrders={allOrders}
+            categories={[...new Set(allOrders.flatMap((order) => (order.items ?? []).map((item) => item.service?.category?.name ?? "General")))].sort()}
+            columns={orderColumns}
+            deliveryPartnerFilter={deliveryPartnerFilter}
+            deliveryPartners={orderPartnerOptions}
+            filteredOrders={filteredOrders}
+            orderCategoryFilter={orderCategoryFilter}
+            orderDateFilter={orderDateFilter}
+            orderFilter={orderFilter}
+            orderPaymentStatusFilter={orderPaymentStatusFilter}
+            orderSearch={orderSearch}
+            orderTailorFilter={orderTailorFilter}
+            paymentFilter={paymentFilter}
+            tailors={tailors}
+            onCategoryChange={setOrderCategoryFilter}
+            onCreate={() => toast.info("Order creation is not available in the current admin API.")}
+            onDateChange={setOrderDateFilter}
+            onDeliveryPartnerChange={setDeliveryPartnerFilter}
+            onExport={() => downloadCsv("darzi-orders.csv", filteredOrders.map(orderToCsv))}
+            onPaymentMethodChange={setPaymentFilter}
+            onPaymentStatusChange={setOrderPaymentStatusFilter}
+            onSearchChange={setOrderSearch}
+            onStatusChange={setOrderFilter}
+            onTailorChange={setOrderTailorFilter}
+            onReset={() => {
+              setOrderSearch("");
+              setOrderFilter("");
+              setDeliveryPartnerFilter("");
+              setPaymentFilter("");
+              setOrderCategoryFilter("");
+              setOrderTailorFilter("");
+              setOrderPaymentStatusFilter("");
+              setOrderDateFilter("");
+            }}
+          />
         ) : null}
 
         {activeSection === "tailoring" ? (
@@ -2340,6 +2391,8 @@ export function AdminPortal() {
         {activeSection === "batches" ? (
           <DeliveryBatchManagement
             batches={deliveryBatches}
+            deliveryRequests={deliveryRequests}
+            partners={partners}
             error={deliveryBatchesQuery.isError ? extractError(deliveryBatchesQuery.error) : undefined}
             focusBatch={batchFocus}
             batchCapacity={batchSettingsDraft.maxOrdersPerBatch}
@@ -3222,9 +3275,13 @@ function PortalFrame({
   children,
   globalSearch,
   globalSearchResults,
+  headerDateControl,
   me,
+  notifications = [],
   onGlobalSearchChange,
   onLogout,
+  onMarkAllNotificationsRead,
+  onNotificationOpen,
   onOpenSidebar,
   onSectionChange,
   sidebarOpen,
@@ -3235,9 +3292,13 @@ function PortalFrame({
   children: React.ReactNode;
   globalSearch: string;
   globalSearchResults: GlobalSearchResult[];
+  headerDateControl?: React.ReactNode;
   me?: MeResponse;
+  notifications?: OperationalAlert[];
   onGlobalSearchChange: (value: string) => void;
   onLogout: () => void;
+  onMarkAllNotificationsRead?: () => void;
+  onNotificationOpen?: (notification: OperationalAlert) => void;
   onOpenSidebar: () => void;
   onSectionChange: (section: SectionId) => void;
   sidebarOpen: boolean;
@@ -3463,9 +3524,8 @@ function PortalFrame({
                 </div>
 
                 <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-                  <div className="darji-header-control hidden items-center gap-2 rounded-2xl border border-[#f0dcc0] bg-white px-4 py-3 text-sm font-medium text-[var(--deep)] lg:inline-flex">
-                    <CalendarDays size={17} className="text-[var(--accent)]" />
-                    {buildDashboardDateRangeLabel("monthly")}
+                  <div className="hidden lg:block">
+                    {headerDateControl ?? <div className="darji-header-control inline-flex items-center gap-2 rounded-2xl border border-[#f0dcc0] bg-white px-4 py-3 text-sm font-medium text-[var(--deep)]"><CalendarDays size={17} className="text-[var(--accent)]" />{buildDashboardDateRangeLabel("monthly")}</div>}
                   </div>
 
                   <DropdownMenu.Root>
@@ -3480,12 +3540,18 @@ function PortalFrame({
                       </button>
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
-                      <DropdownMenu.Content align="end" className="z-50 w-80 rounded-3xl border border-[var(--panel-border)] bg-[var(--panel-strong)] p-3 shadow-[var(--shadow)] backdrop-blur">
-                        <p className="px-3 py-2 text-sm font-semibold">Admin alerts</p>
-                        <div className="space-y-2">
-                          <AlertItem title="Open support tickets" value={String(alertCount)} icon={AlertCircle} />
-                          <AlertItem title="Payment follow-ups" value="Review pending collections" icon={CreditCard} />
-                          <AlertItem title="Verification queue" value="Check tailor and partner documents" icon={ShieldCheck} />
+                      <DropdownMenu.Content align="end" className="z-50 w-[min(390px,calc(100vw-24px))] rounded-3xl border border-[var(--panel-border)] bg-[var(--panel-strong)] p-3 shadow-[var(--shadow)] backdrop-blur">
+                        <div className="flex items-center justify-between gap-3 px-2 py-2">
+                          <div><p className="text-sm font-semibold">Notifications</p><p className="text-xs text-[var(--muted)]">{alertCount} unread · {notifications.length} total</p></div>
+                          {alertCount > 0 ? <button className="text-xs font-semibold text-orange-600 hover:underline" onClick={onMarkAllNotificationsRead} type="button">Mark all read</button> : null}
+                        </div>
+                        <div className="max-h-[430px] space-y-2 overflow-y-auto pr-1">
+                          {notifications.length ? notifications.map((notification) => (
+                            <button className={cn("flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", notification.status === "OPEN" ? "border-orange-200 bg-orange-50/70" : "border-[var(--panel-border)] bg-[#fbfdff] opacity-75")} key={notification.id} onClick={() => onNotificationOpen?.(notification)} type="button">
+                              <span className={cn("mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl", notification.severity === "CRITICAL" ? "bg-rose-100 text-rose-600" : notification.severity === "WARNING" ? "bg-amber-100 text-amber-600" : "bg-sky-100 text-sky-600")}><AlertCircle size={16} /></span>
+                              <span className="min-w-0 flex-1"><span className="flex items-start justify-between gap-2"><span className="text-sm font-semibold text-[var(--foreground)]">{notification.title}</span>{notification.status === "OPEN" ? <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-orange-500" /> : null}</span><span className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{notification.message}</span><span className="mt-1.5 block text-[11px] text-[var(--muted)]">{formatDate(notification.createdAt, true)}</span></span>
+                            </button>
+                          )) : <div className="px-3 py-10 text-center text-sm text-[var(--muted)]">You’re all caught up.</div>}
                         </div>
                       </DropdownMenu.Content>
                     </DropdownMenu.Portal>
@@ -3798,7 +3864,7 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: "teal" | "
     violet: "bg-violet-500/12 text-violet-700"
   };
 
-  return <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-semibold", toneMap[tone])}>{children}</span>;
+  return <span className={cn("inline-flex whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold", toneMap[tone])}>{children}</span>;
 }
 
 const Panel = forwardRef<HTMLDivElement, { children: React.ReactNode; className?: string }>(function Panel({ children, className }, ref) {
@@ -4110,11 +4176,11 @@ function LiveAlertsWidget({ alerts, className }: { alerts: AdminAlert[]; classNa
   );
 }
 
-function TodayOperationsWidget({ className, items, onOpen }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet"; target: SectionId }>; onOpen: (target: SectionId) => void }) {
+function TodayOperationsWidget({ className, items, onOpen, title = "Today's Operations" }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet"; target: SectionId }>; onOpen: (target: SectionId) => void; title?: string }) {
   return (
     <Panel className={className}>
-      <h3 className="text-lg font-semibold text-[var(--deep)]">Today&apos;s Operations</h3>
-      <p className="mt-1 text-sm text-[var(--muted)]">Live operational summary from existing order and delivery data.</p>
+      <h3 className="text-lg font-semibold text-[var(--deep)]">{title}</h3>
+      <p className="mt-1 text-sm text-[var(--muted)]">Operational summary for the selected dashboard period.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {items.map((item) => (
           <button key={item.label} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]" onClick={() => onOpen(item.target)} type="button">
@@ -4268,6 +4334,176 @@ function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse;
       </Panel>
     </div>
   );
+}
+
+function OrdersManagementView({
+  allOrders,
+  categories,
+  columns,
+  deliveryPartnerFilter,
+  deliveryPartners,
+  filteredOrders,
+  onCategoryChange,
+  onCreate,
+  onDateChange,
+  onDeliveryPartnerChange,
+  onExport,
+  onPaymentMethodChange,
+  onPaymentStatusChange,
+  onReset,
+  onSearchChange,
+  onStatusChange,
+  onTailorChange,
+  orderCategoryFilter,
+  orderDateFilter,
+  orderFilter,
+  orderPaymentStatusFilter,
+  orderSearch,
+  orderTailorFilter,
+  paymentFilter,
+  tailors
+}: {
+  allOrders: Order[];
+  categories: string[];
+  columns: Array<ColumnDef<Order>>;
+  deliveryPartnerFilter: string;
+  deliveryPartners: DeliveryPartnerProfile[];
+  filteredOrders: Order[];
+  onCategoryChange: (value: string) => void;
+  onCreate: () => void;
+  onDateChange: (value: string) => void;
+  onDeliveryPartnerChange: (value: string) => void;
+  onExport: () => void;
+  onPaymentMethodChange: (value: string) => void;
+  onPaymentStatusChange: (value: string) => void;
+  onReset: () => void;
+  onSearchChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
+  onTailorChange: (value: string) => void;
+  orderCategoryFilter: string;
+  orderDateFilter: string;
+  orderFilter: string;
+  orderPaymentStatusFilter: string;
+  orderSearch: string;
+  orderTailorFilter: string;
+  paymentFilter: string;
+  tailors: TailorProfile[];
+}) {
+  const normalized = (order: Order) => String(order.status).toUpperCase();
+  const counts = {
+    pending: allOrders.filter((order) => ["ORDER_PLACED", "PAYMENT_PENDING", "PENDING"].includes(normalized(order))).length,
+    progress: allOrders.filter((order) => !["ORDER_PLACED", "PAYMENT_PENDING", "PENDING", "DELIVERED", "COMPLETED", "CANCELLED", "FAILED"].includes(normalized(order))).length,
+    completed: allOrders.filter((order) => ["DELIVERED", "COMPLETED"].includes(normalized(order))).length,
+    cancelled: allOrders.filter((order) => ["CANCELLED", "FAILED"].includes(normalized(order))).length
+  };
+  const total = Math.max(allOrders.length, 1);
+  const statusTabs = [
+    { label: "All Orders", value: "", count: allOrders.length, tone: "text-orange-500 border-orange-500" },
+    { label: "Pending", value: "__PENDING__", count: counts.pending, tone: "text-blue-600 border-blue-600" },
+    { label: "In Progress", value: "__ACTIVE__", count: counts.progress, tone: "text-violet-600 border-violet-600" },
+    { label: "Completed", value: "__COMPLETED__", count: counts.completed, tone: "text-emerald-600 border-emerald-600" },
+    { label: "Cancelled", value: "__CANCELLED__", count: counts.cancelled, tone: "text-rose-600 border-rose-600" }
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 px-1 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <Package className="text-[var(--deep)]" size={25} />
+            <h2 className="text-[1.75rem] font-bold tracking-tight text-[var(--deep)]">Orders</h2>
+          </div>
+          <p className="mt-1.5 text-sm text-[var(--muted)]">Manage orders, assignments and deliveries from one place.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <ActionButton className="min-h-11 rounded-xl px-5" variant="secondary" onClick={onExport}>
+            <Download size={16} /> Export CSV
+          </ActionButton>
+          <ActionButton className="min-h-11 rounded-xl bg-gradient-to-r from-[#ffad16] to-[#ff8500] px-5 text-white shadow-[0_10px_24px_rgba(255,145,0,0.2)]" onClick={onCreate}>
+            <Plus size={17} /> Create Order
+          </ActionButton>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <OrderSummaryCard icon={Package} label="Total Orders" value={allOrders.length} note="100% of all orders" tone="amber" />
+        <OrderSummaryCard icon={RotateCcw} label="Pending" value={counts.pending} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" />
+        <OrderSummaryCard icon={Hourglass} label="In Progress" value={counts.progress} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" />
+        <OrderSummaryCard icon={CheckCircle2} label="Completed" value={counts.completed} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" />
+        <OrderSummaryCard icon={X} label="Cancelled" value={counts.cancelled} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" />
+      </div>
+
+      <Panel className="overflow-hidden p-0">
+        <div className="space-y-3 p-4 lg:p-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.3fr_repeat(4,1fr)]">
+            <OrderSearchInput value={orderSearch} onChange={onSearchChange} />
+            <FilterSelect value={orderFilter.startsWith("__") ? "" : orderFilter} onChange={onStatusChange} options={[{ label: "All Statuses", value: "" }, ...orderStatuses.map((status) => ({ label: formatStatus(status), value: status }))]} />
+            <FilterSelect value={orderCategoryFilter} onChange={onCategoryChange} options={[{ label: "All Categories", value: "" }, ...categories.map((category) => ({ label: category, value: category }))]} />
+            <FilterSelect value={deliveryPartnerFilter} onChange={onDeliveryPartnerChange} options={[{ label: "All Delivery Partners", value: "" }, ...deliveryPartners.map((partner) => ({ label: getPartnerDisplayName(partner), value: partner.id }))]} />
+            <FilterSelect value={paymentFilter} onChange={onPaymentMethodChange} options={[{ label: "All Payment Methods", value: "" }, { label: "COD", value: "COD" }, { label: "Online", value: "ONLINE" }, { label: "UPI", value: "UPI" }]} />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto_auto]">
+            <FilterSelect value={orderTailorFilter} onChange={onTailorChange} options={[{ label: "All Tailors", value: "" }, ...tailors.map((tailor) => ({ label: getTailorDisplayName(tailor), value: tailor.id }))]} />
+            <FilterSelect value={orderPaymentStatusFilter} onChange={onPaymentStatusChange} options={[{ label: "All Payment Status", value: "" }, { label: "Paid", value: "PAID" }, { label: "Pending", value: "PENDING" }, { label: "Failed", value: "FAILED" }, { label: "Refunded", value: "REFUNDED" }]} />
+            <label className="relative flex h-12 items-center rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm text-[var(--foreground)] focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]">
+              <CalendarDays className="mr-3 text-[var(--muted)]" size={16} />
+              <input aria-label="Order date" className="h-full min-w-0 flex-1 cursor-pointer bg-transparent text-sm text-[var(--foreground)] outline-none [color-scheme:light]" type="date" value={orderDateFilter} onChange={(event) => onDateChange(event.target.value)} />
+            </label>
+            <ActionButton className="h-12 rounded-xl px-5" variant="secondary" onClick={onReset}><RotateCcw size={16} /> Reset</ActionButton>
+            <ActionButton className="h-12 rounded-xl px-5" variant="secondary" onClick={() => toast.info("All available order filters are shown.")}><Filter size={16} /> More Filters</ActionButton>
+          </div>
+        </div>
+        <div className="flex gap-7 overflow-x-auto border-t border-[var(--panel-border)] px-4 lg:px-5">
+          {statusTabs.map((tab) => {
+            const selected = orderFilter === tab.value;
+            return <button key={tab.label} className={cn("flex shrink-0 items-center gap-2 border-b-2 border-transparent py-3.5 text-sm font-semibold transition", selected ? tab.tone : "text-[var(--muted)] hover:text-[var(--foreground)]")} onClick={() => onStatusChange(tab.value)} type="button">{tab.label}<span className="rounded-full bg-black/5 px-2 py-0.5 text-xs">{tab.count}</span></button>;
+          })}
+        </div>
+      </Panel>
+
+      <OrdersTable columns={columns} data={filteredOrders} emptyMessage="No orders match the current filters." />
+    </div>
+  );
+}
+
+function OrderSearchInput({ onChange, value }: { onChange: (value: string) => void; value: string }) {
+  return <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} /><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-11 pr-4 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]" onChange={(event) => onChange(event.target.value)} placeholder="Search orders..." value={value} /></div>;
+}
+
+function OrderSummaryCard({ icon: Icon, label, note, tone, value }: { icon: ComponentType<{ size?: number }>; label: string; note: string; tone: "amber" | "sky" | "violet" | "emerald" | "rose"; value: number }) {
+  const tones = { amber: "bg-orange-50 text-orange-500", sky: "bg-blue-50 text-blue-600", violet: "bg-violet-50 text-violet-600", emerald: "bg-emerald-50 text-emerald-600", rose: "bg-rose-50 text-rose-600" };
+  return <Panel className="rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel>;
+}
+
+function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string }) {
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const tableTopRef = useRef<HTMLDivElement>(null);
+  const table = useReactTable({ columns, data, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(), onSortingChange: setSorting, state: { sorting } });
+  const rows = table.getRowModel().rows;
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = rows.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const visiblePageCount = Math.min(5, pageCount);
+  const firstVisiblePage = Math.max(0, Math.min(safePage - 2, pageCount - visiblePageCount));
+  const visiblePages = Array.from({ length: visiblePageCount }, (_, index) => firstVisiblePage + index);
+  useEffect(() => setPage(0), [data, pageSize]);
+
+  const goToPage = (nextPage: number) => {
+    setPage(Math.max(0, Math.min(nextPage, pageCount - 1)));
+    requestAnimationFrame(() => tableTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  const statusRail = (status: string) => {
+    const value = status.toUpperCase();
+    if (["CANCELLED", "FAILED"].includes(value)) return "#fb7185";
+    if (["DELIVERED", "COMPLETED"].includes(value)) return "#86efac";
+    if (["ORDER_PLACED", "PAYMENT_PENDING", "PENDING"].includes(value)) return "#7dd3fc";
+    return "#c4b5fd";
+  };
+
+  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 overflow-x-auto overscroll-x-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="bg-[#fffcf7] text-[11px] text-slate-500">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th className="whitespace-nowrap px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length}>{emptyMessage}</td></tr> : pageRows.map((row) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-slate-700 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
 }
 
 function SampleWorkModule({
@@ -4661,6 +4897,8 @@ function PayoutWorkspace({
 
 function DeliveryBatchManagement({
   batches,
+  deliveryRequests,
+  partners,
   error,
   focusBatch,
   batchCapacity,
@@ -4671,6 +4909,8 @@ function DeliveryBatchManagement({
   pendingTaskId
 }: {
   batches: DeliveryBatch[];
+  deliveryRequests: DeliveryRequest[];
+  partners: DeliveryPartnerProfile[];
   error?: string;
   focusBatch?: BatchFocusTarget | null;
   batchCapacity: number;
@@ -4680,6 +4920,10 @@ function DeliveryBatchManagement({
   orders: Order[];
   pendingTaskId?: string;
 }) {
+  const [view, setView] = useState<"batches" | "instant">("batches");
+  const [dateScope, setDateScope] = useState<"all" | "selected">("all");
+  const [roundFilter, setRoundFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedDate, setSelectedDate] = useState(() => localDateInputValue(new Date()));
   const sortedBatches = useMemo(
@@ -4687,8 +4931,8 @@ function DeliveryBatchManagement({
     [batches]
   );
   const selectedDayBatches = useMemo(
-    () => sortedBatches.filter((batch) => localDateKey(batch.roundAt) === selectedDate),
-    [selectedDate, sortedBatches]
+    () => sortedBatches.filter((batch) => dateScope === "all" || localDateKey(batch.roundAt) === selectedDate),
+    [dateScope, selectedDate, sortedBatches]
   );
   const pickupCount = selectedDayBatches.reduce((sum, batch) => sum + Number(batch.pickupCount ?? batch.tasks.filter((task) => task.type === "customer_to_tailor").length), 0);
   const dropCount = selectedDayBatches.reduce((sum, batch) => sum + Number(batch.dropCount ?? batch.tasks.filter((task) => task.type === "tailor_to_customer").length), 0);
@@ -4700,14 +4944,26 @@ function DeliveryBatchManagement({
     if (status === "locked") return "notified";
     return "upcoming";
   };
+  const normalizedSearch = search.trim().toLowerCase();
   const visibleBatches = selectedDayBatches.filter((batch) =>
-    (!statusFilter || batchStage(batch) === statusFilter)
+    (!statusFilter || batchStage(batch) === statusFilter) &&
+    (!roundFilter || batch.deliveryRound === roundFilter) &&
+    (!normalizedSearch || [batch.batchId, batch.area, batch.partner ? getPartnerDisplayName(batch.partner) : "", ...batch.tasks.flatMap((task) => [task.taskId, task.orderId, task.customerName ?? "", task.customerPhone ?? ""])]
+      .some((value) => String(value).toLowerCase().includes(normalizedSearch)))
   );
+  const instantOrders = useMemo(() => deliveryRequests
+    .filter((request) => request.serviceLevel === "INSTANT")
+    .filter((request) => dateScope === "all" || localDateKey(request.createdAt) === selectedDate)
+    .filter((request) => !statusFilter || String(request.taskStatus).toLowerCase() === statusFilter)
+    .filter((request) => !normalizedSearch || [request.taskId, request.orderId, request.customerName, request.customerPhone, request.tailorName]
+      .some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch)))
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()),
+  [dateScope, deliveryRequests, normalizedSearch, selectedDate, statusFilter]);
   const selectedIsToday = selectedDate === localDateInputValue(new Date());
   const activeTargetBatches = sortedBatches.filter((batch) => !["completed", "cancelled"].includes(batch.status));
   const totalEarnings = visibleBatches.reduce((sum, batch) => sum + Number(batch.estimatedEarnings ?? 0), 0);
   const totalTasks = visibleBatches.reduce((sum, batch) => sum + batch.tasks.length, 0);
-  const selectedDateLabel = formatDate(selectedDate, false);
+  const selectedDateLabel = dateScope === "all" ? "all dates" : formatDate(selectedDate, false);
   const focusedBatch = focusBatch ? selectedDayBatches.find((batch) => batch.batchId === focusBatch.batchId) : undefined;
   const onePmBatches = visibleBatches.filter((batch) => String(batch.deliveryRound).toUpperCase() === "ONE_PM");
   const sixPmBatches = visibleBatches.filter((batch) => String(batch.deliveryRound).toUpperCase() === "SIX_PM");
@@ -4715,8 +4971,8 @@ function DeliveryBatchManagement({
   return (
     <div className="space-y-6">
       <SectionIntro
-        title="Batch management"
-        description="Inspect mixed delivery batches, optimized routes, rider earnings, and move an order into another compatible slot."
+        title="Batches & instant deliveries"
+        description="Scheduled pickup and drop jobs share the upcoming 1 PM or 6 PM batch. Instant jobs stay separate and are offered immediately."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2">
@@ -4726,16 +4982,23 @@ function DeliveryBatchManagement({
                 type="date"
                 value={selectedDate}
                 onChange={(event) => setSelectedDate(event.target.value)}
+                disabled={dateScope === "all"}
               />
             </div>
-            <ActionButton className="px-4 py-2" variant="secondary" onClick={() => setSelectedDate(localDateInputValue(new Date()))}>
-              Today
-            </ActionButton>
+            <FilterSelect value={dateScope} onChange={(value) => setDateScope(value as "all" | "selected")} options={[{ label: "All dates", value: "all" }, { label: "Selected date", value: "selected" }]} />
+            {view === "batches" ? <FilterSelect value={roundFilter} onChange={setRoundFilter} options={[{ label: "All batch times", value: "" }, { label: "1 PM", value: "ONE_PM" }, { label: "6 PM", value: "SIX_PM" }]} /> : null}
             <FilterSelect
               value={statusFilter}
               onChange={setStatusFilter}
-              options={[
-                { label: "All stages", value: "" },
+              options={view === "instant" ? [
+                { label: "All statuses", value: "" },
+                { label: "Pending", value: "pending" },
+                { label: "Accepted", value: "accepted" },
+                { label: "Picked up", value: "picked_up" },
+                { label: "Delivered", value: "delivered" },
+                { label: "Cancelled", value: "cancelled" }
+              ] : [
+                { label: "All statuses", value: "" },
                 { label: "Upcoming", value: "upcoming" },
                 { label: "Notified", value: "notified" },
                 { label: "Accepted", value: "accepted" },
@@ -4747,6 +5010,16 @@ function DeliveryBatchManagement({
           </div>
         }
       />
+      <div className="flex flex-col gap-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-2">
+          <button className={cn("rounded-lg border px-4 py-2 text-sm font-bold", view === "batches" ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--panel-border)] bg-white")} onClick={() => { setView("batches"); setStatusFilter(""); }} type="button">Scheduled batches ({batches.length})</button>
+          <button className={cn("rounded-lg border px-4 py-2 text-sm font-bold", view === "instant" ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--panel-border)] bg-white")} onClick={() => { setView("instant"); setStatusFilter(""); }} type="button">Instant orders ({deliveryRequests.filter((request) => request.serviceLevel === "INSTANT").length})</button>
+        </div>
+        <input className="h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3 text-sm outline-none focus:border-[var(--accent)] sm:max-w-xs" onChange={(event) => setSearch(event.target.value)} placeholder="Search batch, order or customer" value={search} />
+      </div>
+      {view === "instant" ? (
+        <InstantDeliveryOrders requests={instantOrders} orders={orders} partners={partners} onOpenOrder={onOpenOrder} />
+      ) : <>
       <div className="grid gap-4 md:grid-cols-5">
         <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note={selectedDateLabel} tone="sky" />
         <FinanceStatCard label="Pickup jobs" value={pickupCount.toLocaleString("en-IN")} note="Selected day" tone="amber" />
@@ -4807,6 +5080,7 @@ function DeliveryBatchManagement({
           />
         ) : null}
       </div>
+      </>}
     </div>
   );
 }
@@ -4825,12 +5099,15 @@ function MeasurementVisitsModule({
   visits: MeasurementVisit[];
 }) {
   const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [selectedVisit, setSelectedVisit] = useState<MeasurementVisit | null>(null);
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
   const sortedVisits = useMemo(
     () => [...visits].sort((a, b) => new Date(b.createdAt ?? b.scheduledAt ?? 0).getTime() - new Date(a.createdAt ?? a.scheduledAt ?? 0).getTime()),
     [visits]
   );
-  const visibleVisits = sortedVisits.filter((visit) => !statusFilter || visit.status === statusFilter);
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleVisits = sortedVisits.filter((visit) => (!statusFilter || visit.status === statusFilter) && (!normalizedSearch || [visit.darjiId, visit.requestId, visit.customerName, visit.customerPhone, visit.garmentSummary].some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch))));
   const pendingCount = visits.filter((visit) => ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(visit.status)).length;
   const assignedCount = visits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)).length;
   const submittedCount = visits.filter((visit) => visit.status === "SUBMITTED").length;
@@ -4841,22 +5118,7 @@ function MeasurementVisitsModule({
       <SectionIntro
         title="Home measurement visits"
         description="Offer, assign, reassign, and review tailor-at-home measurement jobs."
-        action={
-          <FilterSelect
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={[
-              { label: "All statuses", value: "" },
-              { label: "Offered", value: "OFFERED_TO_STITCHING_TAILOR" },
-              { label: "Pool", value: "POOL" },
-              { label: "Accepted", value: "ACCEPTED" },
-              { label: "In progress", value: "IN_PROGRESS" },
-              { label: "Submitted", value: "SUBMITTED" },
-              { label: "Cancelled", value: "CANCELLED" },
-              { label: "Expired", value: "EXPIRED" }
-            ]}
-          />
-        }
+        action={<div className="flex flex-wrap gap-2"><input className="h-10 min-w-[240px] rounded-xl border border-[var(--panel-border)] bg-white px-3 text-sm outline-none focus:border-[var(--accent)]" onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, visit or request" value={search} /><FilterSelect value={statusFilter} onChange={setStatusFilter} options={[{ label: "All statuses", value: "" }, { label: "Offered", value: "OFFERED_TO_STITCHING_TAILOR" }, { label: "Pool", value: "POOL" }, { label: "Accepted", value: "ACCEPTED" }, { label: "In progress", value: "IN_PROGRESS" }, { label: "Submitted", value: "SUBMITTED" }, { label: "Cancelled", value: "CANCELLED" }, { label: "Expired", value: "EXPIRED" }]} /></div>}
       />
       <div className="grid gap-4 md:grid-cols-4">
         <FinanceStatCard label="Total visits" value={visits.length.toLocaleString("en-IN")} note="Measurement jobs" tone="sky" />
@@ -4870,94 +5132,69 @@ function MeasurementVisitsModule({
           <p className="mt-1 text-xs">{error}</p>
         </Panel>
       ) : null}
-      <div className="space-y-4">
-        {visibleVisits.map((visit) => {
-          const selectedTailorId = assignmentDrafts[visit.id] ?? visit.assignedTailorId ?? visit.offeredTailorId ?? visit.stitchingTailorId ?? "";
-          const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId);
-          const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId);
-          const stitchingTailor = tailors.find((tailor) => tailor.id === visit.stitchingTailorId);
-          const measurementFields = Object.entries(visit.submission?.measurement?.fields ?? {});
-          const notes = [visit.submission?.notes, visit.submission?.specialInstructions].map(cleanText).filter(Boolean);
-          return (
-            <Panel key={visit.id} className="overflow-hidden p-0">
-              <div className="flex flex-col gap-4 border-b border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff)] p-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-xl font-bold text-[var(--deep)]">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</h3>
-                    <StatusBadge value={visit.status} />
-                    <Badge tone="amber">{formatCurrency(visit.visitPayout ?? 0)}</Badge>
-                  </div>
-                  <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{cleanText(visit.customerName) ?? "Customer"} {visit.customerPhone ? `- ${visit.customerPhone}` : ""}</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{cleanText(visit.garmentSummary) ?? "Garment details pending"}</p>
-                </div>
-                <div className="grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-2 lg:min-w-[360px]">
-                  <span>Scheduled: <strong className="text-[var(--foreground)]">{formatDate(visit.scheduledAt, true)}</strong></span>
-                  <span>Request: <strong className="text-[var(--foreground)]">{visit.requestId}</strong></span>
-                  <span>Stitching tailor: <strong className="text-[var(--foreground)]">{stitchingTailor ? getTailorDisplayName(stitchingTailor) : visit.stitchingTailorId}</strong></span>
-                  <span>Assigned: <strong className="text-[var(--foreground)]">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? `${getTailorDisplayName(offeredTailor)} (offered)` : "Unassigned"}</strong></span>
-                </div>
-              </div>
-              <div className="grid gap-4 p-5 xl:grid-cols-[1.2fr_0.8fr]">
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--muted)]">Customer address</p>
-                    <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{cleanText(visit.pickupAddress) ?? "Address not available"}</p>
-                  </div>
-                  {visit.status === "SUBMITTED" ? (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                        <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Submitted measurements</p>
-                        {measurementFields.length ? (
-                          <ul className="mt-2 space-y-1 text-sm font-medium text-[var(--foreground)]">
-                            {measurementFields.map(([label, value]) => <li key={`${visit.id}-${label}`}>{formatStatus(label)}: {String(value)}</li>)}
-                          </ul>
-                        ) : <p className="mt-2 text-sm text-[var(--muted)]">No measurement fields added.</p>}
-                      </div>
-                      <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-                        <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">Notes</p>
-                        {notes.length ? (
-                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-medium text-[var(--foreground)]">
-                            {notes.map((note, index) => <li key={`${visit.id}-note-${index}`}>{note}</li>)}
-                          </ul>
-                        ) : <p className="mt-2 text-sm text-[var(--muted)]">No notes submitted.</p>}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="rounded-2xl border border-[var(--panel-border)] bg-white p-4">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[var(--muted)]">Manual assignment</p>
-                  <div className="mt-3 flex flex-col gap-3">
-                    <FilterSelect
-                      value={selectedTailorId}
-                      onChange={(tailorId) => setAssignmentDrafts((current) => ({ ...current, [visit.id]: tailorId }))}
-                      options={[
-                        { label: "Select tailor / measurement partner", value: "" },
-                        ...capableTailors.map((tailor) => {
-                          const isMeasurementPartner = tailor.measurementPartner?.isEnabled || tailor.tailorRoles?.includes("MEASUREMENT_PARTNER");
-                          return {
-                            label: `${getTailorDisplayName(tailor)}${tailor.darjiTailorId ? ` (${tailor.darjiTailorId})` : ""}${isMeasurementPartner ? " - measurement" : ""}`,
-                            value: tailor.id
-                          };
-                        })
-                      ]}
-                    />
-                    <ActionButton
-                      disabled={!selectedTailorId || pendingVisitId === visit.id}
-                      onClick={() => onAssign(visit.id, selectedTailorId)}
-                    >
-                      {pendingVisitId === visit.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <UserRoundPlus className="h-4 w-4" />}
-                      {visit.assignedTailorId ? "Reassign visit" : "Assign visit"}
-                    </ActionButton>
-                    <p className="text-xs leading-5 text-[var(--muted)]">Admin assignment moves the visit to the selected tailor immediately and clears the unassigned alert.</p>
-                  </div>
-                </div>
-              </div>
-            </Panel>
-          );
-        })}
-        {!visibleVisits.length ? <EmptyState message={visits.length ? "No measurement visits match this filter." : "No home measurement visits have been created yet."} /> : null}
-      </div>
+      <Panel className="overflow-hidden p-0"><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-[var(--panel-border)] bg-[#fffaf0] text-xs uppercase tracking-[0.14em] text-[var(--muted)]"><tr><th className="px-4 py-3">Visit</th><th className="px-4 py-3">Customer details</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Measurement partner</th><th className="px-4 py-3">Partner payout</th><th className="px-4 py-3">Upload</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody>
+        {visibleVisits.map((visit) => { const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId); const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId); const measurementCount = Object.keys(visit.submission?.measurement?.fields ?? {}).length; return <tr className="border-b border-[var(--panel-border)] last:border-0 hover:bg-[#fffaf0]/50" key={visit.id}><td className="px-4 py-4"><p className="font-bold">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="text-xs text-[var(--muted)]">Request {visit.requestId}</p></td><td className="px-4 py-4"><p className="font-semibold">{cleanText(visit.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{visit.customerPhone ?? "Phone unavailable"}</p></td><td className="whitespace-nowrap px-4 py-4">{formatDate(visit.scheduledAt, true)}</td><td className="px-4 py-4"><p className="font-semibold">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? getTailorDisplayName(offeredTailor) : "Unassigned"}</p><p className="text-xs text-[var(--muted)]">{assignedTailor ? assignedTailor.darjiTailorId ?? "Partner ID pending" : offeredTailor ? "Offer awaiting acceptance" : "Needs assignment"}</p></td><td className="px-4 py-4"><p className="font-bold text-emerald-700">{formatCurrency(visit.visitPayout ?? 0)}</p><p className="text-xs text-[var(--muted)]">Paid to measurement partner</p></td><td className="px-4 py-4">{visit.submittedAt || visit.status === "SUBMITTED" ? <div><Badge tone="emerald">Uploaded</Badge><p className="mt-1 text-xs text-[var(--muted)]">{measurementCount} fields</p></div> : <Badge tone="amber">Pending upload</Badge>}</td><td className="px-4 py-4"><StatusBadge value={visit.status} /></td><td className="px-4 py-4"><ActionButton className="px-3 py-2" onClick={() => setSelectedVisit(visit)} variant="secondary"><Eye className="h-4 w-4" />View details</ActionButton></td></tr>; })}
+        {!visibleVisits.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>{visits.length ? "No measurement visits match these filters." : "No home measurement visits have been created yet."}</td></tr> : null}
+      </tbody></table></div></Panel>
+      <MeasurementVisitDialog visit={selectedVisit} tailors={capableTailors} assignmentDrafts={assignmentDrafts} setAssignmentDrafts={setAssignmentDrafts} pendingVisitId={pendingVisitId} onAssign={onAssign} onClose={() => setSelectedVisit(null)} />
     </div>
+  );
+}
+
+function MeasurementVisitDialog({ visit, tailors, assignmentDrafts, setAssignmentDrafts, pendingVisitId, onAssign, onClose }: { visit: MeasurementVisit | null; tailors: TailorProfile[]; assignmentDrafts: Record<string, string>; setAssignmentDrafts: Dispatch<SetStateAction<Record<string, string>>>; pendingVisitId?: string; onAssign: (visitId: string, tailorId: string) => void; onClose: () => void }) {
+  if (!visit) return null;
+  const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId);
+  const stitchingTailor = tailors.find((tailor) => tailor.id === visit.stitchingTailorId);
+  const selectedTailorId = assignmentDrafts[visit.id] ?? visit.assignedTailorId ?? visit.offeredTailorId ?? visit.stitchingTailorId ?? "";
+  const measurementFields = Object.entries(visit.submission?.measurement?.fields ?? {});
+  const photos = [...(visit.submission?.photos ?? []), ...(visit.submission?.measurement?.imageUrl ? [{ url: visit.submission.measurement.imageUrl, originalName: visit.submission.measurement.label ?? "Measurement reference" }] : [])];
+  return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm" /><Dialog.Content className="fixed right-3 top-3 bottom-3 z-50 w-[min(780px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-[var(--panel-border)] bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><Dialog.Title className="text-xl font-bold">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</Dialog.Title><StatusBadge value={visit.status} /></div><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Complete measurement visit details and uploaded submission.</Dialog.Description></div><Dialog.Close className="rounded-lg border border-[var(--panel-border)] p-2 hover:bg-slate-50"><X size={18} /></Dialog.Close></div>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><DetailBox label="Customer" value={cleanText(visit.customerName) ?? "Customer"} note={visit.customerPhone ?? "Phone unavailable"} /><DetailBox label="Scheduled visit" value={formatDate(visit.scheduledAt, true)} note={`Request ${visit.requestId}`} /><DetailBox label="Measurement partner" value={assignedTailor ? getTailorDisplayName(assignedTailor) : "Unassigned"} note={assignedTailor?.darjiTailorId ?? "No accepted partner"} /><DetailBox label="Measurement partner payout" value={formatCurrency(visit.visitPayout ?? 0)} note="Amount payable for this visit" /></div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-2"><Panel className="p-4"><h4 className="font-bold">Customer and garment</h4><dl className="mt-3 space-y-3 text-sm"><div><dt className="text-xs font-bold uppercase text-[var(--muted)]">Customer address</dt><dd className="mt-1">{cleanText(visit.pickupAddress) ?? "Address unavailable"}</dd></div><div><dt className="text-xs font-bold uppercase text-[var(--muted)]">Garment details</dt><dd className="mt-1">{cleanText(visit.garmentSummary) ?? "Garment details unavailable"}</dd></div><div><dt className="text-xs font-bold uppercase text-[var(--muted)]">Stitching tailor</dt><dd className="mt-1">{stitchingTailor ? getTailorDisplayName(stitchingTailor) : visit.stitchingTailorId}</dd></div></dl></Panel><Panel className="p-4"><h4 className="font-bold">Assign measurement partner</h4><div className="mt-3 space-y-3"><FilterSelect value={selectedTailorId} onChange={(tailorId) => setAssignmentDrafts((current) => ({ ...current, [visit.id]: tailorId }))} options={[{ label: "Select measurement partner", value: "" }, ...tailors.map((tailor) => ({ label: `${getTailorDisplayName(tailor)}${tailor.darjiTailorId ? ` (${tailor.darjiTailorId})` : ""}`, value: tailor.id }))]} /><ActionButton disabled={!selectedTailorId || pendingVisitId === visit.id} onClick={() => onAssign(visit.id, selectedTailorId)}>{pendingVisitId === visit.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <UserRoundPlus className="h-4 w-4" />}{visit.assignedTailorId ? "Reassign partner" : "Assign partner"}</ActionButton></div></Panel></div>
+    <div className="mt-4 grid gap-4 lg:grid-cols-2"><Panel className="p-4"><div className="flex items-center justify-between"><h4 className="font-bold">Uploaded measurements</h4>{visit.submittedAt ? <Badge tone="emerald">Uploaded {formatDate(visit.submittedAt, true)}</Badge> : null}</div>{measurementFields.length ? <div className="mt-3 grid grid-cols-2 gap-2">{measurementFields.map(([label, value]) => <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3" key={label}><p className="text-xs font-bold text-emerald-700">{formatStatus(label)}</p><p className="mt-1 font-bold">{String(value)}</p></div>)}</div> : <p className="mt-3 text-sm text-[var(--muted)]">No measurements uploaded yet.</p>}{visit.submission?.fitPreferences?.length ? <div className="mt-4"><p className="text-xs font-bold uppercase text-[var(--muted)]">Fit preferences</p><div className="mt-2 flex flex-wrap gap-2">{visit.submission.fitPreferences.map((item) => <Badge key={item} tone="sky">{item}</Badge>)}</div></div> : null}</Panel><Panel className="p-4"><h4 className="font-bold">Notes uploaded by tailor</h4><div className="mt-3 space-y-3 text-sm"><div className="rounded-lg bg-sky-50 p-3"><p className="text-xs font-bold uppercase text-sky-700">Measurement notes</p><p className="mt-1">{cleanText(visit.submission?.notes) ?? "No measurement notes uploaded."}</p></div><div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-bold uppercase text-amber-700">Special instructions</p><p className="mt-1">{cleanText(visit.submission?.specialInstructions) ?? "No special instructions uploaded."}</p></div></div></Panel></div>
+    {photos.length ? <Panel className="mt-4 p-4"><h4 className="font-bold">Uploaded photos</h4><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{photos.map((photo, index) => <a href={photo.url} key={`${photo.url}-${index}`} rel="noreferrer" target="_blank"><img alt={photo.originalName ?? "Measurement upload"} className="h-32 w-full rounded-xl border border-[var(--panel-border)] object-cover" src={photo.url} /><p className="mt-1 truncate text-xs text-[var(--muted)]">{photo.originalName ?? `Photo ${index + 1}`}</p></a>)}</div></Panel> : null}
+    {visit.submission?.voiceNotes?.length ? <Panel className="mt-4 p-4"><h4 className="font-bold">Voice notes</h4><div className="mt-3 space-y-2">{visit.submission.voiceNotes.map((note, index) => <audio className="w-full" controls key={`${note.url}-${index}`} src={note.url}>Voice note {index + 1}</audio>)}</div></Panel> : null}
+  </Dialog.Content></Dialog.Portal></Dialog.Root>;
+}
+
+function DetailBox({ label, value, note }: { label: string; value: string; note?: string }) { return <div className="rounded-xl border border-[var(--panel-border)] bg-[#fffaf0] p-3"><p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p><p className="mt-1 font-bold text-[var(--deep)]">{value}</p>{note ? <p className="mt-1 text-xs text-[var(--muted)]">{note}</p> : null}</div>; }
+
+function InstantDeliveryOrders({ requests, orders, partners, onOpenOrder }: { requests: DeliveryRequest[]; orders: Order[]; partners: DeliveryPartnerProfile[]; onOpenOrder: (order: Order) => void }) {
+  return (
+    <Panel className="overflow-hidden p-0">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--panel-border)] bg-[#fffaf0] text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+            <tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Customer / tailor</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Partner</th><th className="px-4 py-3">Earnings</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Created</th></tr>
+          </thead>
+          <tbody>{requests.map((request) => {
+            const order = orders.find((candidate) => candidate.id === request.orderId || candidate.request?.id === request.orderId);
+            const partner = partners.find((candidate) => candidate.id === request.assignedDeliveryPartnerId);
+            const partnerPhone = partner?.user?.phone?.trim();
+            return <tr className="border-b border-[var(--panel-border)] last:border-0" key={request.id}>
+              <td className="px-4 py-4"><button className="font-bold text-[#c68008] hover:underline" onClick={() => order && onOpenOrder(order)} type="button">{order ? getOrderDisplayNumber(order) : formatCustomerRequestId(request.orderId)}</button><p className="text-xs text-[var(--muted)]">{request.taskId}</p></td>
+              <td className="px-4 py-4"><DeliveryRoleBadge role={request.type === "customer_to_tailor" ? "PICKUP" : "DROP"} /></td>
+              <td className="px-4 py-4"><p className="font-semibold">{cleanText(request.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{cleanText(request.tailorName) ?? "Tailor"}</p></td>
+              <td className="max-w-[320px] px-4 py-4"><p className="truncate">{request.pickupAddress}</p><p className="mt-1 truncate text-[var(--muted)]">to {request.dropAddress}</p></td>
+              <td className="px-4 py-4">
+                {partner ? (
+                  <div className="min-w-[170px]">
+                    <p className="font-bold text-[var(--deep)]">{getPartnerDisplayName(partner)}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-orange-600">{partner.darjiPartnerId ?? `ID: ${partner.id.slice(0, 8).toUpperCase()}`}</p>
+                    {partnerPhone ? <a className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline" href={`tel:${partnerPhone}`}><PhoneCall className="h-3.5 w-3.5" />{partnerPhone}</a> : <p className="mt-1 text-xs text-[var(--muted)]">Mobile unavailable</p>}
+                  </div>
+                ) : request.assignedDeliveryPartnerId ? (
+                  <div><p className="font-semibold">Accepted partner</p><p className="text-xs text-[var(--muted)]">ID: {request.assignedDeliveryPartnerId}</p></div>
+                ) : <span className="text-[var(--muted)]">Unassigned</span>}
+              </td>
+              <td className="px-4 py-4 font-bold">{formatCurrency(request.estimatedEarnings ?? 0)}</td>
+              <td className="px-4 py-4"><StatusBadge value={request.taskStatus} /></td>
+              <td className="whitespace-nowrap px-4 py-4 text-[var(--muted)]">{formatDate(request.createdAt, true)}</td>
+            </tr>;
+          })}{!requests.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>No instant delivery orders match these filters.</td></tr> : null}</tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 
@@ -5034,7 +5271,7 @@ function BatchSection({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-xl font-bold text-[var(--deep)]">BATCH-{batch.batchId.slice(0, 8).toUpperCase()}</h3>
-                  <DeliveryRoleBadge role={batch.deliveryType} />
+                  <Badge tone="violet">Mixed pickup + drop</Badge>
                   <StatusBadge value={batch.status} />
                   {isHidden ? <Badge tone="slate">Hidden</Badge> : <Badge tone="emerald">Visible</Badge>}
                   <Badge tone="sky">{ordersCount} orders</Badge>
@@ -5942,11 +6179,35 @@ function MetricChip({ label, value }: { label: string; value: string }) {
 
 function SelectPill({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-xl border border-[#f0dcc0] bg-[#fffaf1] px-3 py-1.5 text-xs font-semibold text-[#ba7b08]">
-      {label}
+    <span className="inline-flex max-w-40 items-center gap-1 rounded-xl border border-[#f0dcc0] bg-[#fffaf1] px-3 py-1.5 text-xs font-semibold text-[#ba7b08]">
+      <span className="truncate">{label}</span>
       <ChevronDown size={14} />
     </span>
   );
+}
+
+function DashboardPeriodPicker({ compact = false, fromMonth, label, onFromMonthChange, onPresetChange, onToMonthChange, preset, toMonth }: {
+  compact?: boolean;
+  fromMonth: string;
+  label: string;
+  onFromMonthChange: (value: string) => void;
+  onPresetChange: (value: DashboardPeriodPreset) => void;
+  onToMonthChange: (value: string) => void;
+  preset: DashboardPeriodPreset;
+  toMonth: string;
+}) {
+  const options: Array<[DashboardPeriodPreset, string]> = [
+    ["lifetime", "Lifetime"],
+    ["this_month", "This month"],
+    ["last_3_months", "Last 3 months"],
+    ["last_6_months", "Last 6 months"],
+    ["last_12_months", "Last 12 months"]
+  ];
+  return <DropdownMenu.Root><DropdownMenu.Trigger asChild><button aria-label={`Dashboard period: ${label}`} className={cn("darji-header-control inline-flex items-center justify-between gap-3 rounded-2xl border border-[#f0dcc0] bg-white text-sm font-medium text-[var(--deep)] transition hover:border-[var(--accent)]", compact ? "h-12 min-w-[270px] px-4" : "px-4 py-3")} type="button"><span className="flex items-center gap-2"><CalendarDays size={17} className="text-[var(--accent)]" /><span className="truncate">{label}</span></span><ChevronDown size={15} className="text-[var(--muted)]" /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content align="end" className="z-50 w-[min(360px,calc(100vw-24px))] rounded-3xl border border-[var(--panel-border)] bg-white p-3 shadow-[0_22px_55px_rgba(60,42,12,0.16)]"><p className="px-2 pb-2 text-sm font-bold text-[var(--deep)]">Dashboard period</p><div className="grid grid-cols-2 gap-2">{options.map(([value, optionLabel]) => <button className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", preset === value ? "border-orange-400 bg-orange-50 text-orange-600" : "border-[var(--panel-border)] hover:bg-orange-50/60")} key={value} onClick={() => onPresetChange(value)} type="button">{optionLabel}</button>)}</div><div className="my-3 h-px bg-[var(--panel-border)]" /><p className="px-1 text-xs font-semibold text-[var(--muted)]">Custom multi-month range</p><div className="mt-2 grid grid-cols-2 gap-2" onPointerDown={(event) => event.stopPropagation()}><label className="text-[11px] font-semibold text-[var(--muted)]">From month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={fromMonth} onChange={(event) => { onFromMonthChange(event.target.value); onPresetChange("custom"); }} /></label><label className="text-[11px] font-semibold text-[var(--muted)]">To month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={toMonth} onChange={(event) => { onToMonthChange(event.target.value); onPresetChange("custom"); }} /></label></div><p className="mt-2 px-1 text-[11px] text-[var(--muted)]">The dashboard refreshes automatically for the selected period.</p></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
+}
+
+function CompactChartEmptyState({ message }: { message: string }) {
+  return <div className="grid h-[190px] place-items-center rounded-2xl border border-dashed border-[#ead9bd] bg-[#fffdf8] px-4 text-center text-sm text-[var(--muted)]">{message}</div>;
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
@@ -5976,9 +6237,9 @@ function LiveStatusPanel({
           View All
         </ActionButton>
       </div>
-      <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {items.map((item) => (
-          <div key={item.label} className="flex items-center justify-between gap-3 rounded-2xl border border-[#f2e4cd] bg-[#fffdf8] px-4 py-3">
+          <div key={item.label} className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-[#f2e4cd] bg-[#fffdf8] px-3 py-2.5">
             <div className="flex items-center gap-3 text-sm font-medium text-[var(--foreground)]">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
@@ -6233,28 +6494,6 @@ function SummaryList({
   );
 }
 
-function AlertItem({
-  icon: Icon,
-  title,
-  value
-}: {
-  icon: React.ComponentType<{ size?: number }>;
-  title: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-3 text-sm">
-      <span className="rounded-xl bg-[var(--accent-soft)] p-2 text-[var(--accent)]">
-        <Icon size={16} />
-      </span>
-      <div>
-        <p className="font-medium">{title}</p>
-        <p className="text-[var(--muted)]">{value}</p>
-      </div>
-    </div>
-  );
-}
-
 function SegmentedControl<T extends string>({
   label,
   onChange,
@@ -6473,6 +6712,9 @@ function StatusBadge({ value }: { value?: string | null }) {
   const lower = normalized.toLowerCase();
   let tone: "teal" | "amber" | "rose" | "sky" | "slate" | "emerald" | "violet" | "cyan" = "slate";
   if (["scheduled", "upcoming", "locked"].includes(lower)) tone = "amber";
+  else if (["accepted", "submitted"].includes(lower)) tone = "emerald";
+  else if (["offered_to_stitching_tailor", "pool"].includes(lower)) tone = "amber";
+  else if (["expired"].includes(lower)) tone = "rose";
   else if (lower === "active") tone = "emerald";
   else if (lower === "completed") tone = "slate";
   else if (lower === "cancelled") tone = "rose";
@@ -6879,54 +7121,51 @@ function OrderDetailDialog({
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [focusSection, open, order?.id]);
 
+  const linkedDeliveryRequests = order ? deliveryRequests.filter((request) => request.orderId === order.id) : [];
+  const trackingEvents = order ? buildOrderTrackingEvents(order, linkedDeliveryRequests) : [];
+
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed right-4 top-4 bottom-4 z-50 w-[min(96vw,650px)] overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed bottom-3 right-3 top-3 z-50 w-[min(96vw,980px)] overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[#fffdfa] shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
           {order ? (
             <>
-              <Dialog.Title className="text-2xl font-semibold">{getOrderDisplayNumber(order)}</Dialog.Title>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Internal trace: {order.darjiId ?? order.id}</p>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">
-                Order timeline, assignment details, pricing, notes, and activity in one drawer.
-              </Dialog.Description>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <ActionButton variant="secondary" onClick={onAssign}>
-                  <PencilLine className="h-4 w-4" />
-                  Edit
-                </ActionButton>
-                <ActionButton variant="secondary" onClick={onPrintInvoice}>
-                  <Printer className="h-4 w-4" />
-                  Print Invoice
-                </ActionButton>
-              </div>
-              <div className="mt-6 space-y-5">
-                <div ref={overviewRef}>
-                  <InspectGrid
-                    items={[
-                      { label: "Customer", value: `${getCustomerDisplayName(order.customer)} / ${order.customer?.phone ?? "No phone"}` },
-                      { label: "Status", value: <StatusBadge value={order.status} /> },
-                      {
-                        label: "Payment",
-                        value: (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span>{formatStatus(order.paymentMethod)}</span>
-                            <StatusBadge value={order.paymentStatus} />
-                          </div>
-                        )
-                      },
-                      { label: "Order total", value: formatCurrency(order.totalAmount) },
-                      { label: "Tailor", value: order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned" },
-                      { label: "Pickup partner", value: order.pickupPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.pickupPartner)} <DeliveryRoleBadge partner={order.pickupPartner} /></span> : "Unassigned" },
-                      { label: "Delivery partner", value: order.deliveryPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(order.deliveryPartner)} <DeliveryRoleBadge partner={order.deliveryPartner} /></span> : "Unassigned" },
-                      { label: "Pickup scheduled", value: formatDate(order.pickupScheduledAt, true) }
-                    ]}
-                  />
+              <div className="sticky top-0 z-20 border-b border-[#efe1ca] bg-[#fffdfa]/95 px-5 py-4 backdrop-blur-xl">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3"><Dialog.Title className="text-xl font-bold text-[var(--deep)]">{getOrderDisplayNumber(order)}</Dialog.Title><StatusBadge value={order.status} /></div>
+                    <Dialog.Description className="mt-2 text-xs font-medium text-[var(--muted)]">Internal trace: {order.darjiId ?? order.id}</Dialog.Description>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pr-11">
+                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onAssign}><PencilLine className="h-4 w-4" />Edit</ActionButton>
+                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onPrintInvoice}><Printer className="h-4 w-4" />Print Invoice</ActionButton>
+                  </div>
                 </div>
+                <Dialog.Close asChild><button aria-label="Close order details" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#efd9b5] bg-white text-[var(--deep)] transition hover:bg-orange-50" type="button"><X size={18} /></button></Dialog.Close>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <OrderDrawerSummary icon={UserCircle2} label="Customer" value={getCustomerDisplayName(order.customer)} detail={order.customer?.phone ?? "No phone"} />
+                  <OrderDrawerSummary icon={CalendarDays} label="Order Date & Time" value={formatDate(order.createdAt)} detail={order.createdAt ? new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"} />
+                  <OrderDrawerSummary icon={CreditCard} label="Payment" value={formatStatus(order.paymentMethod)} detail={formatStatus(order.paymentStatus)} />
+                  <OrderDrawerSummary icon={ReceiptIndianRupee} label="Order Total" value={formatCurrency(order.totalAmount)} detail="Customer total" />
+                </div>
+              </div>
+              <div className="space-y-4 p-5">
+                <div className="grid gap-4 lg:grid-cols-2" ref={overviewRef}>
+                  <Panel className="rounded-2xl p-4">
+                    <h4 className="text-sm font-bold text-[var(--deep)]">Order Details</h4>
+                    <div className="mt-4 grid gap-3 text-xs">
+                      <OrderDetailRow label="Category" value={order.items?.[0]?.service?.category?.name ?? "General"} />
+                      <OrderDetailRow label="Tailor" value={order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned"} />
+                      <OrderDetailRow label="Pickup Partner" value={order.pickupPartner ? getPartnerDisplayName(order.pickupPartner) : "Unassigned"} />
+                      <OrderDetailRow label="Delivery Partner" value={order.deliveryPartner ? getPartnerDisplayName(order.deliveryPartner) : "Unassigned"} />
+                      <OrderDetailRow label="Pickup Scheduled" value={formatDate(order.pickupScheduledAt, true)} />
+                      <OrderDetailRow label="Tracking Tasks" value={`${linkedDeliveryRequests.length} linked`} />
+                    </div>
+                  </Panel>
 
-                <Panel>
-                  <h4 className="text-lg font-semibold">Order items</h4>
+                <Panel className="rounded-2xl p-4">
+                  <h4 className="text-sm font-bold text-[var(--deep)]">Order Items</h4>
                   <div className="mt-4 space-y-3">
                     {(order.items ?? []).map((item, index) => (
                       <div key={`${item.serviceId}-${index}`} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
@@ -6944,7 +7183,9 @@ function OrderDetailDialog({
                       </div>
                     ))}
                   </div>
+                  <div className="mt-4 space-y-2 border-t border-[#efe3d0] pt-3 text-xs"><div className="flex justify-between text-[var(--muted)]"><span>Subtotal</span><span>{formatCurrency(order.subtotal ?? order.totalAmount)}</span></div><div className="flex justify-between text-[var(--muted)]"><span>Discount</span><span>-{formatCurrency(order.discount ?? 0)}</span></div><div className="flex justify-between border-t border-[#efe3d0] pt-2 font-bold text-[var(--deep)]"><span>Order Total</span><span>{formatCurrency(order.totalAmount)}</span></div></div>
                 </Panel>
+                </div>
 
                 {order.instructions ? (
                   <Panel ref={instructionsRef}>
@@ -6953,7 +7194,8 @@ function OrderDetailDialog({
                   </Panel>
                 ) : null}
 
-                <Panel ref={invoiceRef}>
+                <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
+                <Panel className="rounded-2xl p-4" ref={invoiceRef}>
                   <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
                     <div>
                       <h4 className="text-lg font-semibold">Admin priority</h4>
@@ -7018,50 +7260,28 @@ function OrderDetailDialog({
                   </div>
                 </Panel>
 
-                <Panel className="sticky bottom-0 border border-[var(--panel-border)] bg-[var(--panel-strong)]/95 backdrop-blur">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <Panel className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-strong)]/95 p-4 backdrop-blur">
+                  <div className="flex h-full flex-col gap-4">
                     <div>
                       <h4 className="text-lg font-semibold">Admin actions</h4>
                       <p className="mt-1 text-sm text-[var(--muted)]">Use current backend endpoints for reassignment or status change.</p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <ActionButton variant="secondary" onClick={onAssign}>
-                        Reassign
-                      </ActionButton>
-                      <select className="h-12 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>
+                    <div className="mt-auto grid gap-2">
+                      <ActionButton className="justify-start" variant="secondary" onClick={onAssign}><UserRoundPlus size={15} />Manage assignments</ActionButton>
+                      <select className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>
                         {orderStatuses.map((status) => (
                           <option key={status} value={status}>
                             {formatStatus(status)}
                           </option>
                         ))}
                       </select>
-                      <ActionButton onClick={() => onStatusChange(nextStatus)}>Update status</ActionButton>
+                      <ActionButton className="w-full justify-center bg-gradient-to-r from-[#ffad16] to-[#ff8500] text-white" onClick={() => onStatusChange(nextStatus)}>Update status</ActionButton>
                     </div>
                   </div>
                 </Panel>
+                </div>
 
-                {order.timelineEvents && order.timelineEvents.length > 0 ? (
-                  <Panel ref={timelineRef}>
-                    <h4 className="text-lg font-semibold">Order timeline</h4>
-                    <div className="mt-4 space-y-4">
-                      {order.timelineEvents.map((event, index) => (
-                        <div key={index} className="flex gap-4">
-                          <div className="flex flex-col items-center">
-                            <div className="h-2 w-2 rounded-full bg-[var(--accent)]" />
-                            {index !== order.timelineEvents!.length - 1 ? (
-                              <div className="h-full w-0.5 bg-[var(--panel-border)] mt-1" />
-                            ) : null}
-                          </div>
-                          <div className="pb-4 text-sm">
-                            <p className="font-semibold text-[var(--deep)]">{formatStatus(event.status)}</p>
-                            <p className="text-[var(--muted)]">{event.description}</p>
-                            <p className="mt-1 text-xs text-[#a39887]">{formatDate(event.timestamp, true)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Panel>
-                ) : null}
+                <OrderTrackingPanel events={trackingEvents} order={order} ref={timelineRef} />
 
                 {/* Categorized Order Photo Proofs */}
                 <Panel ref={mediaRef} className="space-y-4">
@@ -7233,6 +7453,40 @@ function OrderDetailDialog({
     </Dialog.Root>
   );
 }
+
+function OrderDrawerSummary({ detail, icon: Icon, label, value }: { detail: string; icon: ComponentType<{ size?: number }>; label: string; value: string }) {
+  return <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#f3e8d7] bg-white px-3 py-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-50 text-orange-500"><Icon size={16} /></span><div className="min-w-0"><p className="text-[10px] font-semibold text-[var(--muted)]">{label}</p><p className="mt-0.5 truncate text-sm font-bold text-[var(--deep)]">{value}</p><p className="truncate text-[11px] text-[var(--muted)]">{detail}</p></div></div>;
+}
+
+function OrderDetailRow({ label, value }: { label: string; value: string }) {
+  return <div className="grid grid-cols-[120px_1fr] items-start gap-3"><span className="text-[var(--muted)]">{label}</span><span className="font-semibold text-[var(--deep)]">{value}</span></div>;
+}
+
+type OrderTrackingEvent = { id: string; label: string; detail: string; timestamp?: string; tone: "done" | "issue" | "active" };
+
+function buildOrderTrackingEvents(order: Order, deliveryRequests: any[]): OrderTrackingEvent[] {
+  const events: OrderTrackingEvent[] = [];
+  if (order.createdAt) events.push({ id: "order-created", label: "Order created", detail: "Customer order entered the Darji workflow.", timestamp: order.createdAt, tone: "done" });
+  (order.timelineEvents ?? []).forEach((event, index) => events.push({ id: `timeline-${index}-${event.timestamp}`, label: formatStatus(event.status), detail: event.description ?? "Order status updated.", timestamp: event.timestamp, tone: ["CANCELLED", "FAILED"].includes(String(event.status).toUpperCase()) ? "issue" : "done" }));
+  deliveryRequests.forEach((request, requestIndex) => {
+    const prefix = request.type === "customer_to_tailor" ? "Pickup" : "Delivery";
+    if (request.createdAt) events.push({ id: `task-${requestIndex}-created`, label: `${prefix} task created`, detail: request.taskId ?? "Delivery task scheduled.", timestamp: request.createdAt, tone: "done" });
+    if (request.acceptedAt) events.push({ id: `task-${requestIndex}-accepted`, label: `${prefix} accepted`, detail: "Delivery partner accepted the task.", timestamp: request.acceptedAt, tone: "done" });
+    if (request.pickedUpAt) events.push({ id: `task-${requestIndex}-picked`, label: prefix === "Pickup" ? "Collected from customer" : "Collected from tailor", detail: `Tracking status: ${formatStatus(request.taskStatus)}`, timestamp: request.pickedUpAt, tone: "done" });
+    if (request.lastFailureAt) events.push({ id: `task-${requestIndex}-failure`, label: `${prefix} exception`, detail: request.lastFailureReason ?? "Delivery attempt requires attention.", timestamp: request.lastFailureAt, tone: "issue" });
+    if (request.deliveredAt) events.push({ id: `task-${requestIndex}-delivered`, label: prefix === "Pickup" ? "Received by tailor" : "Delivered to customer", detail: `${request.taskId ?? "Task"} completed successfully.`, timestamp: request.deliveredAt, tone: "done" });
+  });
+  return events.sort((left, right) => new Date(left.timestamp ?? 0).getTime() - new Date(right.timestamp ?? 0).getTime());
+}
+
+const OrderTrackingPanel = forwardRef<HTMLDivElement, { events: OrderTrackingEvent[]; order: Order }>(({ events, order }, ref) => {
+  const stages = ["Order Placed", "Pickup", "At Tailor", "Ready", "Out for Delivery", "Delivered"];
+  const status = String(order.status).toUpperCase();
+  const stageIndex = status === "DELIVERED" || status === "COMPLETED" ? 5 : status.includes("OUT_FOR_DELIVERY") ? 4 : status === "READY" ? 3 : ["AT_TAILOR", "STITCHING_STARTED", "WORKING"].includes(status) ? 2 : status.includes("PICKUP") || status === "CLOTH_PICKED" ? 1 : 0;
+  const cancelled = ["CANCELLED", "FAILED"].includes(status);
+  return <Panel className="rounded-2xl p-4" ref={ref}><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-sm font-bold text-[var(--deep)]">Order Tracking</h4><p className="mt-1 text-xs text-[var(--muted)]">Live workflow milestones and delivery-task activity.</p></div><StatusBadge value={order.status} /></div><div className="mt-5 overflow-x-auto pb-2"><div className="flex min-w-[680px] items-start">{stages.map((stage, index) => { const reached = !cancelled && index <= stageIndex; return <div className="relative flex flex-1 flex-col items-center text-center" key={stage}>{index > 0 ? <span className={cn("absolute right-1/2 top-3 h-0.5 w-full", reached ? "bg-orange-400" : "bg-slate-200")} /> : null}<span className={cn("relative z-10 grid h-7 w-7 place-items-center rounded-full border-2 text-[10px] font-bold", reached ? "border-orange-400 bg-orange-500 text-white" : "border-slate-200 bg-white text-slate-400")}>{reached ? <CheckCircle2 size={14} /> : index + 1}</span><span className={cn("mt-2 text-[11px] font-semibold", reached ? "text-[var(--deep)]" : "text-[var(--muted)]")}>{stage}</span></div>; })}</div></div><div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-[#efe3d0] bg-white px-4">{events.length ? events.map((event, index) => <div className="flex gap-3 border-b border-[#f2e8d9] py-3 last:border-b-0" key={event.id}><span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", event.tone === "issue" ? "bg-rose-500" : index === events.length - 1 ? "bg-orange-500" : "bg-emerald-500")} /><div className="min-w-0 flex-1"><div className="flex flex-wrap justify-between gap-2"><p className="text-xs font-bold text-[var(--deep)]">{event.label}</p><p className="text-[10px] text-[var(--muted)]">{formatDate(event.timestamp, true)}</p></div><p className="mt-1 text-[11px] text-[var(--muted)]">{event.detail}</p></div></div>) : <p className="py-8 text-center text-xs text-[var(--muted)]">Tracking events will appear as the order moves through the workflow.</p>}</div></Panel>;
+});
+OrderTrackingPanel.displayName = "OrderTrackingPanel";
 
 function TailoringRequestDialog({
   open,
@@ -8721,12 +8975,12 @@ function getOrderColumns({
       accessorKey: "orderNumber",
       header: "Order",
       cell: ({ row }) => (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
             <p className="font-semibold text-[var(--foreground)]">{getOrderDisplayNumber(row.original)}</p>
-            <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
+            {(priorities[row.original.id] ?? "Normal") !== "Normal" ? <PriorityBadge value={priorities[row.original.id]} /> : null}
           </div>
-          <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.darjiId ?? row.original.id}</p>
           {(() => {
             const batch = findBatchForOrder(row.original, batches);
             if (!batch) return null;
@@ -8735,7 +8989,7 @@ function getOrderColumns({
             return (
               <button
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                  "inline-flex max-w-40 items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold transition",
                   isHidden
                     ? "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200"
                     : "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--deep)] hover:bg-[var(--accent)] hover:text-black"
@@ -8743,7 +8997,7 @@ function getOrderColumns({
                 type="button"
                 onClick={() => onOpenBatch({ batchId: batch.batchId, roundAt: batch.roundAt })}
               >
-                <span>{isHidden ? "Hidden batch" : "Batch"} BATCH-{batch.batchId.slice(0, 8).toUpperCase()}</span>
+                <span className="truncate">{isHidden ? "Hidden" : "Batch"} {batch.batchId.slice(0, 8).toUpperCase()}</span>
               </button>
             );
           })()}
@@ -8755,9 +9009,12 @@ function getOrderColumns({
       header: "Customer",
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
-        <div className="space-y-1">
-          <p className="font-semibold text-[var(--foreground)]">{getCustomerDisplayName(row.original.customer)}</p>
-          <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#fff0dc] text-[10px] font-bold text-orange-600">{getInitials(row.original.customer?.name, "CU")}</span>
+          <div className="space-y-0.5">
+            <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getCustomerDisplayName(row.original.customer)}</p>
+            <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
+          </div>
         </div>
       )
     },
@@ -8765,7 +9022,7 @@ function getOrderColumns({
       id: "category",
       header: "Category",
       accessorFn: (row) => (row.items ?? []).map((item) => item.service?.category?.name ?? "General").join(", "),
-      cell: ({ row }) => <span className="font-medium text-[var(--foreground)]">{row.original.items?.[0]?.service?.category?.name ?? "General"}</span>
+      cell: ({ row }) => <span className="inline-flex items-center gap-2 whitespace-nowrap"><span className="grid h-8 w-8 place-items-center rounded-full bg-orange-50 text-orange-500"><Scissors size={14} /></span><span className="text-xs font-medium text-[var(--foreground)]">{row.original.items?.[0]?.service?.category?.name ?? "General"}</span></span>
     },
     {
       id: "tailor",
@@ -8775,9 +9032,12 @@ function getOrderColumns({
         const t = row.original.tailor;
         if (!t) return <span className="text-[var(--muted)]">Unassigned</span>;
         return (
-          <div className="space-y-1">
-            <p className="font-semibold text-[var(--foreground)]">{getTailorDisplayName(t)}</p>
-            <p className="text-xs text-[var(--muted)]">{t.user?.phone ?? t.darjiTailorId ?? "No phone"}</p>
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">{getInitials(t.user?.name ?? t.shopName, "TA")}</span>
+            <div className="space-y-0.5">
+              <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getTailorDisplayName(t)}</p>
+              <p className="text-xs text-[var(--muted)]">{t.user?.phone ?? t.darjiTailorId ?? "No phone"}</p>
+            </div>
           </div>
         );
       }
@@ -8788,12 +9048,14 @@ function getOrderColumns({
       accessorFn: (row) => row.deliveryPartner?.user?.name ?? row.deliveryPartner?.user?.phone ?? row.pickupPartner?.user?.name ?? "",
       cell: ({ row }) => {
         const dp = row.original.deliveryPartner || row.original.pickupPartner;
-        if (!dp) return <span className="text-[var(--muted)]">Unassigned</span>;
+        if (!dp) return <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs text-[var(--muted)]"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100"><UserCircle2 size={15} /></span>Unassigned</span>;
         return (
-          <div className="space-y-1">
-            <p className="font-semibold text-[var(--foreground)]">{getPartnerDisplayName(dp)}</p>
-            <p className="text-xs text-[var(--muted)]">{dp.user?.phone ?? dp.darjiPartnerId ?? "No phone"}</p>
-            <DeliveryRoleBadge partner={dp} />
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-sky-50 text-[10px] font-bold text-sky-700">{getInitials(dp.user?.name, "DP")}</span>
+            <div className="space-y-0.5">
+              <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getPartnerDisplayName(dp)}</p>
+              <p className="text-xs text-[var(--muted)]">{dp.user?.phone ?? dp.darjiPartnerId ?? "No phone"}</p>
+            </div>
           </div>
         );
       }
@@ -8814,32 +9076,29 @@ function getOrderColumns({
       cell: ({ row }) => <StatusBadge value={row.original.status} />
     },
     {
+      accessorKey: "createdAt",
+      header: "Order Date",
+      cell: ({ row }) => <span className="whitespace-nowrap text-xs leading-5 text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</span>
+    },
+    {
       id: "actions",
       header: "Actions",
       enableSorting: false,
       cell: ({ row }) => (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-nowrap items-center gap-1.5">
           <button
             aria-label="View order details"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
             onClick={() => onOpen(row.original, "overview")}
             type="button"
           >
             <Eye size={16} />
           </button>
-          <button
-            aria-label="Assign order"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
-            onClick={() => onAssign(row.original)}
-            type="button"
-          >
-            <UserRoundPlus size={16} />
-          </button>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <button
                 aria-label="More actions"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--panel-border)] bg-white text-[var(--deep)] transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
                 type="button"
               >
                 <MoreHorizontal size={16} />
@@ -9184,6 +9443,17 @@ function getPartnerColumns({
       header: "Current status",
       accessorFn: (row) => String(row.isAvailable),
       cell: ({ row }) => <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Online" : "Offline"}</Badge>
+    },
+    {
+      id: "lastLocation",
+      header: "Last phone GPS",
+      accessorFn: (row) => row.lastLocationUpdatedAt ?? "",
+      cell: ({ row }) => {
+        const coordinates = row.original.currentLocation?.coordinates;
+        if (!coordinates || coordinates.length < 2) return <div><Badge tone="rose">Not shared</Badge><p className="mt-1 max-w-[180px] text-xs text-[var(--muted)]">Partner must allow phone location and go online.</p></div>;
+        const [longitude, latitude] = coordinates;
+        return <div className="min-w-[180px]"><Badge tone={row.original.isAvailable ? "emerald" : "amber"}>{row.original.isAvailable ? "Live phone GPS" : "Last known GPS"}</Badge><p className="mt-1 font-mono text-xs">{Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}</p><p className="text-xs text-[var(--muted)]">Updated {formatDate(row.original.lastLocationUpdatedAt, true)}{row.original.lastLocationAccuracy != null ? ` · ±${Math.round(row.original.lastLocationAccuracy)}m` : ""}</p></div>;
+      }
     },
     {
       accessorKey: "weeklyEarnings",
@@ -9831,16 +10101,18 @@ function buildTodayOperationsSummary({
   deliveryBatches,
   deliveryRequests,
   partners,
+  periodScoped = false,
   tailoringRequests,
   tailors
 }: {
   deliveryBatches: DeliveryBatch[];
   deliveryRequests: DeliveryRequest[];
   partners: DeliveryPartnerProfile[];
+  periodScoped?: boolean;
   tailoringRequests: TailoringRequest[];
   tailors: TailorProfile[];
 }) {
-  const todayDeliveryRequests = deliveryRequests.filter((request) => isToday(request.createdAt) || isToday(request.deadlineAt) || isToday(request.etaWindowStart));
+  const todayDeliveryRequests = periodScoped ? deliveryRequests : deliveryRequests.filter((request) => isToday(request.createdAt) || isToday(request.deadlineAt) || isToday(request.etaWindowStart));
   const pickupTasks = todayDeliveryRequests.filter((request) => request.type === "customer_to_tailor");
   const dropTasks = todayDeliveryRequests.filter((request) => request.type === "tailor_to_customer");
   const completedTasks = todayDeliveryRequests.filter((request) => ["delivered", "completed", "DELIVERED"].includes(request.taskStatus));
@@ -9851,8 +10123,8 @@ function buildTodayOperationsSummary({
   const pendingDropBatches = deliveryBatches.filter((batch) => batch.deliveryType === "DROP" && !["completed", "cancelled"].includes(String(batch.status))).length;
 
   return [
-    { label: "Pickups today", value: pickupTasks.length.toLocaleString("en-IN"), tone: "amber" as const, target: "delivery" as SectionId },
-    { label: "Drops today", value: dropTasks.length.toLocaleString("en-IN"), tone: "sky" as const, target: "delivery" as SectionId },
+    { label: periodScoped ? "Pickups in period" : "Pickups today", value: pickupTasks.length.toLocaleString("en-IN"), tone: "amber" as const, target: "delivery" as SectionId },
+    { label: periodScoped ? "Drops in period" : "Drops today", value: dropTasks.length.toLocaleString("en-IN"), tone: "sky" as const, target: "delivery" as SectionId },
     { label: "Completed tasks", value: completedTasks.length.toLocaleString("en-IN"), tone: "emerald" as const, target: "delivery" as SectionId },
     { label: "In stitching", value: stitchingNow.toLocaleString("en-IN"), tone: "violet" as const, target: "tailoring" as SectionId },
     { label: "Ready orders", value: readyNow.toLocaleString("en-IN"), tone: "emerald" as const, target: "tailoring" as SectionId },
@@ -9949,8 +10221,8 @@ function getPaymentBreakdown(payment: Payment, tailoringCosts: Map<string, numbe
   };
 }
 
-function buildRevenueSeries(payments: Payment[], range: TrendRange, breakdowns: Map<string, PaymentBreakdown>): RevenuePoint[] {
-  const slots = buildSlots(range);
+function buildRevenueSeries(payments: Payment[], range: TrendRange, breakdowns: Map<string, PaymentBreakdown>, customSlots?: Array<{ key: string; label: string }>): RevenuePoint[] {
+  const slots = customSlots ?? buildSlots(range);
   const totals = new Map(slots.map((slot) => [slot.key, 0]));
   payments
     .filter((payment) => payment.status === "PAID" && payment.createdAt)
@@ -9963,8 +10235,8 @@ function buildRevenueSeries(payments: Payment[], range: TrendRange, breakdowns: 
   return slots.map((slot) => ({ label: slot.label, revenue: totals.get(slot.key) ?? 0 }));
 }
 
-function buildOrderTrendSeries(orders: Order[], range: TrendRange): OrderTrendPoint[] {
-  const slots = buildSlots(range);
+function buildOrderTrendSeries(orders: Order[], range: TrendRange, customSlots?: Array<{ key: string; label: string }>): OrderTrendPoint[] {
+  const slots = customSlots ?? buildSlots(range);
   const totals = new Map(slots.map((slot) => [slot.key, { completed: 0, cancelled: 0, pending: 0 }]));
   orders.forEach((order) => {
     if (!order.createdAt) return;
@@ -10002,8 +10274,8 @@ function buildWeekdayOrderSeries(orders: Order[]): OrderTrendPoint[] {
   });
 }
 
-function buildGrowthSeries(orders: Order[], tailors: TailorProfile[], partners: DeliveryPartnerProfile[], range: TrendRange): GrowthPoint[] {
-  const slots = buildSlots(range);
+function buildGrowthSeries(orders: Order[], tailors: TailorProfile[], partners: DeliveryPartnerProfile[], range: TrendRange, customSlots?: Array<{ key: string; label: string }>): GrowthPoint[] {
+  const slots = customSlots ?? buildSlots(range);
   const series = new Map(slots.map((slot) => [slot.key, { customers: 0, tailors: 0, partners: 0 }]));
   const firstOrderByCustomer = new Map<string, string>();
   orders.forEach((order) => {
@@ -10042,6 +10314,13 @@ function buildServiceMix(orders: Order[]): PiePoint[] {
     });
   });
   return Array.from(totals.entries()).map(([name, value]) => ({ name, value }));
+}
+
+function buildCategoryChartData(items: PiePoint[], visibleCategories: number) {
+  const sorted = [...items].sort((left, right) => right.value - left.value);
+  const visible = sorted.slice(0, visibleCategories);
+  const otherValue = sorted.slice(visibleCategories).reduce((sum, item) => sum + item.value, 0);
+  return otherValue > 0 ? [...visible, { name: "Other", value: otherValue }] : visible;
 }
 
 function buildSlots(range: TrendRange) {
@@ -10333,6 +10612,71 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+type DashboardPeriodBounds = { start: Date | null; endExclusive: Date | null };
+
+function monthInputValue(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthStart(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  return Number.isFinite(year) && Number.isFinite(month) ? new Date(year, month - 1, 1) : null;
+}
+
+function getDashboardPeriodBounds(preset: DashboardPeriodPreset, fromMonth: string, toMonth: string): DashboardPeriodBounds {
+  if (preset === "lifetime") return { start: null, endExclusive: null };
+  const now = new Date();
+  const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  if (preset === "custom") {
+    const from = monthStart(fromMonth);
+    const to = monthStart(toMonth);
+    if (!from || !to) return { start: null, endExclusive: null };
+    const start = from <= to ? from : to;
+    const lastMonth = from <= to ? to : from;
+    return { start, endExclusive: new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1) };
+  }
+  const months = preset === "this_month" ? 1 : preset === "last_3_months" ? 3 : preset === "last_12_months" ? 12 : 6;
+  return {
+    start: new Date(currentMonth.getFullYear(), currentMonth.getMonth() - (months - 1), 1),
+    endExclusive: new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
+  };
+}
+
+function isDateInDashboardPeriod(value: string | Date | null | undefined, bounds: DashboardPeriodBounds) {
+  if (!bounds.start && !bounds.endExclusive) return true;
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return (!bounds.start || date >= bounds.start) && (!bounds.endExclusive || date < bounds.endExclusive);
+}
+
+function buildDashboardPeriodLabel(preset: DashboardPeriodPreset, bounds: DashboardPeriodBounds) {
+  if (preset === "lifetime") return "Lifetime";
+  if (!bounds.start || !bounds.endExclusive) return "Select months";
+  const end = new Date(bounds.endExclusive);
+  end.setDate(0);
+  const format = new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" });
+  if (bounds.start.getFullYear() === end.getFullYear() && bounds.start.getMonth() === end.getMonth()) return format.format(bounds.start);
+  return `${format.format(bounds.start)} - ${format.format(end)}`;
+}
+
+function buildDashboardMonthSlots(bounds: DashboardPeriodBounds, values: Array<string | Date | null | undefined>) {
+  const validDates = values.map((value) => value ? new Date(value) : null).filter((date): date is Date => Boolean(date && !Number.isNaN(date.getTime())));
+  const now = new Date();
+  const earliest = validDates.length ? new Date(Math.min(...validDates.map((date) => date.getTime()))) : now;
+  const start = bounds.start ?? new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+  const endExclusive = bounds.endExclusive ?? new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const monthCount = Math.max(1, (endExclusive.getFullYear() - start.getFullYear()) * 12 + endExclusive.getMonth() - start.getMonth());
+  const includeYear = monthCount > 12 || start.getFullYear() !== now.getFullYear();
+  return Array.from({ length: monthCount }, (_, index) => {
+    const date = new Date(start.getFullYear(), start.getMonth() + index, 1);
+    return {
+      key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+      label: new Intl.DateTimeFormat("en-IN", includeYear ? { month: "short", year: "2-digit" } : { month: "short" }).format(date)
+    };
+  });
 }
 
 function downloadExcel(filename: string, title: string, rows: Array<Record<string, unknown>>) {

@@ -55,6 +55,12 @@
       "@react-native-firebase/messaging",
       "@react-native-community/datetimepicker",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Darji Delivery uses your precise phone location for dispatch, route navigation, live rider tracking, and your last known safety location."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Darji accesses only the verification photos you choose. Your information is safe with us.",

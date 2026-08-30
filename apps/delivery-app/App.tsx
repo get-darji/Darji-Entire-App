@@ -3167,6 +3167,8 @@ function MainApp({
   const [notificationCenterItems, setNotificationCenterItems] = useState<DeliveryNotification[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number }>();
+  const [locationAccess, setLocationAccess] = useState<"checking" | "granted" | "denied" | "services_off">("checking");
+  const [locationCanAskAgain, setLocationCanAskAgain] = useState(true);
   const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const presentedRequestIdsRef = useRef<Set<string>>(new Set());
@@ -3174,6 +3176,39 @@ function MainApp({
   const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
 
   useEffect(() => registerIncomingRequestMessaging(), []);
+
+  const verifyAndSyncPhoneLocation = useCallback(async () => {
+    if (!token) return;
+    setLocationAccess("checking");
+    try {
+      if (!(await Location.hasServicesEnabledAsync())) {
+        setLocationAccess("services_off");
+        return;
+      }
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
+      setLocationCanAskAgain(permission.canAskAgain);
+      if (!permission.granted) {
+        setLocationAccess("denied");
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { latitude, longitude, accuracy, heading, speed } = position.coords;
+      setCurrentLocation({ latitude, longitude });
+      await api("/delivery-partners/me/location", { method: "PATCH", body: JSON.stringify({ latitude, longitude, accuracy, heading, speed }) }, token);
+      setLocationAccess("granted");
+    } catch {
+      setLocationAccess("services_off");
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void verifyAndSyncPhoneLocation();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void verifyAndSyncPhoneLocation();
+    });
+    return () => subscription.remove();
+  }, [verifyAndSyncPhoneLocation]);
 
   const filteredRequests = useMemo(() => {
     const visibleRequests = requests.filter((request) => {
@@ -3651,15 +3686,28 @@ function MainApp({
   }, [activeOrder?.id, activeOrderScreen]);
 
   async function toggleOnline(value: boolean) {
-    setOnline(value);
     if (!token) return;
     try {
       if (value) {
-        await Location.requestForegroundPermissionsAsync();
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) return;
+      } else {
+        // Save one final real GPS fix before stopping the online heartbeat. If
+        // the phone cannot provide it, the previously persisted fix remains.
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (permission.granted) {
+          const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          const { latitude, longitude, accuracy, heading, speed } = position.coords;
+          await api("/delivery-partners/me/location", {
+            method: "PATCH",
+            body: JSON.stringify({ latitude, longitude, accuracy, heading, speed })
+          }, token);
+        }
       }
       await api("/delivery-partners/me/availability", { method: "PATCH", body: JSON.stringify({ isAvailable: value }) }, token);
+      setOnline(value);
     } catch {
-      // Keep the UI responsive; backend availability will sync on the next attempt.
+      // Do not display an online/offline state that the backend did not save.
     }
   }
 
@@ -3808,6 +3856,10 @@ function MainApp({
   }, [requests, token]);
 
   const selectedBatch = useMemo(() => batches.find((b) => b.batchId === activeBatchId), [batches, activeBatchId]);
+
+  if (locationAccess !== "granted") {
+    return <Screen><View style={styles.centeredState}><Ionicons color={BRAND_ORANGE} name="location-outline" size={54} /><Text style={styles.centeredTitle}>{locationAccess === "checking" ? "Checking phone location" : locationAccess === "services_off" ? "Turn on device location" : "Location access required"}</Text><Text style={styles.centeredCopy}>{locationAccess === "checking" ? "Darji is verifying GPS access and securely updating your position." : "Delivery partners must share real phone GPS while using the app so dispatch can locate active riders and retain the last known position for safety."}</Text>{locationAccess !== "checking" ? <PrimaryButton icon="navigate-outline" label={locationAccess === "denied" && !locationCanAskAgain ? "Open App Settings" : "Allow Location Access"} onPress={() => { if (locationAccess === "denied" && !locationCanAskAgain) void Linking.openSettings(); else void verifyAndSyncPhoneLocation(); }} /> : <ActivityIndicator color={BRAND_ORANGE} size="large" />}</View></Screen>;
+  }
 
   if (activeOrder) {
     return (
