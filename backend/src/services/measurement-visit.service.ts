@@ -197,14 +197,17 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
 }
 
 export async function assignMeasurementVisit(visitId: string, tailorId: string, actorId?: string) {
-  const tailor = await TailorModel.findById(tailorId).select("userId verificationStatus");
+  const tailor = await TailorModel.findOne({
+    $or: [{ _id: tailorId }, { userId: tailorId }, { darjiTailorId: tailorId }]
+  }).select("userId verificationStatus darjiTailorId");
   if (!tailor) throw new Error("Tailor profile not found");
+  const canonicalTailorId = tailor.id;
   const visit = await MeasurementVisitModel.findOneAndUpdate(
     { _id: visitId, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL", "ACCEPTED", "IN_PROGRESS"] } },
     {
       $set: {
-        assignedTailorId: tailorId,
-        offeredTailorId: tailorId,
+        assignedTailorId: canonicalTailorId,
+        offeredTailorId: canonicalTailorId,
         status: "ACCEPTED",
         acceptedAt: new Date()
       }
@@ -216,15 +219,22 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
   if (tailor.userId) {
     await sendPushToUsers([tailor.userId], {
       title: "Measurement visit assigned",
-      body: `${visit.customerName ?? "Customer"} visit is assigned to you.`,
-      data: { type: "MEASUREMENT_VISIT_ASSIGNED", visitId: visit.id, requestId: visit.requestId, screen: "measurementVisits" },
+      body: `${visit.customerName ?? "Customer"} visit is assigned to you for ${visit.preferredMeasurementSlot || "the selected time slot"}.`,
+      data: {
+        type: "MEASUREMENT_VISIT_ASSIGNED",
+        visitId: visit.id,
+        requestId: visit.requestId,
+        preferredMeasurementSlot: visit.preferredMeasurementSlot ?? "",
+        slot: visit.preferredMeasurementSlot ?? "",
+        screen: "measurementVisits"
+      },
       channelId: "tailor-pickup-updates-v2",
       categoryId: "DARJI_ORDER",
       sound: "ding.mp3",
       targetApps: ["tailor"]
     });
   }
-  emitToTailor(tailorId, "measurement:visit_assigned", { visit: visit.toJSON() });
+  emitToTailor(canonicalTailorId, "measurement:visit_assigned", { visit: visit.toJSON() });
   emitToAdmins("measurement:visit_assigned", { visit: visit.toJSON() });
   return visit;
 }

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
@@ -115,6 +116,7 @@ type TailorSettings = {
 };
 type TailorProfile = {
   id: string;
+  darjiTailorId?: string;
   shopName: string;
   specialization: string[];
   rating: number;
@@ -176,6 +178,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const profile = me?.tailorProfile;
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showIdentityDetails, setShowIdentityDetails] = useState(false);
   const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const settingsFromServer = useMemo(() => profile?.settings ?? {}, [profile?.settings]);
   const activeOrders = orders.filter((order) => !["READY", "DELIVERED", "CANCELLED"].includes(order.status)).length;
@@ -479,8 +482,17 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             </View>
           ) : null}
         </View>
-        <View style={styles.headerMain}>
-          <Text style={styles.title}>{shopName}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View tailor profile details"
+          style={styles.headerMain}
+          onPress={() => setShowIdentityDetails(true)}
+        >
+          <View style={styles.profileNameRow}>
+            <Text style={[styles.title, styles.profileNameText]} numberOfLines={1}>{shopName}</Text>
+            <Ionicons name="chevron-forward" size={18} color={BRAND_ORANGE} />
+          </View>
+          <Text style={styles.profileTapHint}>Tap to view partner details</Text>
           <ProfileMetaRow icon={avatarLocked ? "shield-checkmark-outline" : "person-outline"} text={avatarLocked ? `${name || "Tailor Partner"} - Verification photo locked` : name || "Tailor Partner"} color={avatarLocked ? "#2563eb" : MUTED} styles={styles} />
           <ProfileMetaRow icon="call-outline" text={`+91 ${me?.phone ?? "XXXXXXXXXX"}`} styles={styles} />
           <ProfileMetaRow icon="mail-outline" text={email.trim() || serverEmail || "Email not added"} muted={!(email.trim() || serverEmail)} styles={styles} />
@@ -488,8 +500,89 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             <Ionicons name="checkmark-circle-outline" size={14} color={SUCCESS} />
             <Text style={styles.completedText}>{completedOrders} completed orders</Text>
           </View>
-        </View>
+        </Pressable>
       </View>
+
+      <Modal transparent visible={showIdentityDetails} animationType="fade" onRequestClose={() => setShowIdentityDetails(false)}>
+        <Pressable style={styles.identityBackdrop} onPress={() => setShowIdentityDetails(false)}>
+          <Pressable style={styles.identityCardShell} onPress={(event) => event.stopPropagation()}>
+            <BlurView
+              intensity={58}
+              tint={general.darkMode ? "dark" : "light"}
+              experimentalBlurMethod="dimezisBlurView"
+              style={styles.identityCard}
+            >
+              <View pointerEvents="none" style={styles.identityGlowPrimary} />
+              <View pointerEvents="none" style={styles.identityGlowSecondary} />
+              <View style={styles.identityHeader}>
+                <View style={styles.identityHeaderIcon}>
+                  <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.identityTitle}>Darji profile</Text>
+                  <Text style={styles.identitySubtitle}>{profile?.verificationStatus === "VERIFIED" ? "Verified partner information" : "Registered partner information"}</Text>
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close tailor details" style={styles.identityClose} onPress={() => setShowIdentityDetails(false)}>
+                  <Ionicons name="close" size={20} color={palette.text} />
+                </Pressable>
+              </View>
+
+              <View style={styles.identityHero}>
+                <View style={styles.identityAvatarFrame}>
+                  <Image
+                    source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)}
+                    style={styles.identityAvatarImage}
+                  />
+                  {profile?.verificationStatus === "VERIFIED" ? (
+                    <View style={styles.identityVerifiedBadge}>
+                      <Ionicons name="checkmark" size={12} color="#ffffff" />
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.identityHeroCopy}>
+                  <Text style={styles.identityName} numberOfLines={2}>{name || me?.name || "Tailor Partner"}</Text>
+                  <Text style={styles.identityRole} numberOfLines={1}>{shopName || profile?.shopName || "Darji Tailor"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.identityEmailBand}>
+                <View style={styles.identityRowIcon}>
+                  <Ionicons name="mail-outline" size={17} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.identityLabel}>Email address</Text>
+                  <Text style={styles.identityEmailValue} selectable>{email.trim() || serverEmail || "Email not added"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.identityIdBand}>
+                <View style={styles.identityIdIcon}>
+                  <Ionicons name="id-card-outline" size={18} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.identityIdLabel}>DARJI TAILOR ID</Text>
+                  <Text style={styles.identityIdValue} selectable>{profile?.darjiTailorId || "ID pending"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.identityDetails}>
+                {[
+                  { icon: "storefront-outline" as const, label: "Shop name", value: shopName || profile?.shopName || "Darji Tailor" },
+                  { icon: "call-outline" as const, label: "Phone number", value: me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available" }
+                ].map((item) => (
+                  <View key={item.label} style={styles.identityRow}>
+                    <View style={styles.identityRowIcon}><Ionicons name={item.icon} size={17} color={BRAND_ORANGE} /></View>
+                    <View style={styles.rowMain}>
+                      <Text style={styles.identityLabel}>{item.label}</Text>
+                      <Text style={styles.identityValue} selectable>{item.value}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </BlurView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
         <InfoRow icon="create-outline" title="Edit Profile" value="Update name and shop details" styles={styles} onPress={() => setEditing(true)} noBorder />
@@ -2582,8 +2675,8 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   }
 };
 
-const lightPalette = { bg: SCREEN_BG, surface: SURFACE, surfaceAlt: "#fff9ee", text: BRAND_DEEP, muted: MUTED, border: BORDER };
-const darkPalette = { bg: "#050c18", surface: "#0a1322", surfaceAlt: "#0d1b30", text: "#ffffff", muted: "#8ca2c0", border: "#182a44" };
+const lightPalette = { bg: SCREEN_BG, surface: SURFACE, surfaceAlt: "#fff9ee", text: BRAND_DEEP, muted: MUTED, border: BORDER, glass: "rgba(255,255,255,0.72)", glassBorder: "rgba(255,255,255,0.92)", glassSurface: "rgba(255,255,255,0.54)", glassDivider: "rgba(11,34,65,0.11)" };
+const darkPalette = { bg: "#050c18", surface: "#0a1322", surfaceAlt: "#0d1b30", text: "#ffffff", muted: "#a8bad2", border: "#182a44", glass: "rgba(8,18,34,0.74)", glassBorder: "rgba(255,255,255,0.15)", glassSurface: "rgba(255,255,255,0.08)", glassDivider: "rgba(255,255,255,0.13)" };
 
 function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
@@ -2603,6 +2696,9 @@ function createStyles(palette: typeof lightPalette) {
     avatarOptionLabel: { color: palette.text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 8 },
     cameraBadge: { position: "absolute", right: -3, bottom: -3, width: 28, height: 28, borderRadius: 14, backgroundColor: BRAND_ORANGE, borderWidth: 2, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
     headerMain: { flex: 1, minWidth: 0 },
+    profileNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    profileNameText: { flexShrink: 1 },
+    profileTapHint: { color: BRAND_ORANGE, fontSize: 10, lineHeight: 14, fontWeight: "800", marginTop: 2, marginBottom: 2 },
     title: { color: palette.text, fontSize: 20, fontWeight: "900" },
     meta: { color: palette.muted, fontSize: 12, fontWeight: "700", marginTop: 4 },
     profileMetaRow: { marginTop: 5, flexDirection: "row", alignItems: "center", gap: 7 },
@@ -2741,6 +2837,34 @@ function createStyles(palette: typeof lightPalette) {
     bugScreenshotReplace: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: palette.surface },
     bugScreenshotReplaceText: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 16, fontWeight: "900" },
     bugDeviceCard: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 6, marginTop: 14, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.42)", justifyContent: "center", alignItems: "center", padding: 22 },
+    identityCardShell: { width: "100%", maxWidth: 370, borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
+    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.glass, borderWidth: 1, borderColor: palette.glassBorder, padding: 18 },
+    identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.20)" },
+    identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.11)" },
+    identityHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 18 },
+    identityHeaderIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityTitle: { color: palette.text, fontSize: 16, lineHeight: 21, fontWeight: "900" },
+    identitySubtitle: { color: palette.muted, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 1 },
+    identityClose: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityHero: { flexDirection: "row", alignItems: "center", gap: 15, paddingBottom: 17 },
+    identityAvatarFrame: { width: 86, height: 86, borderRadius: 26, padding: 3, backgroundColor: "rgba(255,255,255,0.58)", borderWidth: 1, borderColor: "rgba(255,255,255,0.82)" },
+    identityAvatarImage: { width: "100%", height: "100%", borderRadius: 22 },
+    identityVerifiedBadge: { position: "absolute", right: -3, bottom: -3, width: 25, height: 25, borderRadius: 13, backgroundColor: "#2563eb", borderWidth: 3, borderColor: palette.glassBorder, alignItems: "center", justifyContent: "center" },
+    identityHeroCopy: { flex: 1, minWidth: 0 },
+    identityName: { color: palette.text, fontSize: 21, lineHeight: 26, fontWeight: "900" },
+    identityRole: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 17, fontWeight: "900", marginTop: 2 },
+    identityEmailBand: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
+    identityEmailValue: { flexShrink: 1, color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "800", marginTop: 2 },
+    identityIdBand: { minHeight: 62, borderRadius: 14, backgroundColor: palette.glassSurface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 13, marginBottom: 6 },
+    identityIdIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "rgba(246,163,19,0.14)", alignItems: "center", justifyContent: "center" },
+    identityIdLabel: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 0.45 },
+    identityIdValue: { color: palette.text, fontSize: 15, lineHeight: 20, fontWeight: "900", marginTop: 1 },
+    identityDetails: { marginTop: 4 },
+    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
+    identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityLabel: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "800" },
+    identityValue: { color: palette.text, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 2 },
     dangerModalBackdrop: { flex: 1, backgroundColor: "rgba(7,13,24,0.52)", justifyContent: "center", alignItems: "center", padding: 24 },
     dangerModalCard: { width: "100%", maxWidth: 330, backgroundColor: "#ffffff", borderRadius: 18, padding: 22, shadowColor: "#0b2241", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
     dangerModalHeader: { alignItems: "center", marginBottom: 16 },

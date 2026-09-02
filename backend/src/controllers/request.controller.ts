@@ -924,20 +924,27 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
   }
   const measurementTailorId = cancelledVisit?.assignedTailorId ?? cancelledVisit?.offeredTailorId;
   if (measurementTailorId && cancelledVisit) {
-    emitToTailor(measurementTailorId, "measurement:visit_cancelled", { visit: cancelledVisit.toJSON(), requestId: request.id });
-    if (measurementTailorId !== acceptedQuote?.tailorId) {
-      const measurementTailor = await TailorModel.findById(measurementTailorId).select("userId");
-      if (measurementTailor?.userId) {
-        await sendPushToUsers([measurementTailor.userId], {
-          title: "Measurement visit cancelled",
-          body: `The measurement visit for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
-          data: { type: "MEASUREMENT_VISIT_CANCELLED", visitId: cancelledVisit.id, requestId: request.id, screen: "measurementVisits" },
-          channelId: "tailor-pickup-updates-v2",
-          categoryId: "DARJI_ORDER",
-          sound: "ding.mp3",
-          targetApps: ["tailor"]
-        });
-      }
+    const measurementTailor = await TailorModel.findOne({
+      $or: [{ _id: measurementTailorId }, { userId: measurementTailorId }, { darjiTailorId: measurementTailorId }]
+    }).select("_id userId");
+    emitToTailor(measurementTailor?.id ?? measurementTailorId, "measurement:visit_cancelled", { visit: cancelledVisit.toJSON(), requestId: request.id });
+    if (measurementTailor?.userId) {
+      await sendPushToUsers([measurementTailor.userId], {
+        title: "Measurement visit cancelled",
+        body: `The ${cancelledVisit.preferredMeasurementSlot ? `${cancelledVisit.preferredMeasurementSlot} ` : ""}measurement visit for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
+        data: {
+          type: "MEASUREMENT_VISIT_CANCELLED",
+          visitId: cancelledVisit.id,
+          requestId: request.id,
+          preferredMeasurementSlot: cancelledVisit.preferredMeasurementSlot ?? "",
+          slot: cancelledVisit.preferredMeasurementSlot ?? "",
+          screen: "measurementVisits"
+        },
+        channelId: "tailor-pickup-updates-v2",
+        categoryId: "DARJI_ORDER",
+        sound: "ding.mp3",
+        targetApps: ["tailor"]
+      });
     }
   }
   await sendPushToUsers([request.customerId], {

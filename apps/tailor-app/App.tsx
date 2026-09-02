@@ -877,6 +877,12 @@ function isActiveMeasurementVisit(visit: MeasurementVisit) {
   return visit.status === "ACCEPTED" || visit.status === "IN_PROGRESS";
 }
 
+function upsertMeasurementVisit(visits: MeasurementVisit[], updated: MeasurementVisit) {
+  return visits.some((visit) => visit.id === updated.id)
+    ? visits.map((visit) => visit.id === updated.id ? { ...visit, ...updated } : visit)
+    : [updated, ...visits];
+}
+
 function isOwnCustomerMeasurementVisit(visit: MeasurementVisit, tailorId?: string) {
   return Boolean(tailorId && visit.stitchingTailorId === tailorId);
 }
@@ -1275,7 +1281,10 @@ function RequestsScreen({
   requests,
   measurementVisits,
   initialTab,
+  initialMeasurementVisitTab,
   onTabChange,
+  onMeasurementVisitTabChange,
+  onVisitUpdated,
   tailorId,
   token,
   setScreen,
@@ -1286,7 +1295,10 @@ function RequestsScreen({
   requests: TailoringRequest[];
   measurementVisits: MeasurementVisit[];
   initialTab?: "stitching" | "measurement";
+  initialMeasurementVisitTab?: "incoming" | "accepted" | "history";
   onTabChange?: (tab: "stitching" | "measurement") => void;
+  onMeasurementVisitTabChange?: (tab: "incoming" | "accepted" | "history") => void;
+  onVisitUpdated?: (visit: MeasurementVisit) => void;
   tailorId?: string;
   token?: string | null;
   setScreen: (screen: Screen) => void;
@@ -1295,7 +1307,7 @@ function RequestsScreen({
   onRefresh: () => void | Promise<void>;
 }) {
   const [tab, setTab] = useState<"stitching" | "measurement">(initialTab ?? "stitching");
-  const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted" | "history">("incoming");
+  const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted" | "history">(initialMeasurementVisitTab ?? "incoming");
   const [filter, setFilter] = useState<"QUOTE_REQUESTED" | "QUOTED">("QUOTE_REQUESTED");
   const [savingVisitId, setSavingVisitId] = useState<string>();
   const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
@@ -1323,6 +1335,15 @@ function RequestsScreen({
   }, [initialTab]);
 
   useEffect(() => {
+    if (initialMeasurementVisitTab) setMeasurementVisitTab(initialMeasurementVisitTab);
+  }, [initialMeasurementVisitTab]);
+
+  function selectMeasurementVisitTab(nextTab: "incoming" | "accepted" | "history") {
+    setMeasurementVisitTab(nextTab);
+    onMeasurementVisitTabChange?.(nextTab);
+  }
+
+  useEffect(() => {
     if (!activeVisit || !activeVisitRequest) return;
     const items = measurementVisitRequestItems(activeVisitRequest);
     setFields(Object.fromEntries(items.map((item) => [measurementItemId(item), Object.fromEntries(measurementFieldLabelsForGarment(item.clothType || item.workType || activeVisit.garmentSummary).map((field) => [field, ""]))])));
@@ -1333,9 +1354,10 @@ function RequestsScreen({
     if (!token) return;
     setSavingVisitId(visit.id);
     try {
-      await api(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
+      const updated = await api<MeasurementVisit>(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
       await onRefresh();
-      if (action === "accept") setMeasurementVisitTab("accepted");
+      onVisitUpdated?.(updated);
+      if (action === "accept") selectMeasurementVisitTab("accepted");
     } catch (error) {
       showDialog({ title: `Could not ${action}`, message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
     } finally {
@@ -1503,15 +1525,15 @@ function RequestsScreen({
       ) : (
         <>
           <View style={styles.measureVisitTabs}>
-            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "incoming" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("incoming")}>
+            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "incoming" && styles.measureVisitTabActive]} onPress={() => selectMeasurementVisitTab("incoming")}>
               <Text style={[styles.measureVisitTabText, measurementVisitTab === "incoming" && styles.measureVisitTabTextActive]}>Incoming</Text>
               <Text style={[styles.measureVisitTabCount, measurementVisitTab === "incoming" && styles.measureVisitTabCountActive]}>{incomingMeasurementVisits.length}</Text>
             </Pressable>
-            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "accepted" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("accepted")}>
+            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "accepted" && styles.measureVisitTabActive]} onPress={() => selectMeasurementVisitTab("accepted")}>
               <Text style={[styles.measureVisitTabText, measurementVisitTab === "accepted" && styles.measureVisitTabTextActive]}>Accepted</Text>
               <Text style={[styles.measureVisitTabCount, measurementVisitTab === "accepted" && styles.measureVisitTabCountActive]}>{acceptedMeasurementVisits.length}</Text>
             </Pressable>
-            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "history" && styles.measureVisitTabActive]} onPress={() => setMeasurementVisitTab("history")}>
+            <Pressable style={[styles.measureVisitTab, measurementVisitTab === "history" && styles.measureVisitTabActive]} onPress={() => selectMeasurementVisitTab("history")}>
               <Text style={[styles.measureVisitTabText, measurementVisitTab === "history" && styles.measureVisitTabTextActive]}>History</Text>
               <Text style={[styles.measureVisitTabCount, measurementVisitTab === "history" && styles.measureVisitTabCountActive]}>{historyMeasurementVisits.length}</Text>
             </Pressable>
@@ -5480,14 +5502,16 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
   const tailorId = me?.tailorProfile?.id;
 
   const loadVisits = useCallback(async () => {
-    if (!token) return;
+    if (!token) return undefined;
     setLoading(true);
     try {
       const data = await api<MeasurementVisit[]>("/measurement-visits", {}, token);
       setVisits(data);
       onVisitsChanged?.(data);
+      return data;
     } catch (error) {
       showDialog({ title: "Measurement sync failed", message: error instanceof Error ? error.message : "Could not load measurement visits.", icon: "cloud-offline-outline" });
+      return undefined;
     } finally {
       setLoading(false);
     }
@@ -5551,8 +5575,12 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
     if (!token) return;
     setSavingId(visit.id);
     try {
-      await api(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
-      await loadVisits();
+      const updated = await api<MeasurementVisit>(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
+      const loaded = await loadVisits();
+      const nextVisits = upsertMeasurementVisit(loaded ?? visits, updated);
+      setVisits(nextVisits);
+      onVisitsChanged?.(nextVisits);
+      if (action === "accept") setVisitTab("accepted");
     } catch (error) {
       showDialog({ title: `Could not ${action}`, message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
     } finally {
@@ -6049,6 +6077,7 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [measurementVisits, setMeasurementVisits] = useState<MeasurementVisit[]>([]);
   const [requestsInitialTab, setRequestsInitialTab] = useState<"stitching" | "measurement" | undefined>();
+  const [measurementVisitInitialTab, setMeasurementVisitInitialTab] = useState<"incoming" | "accepted" | "history">("incoming");
   const [wallet, setWallet] = useState<PartnerWalletSummary>(emptyPartnerWallet);
   const [earningDetail, setEarningDetail] = useState<EarningDetailKey>("pending");
   const [loadingWallet, setLoadingWallet] = useState(false);
@@ -6359,7 +6388,7 @@ export default function App() {
       const selectedRequestData = selectedRequestsResult.status === "fulfilled" ? selectedRequestsResult.value : [];
       const cancelledRequestData = cancelledRequestsResult.status === "fulfilled" ? cancelledRequestsResult.value : [];
       const orderData = ordersResult.status === "fulfilled" ? ordersResult.value : [];
-      const visitData = visitsResult.status === "fulfilled" ? visitsResult.value : [];
+      const visitData = visitsResult.status === "fulfilled" ? visitsResult.value : undefined;
       const walletData = walletResult.status === "fulfilled" ? walletResult.value : emptyPartnerWallet();
       const transactionData = transactionsResult.status === "fulfilled" ? transactionsResult.value : [];
 
@@ -6384,7 +6413,7 @@ export default function App() {
       const workspaceOrders = [...acceptedRequestOrders, ...orderData].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
       setRequests(openRequestData);
       setOrders(workspaceOrders);
-      setMeasurementVisits(visitData);
+      if (visitData) setMeasurementVisits(visitData);
       setWallet({ ...walletData, transactions: transactionData, payments: walletData.payments ?? [] });
       setActiveRequest((current) => requestData.find((request) => request.id === current?.id) ?? current);
       setActiveOrder((current) => workspaceOrders.find((order) => order.id === current?.id) ?? current);
@@ -6415,11 +6444,12 @@ export default function App() {
     if (!token || !measurementVisitPopup) return;
     try {
       setMeasurementPopupSaving(true);
-      await api(`/measurement-visits/${measurementVisitPopup.id}/accept`, { method: "POST" }, token);
+      const updated = await api<MeasurementVisit>(`/measurement-visits/${measurementVisitPopup.id}/accept`, { method: "POST" }, token);
       stopMeasurementVisitAlert(measurementVisitPopup);
       setMeasurementVisitPopup(undefined);
       await refreshWorkspace(false);
-      setScreen("measurementVisits");
+      setMeasurementVisits((current) => upsertMeasurementVisit(current, updated));
+      openMeasurementRequestsTab("accepted");
     } catch (error) {
       setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
     } finally {
@@ -6513,8 +6543,9 @@ export default function App() {
     }
   }
 
-  function openMeasurementRequestsTab() {
+  function openMeasurementRequestsTab(section: "incoming" | "accepted" | "history" = "incoming") {
     setRequestsInitialTab("measurement");
+    setMeasurementVisitInitialTab(section);
     setScreen("requests");
   }
 
@@ -6627,10 +6658,15 @@ export default function App() {
       if (requestId) {
         setCancellationAlert({ id: requestId, title: "Measurement visit cancelled", message: `The measurement visit for order ${shortId(requestId)} has been cancelled.` });
       }
-      void refreshWorkspace();
+      void refreshWorkspace().then(() => {
+        if (visit?.id) setMeasurementVisits((current) => upsertMeasurementVisit(current, { ...visit, status: "CANCELLED" }));
+      });
     });
-    socket.on("measurement:visit_assigned", () => {
-      void refreshWorkspace();
+    socket.on("measurement:visit_assigned", ({ visit }: { visit?: MeasurementVisit }) => {
+      if (visit?.id) setMeasurementVisits((current) => upsertMeasurementVisit(current, visit));
+      void refreshWorkspace().then(() => {
+        if (visit?.id) setMeasurementVisits((current) => upsertMeasurementVisit(current, visit));
+      });
     });
     socket.on("measurement:submitted", () => {
       void refreshWorkspace();
@@ -6737,7 +6773,7 @@ export default function App() {
 
   let body;
   if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
-  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} onTabChange={setRequestsInitialTab} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
+  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} initialMeasurementVisitTab={measurementVisitInitialTab} onTabChange={setRequestsInitialTab} onMeasurementVisitTabChange={setMeasurementVisitInitialTab} onVisitUpdated={(visit) => setMeasurementVisits((current) => upsertMeasurementVisit(current, visit))} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
   const declineActiveRequest = (request: TailoringRequest) => {
     setDialog({
       title: "Decline request?",
@@ -6825,17 +6861,21 @@ export default function App() {
           const visitId = String(destination.data?.visitId ?? destination.data?.id ?? destination.entityId ?? "");
           if (visitId) {
             setMeasurementVisitPopup((current) => current?.id === visitId ? undefined : current);
-            void api(`/measurement-visits/${visitId}/accept`, { method: "POST" }, token)
-              .then(() => refreshWorkspace(false))
+            void api<MeasurementVisit>(`/measurement-visits/${visitId}/accept`, { method: "POST" }, token)
+              .then(async (updated) => {
+                await refreshWorkspace(false);
+                setMeasurementVisits((current) => upsertMeasurementVisit(current, updated));
+              })
               .catch((error) => {
                 setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
               });
           }
-          openMeasurementRequestsTab();
+          openMeasurementRequestsTab("accepted");
           return;
         }
         if (destination.screen === "measurementVisits" || String(destination.data?.type ?? "").startsWith("MEASUREMENT_")) {
-          openMeasurementRequestsTab();
+          const measurementType = String(destination.data?.type ?? "");
+          openMeasurementRequestsTab(/CANCELLED/i.test(measurementType) ? "history" : /ASSIGNED/i.test(measurementType) ? "accepted" : "incoming");
           return;
         }
         if (destination.actionIdentifier === "DECLINE" && destination.entityId) {

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType, type ScrollViewProps } from "react-native";
@@ -114,6 +115,7 @@ type DeliverySettings = {
 };
 type DeliveryProfile = {
   id: string;
+  darjiPartnerId?: string;
   vehicleNumber?: string;
   isAvailable?: boolean;
   rating?: number;
@@ -186,6 +188,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showIdentityDetails, setShowIdentityDetails] = useState(false);
   const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [name, setName] = useState(me?.name ?? "");
@@ -394,14 +397,105 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
         <View style={styles.avatar}>
           <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)} style={styles.avatarImage} />
         </View>
-        <View style={styles.headerMain}>
-          <Text style={styles.title}>{name || "Darji Delivery"}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View delivery partner details"
+          style={styles.headerMain}
+          onPress={() => setShowIdentityDetails(true)}
+        >
+          <View style={styles.profileNameRow}>
+            <Text style={[styles.title, styles.profileNameText]} numberOfLines={1}>{name || "Darji Delivery"}</Text>
+            <Ionicons name="chevron-forward" size={18} color={BRAND_ORANGE} />
+          </View>
+          <Text style={styles.profileTapHint}>Tap to view partner details</Text>
           <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}{avatarLocked ? " - verification photo locked" : ""}</Text>
           <Text style={styles.meta}>{email || "Email not added"}</Text>
           <Text style={styles.meta}>Role: {profile?.deliveryType || "PICKUP"} ({profile?.assignedArea || "unassigned"})</Text>
           <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
-        </View>
+        </Pressable>
       </View>
+
+      <Modal transparent visible={showIdentityDetails} animationType="fade" onRequestClose={() => setShowIdentityDetails(false)}>
+        <Pressable style={styles.identityBackdrop} onPress={() => setShowIdentityDetails(false)}>
+          <Pressable style={styles.identityCardShell} onPress={(event) => event.stopPropagation()}>
+            <BlurView
+              intensity={58}
+              tint={preferences.darkMode ? "dark" : "light"}
+              experimentalBlurMethod="dimezisBlurView"
+              style={styles.identityCard}
+            >
+              <View pointerEvents="none" style={styles.identityGlowPrimary} />
+              <View pointerEvents="none" style={styles.identityGlowSecondary} />
+              <View style={styles.identityHeader}>
+                <View style={styles.identityHeaderIcon}>
+                  <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.identityTitle}>Darji profile</Text>
+                  <Text style={styles.identitySubtitle}>{profile?.verificationStatus === "VERIFIED" ? "Verified partner information" : "Registered partner information"}</Text>
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close delivery partner details" style={styles.identityClose} onPress={() => setShowIdentityDetails(false)}>
+                  <Ionicons name="close" size={20} color={palette.text} />
+                </Pressable>
+              </View>
+
+              <View style={styles.identityHero}>
+                <View style={styles.identityAvatarFrame}>
+                  <Image
+                    source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)}
+                    style={styles.identityAvatarImage}
+                  />
+                  {profile?.verificationStatus === "VERIFIED" ? (
+                    <View style={styles.identityVerifiedBadge}>
+                      <Ionicons name="checkmark" size={12} color="#ffffff" />
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.identityHeroCopy}>
+                  <Text style={styles.identityName} numberOfLines={2}>{name || me?.name || "Delivery Partner"}</Text>
+                  <Text style={styles.identityRole} numberOfLines={1}>{profile?.deliveryType === "DROP" ? "Drop partner" : "Pickup partner"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.identityEmailBand}>
+                <View style={styles.identityRowIcon}>
+                  <Ionicons name="mail-outline" size={17} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.identityLabel}>Email address</Text>
+                  <Text style={styles.identityEmailValue} selectable>{email.trim() || me?.email || "Email not added"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.identityIdBand}>
+                <View style={styles.identityIdIcon}>
+                  <Ionicons name="id-card-outline" size={18} color={BRAND_ORANGE} />
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.identityIdLabel}>DARJI PARTNER ID</Text>
+                  <Text style={styles.identityIdValue} selectable>{profile?.darjiPartnerId || "ID pending"}</Text>
+                </View>
+              </View>
+
+              <View style={styles.identityDetails}>
+                {[
+                  { icon: "call-outline" as const, label: "Phone number", value: me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available" },
+                  { icon: "car-outline" as const, label: "Vehicle number", value: vehicleNumber || profile?.vehicleNumber || "Not added" },
+                  { icon: "location-outline" as const, label: "Assigned area", value: profile?.assignedArea || "Not assigned" }
+                ].map((item) => (
+                  <View key={item.label} style={styles.identityRow}>
+                    <View style={styles.identityRowIcon}><Ionicons name={item.icon} size={17} color={BRAND_ORANGE} /></View>
+                    <View style={styles.rowMain}>
+                      <Text style={styles.identityLabel}>{item.label}</Text>
+                      <Text style={styles.identityValue} selectable>{item.value}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </BlurView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
         <InfoRow icon="create-outline" title="Edit Profile" value="Update name and email" styles={styles} onPress={() => setEditing(true)} noBorder />
@@ -1957,7 +2051,11 @@ const lightPalette = {
   subtext: MUTED,
   accentSurface: "#fff9ee",
   accentBorder: BORDER,
-  iconSurface: "#fff4dc"
+  iconSurface: "#fff4dc",
+  glass: "rgba(255,255,255,0.72)",
+  glassBorder: "rgba(255,255,255,0.92)",
+  glassSurface: "rgba(255,255,255,0.54)",
+  glassDivider: "rgba(11,34,65,0.11)"
 };
 
 const darkPalette = {
@@ -1968,7 +2066,11 @@ const darkPalette = {
   subtext: "#8ca2c0",
   accentSurface: "#0d1b30",
   accentBorder: "#182a44",
-  iconSurface: "#142033"
+  iconSurface: "#142033",
+  glass: "rgba(8,18,34,0.74)",
+  glassBorder: "rgba(255,255,255,0.15)",
+  glassSurface: "rgba(255,255,255,0.08)",
+  glassDivider: "rgba(255,255,255,0.13)"
 };
 
 function createStyles(palette: typeof lightPalette) {
@@ -1987,6 +2089,9 @@ function createStyles(palette: typeof lightPalette) {
     avatarOptionLabel: { color: palette.text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 8 },
     cameraBadge: { position: "absolute", right: 4, bottom: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
     headerMain: { flex: 1, minWidth: 0 },
+    profileNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    profileNameText: { flexShrink: 1 },
+    profileTapHint: { color: BRAND_ORANGE, fontSize: 10, lineHeight: 14, fontWeight: "800", marginTop: 2 },
     title: { color: palette.text, fontSize: 24, fontWeight: "900" },
     meta: { color: palette.subtext, fontSize: 13, fontWeight: "700", marginTop: 4 },
     completedText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", marginTop: 8 },
@@ -2032,7 +2137,35 @@ function createStyles(palette: typeof lightPalette) {
     bulletRow: { flexDirection: "row", gap: 10, alignItems: "flex-start", marginTop: 12 },
     bulletDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND_ORANGE, marginTop: 6 },
     bulletText: { flex: 1, color: palette.subtext, fontSize: 13, lineHeight: 20, fontWeight: "700" },
-    dangerText: { color: DANGER }
+    dangerText: { color: DANGER },
+    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.42)", justifyContent: "center", alignItems: "center", padding: 22 },
+    identityCardShell: { width: "100%", maxWidth: 370, borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
+    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.glass, borderWidth: 1, borderColor: palette.glassBorder, padding: 18 },
+    identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.20)" },
+    identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.11)" },
+    identityHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 18 },
+    identityHeaderIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityTitle: { color: palette.text, fontSize: 16, lineHeight: 21, fontWeight: "900" },
+    identitySubtitle: { color: palette.subtext, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 1 },
+    identityClose: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityHero: { flexDirection: "row", alignItems: "center", gap: 15, paddingBottom: 17 },
+    identityAvatarFrame: { width: 86, height: 86, borderRadius: 26, padding: 3, backgroundColor: "rgba(255,255,255,0.58)", borderWidth: 1, borderColor: "rgba(255,255,255,0.82)" },
+    identityAvatarImage: { width: "100%", height: "100%", borderRadius: 22 },
+    identityVerifiedBadge: { position: "absolute", right: -3, bottom: -3, width: 25, height: 25, borderRadius: 13, backgroundColor: "#2563eb", borderWidth: 3, borderColor: palette.glassBorder, alignItems: "center", justifyContent: "center" },
+    identityHeroCopy: { flex: 1, minWidth: 0 },
+    identityName: { color: palette.text, fontSize: 21, lineHeight: 26, fontWeight: "900" },
+    identityRole: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 17, fontWeight: "900", marginTop: 2 },
+    identityEmailBand: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
+    identityEmailValue: { flexShrink: 1, color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "800", marginTop: 2 },
+    identityIdBand: { minHeight: 62, borderRadius: 14, backgroundColor: palette.glassSurface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 13, marginBottom: 6 },
+    identityIdIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "rgba(246,163,19,0.14)", alignItems: "center", justifyContent: "center" },
+    identityIdLabel: { color: palette.subtext, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 0.45 },
+    identityIdValue: { color: palette.text, fontSize: 15, lineHeight: 20, fontWeight: "900", marginTop: 1 },
+    identityDetails: { marginTop: 4 },
+    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
+    identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityLabel: { color: palette.subtext, fontSize: 10, lineHeight: 14, fontWeight: "800" },
+    identityValue: { color: palette.text, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 2 }
   });
 }
 

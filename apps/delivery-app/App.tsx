@@ -231,6 +231,7 @@ type DeliveryTaskPayload = Omit<DeliveryRequest, "tailoringRequestId" | "leg" | 
 
 type DeliveryProfile = {
   id: string;
+  darjiPartnerId?: string;
   vehicleNumber?: string;
   isAvailable?: boolean;
   rating?: number;

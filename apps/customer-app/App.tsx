@@ -429,6 +429,16 @@ type HandoffOtp = {
 };
 type DeliveryRescheduleOption = { deliveryRound: "ONE_PM" | "SIX_PM"; roundAt: string; lockAt: string; label: string };
 type MeasurementVisitOtp = { visitId: string; requestId: string; otp: string; status: string; scheduledAt?: string; preferredMeasurementSlot?: string };
+
+const MEASUREMENT_VISIT_TIME_SLOTS = [
+  "08:00 AM - 10:00 AM",
+  "10:00 AM - 12:00 PM",
+  "12:00 PM - 02:00 PM",
+  "02:00 PM - 04:00 PM",
+  "04:00 PM - 06:00 PM",
+  "06:00 PM - 08:00 PM",
+  "08:00 PM - 10:00 PM"
+] as const;
 type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
@@ -1120,6 +1130,7 @@ function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?
     sampleMedia: draft.sampleMedia,
     uploadedSampleMedia: draft.uploadedSampleMedia,
     homeMeasurementBooked: draft.homeMeasurementBooked,
+    preferredMeasurementSlot: draft.preferredMeasurementSlot,
     media: draft.media,
     uploadedMedia: draft.uploadedMedia,
     voiceNotes: draft.voiceNotes ?? [],
@@ -1153,6 +1164,7 @@ function loadClothingItemIntoDraft(draft: RequestDraft, item: ClothingItemDraft)
     sampleMedia: item.sampleMedia,
     uploadedSampleMedia: item.uploadedSampleMedia,
     homeMeasurementBooked: item.homeMeasurementBooked,
+    preferredMeasurementSlot: item.preferredMeasurementSlot,
     media: item.media ?? [],
     uploadedMedia: item.uploadedMedia ?? [],
     voiceNotes: item.voiceNotes ?? [],
@@ -5132,15 +5144,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                   <Text style={styles.measurementMethodTitle}>Select Preferred Time Slot</Text>
                   <Text style={{ fontSize: 12, color: "#64748b", marginTop: 4, marginBottom: 12 }}>A tailor will visit your home within this 2-hour window</Text>
                   <View style={styles.searchFilterChipRow}>
-                    {[
-                      "08:00 AM - 10:00 AM",
-                      "10:00 AM - 12:00 PM",
-                      "12:00 PM - 02:00 PM",
-                      "02:00 PM - 04:00 PM",
-                      "04:00 PM - 06:00 PM",
-                      "06:00 PM - 08:00 PM",
-                      "08:00 PM - 10:00 PM"
-                    ].map((slot) => {
+                    {MEASUREMENT_VISIT_TIME_SLOTS.map((slot) => {
                       const isSelected = draft.preferredMeasurementSlot === slot;
                       return (
                         <Pressable

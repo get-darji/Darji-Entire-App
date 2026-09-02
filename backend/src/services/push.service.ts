@@ -56,7 +56,9 @@ function resolveTargetApps(payload: PushPayload) {
 }
 
 function isIncomingRequestType(type?: string) {
-  return /incoming|new_request|request_created|assignment|measurement_visit|delivery_batch_ready|task_created|pickup_assigned/i.test(type ?? "");
+  const value = type ?? "";
+  if (/measurement[_:\s-]*visit[_:\s-]*(assigned|cancelled|submitted|expired)/i.test(value)) return false;
+  return /incoming|new_request|request_created|assignment|measurement_visit|delivery_batch_ready|task_created|pickup_assigned/i.test(value);
 }
 
 function customerPreferenceKind(payload: PushPayload, data: Record<string, string>) {
