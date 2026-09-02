@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from "expo-modules-core";
 import { Platform } from "react-native";
 
-export const INCOMING_ALERT_CHANNEL_ID = "darji-incoming-orders-v4";
+export const INCOMING_ALERT_CHANNEL_ID = "darji-incoming-orders-v5";
 
 export type IncomingAlertData = Record<string, unknown> & {
   body?: string;

@@ -22,12 +22,12 @@ export async function configureNotificationActions(app: DarjiApp) {
 
   if (app === "tailor") {
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORIES.tailorRequest, [
-      { identifier: "SEND_QUOTE", buttonTitle: "Send Quote", options: { opensAppToForeground: true } },
+      { identifier: "SEND_QUOTE", buttonTitle: "Send Price", options: { opensAppToForeground: true } },
       { identifier: "DECLINE", buttonTitle: "Reject", options: { opensAppToForeground: false } },
       { identifier: "VIEW_DETAILS", buttonTitle: "View Details", options: { opensAppToForeground: true } }
     ]);
     await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORIES.tailorQuoteAccepted, [
-      { identifier: "VIEW_QUOTE", buttonTitle: "View Quote", options: { opensAppToForeground: true } }
+      { identifier: "VIEW_QUOTE", buttonTitle: "View Price", options: { opensAppToForeground: true } }
     ]);
   }
 

@@ -67,17 +67,23 @@ export async function listMeasurementVisitsController(req: Request, res: Respons
   const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
   const where: Record<string, unknown> = {
     $or: [
-      { assignedTailorId: tailor.id, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED"] } }
+      { assignedTailorId: tailor.id, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED", "CANCELLED"] } },
+      { offeredTailorId: tailor.id, status: "CANCELLED" }
     ]
   };
-  if (tailor.isAvailable) {
-    (where.$or as unknown[]).push({ stitchingTailorId: tailor.id, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] }, declinedTailorIds: { $ne: tailor.id } });
-  }
   if (tailor.isAvailable && canMeasure) {
+    (where.$or as unknown[]).push({ stitchingTailorId: tailor.id, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] }, declinedTailorIds: { $ne: tailor.id } });
     (where.$or as unknown[]).push({ status: "POOL", declinedTailorIds: { $ne: tailor.id }, stitchingTailorId: { $ne: tailor.id } });
   }
   const visits = await MeasurementVisitModel.find(where).sort({ status: 1, scheduledAt: 1, createdAt: -1 }).limit(100);
-  res.json({ data: visits });
+  res.json({
+    data: visits.map((visit) => {
+      const data = visit.toJSON() as Record<string, unknown>;
+      const maySeePhone = visit.assignedTailorId === tailor.id && ["ACCEPTED", "IN_PROGRESS"].includes(String(visit.status));
+      if (!maySeePhone) delete data.customerPhone;
+      return data;
+    })
+  });
 }
 
 export async function getMeasurementVisitOtpController(req: Request, res: Response) {
@@ -100,9 +106,10 @@ export async function acceptMeasurementVisitController(req: Request, res: Respon
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));
-  const isOfferedTailor = visit.offeredTailorId === tailor.id;
-  const isOwnCustomer = visit.stitchingTailorId === tailor.id && !declinedTailorIds.includes(tailor.id) && ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(String(visit.status));
-  const isPool = visit.status === "POOL" && Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
+  const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
+  const isOfferedTailor = canMeasure && visit.offeredTailorId === tailor.id;
+  const isOwnCustomer = canMeasure && visit.stitchingTailorId === tailor.id && !declinedTailorIds.includes(tailor.id) && ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(String(visit.status));
+  const isPool = visit.status === "POOL" && canMeasure;
   if (!isOfferedTailor && !isOwnCustomer && !isPool) throw new AppError(403, "This measurement visit is not available to you");
   const updated = await assignMeasurementVisit(visit.id, tailor.id, req.user!.id);
   if (!updated) throw new AppError(409, "Measurement visit is no longer available");
@@ -114,8 +121,9 @@ export async function declineMeasurementVisitController(req: Request, res: Respo
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));
-  const canDeclineOwnCustomer = visit.stitchingTailorId === tailor.id && !declinedTailorIds.includes(tailor.id) && ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(String(visit.status));
-  const canDeclinePool = visit.status === "POOL" && !declinedTailorIds.includes(tailor.id) && Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
+  const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
+  const canDeclineOwnCustomer = canMeasure && visit.stitchingTailorId === tailor.id && !declinedTailorIds.includes(tailor.id) && ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(String(visit.status));
+  const canDeclinePool = visit.status === "POOL" && !declinedTailorIds.includes(tailor.id) && canMeasure;
   if (visit.offeredTailorId !== tailor.id && visit.assignedTailorId !== tailor.id && !canDeclineOwnCustomer && !canDeclinePool) throw new AppError(403, "This measurement visit is not assigned to you");
   const updated = await moveMeasurementVisitToPool(visit.id, tailor.id, "tailor_declined");
   res.json({ data: updated });
@@ -170,5 +178,12 @@ export async function updateTailorMeasurementCapabilitiesController(req: Request
     },
     { returnDocument: "after" }
   );
+  if (!input.measurementPartner) {
+    const pendingVisits = await MeasurementVisitModel.find({
+      offeredTailorId: tailor.id,
+      status: "OFFERED_TO_STITCHING_TAILOR"
+    }).select("_id");
+    await Promise.all(pendingVisits.map((visit) => moveMeasurementVisitToPool(visit.id, undefined, "measurement_partner_disabled")));
+  }
   res.json({ data: updated });
 }

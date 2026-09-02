@@ -595,6 +595,7 @@ const supportTicketSchema = new Schema(
   {
     _id: stringId,
     userId: { type: String, required: true, index: true },
+    userRole: { type: String, enum: roles, required: true, index: true },
     orderId: String,
     subject: { type: String, required: true },
     message: { type: String, required: true },
@@ -609,12 +610,15 @@ const supportTicketSchema = new Schema(
   baseOptions
 );
 attachDarjiIdPlugin(supportTicketSchema, { field: "darjiId", prefix: "TKT" });
+supportTicketSchema.index({ userId: 1, userRole: 1, createdAt: -1 });
+supportTicketSchema.index({ userRole: 1, status: 1, createdAt: -1 });
 
 
 const bugReportSchema = new Schema(
   {
     _id: stringId,
     userId: { type: String, required: true, index: true },
+    userRole: { type: String, enum: roles, required: true, index: true },
     title: { type: String, required: true },
     description: { type: String, required: true },
     screenshot: String,
@@ -627,6 +631,8 @@ const bugReportSchema = new Schema(
   baseOptions
 );
 attachDarjiIdPlugin(bugReportSchema, { field: "darjiId", prefix: "BUG" });
+bugReportSchema.index({ userId: 1, userRole: 1, createdAt: -1 });
+bugReportSchema.index({ userRole: 1, status: 1, createdAt: -1 });
 
 
 const accountChangeRequestSchema = new Schema(

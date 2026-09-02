@@ -273,6 +273,7 @@ export type SupportTicket = {
   id: string;
   darjiId?: string;
   userId: string;
+  userRole?: "CUSTOMER" | "TAILOR" | "DELIVERY_PARTNER";
   orderId?: string;
   subject: string;
   message?: string;
@@ -301,6 +302,7 @@ export type BugReport = {
   id: string;
   darjiId?: string;
   userId: string;
+  userRole?: "CUSTOMER" | "TAILOR" | "DELIVERY_PARTNER";
   title: string;
   description: string;
   screenshot?: string | null;

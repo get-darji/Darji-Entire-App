@@ -9,7 +9,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
@@ -25,8 +24,8 @@ import java.util.Locale
 import java.util.TimeZone
 
 internal object IncomingAlertManager {
-  const val CHANNEL_ID = "darji-incoming-orders-v4"
-  private const val LEGACY_CHANNEL_ID = "darji-incoming-orders-v3"
+  const val CHANNEL_ID = "darji-incoming-orders-v5"
+  private val LEGACY_CHANNEL_IDS = setOf("darji-incoming-orders-v4", "darji-incoming-orders-v3", "darji-incoming-requests-v1")
   private const val TAG = "DarjiIncomingAlert"
   const val EXTRA_PAYLOAD = "darji.incomingAlert.payload"
   const val EXTRA_ACTION = "darji.incomingAlert.action"
@@ -39,10 +38,14 @@ internal object IncomingAlertManager {
   private const val CURRENT_PAYLOAD = "currentPayload"
   private const val CURRENT_KEY = "currentKey"
   private const val PENDING_ACTION = "pendingAction"
+  private const val LAST_DISMISSED_KEY = "lastDismissedKey"
+  private const val LAST_DISMISSED_AT = "lastDismissedAt"
   private const val DEFAULT_DURATION_MS = 30_000L
   private const val MAX_DURATION_MS = 60_000L
+  private const val DISMISS_DEDUPE_MS = 90_000L
   private val alertVibrationPattern = longArrayOf(0, 700, 180, 700, 240, 1100)
   private var mediaPlayer: MediaPlayer? = null
+  private var activeAlertKey: String? = null
 
   fun bundleToPayload(bundle: Bundle): JSONObject {
     val payload = JSONObject()
@@ -72,7 +75,7 @@ internal object IncomingAlertManager {
   fun isIncoming(payload: JSONObject): Boolean {
     if (payload.optString("darjiIncomingRequest").equals("true", ignoreCase = true)) return true
     val channelId = payload.optString("channelId")
-    if (channelId == CHANNEL_ID || channelId == LEGACY_CHANNEL_ID || channelId == "darji-incoming-requests-v1") return true
+    if (channelId == CHANNEL_ID || channelId in LEGACY_CHANNEL_IDS) return true
     val category = payload.optString("categoryId") + " " + payload.optString("categoryIdentifier")
     if (category.contains("TAILOR_NEW_REQUEST") || category.contains("TAILOR_MEASUREMENT_VISIT") || category.contains("DELIVERY_PICKUP_REQUEST")) return true
     val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
@@ -135,25 +138,19 @@ internal object IncomingAlertManager {
   fun createChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(NotificationManager::class.java)
-    val soundId = context.resources.getIdentifier("requests", "raw", context.packageName)
-    val soundUri = if (soundId != 0) Uri.parse("android.resource://${context.packageName}/$soundId") else Settings.System.DEFAULT_NOTIFICATION_URI
-    val audioAttributes = AudioAttributes.Builder()
-      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-      .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-      .build()
     val channel = NotificationChannel(CHANNEL_ID, "Incoming orders", NotificationManager.IMPORTANCE_HIGH).apply {
-      description = "Urgent Tailor and Delivery Partner order requests"
+      description = "Urgent, time-limited incoming order requests"
       enableLights(true)
       lightColor = Color.rgb(246, 163, 19)
-      enableVibration(true)
-      vibrationPattern = alertVibrationPattern
+      enableVibration(false)
       lockscreenVisibility = Notification.VISIBILITY_PUBLIC
       setBypassDnd(false)
-      setSound(soundUri, audioAttributes)
+      setSound(null, null)
     }
     manager.createNotificationChannel(channel)
   }
 
+  @Synchronized
   fun show(context: Context, payload: JSONObject) {
     if (!isIncoming(payload)) {
       Log.d(TAG, "Ignoring non-incoming payload keys=${payload.keys().asSequence().joinToString(",")}")
@@ -166,13 +163,24 @@ internal object IncomingAlertManager {
     val appContext = context.applicationContext
     val key = requestKey(payload)
     val id = notificationId(key)
+    val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val lastDismissedKey = preferences.getString(LAST_DISMISSED_KEY, null)
+    val lastDismissedAt = preferences.getLong(LAST_DISMISSED_AT, 0L)
+    if (lastDismissedKey == key && System.currentTimeMillis() - lastDismissedAt < DISMISS_DEDUPE_MS) {
+      Log.d(TAG, "Ignoring recently dismissed incoming alert key=$key")
+      return
+    }
+    val previousKey = preferences.getString(CURRENT_KEY, null)
+    if (previousKey != null && previousKey != key) {
+      appContext.getSystemService(NotificationManager::class.java).cancel(notificationId(previousKey))
+    }
     Log.d(TAG, "Showing incoming alert key=$key channel=${payload.optString("channelId")} foreground=${isAppInForeground(appContext)} locked=${isDeviceLocked(appContext)} overlays=${canDrawOverlays(appContext)} fsi=${canUseFullScreenIntent(appContext)} notifications=${notificationsEnabled(appContext)}")
-    appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+    preferences.edit()
       .putString(CURRENT_PAYLOAD, payload.toString())
       .putString(CURRENT_KEY, key)
       .apply()
     createChannel(appContext)
-    startAlertSignal(appContext)
+    startAlertSignal(appContext, key)
     try {
       appContext.getSystemService(NotificationManager::class.java).notify(id, buildNotification(appContext, payload))
     } catch (error: Exception) {
@@ -261,14 +269,12 @@ internal object IncomingAlertManager {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       builder.setTimeoutAfter(remainingMs(payload))
     } else {
-      val soundId = context.resources.getIdentifier("requests", "raw", context.packageName)
-      val soundUri = if (soundId != 0) Uri.parse("android.resource://${context.packageName}/$soundId") else Settings.System.DEFAULT_NOTIFICATION_URI
-      builder.setSound(soundUri)
-      builder.setVibrate(alertVibrationPattern)
+      builder.setSound(null)
+      builder.setVibrate(longArrayOf(0L))
     }
 
     return builder.build().apply {
-      flags = flags or Notification.FLAG_INSISTENT or Notification.FLAG_ONGOING_EVENT
+      flags = flags or Notification.FLAG_ONGOING_EVENT
     }
   }
 
@@ -312,17 +318,14 @@ internal object IncomingAlertManager {
     if (isMeasurementVisit(payload)) "ACCEPT" else if (isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
 
   fun labelForAccept(payload: JSONObject): String =
-    if (isMeasurementVisit(payload)) "Accept" else if (isTailor(payload)) "Send quote" else "Accept"
+    if (isMeasurementVisit(payload)) "Accept" else if (isTailor(payload)) "Send price" else "Accept"
 
   fun performAction(context: Context, action: String, payload: JSONObject) {
-    if (action == "DECLINE" && !isMeasurementVisit(payload)) {
-      dismiss(context, requestKey(payload))
-      return
-    }
-
     val pending = JSONObject().put("actionIdentifier", action).put("data", payload)
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PENDING_ACTION, pending.toString()).commit()
     dismiss(context, requestKey(payload))
+    if (action == "DECLINE" && !isMeasurementVisit(payload)) return
+
     context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
       launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
       launchIntent.putExtra(EXTRA_ACTION, action)
@@ -340,25 +343,35 @@ internal object IncomingAlertManager {
     }
   }
 
+  @Synchronized
   fun dismiss(context: Context, requestedKey: String? = null) {
     val appContext = context.applicationContext
     val preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val currentKey = preferences.getString(CURRENT_KEY, null)
     val key = requestedKey ?: currentKey
     if (key != null) appContext.getSystemService(NotificationManager::class.java).cancel(notificationId(key))
-    stopAlertSignal(appContext)
+    if (key != null) {
+      preferences.edit()
+        .putString(LAST_DISMISSED_KEY, key)
+        .putLong(LAST_DISMISSED_AT, System.currentTimeMillis())
+        .apply()
+    }
     if (requestedKey == null || requestedKey == currentKey) {
+      stopAlertSignal(appContext, currentKey)
       preferences.edit().remove(CURRENT_PAYLOAD).remove(CURRENT_KEY).apply()
       appContext.stopService(Intent(appContext, IncomingAlertOverlayService::class.java))
       appContext.sendBroadcast(Intent(ACTION_CLOSED).setPackage(appContext.packageName))
+    } else {
+      stopAlertSignal(appContext, requestedKey)
     }
   }
 
   fun isDeviceLocked(context: Context): Boolean =
     context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
 
-  private fun startAlertSignal(context: Context) {
+  private fun startAlertSignal(context: Context, key: String) {
     stopAlertSignal(context)
+    activeAlertKey = key
     vibrate(context)
     val soundId = context.resources.getIdentifier("requests", "raw", context.packageName)
     val soundUri = if (soundId != 0) Uri.parse("android.resource://${context.packageName}/$soundId") else Settings.System.DEFAULT_RINGTONE_URI
@@ -392,7 +405,9 @@ internal object IncomingAlertManager {
     }
   }
 
-  private fun stopAlertSignal(context: Context) {
+  @Synchronized
+  fun stopAlertSignal(context: Context, key: String? = null) {
+    if (key != null && activeAlertKey != null && key != activeAlertKey) return
     try {
       mediaPlayer?.stop()
     } catch (_: Exception) {
@@ -402,6 +417,7 @@ internal object IncomingAlertManager {
     } catch (_: Exception) {
     }
     mediaPlayer = null
+    activeAlertKey = null
     try {
       val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         context.getSystemService(VibratorManager::class.java).defaultVibrator

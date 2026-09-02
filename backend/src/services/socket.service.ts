@@ -28,6 +28,10 @@ function userRoom(userId: string) {
   return `user:${userId}`;
 }
 
+function userRoleRoom(userId: string, role: string) {
+  return `user:${userId}:role:${role}`;
+}
+
 function roleRoom(role: string) {
   return `role:${role}`;
 }
@@ -76,6 +80,7 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
 
 async function joinRooms(socket: Socket, user: SocketUser) {
   await socket.join(userRoom(user.id));
+  await socket.join(userRoleRoom(user.id, user.role));
   if (user.role !== "DELIVERY_PARTNER" || user.deliveryVerified) {
     await socket.join(roleRoom(user.role));
     if (user.role === "SUPER_ADMIN") {
@@ -209,7 +214,7 @@ export function setupSocketServer(server: HttpServer) {
     });
 
     // Typing Event propagator
-    socket.on("typing:status", (payload: { type: string; id: string; recipientId: string; isTyping: boolean }) => {
+    socket.on("typing:status", (payload: { type: string; id: string; recipientId: string; recipientRole?: string; isTyping: boolean }) => {
       if (payload.recipientId === "admin") {
         io?.to(roleRoom("ADMIN")).emit("typing:status", {
           type: payload.type,
@@ -219,8 +224,8 @@ export function setupSocketServer(server: HttpServer) {
           senderId: user.id,
           senderName: userName
         });
-      } else {
-        io?.to(userRoom(payload.recipientId)).emit("typing:status", {
+      } else if (payload.recipientRole) {
+        io?.to(userRoleRoom(payload.recipientId, payload.recipientRole)).emit("typing:status", {
           type: payload.type,
           id: payload.id,
           recipientId: payload.recipientId,
@@ -234,23 +239,36 @@ export function setupSocketServer(server: HttpServer) {
     // Mark messages as read event
     socket.on("support:mark_read", async (payload: { type: "ticket" | "bug" | "request"; id: string; recipientId: string }) => {
       try {
+        const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+        const supportScope = isAdmin ? { _id: payload.id } : { _id: payload.id, userId: user.id, userRole: user.role };
+        let recipientRole: string | undefined;
         if (payload.type === "ticket") {
-          await SupportTicketModel.findByIdAndUpdate(payload.id, {
+          const ticket = await SupportTicketModel.findOneAndUpdate(supportScope, {
             $set: { "messages.$[].read": true }
           });
+          recipientRole = ticket?.userRole;
         } else if (payload.type === "bug") {
-          await BugReportModel.findByIdAndUpdate(payload.id, {
+          const bug = await BugReportModel.findOneAndUpdate(supportScope, {
             $set: { "messages.$[].read": true }
           });
+          recipientRole = bug?.userRole;
         } else if (payload.type === "request") {
-          await AccountChangeRequestModel.findByIdAndUpdate(payload.id, {
-            $set: { "messages.$[].read": true }
-          });
+          const request = isAdmin
+            ? await AccountChangeRequestModel.findByIdAndUpdate(payload.id, { $set: { "messages.$[].read": true } }, { returnDocument: "after" })
+            : user.role === "TAILOR" || user.role === "DELIVERY_PARTNER"
+              ? await AccountChangeRequestModel.findOneAndUpdate(
+                  { _id: payload.id, userId: user.id, userRole: user.role },
+                  { $set: { "messages.$[].read": true } },
+                  { returnDocument: "after" }
+                )
+              : null;
+          recipientRole = request?.userRole;
         }
 
         // Notify client and admins of read status
-        const room = userRoom(payload.recipientId);
-        io?.to(room).emit("support:read_receipt", { type: payload.type, id: payload.id });
+        if (payload.recipientId !== "admin" && recipientRole) {
+          io?.to(userRoleRoom(payload.recipientId, recipientRole)).emit("support:read_receipt", { type: payload.type, id: payload.id });
+        }
         io?.to(roleRoom("ADMIN")).emit("support:read_receipt", { type: payload.type, id: payload.id });
       } catch (err) {
         console.error("Error in support:mark_read event:", err);
@@ -295,6 +313,10 @@ export function setupSocketServer(server: HttpServer) {
 
 export function emitToCustomer(userId: string, event: string, payload: unknown) {
   io?.to(userRoom(userId)).emit(event, payload);
+}
+
+export function emitToUserRole(userId: string, role: string, event: string, payload: unknown) {
+  io?.to(userRoleRoom(userId, role)).emit(event, payload);
 }
 
 export function emitToTailors(event: string, payload: unknown) {

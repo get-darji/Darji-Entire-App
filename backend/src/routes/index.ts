@@ -8,6 +8,7 @@ import {
   createCouponController,
   createOrderController,
   createReviewController,
+  listMyTailorReviewsController,
   listAdminReviewsController,
   toggleReviewFeaturedController,
   listFeaturedReviewsController,
@@ -249,6 +250,7 @@ router.get("/notifications", requireAuth, listNotificationsController);
 router.post("/notifications/fcm-token", requireAuth, registerFcmTokenController);
 router.use("/notifications", notificationRoutes);
 router.post("/reviews", requireAuth, createReviewController);
+router.get("/tailors/me/reviews", requireAuth, requireRole("TAILOR"), listMyTailorReviewsController);
 router.get("/reviews/featured", listFeaturedReviewsController);
 router.get("/admin/reviews", requireAuth, requireRole("ADMIN"), listAdminReviewsController);
 router.patch("/admin/reviews/:id/featured", requireAuth, requireRole("ADMIN"), toggleReviewFeaturedController);

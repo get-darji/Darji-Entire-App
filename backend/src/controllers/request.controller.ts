@@ -821,8 +821,8 @@ async function finalizeTailoringRequestConfirmation(
     if (acceptedTailorProfile?.userId) {
       await sendOrderConfirmedNotification({
         userId: acceptedTailorProfile.userId,
-        title: "Quote accepted",
-        body: `The customer confirmed your quote for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
+        title: "Price accepted",
+        body: `The customer confirmed your price for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
         data: {
           type: "ORDER_CONFIRMED",
           requestId: request.id,
@@ -887,6 +887,19 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
     { returnDocument: "after" }
   );
   await TailorQuoteModel.updateMany({ requestId: request.id, status: { $in: ["RESERVED", "ACCEPTED"] } }, { status: "REJECTED" });
+  const cancelledVisit = await MeasurementVisitModel.findOneAndUpdate(
+    {
+      requestId: request.id,
+      status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL", "ACCEPTED", "IN_PROGRESS"] }
+    },
+    {
+      $set: { status: "CANCELLED", cancelledAt: new Date() }
+    },
+    { returnDocument: "after" }
+  );
+  if (cancelledVisit) {
+    await resolveOperationalAlert(`MEASUREMENT_VISIT_UNASSIGNED:${cancelledVisit.id}`);
+  }
   const tasks = await DeliveryRequestModel.find({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } });
   await DeliveryRequestModel.updateMany({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } }, { taskStatus: "cancelled" });
 
@@ -904,10 +917,38 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
         channelId: "tailor-new-requests-v2",
         categoryId: "TAILOR_QUOTE_ACCEPTED",
         sound: "ding.mp3",
-        actions: ["View Details"]
+        actions: ["View Details"],
+        targetApps: ["tailor"]
       });
     }
   }
+  const measurementTailorId = cancelledVisit?.assignedTailorId ?? cancelledVisit?.offeredTailorId;
+  if (measurementTailorId && cancelledVisit) {
+    emitToTailor(measurementTailorId, "measurement:visit_cancelled", { visit: cancelledVisit.toJSON(), requestId: request.id });
+    if (measurementTailorId !== acceptedQuote?.tailorId) {
+      const measurementTailor = await TailorModel.findById(measurementTailorId).select("userId");
+      if (measurementTailor?.userId) {
+        await sendPushToUsers([measurementTailor.userId], {
+          title: "Measurement visit cancelled",
+          body: `The measurement visit for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
+          data: { type: "MEASUREMENT_VISIT_CANCELLED", visitId: cancelledVisit.id, requestId: request.id, screen: "measurementVisits" },
+          channelId: "tailor-pickup-updates-v2",
+          categoryId: "DARJI_ORDER",
+          sound: "ding.mp3",
+          targetApps: ["tailor"]
+        });
+      }
+    }
+  }
+  await sendPushToUsers([request.customerId], {
+    title: "Order cancelled",
+    body: `Your order ${request.id.slice(0, 8).toUpperCase()} and any pending measurement visit have been cancelled.`,
+    data: { type: "ORDER_CANCELLED", requestId: request.id, orderId: request.id, screen: "trackOrder" },
+    channelId: "customer-orders-v2",
+    categoryId: "DARJI_ORDER",
+    sound: "ding.mp3",
+    targetApps: ["customer"]
+  });
   emitToDeliveryPartners("delivery:task_cancelled", { orderId: request.id, taskIds: tasks.map((task) => task.id) });
   const assignedPartnerIds = [...new Set(tasks.map((task) => task.assignedDeliveryPartnerId).filter((id): id is string => typeof id === "string" && id.length > 0))];
   if (assignedPartnerIds.length) {
@@ -921,7 +962,8 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
         channelId: "delivery-updates-v2",
         categoryId: "DELIVERY_PICKUP_REQUEST",
         sound: "ding.mp3",
-        actions: ["View Details"]
+        actions: ["View Details"],
+        targetApps: ["delivery"]
       });
     }
   }
@@ -1831,7 +1873,7 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
   const input = updateTailoringWorkStatusSchema.parse(req.body);
   const request = await TailoringRequestModel.findById(String(req.params.id));
   if (!request) throw new AppError(404, "Tailoring request not found");
-  if (request.status !== "TAILOR_SELECTED") throw new AppError(400, "Only accepted quote requests can be updated");
+  if (request.status !== "TAILOR_SELECTED") throw new AppError(400, "Only accepted price requests can be updated");
 
   const tailor = req.user!.role === "TAILOR" ? await TailorModel.findOne({ userId: req.user!.id }) : null;
   if (req.user!.role === "TAILOR") {
@@ -1932,7 +1974,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
     verifiedTailors.map((tailor) => sendNewRequestNotification({
       userId: tailor.userId,
       title: "New customer order",
-      body: `${requestClothingLabel(request)}. Open the request to send a quote.`,
+      body: `${requestClothingLabel(request)}. Open the request to send a price.`,
       data: {
         type: "INCOMING_TAILORING_REQUEST",
         event: "tailoring:request_created",
@@ -1978,7 +2020,7 @@ export async function listTailoringRequestsController(req: Request, res: Respons
     if (status && status !== "QUOTE_REQUESTED") {
       const ownQuotes = await TailorQuoteModel.find({
         tailorId: tailor?.id ?? "__none__",
-        status: { $in: ["ACCEPTED", "RESERVED"] }
+        ...(status === "CANCELLED" ? {} : { status: { $in: ["ACCEPTED", "RESERVED"] } })
       }).select("_id");
       where.selectedQuoteId = { $in: ownQuotes.map((quote) => quote.id) };
       where.status = status;

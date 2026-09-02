@@ -73,8 +73,15 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
 
   const [customer, stitchingTailor] = await Promise.all([
     UserModel.findById(request.customerId).select("name phone"),
-    TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner")
+    TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner tailorRoles")
   ]);
+
+  const stitchingTailorCanMeasure = Boolean(
+    stitchingTailor?.isAvailable
+      && stitchingTailor.measurementPartner?.isEnabled
+      && Array.isArray(stitchingTailor.tailorRoles)
+      && stitchingTailor.tailorRoles.includes("MEASUREMENT_PARTNER")
+  );
 
   const preferredSlot = selectedMeasurementSlot(request);
   const visit = await MeasurementVisitModel.findOneAndUpdate(
@@ -84,8 +91,8 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         requestId: request.id,
         customerId: request.customerId,
         stitchingTailorId: quote.tailorId,
-        offeredTailorId: quote.tailorId,
-        status: "OFFERED_TO_STITCHING_TAILOR",
+        ...(stitchingTailorCanMeasure ? { offeredTailorId: quote.tailorId } : {}),
+        status: stitchingTailorCanMeasure ? "OFFERED_TO_STITCHING_TAILOR" : "POOL",
         scheduledAt: resolveScheduledAt(preferredSlot),
         preferredMeasurementSlot: preferredSlot,
         visitPayout: Number(stitchingTailor?.measurementPartner?.visitPayout ?? DEFAULT_VISIT_PAYOUT),
@@ -98,7 +105,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     { upsert: true, returnDocument: "after" }
   );
 
-  if (stitchingTailor?.userId && stitchingTailor.isAvailable) {
+  if (stitchingTailor?.userId && stitchingTailorCanMeasure) {
     await sendPushToUsers([stitchingTailor.userId], {
       title: "Measurement visit requested",
       body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${preferredSlot || "slot specified"}). Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
@@ -120,6 +127,8 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
       targetApps: ["tailor"]
     });
     emitToTailor(quote.tailorId, "measurement:visit_offered", { visit: visit.toJSON() });
+  } else {
+    await moveMeasurementVisitToPool(visit.id, undefined, "stitching_tailor_measurement_disabled");
   }
   emitToAdmins("measurement:visit_created", { visit: visit.toJSON() });
   return visit;

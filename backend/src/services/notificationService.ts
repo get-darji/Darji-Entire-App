@@ -35,7 +35,7 @@ export function sendNewRequestNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "darji-incoming-orders-v4",
     categoryId: "TAILOR_NEW_REQUEST",
-    actions: ["Send Quote", "Reject", "View Details"],
+    actions: ["Send Price", "Reject", "View Details"],
     targetApps: ["tailor"]
   });
 }
@@ -53,7 +53,8 @@ export function sendOrderConfirmedNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "tailor-new-requests-v2",
     categoryId: "TAILOR_QUOTE_ACCEPTED",
-    actions: ["View Quote"]
+    actions: ["View Price"],
+    targetApps: ["tailor"]
   });
 }
 
@@ -79,7 +80,8 @@ export function sendOrderCompletedNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "customer-orders-v2",
     categoryId: "CUSTOMER_ORDER_COMPLETED",
-    actions: ["View Order"]
+    actions: ["View Order"],
+    targetApps: ["customer"]
   });
 }
 
@@ -87,7 +89,8 @@ export function sendPaymentSuccessNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "customer-payments-v2",
     categoryId: "DARJI_ORDER",
-    actions: ["View"]
+    actions: ["View"],
+    targetApps: ["customer"]
   });
 }
 
@@ -95,6 +98,7 @@ export function sendOtpNotification(input: NotificationEventInput) {
   return sendEventNotification(input, {
     channelId: "customer-orders-v2",
     categoryId: "DARJI_ORDER",
-    actions: ["View"]
+    actions: ["View"],
+    targetApps: ["customer"]
   });
 }

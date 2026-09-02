@@ -17,6 +17,7 @@ import org.json.JSONObject
 class IncomingAlertOverlayService : Service() {
   private var windowManager: WindowManager? = null
   private var overlay: IncomingAlertView? = null
+  private var activeRequestKey: String? = null
   private val timeoutHandler = Handler(Looper.getMainLooper())
   private var timeoutRunnable: Runnable? = null
 
@@ -37,6 +38,7 @@ class IncomingAlertOverlayService : Service() {
       stopSelf()
       return START_NOT_STICKY
     }
+    activeRequestKey = IncomingAlertManager.requestKey(payload)
 
     IncomingAlertManager.createChannel(this)
     val id = IncomingAlertManager.notificationId(IncomingAlertManager.requestKey(payload))
@@ -57,7 +59,7 @@ class IncomingAlertOverlayService : Service() {
     } else {
       Log.d("DarjiIncomingAlert", "Overlay skipped overlays=${Settings.canDrawOverlays(this)} locked=${IncomingAlertManager.isDeviceLocked(this)}")
     }
-    return START_REDELIVER_INTENT
+    return START_NOT_STICKY
   }
 
   private fun showOverlay(payload: JSONObject) {
@@ -109,6 +111,14 @@ class IncomingAlertOverlayService : Service() {
     timeoutRunnable?.let(timeoutHandler::removeCallbacks)
     timeoutRunnable = null
     removeOverlay()
+    IncomingAlertManager.stopAlertSignal(this, activeRequestKey)
+    activeRequestKey = null
     super.onDestroy()
+  }
+
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    IncomingAlertManager.dismiss(this, activeRequestKey)
+    stopSelf()
+    super.onTaskRemoved(rootIntent)
   }
 }

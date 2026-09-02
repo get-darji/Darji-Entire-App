@@ -40,7 +40,7 @@ import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
 import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow } from "../services/hybrid-delivery.service.js";
-import { emitToCustomer, emitToAdmins, publishPlatformStatus } from "../services/socket.service.js";
+import { emitToCustomer, emitToAdmins, emitToUserRole, publishPlatformStatus } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
 
@@ -76,6 +76,22 @@ export const uploadDeliveryVerificationMedia = multer({
 }).array("media", 4);
 
 const tailorVerificationReuploadFields = ["aadhaarFront", "aadhaarBack", "panPhoto", "facePhoto", "shopPhotos"] as const;
+
+function isSupportAdmin(role: string) {
+  return role === "ADMIN" || role === "SUPER_ADMIN";
+}
+
+function supportClientApp(role: string) {
+  if (role === "TAILOR") return "tailor";
+  if (role === "DELIVERY_PARTNER") return "delivery";
+  return "customer";
+}
+
+function supportChannel(role: string) {
+  if (role === "TAILOR") return "tailor-pickup-updates-v2";
+  if (role === "DELIVERY_PARTNER") return "delivery-updates-v2";
+  return "customer-orders-v2";
+}
 
 const tailorProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
@@ -1405,11 +1421,41 @@ export async function createReviewController(req: Request, res: Response) {
   res.status(201).json({ data: review });
 }
 
+export async function listMyTailorReviewsController(req: Request, res: Response) {
+  const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id");
+  if (!tailor) throw new AppError(404, "Tailor profile not found");
+
+  const [orders, ownQuotes] = await Promise.all([
+    OrderModel.find({ tailorId: tailor.id }).select("_id"),
+    TailorQuoteModel.find({ tailorId: tailor.id }).select("_id")
+  ]);
+  const selectedRequests = ownQuotes.length
+    ? await TailoringRequestModel.find({ selectedQuoteId: { $in: ownQuotes.map((quote) => quote.id) } }).select("_id")
+    : [];
+  const orderIds = [...new Set([
+    ...orders.map((order) => order.id),
+    ...selectedRequests.map((request) => request.id)
+  ])];
+  const reviews = orderIds.length
+    ? await ReviewModel.find({ kind: "tailor", orderId: { $in: orderIds } }).sort({ createdAt: -1 })
+    : [];
+
+  res.json({
+    data: reviews.map((review) => ({
+      id: review.id,
+      rating: review.rating,
+      comment: String(review.comment ?? "").replace(/^Tailor:\s*/i, "").trim(),
+      createdAt: review.createdAt
+    }))
+  });
+}
+
 export async function createSupportTicketController(req: Request, res: Response) {
   const input = supportTicketSchema.parse(req.body);
+  const userRole = req.user!.role;
 
   // Anti-Spam: 30 seconds cooldown between any ticket submissions
-  const lastTicket = await SupportTicketModel.findOne({ userId: req.user!.id }).sort({ createdAt: -1 });
+  const lastTicket = await SupportTicketModel.findOne({ userId: req.user!.id, userRole }).sort({ createdAt: -1 });
   if (lastTicket && (Date.now() - new Date(lastTicket.createdAt).getTime() < 30 * 1000)) {
     res.status(429).json({ message: "Please wait 30 seconds before opening another support ticket." });
     return;
@@ -1418,6 +1464,7 @@ export async function createSupportTicketController(req: Request, res: Response)
   // Anti-Spam: Redirect to existing active ticket if category/order is the same
   const query: any = {
     userId: req.user!.id,
+    userRole,
     status: { $in: ["OPEN", "IN_PROGRESS"] }
   };
   if (input.orderId) query.orderId = input.orderId;
@@ -1446,6 +1493,7 @@ export async function createSupportTicketController(req: Request, res: Response)
   const ticket = await SupportTicketModel.create({
     ...input,
     userId: req.user!.id,
+    userRole,
     messages: [initialMessage]
   });
   res.status(201).json({ data: ticket });
@@ -1460,7 +1508,10 @@ export async function updateSupportTicketController(req: Request, res: Response)
     assignedTo: z.string().optional().nullable()
   }).parse(req.body);
 
-  const ticket = await SupportTicketModel.findById(id);
+  const isAdmin = isSupportAdmin(req.user!.role);
+  const ticket = isAdmin
+    ? await SupportTicketModel.findById(id)
+    : await SupportTicketModel.findOne({ _id: id, userId: req.user!.id, userRole: req.user!.role });
   if (!ticket) {
     res.status(404).json({ message: "Ticket not found" });
     return;
@@ -1529,18 +1580,13 @@ export async function updateSupportTicketController(req: Request, res: Response)
     try {
       const user = await UserModel.findById(ticket.userId);
       if (user) {
-        let channelId = "customer-orders-v2";
-        if (user.role === "TAILOR") {
-          channelId = "tailor-pickup-updates-v2";
-        } else if (user.role === "DELIVERY_PARTNER") {
-          channelId = "delivery-updates-v2";
-        }
+        const recipientRole = String(ticket.userRole ?? "CUSTOMER");
 
         await sendPushToUsers([ticket.userId], {
           title: "New Support Reply",
           body: update.adminResponse,
-          channelId,
-          targetApps: [user.role.toLowerCase()],
+          channelId: supportChannel(recipientRole),
+          targetApps: [supportClientApp(recipientRole)],
           data: { type: "support" }
         });
       }
@@ -1553,8 +1599,8 @@ export async function updateSupportTicketController(req: Request, res: Response)
 }
 
 export async function listSupportTicketsController(req: Request, res: Response) {
-  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
-  const where = isAdmin ? {} : { userId: req.user!.id };
+  const isAdmin = isSupportAdmin(req.user!.role);
+  const where = isAdmin ? {} : { userId: req.user!.id, userRole: req.user!.role };
   const tickets = await SupportTicketModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
     tickets.map(async (ticket) => {
@@ -1899,13 +1945,14 @@ export async function createBugReportController(req: Request, res: Response) {
   const bug = await BugReportModel.create({
     ...input,
     userId: req.user!.id,
+    userRole: req.user!.role,
     messages: [initialMessage]
   });
   res.status(201).json({ data: bug });
 }
 
 export async function listBugReportsController(req: Request, res: Response) {
-  const where = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN" ? {} : { userId: req.user!.id };
+  const where = isSupportAdmin(req.user!.role) ? {} : { userId: req.user!.id, userRole: req.user!.role };
   const bugs = await BugReportModel.find(where).sort({ createdAt: -1 });
   const data = await Promise.all(
     bugs.map(async (bug) => ({
@@ -2315,13 +2362,15 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
     isInternal: z.boolean().optional().default(false)
   }).parse(req.body);
 
-  const ticket = await SupportTicketModel.findById(id);
+  const isAdmin = isSupportAdmin(req.user!.role);
+  const ticket = isAdmin
+    ? await SupportTicketModel.findById(id)
+    : await SupportTicketModel.findOne({ _id: id, userId: req.user!.id, userRole: req.user!.role });
   if (!ticket) {
     res.status(404).json({ message: "Ticket not found" });
     return;
   }
 
-  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
@@ -2367,7 +2416,7 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
   if (updatedTicket) {
     // Emit to the ticket owner (customer) — skip internal notes
     if (senderRole !== "internal") {
-      emitToCustomer(ticket.userId, "support:ticket_updated", { ticket: updatedTicket });
+      emitToUserRole(ticket.userId, String(ticket.userRole), "support:ticket_updated", { ticket: updatedTicket });
     }
     // Broadcast to all admins so their queues update live
     emitToAdmins("support:ticket_updated", { ticket: updatedTicket });
@@ -2378,14 +2427,12 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
     try {
       const pushUser = await UserModel.findById(ticket.userId);
       if (pushUser) {
-        let channelId = "customer-orders-v2";
-        if (pushUser.role === "TAILOR") channelId = "tailor-pickup-updates-v2";
-        else if (pushUser.role === "DELIVERY_PARTNER") channelId = "delivery-updates-v2";
+        const recipientRole = String(ticket.userRole ?? "CUSTOMER");
         await sendPushToUsers([ticket.userId], {
           title: "New Message from Support",
           body: input.text,
-          channelId,
-          targetApps: [pushUser.role.toLowerCase()],
+          channelId: supportChannel(recipientRole),
+          targetApps: [supportClientApp(recipientRole)],
           data: { type: "support" }
         });
       }
@@ -2410,13 +2457,15 @@ export async function addBugReportMessageController(req: Request, res: Response)
     isInternal: z.boolean().optional().default(false)
   }).parse(req.body);
 
-  const bug = await BugReportModel.findById(id);
+  const isAdmin = isSupportAdmin(req.user!.role);
+  const bug = isAdmin
+    ? await BugReportModel.findById(id)
+    : await BugReportModel.findOne({ _id: id, userId: req.user!.id, userRole: req.user!.role });
   if (!bug) {
     res.status(404).json({ message: "Bug report not found" });
     return;
   }
 
-  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
@@ -2445,7 +2494,7 @@ export async function addBugReportMessageController(req: Request, res: Response)
   if (updatedBug) {
     emitToAdmins("support:bug_updated", { bug: updatedBug });
     if (senderRole !== "internal") {
-      emitToCustomer(bug.userId, "support:bug_updated", { bug: updatedBug });
+      emitToUserRole(bug.userId, String(bug.userRole), "support:bug_updated", { bug: updatedBug });
     }
   }
 
@@ -2454,14 +2503,12 @@ export async function addBugReportMessageController(req: Request, res: Response)
     try {
       const pushUser = await UserModel.findById(bug.userId);
       if (pushUser) {
-        let channelId = "customer-orders-v2";
-        if (pushUser.role === "TAILOR") channelId = "tailor-pickup-updates-v2";
-        else if (pushUser.role === "DELIVERY_PARTNER") channelId = "delivery-updates-v2";
+        const recipientRole = String(bug.userRole ?? "CUSTOMER");
         await sendPushToUsers([bug.userId], {
           title: "New Message from Support",
           body: input.text,
-          channelId,
-          targetApps: [pushUser.role.toLowerCase()],
+          channelId: supportChannel(recipientRole),
+          targetApps: [supportClientApp(recipientRole)],
           data: { type: "bug" }
         });
       }

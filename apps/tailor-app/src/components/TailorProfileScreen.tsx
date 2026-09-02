@@ -30,6 +30,7 @@ const avatarImages = {
   tannedMale2: require("../../assets/icons/tanned_male_2.png"),
   tannedUncle: require("../../assets/icons/tanned_uncle.png")
 } as const;
+const tailorAppLogo = require("../../app-icon.png");
 type AvatarPreset = keyof typeof avatarImages;
 const avatarOptions: Array<{ key: AvatarPreset; label: string }> = [
   { key: "boy", label: "Boy" },
@@ -136,7 +137,7 @@ type MeResponse = {
   tailorProfile?: TailorProfile;
 };
 type Order = { id: string; status: string; totalAmount: number | string; createdAt?: string; tailorRating?: number; rating?: number; review?: { rating?: number } };
-type SupportScreen = "faqs" | "chat" | "call" | "email" | "complaint" | "bug" | "feature" | "privacy" | "terms" | "cancellation" | "version" | "about" | "support_center" | "requests";
+type SupportScreen = "faqs" | "reviews" | "chat" | "call" | "email" | "complaint" | "bug" | "feature" | "privacy" | "terms" | "cancellation" | "version" | "about" | "support_center" | "requests";
 
 type Props = {
   me?: MeResponse;
@@ -196,6 +197,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [sampleDrafts, setSampleDrafts] = useState<Array<{ uri: string; name: string }>>([]);
 
   const [supportScreen, setSupportScreen] = useState<SupportScreen>();
+  const [selectedFaqIndex, setSelectedFaqIndex] = useState<number>();
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingSamples, setUploadingSamples] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
@@ -225,6 +227,14 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
     showDialog({ title: t(nextLanguage, "languageUpdated"), message: t(nextLanguage, "languageUpdatedMessage"), icon: "checkmark-circle-outline" });
+  }
+
+  function handleSupportBack() {
+    if (supportScreen === "faqs" && selectedFaqIndex != null) {
+      setSelectedFaqIndex(undefined);
+      return;
+    }
+    setSupportScreen(undefined);
   }
 
   useEffect(() => {
@@ -314,7 +324,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       setShopChangeRequest("");
       showDialog({
         title: "Request Submitted!",
-        message: "Your shop details change request has been sent for admin approval.\n\nOur team will review it and get back to you soon.",
+        message: "Your shop details change request has been sent for approval.\n\nOur team will review it and get back to you soon.",
         icon: "paper-plane-outline",
         variant: "requestSuccess"
       });
@@ -346,7 +356,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         })
       }, token);
       setBankChangeRequest("");
-      showDialog({ title: "Request Submitted", message: "Your bank account details change request has been sent for admin approval.", icon: "checkmark-circle-outline" });
+      showDialog({ title: "Request Submitted", message: "Your bank account details change request has been sent for approval.", icon: "checkmark-circle-outline" });
       setShowBankDetails(false);
     } catch (e) {
       showDialog({ title: "Failed", message: "Could not submit request. Please try again.", icon: "alert-circle-outline" });
@@ -389,7 +399,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       setUploadingSamples(true);
       await uploadTailorSamples(sampleDrafts, token);
       setSampleDrafts([]);
-      showDialog({ title: "Samples submitted", message: "Your sample photos were sent for admin verification.", icon: "checkmark-circle-outline" });
+      showDialog({ title: "Samples submitted", message: "Your sample photos were sent for verification.", icon: "checkmark-circle-outline" });
       refresh();
     } catch (error) {
       if (isSessionError(error)) return onSessionExpired();
@@ -501,7 +511,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionHint}>Add up to 5 sample photos. Customers will only see photos after admin approval.</Text>
+              <Text style={styles.sectionHint}>Add up to 5 sample photos. Customers will only see photos after approval.</Text>
               <Pressable style={styles.sampleUploadButtonWide} onPress={pickSamplePhotos} disabled={uploadingSamples}>
                 <Ionicons name="images-outline" size={18} color="#111111" />
                 <Text style={styles.primaryButtonText}>Add Photos</Text>
@@ -696,7 +706,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       <Section title={t(language, "performance")} icon="bar-chart-outline" styles={styles}>
         <InfoRow icon="wallet-outline" title={t(language, "earnings")} value={t(language, "transactionHistoryPayouts")} styles={styles} onPress={onOpenTransactions} noBorder />
         <InfoRow icon="cube-outline" title={t(language, "orderHistory")} value={language === "hi" ? `${completedOrders} पूरे, ${activeOrders} प्रगति पर` : `${completedOrders} completed, ${activeOrders} in progress`} styles={styles} onPress={onOpenOrders} />
-        <InfoRow icon="star-outline" title="Average Rating & Reviews" value={`${averageRating ? averageRating.toFixed(1) : "0.0"} rating (${ratingCount} reviews)`} styles={styles} onPress={() => showDialog({ title: "Average Rating & Reviews", message: `Your average customer rating is ${averageRating ? averageRating.toFixed(1) : "0.0"} based on ${ratingCount} customer reviews.`, icon: "star-outline" })} />
+        <InfoRow icon="star-outline" title="Customer Reviews" value={`${averageRating ? averageRating.toFixed(1) : "0.0"} rating (${ratingCount} reviews)`} styles={styles} onPress={() => setSupportScreen("reviews")} />
       </Section>
 
       <Section title={t(language, "preferences")} icon="options-outline" styles={styles}>
@@ -709,7 +719,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Section title={t(language, "support")} icon="help-circle-outline" styles={styles}>
-        <InfoRow icon="help-buoy-outline" title="FAQs" value={language === "hi" ? "आम सवालों के जवाब" : "Find quick answers to common questions"} styles={styles} onPress={() => setSupportScreen("faqs")} noBorder />
+        <InfoRow icon="help-buoy-outline" title="FAQs" value={language === "hi" ? "आम सवालों के जवाब" : "Find quick answers to common questions"} styles={styles} onPress={() => { setSelectedFaqIndex(undefined); setSupportScreen("faqs"); }} noBorder />
         <InfoRow icon="chatbubble-outline" title={t(language, "supportCenter")} value={language === "hi" ? "चैट, कॉल या अकाउंट बदलाव के लिए सहायता लें" : "Chat, call, or request account updates"} styles={styles} onPress={() => setSupportScreen("support_center")} />
         <InfoRow icon="bug-outline" title="Report a Bug" value="Found an issue? Let us know" styles={styles} onPress={() => setSupportScreen("bug")} />
       </Section>
@@ -717,7 +727,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
         <InfoRow icon="information-circle-outline" title={t(language, "aboutDarji")} value={language === "hi" ? "Darji Tailor Partner ऐप के बारे में जानें" : "Learn about Darji Tailor Partner app"} styles={styles} onPress={() => setSupportScreen("about")} noBorder />
         <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "जानें आपकी निजी जानकारी कैसे सुरक्षित रखी जाती है" : "How your personal data is handled"} styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of service agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
+        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of use agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
@@ -741,7 +751,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         />
       </Section>
     </ScrollView>
-    <Modal visible={Boolean(supportScreen)} onRequestClose={() => setSupportScreen(undefined)} animationType="slide">
+    <Modal visible={Boolean(supportScreen)} onRequestClose={handleSupportBack} animationType="slide">
       {supportScreen === "support_center" ? (
         <TailorSupportCenterScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen === "chat" ? (
@@ -750,9 +760,20 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         <TailorAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen === "bug" ? (
         <TailorBugReportScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
+      ) : supportScreen === "reviews" ? (
+        <TailorReviewsScreen token={token} styles={styles} palette={palette} onBack={() => setSupportScreen(undefined)} />
+      ) : supportScreen === "faqs" ? (
+        <TailorFaqScreen
+          styles={styles}
+          palette={palette}
+          onBack={() => setSupportScreen(undefined)}
+          openSupportCenter={() => setSupportScreen("support_center")}
+          selectedFaqIndex={selectedFaqIndex}
+          setSelectedFaqIndex={setSelectedFaqIndex}
+        />
       ) : supportScreen ? (
         <SupportDetailScreen
-          screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests">}
+          screen={supportScreen as Exclude<SupportScreen, "support_center" | "requests" | "reviews" | "faqs">}
           styles={styles}
           palette={palette}
           onBack={() => setSupportScreen(undefined)}
@@ -901,10 +922,135 @@ function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { ic
   );
 }
 
-function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, openSupportCenter }: { screen: Exclude<SupportScreen, "support_center" | "requests">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; showDialog: (dialog: DialogState) => void; openSupportCenter: () => void }) {
-  if (screen === "faqs") {
-    return <TailorFaqScreen styles={styles} palette={palette} onBack={onBack} openSupportCenter={openSupportCenter} />;
-  }
+function TailorReviewsScreen({ token, styles, palette, onBack }: { token?: string; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
+  const [reviews, setReviews] = useState<Array<{ id: string; rating: number; comment?: string; createdAt?: string }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    if (!token) {
+      setLoading(false);
+      return () => { active = false; };
+    }
+    api<Array<{ id: string; rating: number; comment?: string; createdAt?: string }>>("/tailors/me/reviews", {}, token)
+      .then((items) => { if (active) setReviews(items); })
+      .catch(() => { if (active) setReviews([]); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [token]);
+
+  const average = reviews.length ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length : 0;
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.detailHeader}>
+        <Pressable style={styles.backButton} onPress={onBack}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>Customer Reviews</Text>
+          <Text style={styles.meta}>Anonymous feedback from your completed orders</Text>
+        </View>
+      </View>
+      <View style={styles.reviewOverview}>
+        <Text style={styles.reviewAverage}>{average ? average.toFixed(1) : "0.0"}</Text>
+        <View style={styles.reviewOverviewCopy}>
+          <View style={styles.reviewStarsRow}>
+            {[1, 2, 3, 4, 5].map((star) => <Ionicons key={star} name={star <= Math.round(average) ? "star" : "star-outline"} size={18} color={BRAND_ORANGE} />)}
+          </View>
+          <Text style={styles.meta}>{reviews.length} customer review{reviews.length === 1 ? "" : "s"}</Text>
+        </View>
+      </View>
+      {loading ? <ActivityIndicator style={{ marginTop: 32 }} color={BRAND_ORANGE} /> : null}
+      {!loading && reviews.length === 0 ? (
+        <View style={styles.reviewsEmpty}>
+          <Ionicons name="chatbubble-ellipses-outline" size={30} color={BRAND_ORANGE} />
+          <Text style={styles.rowTitle}>No reviews yet</Text>
+          <Text style={styles.rowCopy}>Customer feedback will appear here after completed orders.</Text>
+        </View>
+      ) : null}
+      {reviews.map((review) => (
+        <View key={review.id} style={styles.anonymousReview}>
+          <View style={styles.anonymousReviewHeader}>
+            <View style={styles.reviewStarsRow}>
+              {[1, 2, 3, 4, 5].map((star) => <Ionicons key={star} name={star <= review.rating ? "star" : "star-outline"} size={15} color={BRAND_ORANGE} />)}
+            </View>
+            <Text style={styles.reviewDate}>{review.createdAt ? new Date(review.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : ""}</Text>
+          </View>
+          <Text style={styles.reviewComment}>{review.comment || "The customer left a star rating without a written review."}</Text>
+          <Text style={styles.reviewPrivacy}>Customer identity is hidden</Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+function TailorAboutScreen({ styles, palette, onBack }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
+  const promises: Array<[IconName, string]> = [
+    ["people-outline", "Local customers"],
+    ["resize-outline", "Measurement visits"],
+    ["cube-outline", "Doorstep logistics"],
+    ["wallet-outline", "Tracked payouts"]
+  ];
+  const journey: Array<[IconName, string, string]> = [
+    ["notifications-outline", "Receive a request", "Review the garment, timeline, photos, and customer instructions."],
+    ["pricetag-outline", "Send your price", "Offer a clear price and realistic completion time."],
+    ["cut-outline", "Stitch with confidence", "Track pickup, proof photos, measurements, and work status in one place."],
+    ["checkmark-circle-outline", "Complete and earn", "Mark the garment ready and follow the payout in your wallet."]
+  ];
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.detailHeader}>
+        <Pressable style={styles.backButton} onPress={onBack}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>About Darji</Text>
+          <Text style={styles.meta}>The Darji Tailor Partner ecosystem</Text>
+        </View>
+      </View>
+      <View style={styles.aboutHero}>
+        <Image source={tailorAppLogo} style={styles.aboutLogo} resizeMode="contain" />
+        <Text style={styles.aboutTagline}>Great tailoring, connected to more customers.</Text>
+        <Text style={styles.aboutHeroCopy}>Darji helps skilled local tailors manage requests, measurements, doorstep logistics, and earnings from one trusted workspace.</Text>
+      </View>
+      <View style={styles.section}>
+        <View style={styles.aboutSectionHeader}>
+          <View style={styles.detailIcon}><Ionicons name="locate-outline" size={24} color={BRAND_ORANGE} /></View>
+          <Text style={styles.aboutSectionTitle}>Our mission</Text>
+        </View>
+        <Text style={styles.detailCopy}>Make custom clothing easier to access while giving independent tailors the tools and reach to grow a dependable business.</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.aboutSectionTitle}>How partnership works</Text>
+        <View style={styles.aboutJourney}>
+          {journey.map(([icon, title, copy]) => (
+            <View key={title} style={styles.aboutJourneyRow}>
+              <View style={styles.aboutJourneyIcon}><Ionicons name={icon} size={18} color={BRAND_ORANGE} /></View>
+              <View style={styles.rowMain}>
+                <Text style={styles.rowTitle}>{title}</Text>
+                <Text style={styles.rowCopy}>{copy}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.aboutSectionTitle}>The Darji partner promise</Text>
+        <View style={styles.aboutPromiseGrid}>
+          {promises.map(([icon, label]) => (
+            <View key={label} style={styles.aboutPromiseItem}>
+              <Ionicons name={icon} size={22} color={BRAND_ORANGE} />
+              <Text style={styles.aboutPromiseText}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, openSupportCenter }: { screen: Exclude<SupportScreen, "support_center" | "requests" | "reviews" | "faqs">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; showDialog: (dialog: DialogState) => void; openSupportCenter: () => void }) {
+  if (screen === "about") return <TailorAboutScreen styles={styles} palette={palette} onBack={onBack} />;
   const detail = supportDetails[screen];
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -945,14 +1091,14 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, open
   );
 }
 
-function TailorFaqScreen({ styles, palette, onBack, openSupportCenter }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; openSupportCenter: () => void }) {
-  const [selectedFaq, setSelectedFaq] = useState<(typeof tailorFaqs)[number]>();
+function TailorFaqScreen({ styles, palette, onBack, openSupportCenter, selectedFaqIndex, setSelectedFaqIndex }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; openSupportCenter: () => void; selectedFaqIndex?: number; setSelectedFaqIndex: (index?: number) => void }) {
+  const selectedFaq = selectedFaqIndex == null ? undefined : tailorFaqs[selectedFaqIndex];
 
   if (selectedFaq) {
     return (
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.detailHeader}>
-          <Pressable style={styles.backButton} onPress={() => setSelectedFaq(undefined)}>
+          <Pressable style={styles.backButton} onPress={() => setSelectedFaqIndex(undefined)}>
             <Ionicons name="chevron-back" size={22} color={palette.text} />
           </Pressable>
           <View style={styles.rowMain}>
@@ -1000,7 +1146,7 @@ function TailorFaqScreen({ styles, palette, onBack, openSupportCenter }: { style
           </View>
         </View>
         {tailorFaqs.map((faq, index) => (
-          <Pressable key={faq.title} style={[styles.faqRow, index === 0 ? styles.faqFirstRow : null]} onPress={() => setSelectedFaq(faq)}>
+          <Pressable key={faq.title} style={[styles.faqRow, index === 0 ? styles.faqFirstRow : null]} onPress={() => setSelectedFaqIndex(index)}>
             <View style={styles.faqIcon}><Ionicons name={faq.icon} size={17} color={BRAND_ORANGE} /></View>
             <View style={styles.rowMain}>
               <Text style={styles.faqTitle}>{faq.title}</Text>
@@ -1522,7 +1668,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                 <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                   {[
-                    { label: "Quote Issue", icon: "create-outline" },
+                    { label: "Price Request Issue", icon: "create-outline" },
                     { label: "Order Delay", icon: "time-outline" },
                     { label: "Material Issue", icon: "shirt-outline" },
                     { label: "Payment Issue", icon: "card-outline" },
@@ -1791,7 +1937,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim(),
-          screenshotUrl,
+          screenshot: screenshotUrl,
           deviceInfo: deviceOsLabel,
           appVersion: "0.1.0 (Dev Build)"
         })
@@ -1834,10 +1980,23 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
         <View style={styles.inputBlock}>
           <Text style={styles.inputLabel}>Add screenshot (optional)</Text>
           <Text style={styles.inputHint}>You can add a screenshot to help us understand</Text>
-          <Pressable style={styles.bugUploadBox} onPress={pickScreenshot}>
-            <Ionicons name="cloud-upload-outline" size={20} color={BRAND_ORANGE} />
-            <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" }}>{screenshot ? "Screenshot added" : "Upload screenshot"}</Text>
-          </Pressable>
+          {screenshot ? (
+            <View style={styles.bugScreenshotPreview}>
+              <Image source={{ uri: screenshot.uri }} style={styles.bugScreenshotImage} resizeMode="cover" />
+              <Pressable accessibilityRole="button" accessibilityLabel="Remove screenshot" style={styles.bugScreenshotRemove} onPress={() => setScreenshot(undefined)}>
+                <Ionicons name="trash-outline" size={17} color="#ffffff" />
+              </Pressable>
+              <Pressable accessibilityRole="button" style={styles.bugScreenshotReplace} onPress={pickScreenshot}>
+                <Ionicons name="images-outline" size={16} color={BRAND_ORANGE} />
+                <Text style={styles.bugScreenshotReplaceText}>Replace screenshot</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable style={styles.bugUploadBox} onPress={pickScreenshot}>
+              <Ionicons name="cloud-upload-outline" size={20} color={BRAND_ORANGE} />
+              <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" }}>Upload screenshot</Text>
+            </Pressable>
+          )}
         </View>
         <View style={styles.bugDeviceCard}>
           <InfoRow icon="phone-portrait-outline" title="Your device" value={deviceOsLabel} styles={styles} noBorder />
@@ -1937,6 +2096,7 @@ function SupportCenterCard({ icon, title, copy, badgeIcon, badgeText, badgeTone,
 }
 
 function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
+  const maxDocuments = 5;
   const [type, setType] = useState<"ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber">("ShopName");
   
   const [shopNameField, setShopNameField] = useState("");
@@ -1948,10 +2108,41 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   const [phoneField, setPhoneField] = useState("");
 
   const [documents, setDocuments] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingSource, setUploadingSource] = useState<"camera" | "gallery" | undefined>();
   const [submitting, setSubmitting] = useState(false);
 
+  async function uploadDocumentAssets(assets: ImagePicker.ImagePickerAsset[], source: "camera" | "gallery") {
+    if (!token) {
+      showDialog({ title: "Sign in required", message: "Please sign in again before uploading supporting photos.", icon: "log-in-outline" });
+      return;
+    }
+    const remaining = maxDocuments - documents.length;
+    if (remaining <= 0) {
+      showDialog({ title: "Photo limit reached", message: `You can attach up to ${maxDocuments} supporting photos.`, icon: "images-outline" });
+      return;
+    }
+    try {
+      setUploadingSource(source);
+      const files = assets.slice(0, remaining).map((asset, index) => ({
+        uri: asset.uri,
+        name: asset.fileName || `supporting-photo-${documents.length + index + 1}.jpg`
+      }));
+      const uploaded = await uploadTailorVerificationMedia(files, token);
+      if (uploaded.length) {
+        setDocuments((current) => [...current, ...uploaded.map((item) => item.url)].slice(0, maxDocuments));
+      }
+    } catch (error) {
+      showDialog({ title: "Upload failed", message: error instanceof Error ? error.message : "Could not upload the supporting photo.", icon: "alert-circle-outline" });
+    } finally {
+      setUploadingSource(undefined);
+    }
+  }
+
   async function pickDocumentImage() {
+    if (documents.length >= maxDocuments) {
+      showDialog({ title: "Photo limit reached", message: `You can attach up to ${maxDocuments} supporting photos.`, icon: "images-outline" });
+      return;
+    }
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       Alert.alert("Camera permission needed", "Allow camera access to take a live document photo.");
@@ -1962,18 +2153,28 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
       quality: 0.8
     });
     if (result.canceled || !result.assets.length) return;
-    try {
-      setUploading(true);
-      const asset = result.assets[0];
-      const uploaded = await uploadTailorVerificationMedia([{ uri: asset.uri, name: asset.fileName || "document.jpg" }], token);
-      if (uploaded.length) {
-        setDocuments((prev) => [...prev, uploaded[0].url]);
-      }
-    } catch (e) {
-      Alert.alert("Upload failed", "Could not upload document reference.");
-    } finally {
-      setUploading(false);
+    await uploadDocumentAssets(result.assets, "camera");
+  }
+
+  async function pickDocumentsFromGallery() {
+    const remaining = maxDocuments - documents.length;
+    if (remaining <= 0) {
+      showDialog({ title: "Photo limit reached", message: `You can attach up to ${maxDocuments} supporting photos.`, icon: "images-outline" });
+      return;
     }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Gallery permission needed", "Allow gallery access to select supporting photos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: remaining
+    });
+    if (result.canceled || !result.assets.length) return;
+    await uploadDocumentAssets(result.assets, "gallery");
   }
 
   async function handleSubmitRequest() {
@@ -2022,7 +2223,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
         })
       }, token);
 
-      Alert.alert("Request Submitted", "Your change request has been submitted for admin verification.");
+      Alert.alert("Request Submitted", "Your change request has been submitted for verification.");
       setShopNameField("");
       setAccountHolder("");
       setAccountNumber("");
@@ -2048,7 +2249,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
         </Pressable>
         <View style={styles.rowMain}>
           <Text style={styles.title}>Account Requests</Text>
-          <Text style={styles.meta}>Submit changes for admin approval</Text>
+          <Text style={styles.meta}>Submit changes for approval</Text>
         </View>
       </View>
 
@@ -2182,19 +2383,34 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
 
           {/* Document Uploads */}
           <View>
-            <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 8 }}>Supporting Documents / Photo Reference</Text>
+            <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 4 }}>Supporting Documents / Photo Reference</Text>
+            <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "700", marginBottom: 10 }}>Take a photo or select up to {maxDocuments} photos from your gallery.</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
               <Pressable
-                style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface }}
+                style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface, opacity: uploadingSource ? 0.6 : 1 }}
                 onPress={pickDocumentImage}
-                disabled={uploading}
+                disabled={Boolean(uploadingSource)}
               >
-                {uploading ? (
+                {uploadingSource === "camera" ? (
                   <ActivityIndicator color={BRAND_ORANGE} />
                 ) : (
                   <>
                     <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
-                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Add Doc</Text>
+                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Camera</Text>
+                  </>
+                )}
+              </Pressable>
+              <Pressable
+                style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface, opacity: uploadingSource ? 0.6 : 1 }}
+                onPress={pickDocumentsFromGallery}
+                disabled={Boolean(uploadingSource)}
+              >
+                {uploadingSource === "gallery" ? (
+                  <ActivityIndicator color={BRAND_ORANGE} />
+                ) : (
+                  <>
+                    <Ionicons name="images-outline" size={20} color={BRAND_ORANGE} />
+                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Gallery</Text>
                   </>
                 )}
               </Pressable>
@@ -2213,8 +2429,8 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
           </View>
 
           <Pressable
-            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting ? { opacity: 0.6 } : null]}
-            disabled={submitting}
+            style={[{ backgroundColor: BRAND_ORANGE, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 12 }, submitting || uploadingSource ? { opacity: 0.6 } : null]}
+            disabled={submitting || Boolean(uploadingSource)}
             onPress={handleSubmitRequest}
           >
             {submitting ? <ActivityIndicator color="#111111" /> : <Text style={{ color: "#111111", fontSize: 14, fontWeight: "900" }}>Submit Request</Text>}
@@ -2231,12 +2447,12 @@ const tailorFaqs: Array<{ title: string; preview: string; answer: string; icon: 
     preview: "New customer requests will appear in the Requests tab.",
     answer: "Customer requests appear in the Requests tab when a customer asks for stitching, alteration, or tailoring work in your service area.",
     icon: "clipboard-outline",
-    points: ["You will get an in-app alert when request notifications are enabled.", "Open the request to check clothing type, urgency, pickup details, and customer notes.", "Send a quote only when you can complete the work on time."]
+    points: ["You will get an in-app alert when request notifications are enabled.", "Open the request to check clothing type, urgency, pickup details, and customer notes.", "Send a price only when you can complete the work on time."]
   },
   {
     title: "When does an order move to Orders?",
-    preview: "Once the customer accepts your quote, the order will move to the Orders tab.",
-    answer: "A request becomes an assigned order only after the customer accepts your quote. After that, it moves from Requests to Orders.",
+    preview: "Once the customer accepts your price, the order will move to the Orders tab.",
+    answer: "A request becomes an assigned order only after the customer accepts your price. After that, it moves from Requests to Orders.",
     icon: "chatbox-ellipses-outline",
     points: ["Accepted orders appear under the Accepted tab first.", "Use Ready to Deliver only when stitching is finished and required photos are uploaded.", "Past and cancelled work can be checked from History and Cancelled."]
   },
@@ -2257,7 +2473,7 @@ const tailorFaqs: Array<{ title: string; preview: string; answer: string; icon: 
   {
     title: "Can I edit my shop details?",
     preview: "Yes, you can request changes to your shop details from the Shop Details section.",
-    answer: "Verified shop details are protected, so changes are sent as a request for admin review instead of changing instantly.",
+    answer: "Verified shop details are protected, so changes are sent for review instead of changing instantly.",
     icon: "create-outline",
     points: ["Open Profile, then Shop Details.", "Write what should change, such as address, category, capacity, or shop name.", "Darji support will review the request and update approved details."]
   },
@@ -2271,13 +2487,13 @@ const tailorFaqs: Array<{ title: string; preview: string; answer: string; icon: 
   }
 ];
 
-const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests">, { title: string; subtitle: string; icon: IconName; copy: string; points: string[]; action?: { label: string; url?: string } }> = {
+const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests" | "reviews">, { title: string; subtitle: string; icon: IconName; copy: string; points: string[]; action?: { label: string; url?: string } }> = {
   faqs: {
     title: "FAQs",
     subtitle: "Common tailor questions",
     icon: "help-buoy-outline",
     copy: "Quick answers for daily app use.",
-    points: ["New customer requests appear in Requests.", "Accepted quotes appear in Orders.", "Mark work as Ready only after stitching and proof photos are uploaded."]
+    points: ["New customer requests appear in Requests.", "Accepted prices appear in Orders.", "Mark work as Ready only after stitching and proof photos are uploaded."]
   },
   chat: {
     title: "Chat Support",
@@ -2332,7 +2548,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     points: ["Customer personal details are hidden unless required for delivery.", "Proof photos are linked to orders for dispute checks.", "Do not save or share customer data outside Darji."]
   },
   terms: {
-    title: "Terms of Service",
+    title: "Terms of Use",
     subtitle: "Tailor partner terms",
     icon: "reader-outline",
     copy: "These terms explain expected app use and order handling.",
@@ -2359,7 +2575,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     copy: "Darji is a modern custom tailoring ecosystem connecting expert tailors with design-conscious customers.",
     points: [
       "Expand your local customer reach.",
-      "Accept orders and provide price quotes digitally.",
+      "Accept orders and provide prices digitally.",
       "Track materials collection and finished garment delivery via our delivery partners.",
       "Receive guaranteed, secure payouts for completed stitching jobs."
     ]
@@ -2452,6 +2668,28 @@ function createStyles(palette: typeof lightPalette) {
     metricValue: { color: BRAND_ORANGE, fontSize: 16, fontWeight: "900" },
     reviewSummary: { minHeight: 70, borderRadius: 16, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border, flexDirection: "row", alignItems: "center", gap: 14, padding: 13, marginTop: 6, marginBottom: 10 },
     rating: { color: BRAND_ORANGE, fontSize: 32, fontWeight: "900" },
+    reviewOverview: { minHeight: 92, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 18, marginBottom: 14 },
+    reviewAverage: { color: palette.text, fontSize: 36, lineHeight: 42, fontWeight: "900" },
+    reviewOverviewCopy: { flex: 1, gap: 6 },
+    reviewStarsRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+    reviewsEmpty: { minHeight: 180, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: palette.border, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 8, padding: 20 },
+    anonymousReview: { borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 15, marginBottom: 10 },
+    anonymousReviewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+    reviewDate: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "800" },
+    reviewComment: { color: palette.text, fontSize: 14, lineHeight: 21, fontWeight: "700", marginTop: 12 },
+    reviewPrivacy: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "800", marginTop: 12 },
+    aboutHero: { alignItems: "center", borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 20, paddingVertical: 24, marginBottom: 14 },
+    aboutLogo: { width: 84, height: 84, borderRadius: 18 },
+    aboutTagline: { maxWidth: 300, color: palette.text, fontSize: 21, lineHeight: 27, fontWeight: "900", textAlign: "center", marginTop: 14 },
+    aboutHeroCopy: { maxWidth: 330, color: palette.muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 10 },
+    aboutSectionHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+    aboutSectionTitle: { color: palette.text, fontSize: 17, lineHeight: 22, fontWeight: "900", marginBottom: 12 },
+    aboutJourney: { gap: 2 },
+    aboutJourneyRow: { minHeight: 74, flexDirection: "row", alignItems: "flex-start", gap: 12, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 12 },
+    aboutJourneyIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
+    aboutPromiseGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+    aboutPromiseItem: { minWidth: 128, flexBasis: "46%", flexGrow: 1, minHeight: 72, borderRadius: 14, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center", gap: 7, padding: 10 },
+    aboutPromiseText: { color: palette.text, fontSize: 11, lineHeight: 15, fontWeight: "900", textAlign: "center" },
     smallIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     detailHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
     backButton: { width: 44, height: 44, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" },
@@ -2497,6 +2735,11 @@ function createStyles(palette: typeof lightPalette) {
     bugTextArea: { minHeight: 120, textAlignVertical: "top", paddingTop: 13, paddingBottom: 28, backgroundColor: palette.surface, borderColor: "#dfe6ef" },
     bugCounter: { position: "absolute", right: 12, bottom: 10, color: palette.muted, fontSize: 10, fontWeight: "800" },
     bugUploadBox: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: palette.surface },
+    bugScreenshotPreview: { borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface },
+    bugScreenshotImage: { width: "100%", height: 190, backgroundColor: palette.surfaceAlt },
+    bugScreenshotRemove: { position: "absolute", top: 10, right: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(185,28,28,0.92)", alignItems: "center", justifyContent: "center" },
+    bugScreenshotReplace: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: palette.surface },
+    bugScreenshotReplaceText: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 16, fontWeight: "900" },
     bugDeviceCard: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 6, marginTop: 14, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     dangerModalBackdrop: { flex: 1, backgroundColor: "rgba(7,13,24,0.52)", justifyContent: "center", alignItems: "center", padding: 24 },
     dangerModalCard: { width: "100%", maxWidth: 330, backgroundColor: "#ffffff", borderRadius: 18, padding: 22, shadowColor: "#0b2241", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 10 },

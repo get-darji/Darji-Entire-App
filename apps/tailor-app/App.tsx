@@ -429,7 +429,8 @@ function stopMeasurementVisitAlert(visit?: { id?: string; requestId?: string }) 
 function formatStatus(status: string) {
   if (status === "READY") return "Ready to Deliver";
   if (status === "AT_TAILOR" || status === "WORKING") return "Working";
-  if (status === "QUOTE_ACCEPTED") return "Accepted";
+  if (status === "QUOTE_ACCEPTED") return "Price Accepted";
+  if (status === "QUOTE_REQUESTED") return "Price Requested";
   return status
     .split("_")
     .map((part) => part[0] + part.slice(1).toLowerCase())
@@ -513,10 +514,10 @@ function incomingPayloadFromTailoringRequest(request?: TailoringRequest): Incomi
       { icon: "person-outline", label: "Customer", value: request.customer?.name ?? "Customer" },
       { icon: "location-outline", label: "Pickup", value: request.pickupAddress },
       { icon: "navigate-outline", label: "Drop", value: "Tailor shop" },
-      { icon: "map-outline", label: "Distance", value: "Calculated after quote" },
+      { icon: "map-outline", label: "Distance", value: "Calculated after price submission" },
       { icon: "time-outline", label: "ETA", value: request.urgency },
-      { icon: "cash-outline", label: "Earnings", value: amount ? money(amount) : "Quote required" },
-      { icon: "receipt-outline", label: "Value", value: amount ? money(amount) : "Pending quote" },
+      { icon: "cash-outline", label: "Earnings", value: amount ? money(amount) : "Price required" },
+      { icon: "receipt-outline", label: "Value", value: amount ? money(amount) : "Pending price" },
       { icon: "flash-outline", label: "Type", value: request.urgency?.toUpperCase().includes("INSTANT") ? "INSTANT" : request.urgency?.toUpperCase().includes("EXPRESS") ? "EXPRESS" : "STANDARD" }
     ]
   };
@@ -571,7 +572,9 @@ function measurementStatus(item: TailoringRequestItem) {
 
 function orderFromAcceptedRequest(request: TailoringRequest): Order {
   let status = "QUOTE_ACCEPTED";
-  if (request.workStatus === "READY") {
+  if (request.status === "CANCELLED" || request.orderStatus === "cancelled") {
+    status = "CANCELLED";
+  } else if (request.workStatus === "READY") {
     status = "READY";
   } else if (request.workStatus === "WORKING") {
     status = "WORKING";
@@ -717,7 +720,7 @@ function AuthScreen() {
           <Image source={tailorAppIcon} resizeMode="contain" style={styles.authLogo} />
         </View>
         <Text style={styles.authTitle}>Darji Tailor</Text>
-        <Text style={styles.authCopy}>{localize(language, "Manage requests, quotes, stitching progress, and earnings from one workspace.", "अनुरोध, कोटेशन, सिलाई की प्रगति और कमाई एक ही जगह से संभालें।")}</Text>
+        <Text style={styles.authCopy}>{localize(language, "Manage requests, prices, stitching progress, and earnings from one workspace.", "अनुरोध, कीमत, सिलाई की प्रगति और कमाई एक ही जगह से संभालें।")}</Text>
         {!otpRequested ? (
           <>
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
@@ -807,7 +810,7 @@ function RequestCard({ request, onPress }: { request: TailoringRequest; onPress:
       <View style={styles.requestChipRow}>
         <Text style={[styles.urgencyPill, urgencyTone(request.urgency)]}>{request.urgency}</Text>
         {itemCount > 1 ? <Text style={styles.quotedPill}>{itemCount} items</Text> : null}
-        {request.ownQuote ? <Text style={styles.quotedPill}>Quoted</Text> : <StatusPill status={request.status} />}
+        {request.ownQuote ? <Text style={styles.quotedPill}>Price sent</Text> : <StatusPill status={request.status} />}
       </View>
       <Text style={styles.cardCopy} numberOfLines={2}>{request.description}</Text>
       <TimestampBadge label="Created" value={request.createdAt} />
@@ -972,6 +975,13 @@ function MeasurementVisitCard({
     }
   }
 
+  async function callCustomer() {
+    const phone = visit.customerPhone?.replace(/[^\d+]/g, "");
+    if (!phone) return;
+    const url = `tel:${phone}`;
+    if (await Linking.canOpenURL(url)) await Linking.openURL(url);
+  }
+
   return (
     <View style={styles.measureVisitCard}>
       <View style={styles.measureVisitHeader}>
@@ -1040,6 +1050,19 @@ function MeasurementVisitCard({
         </View>
       </View>
 
+      {canSubmit && visit.customerPhone ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Call customer at ${visit.customerPhone}`} style={styles.measureVisitPhoneButton} onPress={() => void callCustomer()}>
+          <View style={styles.measureVisitPhoneIcon}>
+            <Ionicons name="call-outline" size={17} color={SUCCESS} />
+          </View>
+          <View style={styles.measureVisitPhoneText}>
+            <Text style={styles.measureVisitLabel}>Customer phone</Text>
+            <Text style={styles.measureVisitPhoneValue}>{visit.customerPhone}</Text>
+          </View>
+          <Text style={styles.measureVisitPhoneAction}>Call</Text>
+        </Pressable>
+      ) : null}
+
       {canAccept ? (
         <View style={styles.measureVisitActions}>
           <Pressable style={[styles.measureVisitAcceptButton, saving && styles.disabledButton]} onPress={() => onAccept?.(visit)} disabled={saving}>
@@ -1065,7 +1088,9 @@ function DashboardScreen({
   requests,
   orders,
   measurementVisits,
+  measurementPartnerEnabled,
   onToggleMeasurementPartner,
+  changingMeasurementPartner,
   onOpenMeasurementRequests,
   setScreen,
   setActiveRequest,
@@ -1078,7 +1103,9 @@ function DashboardScreen({
   requests: TailoringRequest[];
   orders: Order[];
   measurementVisits: MeasurementVisit[];
+  measurementPartnerEnabled: boolean;
   onToggleMeasurementPartner: (value: boolean) => void | Promise<void>;
+  changingMeasurementPartner: boolean;
   onOpenMeasurementRequests: () => void;
   setScreen: (screen: Screen) => void;
   setActiveRequest: (request: TailoringRequest) => void;
@@ -1088,7 +1115,6 @@ function DashboardScreen({
   const newMeasurementVisits = measurementVisits.filter(isActionableMeasurementVisit);
   const todayMeasurementVisits = measurementVisits.filter((visit) => isActionableMeasurementVisit(visit) && isVisitToday(visit));
   const nearestAcceptedVisit = sortedMeasurementVisits(measurementVisits.filter(isActiveMeasurementVisit))[0];
-  const measurementEnabled = Boolean(me?.tailorProfile?.measurementPartner?.isEnabled);
   const readyOrders = orders.filter((order) => ["READY", "DELIVERED"].includes(order.status));
   const estimatedEarnings = readyOrders.reduce((sum, order) => sum + Number(order.totalAmount) * 0.45, 0);
   const shopTitle = me?.tailorProfile?.shopName?.trim() || "Your Workplace";
@@ -1114,6 +1140,7 @@ function DashboardScreen({
           />
         </View>
       </View>
+
       {!online ? (
         <View style={styles.offlineNotice}>
           <Ionicons name="moon-outline" size={18} color="#64748b" />
@@ -1158,7 +1185,10 @@ function DashboardScreen({
         </Pressable>
       </View>
 
-      <View style={styles.measureHomeCard}>
+      <View
+        pointerEvents={changingMeasurementPartner ? "none" : "auto"}
+        style={[styles.measureHomeCard, changingMeasurementPartner && styles.measurementAvailabilityUpdating]}
+      >
         <View style={styles.measureHomeTop}>
           <View style={styles.measureHomeIcon}>
             <Ionicons name="resize-outline" size={22} color={BRAND_ORANGE} />
@@ -1166,11 +1196,25 @@ function DashboardScreen({
           <View style={styles.measureHomeMain}>
             <Text style={styles.measureHomeEyebrow}>Measurement Partner</Text>
             <Text style={styles.measureHomeTitle}>Measurement Visits</Text>
-            <Text style={styles.measureHomeCopy} numberOfLines={1}>
-              {nearestAcceptedVisit ? `Next accepted: ${formatVisitDate(nearestAcceptedVisit.scheduledAt)}, ${formatVisitTime(nearestAcceptedVisit.scheduledAt)}` : "No accepted visits scheduled yet"}
+            <Text style={styles.measureHomeCopy}>
+              {changingMeasurementPartner
+                ? "Saving availability..."
+                : nearestAcceptedVisit
+                  ? `Next accepted: ${formatVisitDate(nearestAcceptedVisit.scheduledAt)}, ${formatVisitTime(nearestAcceptedVisit.scheduledAt)}`
+                  : "No accepted visits scheduled yet"}
             </Text>
           </View>
-          <Switch value={measurementEnabled} onValueChange={onToggleMeasurementPartner} thumbColor="#ffffff" trackColor={{ true: BRAND_ORANGE, false: "#dbe1e9" }} />
+          <View style={styles.measureHomeSwitchSlot}>
+            <Switch
+              value={measurementPartnerEnabled}
+              onValueChange={(value) => void onToggleMeasurementPartner(value)}
+              disabled={changingMeasurementPartner}
+              thumbColor="#ffffff"
+              trackColor={{ true: BRAND_ORANGE, false: "#dbe1e9" }}
+              accessibilityLabel="Measurement visit availability"
+              accessibilityState={{ checked: measurementPartnerEnabled, disabled: changingMeasurementPartner, busy: changingMeasurementPartner }}
+            />
+          </View>
         </View>
         <View style={styles.measureHomeStats}>
           <View style={styles.measureHomeStat}>
@@ -1231,6 +1275,7 @@ function RequestsScreen({
   requests,
   measurementVisits,
   initialTab,
+  onTabChange,
   tailorId,
   token,
   setScreen,
@@ -1241,6 +1286,7 @@ function RequestsScreen({
   requests: TailoringRequest[];
   measurementVisits: MeasurementVisit[];
   initialTab?: "stitching" | "measurement";
+  onTabChange?: (tab: "stitching" | "measurement") => void;
   tailorId?: string;
   token?: string | null;
   setScreen: (screen: Screen) => void;
@@ -1421,11 +1467,11 @@ function RequestsScreen({
         <Text style={styles.requestsSubtitle}>{tab === "stitching" ? `${filteredRequests.length} ${isSent ? "sent stitching requests" : "new stitching requests"}` : `${actionableVisits.length} measurement visits`}</Text>
       </View>
       <View style={styles.requestTypeTabs}>
-        <Pressable style={[styles.requestTypeTab, tab === "stitching" && styles.requestTypeTabActive]} onPress={() => setTab("stitching")}>
+        <Pressable style={[styles.requestTypeTab, tab === "stitching" && styles.requestTypeTabActive]} onPress={() => { setTab("stitching"); onTabChange?.("stitching"); }}>
           <Text style={[styles.requestTypeTabText, tab === "stitching" && styles.requestTypeTabTextActive]}>Stitching Requests</Text>
           <Text style={[styles.requestTypeCount, tab === "stitching" && styles.requestTypeCountActive]}>{requests.filter((request) => request.status === "QUOTE_REQUESTED" && !request.ownQuote).length}</Text>
         </Pressable>
-        <Pressable style={[styles.requestTypeTab, tab === "measurement" && styles.requestTypeTabActive]} onPress={() => setTab("measurement")}>
+        <Pressable style={[styles.requestTypeTab, tab === "measurement" && styles.requestTypeTabActive]} onPress={() => { setTab("measurement"); onTabChange?.("measurement"); }}>
           <Text style={[styles.requestTypeTabText, tab === "measurement" && styles.requestTypeTabTextActive]}>Measurement Visits</Text>
           <Text style={[styles.requestTypeCount, tab === "measurement" && styles.requestTypeCountActive]}>{actionableVisits.length}</Text>
         </Pressable>
@@ -1653,7 +1699,7 @@ function RequestsEmptyState({ sent }: { sent: boolean }) {
         <Ionicons name={sent ? "paper-plane-outline" : "briefcase-outline"} size={40} color={sent ? "#16a34a" : BRAND_ORANGE} />
       </View>
       <Text style={styles.requestsEmptyTitle}>{sent ? "No sent requests yet" : "No new requests yet"}</Text>
-      <Text style={styles.requestsEmptyCopy}>{sent ? "Quotes you have sent to customers will appear here." : "When customers send tailoring requests, they will show up here."}</Text>
+      <Text style={styles.requestsEmptyCopy}>{sent ? "Prices you have sent to customers will appear here." : "When customers send tailoring requests, they will show up here."}</Text>
     </View>
   );
 }
@@ -1821,7 +1867,10 @@ function RequestDetailsScreen({
   const [tileDetail, setTileDetail] = useState<{ label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string } | undefined>();
   const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | undefined>();
   const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
+  const [voicePlaybackStatus, setVoicePlaybackStatus] = useState({ currentTime: 0, duration: 0 });
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
+  const voiceStatusSubscriptionRef = useRef<{ remove: () => void } | undefined>(undefined);
+  const voiceWaveProgress = useRef(new Animated.Value(0)).current;
   const items = requestItems(request);
   const selectedItem = items[Math.min(selectedItemIndex, Math.max(items.length - 1, 0))] ?? items[0];
   const hasMultipleItems = items.length > 1;
@@ -1838,6 +1887,8 @@ function RequestDetailsScreen({
 
   const stopVoicePlayback = useCallback(() => {
     try {
+      voiceStatusSubscriptionRef.current?.remove();
+      voiceStatusSubscriptionRef.current = undefined;
       voicePlayerRef.current?.pause();
       voicePlayerRef.current?.release();
     } catch {
@@ -1846,12 +1897,25 @@ function RequestDetailsScreen({
     voicePlayerRef.current = undefined;
     setPlayingVoiceUrl(undefined);
     setVoicePlaybackPaused(false);
+    setVoicePlaybackStatus({ currentTime: 0, duration: 0 });
+    voiceWaveProgress.setValue(0);
   }, []);
 
-  const playVoiceNote = (voice: MediaItem) => {
+  function formatRequestVoiceTime(seconds: number) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+    const whole = Math.floor(seconds);
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+  }
+
+  async function playVoiceNote(voice: MediaItem) {
     try {
       if (voicePlayerRef.current && playingVoiceUrl === voice.url) {
         if (voicePlaybackPaused) {
+          if (voicePlaybackStatus.duration > 0 && voicePlaybackStatus.currentTime >= voicePlaybackStatus.duration - 0.15) {
+            await voicePlayerRef.current.seekTo(0);
+            setVoicePlaybackStatus({ currentTime: 0, duration: voicePlaybackStatus.duration });
+            voiceWaveProgress.setValue(0);
+          }
           voicePlayerRef.current.play();
           setVoicePlaybackPaused(false);
         } else {
@@ -1861,16 +1925,38 @@ function RequestDetailsScreen({
         return;
       }
       stopVoicePlayback();
-      const player = createAudioPlayer({ uri: voice.url });
+      const player = createAudioPlayer({ uri: voice.url }, { updateInterval: 100 });
       voicePlayerRef.current = player;
+      voiceWaveProgress.setValue(0);
       setPlayingVoiceUrl(voice.url);
       setVoicePlaybackPaused(false);
+      setVoicePlaybackStatus({ currentTime: 0, duration: 0 });
+      voiceStatusSubscriptionRef.current = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+        const duration = Math.max(0, Number(status.duration ?? 0));
+        const currentTime = Math.max(0, Number(status.currentTime ?? 0));
+        setVoicePlaybackStatus({ currentTime, duration });
+        voiceWaveProgress.setValue(duration > 0 ? Math.min(1, currentTime / duration) : 0);
+        if (status.didJustFinish) {
+          voiceWaveProgress.setValue(1);
+          setVoicePlaybackStatus({ currentTime: duration, duration });
+          setVoicePlaybackPaused(true);
+        }
+      });
       player.play();
     } catch (error) {
       stopVoicePlayback();
       showDialog({ title: "Playback failed", message: error instanceof Error ? error.message : "Could not play the voice note.", icon: "alert-circle-outline" });
     }
-  };
+  }
+
+  async function seekRequestVoiceNote(voice: MediaItem, locationX: number) {
+    const player = voicePlayerRef.current;
+    if (!player || playingVoiceUrl !== voice.url || voicePlaybackStatus.duration <= 0) return;
+    const nextTime = Math.max(0, Math.min(voicePlaybackStatus.duration, (locationX / 80) * voicePlaybackStatus.duration));
+    await player.seekTo(nextTime);
+    setVoicePlaybackStatus({ currentTime: nextTime, duration: voicePlaybackStatus.duration });
+    voiceWaveProgress.setValue(nextTime / voicePlaybackStatus.duration);
+  }
   const detailTiles = selectedItem ? [
     { bg: selectedGenderDetail.bg, color: selectedGenderDetail.color, icon: selectedGenderDetail.icon, label: "For", value: selectedGender || "Not specified" },
     { bg: "#f3e8ff", color: "#a855f7", icon: "shirt-outline" as const, label: "Garment", value: selectedItem.clothType || request.clothType || "Garment" },
@@ -2022,15 +2108,52 @@ function RequestDetailsScreen({
               <Text style={styles.notesTitle}>Voice Instructions</Text>
             </View>
             {voiceNotes.map((voice, index) => (
-              <Pressable key={voice.url} style={styles.voiceNoteRow} onPress={() => playVoiceNote(voice)}>
-                <View style={styles.voiceNotePlay}>
-                  <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={16} color="#111111" />
+              <View key={voice.url} style={styles.confirmedVoiceRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${playingVoiceUrl === voice.url && !voicePlaybackPaused ? "Pause" : "Play"} voice note ${index + 1}`}
+                  style={styles.confirmedVoicePlay}
+                  onPress={() => void playVoiceNote(voice)}
+                >
+                  <Ionicons name={playingVoiceUrl === voice.url && !voicePlaybackPaused ? "pause" : "play"} size={20} color="#ffffff" />
+                </Pressable>
+                <View style={styles.confirmedVoiceMain}>
+                  <Text style={styles.confirmedVoiceTitle}>Voice Note {index + 1}</Text>
+                  <View style={styles.confirmedVoiceScrubRow}>
+                    <Pressable
+                      accessibilityRole="adjustable"
+                      accessibilityLabel={`Seek voice note ${index + 1}`}
+                      style={styles.confirmedWaveform}
+                      onPress={(event) => void seekRequestVoiceNote(voice, event.nativeEvent.locationX)}
+                    >
+                      {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13].map((height, barIndex) => (
+                        <View key={`request-wave-base-${index}-${barIndex}`} style={[styles.confirmedWaveBar, { height, backgroundColor: "#d7dde7" }]} />
+                      ))}
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          styles.confirmedWaveProgress,
+                          {
+                            width: playingVoiceUrl === voice.url
+                              ? voiceWaveProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 80] })
+                              : 0
+                          }
+                        ]}
+                      >
+                        {[8, 12, 17, 10, 22, 14, 26, 18, 11, 20, 15, 23, 9, 18, 13].map((height, barIndex) => (
+                          <View key={`request-wave-progress-${index}-${barIndex}`} style={[styles.confirmedWaveBar, { height, backgroundColor: BRAND_ORANGE }]} />
+                        ))}
+                      </Animated.View>
+                    </Pressable>
+                    <Text style={styles.confirmedVoiceDuration}>
+                      {playingVoiceUrl === voice.url
+                        ? `${formatRequestVoiceTime(voicePlaybackStatus.currentTime)} / ${formatRequestVoiceTime(voicePlaybackStatus.duration)}`
+                        : "0:00"}
+                    </Text>
+                  </View>
+                  <Text style={styles.confirmedVoiceMeta} numberOfLines={1}>{voice.originalName ?? "Customer recording"}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.requestDetailValue}>Voice note {index + 1}</Text>
-                  <Text style={styles.mediaEmptyText}>{voice.originalName ?? "Customer recorded instructions"}</Text>
-                </View>
-              </Pressable>
+              </View>
             ))}
           </View>
         ) : null}
@@ -2140,7 +2263,7 @@ function RequestDetailsScreen({
                 <Ionicons name="checkmark-done-outline" size={28} color={SUCCESS} />
               </View>
               <View style={styles.cardMain}>
-                <Text style={styles.quoteSubmittedLabel}>Quote Submitted</Text>
+                <Text style={styles.quoteSubmittedLabel}>Price Sent</Text>
                 <Text style={styles.quoteSubmittedSub}>Waiting for customer response</Text>
               </View>
               <View style={styles.quoteStatusPill}>
@@ -2250,6 +2373,7 @@ function TileDetailSheet({
 function MediaViewer({ media, onClose, showDialog }: { media?: MediaItem | MediaViewerState; onClose: () => void; showDialog: (dialog: DialogState) => void }) {
   const [zoom, setZoom] = useState(1);
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const gallery = media && "items" in media ? media : media ? { items: [media], index: 0, title: media.resourceType === "video" ? "Video" : "Photo" } : undefined;
   const [activeIndex, setActiveIndex] = useState(gallery?.index ?? 0);
   const activeMedia = gallery?.items[activeIndex];
@@ -2277,7 +2401,8 @@ function MediaViewer({ media, onClose, showDialog }: { media?: MediaItem | Media
 
   return (
     <Modal visible={Boolean(gallery)} animationType="fade" onRequestClose={onClose}>
-      <SafeAreaView style={styles.mediaViewerSafe}>
+      <View style={[styles.mediaViewerSafe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <StatusBar barStyle="light-content" backgroundColor="#000000" translucent={false} />
         <View style={styles.mediaViewerHeader}>
           <View style={styles.mediaViewerTitleBlock}>
             <Text style={styles.mediaViewerTitle}>{galleryTitle}</Text>
@@ -2337,7 +2462,7 @@ function MediaViewer({ media, onClose, showDialog }: { media?: MediaItem | Media
             </Pressable>
           </View>
         )}
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -2385,12 +2510,12 @@ function QuoteScreen({
     const eta = Number(estimatedTime);
     if (!amount || amount <= 0 || amount > 99999 || !Number.isInteger(eta) || eta < quoteWindow.min || eta > quoteWindow.max) {
       showDialog({
-        title: "Check quote",
+        title: "Check price",
         message: amount > 99999
           ? "Enter a price up to 5 digits only (maximum Rs 99,999)."
           : quoteWindow.mode === "hours"
-            ? `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} hours.`
-            : `Enter a valid quote amount and a completion time from ${quoteWindow.min} to ${quoteWindow.max} day${quoteWindow.max === 1 ? "" : "s"}.`,
+            ? `Enter a valid price and a completion time from ${quoteWindow.min} to ${quoteWindow.max} hours.`
+            : `Enter a valid price and a completion time from ${quoteWindow.min} to ${quoteWindow.max} day${quoteWindow.max === 1 ? "" : "s"}.`,
         icon: "cash-outline"
       });
       return;
@@ -2407,14 +2532,14 @@ function QuoteScreen({
         })
       }, token);
       void playAppSound("confirmation");
-      showDialog({ title: "Quote sent", message: `Your quote for request ${shortId(request.id)} has been sent to the customer.`, icon: "checkmark-circle-outline" });
+      showDialog({ title: "Price sent", message: `Your price for request ${shortId(request.id)} has been sent to the customer.`, icon: "checkmark-circle-outline" });
       onDone(quote);
     } catch (error) {
       if (isSessionError(error)) {
         onSessionExpired();
         return;
       }
-      showDialog({ title: "Quote failed", message: error instanceof Error ? error.message : "Could not submit quote.", icon: "alert-circle-outline" });
+      showDialog({ title: "Price failed", message: error instanceof Error ? error.message : "Could not submit the price.", icon: "alert-circle-outline" });
     } finally {
       setSaving(false);
     }
@@ -2422,9 +2547,9 @@ function QuoteScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <Header title="Send Quote" subtitle={requestSummary(request)} onBack={() => setScreen("requestDetails", { replace: true })} />
+      <Header title="Send Price" subtitle={requestSummary(request)} onBack={() => setScreen("requestDetails", { replace: true })} />
       <View style={styles.whiteCard}>
-        <Text style={styles.cardLabel}>QUOTE DETAILS</Text>
+        <Text style={styles.cardLabel}>PRICE DETAILS</Text>
         <Text style={[styles.urgencyPill, styles.urgencyPillInline, urgencyTone(request.urgency)]}>{request.urgency}</Text>
         <View style={styles.urgencyRuleCard}>
           <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
@@ -2481,7 +2606,7 @@ function QuoteScreen({
         <Text style={styles.formLabel}>Message</Text>
         <TextInput style={styles.textArea} value={message} onChangeText={setMessage} placeholder="Add fitting or pickup notes..." placeholderTextColor="#9aa6b8" multiline />
       </View>
-      <TailorPrimaryCta label="Submit Quote" onPress={submitQuote} disabled={saving} loading={saving} />
+      <TailorPrimaryCta label="Submit Price" onPress={submitQuote} disabled={saving} loading={saving} />
     </ScrollView>
   );
 }
@@ -2895,7 +3020,7 @@ function OrderDetailsScreen({
   async function seekVoiceNote(voice: MediaItem, locationX: number) {
     const player = voicePlayerRef.current;
     if (!player || playingVoiceUrl !== voice.url || voicePlaybackStatus.duration <= 0) return;
-    const nextTime = Math.max(0, Math.min(voicePlaybackStatus.duration, (locationX / 120) * voicePlaybackStatus.duration));
+    const nextTime = Math.max(0, Math.min(voicePlaybackStatus.duration, (locationX / 80) * voicePlaybackStatus.duration));
     await player.seekTo(nextTime);
     setVoicePlaybackStatus({ currentTime: nextTime, duration: voicePlaybackStatus.duration });
     voiceWaveProgress.setValue(nextTime / voicePlaybackStatus.duration);
@@ -4579,7 +4704,7 @@ function TailorVerificationFlow({
         }[infoPage]
       : {
           tutorial: ["How to use Darji Tailor", ...tutorialSlides.map(([title, copy], index) => `${index + 1}. ${title}: ${copy}`)],
-          privacy: ["Privacy Policy", "We store your verification details for Darji admin review.", "ID photos are used only for tailor verification and safety checks.", "Your customer request data is used to complete tailoring orders."],
+          privacy: ["Privacy Policy", "We store your verification details for Darji review.", "ID photos are used only for tailor verification and safety checks.", "Your customer request data is used to complete tailoring orders."],
           terms: ["Terms of Use", "Use accurate profile and shop details.", "Only accept work you can complete on time.", "Darji can pause accounts with unclear documents or repeated service issues."],
           about: ["About Darji", "Darji connects customers with local tailors for doorstep stitching, alteration, pickup, proof, and delivery workflows."]
         }[infoPage];
@@ -4798,7 +4923,7 @@ function TailorVerificationFlow({
         {isLocked ? (
           <View style={styles.lockedNoticeBanner}>
             <Ionicons name="lock-closed-outline" size={16} color="#92400e" />
-            <Text style={styles.lockedNoticeText}>{localize(language, "Submitted – awaiting admin review. Details are read-only.", "जमा हो चुका है – एडमिन समीक्षा की प्रतीक्षा है। जानकारी केवल पढ़ने के लिए है।")}</Text>
+            <Text style={styles.lockedNoticeText}>{localize(language, "Submitted – awaiting review. Details are read-only.", "जमा हो चुका है – समीक्षा की प्रतीक्षा है। जानकारी केवल पढ़ने के लिए है।")}</Text>
           </View>
         ) : null}
 
@@ -5281,7 +5406,7 @@ function ProfileScreen({
         <View style={styles.switchRow}>
           <View>
             <Text style={styles.cardTitle}>Available for work</Text>
-            <Text style={styles.cardMeta}>{savingAvailability ? "Updating..." : "Controls quote and assignment visibility"}</Text>
+            <Text style={styles.cardMeta}>{savingAvailability ? "Updating..." : "Controls price requests and assignment visibility"}</Text>
           </View>
           <Switch value={available} onValueChange={toggle} thumbColor="#ffffff" trackColor={{ true: BRAND_ORANGE, false: "#dbe1e9" }} />
         </View>
@@ -5329,13 +5454,15 @@ function SettingsSwitch({ title, copy, value, onValueChange }: { title: string; 
   );
 }
 
-function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDialog, onRefreshProfile, onVisitsChanged }: {
+function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDialog, measurementPartnerEnabled, onToggleMeasurementPartner, changingMeasurementPartner, onVisitsChanged }: {
   me?: MeResponse;
   token?: string | null;
   initialVisits?: MeasurementVisit[];
   setScreen: (screen: Screen) => void;
   showDialog: (dialog: DialogState) => void;
-  onRefreshProfile: () => void | Promise<void>;
+  measurementPartnerEnabled: boolean;
+  onToggleMeasurementPartner: (value: boolean) => void | Promise<void>;
+  changingMeasurementPartner: boolean;
   onVisitsChanged?: (visits: MeasurementVisit[]) => void;
 }) {
   const [visits, setVisits] = useState<MeasurementVisit[]>(initialVisits ?? []);
@@ -5350,8 +5477,6 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
   const [fields, setFields] = useState<Record<string, Record<string, string>>>({});
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
-  const measurementEnabled = Boolean(me?.tailorProfile?.measurementPartner?.isEnabled);
-  const stitchingEnabled = !me?.tailorProfile?.tailorRoles?.length || me.tailorProfile.tailorRoles.includes("STITCHING_TAILOR");
   const tailorId = me?.tailorProfile?.id;
 
   const loadVisits = useCallback(async () => {
@@ -5419,25 +5544,6 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
       showDialog({ title: "Invalid OTP", message: error instanceof Error ? error.message : "Please check the OTP shown in the customer app.", icon: "alert-circle-outline" });
     } finally {
       setSavingId(undefined);
-    }
-  }
-
-  async function toggleMeasurementPartner(value: boolean) {
-    if (!token) return;
-    try {
-      await api("/tailors/me/measurement-capabilities", {
-        method: "PATCH",
-        body: JSON.stringify({
-          stitchingTailor: stitchingEnabled,
-          measurementPartner: value,
-          visitPayout: me?.tailorProfile?.measurementPartner?.visitPayout ?? 75
-        })
-      }, token);
-      await onRefreshProfile();
-      showDialog({ title: value ? "Measurement partner enabled" : "Measurement partner disabled", message: value ? "You can now accept home measurement visits from the pool." : "You will only see visits offered directly to you.", icon: "resize-outline" });
-      void loadVisits();
-    } catch (error) {
-      showDialog({ title: "Could not update", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
     }
   }
 
@@ -5552,16 +5658,27 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.pageContent}>
         <Header title="Measurement Visits" subtitle="Home visit offers and partner pool work" onBack={() => setScreen("dashboard")} />
-        <View style={styles.measurePartnerCard}>
+        <View
+          pointerEvents={changingMeasurementPartner ? "none" : "auto"}
+          style={[styles.measurePartnerCard, changingMeasurementPartner && styles.measurementAvailabilityUpdating]}
+        >
           <View style={styles.cardTopRow}>
             <View style={styles.iconTile}>
               <Ionicons name="resize-outline" size={22} color={BRAND_ORANGE} />
             </View>
             <View style={styles.cardMain}>
               <Text style={styles.cardTitle}>Measurement partner</Text>
-              <Text style={styles.cardMeta}>Accept home measurement visits when selected tailors decline.</Text>
+              <Text style={styles.cardMeta}>{changingMeasurementPartner ? "Saving availability..." : "Accept home measurement visits when selected tailors decline."}</Text>
             </View>
-            <Switch value={measurementEnabled} onValueChange={toggleMeasurementPartner} thumbColor="#ffffff" trackColor={{ true: BRAND_ORANGE, false: "#dbe1e9" }} />
+            <Switch
+              value={measurementPartnerEnabled}
+              onValueChange={(value) => void onToggleMeasurementPartner(value)}
+              disabled={changingMeasurementPartner}
+              thumbColor="#ffffff"
+              trackColor={{ true: BRAND_ORANGE, false: "#dbe1e9" }}
+              accessibilityLabel="Measurement visit availability"
+              accessibilityState={{ checked: measurementPartnerEnabled, disabled: changingMeasurementPartner, busy: changingMeasurementPartner }}
+            />
           </View>
         </View>
 
@@ -5621,7 +5738,7 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
   );
 }
 
-function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen: Screen) => void }) {
+function BottomTabs({ screen, setScreen, onOpenRequests }: { screen: Screen; setScreen: (screen: Screen) => void; onOpenRequests: () => void }) {
   const language = useAppStore((state) => state.language);
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
@@ -5642,7 +5759,7 @@ function BottomTabs({ screen, setScreen }: { screen: Screen; setScreen: (screen:
           || (screen === "orderDetails" && tab.key === "orders")
           || ((screen === "earningDetails" || screen === "transactions") && tab.key === "earnings");
         return (
-          <Pressable key={tab.key} style={styles.tabItem} onPress={() => setScreen(tab.key)}>
+          <Pressable key={tab.key} style={styles.tabItem} onPress={() => tab.key === "requests" ? onOpenRequests() : setScreen(tab.key)}>
             <Ionicons name={active ? tab.icon.replace("-outline", "") as keyof typeof Ionicons.glyphMap : tab.icon} size={22} color={active ? BRAND_ORANGE : "#111827"} />
             <Text style={[styles.tabText, active && styles.activeTabText]}>{tab.label}</Text>
           </Pressable>
@@ -5736,7 +5853,7 @@ function NewRequestPopup({
           </View>
           <View style={styles.popupActions}>
             <Pressable style={styles.popupActionButton} onPress={onAccept}>
-              <Text style={styles.popupActionText}>Send Quote</Text>
+              <Text style={styles.popupActionText}>Send Price</Text>
             </Pressable>
             <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={onViewDetails}>
               <Text style={[styles.popupActionText, styles.popupSecondaryText]}>View Details</Text>
@@ -5827,12 +5944,12 @@ function QuoteAcceptedPopup({ request, onViewDetails, onClose }: { request?: Tai
           <View style={styles.popupIcon}>
             <Ionicons name="checkmark-circle-outline" size={30} color={SUCCESS} />
           </View>
-          <Text style={styles.popupEyebrow}>QUOTE ACCEPTED</Text>
-          <Text style={styles.popupTitle}>Customer accepted your quote</Text>
-          <Text style={styles.popupCopy}>Your quote for request {shortId(request.id)} has been accepted. You can review the request details and prepare for the next step.</Text>
+          <Text style={styles.popupEyebrow}>PRICE ACCEPTED</Text>
+          <Text style={styles.popupTitle}>Customer accepted your price</Text>
+          <Text style={styles.popupCopy}>Your price for request {shortId(request.id)} has been accepted. You can review the request details and prepare for the next step.</Text>
           <View style={styles.popupActions}>
             <Pressable style={styles.popupActionButton} onPress={onViewDetails}>
-              <Text style={styles.popupActionText}>View Quote</Text>
+              <Text style={styles.popupActionText}>View Price</Text>
             </Pressable>
             <Pressable style={[styles.popupActionButton, styles.popupSecondaryButton]} onPress={onClose}>
               <Text style={[styles.popupActionText, styles.popupSecondaryText]}>Close</Text>
@@ -5879,7 +5996,7 @@ function TailorVerifiedWelcome({ me, onContinue, onRefresh }: { me: MeResponse; 
           </View>
           <Text style={styles.verificationTitle}>You are verified!</Text>
           <Text style={styles.verificationCopy}>
-            Congratulations{me.name ? `, ${me.name}` : ""}. We are happy to start working with you. You can now receive requests, send quotes, and grow with Darji.
+            Congratulations{me.name ? `, ${me.name}` : ""}. We are happy to start working with you. You can now receive requests, send prices, and grow with Darji.
           </Text>
         </View>
         <View style={styles.statusReviewCard}>
@@ -5950,6 +6067,9 @@ export default function App() {
   const [acceptedQuoteRequest, setAcceptedQuoteRequest] = useState<TailoringRequest>();
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [changingOnline, setChangingOnline] = useState(false);
+  const [changingMeasurementPartner, setChangingMeasurementPartner] = useState(false);
+  const changingMeasurementPartnerRef = useRef(false);
+  const [measurementPartnerEnabled, setMeasurementPartnerEnabled] = useState(false);
   const [tailorOnline, setTailorOnline] = useState(false);
   const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const socketRef = useRef<any>(null);
@@ -5963,7 +6083,13 @@ export default function App() {
   useRegisterPushNotifications({ authToken: token, app: "tailor", userId: sessionUser?.id });
   const hasLoadedWorkspaceRef = useRef(false);
   const newRequestNotificationsEnabled = tailorOnline && me?.tailorProfile?.settings?.notifications !== false;
+  const measurementRequestNotificationsEnabled = tailorOnline && measurementPartnerEnabled;
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
+
+  useEffect(() => {
+    if (changingMeasurementPartnerRef.current) return;
+    setMeasurementPartnerEnabled(Boolean(me?.tailorProfile?.measurementPartner?.isEnabled));
+  }, [me?.tailorProfile?.measurementPartner?.isEnabled]);
 
   useEffect(() => {
     if (!changingOnline) setTailorOnline(Boolean(me?.tailorProfile?.isAvailable));
@@ -6144,7 +6270,7 @@ export default function App() {
     if (newlyAccepted?.ownQuote) {
       acceptedQuoteIdsRef.current.add(newlyAccepted.ownQuote.id);
       setAcceptedQuoteRequest(newlyAccepted);
-      void playTailorAlert("Quote accepted", `${newlyAccepted.workType} was accepted by the customer.`, soundAlertsEnabled);
+      void playTailorAlert("Price accepted", `${newlyAccepted.workType} was accepted by the customer.`, soundAlertsEnabled);
     }
 
     const freshRequest = openRequests.find((request) => !knownRequestIdsRef.current.has(request.id) && !dismissedRequestIdsRef.current.has(request.id));
@@ -6193,11 +6319,24 @@ export default function App() {
       if (showLoader) setLoading(true);
       setLoadingWallet(true);
       const profile = await api<MeResponse>("/auth/me", {}, token);
-      setMe(profile);
+      if (!changingMeasurementPartnerRef.current) {
+        setMeasurementPartnerEnabled(Boolean(profile.tailorProfile?.measurementPartner?.isEnabled));
+      }
+      setMe((current) => {
+        if (!changingMeasurementPartnerRef.current || !current?.tailorProfile || !profile.tailorProfile) return profile;
+        return {
+          ...profile,
+          tailorProfile: {
+            ...profile.tailorProfile,
+            measurementPartner: current.tailorProfile.measurementPartner
+          }
+        };
+      });
 
-      const [openRequestsResult, selectedRequestsResult, ordersResult, visitsResult, walletResult, transactionsResult] = await Promise.allSettled([
+      const [openRequestsResult, selectedRequestsResult, cancelledRequestsResult, ordersResult, visitsResult, walletResult, transactionsResult] = await Promise.allSettled([
         api<TailoringRequest[]>("/tailoring-requests", {}, token),
         api<TailoringRequest[]>("/tailoring-requests?status=TAILOR_SELECTED", {}, token),
+        api<TailoringRequest[]>("/tailoring-requests?status=CANCELLED", {}, token),
         api<Order[]>("/orders", {}, token),
         api<MeasurementVisit[]>("/measurement-visits", {}, token),
         api<PartnerWalletSummary>("/wallet", {}, token),
@@ -6207,6 +6346,7 @@ export default function App() {
       const workspaceFailures = [
         openRequestsResult,
         selectedRequestsResult,
+        cancelledRequestsResult,
         ordersResult,
         visitsResult,
         walletResult,
@@ -6217,6 +6357,7 @@ export default function App() {
 
       const openRequestData = openRequestsResult.status === "fulfilled" ? openRequestsResult.value : [];
       const selectedRequestData = selectedRequestsResult.status === "fulfilled" ? selectedRequestsResult.value : [];
+      const cancelledRequestData = cancelledRequestsResult.status === "fulfilled" ? cancelledRequestsResult.value : [];
       const orderData = ordersResult.status === "fulfilled" ? ordersResult.value : [];
       const visitData = visitsResult.status === "fulfilled" ? visitsResult.value : [];
       const walletData = walletResult.status === "fulfilled" ? walletResult.value : emptyPartnerWallet();
@@ -6236,9 +6377,10 @@ export default function App() {
       const acceptedRequests = selectedRequestData.filter((request) => request.ownQuote?.status === "ACCEPTED");
       const requestData = [
         ...openRequestData,
-        ...acceptedRequests
+        ...acceptedRequests,
+        ...cancelledRequestData
       ];
-      const acceptedRequestOrders = acceptedRequests.map(orderFromAcceptedRequest);
+      const acceptedRequestOrders = [...acceptedRequests, ...cancelledRequestData].map(orderFromAcceptedRequest);
       const workspaceOrders = [...acceptedRequestOrders, ...orderData].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
       setRequests(openRequestData);
       setOrders(workspaceOrders);
@@ -6262,7 +6404,7 @@ export default function App() {
   }
 
   function showMeasurementVisitPopup(visit: MeasurementVisit) {
-    if (!tailorOnline) return;
+    if (!measurementRequestNotificationsEnabled) return;
     if (!visit?.id || alertedMeasurementVisitIdsRef.current.has(visit.id)) return;
     if (!isActionableMeasurementVisit(visit)) return;
     alertedMeasurementVisitIdsRef.current.add(visit.id);
@@ -6301,10 +6443,26 @@ export default function App() {
   }
 
   async function toggleMeasurementPartner(value: boolean) {
-    if (!token) return;
+    if (!token || changingMeasurementPartnerRef.current) return;
     const stitchingEnabled = !me?.tailorProfile?.tailorRoles?.length || me.tailorProfile.tailorRoles.includes("STITCHING_TAILOR");
+    const previousEnabled = measurementPartnerEnabled;
+    changingMeasurementPartnerRef.current = true;
+    setMeasurementPartnerEnabled(value);
+    setChangingMeasurementPartner(true);
+    setMe((current) => current?.tailorProfile ? {
+      ...current,
+      tailorProfile: {
+        ...current.tailorProfile,
+        measurementPartner: { ...current.tailorProfile.measurementPartner, isEnabled: value }
+      }
+    } : current);
+    if (!value) {
+      setMeasurementVisitPopup(undefined);
+      setMeasurementVisits((current) => current.filter((visit) => !isActionableMeasurementVisit(visit)));
+      stopMeasurementVisitAlert();
+    }
     try {
-      await api("/tailors/me/measurement-capabilities", {
+      const updated = await api<TailorProfile>("/tailors/me/measurement-capabilities", {
         method: "PATCH",
         body: JSON.stringify({
           stitchingTailor: stitchingEnabled,
@@ -6312,9 +6470,22 @@ export default function App() {
           visitPayout: me?.tailorProfile?.measurementPartner?.visitPayout ?? 75
         })
       }, token);
+      setMeasurementPartnerEnabled(Boolean(updated.measurementPartner?.isEnabled ?? value));
+      setMe((current) => current?.tailorProfile ? { ...current, tailorProfile: { ...current.tailorProfile, ...updated } } : current);
       await refreshWorkspace(false);
     } catch (error) {
+      setMeasurementPartnerEnabled(previousEnabled);
+      setMe((current) => current?.tailorProfile ? {
+        ...current,
+        tailorProfile: {
+          ...current.tailorProfile,
+          measurementPartner: { ...current.tailorProfile.measurementPartner, isEnabled: previousEnabled }
+        }
+      } : current);
       setDialog({ title: "Could not update", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      changingMeasurementPartnerRef.current = false;
+      setChangingMeasurementPartner(false);
     }
   }
 
@@ -6344,6 +6515,11 @@ export default function App() {
 
   function openMeasurementRequestsTab() {
     setRequestsInitialTab("measurement");
+    setScreen("requests");
+  }
+
+  function openStitchingRequestsTab() {
+    setRequestsInitialTab("stitching");
     setScreen("requests");
   }
 
@@ -6433,11 +6609,24 @@ export default function App() {
       void refreshWorkspace();
     });
     socket.on("measurement:visit_offered", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (tailorOnline && visit) showMeasurementVisitPopup(visit);
+      if (measurementRequestNotificationsEnabled && visit) showMeasurementVisitPopup(visit);
       void refreshWorkspace();
     });
     socket.on("measurement:visit_pool", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (tailorOnline && visit) showMeasurementVisitPopup(visit);
+      if (measurementRequestNotificationsEnabled && visit) showMeasurementVisitPopup(visit);
+      void refreshWorkspace();
+    });
+    socket.on("measurement:visit_cancelled", ({ visit, requestId }: { visit?: MeasurementVisit; requestId?: string }) => {
+      if (visit?.id) {
+        stopMeasurementVisitAlert(visit);
+        setMeasurementVisitPopup((current) => current?.id === visit.id ? undefined : current);
+        setMeasurementVisits((current) => current.some((item) => item.id === visit.id)
+          ? current.map((item) => item.id === visit.id ? { ...item, ...visit, status: "CANCELLED" } : item)
+          : [{ ...visit, status: "CANCELLED" }, ...current]);
+      }
+      if (requestId) {
+        setCancellationAlert({ id: requestId, title: "Measurement visit cancelled", message: `The measurement visit for order ${shortId(requestId)} has been cancelled.` });
+      }
       void refreshWorkspace();
     });
     socket.on("measurement:visit_assigned", () => {
@@ -6451,7 +6640,7 @@ export default function App() {
       socketRef.current = null;
       setConnectionStatus("Offline");
     };
-  }, [token, tailorOnline, showRequestFromEvent, newRequestPopup?.id, me?.tailorProfile?.id]);
+  }, [token, tailorOnline, measurementRequestNotificationsEnabled, showRequestFromEvent, newRequestPopup?.id, me?.tailorProfile?.id]);
 
   useEffect(() => {
     if (!newRequestPopup) return undefined;
@@ -6492,7 +6681,7 @@ export default function App() {
     return (
       <PlatformMaintenanceScreen
         status={platform.status}
-        audienceMessage="Going online, receiving requests, and submitting quotes are temporarily unavailable."
+        audienceMessage="Going online, receiving requests, and submitting prices are temporarily unavailable."
         refreshing={platform.refreshing}
         error={platform.error}
         onRefresh={() => void platform.refresh(true)}
@@ -6547,8 +6736,8 @@ export default function App() {
   }
 
   let body;
-  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
-  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
+  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} onTabChange={setRequestsInitialTab} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
   const declineActiveRequest = (request: TailoringRequest) => {
     setDialog({
       title: "Decline request?",
@@ -6560,6 +6749,7 @@ export default function App() {
           label: "Decline",
           onPress: () => {
             dismissedRequestIdsRef.current.add(request.id);
+            stopTailorRequestAlert({ requestId: request.id, id: request.id, orderId: request.id });
             if (token) {
               void api(`/tailoring-requests/${request.id}/decline`, {
                 method: "POST",
@@ -6582,7 +6772,7 @@ export default function App() {
   if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
-  if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} initialVisits={measurementVisits} setScreen={setScreen} showDialog={setDialog} onRefreshProfile={() => refreshWorkspace()} onVisitsChanged={setMeasurementVisits} />;
+  if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} initialVisits={measurementVisits} setScreen={setScreen} showDialog={setDialog} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onVisitsChanged={setMeasurementVisits} />;
   if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setScreen("earningDetails"); }} showDialog={setDialog} />;
   if (screen === "earningDetails") body = <EarningDetailsScreen detail={earningDetail} wallet={wallet} onBack={goBack} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
   if (screen === "transactions") body = <TransactionHistoryScreen wallet={wallet} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
@@ -6603,7 +6793,7 @@ export default function App() {
       />
     );
   }
-  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} onToggleMeasurementPartner={toggleMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
 
   return (
     <SafeAreaProvider>
@@ -6678,7 +6868,7 @@ export default function App() {
               .catch((error) => {
                 setDialog({
                   title: "Request unavailable",
-                  message: error instanceof Error ? error.message : "This request is no longer available. It may have been quoted, selected, or closed.",
+                  message: error instanceof Error ? error.message : "This request is no longer available. It may already have a price, be selected, or be closed.",
                   icon: "alert-circle-outline"
                 });
                 void refreshWorkspace();
@@ -6707,7 +6897,7 @@ export default function App() {
           </Pressable>
         ) : null}
         <View style={styles.screenHost}>{body}</View>
-        <BottomTabs screen={screen} setScreen={setScreen} />
+        <BottomTabs screen={screen} setScreen={setScreen} onOpenRequests={openStitchingRequestsTab} />
         <LoadingOverlay visible={loading} />
         <QuoteAcceptedPopup
           request={acceptedQuoteRequest}
@@ -6731,7 +6921,10 @@ export default function App() {
           saving={measurementPopupSaving}
           onAccept={() => void acceptMeasurementVisitFromPopup()}
           onDecline={() => void declineMeasurementVisitFromPopup()}
-          onClose={() => setMeasurementVisitPopup(undefined)}
+          onClose={() => {
+            if (measurementVisitPopup) stopMeasurementVisitAlert(measurementVisitPopup);
+            setMeasurementVisitPopup(undefined);
+          }}
         />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
         {incomingAlertPermissionGuide}
@@ -6888,8 +7081,8 @@ const styles = StyleSheet.create({
   measureVisitCustomer: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", marginTop: 2 },
   yourCustomerBadge: { minWidth: 102, borderRadius: 7, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", paddingHorizontal: 9, paddingVertical: 4, alignItems: "center" },
   yourCustomerBadgeText: { color: "#dc2626", fontSize: 10, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
-  measureVisitInfoGrid: { flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 12, rowGap: 12 },
-  measureVisitInfoBlock: { width: "50%", flexDirection: "row", alignItems: "flex-start", gap: 7, paddingRight: 8 },
+  measureVisitInfoGrid: { flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 12, gap: 12 },
+  measureVisitInfoBlock: { minWidth: 132, flexBasis: "46%", flexGrow: 1, flexDirection: "row", alignItems: "flex-start", gap: 7, paddingRight: 8 },
   measureVisitInfoText: { flex: 1, minWidth: 0 },
   measureVisitLabel: { color: MUTED, fontSize: 10, lineHeight: 13, fontWeight: "900" },
   measureVisitValue: { color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 2 },
@@ -6897,6 +7090,11 @@ const styles = StyleSheet.create({
   measureVisitMapLink: { color: BRAND_ORANGE, fontSize: 11, lineHeight: 15, fontWeight: "900", marginTop: 5 },
   measureVisitNoteBox: { marginTop: 12, borderRadius: 12, borderWidth: 1, borderColor: BORDER, backgroundColor: "#f8fafc", padding: 11, flexDirection: "row", gap: 8, alignItems: "flex-start" },
   measureVisitNoteText: { flex: 1, minWidth: 0 },
+  measureVisitPhoneButton: { minHeight: 54, marginTop: 10, borderRadius: 12, backgroundColor: "#ecfdf5", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11 },
+  measureVisitPhoneIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#dcfce7", alignItems: "center", justifyContent: "center" },
+  measureVisitPhoneText: { flex: 1, minWidth: 0 },
+  measureVisitPhoneValue: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 1 },
+  measureVisitPhoneAction: { color: SUCCESS, fontSize: 12, lineHeight: 16, fontWeight: "900" },
   measureVisitActions: { flexDirection: "row", gap: 9, marginTop: 12 },
   measureVisitAcceptButton: { flex: 1, minHeight: 46, borderRadius: 11, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, marginTop: 12 },
   measureVisitAcceptText: { color: "#ffffff", fontSize: 13, lineHeight: 17, fontWeight: "900" },
@@ -6906,8 +7104,8 @@ const styles = StyleSheet.create({
   measurementReadyIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   measurementReadyTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900" },
   measurementReadyCopy: { color: "#475569", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },
-  measureVisitTabs: { flexDirection: "row", gap: 6, marginBottom: 14, backgroundColor: "#fffaf0", borderRadius: 18, borderWidth: 1, borderColor: "#f3dfb9", padding: 4, alignSelf: "flex-start" },
-  measureVisitTab: { minHeight: 32, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 14 },
+  measureVisitTabs: { width: "100%", flexDirection: "row", gap: 4, marginBottom: 14, backgroundColor: "#fffaf0", borderRadius: 18, borderWidth: 1, borderColor: "#f3dfb9", padding: 4 },
+  measureVisitTab: { flex: 1, minHeight: 40, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 7 },
   measureVisitTabActive: { backgroundColor: "#fff4dc" },
   measureVisitTabText: { color: "#64748b", fontSize: 11, lineHeight: 15, fontWeight: "800" },
   measureVisitTabTextActive: { color: BRAND_DEEP, fontWeight: "900" },
@@ -6936,7 +7134,7 @@ const styles = StyleSheet.create({
   requestDeclineButtonText: { color: "#ef4444", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
   requestAcceptButton: { flex: 1, minHeight: 58, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, gap: 8, flexDirection: "row", shadowColor: BRAND_ORANGE, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   requestAcceptButtonText: { color: "#ffffff", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
-  // -- Quote Submitted Card --
+  // -- Price Submitted Card --
   quoteSubmittedCard: { borderRadius: 20, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", padding: 16, marginBottom: 14 },
   quoteSubmittedHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   quoteSubmittedIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#dcfce7", alignItems: "center", justifyContent: "center" },
@@ -6956,7 +7154,7 @@ const styles = StyleSheet.create({
   requestsTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 29, fontWeight: "900" },
   requestsSubtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 4 },
   dashboardPageContent: { paddingTop: 18 },
-  dashboardHeader: { marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  dashboardHeader: { marginBottom: 12, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 },
   dashboardHeadingCopy: { flex: 1, minWidth: 0 },
   onlineControl: { minWidth: 150, minHeight: 44, borderRadius: 22, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, paddingLeft: 12, paddingRight: 5 },
   onlineControlActive: { backgroundColor: "#ecfdf5", borderColor: "#86efac" },
@@ -6980,16 +7178,18 @@ const styles = StyleSheet.create({
   heroTitle: { color: "#ffffff", fontSize: 23, lineHeight: 29, fontWeight: "900", marginTop: 6 },
   heroCopy: { color: "#f2e8dc", fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 5 },
   heroIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
-  statsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  statCard: { flex: 1, minHeight: 104, borderRadius: 9, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 10, alignItems: "center", justifyContent: "center" },
+  statsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  statCard: { minWidth: 88, flexBasis: "29%", flexGrow: 1, minHeight: 104, borderRadius: 9, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 10, alignItems: "center", justifyContent: "center" },
   statIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", marginBottom: 7 },
   statValue: { color: BRAND_DEEP, fontSize: 17, lineHeight: 22, fontWeight: "900" },
   statLabel: { color: BRAND_DEEP, fontSize: 11, lineHeight: 15, fontWeight: "900" },
   statMeta: { color: MUTED, fontSize: 9, lineHeight: 12, fontWeight: "700", marginTop: 3, textAlign: "center" },
   measureHomeCard: { borderRadius: 18, borderWidth: 1.2, borderColor: "#efcf92", backgroundColor: SURFACE, padding: 14, marginBottom: 14, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
-  measureHomeTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  measurementAvailabilityUpdating: { opacity: 0.58 },
+  measureHomeTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   measureHomeIcon: { width: 46, height: 46, borderRadius: 14, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   measureHomeMain: { flex: 1, minWidth: 0 },
+  measureHomeSwitchSlot: { minWidth: 52, minHeight: 48, alignItems: "center", justifyContent: "center" },
   measureHomeEyebrow: { color: BRAND_ORANGE, fontSize: 10, lineHeight: 13, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
   measureHomeTitle: { color: BRAND_DEEP, fontSize: 16, lineHeight: 21, fontWeight: "900", marginTop: 1 },
   measureHomeCopy: { color: "#475569", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 2 },

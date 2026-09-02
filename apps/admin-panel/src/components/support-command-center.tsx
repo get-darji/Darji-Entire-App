@@ -575,6 +575,7 @@ export default function SupportCommandCenter({
           type: activeType,
           id: activeId,
           recipientId: activeTicket?.userId || activeBug?.userId || activeRequest?.userId || "user",
+          recipientRole: activeTicket?.userRole || activeBug?.userRole || activeRequest?.userRole,
           isTyping: false
         });
       }
@@ -627,6 +628,7 @@ export default function SupportCommandCenter({
           type: activeType,
           id: activeId,
           recipientId,
+          recipientRole: activeTicket?.userRole || activeBug?.userRole || activeRequest?.userRole,
           isTyping: true
         });
       }
@@ -638,6 +640,7 @@ export default function SupportCommandCenter({
           type: activeType,
           id: activeId,
           recipientId,
+          recipientRole: activeTicket?.userRole || activeBug?.userRole || activeRequest?.userRole,
           isTyping: false
         });
       }, 3000);
