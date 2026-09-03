@@ -58,7 +58,7 @@ async function currentTailor(req: Request) {
 
 export async function listMeasurementVisitsController(req: Request, res: Response) {
   if (req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN") {
-    const visits = await MeasurementVisitModel.find({}).sort({ status: 1, scheduledAt: 1, createdAt: -1 }).limit(200);
+    const visits = await MeasurementVisitModel.find({}).sort({ updatedAt: -1, createdAt: -1 }).limit(200);
     res.json({ data: visits });
     return;
   }
@@ -68,15 +68,14 @@ export async function listMeasurementVisitsController(req: Request, res: Respons
   const tailorReferences = [tailor.id, tailor.userId, tailor.darjiTailorId].filter((value): value is string => typeof value === "string" && value.length > 0);
   const where: Record<string, unknown> = {
     $or: [
-      { assignedTailorId: { $in: tailorReferences }, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED", "CANCELLED", "EXPIRED"] } },
-      { offeredTailorId: { $in: tailorReferences }, status: "CANCELLED" }
+      { assignedTailorId: { $in: tailorReferences }, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED", "CANCELLED", "EXPIRED"] } }
     ]
   };
   if (tailor.isAvailable && canMeasure) {
     (where.$or as unknown[]).push({ stitchingTailorId: { $in: tailorReferences }, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] }, declinedTailorIds: { $nin: tailorReferences } });
     (where.$or as unknown[]).push({ status: "POOL", declinedTailorIds: { $nin: tailorReferences }, stitchingTailorId: { $nin: tailorReferences } });
   }
-  const visits = await MeasurementVisitModel.find(where).sort({ status: 1, scheduledAt: 1, createdAt: -1 }).limit(100);
+  const visits = await MeasurementVisitModel.find(where).sort({ updatedAt: -1, createdAt: -1 }).limit(100);
   res.json({
     data: visits.map((visit) => {
       const data = visit.toJSON() as Record<string, unknown>;

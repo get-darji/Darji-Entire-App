@@ -20,7 +20,10 @@ function itemSummary(request: any) {
 
 function defaultScheduledAt() {
   const now = new Date();
-  return new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  const scheduled = new Date(now);
+  scheduled.setDate(now.getDate() + 1);
+  scheduled.setHours(8, 0, 0, 0);
+  return scheduled;
 }
 
 function selectedMeasurementSlot(request: any) {

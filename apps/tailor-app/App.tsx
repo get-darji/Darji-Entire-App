@@ -273,6 +273,11 @@ type MeasurementVisit = {
   status: "OFFERED_TO_STITCHING_TAILOR" | "POOL" | "ACCEPTED" | "IN_PROGRESS" | "SUBMITTED" | "CANCELLED" | "EXPIRED";
   scheduledAt: string;
   preferredMeasurementSlot?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  acceptedAt?: string;
+  submittedAt?: string;
+  cancelledAt?: string;
   visitPayout?: number;
   customerName?: string;
   customerPhone?: string;
@@ -862,11 +867,8 @@ function formatVisitTime(value?: string) {
   return new Date(value).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 }
 
-function formatVisitSlot(value?: string) {
-  if (!value) return "Preferred slot not set";
-  const start = new Date(value);
-  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-  return `${formatVisitTime(start.toISOString())} - ${formatVisitTime(end.toISOString())}`;
+function measurementVisitSlotLabel(visit: MeasurementVisit) {
+  return visit.preferredMeasurementSlot?.trim() || "Time slot unavailable";
 }
 
 function isActionableMeasurementVisit(visit: MeasurementVisit) {
@@ -906,7 +908,10 @@ function measurementFieldLabelsForGarment(label?: string) {
 }
 
 function sortedMeasurementVisits(visits: MeasurementVisit[]) {
-  return [...visits].sort((a, b) => new Date(a.scheduledAt ?? 0).getTime() - new Date(b.scheduledAt ?? 0).getTime());
+  const activityTime = (visit: MeasurementVisit) => new Date(
+    visit.updatedAt ?? visit.cancelledAt ?? visit.submittedAt ?? visit.acceptedAt ?? visit.createdAt ?? visit.scheduledAt ?? 0
+  ).getTime();
+  return [...visits].sort((a, b) => activityTime(b) - activityTime(a));
 }
 
 function isVisitToday(visit: MeasurementVisit) {
@@ -989,7 +994,7 @@ function MeasurementVisitCard({
   }
 
   return (
-    <View style={styles.measureVisitCard}>
+    <View style={[styles.measureVisitCard, visit.status === "CANCELLED" && styles.measureVisitCancelledCard]}>
       <View style={styles.measureVisitHeader}>
         <View style={styles.measureVisitIcon}>
           <Ionicons name={visit.status === "POOL" ? "people-outline" : "home-outline"} size={20} color={BRAND_ORANGE} />
@@ -1006,7 +1011,12 @@ function MeasurementVisitCard({
           </View>
           <Text style={styles.measureVisitCustomer} numberOfLines={1}>{visit.customerName ?? "Customer"}</Text>
         </View>
-        <StatusPill status={visit.status} />
+        {visit.status === "CANCELLED" ? (
+          <View style={styles.measureVisitCancelledBadge}>
+            <Ionicons name="close-circle" size={14} color="#b91c1c" />
+            <Text style={styles.measureVisitCancelledBadgeText}>Cancelled</Text>
+          </View>
+        ) : <StatusPill status={visit.status} />}
       </View>
 
       <View style={styles.measureVisitInfoGrid}>
@@ -1036,7 +1046,7 @@ function MeasurementVisitCard({
           <Ionicons name="time-outline" size={16} color={BRAND_ORANGE} />
           <View style={styles.measureVisitInfoText}>
             <Text style={styles.measureVisitLabel}>Preferred time</Text>
-            <Text style={styles.measureVisitValue}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
+            <Text style={styles.measureVisitValue}>{measurementVisitSlotLabel(visit)}</Text>
           </View>
         </View>
         <View style={styles.measureVisitInfoBlock}>
@@ -1093,6 +1103,7 @@ function DashboardScreen({
   onToggleOnline,
   requests,
   orders,
+  wallet,
   measurementVisits,
   measurementPartnerEnabled,
   onToggleMeasurementPartner,
@@ -1108,6 +1119,7 @@ function DashboardScreen({
   onToggleOnline: (value: boolean) => void | Promise<void>;
   requests: TailoringRequest[];
   orders: Order[];
+  wallet: PartnerWalletSummary;
   measurementVisits: MeasurementVisit[];
   measurementPartnerEnabled: boolean;
   onToggleMeasurementPartner: (value: boolean) => void | Promise<void>;
@@ -1121,8 +1133,7 @@ function DashboardScreen({
   const newMeasurementVisits = measurementVisits.filter(isActionableMeasurementVisit);
   const todayMeasurementVisits = measurementVisits.filter((visit) => isActionableMeasurementVisit(visit) && isVisitToday(visit));
   const nearestAcceptedVisit = sortedMeasurementVisits(measurementVisits.filter(isActiveMeasurementVisit))[0];
-  const readyOrders = orders.filter((order) => ["READY", "DELIVERED"].includes(order.status));
-  const estimatedEarnings = readyOrders.reduce((sum, order) => sum + Number(order.totalAmount) * 0.45, 0);
+  const totalEarnings = partnerWalletMetrics(wallet).totalEarned;
   const shopTitle = me?.tailorProfile?.shopName?.trim() || "Your Workplace";
   const tailorName = me?.name?.trim() || "Darji Tailor";
 
@@ -1185,7 +1196,7 @@ function DashboardScreen({
           <View style={[styles.statIcon, { backgroundColor: "#eee7ff" }]}>
             <Ionicons name="wallet-outline" size={20} color="#7c3aed" />
           </View>
-          <Text style={styles.statValue}>{money(estimatedEarnings)}</Text>
+          <Text style={styles.statValue}>{money(totalEarnings)}</Text>
           <Text style={styles.statLabel}>Earnings</Text>
           <Text style={styles.statMeta}>Total earnings</Text>
         </Pressable>
@@ -1206,7 +1217,7 @@ function DashboardScreen({
               {changingMeasurementPartner
                 ? "Saving availability..."
                 : nearestAcceptedVisit
-                  ? `Next accepted: ${formatVisitDate(nearestAcceptedVisit.scheduledAt)}, ${formatVisitTime(nearestAcceptedVisit.scheduledAt)}`
+                  ? `Next accepted: ${formatVisitDate(nearestAcceptedVisit.scheduledAt)}, ${measurementVisitSlotLabel(nearestAcceptedVisit)}`
                   : "No accepted visits scheduled yet"}
             </Text>
           </View>
@@ -1631,7 +1642,7 @@ function MeasurementSubmitScreen({
             <View style={styles.cardMain}>
               <Text style={styles.measurementPopupEyebrow}>HOME VISIT</Text>
               <Text style={styles.measureSubmitHeroTitle}>{activeVisit.garmentSummary ?? "Measurement visit"}</Text>
-              <Text style={styles.measureSubmitHeroCopy} numberOfLines={3}>{activeVisit.customerName ?? "Customer"} - {formatVisitDate(activeVisit.scheduledAt)} - {activeVisit.preferredMeasurementSlot || formatVisitSlot(activeVisit.scheduledAt)}</Text>
+              <Text style={styles.measureSubmitHeroCopy} numberOfLines={3}>{activeVisit.customerName ?? "Customer"} - {formatVisitDate(activeVisit.scheduledAt)} - {measurementVisitSlotLabel(activeVisit)}</Text>
             </View>
           </View>
           <View style={styles.measureSubmitOrderRow}>
@@ -5931,7 +5942,7 @@ function MeasurementVisitPopup({
             <Ionicons name="time-outline" size={18} color="#0891b2" />
             <View style={styles.cardMain}>
               <Text style={styles.measureVisitLabel}>Preferred visit time</Text>
-              <Text style={[styles.measurementPopupInfoText, styles.measurementPopupSlotText]}>{visit.preferredMeasurementSlot || formatVisitSlot(visit.scheduledAt)}</Text>
+              <Text style={[styles.measurementPopupInfoText, styles.measurementPopupSlotText]}>{measurementVisitSlotLabel(visit)}</Text>
             </View>
           </View>
           <View style={styles.measurementPopupInfo}>
@@ -6362,14 +6373,13 @@ export default function App() {
         };
       });
 
-      const [openRequestsResult, selectedRequestsResult, cancelledRequestsResult, ordersResult, visitsResult, walletResult, transactionsResult] = await Promise.allSettled([
+      const [openRequestsResult, selectedRequestsResult, cancelledRequestsResult, ordersResult, visitsResult, walletResult] = await Promise.allSettled([
         api<TailoringRequest[]>("/tailoring-requests", {}, token),
         api<TailoringRequest[]>("/tailoring-requests?status=TAILOR_SELECTED", {}, token),
         api<TailoringRequest[]>("/tailoring-requests?status=CANCELLED", {}, token),
         api<Order[]>("/orders", {}, token),
         api<MeasurementVisit[]>("/measurement-visits", {}, token),
-        api<PartnerWalletSummary>("/wallet", {}, token),
-        api<PartnerWalletTransaction[]>("/transactions", {}, token)
+        api<PartnerWalletSummary>("/wallet", {}, token)
       ]);
 
       const workspaceFailures = [
@@ -6378,8 +6388,7 @@ export default function App() {
         cancelledRequestsResult,
         ordersResult,
         visitsResult,
-        walletResult,
-        transactionsResult
+        walletResult
       ].filter((result) => result.status === "rejected");
       const sessionFailure = workspaceFailures.find((result) => result.status === "rejected" && isSessionError(result.reason));
       if (sessionFailure?.status === "rejected") throw sessionFailure.reason;
@@ -6390,7 +6399,6 @@ export default function App() {
       const orderData = ordersResult.status === "fulfilled" ? ordersResult.value : [];
       const visitData = visitsResult.status === "fulfilled" ? visitsResult.value : undefined;
       const walletData = walletResult.status === "fulfilled" ? walletResult.value : emptyPartnerWallet();
-      const transactionData = transactionsResult.status === "fulfilled" ? transactionsResult.value : [];
 
       if (showLoader && workspaceFailures.length) {
         const firstFailure = workspaceFailures[0];
@@ -6414,7 +6422,7 @@ export default function App() {
       setRequests(openRequestData);
       setOrders(workspaceOrders);
       if (visitData) setMeasurementVisits(visitData);
-      setWallet({ ...walletData, transactions: transactionData, payments: walletData.payments ?? [] });
+      setWallet({ ...walletData, transactions: walletData.transactions ?? [], payments: walletData.payments ?? [] });
       setActiveRequest((current) => requestData.find((request) => request.id === current?.id) ?? current);
       setActiveOrder((current) => workspaceOrders.find((order) => order.id === current?.id) ?? current);
       processWorkspaceEvents(requestData);
@@ -6772,7 +6780,7 @@ export default function App() {
   }
 
   let body;
-  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
   if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} initialMeasurementVisitTab={measurementVisitInitialTab} onTabChange={setRequestsInitialTab} onMeasurementVisitTabChange={setMeasurementVisitInitialTab} onVisitUpdated={(visit) => setMeasurementVisits((current) => upsertMeasurementVisit(current, visit))} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
   const declineActiveRequest = (request: TailoringRequest) => {
     setDialog({
@@ -6829,7 +6837,7 @@ export default function App() {
       />
     );
   }
-  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
 
   return (
     <SafeAreaProvider>
@@ -7112,6 +7120,7 @@ const styles = StyleSheet.create({
   mediaEmptyText: { color: MUTED, fontSize: 13, fontWeight: "700" },
   measurePartnerCard: { borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, padding: 14, marginBottom: 14 },
   measureVisitCard: { borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1.2, borderColor: "#efcf92", padding: 14, marginBottom: 13, shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  measureVisitCancelledCard: { backgroundColor: "#fff8f8", borderColor: "#fecaca" },
   measureVisitHeader: { flexDirection: "row", alignItems: "flex-start", gap: 11, marginBottom: 12 },
   measureVisitIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   measureVisitTitleWrap: { flex: 1, minWidth: 0 },
@@ -7121,6 +7130,8 @@ const styles = StyleSheet.create({
   measureVisitCustomer: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "800", marginTop: 2 },
   yourCustomerBadge: { minWidth: 102, borderRadius: 7, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", paddingHorizontal: 9, paddingVertical: 4, alignItems: "center" },
   yourCustomerBadgeText: { color: "#dc2626", fontSize: 10, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
+  measureVisitCancelledBadge: { minHeight: 30, borderRadius: 10, backgroundColor: "#fee2e2", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 6 },
+  measureVisitCancelledBadgeText: { color: "#b91c1c", fontSize: 11, lineHeight: 15, fontWeight: "900" },
   measureVisitInfoGrid: { flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 12, gap: 12 },
   measureVisitInfoBlock: { minWidth: 132, flexBasis: "46%", flexGrow: 1, flexDirection: "row", alignItems: "flex-start", gap: 7, paddingRight: 8 },
   measureVisitInfoText: { flex: 1, minWidth: 0 },

@@ -227,6 +227,17 @@ const tailoringMeasurementSchema = z.object({
   imageUrl: z.string().url().optional().nullable()
 });
 
+const measurementVisitTimeSlots = [
+  "08:00 AM - 10:00 AM",
+  "10:00 AM - 12:00 PM",
+  "12:00 PM - 02:00 PM",
+  "02:00 PM - 04:00 PM",
+  "04:00 PM - 06:00 PM",
+  "06:00 PM - 08:00 PM",
+  "08:00 PM - 10:00 PM"
+] as const;
+const measurementVisitSlotSchema = z.enum(measurementVisitTimeSlots);
+
 const tailoringRequestItemInputSchema = z.object({
   description: z.string().trim().min(10).max(1000),
   gender: z.string().trim().min(2).max(40).optional(),
@@ -238,7 +249,7 @@ const tailoringRequestItemInputSchema = z.object({
   measurement: tailoringMeasurementSchema.optional(),
   measurementNotes: z.string().trim().max(1000).optional(),
   homeMeasurementBooked: z.boolean().default(false),
-  preferredMeasurementSlot: z.string().trim().optional(),
+  preferredMeasurementSlot: measurementVisitSlotSchema.optional(),
   sampleProvided: z.boolean().default(false),
   media: z.array(tailoringMediaSchema).max(MAX_FILES).default([]),
   voiceNotes: z.array(tailoringMediaSchema).max(3).default([]),
@@ -249,8 +260,18 @@ const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
   urgency: z.string().trim().min(2).max(80),
   pickupAddress: z.string().trim().min(8).max(500),
   pickupLocation: z.object({ lat: z.number(), lng: z.number() }).optional(),
-  preferredMeasurementSlot: z.string().trim().optional(),
+  preferredMeasurementSlot: measurementVisitSlotSchema.optional(),
   items: z.array(tailoringRequestItemInputSchema).min(1).max(20).optional()
+}).superRefine((input, context) => {
+  const items = input.items?.length ? input.items : [input];
+  const hasVisitWithoutSlot = items.some((item) => item.homeMeasurementBooked && !item.preferredMeasurementSlot && !input.preferredMeasurementSlot);
+  if (hasVisitWithoutSlot) {
+    context.addIssue({
+      code: "custom",
+      path: ["preferredMeasurementSlot"],
+      message: "Select a measurement visit time slot"
+    });
+  }
 });
 
 const createTailorQuoteSchema = z.object({
@@ -267,6 +288,7 @@ const checkoutTailoringRequestSchema = z.object({
   platformFee: z.number().nonnegative().default(0),
   smallOrderFee: z.number().nonnegative().default(0),
   homeMeasurementFee: z.number().nonnegative().default(0),
+  preferredMeasurementSlot: measurementVisitSlotSchema.optional(),
   couponCode: z.string().trim().max(40).optional(),
   additionalItems: z.array(z.object({
     gender: z.string().trim().max(80).optional(),
@@ -922,7 +944,7 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
       });
     }
   }
-  const measurementTailorId = cancelledVisit?.assignedTailorId ?? cancelledVisit?.offeredTailorId;
+  const measurementTailorId = cancelledVisit?.assignedTailorId;
   if (measurementTailorId && cancelledVisit) {
     const measurementTailor = await TailorModel.findOne({
       $or: [{ _id: measurementTailorId }, { userId: measurementTailorId }, { darjiTailorId: measurementTailorId }]
@@ -1925,6 +1947,20 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
     });
   }
   if (input.status === "READY") {
+    const earningTailor = acceptedQuote?.tailorId
+      ? await TailorModel.findById(acceptedQuote.tailorId).select("userId")
+      : null;
+    const earningAmount = Number(updatedRequest?.quoteAmount ?? acceptedQuote?.price ?? 0);
+    if (earningTailor?.userId && earningAmount > 0) {
+      await creditOrderEarning({
+        userId: earningTailor.userId,
+        userType: "TAILOR",
+        orderId: request.id,
+        amount: earningAmount,
+        remarks: `Tailor earning for order ${request.id.slice(0, 8).toUpperCase()}`,
+        createdBy: "system"
+      });
+    }
     await TailoringRequestModel.findByIdAndUpdate(request.id, { orderStatus: "ready_for_delivery" });
     await createDeliveryRequestForTailoringRequest(request.id, "tailor_to_customer");
   }
@@ -2189,6 +2225,17 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   if (request.status === "CANCELLED") throw new AppError(409, "Cancelled requests cannot be confirmed");
   if (request.status === "TAILOR_SELECTED") throw new AppError(409, "This request is already confirmed");
 
+  const storedMeasurementSlot = String(
+    request.preferredMeasurementSlot ??
+    request.items?.find((item) => item.homeMeasurementBooked && item.preferredMeasurementSlot)?.preferredMeasurementSlot ??
+    ""
+  ).trim();
+  const preferredMeasurementSlot = input.preferredMeasurementSlot ?? storedMeasurementSlot;
+  const hasHomeMeasurement = Boolean(request.homeMeasurementBooked || request.items?.some((item) => item.homeMeasurementBooked));
+  if (hasHomeMeasurement && !preferredMeasurementSlot) {
+    throw new AppError(400, "Select a measurement visit time slot before confirming this order");
+  }
+
   const quote = await TailorQuoteModel.findOne({ _id: input.quoteId, requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
   const currentDeliveryMode = deliveryModeFromUrgency(request.urgency);
@@ -2256,6 +2303,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     platformFee: expectedPlatformFee,
     smallOrderFee: expectedSmallOrderFee,
     homeMeasurementFee: input.homeMeasurementFee,
+    ...(preferredMeasurementSlot ? { preferredMeasurementSlot } : {}),
     couponCode,
     discountAmount,
     itemCount,

@@ -1,5 +1,9 @@
 import {
+  OrderModel,
   PaymentHistoryModel,
+  TailorModel,
+  TailorQuoteModel,
+  TailoringRequestModel,
   WalletModel,
   WalletTransactionModel
 } from "../models.js";
@@ -110,6 +114,76 @@ export async function creditOrderEarning(input: {
   });
 }
 
+async function reconcileTailorOrderEarnings(userId: string) {
+  const tailor = await TailorModel.findOne({ userId }).select("_id");
+  if (!tailor) return;
+
+  const [acceptedQuotes, completedOrders] = await Promise.all([
+    TailorQuoteModel.find({ tailorId: tailor.id, status: "ACCEPTED" }).select("_id price").lean(),
+    OrderModel.find({
+      tailorId: tailor.id,
+      status: { $in: ["READY", "DELIVERED", "STITCHING_COMPLETED"] }
+    }).select("_id orderNumber totalAmount").lean()
+  ]);
+  const quoteIds = acceptedQuotes.map((quote) => quote._id);
+  const completedRequests = quoteIds.length
+    ? await TailoringRequestModel.find({
+        selectedQuoteId: { $in: quoteIds },
+        status: "TAILOR_SELECTED",
+        workStatus: "READY"
+      }).select("_id selectedQuoteId quoteAmount").lean()
+    : [];
+
+  const sourceIds = [
+    ...completedRequests.map((request) => String(request._id)),
+    ...completedOrders.map((order) => String(order._id))
+  ];
+  if (!sourceIds.length) return;
+
+  const existingTransactions = await WalletTransactionModel.find({
+    userId,
+    orderId: { $in: sourceIds },
+    transactionType: "CREDIT",
+    category: "ORDER_EARNING"
+  }).select("orderId").lean();
+  const creditedOrderIds = new Set(existingTransactions.map((transaction) => String(transaction.orderId)));
+  const quoteAmounts = new Map(acceptedQuotes.map((quote) => [String(quote._id), Number(quote.price ?? 0)]));
+
+  // Accepted-request prices are submitted by the tailor and are therefore
+  // credited in full once stitching is ready.
+  for (const request of completedRequests) {
+    const orderId = String(request._id);
+    if (creditedOrderIds.has(orderId)) continue;
+    const amount = Number(request.quoteAmount ?? quoteAmounts.get(String(request.selectedQuoteId)) ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    await creditOrderEarning({
+      userId,
+      userType: "TAILOR",
+      orderId,
+      amount,
+      remarks: `Tailor earning for order ${orderId.slice(0, 8).toUpperCase()}`,
+      createdBy: "system-reconciliation"
+    });
+  }
+
+  // Catalog orders use the existing 45% tailor payout rule. This also repairs
+  // old completed orders created before wallet transactions were introduced.
+  for (const order of completedOrders) {
+    const orderId = String(order._id);
+    if (creditedOrderIds.has(orderId)) continue;
+    const amount = Number((Number(order.totalAmount ?? 0) * 0.45).toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    await creditOrderEarning({
+      userId,
+      userType: "TAILOR",
+      orderId,
+      amount,
+      remarks: `Tailor earning for order ${order.orderNumber ?? orderId.slice(0, 8).toUpperCase()}`,
+      createdBy: "system-reconciliation"
+    });
+  }
+}
+
 export async function createWeeklyPayout(input: {
   userId: string;
   userType: WalletUserType;
@@ -154,6 +228,7 @@ export async function createWeeklyPayout(input: {
 }
 
 export async function walletSummary(userId: string, userType: WalletUserType) {
+  if (userType === "TAILOR") await reconcileTailorOrderEarnings(userId);
   const wallet = await ensureWallet(userId, userType);
   const weekStart = startOfWeek();
   const weekEnd = endOfWeek(weekStart);

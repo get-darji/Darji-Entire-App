@@ -6720,7 +6720,7 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           {order.cancellationFee ? <SummaryRow label="Cancellation fee" value={`Rs${order.cancellationFee}`} tone="negative" /> : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
-          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Measurement slot" value={measurementSlotForDraft(order.draft)!} /> : null}
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement slot" value={measurementSlotForDraft(order.draft) || "Time slot unavailable"} /> : null}
           {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${order.total}`} strong />
@@ -9844,7 +9844,7 @@ function LegacyOrderDetailsScreenV2({
           ) : null}
           {order.draft.sampleProvided ? <SummaryRow label="Sample reference" value={order.draft.sampleMedia || order.draft.uploadedSampleMedia ? "Photo added" : "With pickup"} /> : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Tailor measurement visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} tone="positive" /> : null}
-          {measurementSlotForDraft(order.draft) ? <SummaryRow label="Measurement slot" value={measurementSlotForDraft(order.draft)!} /> : null}
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement slot" value={measurementSlotForDraft(order.draft) || "Time slot unavailable"} /> : null}
           {order.discountAmount ? <SummaryRow label={`Coupon ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total" value={`Rs${order.total}`} strong />
@@ -10149,7 +10149,7 @@ function OrderDetailsScreenV2({
             <SummaryRow label="Small Order Fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} />
           ) : null}
           {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Visit" value={`Rs${order.homeMeasurementFee ?? HOME_MEASUREMENT_FEE}`} /> : null}
-          {measurementSlot ? <SummaryRow label="Measurement Slot" value={measurementSlot} /> : null}
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Measurement Slot" value={measurementSlot || "Time slot unavailable"} /> : null}
           {order.discountAmount ? <SummaryRow label={`Discount ${order.couponCode ?? ""}`.trim()} value={`-Rs${order.discountAmount}`} tone="negative" /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Total Amount" value={`Rs${order.total}`} strong />
@@ -10159,7 +10159,7 @@ function OrderDetailsScreenV2({
         <View style={styles.orderDetailsCard}>
           <SummaryRow label="Pickup Address" value={order.draft.pickup || "Not selected"} />
           <SummaryRow label="Pickup Time" value={`${pickupSchedule.date}, ${pickupSchedule.timeSlot}`} />
-          {measurementSlot ? <SummaryRow label="Preferred Tailor Visit" value={measurementSlot} tone="negative" /> : null}
+          {order.homeMeasurementFee || order.draft.homeMeasurementBooked ? <SummaryRow label="Preferred Tailor Visit" value={measurementSlot || "Time slot unavailable"} tone="negative" /> : null}
           <SummaryRow label="Estimated Delivery" value={estimatedTime.delivery} />
           <SummaryRow label="Payment Method" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Tailor" value={order.tailor.name} />
@@ -10397,9 +10397,7 @@ function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderI
         <View style={{ flex: 1 }}>
           <Text style={styles.addressTitle}>Share this only at your home visit</Text>
           {preferredSlot ? <Text style={styles.customerMeasurementSlotValue}>Preferred visit: {preferredSlot}</Text> : null}
-          <Text style={styles.mutedSmall}>
-            {preferredSlot ? "" : visit.scheduledAt ? `Scheduled ${formatDeliveryTime(visit.scheduledAt)}. ` : ""}The visiting tailor needs this OTP to submit your measurements.
-          </Text>
+          <Text style={styles.mutedSmall}>{preferredSlot ? "" : "The selected time slot is unavailable. "}The visiting tailor needs this OTP to submit your measurements.</Text>
         </View>
         <Text style={styles.handoffOtpCode}>{visit.otp}</Text>
       </View>
@@ -11547,6 +11545,7 @@ export default function App() {
             platformFee,
             smallOrderFee,
             homeMeasurementFee,
+            preferredMeasurementSlot: measurementSlotForDraft(orderDraft),
             couponCode: checkout?.couponCode,
             totalAmount
           })
