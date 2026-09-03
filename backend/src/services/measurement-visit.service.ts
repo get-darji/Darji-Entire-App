@@ -227,7 +227,9 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
       title: "Measurement visit assigned",
       body: `${visit.customerName ?? "Customer"} visit is assigned to you for ${visit.preferredMeasurementSlot || "the selected time slot"}.`,
       data: {
-        type: "MEASUREMENT_VISIT_ASSIGNED",
+        // Keep assignment confirmations on the normal notification path in
+        // older APKs whose native fallback treats MEASUREMENT_VISIT as urgent.
+        type: "MEASUREMENT_ASSIGNED",
         visitId: visit.id,
         requestId: visit.requestId,
         preferredMeasurementSlot: visit.preferredMeasurementSlot ?? "",

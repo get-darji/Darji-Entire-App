@@ -16,7 +16,7 @@ export type PushPayload = {
 };
 
 let firebaseReady = false;
-const pushBuild = "incoming-fullscreen-v4";
+const pushBuild = "incoming-fullscreen-v5";
 
 const channelAppMap = {
   "customer-orders-v2": "customer",

@@ -56,7 +56,9 @@ internal object IncomingAlertManager {
 
   fun isIncoming(payload: JSONObject): Boolean {
     if (isClosedMeasurementVisitEvent(payload)) return false
-    if (payload.optString("darjiIncomingRequest").equals("true", ignoreCase = true)) return true
+    val incomingFlag = payload.optString("darjiIncomingRequest")
+    if (incomingFlag.equals("false", ignoreCase = true)) return false
+    if (incomingFlag.equals("true", ignoreCase = true)) return true
     if (payload.optString("channelId") == CHANNEL_ID || payload.optString("channelId") == "darji-incoming-requests-v1") return true
     val category = payload.optString("categoryId") + " " + payload.optString("categoryIdentifier")
     if (category.contains("TAILOR_NEW_REQUEST") || category.contains("TAILOR_MEASUREMENT_VISIT") || category.contains("DELIVERY_PICKUP_REQUEST")) return true

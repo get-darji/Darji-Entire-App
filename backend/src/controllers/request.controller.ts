@@ -955,7 +955,10 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
         title: "Measurement visit cancelled",
         body: `The ${cancelledVisit.preferredMeasurementSlot ? `${cancelledVisit.preferredMeasurementSlot} ` : ""}measurement visit for order ${request.id.slice(0, 8).toUpperCase()} has been cancelled.`,
         data: {
-          type: "MEASUREMENT_VISIT_CANCELLED",
+          // Do not include MEASUREMENT_VISIT in non-actionable update types.
+          // Older tailor APKs use that phrase to trigger the full-screen
+          // Accept/Deny overlay even when darjiIncomingRequest is false.
+          type: "MEASUREMENT_CANCELLED",
           visitId: cancelledVisit.id,
           requestId: request.id,
           preferredMeasurementSlot: cancelledVisit.preferredMeasurementSlot ?? "",
