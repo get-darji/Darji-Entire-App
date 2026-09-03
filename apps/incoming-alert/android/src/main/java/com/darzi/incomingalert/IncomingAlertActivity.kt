@@ -53,7 +53,7 @@ class IncomingAlertActivity : Activity() {
       this,
       payload,
       onAccept = {
-        val action = if (IncomingAlertManager.isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
+        val action = IncomingAlertManager.actionForAccept(payload)
         IncomingAlertManager.performAction(this, action, payload)
         finish()
       },

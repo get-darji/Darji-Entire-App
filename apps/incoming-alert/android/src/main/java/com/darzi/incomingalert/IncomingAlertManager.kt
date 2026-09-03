@@ -55,6 +55,7 @@ internal object IncomingAlertManager {
   }
 
   fun isIncoming(payload: JSONObject): Boolean {
+    if (isClosedMeasurementVisitEvent(payload)) return false
     if (payload.optString("darjiIncomingRequest").equals("true", ignoreCase = true)) return true
     if (payload.optString("channelId") == CHANNEL_ID || payload.optString("channelId") == "darji-incoming-requests-v1") return true
     val category = payload.optString("categoryId") + " " + payload.optString("categoryIdentifier")
@@ -62,6 +63,12 @@ internal object IncomingAlertManager {
     val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
     return kind.contains("INCOMING") || kind.contains("NEW_REQUEST") || kind.contains("REQUEST_CREATED") ||
       kind.contains("MEASUREMENT_VISIT") || kind.contains("TASK_CREATED") || kind.contains("DELIVERY_BATCH_READY") || kind.contains("PICKUP_ASSIGNED")
+  }
+
+  private fun isClosedMeasurementVisitEvent(payload: JSONObject): Boolean {
+    val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
+    if (!kind.contains("MEASUREMENT")) return false
+    return listOf("ASSIGNED", "CANCELLED", "SUBMITTED", "EXPIRED", "COMPLETED").any { marker -> kind.contains(marker) }
   }
 
   fun requestKey(payload: JSONObject): String {
@@ -189,8 +196,8 @@ internal object IncomingAlertManager {
       activityIntent,
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-    val acceptAction = if (isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
-    val acceptLabel = if (isTailor(payload)) "Send quote" else "Accept"
+    val acceptAction = actionForAccept(payload)
+    val acceptLabel = labelForAccept(payload)
     val acceptIntent = actionPendingIntent(context, id, ACTION_ACCEPT, acceptAction, payloadString)
     val declineIntent = actionPendingIntent(context, id, ACTION_DECLINE, "DECLINE", payloadString)
     val viewIntent = actionPendingIntent(context, id, ACTION_VIEW, "VIEW_DETAILS", payloadString)
@@ -261,20 +268,28 @@ internal object IncomingAlertManager {
     return category.contains("TAILOR", ignoreCase = true) || kind.contains("TAILOR", ignoreCase = true)
   }
 
+  fun isMeasurementVisit(payload: JSONObject): Boolean {
+    val category = payload.optString("categoryId") + payload.optString("categoryIdentifier")
+    val kind = payload.optString("type") + payload.optString("event")
+    return category.contains("MEASUREMENT", ignoreCase = true) || kind.contains("MEASUREMENT", ignoreCase = true)
+  }
+
+  fun actionForAccept(payload: JSONObject): String =
+    if (isMeasurementVisit(payload)) "ACCEPT" else if (isTailor(payload)) "SEND_QUOTE" else "ACCEPT"
+
+  fun labelForAccept(payload: JSONObject): String =
+    if (isMeasurementVisit(payload)) "Accept" else if (isTailor(payload)) "Send quote" else "Accept"
+
   fun currentPayload(context: Context): JSONObject? {
     val value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CURRENT_PAYLOAD, null) ?: return null
     return try { JSONObject(value) } catch (_: Exception) { null }
   }
 
   fun performAction(context: Context, action: String, payload: JSONObject) {
-    if (action == "DECLINE") {
-      dismiss(context, requestKey(payload))
-      return
-    }
-
     val pending = JSONObject().put("actionIdentifier", action).put("data", payload)
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PENDING_ACTION, pending.toString()).commit()
     dismiss(context, requestKey(payload))
+    if (action == "DECLINE" && !isMeasurementVisit(payload)) return
     context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
       launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
       launchIntent.putExtra(EXTRA_ACTION, action)

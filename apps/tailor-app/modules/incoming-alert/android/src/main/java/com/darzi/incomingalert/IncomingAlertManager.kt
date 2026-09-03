@@ -73,6 +73,7 @@ internal object IncomingAlertManager {
   }
 
   fun isIncoming(payload: JSONObject): Boolean {
+    if (isClosedMeasurementVisitEvent(payload)) return false
     if (payload.optString("darjiIncomingRequest").equals("true", ignoreCase = true)) return true
     val channelId = payload.optString("channelId")
     if (channelId == CHANNEL_ID || channelId in LEGACY_CHANNEL_IDS) return true
@@ -81,6 +82,12 @@ internal object IncomingAlertManager {
     val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
     return kind.contains("INCOMING") || kind.contains("NEW_REQUEST") || kind.contains("REQUEST_CREATED") ||
       kind.contains("MEASUREMENT_VISIT") || kind.contains("TASK_CREATED") || kind.contains("DELIVERY_BATCH_READY") || kind.contains("PICKUP_ASSIGNED")
+  }
+
+  private fun isClosedMeasurementVisitEvent(payload: JSONObject): Boolean {
+    val kind = (payload.optString("type") + " " + payload.optString("event")).uppercase(Locale.ROOT)
+    if (!kind.contains("MEASUREMENT")) return false
+    return listOf("ASSIGNED", "CANCELLED", "SUBMITTED", "EXPIRED", "COMPLETED").any { marker -> kind.contains(marker) }
   }
 
   fun requestKey(payload: JSONObject): String {

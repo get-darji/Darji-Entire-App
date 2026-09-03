@@ -219,7 +219,10 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
   );
   if (!visit) return null;
   await resolveOperationalAlert(`MEASUREMENT_VISIT_UNASSIGNED:${visit.id}`, actorId);
-  if (tailor.userId) {
+  // A tailor who just accepted the visit already has the success response and
+  // socket update. Sending the assignment push back to that same user creates
+  // a second incoming-style alert. Keep the push only for admin/system assignment.
+  if (tailor.userId && actorId !== tailor.userId) {
     await sendPushToUsers([tailor.userId], {
       title: "Measurement visit assigned",
       body: `${visit.customerName ?? "Customer"} visit is assigned to you for ${visit.preferredMeasurementSlot || "the selected time slot"}.`,

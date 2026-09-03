@@ -44,6 +44,7 @@ internal class IncomingAlertView(
 
   init {
     val tailor = IncomingAlertManager.isTailor(payload)
+    val measurementVisit = IncomingAlertManager.isMeasurementVisit(payload)
     val level = serviceLevel()
     val instantDelivery = !tailor && level.contains("INSTANT", ignoreCase = true)
     val accent = if (instantDelivery) Color.rgb(220, 38, 38) else Color.rgb(246, 163, 19)
@@ -134,7 +135,7 @@ internal class IncomingAlertView(
       rightMargin = dp(5)
     })
     buttons.addView(
-      button(if (tailor) "Send quote" else "Accept", accent, Color.rgb(17, 17, 17), onAccept),
+      button(if (measurementVisit) "Accept" else if (tailor) "Send quote" else "Accept", accent, Color.rgb(17, 17, 17), onAccept),
       LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(5) }
     )
 

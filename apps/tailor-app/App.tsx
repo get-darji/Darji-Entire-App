@@ -1363,6 +1363,7 @@ function RequestsScreen({
 
   async function updateVisit(visit: MeasurementVisit, action: "accept" | "decline") {
     if (!token) return;
+    stopMeasurementVisitAlert(visit);
     setSavingVisitId(visit.id);
     try {
       const updated = await api<MeasurementVisit>(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
@@ -5584,6 +5585,7 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
 
   async function updateVisit(visit: MeasurementVisit, action: "accept" | "decline") {
     if (!token) return;
+    stopMeasurementVisitAlert(visit);
     setSavingId(visit.id);
     try {
       const updated = await api<MeasurementVisit>(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
@@ -6118,6 +6120,7 @@ export default function App() {
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const alertedRequestIdsRef = useRef<Set<string>>(new Set());
   const alertedMeasurementVisitIdsRef = useRef<Set<string>>(new Set());
+  const respondingMeasurementVisitIdsRef = useRef<Set<string>>(new Set());
   const acceptedQuoteIdsRef = useRef<Set<string>>(new Set());
   const notificationAuthTokenRef = useRef(token);
   useRegisterPushNotifications({ authToken: token, app: "tailor", userId: sessionUser?.id });
@@ -6223,6 +6226,7 @@ export default function App() {
     dismissedRequestIdsRef.current.clear();
     alertedRequestIdsRef.current.clear();
     alertedMeasurementVisitIdsRef.current.clear();
+    respondingMeasurementVisitIdsRef.current.clear();
     acceptedQuoteIdsRef.current.clear();
     hasLoadedWorkspaceRef.current = false;
     setNewRequestPopup(undefined);
@@ -6448,18 +6452,55 @@ export default function App() {
     setMeasurementVisitPopup(visit);
   }
 
+  async function respondToMeasurementVisit(
+    visit: { id: string; requestId?: string },
+    action: "accept" | "decline"
+  ) {
+    if (!token || !visit.id) return false;
+    if (respondingMeasurementVisitIdsRef.current.has(visit.id)) return true;
+
+    respondingMeasurementVisitIdsRef.current.add(visit.id);
+    alertedMeasurementVisitIdsRef.current.add(visit.id);
+    stopMeasurementVisitAlert(visit);
+    setMeasurementVisitPopup((current) => current?.id === visit.id ? undefined : current);
+
+    if (action === "accept") {
+      setMeasurementVisits((current) => current.map((item) => item.id === visit.id
+        ? { ...item, status: "ACCEPTED", assignedTailorId: me?.tailorProfile?.id, acceptedAt: new Date().toISOString() }
+        : item));
+    } else {
+      setMeasurementVisits((current) => current.filter((item) => item.id !== visit.id));
+    }
+
+    try {
+      const updated = await api<MeasurementVisit>(`/measurement-visits/${visit.id}/${action}`, { method: "POST" }, token);
+      await refreshWorkspace(false);
+      if (updated) {
+        setMeasurementVisits((current) => action === "decline"
+          ? current.filter((item) => item.id !== visit.id)
+          : upsertMeasurementVisit(current, updated));
+      }
+      return true;
+    } catch (error) {
+      await refreshWorkspace(false);
+      setDialog({
+        title: action === "accept" ? "Could not accept" : "Could not deny",
+        message: error instanceof Error ? error.message : "Please try again.",
+        icon: "alert-circle-outline"
+      });
+      return false;
+    } finally {
+      respondingMeasurementVisitIdsRef.current.delete(visit.id);
+    }
+  }
+
   async function acceptMeasurementVisitFromPopup() {
     if (!token || !measurementVisitPopup) return;
+    const visit = measurementVisitPopup;
     try {
       setMeasurementPopupSaving(true);
-      const updated = await api<MeasurementVisit>(`/measurement-visits/${measurementVisitPopup.id}/accept`, { method: "POST" }, token);
-      stopMeasurementVisitAlert(measurementVisitPopup);
-      setMeasurementVisitPopup(undefined);
-      await refreshWorkspace(false);
-      setMeasurementVisits((current) => upsertMeasurementVisit(current, updated));
-      openMeasurementRequestsTab("accepted");
-    } catch (error) {
-      setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+      const accepted = await respondToMeasurementVisit(visit, "accept");
+      if (accepted) openMeasurementRequestsTab("accepted");
     } finally {
       setMeasurementPopupSaving(false);
     }
@@ -6467,14 +6508,11 @@ export default function App() {
 
   async function declineMeasurementVisitFromPopup() {
     if (!token || !measurementVisitPopup) return;
+    const visit = measurementVisitPopup;
     try {
       setMeasurementPopupSaving(true);
-      await api(`/measurement-visits/${measurementVisitPopup.id}/decline`, { method: "POST" }, token);
-      stopMeasurementVisitAlert(measurementVisitPopup);
-      setMeasurementVisitPopup(undefined);
-      await refreshWorkspace(false);
-    } catch (error) {
-      setDialog({ title: "Could not deny", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+      const declined = await respondToMeasurementVisit(visit, "decline");
+      if (declined) openMeasurementRequestsTab("incoming");
     } finally {
       setMeasurementPopupSaving(false);
     }
@@ -6671,7 +6709,12 @@ export default function App() {
       });
     });
     socket.on("measurement:visit_assigned", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (visit?.id) setMeasurementVisits((current) => upsertMeasurementVisit(current, visit));
+      if (visit?.id) {
+        alertedMeasurementVisitIdsRef.current.add(visit.id);
+        stopMeasurementVisitAlert(visit);
+        setMeasurementVisitPopup((current) => current?.id === visit.id ? undefined : current);
+        setMeasurementVisits((current) => upsertMeasurementVisit(current, visit));
+      }
       void refreshWorkspace().then(() => {
         if (visit?.id) setMeasurementVisits((current) => upsertMeasurementVisit(current, visit));
       });
@@ -6852,38 +6895,32 @@ export default function App() {
           setScreen("profile");
           return;
         }
-        if (String(destination.data?.type ?? "").startsWith("MEASUREMENT_") && destination.actionIdentifier === "DECLINE") {
+        const measurementNotificationType = String(destination.data?.type ?? "");
+        const isMeasurementNotification = measurementNotificationType.startsWith("MEASUREMENT_");
+        if (isMeasurementNotification && destination.actionIdentifier === "DECLINE") {
           const visitId = String(destination.data?.visitId ?? destination.data?.id ?? destination.entityId ?? "");
+          const requestId = String(destination.data?.requestId ?? "") || undefined;
           if (visitId) {
-            setMeasurementVisitPopup((current) => current?.id === visitId ? undefined : current);
-            void api(`/measurement-visits/${visitId}/decline`, { method: "POST" }, token)
-              .then(() => refreshWorkspace(false))
-              .catch((error) => {
-                setDialog({ title: "Could not deny", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
-              });
+            void respondToMeasurementVisit({ id: visitId, requestId }, "decline");
           }
-          openMeasurementRequestsTab();
+          openMeasurementRequestsTab("incoming");
           return;
         }
-        if (String(destination.data?.type ?? "").startsWith("MEASUREMENT_") && destination.actionIdentifier === "ACCEPT") {
+        // Older Android builds labelled a measurement Accept action as
+        // SEND_QUOTE because the notification category also contains TAILOR.
+        // Treat that legacy action as Accept so OTA JavaScript updates repair
+        // the flow without waiting for a native rebuild.
+        if (isMeasurementNotification && ["ACCEPT", "SEND_QUOTE"].includes(String(destination.actionIdentifier ?? ""))) {
           const visitId = String(destination.data?.visitId ?? destination.data?.id ?? destination.entityId ?? "");
+          const requestId = String(destination.data?.requestId ?? "") || undefined;
           if (visitId) {
-            setMeasurementVisitPopup((current) => current?.id === visitId ? undefined : current);
-            void api<MeasurementVisit>(`/measurement-visits/${visitId}/accept`, { method: "POST" }, token)
-              .then(async (updated) => {
-                await refreshWorkspace(false);
-                setMeasurementVisits((current) => upsertMeasurementVisit(current, updated));
-              })
-              .catch((error) => {
-                setDialog({ title: "Could not accept", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
-              });
+            void respondToMeasurementVisit({ id: visitId, requestId }, "accept");
           }
           openMeasurementRequestsTab("accepted");
           return;
         }
-        if (destination.screen === "measurementVisits" || String(destination.data?.type ?? "").startsWith("MEASUREMENT_")) {
-          const measurementType = String(destination.data?.type ?? "");
-          openMeasurementRequestsTab(/CANCELLED/i.test(measurementType) ? "history" : /ASSIGNED/i.test(measurementType) ? "accepted" : "incoming");
+        if (destination.screen === "measurementVisits" || isMeasurementNotification) {
+          openMeasurementRequestsTab(/CANCELLED/i.test(measurementNotificationType) ? "history" : /ASSIGNED/i.test(measurementNotificationType) ? "accepted" : "incoming");
           return;
         }
         if (destination.actionIdentifier === "DECLINE" && destination.entityId) {
