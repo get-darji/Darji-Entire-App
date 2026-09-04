@@ -21,14 +21,23 @@ type RiderLocationEvent = {
   longitude: number;
   accuracy: number | null;
   heading: number | null;
+  isAvailable?: boolean;
   lastLocationUpdatedAt: string;
 };
 
+type RiderPresence = "online" | "inactive" | "offline";
+
+function getPresence(partner: DeliveryPartnerProfile, updatedAt = partner.lastLocationUpdatedAt): RiderPresence {
+  if (!updatedAt) return partner.currentLocation?.coordinates?.length === 2 ? "inactive" : "offline";
+  if (updatedAt && Date.now() - new Date(updatedAt).getTime() > STALE_MS) return "inactive";
+  return partner.isAvailable ? "online" : "offline";
+}
+
 function getMarkerColor(partner: DeliveryPartnerProfile): string {
-  if (!partner.lastLocationUpdatedAt) return "#94a3b8";
-  const age = Date.now() - new Date(partner.lastLocationUpdatedAt).getTime();
-  if (age > STALE_MS) return "#f97316";
-  return partner.isAvailable ? "#22c55e" : "#94a3b8";
+  const presence = getPresence(partner);
+  if (presence === "online") return "#22c55e";
+  if (presence === "inactive") return "#f97316";
+  return "#94a3b8";
 }
 
 function makeIcon(color: string): L.DivIcon {
@@ -60,8 +69,13 @@ function formatAge(iso: string | null | undefined): string {
 
 function buildPopup(partner: DeliveryPartnerProfile, lat: number, lng: number, updatedAt?: string, address?: string): string {
   const name = partner.user?.name ?? partner.darjiPartnerId ?? partner.id;
-  const status = partner.isAvailable ? "Online" : "Offline";
   const updAt = updatedAt ?? partner.lastLocationUpdatedAt ?? null;
+  const presence = getPresence(partner, updAt);
+  const status = presence === "online"
+    ? "Online · live location"
+    : presence === "inactive"
+      ? "Inactive · no location update for more than 5 minutes"
+      : "Offline";
   const acc = partner.lastLocationAccuracy != null ? " &middot; &plusmn;" + Math.round(partner.lastLocationAccuracy) + "m" : "";
   return (
     "<div style=\"font-size:13px;line-height:1.6;min-width:220px\">" +
@@ -121,6 +135,12 @@ export default function RiderLiveMap({
   const partnersRef = useRef(partners);
   const hasAnyLocation = partners.some((p) => p.currentLocation?.coordinates);
   const [showOverlay, setShowOverlay] = useState(!hasAnyLocation);
+  const locatedPartners = partners.filter((partner) => partner.currentLocation?.coordinates?.length === 2);
+  const livePartners = locatedPartners.filter((partner) => {
+    return getPresence(partner) === "online";
+  });
+  const inactivePartners = locatedPartners.filter((partner) => getPresence(partner) === "inactive");
+  const offlinePartners = locatedPartners.filter((partner) => getPresence(partner) === "offline");
 
   // Initialize Leaflet map once via DOM ref — guards against Strict Mode double-invocation
   useEffect(() => {
@@ -193,21 +213,28 @@ export default function RiderLiveMap({
     socket.on("rider:location_updated", (data: RiderLocationEvent) => {
       const map = mapRef.current;
       if (!map) return;
-      const { partnerId, latitude, longitude, lastLocationUpdatedAt } = data;
-      const partner = partnersRef.current.find((p) => p.id === partnerId);
-      const age = Date.now() - new Date(lastLocationUpdatedAt).getTime();
-      const color = age > STALE_MS ? "#f97316" : (partner?.isAvailable ? "#22c55e" : "#94a3b8");
+      const { partnerId, latitude, longitude, accuracy, lastLocationUpdatedAt, isAvailable } = data;
+      const currentPartner = partnersRef.current.find((p) => p.id === partnerId);
+      if (!currentPartner) return;
+      const partner = {
+        ...currentPartner,
+        currentLocation: { type: "Point", coordinates: [longitude, latitude] as [number, number] },
+        lastLocationAccuracy: accuracy,
+        lastLocationUpdatedAt,
+        isAvailable: isAvailable ?? true
+      };
+      partnersRef.current = partnersRef.current.map((item) => item.id === partnerId ? partner : item);
+      const color = getMarkerColor(partner);
 
       if (markersRef.current.has(partnerId)) {
         const marker = markersRef.current.get(partnerId)!;
         marker.setLatLng([latitude, longitude]);
         marker.setIcon(makeIcon(color));
-        if (partner) bindPopupWithAddress(marker, partner, latitude, longitude, lastLocationUpdatedAt, token);
+        bindPopupWithAddress(marker, partner, latitude, longitude, lastLocationUpdatedAt, token);
       } else {
         const marker = L.marker([latitude, longitude], { icon: makeIcon(color) })
           .addTo(map);
-        if (partner) bindPopupWithAddress(marker, partner, latitude, longitude, lastLocationUpdatedAt, token);
-        else marker.bindPopup("<strong>" + partnerId + "</strong>");
+        bindPopupWithAddress(marker, partner, latitude, longitude, lastLocationUpdatedAt, token);
         markersRef.current.set(partnerId, marker);
         setShowOverlay(false);
       }
@@ -237,8 +264,8 @@ export default function RiderLiveMap({
         }}
       >
         <div><span style={{ color: "#22c55e", fontWeight: 700 }}>&#9670; </span>Online &amp; recent</div>
-        <div><span style={{ color: "#f97316", fontWeight: 700 }}>&#9670; </span>Stale (&gt;5 min)</div>
-        <div><span style={{ color: "#94a3b8", fontWeight: 700 }}>&#9670; </span>Offline / no data</div>
+        <div><span style={{ color: "#f97316", fontWeight: 700 }}>&#9670; </span>Inactive (&gt;5 min)</div>
+        <div><span style={{ color: "#94a3b8", fontWeight: 700 }}>&#9670; </span>Offline</div>
       </div>
 
       {/* Empty-state overlay */}
@@ -251,11 +278,11 @@ export default function RiderLiveMap({
             color: "#64748b", pointerEvents: "none",
           }}
         >
-          No verified rider has shared phone GPS yet. Location permission and an internet connection are required.
+          No partner in this view has shared phone GPS yet. Verified partners must use the latest delivery app, allow all-time precise location, and go online.
         </div>
       )}
       <div style={{ position: "absolute", top: 12, left: 52, zIndex: 1000, background: "white", borderRadius: 8, padding: "7px 10px", boxShadow: "0 2px 8px rgba(0,0,0,0.15)", fontSize: 12, fontWeight: 700, pointerEvents: "none" }}>
-        Showing {partners.filter((partner) => partner.currentLocation?.coordinates).length} of {partners.length} partners with real phone GPS
+        {livePartners.length} live · {inactivePartners.length} inactive · {offlinePartners.length} offline · {partners.length - locatedPartners.length} never shared ({partners.length} submitted)
       </div>
     </div>
   );

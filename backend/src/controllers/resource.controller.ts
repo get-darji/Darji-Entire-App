@@ -540,7 +540,9 @@ export async function listTailorsController(req: Request, res: Response) {
     },
     { $set: { verificationStatus: "PENDING" } }
   );
-  const tailors = await TailorModel.find().sort({ createdAt: -1 });
+  let tailorQuery = TailorModel.find();
+  if (req.query.verification === "submitted") tailorQuery = tailorQuery.where("verificationStatus").in(["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"]);
+  const tailors = await tailorQuery.sort({ createdAt: -1 });
   const tailorIds = tailors.map((tailor) => tailor.id);
   const orders = await OrderModel.find({ tailorId: { $in: tailorIds } }).select("_id tailorId").lean();
   const orderTailorMap = new Map(orders.map((order) => [String(order._id), String(order.tailorId)]));
@@ -824,7 +826,7 @@ export async function getTailorTutorialMediaController(_req: Request, res: Respo
   res.json({ data: normalizeTailorTutorialMedia(setting?.value) });
 }
 
-export async function listDeliveryPartnersController(_req: Request, res: Response) {
+export async function listDeliveryPartnersController(req: Request, res: Response) {
   await markStaleDeliveryPartnersOffline();
   await DeliveryPartnerModel.updateMany(
     {
@@ -836,9 +838,13 @@ export async function listDeliveryPartnersController(_req: Request, res: Respons
     },
     { $set: { verificationStatus: "PENDING" } }
   );
-  const partners = await DeliveryPartnerModel.find().sort({ createdAt: -1 });
+  let partnerQuery = DeliveryPartnerModel.find();
+  if (req.query.verification === "submitted") partnerQuery = partnerQuery.where("verificationStatus").in(["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"]);
+  const partners = await partnerQuery.sort({ createdAt: -1 });
   await Promise.all(partners.map((partner) => ensureDeliveryPartnerRoleId(partner)));
-  const refreshed = await DeliveryPartnerModel.find().sort({ createdAt: -1 });
+  let refreshedQuery = DeliveryPartnerModel.find();
+  if (req.query.verification === "submitted") refreshedQuery = refreshedQuery.where("verificationStatus").in(["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"]);
+  const refreshed = await refreshedQuery.sort({ createdAt: -1 });
   res.json({ data: await Promise.all(refreshed.map((partner) => withUser(partner))) });
 }
 
@@ -2813,12 +2819,13 @@ export async function reverseGeocodeController(req: Request, res: Response) {
 // PATCH /api/delivery-partners/me/location
 // ---------------------------------------------------------------------------
 export async function updateRiderLocationController(req: Request, res: Response) {
-  const { latitude, longitude, accuracy, heading, speed } = req.body as {
+  const { latitude, longitude, accuracy, heading, speed, isAvailable } = req.body as {
     latitude: unknown;
     longitude: unknown;
     accuracy?: unknown;
     heading?: unknown;
     speed?: unknown;
+    isAvailable?: unknown;
   };
 
   const lat = Number(latitude);
@@ -2830,15 +2837,26 @@ export async function updateRiderLocationController(req: Request, res: Response)
   }
 
   const userId: string = req.user!.id;
+  const existingPartner = await DeliveryPartnerModel.findOne({ userId });
+  if (!existingPartner) {
+    res.status(404).json({ message: "Delivery partner not found" });
+    return;
+  }
+  const availabilityWasProvided = typeof isAvailable === "boolean";
+  const activateOnline = isAvailable === true;
+  if (activateOnline && existingPartner.verificationStatus !== "VERIFIED") {
+    throw new AppError(403, "Complete admin verification before going online");
+  }
 
   const partner = await DeliveryPartnerModel.findOneAndUpdate(
-    { userId },
+    { _id: existingPartner.id },
     {
       currentLocation: { type: "Point", coordinates: [lng, lat] },
       lastLocationAccuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : undefined,
       lastLocationUpdatedAt: new Date(),
       lastLocationHeading: Number.isFinite(Number(heading)) ? Number(heading) : undefined,
-      lastLocationSpeed: Number.isFinite(Number(speed)) ? Number(speed) : undefined
+      lastLocationSpeed: Number.isFinite(Number(speed)) ? Number(speed) : undefined,
+      ...(availabilityWasProvided ? { isAvailable } : {})
     },
     { new: true, select: "_id darjiPartnerId isAvailable lastLocationUpdatedAt lastLocationAccuracy" }
   );
@@ -2855,8 +2873,9 @@ export async function updateRiderLocationController(req: Request, res: Response)
     longitude: lng,
     accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null,
     heading: Number.isFinite(Number(heading)) ? Number(heading) : null,
+    isAvailable: partner.isAvailable,
     lastLocationUpdatedAt: partner.lastLocationUpdatedAt
   });
 
-  res.json({ data: { ok: true } });
+  res.json({ data: { ok: true, isAvailable: partner.isAvailable, lastLocationUpdatedAt: partner.lastLocationUpdatedAt } });
 }

@@ -11,12 +11,12 @@ TaskManager.defineTask(DELIVERY_BACKGROUND_LOCATION_TASK, async ({ data, error }
   const position = locations.at(-1);
   if (!position) return;
   await useAppStore.persist.rehydrate();
-  const token = useAppStore.getState().token;
-  if (!token) return;
+  const { token, deliveryOnline } = useAppStore.getState();
+  if (!token || !deliveryOnline) return;
   const { latitude, longitude, accuracy, heading, speed } = position.coords;
   await api("/delivery-partners/me/location", {
     method: "PATCH",
-    body: JSON.stringify({ latitude, longitude, accuracy, heading, speed })
+    body: JSON.stringify({ latitude, longitude, accuracy, heading, speed, isAvailable: true })
   }, token).catch(() => undefined);
 });
 
@@ -24,7 +24,7 @@ export async function ensureDeliveryBackgroundLocation() {
   if (await Location.hasStartedLocationUpdatesAsync(DELIVERY_BACKGROUND_LOCATION_TASK)) return;
   await Location.startLocationUpdatesAsync(DELIVERY_BACKGROUND_LOCATION_TASK, {
     accuracy: Location.Accuracy.High,
-    timeInterval: 30_000,
+    timeInterval: 15_000,
     distanceInterval: 10,
     pausesUpdatesAutomatically: false,
     showsBackgroundLocationIndicator: true,

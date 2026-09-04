@@ -409,8 +409,6 @@ export function AdminPortal() {
   const [orderTailorFilter, setOrderTailorFilter] = useState("");
   const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState("");
   const [orderDateFilter, setOrderDateFilter] = useState("");
-  const [tailorVerificationFilter, setTailorVerificationFilter] = useState<"submitted" | "not_submitted" | "all">("submitted");
-  const [deliveryVerificationFilter, setDeliveryVerificationFilter] = useState<"submitted" | "not_submitted" | "all">("submitted");
   const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
@@ -532,7 +530,8 @@ export function AdminPortal() {
   const partnersQuery = useQuery({
     queryKey: ["admin", "partners"],
     queryFn: getDeliveryPartners,
-    enabled: isAuthed
+    enabled: isAuthed,
+    refetchInterval: 5000
   });
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
@@ -1830,9 +1829,6 @@ export function AdminPortal() {
 
   const filteredTailors = tailors.filter((tailor) => {
     const status = tailor.verificationStatus ?? "NOT_SUBMITTED";
-    const matchesVerification =
-      tailorVerificationFilter === "all" ||
-      (tailorVerificationFilter === "not_submitted" ? status === "NOT_SUBMITTED" : status !== "NOT_SUBMITTED");
     const matchesSearch =
       !searchTerm ||
       [tailor.shopName, tailor.darjiTailorId, tailor.user?.name, tailor.user?.phone, status, formatList(tailor.specialization)]
@@ -1840,15 +1836,12 @@ export function AdminPortal() {
         .join(" ")
         .toLowerCase()
         .includes(searchTerm);
-    return matchesVerification && matchesSearch;
+    return matchesSearch;
   });
   const rejectedTailors = filteredTailors.filter((tailor) => tailor.verificationStatus === "REJECTED");
 
   const filteredPartners = partners.filter((partner) => {
     const status = partner.verificationStatus ?? "NOT_SUBMITTED";
-    const matchesVerification =
-      deliveryVerificationFilter === "all" ||
-      (deliveryVerificationFilter === "not_submitted" ? status === "NOT_SUBMITTED" : status !== "NOT_SUBMITTED");
     const matchesSearch =
       !searchTerm ||
       [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, getPartnerVehicleNumber(partner), getPartnerRoleLabel(partner), status]
@@ -1856,7 +1849,7 @@ export function AdminPortal() {
         .join(" ")
         .toLowerCase()
         .includes(searchTerm);
-    return matchesVerification && matchesSearch;
+    return matchesSearch;
   });
 
   const filteredUsers = customerUsers.filter((user) =>
@@ -2475,34 +2468,24 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Tailor network"
-              description="Submitted verification records are shown by default. Login-only profiles remain available under Not submitted."
+              description="Only tailors who submitted verification are included. Pending, reviewed, and re-upload records remain visible."
               action={
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <select
-                    aria-label="Filter tailor verification records"
-                    className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] outline-none"
-                    value={tailorVerificationFilter}
-                    onChange={(event) => setTailorVerificationFilter(event.target.value as "submitted" | "not_submitted" | "all")}
-                  >
-                    <option value="submitted">Submitted ({tailors.filter((tailor) => (tailor.verificationStatus ?? "NOT_SUBMITTED") !== "NOT_SUBMITTED").length})</option>
-                    <option value="not_submitted">Not submitted ({tailors.filter((tailor) => (tailor.verificationStatus ?? "NOT_SUBMITTED") === "NOT_SUBMITTED").length})</option>
-                    <option value="all">All profiles ({tailors.length})</option>
-                  </select>
+                <div className="flex items-center justify-end gap-2">
                   <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>
                 </div>
               }
             />
-            {tailorVerificationFilter !== "not_submitted" ? <div className="space-y-3">
+            <div className="space-y-3">
               <div>
                 <h3 className="text-xl font-semibold text-[var(--foreground)]">Rejected tailors</h3>
                 <p className="text-sm text-[var(--muted)]">Approve from here to immediately bypass and clear the 15 day reapply limit.</p>
               </div>
               <DataTable columns={tailorColumns} data={rejectedTailors} emptyMessage="No rejected tailors match the current search." />
-            </div> : null}
+            </div>
             <DataTable
               columns={tailorColumns}
-              data={tailorVerificationFilter === "not_submitted" ? filteredTailors : filteredTailors.filter((tailor) => tailor.verificationStatus !== "REJECTED")}
-              emptyMessage={tailorVerificationFilter === "not_submitted" ? "No login-only tailor profiles match the current search." : "No submitted tailor verifications match the current search."}
+              data={filteredTailors.filter((tailor) => tailor.verificationStatus !== "REJECTED")}
+              emptyMessage="No submitted tailor verifications match the current search."
             />
           </div>
         ) : null}
@@ -2519,28 +2502,18 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Delivery partner network"
-              description="Submitted verification records are shown by default. Login-only profiles remain available under Not submitted."
+              description="Only partners who submitted verification are included. The map and table use the same live five-second data refresh."
               action={
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <select
-                    aria-label="Filter delivery verification records"
-                    className="min-h-11 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold text-[var(--foreground)] outline-none"
-                    value={deliveryVerificationFilter}
-                    onChange={(event) => setDeliveryVerificationFilter(event.target.value as "submitted" | "not_submitted" | "all")}
-                  >
-                    <option value="submitted">Submitted ({partners.filter((partner) => (partner.verificationStatus ?? "NOT_SUBMITTED") !== "NOT_SUBMITTED").length})</option>
-                    <option value="not_submitted">Not submitted ({partners.filter((partner) => (partner.verificationStatus ?? "NOT_SUBMITTED") === "NOT_SUBMITTED").length})</option>
-                    <option value="all">All profiles ({partners.length})</option>
-                  </select>
+                <div className="flex items-center justify-end gap-2">
                   <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-delivery-partners.csv", filteredPartners.map(partnerToCsv))}>Export CSV</ActionButton>
                 </div>
               }
             />
-            <RiderLiveMap partners={partners} token={token} />
+            <RiderLiveMap partners={filteredPartners} token={token} />
             <DataTable
               columns={partnerColumns}
               data={filteredPartners}
-              emptyMessage={deliveryVerificationFilter === "not_submitted" ? "No login-only delivery profiles match the current search." : "No submitted delivery verifications match the current search."}
+              emptyMessage="No submitted delivery verifications match the current search."
             />
           </div>
         ) : null}
@@ -9534,10 +9507,11 @@ function getPartnerColumns({
       header: "Current status",
       accessorFn: (row) => String(row.isAvailable),
       cell: ({ row }) => {
+        const hasLocation = Boolean(row.original.currentLocation?.coordinates?.length === 2);
         const locationAge = row.original.lastLocationUpdatedAt ? Date.now() - new Date(row.original.lastLocationUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
-        const locationIsFresh = Boolean(row.original.currentLocation?.coordinates?.length === 2) && locationAge <= 5 * 60 * 1000;
-        if (row.original.isAvailable && !locationIsFresh) return <Badge tone="rose">Location required</Badge>;
-        return <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Online" : "Offline"}</Badge>;
+        if (hasLocation && locationAge > 5 * 60 * 1000) return <Badge tone="amber">Inactive</Badge>;
+        if (row.original.isAvailable && hasLocation) return <Badge tone="emerald">Online</Badge>;
+        return <Badge tone="slate">Offline</Badge>;
       }
     },
     {
@@ -9546,11 +9520,15 @@ function getPartnerColumns({
       accessorFn: (row) => row.lastLocationUpdatedAt ?? "",
       cell: ({ row }) => {
         const coordinates = row.original.currentLocation?.coordinates;
-        if (!coordinates || coordinates.length < 2) return <div><Badge tone="rose">Not shared</Badge><p className="mt-1 max-w-[180px] text-xs text-[var(--muted)]">Partner must allow phone location and go online.</p></div>;
+        if (!coordinates || coordinates.length < 2) {
+          return <div><Badge tone="slate">Never received</Badge><p className="mt-1 max-w-[210px] text-xs text-[var(--muted)]">No GPS heartbeat reached Darji. Open the latest app, allow all-time precise location, and go online.</p></div>;
+        }
         const [longitude, latitude] = coordinates;
         const locationAge = row.original.lastLocationUpdatedAt ? Date.now() - new Date(row.original.lastLocationUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
         const isFresh = locationAge <= 5 * 60 * 1000;
-        return <div className="min-w-[180px]"><Badge tone={row.original.isAvailable && isFresh ? "emerald" : "amber"}>{row.original.isAvailable && isFresh ? "Live phone GPS" : "Last shared GPS"}</Badge><p className="mt-1 font-mono text-xs">{Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}</p><p className="text-xs text-[var(--muted)]">Updated {formatDate(row.original.lastLocationUpdatedAt, true)}{row.original.lastLocationAccuracy != null ? ` · ±${Math.round(row.original.lastLocationAccuracy)}m` : ""}</p></div>;
+        const tone = !isFresh ? "amber" : row.original.isAvailable ? "emerald" : "slate";
+        const label = !isFresh ? "Inactive GPS" : row.original.isAvailable ? "Live phone GPS" : "Offline GPS";
+        return <div className="min-w-[180px]"><Badge tone={tone}>{label}</Badge><p className="mt-1 font-mono text-xs">{Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}</p><p className="text-xs text-[var(--muted)]">Updated {formatDate(row.original.lastLocationUpdatedAt, true)}{row.original.lastLocationAccuracy != null ? ` · ±${Math.round(row.original.lastLocationAccuracy)}m` : ""}</p></div>;
       }
     },
     {

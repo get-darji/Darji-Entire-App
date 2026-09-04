@@ -188,11 +188,11 @@ export async function cancelDeliveryRetry(taskId: string) {
 }
 
 export async function getTailors() {
-  return unwrap<TailorProfile[]>(api.get("/tailors"));
+  return unwrap<TailorProfile[]>(api.get("/tailors", { params: { verification: "submitted" } }));
 }
 
 export async function getDeliveryPartners() {
-  return unwrap<DeliveryPartnerProfile[]>(api.get("/delivery-partners"));
+  return unwrap<DeliveryPartnerProfile[]>(api.get("/delivery-partners", { params: { verification: "submitted" } }));
 }
 
 export async function getUsers() {

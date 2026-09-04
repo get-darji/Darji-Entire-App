@@ -3158,6 +3158,7 @@ function MainApp({
 }) {
   const token = useAppStore((state) => state.token);
   const user = useAppStore((state) => state.user);
+  const setDeliveryOnline = useAppStore((state) => state.setDeliveryOnline);
   useRegisterPushNotifications({ authToken: token, app: "delivery", userId: user?.id });
   const [tab, setTabState] = useState<Tab>("home");
   const [tabStack, setTabStack] = useState<Tab[]>([]);
@@ -3181,12 +3182,13 @@ function MainApp({
   const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
   const presentedRequestIdsRef = useRef<Set<string>>(new Set());
+  const availabilityUpdateRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   const [initialSupportScreen, setInitialSupportScreen] = useState<string | null>(null);
 
   useEffect(() => registerIncomingRequestMessaging(), []);
 
-  const verifyAndSyncPhoneLocation = useCallback(async (requestBackground = false) => {
+  const verifyAndSyncPhoneLocation = useCallback(async (requestBackground = false, activateOnline = false) => {
     if (!token) return false;
     setLocationAccess((current) => current === "granted" ? current : "checking");
     try {
@@ -3213,7 +3215,7 @@ function MainApp({
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const { latitude, longitude, accuracy, heading, speed } = position.coords;
       setCurrentLocation({ latitude, longitude });
-      await api("/delivery-partners/me/location", { method: "PATCH", body: JSON.stringify({ latitude, longitude, accuracy, heading, speed }) }, token);
+      await api("/delivery-partners/me/location", { method: "PATCH", body: JSON.stringify({ latitude, longitude, accuracy, heading, speed, ...(activateOnline ? { isAvailable: true } : {}) }) }, token);
       setLocationAccess("granted");
       return true;
     } catch {
@@ -3402,8 +3404,10 @@ function MainApp({
   }, [goBack]);
 
   useEffect(() => {
-    setOnline(Boolean(me?.deliveryProfile?.isAvailable ?? false));
-  }, [me?.deliveryProfile?.isAvailable]);
+    const isOnline = Boolean(me?.deliveryProfile?.isAvailable ?? false);
+    setOnline(isOnline);
+    setDeliveryOnline(isOnline);
+  }, [me?.deliveryProfile?.isAvailable, setDeliveryOnline]);
 
   function addDeliveryNotification(input: Omit<DeliveryNotification, "id" | "createdAt">) {
     setNotificationCenterItems((current) => [
@@ -3566,15 +3570,6 @@ function MainApp({
   }, [loadRequests, loadWallet]);
 
   useEffect(() => {
-    if (!token) return;
-    void api(
-      "/delivery-partners/me/availability",
-      { method: "PATCH", body: JSON.stringify({ isAvailable: online }) },
-      token
-    ).catch(() => undefined);
-  }, [token]);
-
-  useEffect(() => {
     if (!token) return undefined;
     void Notifications.setBadgeCountAsync(0).catch(() => undefined);
     const socket = createRealtimeSocket(token, setConnectionStatus, refreshAccessToken);
@@ -3707,11 +3702,18 @@ function MainApp({
   }, [activeOrder?.id, activeOrderScreen]);
 
   async function toggleOnline(value: boolean) {
-    if (!token) return;
+    if (!token || availabilityUpdateRef.current) return;
+    availabilityUpdateRef.current = true;
     try {
       if (value) {
-        if (!(await verifyAndSyncPhoneLocation(true))) return;
+        if (!(await verifyAndSyncPhoneLocation(true, true))) return;
+        setOnline(true);
+        setDeliveryOnline(true);
+        void onRefreshProfile();
+        return;
       } else {
+        setDeliveryOnline(false);
+        await stopDeliveryBackgroundLocation();
         // Save one final real GPS fix before stopping the online heartbeat. If
         // the phone cannot provide it, the previously persisted fix remains.
         const permission = await Location.getForegroundPermissionsAsync();
@@ -3720,15 +3722,24 @@ function MainApp({
           const { latitude, longitude, accuracy, heading, speed } = position.coords;
           await api("/delivery-partners/me/location", {
             method: "PATCH",
-            body: JSON.stringify({ latitude, longitude, accuracy, heading, speed })
+            body: JSON.stringify({ latitude, longitude, accuracy, heading, speed, isAvailable: false })
           }, token);
+        } else {
+          await api("/delivery-partners/me/availability", { method: "PATCH", body: JSON.stringify({ isAvailable: false }) }, token);
         }
       }
-      await api("/delivery-partners/me/availability", { method: "PATCH", body: JSON.stringify({ isAvailable: value }) }, token);
-      setOnline(value);
-      if (!value) await stopDeliveryBackgroundLocation();
-    } catch {
-      // Do not display an online/offline state that the backend did not save.
+      setOnline(false);
+      void onRefreshProfile();
+    } catch (error) {
+      setDeliveryOnline(online);
+      if (online) void ensureDeliveryBackgroundLocation().catch(() => undefined);
+      showDialog({
+        title: value ? "Could not go online" : "Could not go offline",
+        message: error instanceof Error ? error.message : "The availability change did not reach Darji. Check your connection and try again.",
+        icon: "alert-circle-outline"
+      });
+    } finally {
+      availabilityUpdateRef.current = false;
     }
   }
 
@@ -3763,15 +3774,15 @@ function MainApp({
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         const { latitude, longitude, accuracy, heading, speed } = pos.coords;
         const now = Date.now();
-        // Only send if rider moved ≥ ~100m (0.0009° ≈ 100m) or 60s elapsed
+        // Send after roughly 10m of movement or at least every 10 seconds.
         const dlat = latitude - lastSentLat;
         const dlng = longitude - lastSentLng;
-        const moved = (dlat * dlat + dlng * dlng) > 0.00000081; // (0.0009)²
-        const elapsed = now - lastForceSendAt > 60000;
+        const moved = (dlat * dlat + dlng * dlng) > 0.0000000081;
+        const elapsed = now - lastForceSendAt > 10000;
         if (!moved && !elapsed) return;
         await api("/delivery-partners/me/location", {
           method: "PATCH",
-          body: JSON.stringify({ latitude, longitude, accuracy, heading, speed })
+          body: JSON.stringify({ latitude, longitude, accuracy, heading, speed, isAvailable: true })
         }, token);
         lastSentLat = latitude;
         lastSentLng = longitude;
@@ -3782,7 +3793,7 @@ function MainApp({
     }
 
     void sendHeartbeat(); // send immediately on going online
-    const interval = setInterval(() => void sendHeartbeat(), 20000); // then every 20s
+    const interval = setInterval(() => void sendHeartbeat(), 5000);
 
     return () => {
       isMounted = false;
