@@ -96,6 +96,7 @@ import {
   deleteAdminAccount,
   extractError,
   getAnalytics,
+  getDashboardAnalytics,
   getCoupons,
   getDeliveryPartners,
   getDeliveryBatches,
@@ -167,6 +168,7 @@ import SupportCommandCenter from "./support-command-center";
 import type {
   AdminUser,
   AnalyticsSummary,
+  DashboardAnalytics,
   Coupon,
   DeliveryPartnerProfile,
   DeliveryBatch,
@@ -192,7 +194,7 @@ import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
 
 type TrendRange = "daily" | "weekly" | "monthly";
-type DashboardPeriodPreset = "lifetime" | "this_month" | "last_3_months" | "last_6_months" | "last_12_months" | "custom";
+type DashboardPeriodPreset = "today" | "yesterday" | "last_7_days" | "last_30_days" | "this_month" | "previous_month" | "custom";
 
 type QueryBundle = {
   analytics: AnalyticsSummary;
@@ -301,6 +303,7 @@ type RevenuePoint = {
 type OrderTrendPoint = {
   label: string;
   completed: number;
+  active: number;
   cancelled: number;
   pending: number;
 };
@@ -391,9 +394,9 @@ export function AdminPortal() {
   }, [clearSessionNotice, sessionNotice]);
   const [orderSearch, setOrderSearch] = useState("");
   const [range] = useState<TrendRange>("monthly");
-  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriodPreset>("last_6_months");
-  const [dashboardFromMonth, setDashboardFromMonth] = useState(() => monthInputValue(new Date(new Date().getFullYear(), new Date().getMonth() - 5, 1)));
-  const [dashboardToMonth, setDashboardToMonth] = useState(() => monthInputValue(new Date()));
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriodPreset>("last_30_days");
+  const [dashboardFromMonth, setDashboardFromMonth] = useState(() => dateInputValue(new Date(Date.now() - 29 * 86_400_000)));
+  const [dashboardToMonth, setDashboardToMonth] = useState(() => dateInputValue(new Date()));
   const payoutPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
   const payoutPeriodParams = {
     weekStart: (payoutPeriodBounds.start ?? new Date(0)).toISOString(),
@@ -503,6 +506,11 @@ export function AdminPortal() {
     queryFn: getDeliveryBatches,
     enabled: isAuthed,
     refetchInterval: 5000
+  });
+  const dashboardAnalyticsQuery = useQuery({
+    queryKey: ["admin", "dashboard-analytics", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
+    queryFn: () => getDashboardAnalytics({ start: payoutPeriodParams.weekStart, endExclusive: payoutPeriodParams.weekEnd }),
+    enabled: isAuthed
   });
   const measurementVisitsQuery = useQuery({
     queryKey: ["admin", "measurement-visits"],
@@ -629,6 +637,7 @@ export function AdminPortal() {
       };
 
   const failedBootQuery = [
+    { label: "Dashboard analytics", query: dashboardAnalyticsQuery },
     { label: "Analytics", query: analyticsQuery },
     { label: "Orders", query: ordersQuery },
     { label: "Tailoring requests", query: tailoringQuery },
@@ -1216,6 +1225,7 @@ export function AdminPortal() {
 
   const isBootLoading = [
     meQuery,
+    dashboardAnalyticsQuery,
     analyticsQuery,
     ordersQuery,
     tailoringQuery,
@@ -1258,6 +1268,33 @@ export function AdminPortal() {
     );
   }
 
+  if (dashboardAnalyticsQuery.isError) {
+    return (
+      <PortalFrame
+        activeSection={activeSection}
+        alertCount={0}
+        globalSearch={globalSearch}
+        globalSearchResults={[]}
+        onGlobalSearchChange={setGlobalSearch}
+        onLogout={logout}
+        onOpenSidebar={() => setSidebarOpen(true)}
+        onSectionChange={setActiveSection}
+        sidebarOpen={sidebarOpen}
+        supportCount={0}
+      >
+        <Panel className="mx-auto max-w-2xl p-8 text-center">
+          <AlertCircle className="mx-auto h-10 w-10 text-rose-600" />
+          <h2 className="mt-4 text-xl font-semibold">Dashboard analytics could not be loaded</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">No KPI values are shown because their authoritative source is unavailable. {extractError(dashboardAnalyticsQuery.error)}</p>
+          <ActionButton className="mt-6" disabled={dashboardAnalyticsQuery.isFetching} onClick={() => void dashboardAnalyticsQuery.refetch()}>
+            {dashboardAnalyticsQuery.isFetching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            Retry analytics
+          </ActionButton>
+        </Panel>
+      </PortalFrame>
+    );
+  }
+
   if (!dashboardData || isBootLoading) {
     return (
       <PortalFrame
@@ -1281,8 +1318,7 @@ export function AdminPortal() {
   const { analytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
   const measurementVisits = measurementVisitsQuery.data ?? [];
   
-  const confirmedTailoringRequests: Order[] = tailoringRequests
-    .filter((request) => request.status === "TAILOR_SELECTED" || !!request.orderStatus)
+  const normalizedTailoringRequests: Order[] = tailoringRequests
     .map((request) => {
       const pickupPartner = partners.find((partner) => partner.id === request.pickupPartnerId || partner.id === request.assignedDeliveryBoyId) ?? null;
       const deliveryPartner = partners.find((partner) => partner.id === request.deliveryPartnerId) ?? null;
@@ -1296,7 +1332,11 @@ export function AdminPortal() {
         tailor_accepted: "PICKUP_ASSIGNED",
         payment_pending: "ORDER_PLACED"
       };
-      const mappedStatus = request.orderStatus ? (orderStatusMap[request.orderStatus] || request.orderStatus) : request.status;
+      const mappedStatus = request.status === "CANCELLED"
+        ? "CANCELLED"
+        : request.orderStatus
+          ? (orderStatusMap[request.orderStatus] || request.orderStatus)
+          : request.status;
       return {
         id: request.id,
         darjiId: request.darjiId,
@@ -1328,7 +1368,8 @@ export function AdminPortal() {
       } as unknown as Order;
     });
 
-  const allOrders = [...orders, ...confirmedTailoringRequests];
+  const allOrders = [...orders, ...normalizedTailoringRequests];
+  const dashboardAnalytics = dashboardAnalyticsQuery.data as DashboardAnalytics;
   const dashboardPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
   const dashboardOrders = allOrders.filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds));
   const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.createdAt, dashboardPeriodBounds));
@@ -1350,13 +1391,14 @@ export function AdminPortal() {
 
   const financeSummary = buildFinanceSummary(dashboardPayments, tailoringRequests, deliveryRequests, deliveryBatches);
   const metrics = buildMetrics(dashboardOrders, dashboardTailors, dashboardPartners, dashboardPayments, financeSummary);
-  const revenueSeries = buildRevenueSeries(dashboardPayments, "monthly", financeSummary.byPaymentId, dashboardMonthSlots);
-  const orderSeries = buildOrderTrendSeries(dashboardOrders, "monthly", dashboardMonthSlots);
+  const revenueSeries: RevenuePoint[] = dashboardAnalytics.series.revenue.map((point) => ({ label: point.label, revenue: point.netRevenue }));
+  const orderSeries: OrderTrendPoint[] = dashboardAnalytics.series.orders;
   const growthSeries = buildGrowthSeries(dashboardOrders, dashboardTailors, dashboardPartners, "monthly", dashboardMonthSlots);
   const serviceMix = buildServiceMix(dashboardOrders);
-  const completedOrders = dashboardOrders.filter((order) => order.status === "DELIVERED").length;
-  const cancelledOrders = dashboardOrders.filter((order) => order.status === "CANCELLED").length;
-  const pendingOrders = dashboardOrders.length - completedOrders - cancelledOrders;
+  const completedOrders = dashboardAnalytics.orders.completed;
+  const cancelledOrders = dashboardAnalytics.orders.cancelled;
+  const pendingOrders = dashboardAnalytics.orders.pending;
+  const activeOrders = dashboardAnalytics.orders.active;
   const recentOrders = [...dashboardOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
   const customerUsers = users.filter((user) => user.role === "CUSTOMER" && !user.tailorProfile && !user.deliveryProfile);
   const adminUsers = users.filter((user) => user.role === "ADMIN" || user.role === "SUPER_ADMIN");
@@ -1472,16 +1514,16 @@ export function AdminPortal() {
     return results.slice(0, 8);
   })();
   const dateRangeLabel = buildDashboardPeriodLabel(dashboardPeriod, dashboardPeriodBounds);
-  const latestGrowthPoint = growthSeries[growthSeries.length - 1] ?? { customers: 0, tailors: 0, partners: 0 };
-  const revenueDelta = buildTrendMeta(latestValue(revenueSeries, "revenue"), previousValue(revenueSeries, "revenue"));
-  const orderDelta = buildTrendMeta(sumOrderPoint(lastOrderPoint(orderSeries)), sumOrderPoint(previousOrderPoint(orderSeries)));
-  const customerDelta = buildTrendMeta(latestGrowthPoint.customers, previousValue(growthSeries, "customers"));
-  const tailorDelta = buildTrendMeta(latestGrowthPoint.tailors, previousValue(growthSeries, "tailors"));
-  const partnerDelta = buildTrendMeta(latestGrowthPoint.partners, previousValue(growthSeries, "partners"));
+  const latestGrowthPoint = { customers: dashboardAnalytics.growth.newCustomers, tailors: dashboardAnalytics.growth.newTailors, partners: dashboardAnalytics.growth.newDeliveryPartners };
+  const revenueDelta = formatComparison(dashboardAnalytics.comparison.netRevenue);
   const verificationDelta = buildCountMeta(metrics.pendingVerifications, true);
   const collectionDelta = buildCountMeta(metrics.pendingCollections, true);
   const cancellationDelta = buildCountMeta(Number(metrics.cancellationRate.toFixed(1)), true, "%");
-  const statusBreakdown = buildLiveOrderStatus(dashboardOrders);
+  const statusBreakdown = dashboardAnalytics.liveStages.map((item) => ({
+    label: item.stage,
+    count: item.count,
+    color: liveStageColor(item.stage)
+  }));
   const categoryTotal = serviceMix.reduce((sum, item) => sum + item.value, 0);
   const categoryChartData = buildCategoryChartData(serviceMix, 4);
   const categoryBreakdown = categoryChartData
@@ -1490,22 +1532,10 @@ export function AdminPortal() {
       share: categoryTotal ? Math.round((item.value / categoryTotal) * 100) : 0
     }));
   const hasRevenueData = revenueSeries.some((point) => point.revenue !== 0);
-  const hasOrderChartData = orderSeries.some((point) => point.completed || point.cancelled || point.pending);
+  const hasOrderChartData = orderSeries.some((point) => point.completed || point.active || point.cancelled || point.pending);
   const tailorWalletByUser = new Map((tailorPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
   const deliveryWalletByUser = new Map((deliveryPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
-  const periodPendingPayouts = [...(tailorPayoutsQuery.data ?? []), ...(deliveryPayoutsQuery.data ?? [])]
-    .reduce((sum, row) => sum + Number(row.periodPendingAmount ?? row.pendingAmount ?? 0), 0);
-  const topTailors = [...tailors]
-    .sort((left, right) => Number(tailorWalletByUser.get(right.userId)?.currentWeekEarnings ?? 0) - Number(tailorWalletByUser.get(left.userId)?.currentWeekEarnings ?? 0) || (right.rating ?? 0) - (left.rating ?? 0))
-    .slice(0, 5);
-  const topPartners = [...partners]
-    .sort(
-      (left, right) =>
-        Number(deliveryWalletByUser.get(right.userId)?.currentWeekEarnings ?? 0) -
-          Number(deliveryWalletByUser.get(left.userId)?.currentWeekEarnings ?? 0) ||
-        (right.rating ?? 0) - (left.rating ?? 0)
-    )
-    .slice(0, 5);
+  const periodPendingPayouts = dashboardAnalytics.finance.pendingPayouts;
   const liveAlerts = buildLiveAlerts({
     deliveryRequests: dashboardDeliveryRequestsForPeriod,
     operationalAlerts: (operationalAlertsQuery.data ?? []).filter((alert) => isDateInDashboardPeriod(alert.createdAt, dashboardPeriodBounds)),
@@ -1534,9 +1564,9 @@ export function AdminPortal() {
       label: "Total Orders",
       note: dateRangeLabel,
       tone: "sky" as const,
-      value: dashboardOrders.length.toLocaleString("en-IN"),
-      change: "",
-      changeTone: "neutral" as const,
+      value: dashboardAnalytics.orders.total.toLocaleString("en-IN"),
+      change: formatComparison(dashboardAnalytics.comparison.orders),
+      changeTone: comparisonTone(dashboardAnalytics.comparison.orders),
       target: "orders" as SectionId,
       orderFilter: ""
     },
@@ -1545,7 +1575,7 @@ export function AdminPortal() {
       label: "Active Orders",
       note: "In progress",
       tone: "teal" as const,
-      value: dashboardOrders.filter((order) => !["DELIVERED", "COMPLETED", "CANCELLED", "FAILED", "ORDER_PLACED", "PAYMENT_PENDING"].includes(String(order.status).toUpperCase())).length.toLocaleString("en-IN"),
+      value: activeOrders.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
@@ -1576,29 +1606,32 @@ export function AdminPortal() {
     {
       icon: BarChart3,
       label: "Net Revenue",
-      note: "Paid - tailor quote - delivery",
+      formula: "Gross Paid − Tailor Cost − Delivery Partner Cost − ₹8 packaging/other cost per successfully paid order.",
+      note: `Gross paid − partner earnings − ₹${dashboardAnalytics.finance.packagingCostPerOrder}/paid order`,
       tone: "sky" as const,
-      value: formatCurrency(financeSummary.netRevenue),
-      change: "",
-      changeTone: "neutral" as const,
+      value: formatCurrency(dashboardAnalytics.finance.netRevenue),
+      change: formatComparison(dashboardAnalytics.comparison.netRevenue),
+      changeTone: comparisonTone(dashboardAnalytics.comparison.netRevenue),
       target: "payments" as SectionId
     },
     {
       icon: ReceiptIndianRupee,
       label: "Gross Paid",
+      formula: "Total amount successfully collected from customers during the selected period. Pending and failed payments are excluded.",
       note: "Customer paid amount",
       tone: "emerald" as const,
-      value: formatCurrency(financeSummary.grossPaid),
-      change: "",
-      changeTone: "neutral" as const,
+      value: formatCurrency(dashboardAnalytics.finance.grossPaid),
+      change: formatComparison(dashboardAnalytics.comparison.grossPaid),
+      changeTone: comparisonTone(dashboardAnalytics.comparison.grossPaid),
       target: "payments" as SectionId
     },
     {
       icon: AlertCircle,
       label: "Partner Cost",
-      note: "Tailor quotes + delivery",
+      formula: "Tailor earnings + actual delivery partner earnings credited in the wallet ledger.",
+      note: "Wallet earnings credited to tailors + delivery partners",
       tone: "rose" as const,
-      value: formatCurrency(financeSummary.totalPartnerCost),
+      value: formatCurrency(dashboardAnalytics.finance.partnerCost),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId
@@ -1606,6 +1639,7 @@ export function AdminPortal() {
     {
       icon: PackageCheck,
       label: "Pending Payouts",
+      formula: "Current positive wallet balances owed to tailors and delivery partners. This is a current liability, not a period delta.",
       note: "Unpaid in selected period",
       tone: "amber" as const,
       value: formatCurrency(periodPendingPayouts),
@@ -1629,7 +1663,7 @@ export function AdminPortal() {
       label: "Delivery Partners",
       note: "Active fleet",
       tone: "cyan" as const,
-      value: dashboardPartners.filter((partner) => partner.isAvailable && partner.verificationStatus === "VERIFIED").length.toLocaleString("en-IN"),
+      value: dashboardAnalytics.partners.activeDeliveryPartners.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "partners" as SectionId
@@ -1639,7 +1673,7 @@ export function AdminPortal() {
       label: "Active Tailors",
       note: "Available for work",
       tone: "amber" as const,
-      value: dashboardTailors.filter((tailor) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED").length.toLocaleString("en-IN"),
+      value: dashboardAnalytics.partners.activeTailors.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "tailors" as SectionId
@@ -1649,9 +1683,10 @@ export function AdminPortal() {
     {
       icon: CheckCircle2,
       label: "Completion Rate",
-      note: `${percentage(metrics.cancellationRate)} cancelled`,
+      formula: "Delivered ÷ (Delivered + Cancelled). Pending and active orders are excluded.",
+      note: `${percentage(dashboardAnalytics.orders.cancellationRate)} cancelled`,
       tone: "emerald" as const,
-      value: percentage(metrics.completionRate),
+      value: percentage(dashboardAnalytics.orders.completionRate),
       target: "orders" as SectionId,
       data: orderSeries.map((point) => ({
         label: point.label,
@@ -1661,16 +1696,17 @@ export function AdminPortal() {
     {
       icon: ReceiptIndianRupee,
       label: "Average Order Value",
-      note: revenueDelta.label,
+      formula: "Gross Paid ÷ distinct successfully paid orders.",
+      note: revenueDelta,
       tone: "amber" as const,
-      value: formatCurrency(metrics.averageOrderValue),
+      value: formatCurrency(dashboardAnalytics.finance.averageOrderValue),
       target: "payments" as SectionId,
       data: revenueSeries.map((point) => ({ label: point.label, value: point.revenue }))
     },
     {
       icon: Users,
       label: "New Customers",
-      note: buildCountMeta(latestGrowthPoint.customers).label,
+      note: formatComparison(dashboardAnalytics.comparison.newCustomers),
       tone: "violet" as const,
       value: latestGrowthPoint.customers.toLocaleString("en-IN"),
       target: "users" as SectionId,
@@ -1679,7 +1715,7 @@ export function AdminPortal() {
     {
       icon: Scissors,
       label: "New Tailors",
-      note: buildCountMeta(latestGrowthPoint.tailors).label,
+      note: formatComparison(dashboardAnalytics.comparison.newTailors),
       tone: "amber" as const,
       value: latestGrowthPoint.tailors.toLocaleString("en-IN"),
       target: "tailors" as SectionId,
@@ -1687,8 +1723,8 @@ export function AdminPortal() {
     },
     {
       icon: Truck,
-      label: "New Partners",
-      note: buildCountMeta(latestGrowthPoint.partners).label,
+      label: "New Delivery Partners",
+      note: formatComparison(dashboardAnalytics.comparison.newDeliveryPartners),
       tone: "sky" as const,
       value: latestGrowthPoint.partners.toLocaleString("en-IN"),
       target: "partners" as SectionId,
@@ -1701,6 +1737,7 @@ export function AdminPortal() {
     .sort((a, b) => getPartnerDisplayName(a).localeCompare(getPartnerDisplayName(b)));
 
   const filteredOrders = allOrders
+    .filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds))
     .filter((order) => {
       const query = orderSearch.trim().toLowerCase();
       const content = [
@@ -1730,11 +1767,12 @@ export function AdminPortal() {
       const paymentStatusMatch = !orderPaymentStatusFilter || String(order.paymentStatus).toUpperCase() === orderPaymentStatusFilter;
       const dateMatch = !orderDateFilter || Boolean(order.createdAt && new Date(order.createdAt).toISOString().slice(0, 10) === orderDateFilter);
       const normalizedStatus = String(order.status).toUpperCase();
+      const dashboardState = classifyDashboardOrderStatus(normalizedStatus);
       const statusMatch = !orderFilter ||
-        (orderFilter === "__ACTIVE__" && !["DELIVERED", "COMPLETED", "CANCELLED", "FAILED", "ORDER_PLACED", "PAYMENT_PENDING"].includes(normalizedStatus)) ||
-        (orderFilter === "__COMPLETED__" && ["DELIVERED", "COMPLETED"].includes(normalizedStatus)) ||
-        (orderFilter === "__CANCELLED__" && ["CANCELLED", "FAILED"].includes(normalizedStatus)) ||
-        (orderFilter === "__PENDING__" && ["ORDER_PLACED", "PAYMENT_PENDING", "PENDING"].includes(normalizedStatus)) ||
+        (orderFilter === "__ACTIVE__" && dashboardState === "active") ||
+        (orderFilter === "__COMPLETED__" && dashboardState === "completed") ||
+        (orderFilter === "__CANCELLED__" && dashboardState === "cancelled") ||
+        (orderFilter === "__PENDING__" && dashboardState === "pending") ||
         normalizedStatus === orderFilter;
       return (!query || content.includes(query)) && statusMatch && partnerMatch && categoryMatch && tailorMatch && paymentMethodMatch && paymentStatusMatch && dateMatch;
     })
@@ -2118,37 +2156,7 @@ export function AdminPortal() {
                   </h2>
                   <p className="mt-1.5 text-sm text-[#6f614c]">Here&apos;s what&apos;s happening with Darji today.</p>
                 </div>
-                <DropdownMenu.Root>
-                  <DropdownMenu.Trigger asChild>
-                    <button className="darji-date-pill flex min-w-[250px] items-center justify-between gap-3 self-start rounded-2xl border border-[#ecd8b6] bg-white/90 px-4 py-2.5 text-sm font-medium text-[var(--deep)] shadow-[0_12px_30px_rgba(199,153,56,0.08)] transition hover:border-[var(--accent)]" type="button">
-                      <span className="flex items-center gap-3"><CalendarDays size={16} className="text-[#c1840f]" />{dateRangeLabel}</span>
-                      <ChevronDown size={15} className="text-[var(--muted)]" />
-                    </button>
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content align="end" className="z-50 w-[min(360px,calc(100vw-24px))] rounded-3xl border border-[var(--panel-border)] bg-white p-3 shadow-[0_22px_55px_rgba(60,42,12,0.16)]">
-                      <p className="px-2 pb-2 text-sm font-bold text-[var(--deep)]">Dashboard period</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {([
-                          ["lifetime", "Lifetime"],
-                          ["this_month", "This month"],
-                          ["last_3_months", "Last 3 months"],
-                          ["last_6_months", "Last 6 months"],
-                          ["last_12_months", "Last 12 months"]
-                        ] as Array<[DashboardPeriodPreset, string]>).map(([value, label]) => (
-                          <button key={value} className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", dashboardPeriod === value ? "border-orange-400 bg-orange-50 text-orange-600" : "border-[var(--panel-border)] hover:bg-orange-50/60")} onClick={() => setDashboardPeriod(value)} type="button">{label}</button>
-                        ))}
-                      </div>
-                      <div className="my-3 h-px bg-[var(--panel-border)]" />
-                      <p className="px-1 text-xs font-semibold text-[var(--muted)]">Custom multi-month range</p>
-                      <div className="mt-2 grid grid-cols-2 gap-2" onPointerDown={(event) => event.stopPropagation()}>
-                        <label className="text-[11px] font-semibold text-[var(--muted)]">From month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={dashboardFromMonth} onChange={(event) => { setDashboardFromMonth(event.target.value); setDashboardPeriod("custom"); }} /></label>
-                        <label className="text-[11px] font-semibold text-[var(--muted)]">To month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={dashboardToMonth} onChange={(event) => { setDashboardToMonth(event.target.value); setDashboardPeriod("custom"); }} /></label>
-                      </div>
-                      <p className="mt-2 px-1 text-[11px] text-[var(--muted)]">Both boundary months are included in dashboard totals.</p>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu.Root>
+                <DashboardPeriodPicker fromMonth={dashboardFromMonth} label={dateRangeLabel} onFromMonthChange={setDashboardFromMonth} onPresetChange={setDashboardPeriod} onToMonthChange={setDashboardToMonth} preset={dashboardPeriod} toMonth={dashboardToMonth} />
               </div>
             </Panel>
 
@@ -2168,6 +2176,7 @@ export function AdminPortal() {
                   value={item.value}
                   change={item.change}
                   changeTone={item.changeTone}
+                  formula={"formula" in item ? item.formula : undefined}
                   onClick={() => {
                     if ("orderFilter" in item) setOrderFilter(item.orderFilter ?? "");
                     if (item.label === "Gross Paid" || item.label === "Net Revenue" || item.label === "Partner Cost") {
@@ -2181,6 +2190,16 @@ export function AdminPortal() {
               ))}
             </div>
 
+            <Panel className="overflow-hidden p-0">
+              <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">
+                <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.grossPaid} />
+                <FinanceBreakdownItem label="Tailor Cost" value={dashboardAnalytics.finance.tailorCost} tone="cost" />
+                <FinanceBreakdownItem label="Delivery Cost" value={dashboardAnalytics.finance.deliveryCost} tone="cost" />
+                <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.paidOrders})`} value={dashboardAnalytics.finance.packagingCost} tone="cost" />
+                <FinanceBreakdownItem emphasized label="Net Revenue" value={dashboardAnalytics.finance.netRevenue} />
+              </div>
+            </Panel>
+
             <div className="grid gap-4 xl:grid-cols-12">
               <ChartCard
                 title="Revenue Overview"
@@ -2190,14 +2209,14 @@ export function AdminPortal() {
               >
                 <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <p className="text-[2rem] font-semibold tracking-tight text-[var(--deep)]">{formatCurrency(metrics.totalRevenue)}</p>
+                    <p className="text-[2rem] font-semibold tracking-tight text-[var(--deep)]">{formatCurrency(dashboardAnalytics.finance.netRevenue)}</p>
                     <p className="mt-1.5 text-sm text-emerald-600">
-                      {revenueDelta.label} <span className="text-[var(--muted)]">vs previous period</span>
+                      {revenueDelta} <span className="text-[var(--muted)]">vs equal preceding period</span>
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    <MetricChip label="Today" value={formatCurrency(metrics.revenueToday)} />
-                    <MetricChip label="AOV" value={formatCurrency(metrics.averageOrderValue)} />
+                    <MetricChip label="Collected" value={formatCurrency(dashboardAnalytics.finance.grossPaid)} />
+                    <MetricChip label="AOV" value={formatCurrency(dashboardAnalytics.finance.averageOrderValue)} />
                   </div>
                 </div>
                 {hasRevenueData ? <ResponsiveContainer width="100%" height={190}>
@@ -2223,9 +2242,10 @@ export function AdminPortal() {
                 </ResponsiveContainer> : <CompactChartEmptyState message="No paid revenue in this period." />}
               </ChartCard>
 
-              <ChartCard title="Orders Overview" description="Completed, cancelled, and pending orders." className="xl:col-span-6 p-5" action={<SelectPill label={dateRangeLabel} />}>
+              <ChartCard title="Orders Overview" description="Mutually exclusive order states from one normalized source." className="xl:col-span-6 p-5" action={<SelectPill label={dateRangeLabel} />}>
                 <div className="mb-3 flex flex-wrap gap-3 text-sm">
                   <LegendDot color={darziChartPalette.success} label={`Completed ${completedOrders}`} />
+                  <LegendDot color={darziChartPalette.sky} label={`Active ${activeOrders}`} />
                   <LegendDot color={darziChartPalette.rose} label={`Cancelled ${cancelledOrders}`} />
                   <LegendDot color={darziChartPalette.orange} label={`Pending ${pendingOrders}`} />
                 </div>
@@ -2236,6 +2256,7 @@ export function AdminPortal() {
                     <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" />
                     <Tooltip contentStyle={tooltipStyle()} />
                     <Bar dataKey="completed" fill={darziChartPalette.success} radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="active" fill={darziChartPalette.sky} radius={[8, 8, 0, 0]} />
                     <Bar dataKey="cancelled" fill={darziChartPalette.rose} radius={[8, 8, 0, 0]} />
                     <Bar dataKey="pending" fill={darziChartPalette.orange} radius={[8, 8, 0, 0]} />
                   </BarChart>
@@ -2256,7 +2277,7 @@ export function AdminPortal() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-2xl font-semibold text-[var(--deep)]">{dashboardOrders.length.toLocaleString("en-IN")}</span>
+                      <span className="text-2xl font-semibold text-[var(--deep)]">{dashboardAnalytics.orders.total.toLocaleString("en-IN")}</span>
                       <span className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">Total orders</span>
                     </div>
                   </div>
@@ -2284,13 +2305,16 @@ export function AdminPortal() {
                 title="Top Tailors"
                 description="Highest earners this cycle."
                 onViewAll={() => setActiveSection("tailors")}
-                items={topTailors.map((tailor) => ({
-                  id: tailor.id,
-                  name: getTailorDisplayName(tailor),
-                  subtitle: `${countTailorOrders(orders, tailor.id)} orders`,
-                  value: formatCurrency(tailorWalletByUser.get(tailor.userId)?.currentWeekEarnings ?? 0),
-                  rating: tailor.rating ? tailor.rating.toFixed(1) : undefined,
-                  onClick: () => setTailorDetail(tailor)
+                items={dashboardAnalytics.topTailors.map((row) => ({
+                  id: row.profileId,
+                  name: row.name,
+                  subtitle: `${row.completedOrders} credited work orders`,
+                  value: formatCurrency(row.amount),
+                  rating: row.rating ? row.rating.toFixed(1) : undefined,
+                  onClick: () => {
+                    const tailor = tailors.find((item) => item.id === row.profileId);
+                    if (tailor) setTailorDetail(tailor);
+                  }
                 }))}
               />
               <LeaderboardCard
@@ -2298,20 +2322,23 @@ export function AdminPortal() {
                 title="Top Delivery Partners"
                 description="Top performing delivery network."
                 onViewAll={() => setActiveSection("partners")}
-                items={topPartners.map((partner) => ({
-                  id: partner.id,
-                  name: getPartnerDisplayName(partner),
-                  subtitle: `${getPartnerRoleLabel(partner)} - ${countPartnerOrders(orders, partner.id)} orders`,
-                  value: formatCurrency(deliveryWalletByUser.get(partner.userId)?.currentWeekEarnings ?? 0),
-                  rating: partner.rating ? partner.rating.toFixed(1) : undefined,
-                  onClick: () => setPartnerDetail(partner)
+                items={dashboardAnalytics.topDeliveryPartners.map((row) => ({
+                  id: row.profileId,
+                  name: row.name,
+                  subtitle: `${row.completedDeliveries} completed deliveries`,
+                  value: formatCurrency(row.amount),
+                  rating: row.rating ? row.rating.toFixed(1) : undefined,
+                  onClick: () => {
+                    const partner = partners.find((item) => item.id === row.profileId);
+                    if (partner) setPartnerDetail(partner);
+                  }
                 }))}
               />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               {miniTrendCards.map((item) => (
-                <MiniTrendCard key={item.label} data={item.data} icon={item.icon} label={item.label} note={item.note} tone={item.tone} value={item.value} onClick={() => {
+                <MiniTrendCard key={item.label} data={item.data} formula={"formula" in item ? item.formula : undefined} icon={item.icon} label={item.label} note={item.note} tone={item.tone} value={item.value} onClick={() => {
                   if (item.label === "Completion Rate") setOrderFilter("__COMPLETED__");
                   if (item.label === "Average Order Value") setPaymentFilter("PAID");
                   setActiveSection(item.target);
@@ -2323,7 +2350,8 @@ export function AdminPortal() {
 
         {activeSection === "orders" ? (
           <OrdersManagementView
-            allOrders={allOrders}
+            allOrders={dashboardOrders}
+            analyticsCounts={dashboardAnalytics.orders}
             categories={[...new Set(allOrders.flatMap((order) => (order.items ?? []).map((item) => item.service?.category?.name ?? "General")))].sort()}
             columns={orderColumns}
             deliveryPartnerFilter={deliveryPartnerFilter}
@@ -2639,9 +2667,9 @@ export function AdminPortal() {
         {activeSection === "activity" ? (
           <ActivityLogsModule
             me={me}
-            orders={allOrders}
-            payments={payments}
-            tickets={tickets}
+            orders={dashboardOrders}
+            payments={dashboardPayments}
+            tickets={tickets.filter((ticket) => isDateInDashboardPeriod(ticket.createdAt, dashboardPeriodBounds))}
           />
         ) : null}
 
@@ -3852,12 +3880,13 @@ function ActionButton({
   );
 }
 
-function Badge({ children, tone }: { children: React.ReactNode; tone: "teal" | "amber" | "rose" | "sky" | "slate" | "emerald" | "violet" | "cyan" }) {
+function Badge({ children, tone }: { children: React.ReactNode; tone: "teal" | "amber" | "rose" | "burgundy" | "sky" | "slate" | "emerald" | "violet" | "cyan" }) {
   const toneMap: Record<string, string> = {
     amber: "bg-amber-500/12 text-amber-700",
     cyan: "bg-cyan-500/12 text-cyan-700",
     emerald: "bg-emerald-500/12 text-emerald-700",
     rose: "bg-rose-500/12 text-rose-700",
+    burgundy: "bg-[#7f1d2d]/12 text-[#7f1d2d]",
     sky: "bg-sky-500/12 text-sky-700",
     slate: "bg-slate-500/12 text-slate-700",
     teal: "bg-teal-500/12 text-teal-700",
@@ -3901,6 +3930,7 @@ function SectionIntro({
 function StatCard({
   change,
   changeTone = "positive",
+  formula,
   icon: Icon,
   label,
   note,
@@ -3910,6 +3940,7 @@ function StatCard({
 }: {
   change?: string;
   changeTone?: "positive" | "negative" | "neutral";
+  formula?: string;
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   note: React.ReactNode;
@@ -3929,7 +3960,7 @@ function StatCard({
   };
 
   const content = (
-      <div className="flex h-full flex-col rounded-[26px] p-4">
+      <div className="flex h-full flex-col rounded-[26px] p-4" title={formula}>
         <div className="flex items-center justify-between gap-4">
           <span className={cn("rounded-[18px] p-3 shadow-sm", toneMap[tone])}>
             <Icon size={18} />
@@ -4150,7 +4181,7 @@ type AdminAlert = {
   id: string;
   title: string;
   detail: string;
-  tone: "amber" | "rose" | "sky" | "emerald" | "violet";
+  tone: "amber" | "rose" | "burgundy" | "sky" | "emerald" | "violet";
   onOpen: () => void;
 };
 
@@ -4166,7 +4197,7 @@ function LiveAlertsWidget({ alerts, className }: { alerts: AdminAlert[]; classNa
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {alerts.length ? alerts.slice(0, 6).map((alert) => (
-          <button key={alert.id} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)]" onClick={alert.onOpen} type="button">
+          <button key={alert.id} className={cn("rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)]", alert.tone === "burgundy" && "bg-[#fff7f7]")} onClick={alert.onOpen} type="button">
             <Badge tone={alert.tone}>{alert.title}</Badge>
             <p className="mt-3 text-sm font-semibold text-[var(--foreground)]">{alert.detail}</p>
           </button>
@@ -4336,7 +4367,24 @@ function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse;
   );
 }
 
+function FinanceBreakdownItem({ emphasized = false, label, tone = "income", value }: {
+  emphasized?: boolean;
+  label: string;
+  tone?: "income" | "cost";
+  value: number;
+}) {
+  return (
+    <div className={cn("bg-[var(--panel)] px-5 py-4", emphasized && "bg-[#fff6df]") } title={emphasized ? "Net Revenue = Gross Paid − Tailor Cost − Delivery Cost − Packaging Cost" : undefined}>
+      <p className="text-xs font-semibold text-[var(--muted)]">{label}</p>
+      <p className={cn("mt-1 text-xl font-semibold tabular-nums text-[var(--deep)]", tone === "cost" && "text-rose-700", emphasized && "text-2xl text-emerald-700")}>
+        {tone === "cost" ? "−" : ""}{formatCurrency(value)}
+      </p>
+    </div>
+  );
+}
+
 function OrdersManagementView({
+  analyticsCounts,
   allOrders,
   categories,
   columns,
@@ -4363,6 +4411,7 @@ function OrdersManagementView({
   paymentFilter,
   tailors
 }: {
+  analyticsCounts?: { total: number; pending: number; active: number; completed: number; cancelled: number };
   allOrders: Order[];
   categories: string[];
   columns: Array<ColumnDef<Order>>;
@@ -4389,18 +4438,24 @@ function OrdersManagementView({
   paymentFilter: string;
   tailors: TailorProfile[];
 }) {
-  const normalized = (order: Order) => String(order.status).toUpperCase();
-  const counts = {
-    pending: allOrders.filter((order) => ["ORDER_PLACED", "PAYMENT_PENDING", "PENDING"].includes(normalized(order))).length,
-    progress: allOrders.filter((order) => !["ORDER_PLACED", "PAYMENT_PENDING", "PENDING", "DELIVERED", "COMPLETED", "CANCELLED", "FAILED"].includes(normalized(order))).length,
-    completed: allOrders.filter((order) => ["DELIVERED", "COMPLETED"].includes(normalized(order))).length,
-    cancelled: allOrders.filter((order) => ["CANCELLED", "FAILED"].includes(normalized(order))).length
+  const loadedCounts = {
+    pending: allOrders.filter((order) => classifyDashboardOrderStatus(order.status) === "pending").length,
+    progress: allOrders.filter((order) => classifyDashboardOrderStatus(order.status) === "active").length,
+    completed: allOrders.filter((order) => classifyDashboardOrderStatus(order.status) === "completed").length,
+    cancelled: allOrders.filter((order) => classifyDashboardOrderStatus(order.status) === "cancelled").length
   };
-  const total = Math.max(allOrders.length, 1);
+  const counts = analyticsCounts ? {
+    pending: analyticsCounts.pending,
+    progress: analyticsCounts.active,
+    completed: analyticsCounts.completed,
+    cancelled: analyticsCounts.cancelled
+  } : loadedCounts;
+  const authoritativeTotal = analyticsCounts?.total ?? allOrders.length;
+  const total = Math.max(authoritativeTotal, 1);
   const statusTabs = [
-    { label: "All Orders", value: "", count: allOrders.length, tone: "text-orange-500 border-orange-500" },
+    { label: "All Orders", value: "", count: authoritativeTotal, tone: "text-orange-500 border-orange-500" },
     { label: "Pending", value: "__PENDING__", count: counts.pending, tone: "text-blue-600 border-blue-600" },
-    { label: "In Progress", value: "__ACTIVE__", count: counts.progress, tone: "text-violet-600 border-violet-600" },
+    { label: "Active", value: "__ACTIVE__", count: counts.progress, tone: "text-blue-600 border-blue-600" },
     { label: "Completed", value: "__COMPLETED__", count: counts.completed, tone: "text-emerald-600 border-emerald-600" },
     { label: "Cancelled", value: "__CANCELLED__", count: counts.cancelled, tone: "text-rose-600 border-rose-600" }
   ];
@@ -4456,7 +4511,7 @@ function OrdersManagementView({
         <div className="flex gap-7 overflow-x-auto border-t border-[var(--panel-border)] px-4 lg:px-5">
           {statusTabs.map((tab) => {
             const selected = orderFilter === tab.value;
-            return <button key={tab.label} className={cn("flex shrink-0 items-center gap-2 border-b-2 border-transparent py-3.5 text-sm font-semibold transition", selected ? tab.tone : "text-[var(--muted)] hover:text-[var(--foreground)]")} onClick={() => onStatusChange(tab.value)} type="button">{tab.label}<span className="rounded-full bg-black/5 px-2 py-0.5 text-xs">{tab.count}</span></button>;
+            return <button key={tab.label} className={cn("flex shrink-0 items-center gap-2 border-b border-transparent py-3.5 text-sm font-semibold transition", selected ? tab.tone : "text-[var(--muted)] hover:text-[var(--foreground)]")} onClick={() => onStatusChange(tab.value)} type="button">{tab.label}<span className="rounded-full bg-black/5 px-2 py-0.5 text-xs">{tab.count}</span></button>;
           })}
         </div>
       </Panel>
@@ -4625,6 +4680,7 @@ function SampleWorkModule({
                 </button>
               ))}
             </div>
+
           ) : (
           <div className="py-12 text-center">
             <ImageIcon className="mx-auto text-[var(--muted)]" size={36} />
@@ -6197,13 +6253,14 @@ function DashboardPeriodPicker({ compact = false, fromMonth, label, onFromMonthC
   toMonth: string;
 }) {
   const options: Array<[DashboardPeriodPreset, string]> = [
-    ["lifetime", "Lifetime"],
+    ["today", "Today"],
+    ["yesterday", "Yesterday"],
+    ["last_7_days", "Last 7 days"],
+    ["last_30_days", "Last 30 days"],
     ["this_month", "This month"],
-    ["last_3_months", "Last 3 months"],
-    ["last_6_months", "Last 6 months"],
-    ["last_12_months", "Last 12 months"]
+    ["previous_month", "Previous month"]
   ];
-  return <DropdownMenu.Root><DropdownMenu.Trigger asChild><button aria-label={`Dashboard period: ${label}`} className={cn("darji-header-control inline-flex items-center justify-between gap-3 rounded-2xl border border-[#f0dcc0] bg-white text-sm font-medium text-[var(--deep)] transition hover:border-[var(--accent)]", compact ? "h-12 min-w-[270px] px-4" : "px-4 py-3")} type="button"><span className="flex items-center gap-2"><CalendarDays size={17} className="text-[var(--accent)]" /><span className="truncate">{label}</span></span><ChevronDown size={15} className="text-[var(--muted)]" /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content align="end" className="z-50 w-[min(360px,calc(100vw-24px))] rounded-3xl border border-[var(--panel-border)] bg-white p-3 shadow-[0_22px_55px_rgba(60,42,12,0.16)]"><p className="px-2 pb-2 text-sm font-bold text-[var(--deep)]">Dashboard period</p><div className="grid grid-cols-2 gap-2">{options.map(([value, optionLabel]) => <button className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", preset === value ? "border-orange-400 bg-orange-50 text-orange-600" : "border-[var(--panel-border)] hover:bg-orange-50/60")} key={value} onClick={() => onPresetChange(value)} type="button">{optionLabel}</button>)}</div><div className="my-3 h-px bg-[var(--panel-border)]" /><p className="px-1 text-xs font-semibold text-[var(--muted)]">Custom multi-month range</p><div className="mt-2 grid grid-cols-2 gap-2" onPointerDown={(event) => event.stopPropagation()}><label className="text-[11px] font-semibold text-[var(--muted)]">From month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={fromMonth} onChange={(event) => { onFromMonthChange(event.target.value); onPresetChange("custom"); }} /></label><label className="text-[11px] font-semibold text-[var(--muted)]">To month<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="month" value={toMonth} onChange={(event) => { onToMonthChange(event.target.value); onPresetChange("custom"); }} /></label></div><p className="mt-2 px-1 text-[11px] text-[var(--muted)]">The dashboard refreshes automatically for the selected period.</p></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
+  return <DropdownMenu.Root><DropdownMenu.Trigger asChild><button aria-label={`Dashboard period: ${label}`} className={cn("darji-header-control inline-flex items-center justify-between gap-3 rounded-2xl border border-[#f0dcc0] bg-white text-sm font-medium text-[var(--deep)] transition hover:border-[var(--accent)]", compact ? "h-12 min-w-[270px] px-4" : "px-4 py-3")} type="button"><span className="flex items-center gap-2"><CalendarDays size={17} className="text-[var(--accent)]" /><span className="truncate">{label}</span></span><ChevronDown size={15} className="text-[var(--muted)]" /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content align="end" className="z-50 w-[min(360px,calc(100vw-24px))] rounded-2xl bg-white p-3 shadow-[0_22px_55px_rgba(60,42,12,0.16)]"><p className="px-2 pb-2 text-sm font-bold text-[var(--deep)]">Dashboard period</p><div className="grid grid-cols-2 gap-2">{options.map(([value, optionLabel]) => <button className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", preset === value ? "border-orange-400 bg-orange-50 text-orange-700" : "border-[var(--panel-border)] hover:bg-orange-50/60")} key={value} onClick={() => onPresetChange(value)} type="button">{optionLabel}</button>)}</div><div className="my-3 h-px bg-[var(--panel-border)]" /><p className="px-1 text-xs font-semibold text-[var(--muted)]">Custom date range</p><div className="mt-2 grid grid-cols-2 gap-2" onPointerDown={(event) => event.stopPropagation()}><label className="text-[11px] font-semibold text-[var(--muted)]">From<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="date" value={fromMonth} onChange={(event) => { onFromMonthChange(event.target.value); onPresetChange("custom"); }} /></label><label className="text-[11px] font-semibold text-[var(--muted)]">To<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="date" value={toMonth} onChange={(event) => { onToMonthChange(event.target.value); onPresetChange("custom"); }} /></label></div><p className="mt-2 px-1 text-[11px] text-[var(--muted)]">Both boundary dates are included.</p></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
 }
 
 function CompactChartEmptyState({ message }: { message: string }) {
@@ -6394,6 +6451,7 @@ function LeaderboardCard({
 
 function MiniTrendCard({
   data,
+  formula,
   icon: Icon,
   label,
   note,
@@ -6402,6 +6460,7 @@ function MiniTrendCard({
   value
 }: {
   data: Array<{ label: string; value: number }>;
+  formula?: string;
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   note: string;
@@ -6418,7 +6477,7 @@ function MiniTrendCard({
 
   return (
     <Panel className={cn("p-4", onClick && "cursor-pointer transition hover:-translate-y-0.5 hover:border-[var(--accent)]")}>
-      <button className="block w-full text-left" onClick={onClick} type="button">
+      <button className="block w-full text-left" onClick={onClick} title={formula} type="button">
       <div className="flex items-start justify-between gap-4">
         <div>
           <span className={cn("inline-flex rounded-2xl p-2.5", tone === "amber" && "bg-[#fff1d8] text-[#cf7d00]", tone === "emerald" && "bg-emerald-500/12 text-emerald-700", tone === "sky" && "bg-sky-500/12 text-sky-700", tone === "violet" && "bg-violet-500/12 text-violet-700")}>
@@ -9997,12 +10056,12 @@ function buildLiveAlerts({
           else setActiveSection("dashboard");
         },
         title: alert.title,
-        tone: alert.severity === "CRITICAL" ? "rose" : alert.severity === "INFO" ? "sky" : "amber"
+        tone: alert.severity === "CRITICAL" ? "burgundy" : alert.severity === "INFO" ? "sky" : "amber"
       });
     });
 
   tailoringRequests
-    .filter((request) => request.status === "QUOTE_REQUESTED" && minutesAgo(request.createdAt) >= 10)
+    .filter((request) => request.status === "QUOTE_REQUESTED" && minutesAgo(request.createdAt) >= 1.5)
     .slice(0, 2)
     .forEach((request) => {
       alerts.push({
@@ -10012,7 +10071,23 @@ function buildLiveAlerts({
           setTailoringDetail(request);
           setActiveSection("tailoring");
         },
-        title: "Quote delay",
+        title: "Quote pending",
+        tone: "amber"
+      });
+    });
+
+  deliveryRequests
+    .filter((request) => isOpenDelivery(request) && !request.assignedDeliveryPartnerId && minutesAgo(request.createdAt) >= 10)
+    .slice(0, 2)
+    .forEach((request) => {
+      alerts.push({
+        detail: `${request.taskId} has no delivery partner assigned.`,
+        id: `delivery-unassigned-${request.id}`,
+        onOpen: () => {
+          setDeliveryDetail(request);
+          setActiveSection("delivery");
+        },
+        title: "Delivery unassigned",
         tone: "amber"
       });
     });
@@ -10058,7 +10133,20 @@ function buildLiveAlerts({
         id: `payment-failed-${payment.id}`,
         onOpen: () => setActiveSection("payments"),
         title: "Payment failed",
-        tone: "violet"
+        tone: "rose"
+      });
+    });
+
+  payments
+    .filter((payment) => payment.status === "PENDING" && minutesAgo(payment.createdAt) >= 15)
+    .slice(0, 2)
+    .forEach((payment) => {
+      alerts.push({
+        detail: `${payment.darjiId ?? payment.orderId} is still awaiting ${formatCurrency(payment.amount)}.`,
+        id: `payment-pending-${payment.id}`,
+        onOpen: () => setActiveSection("payments"),
+        title: "Payment pending",
+        tone: "amber"
       });
     });
 
@@ -10073,8 +10161,8 @@ function buildLiveAlerts({
           setOrderDetail(order);
           setActiveSection("orders");
         },
-        title: "Order stalled",
-        tone: "sky"
+        title: ["AT_TAILOR", "STITCHING_STARTED"].includes(String(order.status).toUpperCase()) ? "Tailor delay" : "Order delayed",
+        tone: "rose"
       });
     });
 
@@ -10237,17 +10325,15 @@ function buildRevenueSeries(payments: Payment[], range: TrendRange, breakdowns: 
 
 function buildOrderTrendSeries(orders: Order[], range: TrendRange, customSlots?: Array<{ key: string; label: string }>): OrderTrendPoint[] {
   const slots = customSlots ?? buildSlots(range);
-  const totals = new Map(slots.map((slot) => [slot.key, { completed: 0, cancelled: 0, pending: 0 }]));
+  const totals = new Map(slots.map((slot) => [slot.key, { completed: 0, active: 0, cancelled: 0, pending: 0 }]));
   orders.forEach((order) => {
     if (!order.createdAt) return;
     const key = bucketKey(new Date(order.createdAt), range);
     const item = totals.get(key);
     if (!item) return;
-    if (order.status === "DELIVERED") item.completed += 1;
-    else if (order.status === "CANCELLED") item.cancelled += 1;
-    else item.pending += 1;
+    item[classifyDashboardOrderStatus(order.status)] += 1;
   });
-  return slots.map((slot) => ({ label: slot.label, ...(totals.get(slot.key) ?? { completed: 0, cancelled: 0, pending: 0 }) }));
+  return slots.map((slot) => ({ label: slot.label, ...(totals.get(slot.key) ?? { completed: 0, active: 0, cancelled: 0, pending: 0 }) }));
 }
 
 function buildWeekdayOrderSeries(orders: Order[]): OrderTrendPoint[] {
@@ -10268,8 +10354,9 @@ function buildWeekdayOrderSeries(orders: Order[]): OrderTrendPoint[] {
     return {
       label: new Intl.DateTimeFormat("en-IN", { weekday: "short" }).format(date),
       completed: bucketOrders.filter((order) => order.status === "DELIVERED").length,
+      active: bucketOrders.filter((order) => classifyDashboardOrderStatus(order.status) === "active").length,
       cancelled: bucketOrders.filter((order) => order.status === "CANCELLED").length,
-      pending: bucketOrders.filter((order) => !["DELIVERED", "CANCELLED"].includes(order.status)).length
+      pending: bucketOrders.filter((order) => classifyDashboardOrderStatus(order.status) === "pending").length
     };
   });
 }
@@ -10378,15 +10465,58 @@ function previousValue<T extends object>(series: T[], key: keyof T) {
 }
 
 function lastOrderPoint(series: OrderTrendPoint[]) {
-  return series[series.length - 1] ?? { label: "", completed: 0, cancelled: 0, pending: 0 };
+  return series[series.length - 1] ?? { label: "", completed: 0, active: 0, cancelled: 0, pending: 0 };
 }
 
 function previousOrderPoint(series: OrderTrendPoint[]) {
-  return series[series.length - 2] ?? { label: "", completed: 0, cancelled: 0, pending: 0 };
+  return series[series.length - 2] ?? { label: "", completed: 0, active: 0, cancelled: 0, pending: 0 };
 }
 
-function sumOrderPoint(point: Pick<OrderTrendPoint, "completed" | "cancelled" | "pending">) {
-  return point.completed + point.cancelled + point.pending;
+function sumOrderPoint(point: Pick<OrderTrendPoint, "completed" | "active" | "cancelled" | "pending">) {
+  return point.completed + point.active + point.cancelled + point.pending;
+}
+
+function classifyDashboardOrderStatus(status?: string): "pending" | "active" | "completed" | "cancelled" {
+  const normalized = String(status ?? "").toUpperCase();
+  if (["DELIVERED", "COMPLETED"].includes(normalized)) return "completed";
+  if (normalized === "CANCELLED") return "cancelled";
+  if (["ORDER_PLACED", "QUOTE_REQUESTED", "PAYMENT_PENDING", "PENDING"].includes(normalized)) return "pending";
+  return "active";
+}
+
+function formatComparison(value: number | null) {
+  if (value === null) return "No prior baseline";
+  if (Math.abs(value) < 0.05) return "Stable";
+  return `${value > 0 ? "+" : ""}${value.toFixed(Math.abs(value) >= 10 ? 0 : 1)}%`;
+}
+
+function comparisonTone(value: number | null): "positive" | "negative" | "neutral" {
+  if (value === null || Math.abs(value) < 0.05) return "neutral";
+  return value > 0 ? "positive" : "negative";
+}
+
+function liveStageColor(stage: string) {
+  const colors: Record<string, string> = {
+    "Waiting for quote": "#d97706",
+    "Quote received": "#f59e0b",
+    "Payment / confirmation pending": "#f59e0b",
+    "Customer confirmed": "#2563eb",
+    "Pickup pending": "#2563eb",
+    "Picked up": "#0284c7",
+    "With tailor": "#7c3aed",
+    Ready: "#0891b2",
+    "Drop pending": "#0284c7",
+    "Awaiting payment": "#f59e0b",
+    "Awaiting tailor": "#d97706",
+    "Pickup in progress": "#2563eb",
+    "At tailor": "#7c3aed",
+    Stitching: "#9333ea",
+    "Ready for delivery": "#0891b2",
+    "Out for delivery": "#0284c7",
+    Delivered: "#16a34a",
+    Cancelled: "#dc2626"
+  };
+  return colors[stage] ?? "#64748b";
 }
 
 function buildTrendMeta(current: number, previous: number, inverse = false): { label: string; tone: "positive" | "negative" | "neutral" } {
@@ -10616,32 +10746,32 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
 
 type DashboardPeriodBounds = { start: Date | null; endExclusive: Date | null };
 
-function monthInputValue(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+function dateInputValue(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function monthStart(value: string) {
-  const [year, month] = value.split("-").map(Number);
-  return Number.isFinite(year) && Number.isFinite(month) ? new Date(year, month - 1, 1) : null;
+function localDayStart(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day) ? new Date(year, month - 1, day) : null;
 }
 
 function getDashboardPeriodBounds(preset: DashboardPeriodPreset, fromMonth: string, toMonth: string): DashboardPeriodBounds {
-  if (preset === "lifetime") return { start: null, endExclusive: null };
   const now = new Date();
-  const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (preset === "custom") {
-    const from = monthStart(fromMonth);
-    const to = monthStart(toMonth);
-    if (!from || !to) return { start: null, endExclusive: null };
+    const from = localDayStart(fromMonth);
+    const to = localDayStart(toMonth);
+    if (!from || !to) return { start: new Date(today.getTime() - 29 * 86_400_000), endExclusive: new Date(today.getTime() + 86_400_000) };
     const start = from <= to ? from : to;
-    const lastMonth = from <= to ? to : from;
-    return { start, endExclusive: new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1) };
+    const lastDay = from <= to ? to : from;
+    return { start, endExclusive: new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1) };
   }
-  const months = preset === "this_month" ? 1 : preset === "last_3_months" ? 3 : preset === "last_12_months" ? 12 : 6;
-  return {
-    start: new Date(currentMonth.getFullYear(), currentMonth.getMonth() - (months - 1), 1),
-    endExclusive: new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
-  };
+  if (preset === "today") return { start: today, endExclusive: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1) };
+  if (preset === "yesterday") return { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1), endExclusive: today };
+  if (preset === "last_7_days") return { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6), endExclusive: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1) };
+  if (preset === "last_30_days") return { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29), endExclusive: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1) };
+  if (preset === "previous_month") return { start: new Date(today.getFullYear(), today.getMonth() - 1, 1), endExclusive: new Date(today.getFullYear(), today.getMonth(), 1) };
+  return { start: new Date(today.getFullYear(), today.getMonth(), 1), endExclusive: new Date(today.getFullYear(), today.getMonth() + 1, 1) };
 }
 
 function isDateInDashboardPeriod(value: string | Date | null | undefined, bounds: DashboardPeriodBounds) {
@@ -10653,12 +10783,11 @@ function isDateInDashboardPeriod(value: string | Date | null | undefined, bounds
 }
 
 function buildDashboardPeriodLabel(preset: DashboardPeriodPreset, bounds: DashboardPeriodBounds) {
-  if (preset === "lifetime") return "Lifetime";
-  if (!bounds.start || !bounds.endExclusive) return "Select months";
+  if (!bounds.start || !bounds.endExclusive) return "Select dates";
   const end = new Date(bounds.endExclusive);
-  end.setDate(0);
-  const format = new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" });
-  if (bounds.start.getFullYear() === end.getFullYear() && bounds.start.getMonth() === end.getMonth()) return format.format(bounds.start);
+  end.setDate(end.getDate() - 1);
+  const format = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  if (bounds.start.toDateString() === end.toDateString()) return format.format(bounds.start);
   return `${format.format(bounds.start)} - ${format.format(end)}`;
 }
 

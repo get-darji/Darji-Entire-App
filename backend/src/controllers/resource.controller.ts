@@ -43,6 +43,7 @@ import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow } from "../s
 import { emitToCustomer, emitToAdmins, emitToUserRole, publishPlatformStatus } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
+import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -1726,6 +1727,7 @@ export async function markPaymentPaidController(req: Request, res: Response) {
 
   if (payment.status !== "PAID") {
     payment.status = "PAID";
+    payment.paidAt = new Date();
     payment.providerRef = typeof req.body.providerRef === "string" ? req.body.providerRef.trim().slice(0, 150) : payment.providerRef;
     await payment.save();
     await OrderModel.findByIdAndUpdate(order.id, { paymentStatus: "PAID" });
@@ -2668,6 +2670,12 @@ export async function listFeaturedReviewsController(req: Request, res: Response)
     })
   );
   res.json({ data: populated });
+}
+
+export async function dashboardAnalyticsController(req: Request, res: Response) {
+  const data = await getDashboardAnalytics(req.query.start, req.query.endExclusive);
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data });
 }
 
 // ---------------------------------------------------------------------------

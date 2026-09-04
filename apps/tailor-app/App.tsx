@@ -6241,7 +6241,6 @@ export default function App() {
     knownRequestIdsRef.current.add(request.id);
     if (alertedRequestIdsRef.current.has(request.id)) return;
     alertedRequestIdsRef.current.add(request.id);
-    setNewRequestPopup(request);
   }
 
   function handleSessionExpired() {
@@ -6449,7 +6448,6 @@ export default function App() {
     if (!visit?.id || alertedMeasurementVisitIdsRef.current.has(visit.id)) return;
     if (!isActionableMeasurementVisit(visit)) return;
     alertedMeasurementVisitIdsRef.current.add(visit.id);
-    setMeasurementVisitPopup(visit);
   }
 
   async function respondToMeasurementVisit(
@@ -6895,8 +6893,13 @@ export default function App() {
           setScreen("profile");
           return;
         }
-        const measurementNotificationType = String(destination.data?.type ?? "");
-        const isMeasurementNotification = measurementNotificationType.startsWith("MEASUREMENT_");
+        const measurementNotificationText = [
+          destination.data?.type,
+          destination.data?.event,
+          destination.data?.categoryId,
+          destination.data?.categoryIdentifier
+        ].map((value) => String(value ?? "")).join(" ");
+        const isMeasurementNotification = /MEASUREMENT/i.test(measurementNotificationText);
         if (isMeasurementNotification && destination.actionIdentifier === "DECLINE") {
           const visitId = String(destination.data?.visitId ?? destination.data?.id ?? destination.entityId ?? "");
           const requestId = String(destination.data?.requestId ?? "") || undefined;
@@ -6920,7 +6923,7 @@ export default function App() {
           return;
         }
         if (destination.screen === "measurementVisits" || isMeasurementNotification) {
-          openMeasurementRequestsTab(/CANCELLED/i.test(measurementNotificationType) ? "history" : /ASSIGNED/i.test(measurementNotificationType) ? "accepted" : "incoming");
+          openMeasurementRequestsTab(/CANCELLED/i.test(measurementNotificationText) ? "history" : /ASSIGNED/i.test(measurementNotificationText) ? "accepted" : "incoming");
           return;
         }
         if (destination.actionIdentifier === "DECLINE" && destination.entityId) {
@@ -6938,6 +6941,10 @@ export default function App() {
         }
         if (destination.screen === "requestDetails") {
           const request = destination.entityId ? requests.find((item) => item.id === destination.entityId) : undefined;
+          if (destination.entityId) {
+            dismissedRequestIdsRef.current.add(destination.entityId);
+            setNewRequestPopup((current) => current?.id === destination.entityId ? undefined : current);
+          }
           if (request) {
             setActiveRequest(request);
             setScreen(destination.actionIdentifier === "SEND_QUOTE" ? "quote" : "requestDetails");

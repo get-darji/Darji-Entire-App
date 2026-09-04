@@ -2,6 +2,7 @@ import { Router } from "express";
 import { meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
   analyticsController,
+  dashboardAnalyticsController,
   assignOrderController,
   catalogController,
   createAddressController,
@@ -285,6 +286,7 @@ router.get("/coupons", requireAuth, listCouponsController);
 router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponController);
 
 router.get("/analytics", requireAuth, requireRole("ADMIN"), analyticsController);
+router.get("/admin/analytics/dashboard", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), dashboardAnalyticsController);
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
 router.post("/users/admin-invite", requireAuth, requireRole("SUPER_ADMIN"), inviteAdminController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);

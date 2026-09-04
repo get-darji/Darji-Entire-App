@@ -10,11 +10,12 @@ import { HeroScene } from "./hero-scene";
 type PremiumHeroProps = {
   heroRef: RefObject<HTMLElement | null>;
   onModelReady?: () => void;
+  onBookPickup?: () => void;
 };
 
 const trustIcons = [ShieldCheck, MapPin, Clock3, LockKeyhole];
 
-export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
+export function PremiumHero({ heroRef, onModelReady, onBookPickup }: PremiumHeroProps) {
   return (
     <section ref={heroRef} className="hero-shell relative min-h-screen overflow-hidden bg-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_24%,rgba(255,112,0,0.12),transparent_30rem),linear-gradient(180deg,#ffffff_0%,#fffaf5_48%,#ffffff_100%)]" />
@@ -25,10 +26,11 @@ export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
           </Link>
           <div className="hidden items-center gap-8 text-sm font-bold text-[var(--color-text-secondary)] lg:flex">
             {[
-              ["Home", "#"],
-              ["Services", "#services"],
+              ["Home", "/"],
+              ["Services", "/#services"],
               ["FAQs", "#faq"],
-              ["About Us", "#story"]
+              ["Blog", "/blogs"],
+              ["About Us", "/about"]
             ].map(([label, href], index) => (
               <a key={label} href={href} className={`relative rounded-full py-2 transition-colors duration-200 hover:text-[var(--color-primary)] ${index === 0 ? "text-[var(--color-primary)]" : ""}`}>
                 {label}
@@ -37,9 +39,9 @@ export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
             ))}
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--color-primary)] px-5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:bg-[var(--color-primary-hover)] hover:-translate-y-0.5 active:translate-y-0">
+            <button type="button" onClick={onBookPickup} className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--color-primary)] px-5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-[var(--color-primary-hover)] active:translate-y-0">
               Book Pickup
-            </Link>
+            </button>
           </div>
         </nav>
 
@@ -72,10 +74,10 @@ export function PremiumHero({ heroRef, onModelReady }: PremiumHeroProps) {
             </div>
 
             <div className="darji-hero-buttons mt-9 flex flex-col gap-4 sm:flex-row">
-              <Link href="/dashboard" className="focus-ring inline-flex min-h-14 items-center justify-center gap-3 rounded-xl bg-[var(--color-primary)] px-8 text-base font-bold text-white shadow-lg transition-all duration-200 hover:bg-[var(--color-primary-hover)] hover:-translate-y-0.5 active:translate-y-0">
+              <button type="button" onClick={onBookPickup} className="focus-ring inline-flex min-h-14 items-center justify-center gap-3 rounded-xl bg-[var(--color-primary)] px-8 text-base font-bold text-white shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:bg-[var(--color-primary-hover)] active:translate-y-0">
                 Book Pickup Now
                 <ArrowRight className="h-5 w-5" />
-              </Link>
+              </button>
               <a href="#services" className="focus-ring inline-flex min-h-14 items-center justify-center gap-3 rounded-xl border border-[var(--color-border)] bg-white px-8 text-base font-bold text-[var(--color-text-primary)] shadow-sm transition-all duration-200 hover:border-[var(--color-border-hover)] hover:bg-[var(--color-surface-secondary)] hover:-translate-y-0.5 active:translate-y-0">
                 View Services
                 <ArrowRight className="h-4 w-4" />

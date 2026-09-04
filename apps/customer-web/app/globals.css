@@ -1,13 +1,23 @@
 @import "tailwindcss";
 :root {
   --darji-orange: #ff7000;
+  --darji-orange-dark: #e56500;
+  --darji-gold: #c6924b;
   --darji-ink: #08111f;
+  --darji-ink-deep: #040810;
   --darji-blue: #0b2241;
   --darji-muted: #687589;
+  --darji-muted-light: #94a3b8;
   --darji-line: #e6edf5;
-  --darji-cream: #fffaf0;
+  --darji-line-dark: #1e293b;
+  --darji-cream: #fdfaf6;
   --darji-page: #f6f8fb;
   --darji-green: #047857;
+
+  /* Fonts */
+  --font-editorial: var(--font-playfair), "Playfair Display", Georgia, serif;
+  --font-serif-cormorant: var(--font-cormorant), "Cormorant Garamond", Garamond, serif;
+  --font-sans: var(--font-plus-jakarta-sans), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   /* Landing Page UI Colors */
   --color-primary: var(--darji-orange);
@@ -19,6 +29,54 @@
   --color-surface-secondary: #fdfaf6;
   --color-border: #eee4dc;
   --color-border-hover: #e0d0c4;
+}
+
+.font-editorial {
+  font-family: var(--font-editorial);
+}
+
+.font-cormorant {
+  font-family: var(--font-serif-cormorant);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.drop-cap::first-letter {
+  font-family: var(--font-editorial);
+  float: left;
+  font-size: 3.75rem;
+  line-height: 0.82;
+  margin-top: 0.12em;
+  margin-right: 0.16em;
+  margin-bottom: -0.05em;
+  font-weight: 700;
+  color: var(--darji-orange);
+}
+
+.editorial-kicker {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.editorial-pullquote {
+  font-family: var(--font-editorial);
+  font-style: italic;
+  position: relative;
+}
+
+.editorial-pullquote::before {
+  content: "“";
+  position: absolute;
+  left: -0.45em;
+  top: -0.2em;
+  font-size: 3.5em;
+  color: rgba(255, 112, 0, 0.22);
+  line-height: 1;
+  pointer-events: none;
 }
 
 * {

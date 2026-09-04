@@ -6,6 +6,7 @@ import type { PlatformStatus } from "@darzi/shared";
 import type {
   AdminUser,
   AnalyticsSummary,
+  DashboardAnalytics,
   ApiEnvelope,
   AuthSession,
   Coupon,
@@ -130,6 +131,10 @@ export async function getDeliveryRetries() {
 
 export async function getDeliveryBatches() {
   return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
+}
+
+export async function getDashboardAnalytics(params: { start: string; endExclusive: string }) {
+  return unwrap<DashboardAnalytics>(api.get("/admin/analytics/dashboard", { params }));
 }
 
 export async function getMeasurementVisits() {

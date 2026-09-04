@@ -1706,7 +1706,7 @@ export async function confirmDeliveryCashCollectionController(req: Request, res:
     { returnDocument: "after" }
   );
   await TailoringRequestModel.findByIdAndUpdate(task.orderId, { paymentStatus: "PAID" });
-  await PaymentModel.findOneAndUpdate({ orderId: task.orderId, method: "COD" }, { status: "PAID" }, { sort: { createdAt: -1 } });
+  await PaymentModel.findOneAndUpdate({ orderId: task.orderId, method: "COD" }, { status: "PAID", paidAt: new Date() }, { sort: { createdAt: -1 } });
   
   // Log transaction
   await TransactionModel.create({
@@ -2388,7 +2388,7 @@ export async function verifyTailoringCheckoutController(req: Request, res: Respo
   }).sort({ createdAt: -1 });
   if (!payment) throw new AppError(404, "Pending payment record not found");
 
-  await PaymentModel.findByIdAndUpdate(payment.id, { status: "PAID" });
+  await PaymentModel.findByIdAndUpdate(payment.id, { status: "PAID", paidAt: new Date() });
   res.json({
     data: await finalizeTailoringRequestConfirmation(
       request.id,

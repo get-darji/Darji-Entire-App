@@ -342,7 +342,9 @@ const paymentSchema = new Schema(
     method: { type: String, enum: paymentMethods, required: true },
     status: { type: String, enum: paymentStatuses, default: "PENDING", index: true },
     amount: { type: Number, required: true },
-    providerRef: String
+    providerRef: String,
+    paidAt: Date,
+    refundedAt: Date
   },
   baseOptions
 );

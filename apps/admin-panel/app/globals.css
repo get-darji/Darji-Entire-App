@@ -17,6 +17,12 @@
   --deep-soft: #17345f;
   --success-soft: rgba(21, 128, 61, 0.12);
   --danger-soft: rgba(220, 38, 38, 0.12);
+  --status-success: #15803d;
+  --status-info: #2563eb;
+  --status-warning: #d97706;
+  --status-danger: #dc2626;
+  --status-critical: #7f1d2d;
+  --status-neutral: #64748b;
   --shadow: 0 18px 45px rgba(140, 102, 25, 0.1);
 }
 
@@ -34,6 +40,12 @@
   --deep: #f8f8f8;
   --deep-soft: #d6d6d6;
   --danger-soft: rgba(248, 113, 113, 0.14);
+  --status-success: #4ade80;
+  --status-info: #60a5fa;
+  --status-warning: #fbbf24;
+  --status-danger: #fb7185;
+  --status-critical: #fda4af;
+  --status-neutral: #a3a3a3;
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(246, 163, 19, 0.08);
 }
 

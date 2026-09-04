@@ -8,10 +8,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { SectionEyebrow } from "@/src/components/ui";
 import BorderGlow from "@/src/components/border-glow";
-import FlowingMenu from "@/src/components/flowing-menu";
 import TiltedCard from "@/src/components/tilted-card";
 import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
+import { LaunchSoonModal, SupportModal } from "./site-actions";
 import { VideoSection } from "./video-section";
 
 const serviceCards = [
@@ -44,29 +44,6 @@ const serviceCards = [
     copy: "Small clothing fixes handled with the same attention to detail.",
     detail: "Zippers, buttons, lining, hemming",
     image: "/service-icons/other-services.png"
-  }
-];
-
-const flowMenuItems = [
-  {
-    link: "/dashboard",
-    text: "Doorstep Convenience : We come to you. No travel. No waiting.",
-    image: "/flow-icons/doorstep-convenience.png"
-  },
-  {
-    link: "/dashboard",
-    text: "Expert Craftsmanship : Skilled tailors. Precise craftsmanship.",
-    image: "/flow-icons/expert-craftsmanship.png"
-  },
-  {
-    link: "/dashboard",
-    text: "Transparent Pricing : Know the price before the work begins.",
-    image: "/flow-icons/transparent-pricing.png"
-  },
-  {
-    link: "/dashboard",
-    text: "Quality Checked : Every order is checked before it reaches you.",
-    image: "/flow-icons/quality-checked.png"
   }
 ];
 
@@ -271,6 +248,8 @@ const faqList = [
 
 export function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [launchSoonOpen, setLaunchSoonOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
 
   const organizationSchema = {
@@ -351,7 +330,7 @@ export function LandingPage() {
       />
       <main id="site">
         <SmoothScroll />
-        <PremiumHero heroRef={heroRef} />
+        <PremiumHero heroRef={heroRef} onBookPickup={() => setLaunchSoonOpen(true)} />
         <VideoSection />
         <HowItWorksSection />
 
@@ -418,9 +397,9 @@ export function LandingPage() {
                 </motion.div>
               ))}
             </div>
-            <a href="/dashboard" className="focus-ring mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5 hover:bg-[#fff7f0]">
+            <button type="button" onClick={() => setLaunchSoonOpen(true)} className="focus-ring mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5 hover:bg-[#fff7f0]">
               View All Services <ArrowRight className="h-4 w-4" />
-            </a>
+            </button>
           </div>
         </section>
 
@@ -496,7 +475,7 @@ export function LandingPage() {
                   <div className="flex h-full w-full flex-col bg-[#faf9f6] p-4 pt-6 text-[var(--color-text-primary)]">
                     {/* Header */}
                     <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                      <img src="/darji transparent.png" alt="Darji" className="h-5 object-contain" />
+                      <img src="/darji-logo-cropped.png" alt="Darji" className="h-5 object-contain" />
                       <div className="h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]" />
                     </div>
 
@@ -681,7 +660,10 @@ export function LandingPage() {
             </div>
             <p className="mt-4 text-base font-semibold leading-relaxed text-[var(--color-text-secondary)]">
               Everything you need to know about Darji.<br />
-              Can't find the answer you're looking for? <a href="/dashboard?screen=support" className="text-[var(--color-primary)] hover:underline font-bold transition">Contact our support team</a>.
+              Can't find the answer you're looking for?{" "}
+              <button type="button" onClick={() => setSupportOpen(true)} className="font-bold text-[var(--color-primary)] transition hover:underline">
+                Contact our support team
+              </button>
             </p>
           </div>
 
@@ -760,12 +742,13 @@ export function LandingPage() {
                   <p className="text-sm font-semibold text-neutral-500 mt-0.5">We're here to help you.</p>
                 </div>
               </div>
-              <a
-                href="/dashboard?screen=support"
+              <button
+                type="button"
+                onClick={() => setSupportOpen(true)}
                 className="focus-ring inline-flex items-center justify-center gap-2 rounded-xl border border-[#ff7000] bg-white px-5 py-2.5 text-sm font-bold text-[#ff7000] shadow-sm transition hover:bg-[#ff7000] hover:text-white"
               >
                 Contact Support <ArrowRight className="h-4 w-4" />
-              </a>
+              </button>
             </div>
           </div>
         </section>
@@ -780,19 +763,18 @@ export function LandingPage() {
                   { label: "Home", href: "#site" },
                   { label: "Services", href: "#services" },
                   { label: "FAQs", href: "#faq" },
-                  { label: "About Us", href: "#about" }
+                  { label: "Blog", href: "/blogs" },
+                  { label: "About Us", href: "/about" }
                 ].map((item) => <a key={item.label} href={item.href} className="transition hover:text-white">{item.label}</a>)}
               </div>
             </div>
             <div>
               <h3 className="font-black">Support</h3>
               <div className="mt-4 grid gap-2 text-sm font-bold text-white/70">
-                {[
-                  { label: "Help Center", href: "/dashboard?screen=helpCenter&tab=faq" },
-                  { label: "Contact Us", href: "/dashboard?screen=support" },
-                  { label: "Privacy Policy", href: "/dashboard?screen=helpCenter&tab=privacy" },
-                  { label: "Terms & Conditions", href: "/dashboard?screen=helpCenter&tab=terms" }
-                ].map((item) => <a key={item.label} href={item.href} className="transition hover:text-white">{item.label}</a>)}
+                <a href="#faq" className="transition hover:text-white">Help Center</a>
+                <button type="button" onClick={() => setSupportOpen(true)} className="text-left transition hover:text-white">Contact Us</button>
+                <a href="mailto:support@darji.in?subject=Privacy%20Policy%20Request" className="transition hover:text-white">Privacy Policy</a>
+                <a href="mailto:support@darji.in?subject=Terms%20%26%20Conditions%20Request" className="transition hover:text-white">Terms & Conditions</a>
               </div>
             </div>
             <div><h3 className="font-black">Contact Us</h3><div className="mt-4 grid gap-3 text-sm font-bold text-white/70">{[[Phone, "+91 98765 43210"], [MapPin, "New Delhi, India"], [Clock3, "Pickup in 30 min average"]].map(([Icon, item]) => { const ContactIcon = Icon as typeof Phone; return <span key={String(item)} className="flex items-center gap-2"><ContactIcon className="h-4 w-4 text-[var(--darji-orange)]" />{String(item)}</span>; })}</div></div>
@@ -800,6 +782,8 @@ export function LandingPage() {
           <div className="shell mt-8 border-t border-white/10 pt-5 text-center text-xs font-bold text-white/50">&copy; 2026 Darji. All rights reserved.</div>
         </footer>
       </main>
+      <LaunchSoonModal open={launchSoonOpen} onClose={() => setLaunchSoonOpen(false)} />
+      <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
       <IntroReveal />
     </>
   );

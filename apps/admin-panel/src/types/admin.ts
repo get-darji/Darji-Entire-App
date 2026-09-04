@@ -57,6 +57,8 @@ export type Payment = {
   status: string;
   amount: number;
   providerRef?: string;
+  paidAt?: string;
+  refundedAt?: string;
   customerPaid?: number;
   tailorQuote?: number;
   deliveryEarnings?: number;
@@ -101,6 +103,49 @@ export type TailorProfile = {
   user?: BasicUser;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type DashboardAnalytics = {
+  period: { start: string; endExclusive: string; previousStart: string; previousEndExclusive: string };
+  orders: {
+    total: number;
+    pending: number;
+    active: number;
+    completed: number;
+    cancelled: number;
+    completionRate: number;
+    cancellationRate: number;
+  };
+  finance: {
+    grossPaid: number;
+    paidOrders: number;
+    tailorCost: number;
+    deliveryCost: number;
+    partnerCost: number;
+    packagingCost: number;
+    packagingCostPerOrder: number;
+    netRevenue: number;
+    averageOrderValue: number;
+    pendingPayouts: number;
+  };
+  partners: { activeTailors: number; activeDeliveryPartners: number };
+  growth: { newCustomers: number; newTailors: number; newDeliveryPartners: number };
+  comparison: {
+    orders: number | null;
+    grossPaid: number | null;
+    netRevenue: number | null;
+    newCustomers: number | null;
+    newTailors: number | null;
+    newDeliveryPartners: number | null;
+  };
+  series: {
+    orders: Array<{ label: string; completed: number; active: number; pending: number; cancelled: number }>;
+    revenue: Array<{ label: string; grossPaid: number; partnerCost: number; packagingCost: number; netRevenue: number }>;
+  };
+  liveStages: Array<{ stage: string; count: number }>;
+  topTailors: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; amount: number; completedOrders: number; rating: number }>;
+  topDeliveryPartners: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; amount: number; completedDeliveries: number; rating: number }>;
+  limitations: string[];
 };
 
 export type MeasurementVisit = {
