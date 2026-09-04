@@ -194,7 +194,7 @@ import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
 
 type TrendRange = "daily" | "weekly" | "monthly";
-type DashboardPeriodPreset = "today" | "yesterday" | "last_7_days" | "last_30_days" | "this_month" | "previous_month" | "custom";
+type DashboardPeriodPreset = "today" | "yesterday" | "this_week" | "last_week" | "last_7_days" | "last_30_days" | "this_month" | "previous_month" | "custom" | "lifetime";
 
 type QueryBundle = {
   analytics: AnalyticsSummary;
@@ -508,8 +508,8 @@ export function AdminPortal() {
     refetchInterval: 5000
   });
   const dashboardAnalyticsQuery = useQuery({
-    queryKey: ["admin", "dashboard-analytics", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
-    queryFn: () => getDashboardAnalytics({ start: payoutPeriodParams.weekStart, endExclusive: payoutPeriodParams.weekEnd }),
+    queryKey: ["admin", "dashboard-analytics", dashboardPeriod, payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
+    queryFn: () => getDashboardAnalytics({ start: payoutPeriodParams.weekStart, endExclusive: payoutPeriodParams.weekEnd, lifetime: dashboardPeriod === "lifetime" }),
     enabled: isAuthed
   });
   const measurementVisitsQuery = useQuery({
@@ -1372,18 +1372,11 @@ export function AdminPortal() {
   const dashboardAnalytics = dashboardAnalyticsQuery.data as DashboardAnalytics;
   const dashboardPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
   const dashboardOrders = allOrders.filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds));
-  const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.createdAt, dashboardPeriodBounds));
+  const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.paidAt ?? payment.createdAt, dashboardPeriodBounds));
   const dashboardTailoringRequestsForPeriod = tailoringRequests.filter((request) => isDateInDashboardPeriod(request.confirmedAt ?? request.createdAt, dashboardPeriodBounds));
   const dashboardDeliveryRequestsForPeriod = deliveryRequests.filter((request) => isDateInDashboardPeriod(request.createdAt, dashboardPeriodBounds));
   const dashboardTailors = tailors.filter((tailor) => isDateInDashboardPeriod(tailor.createdAt, dashboardPeriodBounds));
   const dashboardPartners = partners.filter((partner) => isDateInDashboardPeriod(partner.createdAt, dashboardPeriodBounds));
-  const dashboardMonthSlots = buildDashboardMonthSlots(dashboardPeriodBounds, [
-    ...allOrders.map((order) => order.createdAt),
-    ...payments.map((payment) => payment.createdAt),
-    ...tailors.map((tailor) => tailor.createdAt),
-    ...partners.map((partner) => partner.createdAt)
-  ]);
-
   const searchTerm = globalSearch.trim().toLowerCase();
   const headerNotifications = operationalAlertsQuery.data ?? [];
   const unreadHeaderNotifications = headerNotifications.filter((alert) => alert.status === "OPEN");
@@ -1393,7 +1386,7 @@ export function AdminPortal() {
   const metrics = buildMetrics(dashboardOrders, dashboardTailors, dashboardPartners, dashboardPayments, financeSummary);
   const revenueSeries: RevenuePoint[] = dashboardAnalytics.series.revenue.map((point) => ({ label: point.label, revenue: point.netRevenue }));
   const orderSeries: OrderTrendPoint[] = dashboardAnalytics.series.orders;
-  const growthSeries = buildGrowthSeries(dashboardOrders, dashboardTailors, dashboardPartners, "monthly", dashboardMonthSlots);
+  const growthSeries: GrowthPoint[] = dashboardAnalytics.series.growth;
   const serviceMix = buildServiceMix(dashboardOrders);
   const completedOrders = dashboardAnalytics.orders.completed;
   const cancelledOrders = dashboardAnalytics.orders.cancelled;
@@ -1515,7 +1508,8 @@ export function AdminPortal() {
   })();
   const dateRangeLabel = buildDashboardPeriodLabel(dashboardPeriod, dashboardPeriodBounds);
   const latestGrowthPoint = { customers: dashboardAnalytics.growth.newCustomers, tailors: dashboardAnalytics.growth.newTailors, partners: dashboardAnalytics.growth.newDeliveryPartners };
-  const revenueDelta = formatComparison(dashboardAnalytics.comparison.netRevenue);
+  const comparisonLabel = (value: number | null) => dashboardPeriod === "lifetime" ? "Lifetime" : formatComparison(value);
+  const revenueDelta = comparisonLabel(dashboardAnalytics.comparison.netRevenue);
   const verificationDelta = buildCountMeta(metrics.pendingVerifications, true);
   const collectionDelta = buildCountMeta(metrics.pendingCollections, true);
   const cancellationDelta = buildCountMeta(Number(metrics.cancellationRate.toFixed(1)), true, "%");
@@ -1553,9 +1547,9 @@ export function AdminPortal() {
   const todayOperations = buildTodayOperationsSummary({
     deliveryBatches: deliveryBatches.filter((batch) => isDateInDashboardPeriod(batch.roundAt, dashboardPeriodBounds)),
     deliveryRequests: dashboardDeliveryRequestsForPeriod,
-    partners: dashboardPartners,
+    partners,
     tailoringRequests: dashboardTailoringRequestsForPeriod,
-    tailors: dashboardTailors,
+    tailors,
     periodScoped: true
   });
   const dashboardStats = [
@@ -1565,7 +1559,7 @@ export function AdminPortal() {
       note: dateRangeLabel,
       tone: "sky" as const,
       value: dashboardAnalytics.orders.total.toLocaleString("en-IN"),
-      change: formatComparison(dashboardAnalytics.comparison.orders),
+      change: comparisonLabel(dashboardAnalytics.comparison.orders),
       changeTone: comparisonTone(dashboardAnalytics.comparison.orders),
       target: "orders" as SectionId,
       orderFilter: ""
@@ -1605,12 +1599,12 @@ export function AdminPortal() {
     },
     {
       icon: BarChart3,
-      label: "Net Revenue",
-      formula: "Gross Paid − Tailor Cost − Delivery Partner Cost − ₹8 packaging/other cost per successfully paid order.",
-      note: `Gross paid − partner earnings − ₹${dashboardAnalytics.finance.packagingCostPerOrder}/paid order`,
+      label: "Realized Net Revenue",
+      formula: "Collected customer payments − recorded tailor earnings − finalized delivery payout − ₹8 packaging/other cost, for delivered orders with finalized costs only.",
+      note: `From ${dashboardAnalytics.finance.realizedCompletedOrders.toLocaleString("en-IN")} completed order${dashboardAnalytics.finance.realizedCompletedOrders === 1 ? "" : "s"}`,
       tone: "sky" as const,
       value: formatCurrency(dashboardAnalytics.finance.netRevenue),
-      change: formatComparison(dashboardAnalytics.comparison.netRevenue),
+      change: comparisonLabel(dashboardAnalytics.comparison.netRevenue),
       changeTone: comparisonTone(dashboardAnalytics.comparison.netRevenue),
       target: "payments" as SectionId
     },
@@ -1621,7 +1615,7 @@ export function AdminPortal() {
       note: "Customer paid amount",
       tone: "emerald" as const,
       value: formatCurrency(dashboardAnalytics.finance.grossPaid),
-      change: formatComparison(dashboardAnalytics.comparison.grossPaid),
+      change: comparisonLabel(dashboardAnalytics.comparison.grossPaid),
       changeTone: comparisonTone(dashboardAnalytics.comparison.grossPaid),
       target: "payments" as SectionId
     },
@@ -1690,7 +1684,7 @@ export function AdminPortal() {
       target: "orders" as SectionId,
       data: orderSeries.map((point) => ({
         label: point.label,
-        value: sumOrderPoint(point) ? Number(((point.completed / sumOrderPoint(point)) * 100).toFixed(1)) : 0
+        value: point.completed + point.cancelled ? Number(((point.completed / (point.completed + point.cancelled)) * 100).toFixed(1)) : 0
       }))
     },
     {
@@ -1706,7 +1700,7 @@ export function AdminPortal() {
     {
       icon: Users,
       label: "New Customers",
-      note: formatComparison(dashboardAnalytics.comparison.newCustomers),
+      note: comparisonLabel(dashboardAnalytics.comparison.newCustomers),
       tone: "violet" as const,
       value: latestGrowthPoint.customers.toLocaleString("en-IN"),
       target: "users" as SectionId,
@@ -1715,7 +1709,7 @@ export function AdminPortal() {
     {
       icon: Scissors,
       label: "New Tailors",
-      note: formatComparison(dashboardAnalytics.comparison.newTailors),
+      note: comparisonLabel(dashboardAnalytics.comparison.newTailors),
       tone: "amber" as const,
       value: latestGrowthPoint.tailors.toLocaleString("en-IN"),
       target: "tailors" as SectionId,
@@ -1724,7 +1718,7 @@ export function AdminPortal() {
     {
       icon: Truck,
       label: "New Delivery Partners",
-      note: formatComparison(dashboardAnalytics.comparison.newDeliveryPartners),
+      note: comparisonLabel(dashboardAnalytics.comparison.newDeliveryPartners),
       tone: "sky" as const,
       value: latestGrowthPoint.partners.toLocaleString("en-IN"),
       target: "partners" as SectionId,
@@ -2179,7 +2173,7 @@ export function AdminPortal() {
                   formula={"formula" in item ? item.formula : undefined}
                   onClick={() => {
                     if ("orderFilter" in item) setOrderFilter(item.orderFilter ?? "");
-                    if (item.label === "Gross Paid" || item.label === "Net Revenue" || item.label === "Partner Cost") {
+                    if (item.label === "Gross Paid" || item.label === "Realized Net Revenue" || item.label === "Partner Cost") {
                       setPaymentFilter("PAID");
                       setPaymentsSubTab("ledger");
                     }
@@ -2192,18 +2186,23 @@ export function AdminPortal() {
 
             <Panel className="overflow-hidden p-0">
               <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">
-                <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.grossPaid} />
-                <FinanceBreakdownItem label="Tailor Cost" value={dashboardAnalytics.finance.tailorCost} tone="cost" />
-                <FinanceBreakdownItem label="Delivery Cost" value={dashboardAnalytics.finance.deliveryCost} tone="cost" />
-                <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.paidOrders})`} value={dashboardAnalytics.finance.packagingCost} tone="cost" />
-                <FinanceBreakdownItem emphasized label="Net Revenue" value={dashboardAnalytics.finance.netRevenue} />
+                <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.realizedGrossPaid} />
+                <FinanceBreakdownItem label="Tailor Cost" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" />
+                <FinanceBreakdownItem label="Delivery Payout" value={dashboardAnalytics.finance.realizedDeliveryCost} tone="cost" />
+                <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.realizedCompletedOrders})`} value={dashboardAnalytics.finance.realizedPackagingCost} tone="cost" />
+                <FinanceBreakdownItem emphasized label="Realized Net Revenue" value={dashboardAnalytics.finance.netRevenue} />
               </div>
+              {dashboardAnalytics.finance.unrealizedCompletedOrders > 0 ? (
+                <p className="bg-amber-50 px-5 py-3 text-xs font-medium text-amber-800">
+                  {dashboardAnalytics.finance.unrealizedCompletedOrders.toLocaleString("en-IN")} delivered order{dashboardAnalytics.finance.unrealizedCompletedOrders === 1 ? " is" : "s are"} excluded until collected payment and partner costs are finalized.
+                </p>
+              ) : null}
             </Panel>
 
             <div className="grid gap-4 xl:grid-cols-12">
               <ChartCard
                 title="Revenue Overview"
-                description="Net revenue from paid payments after tailor quote and delivery earnings."
+                description="Realized net revenue from delivered orders with collected payment and finalized partner costs."
                 className="xl:col-span-6 p-5"
                 action={<SelectPill label={dateRangeLabel} />}
               >
@@ -2211,11 +2210,11 @@ export function AdminPortal() {
                   <div>
                     <p className="text-[2rem] font-semibold tracking-tight text-[var(--deep)]">{formatCurrency(dashboardAnalytics.finance.netRevenue)}</p>
                     <p className="mt-1.5 text-sm text-emerald-600">
-                      {revenueDelta} <span className="text-[var(--muted)]">vs equal preceding period</span>
+                      {revenueDelta} {dashboardPeriod === "lifetime" ? null : <span className="text-[var(--muted)]">vs equal preceding period</span>}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    <MetricChip label="Collected" value={formatCurrency(dashboardAnalytics.finance.grossPaid)} />
+                    <MetricChip label="Completed-order paid" value={formatCurrency(dashboardAnalytics.finance.realizedGrossPaid)} />
                     <MetricChip label="AOV" value={formatCurrency(dashboardAnalytics.finance.averageOrderValue)} />
                   </div>
                 </div>
@@ -2239,7 +2238,7 @@ export function AdminPortal() {
                     <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Area dataKey="revenue" dot={{ fill: darziChartPalette.orange, r: 3, strokeWidth: 0 }} fill="url(#revenueFill)" stroke={darziChartPalette.orange} strokeWidth={3} type="monotone" />
                   </AreaChart>}
-                </ResponsiveContainer> : <CompactChartEmptyState message="No paid revenue in this period." />}
+                </ResponsiveContainer> : <CompactChartEmptyState message="No delivered orders with finalized costs in this period." />}
               </ChartCard>
 
               <ChartCard title="Orders Overview" description="Mutually exclusive order states from one normalized source." className="xl:col-span-6 p-5" action={<SelectPill label={dateRangeLabel} />}>
@@ -4374,7 +4373,7 @@ function FinanceBreakdownItem({ emphasized = false, label, tone = "income", valu
   value: number;
 }) {
   return (
-    <div className={cn("bg-[var(--panel)] px-5 py-4", emphasized && "bg-[#fff6df]") } title={emphasized ? "Net Revenue = Gross Paid − Tailor Cost − Delivery Cost − Packaging Cost" : undefined}>
+    <div className={cn("bg-[var(--panel)] px-5 py-4", emphasized && "bg-[#fff6df]") } title={emphasized ? "Realized Net Revenue = completed-order Gross Paid − recorded Tailor Cost − finalized Delivery Payout − Packaging Cost" : undefined}>
       <p className="text-xs font-semibold text-[var(--muted)]">{label}</p>
       <p className={cn("mt-1 text-xl font-semibold tabular-nums text-[var(--deep)]", tone === "cost" && "text-rose-700", emphasized && "text-2xl text-emerald-700")}>
         {tone === "cost" ? "−" : ""}{formatCurrency(value)}
@@ -6255,10 +6254,13 @@ function DashboardPeriodPicker({ compact = false, fromMonth, label, onFromMonthC
   const options: Array<[DashboardPeriodPreset, string]> = [
     ["today", "Today"],
     ["yesterday", "Yesterday"],
+    ["this_week", "This week"],
+    ["last_week", "Last week"],
+    ["this_month", "This month"],
+    ["previous_month", "Last month"],
     ["last_7_days", "Last 7 days"],
     ["last_30_days", "Last 30 days"],
-    ["this_month", "This month"],
-    ["previous_month", "Previous month"]
+    ["lifetime", "Lifetime"]
   ];
   return <DropdownMenu.Root><DropdownMenu.Trigger asChild><button aria-label={`Dashboard period: ${label}`} className={cn("darji-header-control inline-flex items-center justify-between gap-3 rounded-2xl border border-[#f0dcc0] bg-white text-sm font-medium text-[var(--deep)] transition hover:border-[var(--accent)]", compact ? "h-12 min-w-[270px] px-4" : "px-4 py-3")} type="button"><span className="flex items-center gap-2"><CalendarDays size={17} className="text-[var(--accent)]" /><span className="truncate">{label}</span></span><ChevronDown size={15} className="text-[var(--muted)]" /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content align="end" className="z-50 w-[min(360px,calc(100vw-24px))] rounded-2xl bg-white p-3 shadow-[0_22px_55px_rgba(60,42,12,0.16)]"><p className="px-2 pb-2 text-sm font-bold text-[var(--deep)]">Dashboard period</p><div className="grid grid-cols-2 gap-2">{options.map(([value, optionLabel]) => <button className={cn("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", preset === value ? "border-orange-400 bg-orange-50 text-orange-700" : "border-[var(--panel-border)] hover:bg-orange-50/60")} key={value} onClick={() => onPresetChange(value)} type="button">{optionLabel}</button>)}</div><div className="my-3 h-px bg-[var(--panel-border)]" /><p className="px-1 text-xs font-semibold text-[var(--muted)]">Custom date range</p><div className="mt-2 grid grid-cols-2 gap-2" onPointerDown={(event) => event.stopPropagation()}><label className="text-[11px] font-semibold text-[var(--muted)]">From<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="date" value={fromMonth} onChange={(event) => { onFromMonthChange(event.target.value); onPresetChange("custom"); }} /></label><label className="text-[11px] font-semibold text-[var(--muted)]">To<input className="mt-1 h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-2 text-xs outline-none focus:border-orange-400" type="date" value={toMonth} onChange={(event) => { onToMonthChange(event.target.value); onPresetChange("custom"); }} /></label></div><p className="mt-2 px-1 text-[11px] text-[var(--muted)]">Both boundary dates are included.</p></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
 }
@@ -10758,6 +10760,7 @@ function localDayStart(value: string) {
 function getDashboardPeriodBounds(preset: DashboardPeriodPreset, fromMonth: string, toMonth: string): DashboardPeriodBounds {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (preset === "lifetime") return { start: null, endExclusive: null };
   if (preset === "custom") {
     const from = localDayStart(fromMonth);
     const to = localDayStart(toMonth);
@@ -10770,6 +10773,10 @@ function getDashboardPeriodBounds(preset: DashboardPeriodPreset, fromMonth: stri
   if (preset === "yesterday") return { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1), endExclusive: today };
   if (preset === "last_7_days") return { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6), endExclusive: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1) };
   if (preset === "last_30_days") return { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29), endExclusive: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1) };
+  const daysSinceMonday = (today.getDay() + 6) % 7;
+  const thisMonday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysSinceMonday);
+  if (preset === "this_week") return { start: thisMonday, endExclusive: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1) };
+  if (preset === "last_week") return { start: new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7), endExclusive: thisMonday };
   if (preset === "previous_month") return { start: new Date(today.getFullYear(), today.getMonth() - 1, 1), endExclusive: new Date(today.getFullYear(), today.getMonth(), 1) };
   return { start: new Date(today.getFullYear(), today.getMonth(), 1), endExclusive: new Date(today.getFullYear(), today.getMonth() + 1, 1) };
 }
@@ -10783,6 +10790,7 @@ function isDateInDashboardPeriod(value: string | Date | null | undefined, bounds
 }
 
 function buildDashboardPeriodLabel(preset: DashboardPeriodPreset, bounds: DashboardPeriodBounds) {
+  if (preset === "lifetime") return "Lifetime";
   if (!bounds.start || !bounds.endExclusive) return "Select dates";
   const end = new Date(bounds.endExclusive);
   end.setDate(end.getDate() - 1);

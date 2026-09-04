@@ -133,7 +133,7 @@ export async function getDeliveryBatches() {
   return unwrap<DeliveryBatch[]>(api.get("/admin/delivery-batches"));
 }
 
-export async function getDashboardAnalytics(params: { start: string; endExclusive: string }) {
+export async function getDashboardAnalytics(params: { start: string; endExclusive: string; lifetime?: boolean }) {
   return unwrap<DashboardAnalytics>(api.get("/admin/analytics/dashboard", { params }));
 }
 

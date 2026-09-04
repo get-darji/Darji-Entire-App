@@ -1,4 +1,5 @@
 import {
+  DeliveryBatchModel,
   DeliveryPartnerModel,
   DeliveryRequestModel,
   OrderModel,
@@ -21,6 +22,7 @@ type NormalizedOrder = {
   customerId: string;
   tailorId?: string;
   createdAt: Date;
+  completedAt?: Date;
   category: OrderCategory;
   stage: string;
 };
@@ -30,8 +32,14 @@ function validDate(value: unknown, fallback: Date) {
   return Number.isNaN(date.getTime()) ? fallback : date;
 }
 
-export function parseDashboardPeriod(startValue?: unknown, endValue?: unknown) {
+export function parseDashboardPeriod(startValue?: unknown, endValue?: unknown, lifetime = false) {
   const now = new Date();
+  if (lifetime) {
+    return {
+      current: { start: new Date(0), endExclusive: new Date(now.getTime() + 1) },
+      previous: null
+    };
+  }
   const defaultEnd = new Date(now);
   const defaultStart = new Date(now);
   defaultStart.setDate(defaultStart.getDate() - 29);
@@ -157,54 +165,192 @@ function financeSummary(payments: any[], earnings: any[], bounds: PeriodBounds) 
   };
 }
 
+type RealizedRecord = {
+  orderId: string;
+  completedAt: Date;
+  grossPaid: number;
+  tailorCost: number;
+  deliveryCost: number;
+};
+
+export function summarizeRealizedRecords(records: RealizedRecord[]) {
+  const grossPaid = records.reduce((sum, record) => sum + record.grossPaid, 0);
+  const tailorCost = records.reduce((sum, record) => sum + record.tailorCost, 0);
+  const deliveryCost = records.reduce((sum, record) => sum + record.deliveryCost, 0);
+  const partnerCost = tailorCost + deliveryCost;
+  const packagingCost = records.length * PACKAGING_COST_PER_ORDER;
+  return {
+    completedOrders: records.length,
+    grossPaid: Number(grossPaid.toFixed(2)),
+    tailorCost: Number(tailorCost.toFixed(2)),
+    deliveryCost: Number(deliveryCost.toFixed(2)),
+    partnerCost: Number(partnerCost.toFixed(2)),
+    packagingCost,
+    netRevenue: Number((grossPaid - partnerCost - packagingCost).toFixed(2))
+  };
+}
+
+function actualDeliveryCostByOrder(deliveryRequests: any[], deliveryBatches: any[], earnings: any[]) {
+  const batchById = new Map(deliveryBatches.map((batch) => [String(batch.batchId), batch]));
+  const deliveryLedgerBySource = new Map<string, number>();
+  earnings.filter((transaction) => transaction.userType === "DELIVERY_PARTNER").forEach((transaction) => {
+    const sourceId = String(transaction.orderId ?? "");
+    if (sourceId) deliveryLedgerBySource.set(sourceId, (deliveryLedgerBySource.get(sourceId) ?? 0) + Number(transaction.amount ?? 0));
+  });
+  const activeTaskCountByBatch = new Map<string, number>();
+  deliveryRequests.forEach((task) => {
+    const batchId = String(task.batchId ?? "");
+    if (batchId && String(task.taskStatus) !== "cancelled") {
+      activeTaskCountByBatch.set(batchId, (activeTaskCountByBatch.get(batchId) ?? 0) + 1);
+    }
+  });
+
+  const tasksByOrder = new Map<string, any[]>();
+  deliveryRequests.forEach((task) => {
+    if (String(task.taskStatus) === "cancelled") return;
+    const orderId = String(task.orderId);
+    const tasks = tasksByOrder.get(orderId) ?? [];
+    tasks.push(task);
+    tasksByOrder.set(orderId, tasks);
+  });
+
+  const result = new Map<string, number | null>();
+  tasksByOrder.forEach((tasks, orderId) => {
+    let total = 0;
+    let finalized = tasks.length > 0;
+    tasks.forEach((task) => {
+      const batchId = String(task.batchId ?? "");
+      if (!batchId) {
+        const actualPayout = task.finalPayout ?? deliveryLedgerBySource.get(String(task._id));
+        if (actualPayout == null) finalized = false;
+        else total += Number(actualPayout);
+        return;
+      }
+      const batch = batchById.get(batchId);
+      const activeTaskCount = activeTaskCountByBatch.get(batchId) ?? 0;
+      const actualPayout = batch?.finalPayout ?? deliveryLedgerBySource.get(batchId);
+      if (actualPayout == null || activeTaskCount <= 0) finalized = false;
+      else total += Number(actualPayout) / activeTaskCount;
+    });
+    result.set(orderId, finalized ? Number(total.toFixed(2)) : null);
+  });
+  return result;
+}
+
+function buildRealizedRecords(
+  orders: NormalizedOrder[],
+  payments: any[],
+  earnings: any[],
+  deliveryRequests: any[],
+  deliveryBatches: any[]
+) {
+  const paidByOrder = new Map<string, number>();
+  payments.filter((payment) => String(payment.status).toUpperCase() === "PAID").forEach((payment) => {
+    const orderId = String(payment.orderId);
+    paidByOrder.set(orderId, (paidByOrder.get(orderId) ?? 0) + Number(payment.amount ?? 0));
+  });
+  const tailorCostByOrder = new Map<string, number>();
+  earnings.filter((transaction) => transaction.userType === "TAILOR").forEach((transaction) => {
+    const orderId = String(transaction.orderId ?? "");
+    if (orderId) tailorCostByOrder.set(orderId, (tailorCostByOrder.get(orderId) ?? 0) + Number(transaction.amount ?? 0));
+  });
+  const deliveryCostByOrder = actualDeliveryCostByOrder(deliveryRequests, deliveryBatches, earnings);
+
+  const records: RealizedRecord[] = [];
+  orders.filter((order) => order.category === "completed" && order.completedAt).forEach((order) => {
+    const grossPaid = paidByOrder.get(order.id);
+    const tailorCost = tailorCostByOrder.get(order.id);
+    const deliveryCost = deliveryCostByOrder.get(order.id);
+    if (grossPaid == null || tailorCost == null || deliveryCost == null) {
+      return;
+    }
+    records.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost });
+  });
+  return { records };
+}
+
 function bucketMode(bounds: PeriodBounds) {
   const days = (bounds.endExclusive.getTime() - bounds.start.getTime()) / 86_400_000;
-  return days <= 31 ? "day" : "month";
+  return days <= 31 ? "day" : days <= 31 * 400 ? "month" : "year";
 }
 
-function bucketKey(date: Date, mode: "day" | "month") {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return mode === "day" ? `${year}-${month}-${String(date.getUTCDate()).padStart(2, "0")}` : `${year}-${month}`;
+function bucketKey(date: Date, mode: "day" | "month" | "year") {
+  const indiaTime = new Date(date.getTime() + 330 * 60_000);
+  const year = indiaTime.getUTCFullYear();
+  const month = String(indiaTime.getUTCMonth() + 1).padStart(2, "0");
+  return mode === "day" ? `${year}-${month}-${String(indiaTime.getUTCDate()).padStart(2, "0")}` : mode === "month" ? `${year}-${month}` : String(year);
 }
 
-function buildSeries(orders: NormalizedOrder[], payments: any[], earnings: any[], bounds: PeriodBounds) {
-  const mode = bucketMode(bounds);
+function nextBucket(date: Date, mode: "day" | "month" | "year") {
+  if (mode === "day") return new Date(date.getTime() + 86_400_000);
+  const indiaTime = new Date(date.getTime() + 330 * 60_000);
+  if (mode === "month") indiaTime.setUTCMonth(indiaTime.getUTCMonth() + 1, 1);
+  else indiaTime.setUTCFullYear(indiaTime.getUTCFullYear() + 1, 0, 1);
+  indiaTime.setUTCHours(0, 0, 0, 0);
+  return new Date(indiaTime.getTime() - 330 * 60_000);
+}
+
+function buildSeries(
+  orders: NormalizedOrder[],
+  realizedRecords: RealizedRecord[],
+  firstOrderDates: Date[],
+  tailors: any[],
+  partners: any[],
+  bounds: PeriodBounds
+) {
   const slots: Array<{ key: string; label: string }> = [];
-  const cursor = new Date(bounds.start);
+  const dates = [
+    ...orders.filter((order) => inPeriod(order.createdAt, bounds)).map((order) => order.createdAt),
+    ...realizedRecords.filter((record) => inPeriod(record.completedAt, bounds)).map((record) => record.completedAt),
+    ...firstOrderDates.filter((date) => inPeriod(date, bounds)),
+    ...tailors.map((tailor) => validDate(tailor.createdAt, new Date(0))).filter((date) => inPeriod(date, bounds)),
+    ...partners.map((partner) => validDate(partner.createdAt, new Date(0))).filter((date) => inPeriod(date, bounds))
+  ];
+  const effectiveStart = bounds.start.getTime() === 0 && dates.length
+    ? new Date(Math.min(...dates.map((date) => date.getTime())))
+    : bounds.start;
+  const mode = bucketMode({ start: effectiveStart, endExclusive: bounds.endExclusive });
+  let cursor = new Date(effectiveStart);
   while (cursor < bounds.endExclusive && slots.length < 400) {
     const key = bucketKey(cursor, mode);
     slots.push({
       key,
-      label: new Intl.DateTimeFormat("en-IN", mode === "day" ? { day: "numeric", month: "short", timeZone: "UTC" } : { month: "short", year: "2-digit", timeZone: "UTC" }).format(cursor)
+      label: new Intl.DateTimeFormat("en-IN", mode === "day" ? { day: "numeric", month: "short", timeZone: "Asia/Kolkata" } : mode === "month" ? { month: "short", year: "2-digit", timeZone: "Asia/Kolkata" } : { year: "numeric", timeZone: "Asia/Kolkata" }).format(cursor)
     });
-    if (mode === "day") cursor.setUTCDate(cursor.getUTCDate() + 1);
-    else cursor.setUTCMonth(cursor.getUTCMonth() + 1, 1);
+    cursor = nextBucket(cursor, mode);
   }
   const orderMap = new Map(slots.map((slot) => [slot.key, { completed: 0, active: 0, pending: 0, cancelled: 0 }]));
+  const growthMap = new Map(slots.map((slot) => [slot.key, { customers: 0, tailors: 0, partners: 0 }]));
   orders.filter((order) => inPeriod(order.createdAt, bounds)).forEach((order) => {
     const bucket = orderMap.get(bucketKey(order.createdAt, mode));
     if (bucket) bucket[order.category] += 1;
   });
+  firstOrderDates.filter((date) => inPeriod(date, bounds)).forEach((date) => {
+    const bucket = growthMap.get(bucketKey(date, mode));
+    if (bucket) bucket.customers += 1;
+  });
+  tailors.forEach((tailor) => {
+    const date = validDate(tailor.createdAt, new Date(0));
+    const bucket = inPeriod(date, bounds) ? growthMap.get(bucketKey(date, mode)) : undefined;
+    if (bucket) bucket.tailors += 1;
+  });
+  partners.forEach((partner) => {
+    const date = validDate(partner.createdAt, new Date(0));
+    const bucket = inPeriod(date, bounds) ? growthMap.get(bucketKey(date, mode)) : undefined;
+    if (bucket) bucket.partners += 1;
+  });
   const revenueMap = new Map(slots.map((slot) => [slot.key, { grossPaid: 0, partnerCost: 0, packagingCost: 0, netRevenue: 0 }]));
-  const packagedOrdersByBucket = new Set<string>();
-  collectedPayments(payments, bounds).forEach((payment) => {
-    const key = bucketKey(paymentDate(payment), mode);
+  realizedRecords.filter((record) => inPeriod(record.completedAt, bounds)).forEach((record) => {
+    const key = bucketKey(record.completedAt, mode);
     const bucket = revenueMap.get(key);
     if (!bucket) return;
-    bucket.grossPaid += Number(payment.amount ?? 0);
-    const packagedOrderKey = `${key}:${String(payment.orderId)}`;
-    if (!packagedOrdersByBucket.has(packagedOrderKey)) {
-      bucket.packagingCost += PACKAGING_COST_PER_ORDER;
-      packagedOrdersByBucket.add(packagedOrderKey);
-    }
-  });
-  earnings.filter((transaction) => inPeriod(transactionDate(transaction), bounds)).forEach((transaction) => {
-    const bucket = revenueMap.get(bucketKey(transactionDate(transaction), mode));
-    if (bucket) bucket.partnerCost += Number(transaction.amount ?? 0);
+    bucket.grossPaid += record.grossPaid;
+    bucket.partnerCost += record.tailorCost + record.deliveryCost;
+    bucket.packagingCost += PACKAGING_COST_PER_ORDER;
   });
   return {
     orders: slots.map((slot) => ({ label: slot.label, ...orderMap.get(slot.key)! })),
+    growth: slots.map((slot) => ({ label: slot.label, ...growthMap.get(slot.key)! })),
     revenue: slots.map((slot) => {
       const value = revenueMap.get(slot.key)!;
       return { label: slot.label, ...value, netRevenue: value.grossPaid - value.partnerCost - value.packagingCost };
@@ -212,17 +358,39 @@ function buildSeries(orders: NormalizedOrder[], payments: any[], earnings: any[]
   };
 }
 
-export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown) {
-  const { current, previous } = parseDashboardPeriod(startValue, endValue);
-  const [legacyOrders, tailoringRequests, payments, earnings, wallets, tailors, partners] = await Promise.all([
-    OrderModel.find().select("_id customerId tailorId status createdAt").lean(),
-    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus createdAt").lean(),
+export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown, lifetime = false) {
+  const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
+  const [legacyOrders, tailoringRequests, payments, earnings, wallets, tailors, partners, deliveryRequests, deliveryBatches] = await Promise.all([
+    OrderModel.find().select("_id customerId tailorId status createdAt timelineEvents").lean(),
+    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId amount status paidAt createdAt updatedAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("userId userType orderId amount createdAt").lean(),
     WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("balance").lean(),
     TailorModel.find().select("_id userId shopName isAvailable verificationStatus rating createdAt").lean(),
-    DeliveryPartnerModel.find().select("_id userId isAvailable verificationStatus rating createdAt").lean()
+    DeliveryPartnerModel.find().select("_id userId isAvailable verificationStatus rating createdAt").lean(),
+    DeliveryRequestModel.find().select("_id orderId type batchId taskStatus finalPayout deliveredAt").lean(),
+    DeliveryBatchModel.find().select("batchId status finalPayout").lean()
   ]);
+
+  const completionByOrder = new Map<string, Date>();
+  deliveryRequests
+    .filter((task: any) => String(task.taskStatus) === "delivered" && ["tailor_to_customer", "darji_to_customer"].includes(String(task.type)) && task.deliveredAt)
+    .forEach((task: any) => {
+      const orderId = String(task.orderId);
+      const deliveredAt = validDate(task.deliveredAt, new Date(0));
+      const existing = completionByOrder.get(orderId);
+      if (!existing || deliveredAt > existing) completionByOrder.set(orderId, deliveredAt);
+    });
+  legacyOrders.forEach((order: any) => {
+    if (completionByOrder.has(String(order._id))) return;
+    const deliveredEvent = [...(order.timelineEvents ?? [])].reverse().find((event: any) => String(event.status).toUpperCase() === "DELIVERED");
+    if (deliveredEvent?.timestamp) completionByOrder.set(String(order._id), validDate(deliveredEvent.timestamp, new Date(0)));
+  });
+  tailoringRequests.forEach((request: any) => {
+    if (completionByOrder.has(String(request._id))) return;
+    const completedEvent = [...(request.timelineEvents ?? [])].reverse().find((event: any) => ["DELIVERED", "COMPLETED"].includes(String(event.status).toUpperCase()));
+    if (completedEvent?.timestamp) completionByOrder.set(String(request._id), validDate(completedEvent.timestamp, new Date(0)));
+  });
 
   const requestIds = tailoringRequests.map((request) => String(request._id));
   const quoteCounts = requestIds.length ? await TailorQuoteModel.aggregate<{ _id: string; count: number }>([
@@ -245,6 +413,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       customerId: String(order.customerId),
       tailorId: order.tailorId ? String(order.tailorId) : undefined,
       createdAt: validDate(order.createdAt, new Date(0)),
+      completedAt: completionByOrder.get(id),
       category: classifyLegacyOrder(order.status),
       stage: legacyStage(order.status)
     });
@@ -262,6 +431,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
           ? selectedQuoteTailorMap.get(String(request.selectedQuoteId))
           : undefined,
       createdAt: validDate(request.createdAt, new Date(0)),
+      completedAt: completionByOrder.get(id),
       category: classifyTailoringRequest(request),
       stage: tailoringStage(request, quoteCountMap.get(id) ?? 0)
     });
@@ -269,9 +439,15 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const normalizedOrders = [...normalizedMap.values()];
 
   const currentOrders = orderCounts(normalizedOrders, current);
-  const previousOrders = orderCounts(normalizedOrders, previous);
+  const previousOrders = previous ? orderCounts(normalizedOrders, previous) : null;
   const currentFinance = financeSummary(payments, earnings, current);
-  const previousFinance = financeSummary(payments, earnings, previous);
+  const previousFinance = previous ? financeSummary(payments, earnings, previous) : null;
+  const { records: realizedRecords } = buildRealizedRecords(normalizedOrders, payments, earnings, deliveryRequests, deliveryBatches);
+  const currentRealizedRecords = realizedRecords.filter((record) => inPeriod(record.completedAt, current));
+  const previousRealizedRecords = previous ? realizedRecords.filter((record) => inPeriod(record.completedAt, previous)) : [];
+  const currentRealized = summarizeRealizedRecords(currentRealizedRecords);
+  const previousRealized = previous ? summarizeRealizedRecords(previousRealizedRecords) : null;
+  const completedInCurrentPeriod = normalizedOrders.filter((order) => order.category === "completed" && order.completedAt && inPeriod(order.completedAt, current)).length;
 
   const firstOrderByCustomer = new Map<string, Date>();
   normalizedOrders.forEach((order) => {
@@ -279,12 +455,12 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     if (!existing || order.createdAt < existing) firstOrderByCustomer.set(order.customerId, order.createdAt);
   });
   const newCustomers = [...firstOrderByCustomer.values()].filter((date) => inPeriod(date, current)).length;
-  const previousNewCustomers = [...firstOrderByCustomer.values()].filter((date) => inPeriod(date, previous)).length;
+  const previousNewCustomers = previous ? [...firstOrderByCustomer.values()].filter((date) => inPeriod(date, previous)).length : 0;
 
   const currentTailors = tailors.filter((tailor: any) => inPeriod(validDate(tailor.createdAt, new Date(0)), current)).length;
-  const previousTailors = tailors.filter((tailor: any) => inPeriod(validDate(tailor.createdAt, new Date(0)), previous)).length;
+  const previousTailors = previous ? tailors.filter((tailor: any) => inPeriod(validDate(tailor.createdAt, new Date(0)), previous)).length : 0;
   const currentPartners = partners.filter((partner: any) => inPeriod(validDate(partner.createdAt, new Date(0)), current)).length;
-  const previousPartners = partners.filter((partner: any) => inPeriod(validDate(partner.createdAt, new Date(0)), previous)).length;
+  const previousPartners = previous ? partners.filter((partner: any) => inPeriod(validDate(partner.createdAt, new Date(0)), previous)).length : 0;
 
   const currentEarnings = earnings.filter((transaction: any) => inPeriod(transactionDate(transaction), current));
   const earningByUser = (userType: "TAILOR" | "DELIVERY_PARTNER") => {
@@ -339,7 +515,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const stageCounts = new Map(liveStageOrder.map((stage) => [stage, 0]));
   selectedOrders.forEach((order) => stageCounts.set(order.stage, (stageCounts.get(order.stage) ?? 0) + 1));
 
-  const series = buildSeries(normalizedOrders, payments, earnings, current);
+  const series = buildSeries(normalizedOrders, realizedRecords, [...firstOrderByCustomer.values()], tailors, partners, current);
   const activeTailors = tailors.filter((tailor: any) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED").length;
   const activeDeliveryPartners = partners.filter((partner: any) => partner.isAvailable && partner.verificationStatus === "VERIFIED").length;
   const pendingPayouts = wallets.reduce((sum: number, wallet: any) => sum + Number(wallet.balance ?? 0), 0);
@@ -347,19 +523,31 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   return {
     period: {
       start: current.start.toISOString(), endExclusive: current.endExclusive.toISOString(),
-      previousStart: previous.start.toISOString(), previousEndExclusive: previous.endExclusive.toISOString()
+      previousStart: previous?.start.toISOString() ?? null, previousEndExclusive: previous?.endExclusive.toISOString() ?? null,
+      lifetime
     },
     orders: currentOrders,
-    finance: { ...currentFinance, pendingPayouts: Number(pendingPayouts.toFixed(2)) },
+    finance: {
+      ...currentFinance,
+      netRevenue: currentRealized.netRevenue,
+      realizedGrossPaid: currentRealized.grossPaid,
+      realizedTailorCost: currentRealized.tailorCost,
+      realizedDeliveryCost: currentRealized.deliveryCost,
+      realizedPartnerCost: currentRealized.partnerCost,
+      realizedPackagingCost: currentRealized.packagingCost,
+      realizedCompletedOrders: currentRealized.completedOrders,
+      unrealizedCompletedOrders: Math.max(0, completedInCurrentPeriod - currentRealized.completedOrders),
+      pendingPayouts: Number(pendingPayouts.toFixed(2))
+    },
     partners: { activeTailors, activeDeliveryPartners },
     growth: { newCustomers, newTailors: currentTailors, newDeliveryPartners: currentPartners },
     comparison: {
-      orders: percentageChange(currentOrders.total, previousOrders.total),
-      grossPaid: percentageChange(currentFinance.grossPaid, previousFinance.grossPaid),
-      netRevenue: percentageChange(currentFinance.netRevenue, previousFinance.netRevenue),
-      newCustomers: percentageChange(newCustomers, previousNewCustomers),
-      newTailors: percentageChange(currentTailors, previousTailors),
-      newDeliveryPartners: percentageChange(currentPartners, previousPartners)
+      orders: previousOrders ? percentageChange(currentOrders.total, previousOrders.total) : null,
+      grossPaid: previousFinance ? percentageChange(currentFinance.grossPaid, previousFinance.grossPaid) : null,
+      netRevenue: previousRealized ? percentageChange(currentRealized.netRevenue, previousRealized.netRevenue) : null,
+      newCustomers: previous ? percentageChange(newCustomers, previousNewCustomers) : null,
+      newTailors: previous ? percentageChange(currentTailors, previousTailors) : null,
+      newDeliveryPartners: previous ? percentageChange(currentPartners, previousPartners) : null
     },
     series,
     liveStages: liveStageOrder.map((stage) => ({ stage, count: stageCounts.get(stage) ?? 0 })).filter((item) => item.count > 0),
@@ -369,7 +557,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       "Historical paidAt is unavailable for older payments; updatedAt is used as the collection-date fallback.",
       "Partial refund amounts are not represented by the current payment schema.",
       "Order cancellation status does not currently store the actor, so customer-initiated and admin-initiated cancellations cannot be separated historically.",
-      "Packaging and other cost is currently fixed at ₹8 per distinct collected order."
+      "Realized revenue excludes delivered orders that lack a completion timestamp, collected payment, recorded tailor earning, or finalized delivery payout; no estimated delivery cost is substituted.",
+      "Finalized batch payout is allocated across its non-cancelled delivery tasks using the existing per-task allocation approach.",
+      "Packaging and other cost is currently fixed at ₹8 per realized completed order."
     ]
   };
 }

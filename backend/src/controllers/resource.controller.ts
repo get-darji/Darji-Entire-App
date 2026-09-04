@@ -2673,7 +2673,7 @@ export async function listFeaturedReviewsController(req: Request, res: Response)
 }
 
 export async function dashboardAnalyticsController(req: Request, res: Response) {
-  const data = await getDashboardAnalytics(req.query.start, req.query.endExclusive);
+  const data = await getDashboardAnalytics(req.query.start, req.query.endExclusive, String(req.query.lifetime).toLowerCase() === "true");
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data });
 }

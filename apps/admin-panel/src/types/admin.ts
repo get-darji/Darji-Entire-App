@@ -106,7 +106,7 @@ export type TailorProfile = {
 };
 
 export type DashboardAnalytics = {
-  period: { start: string; endExclusive: string; previousStart: string; previousEndExclusive: string };
+  period: { start: string; endExclusive: string; previousStart: string | null; previousEndExclusive: string | null; lifetime: boolean };
   orders: {
     total: number;
     pending: number;
@@ -125,6 +125,13 @@ export type DashboardAnalytics = {
     packagingCost: number;
     packagingCostPerOrder: number;
     netRevenue: number;
+    realizedGrossPaid: number;
+    realizedTailorCost: number;
+    realizedDeliveryCost: number;
+    realizedPartnerCost: number;
+    realizedPackagingCost: number;
+    realizedCompletedOrders: number;
+    unrealizedCompletedOrders: number;
     averageOrderValue: number;
     pendingPayouts: number;
   };
@@ -140,6 +147,7 @@ export type DashboardAnalytics = {
   };
   series: {
     orders: Array<{ label: string; completed: number; active: number; pending: number; cancelled: number }>;
+    growth: Array<{ label: string; customers: number; tailors: number; partners: number }>;
     revenue: Array<{ label: string; grossPaid: number; partnerCost: number; packagingCost: number; netRevenue: number }>;
   };
   liveStages: Array<{ stage: string; count: number }>;
