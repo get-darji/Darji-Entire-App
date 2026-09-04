@@ -6,6 +6,7 @@ import { sendDeliveryBatchReadyNotification } from "./notificationService.js";
 import { batchDeliveryPayout, pointFrom, roadDistanceMatrix } from "./delivery-pricing.service.js";
 import { FirstSolutionStrategy, LocalSearchMetaheuristic, RoutingIndexManager, RoutingModel, initRouting } from "or-tools-wasm/routing";
 import { upsertOperationalAlert } from "./operational-alert.service.js";
+import { DELIVERY_LOCATION_MAX_AGE_MS, hasFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "./delivery-location.service.js";
 
 export type DeliveryServiceLevel = "STANDARD" | "EXPRESS" | "INSTANT";
 type BatchTime = { name: string; time: string };
@@ -430,10 +431,18 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     totalDistance: Number((optimized.payableDistance / 1000).toFixed(2))
   });
   const eligiblePartners = claimed.deliveryPartnerId
-    ? await DeliveryPartnerModel.find({ _id: claimed.deliveryPartnerId }).select("userId assignedArea")
+    ? await DeliveryPartnerModel.find({
+        _id: claimed.deliveryPartnerId,
+        isAvailable: true,
+        verificationStatus: "VERIFIED",
+        lastLocationUpdatedAt: { $gte: new Date(Date.now() - DELIVERY_LOCATION_MAX_AGE_MS) },
+        "currentLocation.coordinates.1": { $exists: true }
+      }).select("userId assignedArea")
     : await DeliveryPartnerModel.find({
         isAvailable: true,
-        verificationStatus: "VERIFIED"
+        verificationStatus: "VERIFIED",
+        lastLocationUpdatedAt: { $gte: new Date(Date.now() - DELIVERY_LOCATION_MAX_AGE_MS) },
+        "currentLocation.coordinates.1": { $exists: true }
       }).select("userId assignedArea").sort({ updatedAt: 1 });
 
   const batchTasksForOffer = await DeliveryRequestModel.find({ batchId: claimed.batchId, taskStatus: { $ne: "cancelled" } }).sort({ routePosition: 1, createdAt: 1 });
@@ -824,7 +833,7 @@ export async function moveTaskToScheduledBatch(taskId: string, slot: { deliveryR
 }
 
 export async function assignPendingTasksToPartner(partner: any) {
-  if (!partner?.isAvailable || partner.verificationStatus !== "VERIFIED") return;
+  if (!partner?.isAvailable || partner.verificationStatus !== "VERIFIED" || !hasFreshDeliveryLocation(partner)) return;
 
   const pendingTasksQuery: Record<string, any> = {
     serviceLevel: "INSTANT",
@@ -841,6 +850,7 @@ export async function assignPendingTasksToPartner(partner: any) {
 }
 
 export async function lockAndDispatchDueBatches(now = new Date()) {
+  await markStaleDeliveryPartnersOffline(now.getTime());
   await ensureDeliveryBatchesFromRequests();
 
   const completedCandidates = await DeliveryBatchModel.find({ status: { $nin: ["completed", "cancelled"] } });

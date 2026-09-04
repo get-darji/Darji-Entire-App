@@ -1393,7 +1393,37 @@ export function AdminPortal() {
   const pendingOrders = dashboardAnalytics.orders.pending;
   const activeOrders = dashboardAnalytics.orders.active;
   const recentOrders = [...dashboardOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
-  const customerUsers = users.filter((user) => user.role === "CUSTOMER" && !user.tailorProfile && !user.deliveryProfile);
+  const customerUsers: AdminUser[] = (() => {
+    const customerOrdersByUser = new Map<string, Order[]>();
+    allOrders.forEach((order) => {
+      if (!order.customerId) return;
+      const current = customerOrdersByUser.get(order.customerId) ?? [];
+      current.push(order);
+      customerOrdersByUser.set(order.customerId, current);
+    });
+    const directory = users
+      .filter((user) => user.role === "CUSTOMER" || customerOrdersByUser.has(user.id))
+      .map((user) => ({ ...user, hasCustomerActivity: customerOrdersByUser.has(user.id) }));
+    const knownIds = new Set(directory.map((user) => user.id));
+
+    customerOrdersByUser.forEach((customerOrders, customerId) => {
+      if (knownIds.has(customerId)) return;
+      const latestOrder = [...customerOrders].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
+      const firstOrder = [...customerOrders].sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())[0];
+      directory.push({
+        id: customerId,
+        phone: latestOrder?.customer?.phone ?? "Account deleted",
+        name: latestOrder?.customer?.name ?? "Archived customer",
+        role: "CUSTOMER",
+        accountStatus: "ARCHIVED",
+        createdAt: firstOrder?.createdAt,
+        hasCustomerActivity: true,
+        archivedCustomer: true
+      });
+    });
+
+    return directory.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+  })();
   const adminUsers = users.filter((user) => user.role === "ADMIN" || user.role === "SUPER_ADMIN");
   const openSupportTickets = tickets.filter((ticket) => ticket.status === "OPEN").length;
   const globalSearchResults: GlobalSearchResult[] = (() => {
@@ -2518,8 +2548,8 @@ export function AdminPortal() {
         {activeSection === "users" ? (
           <div className="space-y-6">
             <SectionIntro
-              title="Customer access control"
-              description="Customer-only accounts. Tailors and delivery partners are managed in their own dedicated sections."
+              title="Customer directory"
+              description="Every registered customer and every account with order activity appears here. Cross-role accounts remain managed in their dedicated section; deleted accounts are retained as archived order history."
               action={
                 <div className="flex items-center gap-2">
                   <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-customers.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
@@ -9503,7 +9533,12 @@ function getPartnerColumns({
       id: "availability",
       header: "Current status",
       accessorFn: (row) => String(row.isAvailable),
-      cell: ({ row }) => <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Online" : "Offline"}</Badge>
+      cell: ({ row }) => {
+        const locationAge = row.original.lastLocationUpdatedAt ? Date.now() - new Date(row.original.lastLocationUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
+        const locationIsFresh = Boolean(row.original.currentLocation?.coordinates?.length === 2) && locationAge <= 5 * 60 * 1000;
+        if (row.original.isAvailable && !locationIsFresh) return <Badge tone="rose">Location required</Badge>;
+        return <Badge tone={row.original.isAvailable ? "emerald" : "slate"}>{row.original.isAvailable ? "Online" : "Offline"}</Badge>;
+      }
     },
     {
       id: "lastLocation",
@@ -9513,7 +9548,9 @@ function getPartnerColumns({
         const coordinates = row.original.currentLocation?.coordinates;
         if (!coordinates || coordinates.length < 2) return <div><Badge tone="rose">Not shared</Badge><p className="mt-1 max-w-[180px] text-xs text-[var(--muted)]">Partner must allow phone location and go online.</p></div>;
         const [longitude, latitude] = coordinates;
-        return <div className="min-w-[180px]"><Badge tone={row.original.isAvailable ? "emerald" : "amber"}>{row.original.isAvailable ? "Live phone GPS" : "Last known GPS"}</Badge><p className="mt-1 font-mono text-xs">{Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}</p><p className="text-xs text-[var(--muted)]">Updated {formatDate(row.original.lastLocationUpdatedAt, true)}{row.original.lastLocationAccuracy != null ? ` · ±${Math.round(row.original.lastLocationAccuracy)}m` : ""}</p></div>;
+        const locationAge = row.original.lastLocationUpdatedAt ? Date.now() - new Date(row.original.lastLocationUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
+        const isFresh = locationAge <= 5 * 60 * 1000;
+        return <div className="min-w-[180px]"><Badge tone={row.original.isAvailable && isFresh ? "emerald" : "amber"}>{row.original.isAvailable && isFresh ? "Live phone GPS" : "Last shared GPS"}</Badge><p className="mt-1 font-mono text-xs">{Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}</p><p className="text-xs text-[var(--muted)]">Updated {formatDate(row.original.lastLocationUpdatedAt, true)}{row.original.lastLocationAccuracy != null ? ` · ±${Math.round(row.original.lastLocationAccuracy)}m` : ""}</p></div>;
       }
     },
     {
@@ -9598,13 +9635,21 @@ function getUserColumns({
       header: "Actions",
       enableSorting: false,
       cell: ({ row }) => {
-        if (row.original.role === "ADMIN") {
+        const managedElsewhere = row.original.role !== "CUSTOMER" || Boolean(row.original.tailorProfile || row.original.deliveryProfile);
+        if (row.original.archivedCustomer || managedElsewhere) {
+          const label = row.original.archivedCustomer
+            ? "Archived"
+            : row.original.deliveryProfile || row.original.role === "DELIVERY_PARTNER"
+              ? "Also delivery partner"
+              : row.original.tailorProfile || row.original.role === "TAILOR"
+                ? "Also tailor"
+                : "Protected";
           return (
             <div className="flex flex-wrap gap-2">
               <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row.original)}>
                 View
               </ActionButton>
-              <Badge tone="slate">Protected</Badge>
+              <Badge tone="slate">{label}</Badge>
             </div>
           );
         }

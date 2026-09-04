@@ -671,6 +671,8 @@ export type MeResponse = BasicUser & {
 export type AdminUser = BasicUser & {
   tailorProfile?: TailorProfile | null;
   deliveryProfile?: DeliveryPartnerProfile | null;
+  hasCustomerActivity?: boolean;
+  archivedCustomer?: boolean;
 };
 
 export type AuthSession = {

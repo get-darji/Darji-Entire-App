@@ -298,7 +298,7 @@ const deliveryPartnerSchema = new Schema(
     vehicleNumber: String,
     deliveryType: { type: String, enum: deliveryTypes, default: "PICKUP", index: true },
     assignedArea: { type: String, default: "unassigned", index: true },
-    isAvailable: { type: Boolean, default: true, index: true },
+    isAvailable: { type: Boolean, default: false, index: true },
     rating: { type: Number, default: 0 },
     dailyEarnings: { type: Number, default: 0 },
     weeklyEarnings: { type: Number, default: 0 },

@@ -26,8 +26,10 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.USE_FULL_SCREEN_INTENT",
@@ -57,7 +59,11 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Darji Delivery uses your precise phone location for dispatch, route navigation, live rider tracking, and your last known safety location."
+          "locationWhenInUsePermission": "Darji Delivery uses your precise phone location for dispatch, route navigation, live rider tracking, and your last known safety location.",
+          "locationAlwaysAndWhenInUsePermission": "Darji Delivery shares your live location while you are online so dispatch, customers, and safety operations can track active deliveries.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       [

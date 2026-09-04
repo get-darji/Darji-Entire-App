@@ -44,6 +44,7 @@ import { emitToCustomer, emitToAdmins, emitToUserRole, publishPlatformStatus } f
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
 import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
+import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -824,6 +825,7 @@ export async function getTailorTutorialMediaController(_req: Request, res: Respo
 }
 
 export async function listDeliveryPartnersController(_req: Request, res: Response) {
+  await markStaleDeliveryPartnersOffline();
   await DeliveryPartnerModel.updateMany(
     {
       verificationStatus: "NOT_SUBMITTED",
@@ -1087,6 +1089,7 @@ export async function inviteAdminController(req: Request, res: Response) {
 export async function updateDeliveryAvailabilityController(req: Request, res: Response) {
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery profile not found");
+  if (Boolean(req.body.isAvailable)) assertFreshDeliveryLocation(partner);
   const updated = await DeliveryPartnerModel.findByIdAndUpdate(partner.id, { isAvailable: Boolean(req.body.isAvailable) }, { returnDocument: "after" });
   if (updated && updated.isAvailable && updated.verificationStatus === "VERIFIED") {
     await assignPendingTasksToPartner(updated);
@@ -2821,7 +2824,7 @@ export async function updateRiderLocationController(req: Request, res: Response)
   const lat = Number(latitude);
   const lng = Number(longitude);
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     res.status(400).json({ message: "Invalid coordinates" });
     return;
   }

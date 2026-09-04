@@ -18,6 +18,7 @@ type DeliveryLocationPayload = {
   requestId: string;
   latitude: number;
   longitude: number;
+  accuracy?: number;
   heading?: number;
   speed?: number;
 };
@@ -95,9 +96,11 @@ async function handleDeliveryLocation(socket: Socket, user: SocketUser, payload:
   if (user.role !== "DELIVERY_PARTNER" || !user.deliveryPartnerId || !user.deliveryVerified) return;
   const latitude = Number(payload.latitude);
   const longitude = Number(payload.longitude);
-  if (!payload.requestId || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+  if (!payload.requestId || !Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
 
-  const request = await DeliveryRequestModel.findOneAndUpdate(
+  const locationUpdatedAt = new Date();
+  const [request] = await Promise.all([
+    DeliveryRequestModel.findOneAndUpdate(
     { _id: payload.requestId, assignedDeliveryPartnerId: user.deliveryPartnerId },
     {
       partnerLocation: {
@@ -106,11 +109,28 @@ async function handleDeliveryLocation(socket: Socket, user: SocketUser, payload:
         heading: payload.heading,
         speed: payload.speed
       },
-      lastLocationAt: new Date()
+      lastLocationAt: locationUpdatedAt
     },
     { returnDocument: "after" }
-  );
+    ),
+    DeliveryPartnerModel.findByIdAndUpdate(user.deliveryPartnerId, {
+      currentLocation: { type: "Point", coordinates: [longitude, latitude] },
+      lastLocationAccuracy: Number.isFinite(Number(payload.accuracy)) ? Number(payload.accuracy) : undefined,
+      lastLocationHeading: Number.isFinite(Number(payload.heading)) ? Number(payload.heading) : undefined,
+      lastLocationSpeed: Number.isFinite(Number(payload.speed)) ? Number(payload.speed) : undefined,
+      lastLocationUpdatedAt: locationUpdatedAt
+    })
+  ]);
   if (!request) return;
+
+  emitToAdmins("rider:location_updated", {
+    partnerId: user.deliveryPartnerId,
+    latitude,
+    longitude,
+    accuracy: Number.isFinite(Number(payload.accuracy)) ? Number(payload.accuracy) : null,
+    heading: Number.isFinite(Number(payload.heading)) ? Number(payload.heading) : null,
+    lastLocationUpdatedAt: locationUpdatedAt
+  });
 
   io?.to(trackingRoom(request.id)).emit("delivery:location_updated", {
     requestId: request.id,

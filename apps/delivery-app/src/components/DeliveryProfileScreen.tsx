@@ -876,14 +876,14 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "How data is handled",
     icon: "document-text-outline",
     copy: "Darji stores your verification details, profile, and delivery activity to complete orders and support admin review.",
-    points: ["Verification photos are used for account approval.", "Location is shared only during active delivery tracking.", "Support logs may be retained for dispute handling."]
+    points: ["Verification photos are used for account approval.", "Location is shared while you are online and during active delivery tracking.", "Support logs may be retained for dispute handling."]
   },
   terms: {
     title: "Terms of Service",
     subtitle: "Delivery partner terms",
     icon: "reader-outline",
     copy: "Use accurate account details, follow OTP handoff checks, and keep route updates running during accepted tasks.",
-    points: ["Do not mark tasks complete without OTP confirmation.", "Only accept jobs you can finish on time.", "Repeated service issues can lead to account pause."]
+    points: ["Do not mark tasks complete without OTP confirmation.", "Keep all-time location access enabled while you are online.", "Repeated service issues can lead to account pause."]
   },
   safety: {
     title: "Safety Guidelines",
