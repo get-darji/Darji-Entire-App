@@ -1,6 +1,16 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
-import { addressSchema, couponSchema, serviceCatalog, supportTicketSchema, bugReportSchema, accountChangeRequestSchema } from "@darzi/shared";
+import {
+  CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
+  addressSchema,
+  couponSchema,
+  customerWebsiteSliderSchema,
+  normalizeCustomerWebsiteSlider,
+  serviceCatalog,
+  supportTicketSchema,
+  bugReportSchema,
+  accountChangeRequestSchema
+} from "@darzi/shared";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import {
   AddressModel,
@@ -1278,12 +1288,12 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
     const currentWeekEarnings = transactions.reduce((sum: number, transaction: any) => {
       const createdAt = new Date(transaction.createdAt ?? 0);
       if (transaction.transactionType !== "CREDIT" || transaction.category !== "ORDER_EARNING") return sum;
-      return createdAt >= weekStartValue && createdAt <= weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
+      return createdAt >= weekStartValue && createdAt < weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
     }, 0);
     const payoutsInPeriod = transactions.reduce((sum: number, transaction: any) => {
       const createdAt = new Date(transaction.createdAt ?? 0);
       if (transaction.transactionType !== "DEBIT" || transaction.category !== "WEEKLY_PAYOUT") return sum;
-      return createdAt >= weekStartValue && createdAt <= weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
+      return createdAt >= weekStartValue && createdAt < weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
     }, 0);
     return {
       userId: profile.userId,
@@ -1845,6 +1855,12 @@ export async function settingsController(_req: Request, res: Response) {
   res.json({ data: settings });
 }
 
+export async function customerWebsiteSliderController(_req: Request, res: Response) {
+  const setting = await SettingModel.findOne({ key: CUSTOMER_WEBSITE_SLIDER_SETTING_KEY }).select("value").lean();
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: normalizeCustomerWebsiteSlider(setting?.value) });
+}
+
 export async function platformStatusController(_req: Request, res: Response) {
   const status = await getPlatformStatus();
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -1859,7 +1875,10 @@ export async function updatePlatformStatusController(req: Request, res: Response
 
 export async function updateSettingController(req: Request, res: Response) {
   const key = String(req.params.key);
-  const setting = await SettingModel.findOneAndUpdate({ key }, { key, value: req.body.value }, { upsert: true, returnDocument: "after" });
+  const value = key === CUSTOMER_WEBSITE_SLIDER_SETTING_KEY
+    ? customerWebsiteSliderSchema.parse(req.body.value)
+    : req.body.value;
+  const setting = await SettingModel.findOneAndUpdate({ key }, { key, value }, { upsert: true, returnDocument: "after" });
   res.json({ data: setting });
 }
 

@@ -137,6 +137,31 @@ export type DashboardAnalytics = {
   };
   partners: { activeTailors: number; activeDeliveryPartners: number };
   growth: { newCustomers: number; newTailors: number; newDeliveryPartners: number };
+  drilldowns?: {
+    orders: {
+      total: string[];
+      pending: string[];
+      active: string[];
+      completed: string[];
+      cancelled: string[];
+      resolved: string[];
+      realized: string[];
+    };
+    finance: {
+      paidPaymentIds: string[];
+      partnerCostUserIds: string[];
+      pendingPayoutUserIds: string[];
+    };
+    partners: {
+      activeTailorIds: string[];
+      activeDeliveryPartnerIds: string[];
+    };
+    growth: {
+      newCustomerIds: string[];
+      newTailorIds: string[];
+      newDeliveryPartnerIds: string[];
+    };
+  };
   comparison: {
     orders: number | null;
     grossPaid: number | null;

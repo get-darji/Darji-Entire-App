@@ -1,6 +1,7 @@
 "use client";
 
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
+import type { CustomerWebsiteSlider } from "@darzi/shared";
 import { useAuthStore } from "@/src/store/auth-store";
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailorQuote, UploadedMedia, WalletSummary } from "./types";
 
@@ -63,6 +64,7 @@ async function request<T>(config: AxiosRequestConfig, retry = true): Promise<T> 
 }
 
 export const customerApi = {
+  getCustomerWebsiteSlider: () => request<CustomerWebsiteSlider>({ method: "GET", url: "/settings/customer-website-slider" }),
   requestOtp: (phone: string) => request<{ otp?: string }>({ method: "POST", url: "/auth/request-otp", data: { phone, role: "CUSTOMER" } }),
   verifyOtp: (phone: string, otp: string) => request<AuthSession>({ method: "POST", url: "/auth/verify-otp", data: { phone, otp, role: "CUSTOMER" } }),
   me: () => request<AuthSession["user"] & { wallet?: { balance?: number } }>({ method: "GET", url: "/auth/me" }),

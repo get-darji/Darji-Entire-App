@@ -26,6 +26,7 @@ export type SectionId =
   | "health"
   | "exports"
   | "platform"
+  | "website"
   | "settings";
 
 type AdminStore = {

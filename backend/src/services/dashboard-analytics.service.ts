@@ -365,9 +365,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId amount status paidAt createdAt updatedAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("userId userType orderId amount createdAt").lean(),
-    WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("balance").lean(),
-    TailorModel.find().select("_id userId shopName isAvailable verificationStatus rating createdAt").lean(),
-    DeliveryPartnerModel.find().select("_id userId isAvailable verificationStatus rating createdAt").lean(),
+    WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("userId userType balance").lean(),
+    TailorModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId shopName isAvailable verificationStatus rating createdAt").lean(),
+    DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus rating createdAt").lean(),
     DeliveryRequestModel.find().select("_id orderId type batchId taskStatus finalPayout deliveredAt").lean(),
     DeliveryBatchModel.find().select("batchId status finalPayout").lean()
   ]);
@@ -440,6 +440,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
 
   const currentOrders = orderCounts(normalizedOrders, current);
   const previousOrders = previous ? orderCounts(normalizedOrders, previous) : null;
+  const currentPaidPayments = collectedPayments(payments, current);
   const currentFinance = financeSummary(payments, earnings, current);
   const previousFinance = previous ? financeSummary(payments, earnings, previous) : null;
   const { records: realizedRecords } = buildRealizedRecords(normalizedOrders, payments, earnings, deliveryRequests, deliveryBatches);
@@ -454,12 +455,15 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     const existing = firstOrderByCustomer.get(order.customerId);
     if (!existing || order.createdAt < existing) firstOrderByCustomer.set(order.customerId, order.createdAt);
   });
-  const newCustomers = [...firstOrderByCustomer.values()].filter((date) => inPeriod(date, current)).length;
+  const newCustomerIds = [...firstOrderByCustomer.entries()].filter(([, date]) => inPeriod(date, current)).map(([customerId]) => customerId);
+  const newCustomers = newCustomerIds.length;
   const previousNewCustomers = previous ? [...firstOrderByCustomer.values()].filter((date) => inPeriod(date, previous)).length : 0;
 
-  const currentTailors = tailors.filter((tailor: any) => inPeriod(validDate(tailor.createdAt, new Date(0)), current)).length;
+  const newTailorRecords = tailors.filter((tailor: any) => inPeriod(validDate(tailor.createdAt, new Date(0)), current));
+  const currentTailors = newTailorRecords.length;
   const previousTailors = previous ? tailors.filter((tailor: any) => inPeriod(validDate(tailor.createdAt, new Date(0)), previous)).length : 0;
-  const currentPartners = partners.filter((partner: any) => inPeriod(validDate(partner.createdAt, new Date(0)), current)).length;
+  const newPartnerRecords = partners.filter((partner: any) => inPeriod(validDate(partner.createdAt, new Date(0)), current));
+  const currentPartners = newPartnerRecords.length;
   const previousPartners = previous ? partners.filter((partner: any) => inPeriod(validDate(partner.createdAt, new Date(0)), previous)).length : 0;
 
   const currentEarnings = earnings.filter((transaction: any) => inPeriod(transactionDate(transaction), current));
@@ -516,8 +520,10 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   selectedOrders.forEach((order) => stageCounts.set(order.stage, (stageCounts.get(order.stage) ?? 0) + 1));
 
   const series = buildSeries(normalizedOrders, realizedRecords, [...firstOrderByCustomer.values()], tailors, partners, current);
-  const activeTailors = tailors.filter((tailor: any) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED").length;
-  const activeDeliveryPartners = partners.filter((partner: any) => partner.isAvailable && partner.verificationStatus === "VERIFIED").length;
+  const activeTailorRecords = tailors.filter((tailor: any) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED");
+  const activePartnerRecords = partners.filter((partner: any) => partner.isAvailable && partner.verificationStatus === "VERIFIED");
+  const activeTailors = activeTailorRecords.length;
+  const activeDeliveryPartners = activePartnerRecords.length;
   const pendingPayouts = wallets.reduce((sum: number, wallet: any) => sum + Number(wallet.balance ?? 0), 0);
 
   return {
@@ -541,6 +547,31 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     },
     partners: { activeTailors, activeDeliveryPartners },
     growth: { newCustomers, newTailors: currentTailors, newDeliveryPartners: currentPartners },
+    drilldowns: {
+      orders: {
+        total: selectedOrders.map((order) => order.id),
+        pending: selectedOrders.filter((order) => order.category === "pending").map((order) => order.id),
+        active: selectedOrders.filter((order) => order.category === "active").map((order) => order.id),
+        completed: selectedOrders.filter((order) => order.category === "completed").map((order) => order.id),
+        cancelled: selectedOrders.filter((order) => order.category === "cancelled").map((order) => order.id),
+        resolved: selectedOrders.filter((order) => order.category === "completed" || order.category === "cancelled").map((order) => order.id),
+        realized: currentRealizedRecords.map((record) => record.orderId)
+      },
+      finance: {
+        paidPaymentIds: currentPaidPayments.map((payment: any) => String(payment._id)),
+        partnerCostUserIds: [...new Set(currentEarnings.map((transaction: any) => String(transaction.userId)))],
+        pendingPayoutUserIds: wallets.map((wallet: any) => String(wallet.userId))
+      },
+      partners: {
+        activeTailorIds: activeTailorRecords.map((tailor: any) => String(tailor._id)),
+        activeDeliveryPartnerIds: activePartnerRecords.map((partner: any) => String(partner._id))
+      },
+      growth: {
+        newCustomerIds,
+        newTailorIds: newTailorRecords.map((tailor: any) => String(tailor._id)),
+        newDeliveryPartnerIds: newPartnerRecords.map((partner: any) => String(partner._id))
+      }
+    },
     comparison: {
       orders: previousOrders ? percentageChange(currentOrders.total, previousOrders.total) : null,
       grossPaid: previousFinance ? percentageChange(currentFinance.grossPaid, previousFinance.grossPaid) : null,

@@ -11,6 +11,7 @@ import BorderGlow from "@/src/components/border-glow";
 import TiltedCard from "@/src/components/tilted-card";
 import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
+import { CustomerWebsiteSlider } from "./customer-website-slider";
 import { LaunchSoonModal, SupportModal } from "./site-actions";
 import { VideoSection } from "./video-section";
 
@@ -331,6 +332,7 @@ export function LandingPage() {
       <main id="site">
         <SmoothScroll />
         <PremiumHero heroRef={heroRef} onBookPickup={() => setLaunchSoonOpen(true)} />
+        <CustomerWebsiteSlider onBookPickup={() => setLaunchSoonOpen(true)} />
         <VideoSection />
         <HowItWorksSection />
 

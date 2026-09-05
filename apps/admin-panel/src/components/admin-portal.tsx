@@ -2,7 +2,16 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { defaultPlatformStatus, orderStatuses, type PlatformStatus } from "@darzi/shared";
+import {
+  CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
+  customerWebsiteSliderContrastRatio,
+  defaultCustomerWebsiteSlider,
+  defaultPlatformStatus,
+  normalizeCustomerWebsiteSlider,
+  orderStatuses,
+  type CustomerWebsiteSlider,
+  type PlatformStatus
+} from "@darzi/shared";
 import {
   useMutation,
   useQuery,
@@ -39,6 +48,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   CreditCard,
   Download,
@@ -195,6 +205,29 @@ const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
 
 type TrendRange = "daily" | "weekly" | "monthly";
 type DashboardPeriodPreset = "today" | "yesterday" | "this_week" | "last_week" | "last_7_days" | "last_30_days" | "this_month" | "previous_month" | "custom" | "lifetime";
+type DashboardDrilldownKey =
+  | "orders_total"
+  | "orders_active"
+  | "orders_completed"
+  | "orders_cancelled"
+  | "orders_pending"
+  | "orders_resolved"
+  | "orders_realized"
+  | "payments_paid"
+  | "partner_cost"
+  | "pending_payouts"
+  | "active_delivery_partners"
+  | "active_tailors"
+  | "new_customers"
+  | "new_tailors"
+  | "new_delivery_partners";
+
+type DashboardDrilldown = {
+  key: DashboardDrilldownKey;
+  label: string;
+  target: SectionId;
+  periodScoped: boolean;
+};
 
 type QueryBundle = {
   analytics: AnalyticsSummary;
@@ -351,6 +384,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
   { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
   { id: "platform", icon: AlertTriangle, label: "Platform Settings", description: "Live and maintenance controls" },
+  { id: "website", icon: ImageIcon, label: "Configure Website", description: "Homepage slider and promotions" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
@@ -386,6 +420,7 @@ export function AdminPortal() {
   const clearSessionNotice = useAdminStore((state) => state.clearSessionNotice);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [dashboardDrilldown, setDashboardDrilldown] = useState<DashboardDrilldown | null>(null);
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -409,7 +444,7 @@ export function AdminPortal() {
   const [orderTailorFilter, setOrderTailorFilter] = useState("");
   const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState("");
   const [orderDateFilter, setOrderDateFilter] = useState("");
-  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
+  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery" | "earnings" | "payouts">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
@@ -465,6 +500,8 @@ export function AdminPortal() {
   const [platformStatusDraft, setPlatformStatusDraft] = useState<PlatformStatus>(defaultPlatformStatus);
   const [tailorTutorialDraft, setTailorTutorialDraft] = useState<TailorTutorialMediaDraft>(() => defaultTailorTutorialMediaDraft());
   const [uploadingTutorialMedia, setUploadingTutorialMedia] = useState<"video" | "thumbnail" | "image" | null>(null);
+  const [websiteSliderDraft, setWebsiteSliderDraft] = useState<CustomerWebsiteSlider>(() => defaultCustomerWebsiteSlider());
+  const [uploadingWebsiteSlideId, setUploadingWebsiteSlideId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const isAuthed = Boolean(token);
   const supportSubTab = persistedSupportSubTab;
@@ -669,6 +706,8 @@ export function AdminPortal() {
       setTailorTutorialDraft(normalizeTailorTutorialDraft(tutorialSetting?.value));
       const batchSetting = settingsQuery.data.find((item) => item.key === "delivery_batch_settings");
       setBatchSettingsDraft(normalizeDeliveryBatchSettings(batchSetting?.value));
+      const websiteSliderSetting = settingsQuery.data.find((item) => item.key === CUSTOMER_WEBSITE_SLIDER_SETTING_KEY);
+      setWebsiteSliderDraft(normalizeCustomerWebsiteSlider(websiteSliderSetting?.value));
     }
   }, [settingsQuery.data]);
 
@@ -1267,6 +1306,22 @@ export function AdminPortal() {
     );
   }
 
+  async function handleWebsiteSlideUpload(slideId: string, file: File) {
+    try {
+      setUploadingWebsiteSlideId(slideId);
+      const uploaded = await uploadAdminMedia(file);
+      setWebsiteSliderDraft((current) => ({
+        ...current,
+        slides: current.slides.map((slide) => slide.id === slideId ? { ...slide, imageUrl: uploaded.url } : slide)
+      }));
+      toast.success("Slider image uploaded");
+    } catch (error) {
+      toast.error(extractError(error));
+    } finally {
+      setUploadingWebsiteSlideId(null);
+    }
+  }
+
   if (dashboardAnalyticsQuery.isError) {
     return (
       <PortalFrame
@@ -1371,7 +1426,7 @@ export function AdminPortal() {
   const dashboardAnalytics = dashboardAnalyticsQuery.data as DashboardAnalytics;
   const dashboardPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
   const dashboardOrders = allOrders.filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds));
-  const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.paidAt ?? payment.createdAt, dashboardPeriodBounds));
+  const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.paidAt ?? payment.updatedAt ?? payment.createdAt, dashboardPeriodBounds));
   const dashboardTailoringRequestsForPeriod = tailoringRequests.filter((request) => isDateInDashboardPeriod(request.confirmedAt ?? request.createdAt, dashboardPeriodBounds));
   const dashboardDeliveryRequestsForPeriod = deliveryRequests.filter((request) => isDateInDashboardPeriod(request.createdAt, dashboardPeriodBounds));
   const dashboardTailors = tailors.filter((tailor) => isDateInDashboardPeriod(tailor.createdAt, dashboardPeriodBounds));
@@ -1536,6 +1591,100 @@ export function AdminPortal() {
     return results.slice(0, 8);
   })();
   const dateRangeLabel = buildDashboardPeriodLabel(dashboardPeriod, dashboardPeriodBounds);
+  const fallbackNewCustomerIds = (() => {
+    const firstOrderByCustomer = new Map<string, Date>();
+    allOrders.forEach((order) => {
+      if (!order.customerId || !order.createdAt) return;
+      const createdAt = new Date(order.createdAt);
+      const previous = firstOrderByCustomer.get(order.customerId);
+      if (!previous || createdAt < previous) firstOrderByCustomer.set(order.customerId, createdAt);
+    });
+    return [...firstOrderByCustomer.entries()]
+      .filter(([, createdAt]) => isDateInDashboardPeriod(createdAt.toISOString(), dashboardPeriodBounds))
+      .map(([customerId]) => customerId);
+  })();
+  const fallbackOrderIds = (state?: ReturnType<typeof classifyDashboardOrderStatus>) => dashboardOrders
+    .filter((order) => !state || classifyDashboardOrderStatus(order.status) === state)
+    .map((order) => order.id);
+  const drilldownData = dashboardAnalytics.drilldowns ?? {
+    orders: {
+      total: fallbackOrderIds(),
+      pending: fallbackOrderIds("pending"),
+      active: fallbackOrderIds("active"),
+      completed: fallbackOrderIds("completed"),
+      cancelled: fallbackOrderIds("cancelled"),
+      resolved: dashboardOrders.filter((order) => ["completed", "cancelled"].includes(classifyDashboardOrderStatus(order.status))).map((order) => order.id),
+      realized: fallbackOrderIds("completed")
+    },
+    finance: {
+      paidPaymentIds: dashboardPayments.filter((payment) => String(payment.status).toUpperCase() === "PAID").map((payment) => payment.id),
+      partnerCostUserIds: [...new Set([...(tailorPayoutsQuery.data ?? []), ...(deliveryPayoutsQuery.data ?? [])].filter((row) => row.currentWeekEarnings > 0).map((row) => row.userId))],
+      pendingPayoutUserIds: [...new Set([...(tailorPayoutsQuery.data ?? []), ...(deliveryPayoutsQuery.data ?? [])].filter((row) => row.pendingAmount > 0).map((row) => row.userId))]
+    },
+    partners: {
+      activeTailorIds: tailors.filter((tailor) => tailor.isAvailable && tailor.verificationStatus === "VERIFIED").map((tailor) => tailor.id),
+      activeDeliveryPartnerIds: partners.filter((partner) => partner.isAvailable && partner.verificationStatus === "VERIFIED").map((partner) => partner.id)
+    },
+    growth: {
+      newCustomerIds: fallbackNewCustomerIds,
+      newTailorIds: dashboardTailors.map((tailor) => tailor.id),
+      newDeliveryPartnerIds: dashboardPartners.map((partner) => partner.id)
+    }
+  };
+  const drilldownIds = (() => {
+    switch (dashboardDrilldown?.key) {
+      case "orders_total": return drilldownData.orders.total;
+      case "orders_active": return drilldownData.orders.active;
+      case "orders_completed": return drilldownData.orders.completed;
+      case "orders_cancelled": return drilldownData.orders.cancelled;
+      case "orders_pending": return drilldownData.orders.pending;
+      case "orders_resolved": return drilldownData.orders.resolved;
+      case "orders_realized": return drilldownData.orders.realized;
+      case "payments_paid": return drilldownData.finance.paidPaymentIds;
+      case "partner_cost": return drilldownData.finance.partnerCostUserIds;
+      case "pending_payouts": return drilldownData.finance.pendingPayoutUserIds;
+      case "active_delivery_partners": return drilldownData.partners.activeDeliveryPartnerIds;
+      case "active_tailors": return drilldownData.partners.activeTailorIds;
+      case "new_customers": return drilldownData.growth.newCustomerIds;
+      case "new_tailors": return drilldownData.growth.newTailorIds;
+      case "new_delivery_partners": return drilldownData.growth.newDeliveryPartnerIds;
+      default: return [];
+    }
+  })();
+  const drilldownIdSet = new Set(drilldownIds);
+
+  const clearRecordFilters = () => {
+    setGlobalSearch("");
+    setOrderSearch("");
+    setOrderFilter("");
+    setDeliveryPartnerFilter("");
+    setPaymentFilter("");
+    setOrderCategoryFilter("");
+    setOrderTailorFilter("");
+    setOrderPaymentStatusFilter("");
+    setOrderDateFilter("");
+    setPaymentsSubTab("ledger");
+  };
+  const clearDashboardDrilldown = () => {
+    setDashboardDrilldown(null);
+    clearRecordFilters();
+  };
+  const openDashboardDrilldown = (drilldown: DashboardDrilldown) => {
+    clearRecordFilters();
+    setDashboardDrilldown(drilldown);
+    if (drilldown.key === "orders_active") setOrderFilter("__ACTIVE__");
+    if (drilldown.key === "orders_completed" || drilldown.key === "orders_realized") setOrderFilter("__COMPLETED__");
+    if (drilldown.key === "orders_cancelled") setOrderFilter("__CANCELLED__");
+    if (drilldown.key === "orders_pending") setOrderFilter("__PENDING__");
+    if (drilldown.key === "orders_resolved") setOrderFilter("__RESOLVED__");
+    if (drilldown.key === "payments_paid") {
+      setPaymentFilter("PAID");
+      setPaymentsSubTab("ledger");
+    }
+    if (drilldown.key === "partner_cost") setPaymentsSubTab("earnings");
+    if (drilldown.key === "pending_payouts") setPaymentsSubTab("payouts");
+    setActiveSection(drilldown.target);
+  };
   const latestGrowthPoint = { customers: dashboardAnalytics.growth.newCustomers, tailors: dashboardAnalytics.growth.newTailors, partners: dashboardAnalytics.growth.newDeliveryPartners };
   const comparisonLabel = (value: number | null) => dashboardPeriod === "lifetime" ? "Lifetime" : formatComparison(value);
   const revenueDelta = comparisonLabel(dashboardAnalytics.comparison.netRevenue);
@@ -1591,7 +1740,8 @@ export function AdminPortal() {
       change: comparisonLabel(dashboardAnalytics.comparison.orders),
       changeTone: comparisonTone(dashboardAnalytics.comparison.orders),
       target: "orders" as SectionId,
-      orderFilter: ""
+      drilldownKey: "orders_total" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: PackageCheck,
@@ -1602,7 +1752,8 @@ export function AdminPortal() {
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
-      orderFilter: "__ACTIVE__"
+      drilldownKey: "orders_active" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: CheckCircle2,
@@ -1613,7 +1764,8 @@ export function AdminPortal() {
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
-      orderFilter: "__COMPLETED__"
+      drilldownKey: "orders_completed" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: AlertCircle,
@@ -1624,7 +1776,8 @@ export function AdminPortal() {
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
-      orderFilter: "__CANCELLED__"
+      drilldownKey: "orders_cancelled" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: BarChart3,
@@ -1635,7 +1788,9 @@ export function AdminPortal() {
       value: formatCurrency(dashboardAnalytics.finance.netRevenue),
       change: comparisonLabel(dashboardAnalytics.comparison.netRevenue),
       changeTone: comparisonTone(dashboardAnalytics.comparison.netRevenue),
-      target: "payments" as SectionId
+      target: "orders" as SectionId,
+      drilldownKey: "orders_realized" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: ReceiptIndianRupee,
@@ -1646,7 +1801,9 @@ export function AdminPortal() {
       value: formatCurrency(dashboardAnalytics.finance.grossPaid),
       change: comparisonLabel(dashboardAnalytics.comparison.grossPaid),
       changeTone: comparisonTone(dashboardAnalytics.comparison.grossPaid),
-      target: "payments" as SectionId
+      target: "payments" as SectionId,
+      drilldownKey: "payments_paid" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: AlertCircle,
@@ -1657,18 +1814,22 @@ export function AdminPortal() {
       value: formatCurrency(dashboardAnalytics.finance.partnerCost),
       change: "",
       changeTone: "neutral" as const,
-      target: "payments" as SectionId
+      target: "payments" as SectionId,
+      drilldownKey: "partner_cost" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: PackageCheck,
       label: "Pending Payouts",
       formula: "Current positive wallet balances owed to tailors and delivery partners. This is a current liability, not a period delta.",
-      note: "Unpaid in selected period",
+      note: "Current unpaid wallet balance",
       tone: "amber" as const,
       value: formatCurrency(periodPendingPayouts),
       change: "",
       changeTone: "neutral" as const,
-      target: "payments" as SectionId
+      target: "payments" as SectionId,
+      drilldownKey: "pending_payouts" as DashboardDrilldownKey,
+      periodScoped: false
     },
     {
       icon: ShieldCheck,
@@ -1679,7 +1840,8 @@ export function AdminPortal() {
       change: "",
       changeTone: "neutral" as const,
       target: "orders" as SectionId,
-      orderFilter: "__PENDING__"
+      drilldownKey: "orders_pending" as DashboardDrilldownKey,
+      periodScoped: true
     },
     {
       icon: Truck,
@@ -1689,7 +1851,9 @@ export function AdminPortal() {
       value: dashboardAnalytics.partners.activeDeliveryPartners.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "partners" as SectionId
+      target: "partners" as SectionId,
+      drilldownKey: "active_delivery_partners" as DashboardDrilldownKey,
+      periodScoped: false
     },
     {
       icon: Scissors,
@@ -1699,7 +1863,9 @@ export function AdminPortal() {
       value: dashboardAnalytics.partners.activeTailors.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "tailors" as SectionId
+      target: "tailors" as SectionId,
+      drilldownKey: "active_tailors" as DashboardDrilldownKey,
+      periodScoped: false
     }
   ];
   const miniTrendCards = [
@@ -1711,6 +1877,8 @@ export function AdminPortal() {
       tone: "emerald" as const,
       value: percentage(dashboardAnalytics.orders.completionRate),
       target: "orders" as SectionId,
+      drilldownKey: "orders_resolved" as DashboardDrilldownKey,
+      periodScoped: true,
       data: orderSeries.map((point) => ({
         label: point.label,
         value: point.completed + point.cancelled ? Number(((point.completed / (point.completed + point.cancelled)) * 100).toFixed(1)) : 0
@@ -1724,6 +1892,8 @@ export function AdminPortal() {
       tone: "amber" as const,
       value: formatCurrency(dashboardAnalytics.finance.averageOrderValue),
       target: "payments" as SectionId,
+      drilldownKey: "payments_paid" as DashboardDrilldownKey,
+      periodScoped: true,
       data: revenueSeries.map((point) => ({ label: point.label, value: point.revenue }))
     },
     {
@@ -1733,6 +1903,8 @@ export function AdminPortal() {
       tone: "violet" as const,
       value: latestGrowthPoint.customers.toLocaleString("en-IN"),
       target: "users" as SectionId,
+      drilldownKey: "new_customers" as DashboardDrilldownKey,
+      periodScoped: true,
       data: growthSeries.map((point) => ({ label: point.label, value: point.customers }))
     },
     {
@@ -1742,6 +1914,8 @@ export function AdminPortal() {
       tone: "amber" as const,
       value: latestGrowthPoint.tailors.toLocaleString("en-IN"),
       target: "tailors" as SectionId,
+      drilldownKey: "new_tailors" as DashboardDrilldownKey,
+      periodScoped: true,
       data: growthSeries.map((point) => ({ label: point.label, value: point.tailors }))
     },
     {
@@ -1751,6 +1925,8 @@ export function AdminPortal() {
       tone: "sky" as const,
       value: latestGrowthPoint.partners.toLocaleString("en-IN"),
       target: "partners" as SectionId,
+      drilldownKey: "new_delivery_partners" as DashboardDrilldownKey,
+      periodScoped: true,
       data: growthSeries.map((point) => ({ label: point.label, value: point.partners }))
     }
   ];
@@ -1759,8 +1935,13 @@ export function AdminPortal() {
     .filter((partner, index, list) => list.findIndex((item) => item.id === partner.id) === index)
     .sort((a, b) => getPartnerDisplayName(a).localeCompare(getPartnerDisplayName(b)));
 
+  const scopedOrderRecords = dashboardDrilldown?.target === "orders"
+    ? allOrders.filter((order) => drilldownIdSet.has(order.id))
+    : dashboardOrders;
+
   const filteredOrders = allOrders
-    .filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds))
+    .filter((order) => dashboardDrilldown?.key === "orders_realized" || isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds))
+    .filter((order) => dashboardDrilldown?.target !== "orders" || drilldownIdSet.has(order.id))
     .filter((order) => {
       const query = orderSearch.trim().toLowerCase();
       const content = [
@@ -1796,6 +1977,7 @@ export function AdminPortal() {
         (orderFilter === "__COMPLETED__" && dashboardState === "completed") ||
         (orderFilter === "__CANCELLED__" && dashboardState === "cancelled") ||
         (orderFilter === "__PENDING__" && dashboardState === "pending") ||
+        (orderFilter === "__RESOLVED__" && (dashboardState === "completed" || dashboardState === "cancelled")) ||
         normalizedStatus === orderFilter;
       return (!query || content.includes(query)) && statusMatch && partnerMatch && categoryMatch && tailorMatch && paymentMethodMatch && paymentStatusMatch && dateMatch;
     })
@@ -1836,7 +2018,8 @@ export function AdminPortal() {
         .join(" ")
         .toLowerCase()
         .includes(searchTerm);
-    return matchesSearch;
+    const matchesDrilldown = dashboardDrilldown?.target !== "tailors" || drilldownIdSet.has(tailor.id);
+    return matchesSearch && matchesDrilldown;
   });
   const rejectedTailors = filteredTailors.filter((tailor) => tailor.verificationStatus === "REJECTED");
 
@@ -1849,24 +2032,19 @@ export function AdminPortal() {
         .join(" ")
         .toLowerCase()
         .includes(searchTerm);
-    return matchesSearch;
+    const matchesDrilldown = dashboardDrilldown?.target !== "partners" || drilldownIdSet.has(partner.id);
+    return matchesSearch && matchesDrilldown;
   });
 
-  const filteredUsers = customerUsers.filter((user) =>
-    !searchTerm ||
-    [
-      user.name,
-      user.phone,
-      user.email,
-      user.role,
-      user.accountStatus,
-      user.darjiCustomerId
-    ]
+  const filteredUsers = customerUsers.filter((user) => {
+    const matchesSearch = !searchTerm || [user.name, user.phone, user.email, user.role, user.accountStatus, user.darjiCustomerId]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
-      .includes(searchTerm)
-  );
+      .includes(searchTerm);
+    const matchesDrilldown = dashboardDrilldown?.target !== "users" || drilldownIdSet.has(user.id);
+    return matchesSearch && matchesDrilldown;
+  });
 
   const filteredPayments = payments.filter((payment) => {
     const content = [
@@ -1878,11 +2056,20 @@ export function AdminPortal() {
       payment.providerRef,
       payment.source
     ].filter(Boolean).join(" ").toLowerCase();
-    return (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || payment.status === paymentFilter);
+    const matchesDrilldown = dashboardDrilldown?.target !== "payments" || dashboardDrilldown.key !== "payments_paid" || drilldownIdSet.has(payment.id);
+    return (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || payment.status === paymentFilter) && matchesDrilldown;
   });
   const tailorPayoutRows = tailorPayoutsQuery.data ?? [];
   const deliveryPayoutRows = deliveryPayoutsQuery.data ?? [];
-  const activePayoutRows = paymentsSubTab === "delivery" ? deliveryPayoutRows : tailorPayoutRows;
+  const combinedPayoutRows = [...tailorPayoutRows, ...deliveryPayoutRows];
+  const drilldownPayoutRows = dashboardDrilldown?.target === "payments" && (dashboardDrilldown.key === "partner_cost" || dashboardDrilldown.key === "pending_payouts")
+    ? combinedPayoutRows.filter((row) => drilldownIdSet.has(row.userId))
+    : combinedPayoutRows;
+  const activePayoutRows = paymentsSubTab === "delivery"
+    ? deliveryPayoutRows
+    : paymentsSubTab === "tailors"
+      ? tailorPayoutRows
+      : drilldownPayoutRows;
   const walletLiabilities = [...tailorPayoutRows, ...deliveryPayoutRows].reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
   const totalPendingTailorPayments = tailorPayoutRows.reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
   const totalPendingDeliveryPayments = deliveryPayoutRows.reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
@@ -2153,6 +2340,7 @@ export function AdminPortal() {
         onMarkAllNotificationsRead={() => notificationReadMutation.mutate(unreadHeaderNotifications.map((alert) => alert.id))}
         onNotificationOpen={openHeaderNotification}
         onSectionChange={(section) => {
+          clearDashboardDrilldown();
           setActiveSection(section);
           setSidebarOpen(false);
         }}
@@ -2194,26 +2382,23 @@ export function AdminPortal() {
                   change={item.change}
                   changeTone={item.changeTone}
                   formula={"formula" in item ? item.formula : undefined}
-                  onClick={() => {
-                    if ("orderFilter" in item) setOrderFilter(item.orderFilter ?? "");
-                    if (item.label === "Gross Paid" || item.label === "Realized Net Revenue" || item.label === "Partner Cost") {
-                      setPaymentFilter("PAID");
-                      setPaymentsSubTab("ledger");
-                    }
-                    if (item.label === "Pending Payouts") setPaymentsSubTab("tailors");
-                    setActiveSection(item.target);
-                  }}
+                  onClick={() => openDashboardDrilldown({
+                    key: item.drilldownKey,
+                    label: item.label,
+                    target: item.target,
+                    periodScoped: item.periodScoped
+                  })}
                 />
               ))}
             </div>
 
             <Panel className="overflow-hidden p-0">
               <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">
-                <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.realizedGrossPaid} />
-                <FinanceBreakdownItem label="Tailor Cost" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" />
-                <FinanceBreakdownItem label="Delivery Payout" value={dashboardAnalytics.finance.realizedDeliveryCost} tone="cost" />
-                <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.realizedCompletedOrders})`} value={dashboardAnalytics.finance.realizedPackagingCost} tone="cost" />
-                <FinanceBreakdownItem emphasized label="Realized Net Revenue" value={dashboardAnalytics.finance.netRevenue} />
+                <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.realizedGrossPaid} onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Gross Paid", target: "orders", periodScoped: true })} />
+                <FinanceBreakdownItem label="Tailor Cost" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Tailor Cost", target: "orders", periodScoped: true })} />
+                <FinanceBreakdownItem label="Delivery Payout" value={dashboardAnalytics.finance.realizedDeliveryCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Delivery Payout", target: "orders", periodScoped: true })} />
+                <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.realizedCompletedOrders})`} value={dashboardAnalytics.finance.realizedPackagingCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Packaging Cost", target: "orders", periodScoped: true })} />
+                <FinanceBreakdownItem emphasized label="Realized Net Revenue" value={dashboardAnalytics.finance.netRevenue} onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Net Revenue", target: "orders", periodScoped: true })} />
               </div>
               {dashboardAnalytics.finance.unrealizedCompletedOrders > 0 ? (
                 <p className="bg-amber-50 px-5 py-3 text-xs font-medium text-amber-800">
@@ -2360,11 +2545,12 @@ export function AdminPortal() {
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               {miniTrendCards.map((item) => (
-                <MiniTrendCard key={item.label} data={item.data} formula={"formula" in item ? item.formula : undefined} icon={item.icon} label={item.label} note={item.note} tone={item.tone} value={item.value} onClick={() => {
-                  if (item.label === "Completion Rate") setOrderFilter("__COMPLETED__");
-                  if (item.label === "Average Order Value") setPaymentFilter("PAID");
-                  setActiveSection(item.target);
-                }} />
+                <MiniTrendCard key={item.label} data={item.data} formula={"formula" in item ? item.formula : undefined} icon={item.icon} label={item.label} note={item.note} tone={item.tone} value={item.value} onClick={() => openDashboardDrilldown({
+                  key: item.drilldownKey,
+                  label: item.label,
+                  target: item.target,
+                  periodScoped: item.periodScoped
+                })} />
               ))}
             </div>
           </div>
@@ -2372,13 +2558,14 @@ export function AdminPortal() {
 
         {activeSection === "orders" ? (
           <OrdersManagementView
-            allOrders={dashboardOrders}
-            analyticsCounts={dashboardAnalytics.orders}
+            allOrders={scopedOrderRecords}
+            analyticsCounts={dashboardDrilldown?.target === "orders" ? undefined : dashboardAnalytics.orders}
             categories={[...new Set(allOrders.flatMap((order) => (order.items ?? []).map((item) => item.service?.category?.name ?? "General")))].sort()}
             columns={orderColumns}
             deliveryPartnerFilter={deliveryPartnerFilter}
             deliveryPartners={orderPartnerOptions}
             filteredOrders={filteredOrders}
+            drilldownNotice={dashboardDrilldown?.target === "orders" ? <KpiDrilldownNotice count={filteredOrders.length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             orderCategoryFilter={orderCategoryFilter}
             orderDateFilter={orderDateFilter}
             orderFilter={orderFilter}
@@ -2466,6 +2653,7 @@ export function AdminPortal() {
 
         {activeSection === "tailors" ? (
           <div className="space-y-6">
+            {dashboardDrilldown?.target === "tailors" ? <KpiDrilldownNotice count={filteredTailors.length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             <SectionIntro
               title="Tailor network"
               description="Only tailors who submitted verification are included. Pending, reviewed, and re-upload records remain visible."
@@ -2500,6 +2688,7 @@ export function AdminPortal() {
 
         {activeSection === "partners" ? (
           <div className="space-y-6">
+            {dashboardDrilldown?.target === "partners" ? <KpiDrilldownNotice count={filteredPartners.length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             <SectionIntro
               title="Delivery partner network"
               description="Only partners who submitted verification are included. The map and table use the same live five-second data refresh."
@@ -2520,6 +2709,7 @@ export function AdminPortal() {
 
         {activeSection === "users" ? (
           <div className="space-y-6">
+            {dashboardDrilldown?.target === "users" ? <KpiDrilldownNotice count={filteredUsers.length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dateRangeLabel} /> : null}
             <SectionIntro
               title="Customer directory"
               description="Every registered customer and every account with order activity appears here. Cross-role accounts remain managed in their dedicated section; deleted accounts are retained as archived order history."
@@ -2535,6 +2725,7 @@ export function AdminPortal() {
 
         {activeSection === "payments" ? (
           <div className="space-y-6">
+            {dashboardDrilldown?.target === "payments" ? <KpiDrilldownNotice count={dashboardDrilldown.key === "payments_paid" ? filteredPayments.length : activePayoutRows.filter((row) => dashboardDrilldown.key === "partner_cost" ? row.currentWeekEarnings > 0 : row.pendingAmount > 0).length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             <SectionIntro
               title="Payments and collections"
               description="Payment ledger with net revenue calculated as customer paid minus tailor quote and delivery earnings."
@@ -2561,7 +2752,9 @@ export function AdminPortal() {
               {[
                 { id: "ledger", label: "Ledger" },
                 { id: "tailors", label: "Tailors" },
-                { id: "delivery", label: "Delivery Partners" }
+                { id: "delivery", label: "Delivery Partners" },
+                { id: "earnings", label: "Partner Earnings" },
+                { id: "payouts", label: "All Payouts" }
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -2589,6 +2782,12 @@ export function AdminPortal() {
                 </div>
                 <DataTable columns={paymentColumns} data={filteredPayments} emptyMessage="No payment records match the current filters." />
               </>
+            ) : paymentsSubTab === "earnings" ? (
+              <PartnerEarningsWorkspace
+                rows={activePayoutRows.filter((row) => row.currentWeekEarnings > 0)}
+                onDetails={setWalletDetailTarget}
+                periodLabel={dateRangeLabel}
+              />
             ) : (
               <PayoutWorkspace
                 rows={activePayoutRows}
@@ -2722,6 +2921,23 @@ export function AdminPortal() {
           </div>
         ) : null}
 
+        {activeSection === "website" ? (
+          <div className="space-y-6">
+            <SectionIntro
+              title="Configure customer website"
+              description="Manage the promotional slider shown immediately below the homepage hero. The booking button stays in one consistent position while the artwork changes."
+            />
+            <CustomerWebsiteSliderCard
+              draft={websiteSliderDraft}
+              onChange={setWebsiteSliderDraft}
+              onSave={() => settingMutation.mutate({ key: CUSTOMER_WEBSITE_SLIDER_SETTING_KEY, value: websiteSliderDraft })}
+              onUpload={handleWebsiteSlideUpload}
+              pending={settingMutation.isPending}
+              uploadingSlideId={uploadingWebsiteSlideId}
+            />
+          </div>
+        ) : null}
+
         {activeSection === "settings" ? (
           <div className="space-y-6">
             <SectionIntro
@@ -2765,7 +2981,7 @@ export function AdminPortal() {
               onResetEverything={() => resetEverythingMutation.mutate()}
             />
             <div className="grid gap-4 xl:grid-cols-2">
-              {settings.filter((setting) => setting.key !== "delivery_batch_settings" && setting.key !== "platform_status").map((setting) => (
+              {settings.filter((setting) => !["delivery_batch_settings", "platform_status", "tailor_tutorial_media", CUSTOMER_WEBSITE_SLIDER_SETTING_KEY].includes(setting.key)).map((setting) => (
                 <Panel key={setting.id}>
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
@@ -3929,6 +4145,23 @@ function SectionIntro({
   );
 }
 
+function KpiDrilldownNotice({ count, label, onClear, periodLabel }: { count: number; label: string; onClear: () => void; periodLabel: string }) {
+  return (
+    <div aria-live="polite" className="flex flex-col gap-3 rounded-2xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-950 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3 sm:items-center">
+        <Filter className="mt-0.5 shrink-0 text-orange-600 sm:mt-0" size={17} />
+        <p className="min-w-0 text-sm">
+          Showing <strong className="tabular-nums">{count.toLocaleString("en-IN")}</strong> source record{count === 1 ? "" : "s"} for <strong>{label}</strong>
+          <span className="text-orange-800"> · {periodLabel}</span>
+        </p>
+      </div>
+      <button className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-orange-300 bg-white px-3 text-sm font-semibold text-orange-800 transition hover:border-orange-500 hover:text-orange-950" onClick={onClear} type="button">
+        <X size={15} /> Clear KPI filter
+      </button>
+    </div>
+  );
+}
+
 function StatCard({
   change,
   changeTone = "positive",
@@ -3980,7 +4213,7 @@ function StatCard({
   return (
     <Panel className="p-0">
       {onClick ? (
-        <button className="block h-full w-full text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" onClick={onClick} type="button">
+        <button aria-label={`View records for ${label}`} className="block h-full w-full text-left transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]" onClick={onClick} type="button">
           {content}
         </button>
       ) : (
@@ -4369,13 +4602,14 @@ function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse;
   );
 }
 
-function FinanceBreakdownItem({ emphasized = false, label, tone = "income", value }: {
+function FinanceBreakdownItem({ emphasized = false, label, onClick, tone = "income", value }: {
   emphasized?: boolean;
   label: string;
+  onClick?: () => void;
   tone?: "income" | "cost";
   value: number;
 }) {
-  return (
+  const content = (
     <div className={cn("bg-[var(--panel)] px-5 py-4", emphasized && "bg-[#fff6df]") } title={emphasized ? "Realized Net Revenue = completed-order Gross Paid − recorded Tailor Cost − finalized Delivery Payout − Packaging Cost" : undefined}>
       <p className="text-xs font-semibold text-[var(--muted)]">{label}</p>
       <p className={cn("mt-1 text-xl font-semibold tabular-nums text-[var(--deep)]", tone === "cost" && "text-rose-700", emphasized && "text-2xl text-emerald-700")}>
@@ -4383,6 +4617,7 @@ function FinanceBreakdownItem({ emphasized = false, label, tone = "income", valu
       </p>
     </div>
   );
+  return onClick ? <button aria-label={`View records for ${label}`} className="block w-full text-left transition hover:bg-[var(--accent-soft)]" onClick={onClick} type="button">{content}</button> : content;
 }
 
 function OrdersManagementView({
@@ -4392,6 +4627,7 @@ function OrdersManagementView({
   columns,
   deliveryPartnerFilter,
   deliveryPartners,
+  drilldownNotice,
   filteredOrders,
   onCategoryChange,
   onCreate,
@@ -4419,6 +4655,7 @@ function OrdersManagementView({
   columns: Array<ColumnDef<Order>>;
   deliveryPartnerFilter: string;
   deliveryPartners: DeliveryPartnerProfile[];
+  drilldownNotice?: React.ReactNode;
   filteredOrders: Order[];
   onCategoryChange: (value: string) => void;
   onCreate: () => void;
@@ -4459,11 +4696,13 @@ function OrdersManagementView({
     { label: "Pending", value: "__PENDING__", count: counts.pending, tone: "text-blue-600 border-blue-600" },
     { label: "Active", value: "__ACTIVE__", count: counts.progress, tone: "text-blue-600 border-blue-600" },
     { label: "Completed", value: "__COMPLETED__", count: counts.completed, tone: "text-emerald-600 border-emerald-600" },
-    { label: "Cancelled", value: "__CANCELLED__", count: counts.cancelled, tone: "text-rose-600 border-rose-600" }
+    { label: "Cancelled", value: "__CANCELLED__", count: counts.cancelled, tone: "text-rose-600 border-rose-600" },
+    { label: "Resolved", value: "__RESOLVED__", count: counts.completed + counts.cancelled, tone: "text-violet-600 border-violet-600" }
   ];
 
   return (
     <div className="space-y-5">
+      {drilldownNotice}
       <div className="flex flex-col gap-4 px-1 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -4831,6 +5070,48 @@ function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders
         ))}
       </div>
     </div>
+  );
+}
+
+function PartnerEarningsWorkspace({ onDetails, periodLabel, rows }: { onDetails: (row: WalletPayoutRow) => void; periodLabel: string; rows: WalletPayoutRow[] }) {
+  const total = rows.reduce((sum, row) => sum + Number(row.currentWeekEarnings ?? 0), 0);
+  return (
+    <Panel className="overflow-hidden p-0">
+      <div className="flex flex-col gap-2 border-b border-[var(--panel-border)] px-4 py-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="font-semibold text-[var(--foreground)]">Partner earnings credited</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">Tailor and delivery earning totals that make up Partner Cost for {periodLabel}.</p>
+        </div>
+        <p className="text-lg font-semibold tabular-nums text-rose-700">{formatCurrency(total)}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+            <tr>
+              <th className="px-4 py-4 font-semibold">Partner</th>
+              <th className="px-4 py-4 font-semibold">Type</th>
+              <th className="px-4 py-4 font-semibold">Phone</th>
+              <th className="px-4 py-4 font-semibold">Period earnings</th>
+              <th className="px-4 py-4 font-semibold">Wallet balance</th>
+              <th className="px-4 py-4 font-semibold">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>No partner earning records exist for this period.</td></tr> : null}
+            {rows.map((row) => (
+              <tr className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]" key={`${row.userType}-${row.userId}`}>
+                <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
+                <td className="px-4 py-4"><Badge tone={row.userType === "TAILOR" ? "amber" : "sky"}>{row.userType === "TAILOR" ? "Tailor" : "Delivery"}</Badge></td>
+                <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
+                <td className="px-4 py-4 font-semibold tabular-nums text-rose-700">{formatCurrency(row.currentWeekEarnings)}</td>
+                <td className="px-4 py-4 tabular-nums">{formatCurrency(row.walletBalance)}</td>
+                <td className="px-4 py-4"><ActionButton className="px-3 py-2" variant="secondary" onClick={() => onDetails(row)}>Details</ActionButton></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }
 
@@ -5899,6 +6180,245 @@ function normalizeDeliveryBatchSettings(value: unknown): DeliveryBatchSettingsDr
   };
 }
 
+function CustomerWebsiteSliderCard({
+  draft,
+  onChange,
+  onSave,
+  onUpload,
+  pending,
+  uploadingSlideId
+}: {
+  draft: CustomerWebsiteSlider;
+  onChange: (draft: CustomerWebsiteSlider) => void;
+  onSave: () => void;
+  onUpload: (slideId: string, file: File) => void;
+  pending: boolean;
+  uploadingSlideId: string | null;
+}) {
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const inputClass = "w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]";
+  const activeSlide = draft.slides[previewIndex] ?? draft.slides[0];
+  const validHexColor = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
+  const buttonContrast = customerWebsiteSliderContrastRatio(draft.buttonTextColor, draft.buttonColor);
+  const isValid = Boolean(
+    draft.buttonText.trim()
+    && validHexColor(draft.buttonColor)
+    && validHexColor(draft.buttonTextColor)
+    && buttonContrast >= 4.5
+    && draft.intervalSeconds >= 3
+    && draft.intervalSeconds <= 30
+    && draft.slides.length
+    && draft.slides.every((slide) => slide.imageUrl.trim() && slide.altText.trim().length >= 2)
+  );
+
+  useEffect(() => {
+    if (previewIndex >= draft.slides.length) setPreviewIndex(Math.max(draft.slides.length - 1, 0));
+  }, [draft.slides.length, previewIndex]);
+
+  const updateSlide = (id: string, patch: Partial<CustomerWebsiteSlider["slides"][number]>) => {
+    onChange({ ...draft, slides: draft.slides.map((slide) => slide.id === id ? { ...slide, ...patch } : slide) });
+  };
+
+  const moveSlide = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= draft.slides.length) return;
+    const slides = [...draft.slides];
+    [slides[index], slides[nextIndex]] = [slides[nextIndex], slides[index]];
+    onChange({ ...draft, slides });
+    setPreviewIndex(nextIndex);
+  };
+
+  return (
+    <Panel className="overflow-hidden p-0">
+      <div className="border-b border-[var(--panel-border)] px-4 py-5 sm:px-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h3 className="text-xl font-semibold tracking-tight">Homepage slider</h3>
+              <Badge tone={draft.enabled ? "emerald" : "slate"}>{draft.enabled ? "Visible" : "Hidden"}</Badge>
+            </div>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--muted)]">Upload up to eight banners, set their display time, and style the fixed booking action once for every slide.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <ActionButton
+              variant="secondary"
+              onClick={() => onChange({ ...draft, enabled: !draft.enabled })}
+            >
+              {draft.enabled ? <ToggleRight className="h-4 w-4 text-emerald-600" /> : <ToggleLeft className="h-4 w-4" />}
+              {draft.enabled ? "Slider enabled" : "Slider hidden"}
+            </ActionButton>
+            <ActionButton disabled={pending || Boolean(uploadingSlideId) || !isValid} onClick={onSave}>
+              {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+              Publish slider
+            </ActionButton>
+          </div>
+        </div>
+        {!isValid ? <p className="mt-3 text-sm font-medium text-rose-700">Add at least one image with alt text, use a 3–30 second duration, and keep button color contrast at 4.5:1 or higher.</p> : null}
+      </div>
+
+      <div className="grid xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <div className="border-b border-[var(--panel-border)] p-4 sm:p-6 xl:border-b-0 xl:border-r">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--foreground)]">Live composition preview</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">The CTA stays anchored while the selected artwork changes.</p>
+            </div>
+            <span className="text-xs font-semibold tabular-nums text-[var(--muted)]">{draft.slides.length ? `${previewIndex + 1} / ${draft.slides.length}` : "No slides"}</span>
+          </div>
+          <div className="relative aspect-[12/5] overflow-hidden rounded-2xl bg-[#f6f1e9] shadow-[0_22px_50px_rgba(8,17,31,0.12)]">
+            {activeSlide?.imageUrl ? (
+              <img className="h-full w-full object-cover" src={activeSlide.imageUrl} alt={activeSlide.altText || "Slider preview"} />
+            ) : (
+              <div className="grid h-full place-items-center px-6 text-center text-sm text-[var(--muted)]">Upload an image to preview this slide.</div>
+            )}
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_60%,rgba(8,17,31,0.18))]" />
+            <div
+              className="absolute bottom-3 left-3 inline-flex min-h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold shadow-[0_12px_28px_rgba(8,17,31,0.22)]"
+              style={{ backgroundColor: draft.buttonColor, color: draft.buttonTextColor }}
+            >
+              {draft.buttonText || "Button label"}<ArrowRight className="h-4 w-4" />
+            </div>
+            {draft.slides.length > 1 ? (
+              <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-[#08111f]/82 px-2 py-2">
+                {draft.slides.map((slide, index) => (
+                  <button
+                    aria-label={`Preview slide ${index + 1}`}
+                    aria-current={index === previewIndex ? "true" : undefined}
+                    className="grid h-6 w-6 place-items-center rounded-full"
+                    key={slide.id}
+                    onClick={() => setPreviewIndex(index)}
+                    type="button"
+                  >
+                    <span className={cn("h-1.5 rounded-full bg-white/55 transition-all", index === previewIndex && "w-4 bg-white", index !== previewIndex && "w-1.5")} />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <Field label="Time per slide (seconds)">
+              <input
+                className={inputClass}
+                min={3}
+                max={30}
+                type="number"
+                value={draft.intervalSeconds}
+                onChange={(event) => onChange({ ...draft, intervalSeconds: Math.min(30, Math.max(3, Number(event.target.value) || 3)) })}
+              />
+            </Field>
+            <Field label="Button text">
+              <input
+                className={inputClass}
+                maxLength={40}
+                value={draft.buttonText}
+                onChange={(event) => onChange({ ...draft, buttonText: event.target.value })}
+                placeholder="Book pickup now"
+              />
+            </Field>
+            <Field label="Button color">
+              <div className="flex items-center gap-3 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] p-2">
+                <input
+                  aria-label="Button color picker"
+                  className="h-9 w-12 cursor-pointer rounded-lg border-0 bg-transparent p-0"
+                  type="color"
+                  value={validHexColor(draft.buttonColor) ? draft.buttonColor : "#000000"}
+                  onChange={(event) => onChange({ ...draft, buttonColor: event.target.value })}
+                />
+                <input className="min-w-0 flex-1 bg-transparent text-sm font-medium uppercase outline-none" value={draft.buttonColor} onChange={(event) => onChange({ ...draft, buttonColor: event.target.value })} />
+              </div>
+            </Field>
+            <Field label="Button text color">
+              <div className="flex items-center gap-3 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] p-2">
+                <input
+                  aria-label="Button text color picker"
+                  className="h-9 w-12 cursor-pointer rounded-lg border-0 bg-transparent p-0"
+                  type="color"
+                  value={validHexColor(draft.buttonTextColor) ? draft.buttonTextColor : "#ffffff"}
+                  onChange={(event) => onChange({ ...draft, buttonTextColor: event.target.value })}
+                />
+                <input className="min-w-0 flex-1 bg-transparent text-sm font-medium uppercase outline-none" value={draft.buttonTextColor} onChange={(event) => onChange({ ...draft, buttonTextColor: event.target.value })} />
+              </div>
+            </Field>
+          </div>
+        </div>
+
+        <div className="p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--foreground)]">Slides</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Drag-free ordering keeps changes precise on touch screens.</p>
+            </div>
+            <ActionButton
+              className="px-3 py-2"
+              disabled={draft.slides.length >= 8}
+              variant="secondary"
+              onClick={() => {
+                const id = `slide-${Date.now()}`;
+                onChange({ ...draft, slides: [...draft.slides, { id, imageUrl: "", altText: "" }] });
+                setPreviewIndex(draft.slides.length);
+              }}
+            >
+              <Plus className="h-4 w-4" /> Add slide
+            </ActionButton>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {draft.slides.map((slide, index) => (
+              <div className={cn("rounded-2xl border p-3 transition", index === previewIndex ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--panel-border)] bg-[var(--panel)]")} key={slide.id}>
+                <button className="flex w-full items-center gap-3 text-left" onClick={() => setPreviewIndex(index)} type="button">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#0b2241] text-xs font-semibold text-white">{index + 1}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-[var(--foreground)]">{slide.altText || `Untitled slide ${index + 1}`}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{slide.imageUrl || "Image required"}</span>
+                  </span>
+                  {slide.imageUrl ? <img className="h-10 w-16 shrink-0 rounded-lg object-cover" src={slide.imageUrl} alt="" aria-hidden="true" /> : <ImageIcon className="h-5 w-5 shrink-0 text-[var(--muted)]" />}
+                </button>
+
+                {index === previewIndex ? (
+                  <div className="mt-3 space-y-3 border-t border-[var(--panel-border)] pt-3">
+                    <input className={inputClass} value={slide.imageUrl} onChange={(event) => updateSlide(slide.id, { imageUrl: event.target.value })} placeholder="Image URL" />
+                    <input className={inputClass} maxLength={160} value={slide.altText} onChange={(event) => updateSlide(slide.id, { altText: event.target.value })} placeholder="Describe the banner for screen readers" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label
+                        className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 text-sm font-semibold transition hover:border-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          event.currentTarget.querySelector("input")?.click();
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        {uploadingSlideId === slide.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4 text-[var(--accent)]" />}
+                        {slide.imageUrl ? "Replace image" : "Upload image"}
+                        <input
+                          accept="image/*"
+                          className="hidden"
+                          disabled={Boolean(uploadingSlideId)}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) onUpload(slide.id, file);
+                            event.currentTarget.value = "";
+                          }}
+                          type="file"
+                        />
+                      </label>
+                      <button aria-label={`Move slide ${index + 1} up`} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] disabled:opacity-40" disabled={index === 0} onClick={() => moveSlide(index, -1)} type="button"><ChevronUp className="h-4 w-4" /></button>
+                      <button aria-label={`Move slide ${index + 1} down`} className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] disabled:opacity-40" disabled={index === draft.slides.length - 1} onClick={() => moveSlide(index, 1)} type="button"><ChevronDown className="h-4 w-4" /></button>
+                      <button aria-label={`Remove slide ${index + 1}`} className="ml-auto grid h-10 w-10 place-items-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 disabled:opacity-40" disabled={draft.slides.length === 1} onClick={() => onChange({ ...draft, slides: draft.slides.filter((item) => item.id !== slide.id) })} type="button"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function TailorTutorialMediaCard({
   draft,
   onChange,
@@ -6482,7 +7002,7 @@ function MiniTrendCard({
 
   return (
     <Panel className={cn("p-4", onClick && "cursor-pointer transition hover:-translate-y-0.5 hover:border-[var(--accent)]")}>
-      <button className="block w-full text-left" onClick={onClick} title={formula} type="button">
+      <button aria-label={`View records for ${label}`} className="block w-full text-left" onClick={onClick} title={formula} type="button">
       <div className="flex items-start justify-between gap-4">
         <div>
           <span className={cn("inline-flex rounded-2xl p-2.5", tone === "amber" && "bg-[#fff1d8] text-[#cf7d00]", tone === "emerald" && "bg-emerald-500/12 text-emerald-700", tone === "sky" && "bg-sky-500/12 text-sky-700", tone === "violet" && "bg-violet-500/12 text-violet-700")}>

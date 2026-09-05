@@ -9,6 +9,7 @@ import {
   createCouponController,
   createOrderController,
   createReviewController,
+  customerWebsiteSliderController,
   listMyTailorReviewsController,
   listAdminReviewsController,
   toggleReviewFeaturedController,
@@ -144,6 +145,7 @@ export const router = Router();
 
 router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend", push: pushRuntimeStatus() } }));
 router.get("/platform-status", platformStatusController);
+router.get("/settings/customer-website-slider", customerWebsiteSliderController);
 router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
 router.post("/auth/refresh", refreshController);
