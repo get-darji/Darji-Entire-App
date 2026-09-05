@@ -59,8 +59,14 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
         );
       }
     }
-    req.user = { id: String(user._id), role: payload.role as Role };
-    const isAdmin = payload.role === "ADMIN" || payload.role === "SUPER_ADMIN";
+    const tokenRequestsAdmin = payload.role === "ADMIN" || payload.role === "SUPER_ADMIN";
+    const accountAllowsAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+    if (tokenRequestsAdmin && !accountAllowsAdmin) {
+      return next(new AppError(403, "Admin access has been removed for this phone number"));
+    }
+    const effectiveRole: Role = tokenRequestsAdmin && accountAllowsAdmin ? "ADMIN" : payload.role as Role;
+    req.user = { id: String(user._id), role: effectiveRole };
+    const isAdmin = effectiveRole === "ADMIN";
     const isProfileBootstrap = req.method === "GET" && req.path === "/auth/me";
     if (!isAdmin && !isProfileBootstrap) {
       const platformStatus = await getPlatformStatus();
@@ -80,11 +86,9 @@ export function requireRole(...roles: Role[]) {
     if (!req.user) {
       return next(new AppError(401, "Authentication required"));
     }
-    // SUPER_ADMIN is an elevated ADMIN role and must inherit every route that
-    // permits ADMIN. Routes that explicitly require SUPER_ADMIN remain
-    // restricted because regular admins do not receive the reverse mapping.
-    const hasRequiredRole = roles.includes(req.user.role) ||
-      (req.user.role === "SUPER_ADMIN" && roles.includes("ADMIN"));
+    const isAdminAccount = req.user.role === "ADMIN" || req.user.role === "SUPER_ADMIN";
+    const isAdminResource = roles.includes("ADMIN") || roles.includes("SUPER_ADMIN");
+    const hasRequiredRole = roles.includes(req.user.role) || (isAdminAccount && isAdminResource);
     if (!hasRequiredRole) {
       return next(new AppError(403, "You do not have access to this resource"));
     }

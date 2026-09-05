@@ -52,7 +52,7 @@ export async function nextDarjiId(prefix: DarjiIdPrefix) {
   const counter = (await CounterModel.findByIdAndUpdate(
     prefix,
     { $inc: { seq: 1 } },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   )) as CounterDoc | null;
 
   if (!counter) {

@@ -102,10 +102,13 @@ import {
   assignOrder,
   assignMeasurementVisit,
   cancelDeliveryRetry,
+  cancelTailoringRequest,
+  createAdminOrder,
   createCoupon,
   deleteAdminAccount,
   extractError,
   getAnalytics,
+  getCatalog,
   getDashboardAnalytics,
   getCoupons,
   getDeliveryPartners,
@@ -140,6 +143,7 @@ import {
   reviewTailorSample,
   reviewTailorVerification,
   updateOrderStatus,
+  updateTailoringWorkStatus,
   updatePlatformStatus,
   updateSetting,
   verifyOtp,
@@ -188,6 +192,7 @@ import type {
   Order,
   Payment,
   BasicUser,
+  CatalogService,
   SettingRecord,
   SupportTicket,
   TailorProfile,
@@ -341,6 +346,25 @@ type OrderTrendPoint = {
   pending: number;
 };
 
+type AdminCreateOrderDraft = {
+  customerId: string;
+  customerSearch: string;
+  pickupScheduledAt: string;
+  paymentMethod: "COD" | "ONLINE" | "UPI";
+  instructions: string;
+  address: {
+    name: string;
+    phone: string;
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    pincode: string;
+    landmark: string;
+  };
+  items: Array<{ serviceId: string; quantity: number; instructions: string }>;
+};
+
 type GrowthPoint = {
   label: string;
   customers: number;
@@ -405,6 +429,23 @@ const loginPieData = [
   { name: "Support", value: 12, color: "#f97316" }
 ];
 
+function localDateTimeInputValue(date: Date) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function emptyAdminOrderDraft(): AdminCreateOrderDraft {
+  return {
+    customerId: "",
+    customerSearch: "",
+    pickupScheduledAt: localDateTimeInputValue(new Date(Date.now() + 2 * 60 * 60 * 1000)),
+    paymentMethod: "COD",
+    instructions: "",
+    address: { name: "", phone: "", line1: "", line2: "", city: "", state: "", pincode: "", landmark: "" },
+    items: [{ serviceId: "", quantity: 1, instructions: "" }]
+  };
+}
+
 export function AdminPortal() {
   const activeSection = useAdminStore((state) => state.activeSection);
   const hydrated = useAdminStore((state) => state.hydrated);
@@ -449,6 +490,8 @@ export function AdminPortal() {
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
   const [orderDetail, setOrderDetail] = useState<Order | null>(null);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [createOrderDraft, setCreateOrderDraft] = useState<AdminCreateOrderDraft>(() => emptyAdminOrderDraft());
   const [orderDetailFocus, setOrderDetailFocus] = useState<OrderDetailFocus>("overview");
   const [tailoringDetail, setTailoringDetail] = useState<TailoringRequest | null>(null);
   const [deliveryDetail, setDeliveryDetail] = useState<DeliveryRequest | null>(null);
@@ -518,7 +561,12 @@ export function AdminPortal() {
   });
   const ordersQuery = useQuery({
     queryKey: ["admin", "orders"],
-    queryFn: () => getOrders(),
+    queryFn: () => getOrders({ limit: 5000 }),
+    enabled: isAuthed
+  });
+  const catalogQuery = useQuery({
+    queryKey: ["admin", "catalog"],
+    queryFn: getCatalog,
     enabled: isAuthed
   });
   const tailoringQuery = useQuery({
@@ -861,8 +909,19 @@ export function AdminPortal() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: updateOrderStatus,
-    onSuccess: async () => {
+    mutationFn: async ({ order, status }: { order: Order; status: string }) => {
+      if (!order.request) return updateOrderStatus({ orderId: order.id, status });
+      if (status === "CANCELLED") return cancelTailoringRequest(order.request.id ?? order.id);
+      if (["CUTTING", "STITCHING_STARTED", "FINISHING"].includes(status)) {
+        return updateTailoringWorkStatus(order.request.id ?? order.id, "WORKING");
+      }
+      if (["STITCHING_COMPLETED", "READY"].includes(status)) {
+        return updateTailoringWorkStatus(order.request.id ?? order.id, "READY");
+      }
+      throw new Error("Pickup and delivery stages are updated from the linked delivery task. Open Delivery Ops for this order.");
+    },
+    onSuccess: async (_result, variables) => {
+      setOrderDetail((current) => current?.id === variables.order.id ? { ...current, status: variables.status } : current);
       toast.success("Order status updated");
       await refreshData();
     },
@@ -1024,6 +1083,19 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
+  const createOrderMutation = useMutation({
+    mutationFn: createAdminOrder,
+    onSuccess: async (order) => {
+      setCreateOrderOpen(false);
+      setCreateOrderDraft(emptyAdminOrderDraft());
+      setOrderDetail(order);
+      setActiveSection("orders");
+      toast.success(`${getOrderDisplayNumber(order)} created`);
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
   const measurementAssignMutation = useMutation({
     mutationFn: assignMeasurementVisit,
     onSuccess: async () => {
@@ -1107,7 +1179,7 @@ export function AdminPortal() {
   const adminInviteMutation = useMutation({
     mutationFn: inviteAdmin,
     onSuccess: async () => {
-      toast.success("Admin account added");
+      toast.success("Full admin access granted");
       await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
@@ -1685,6 +1757,15 @@ export function AdminPortal() {
     if (drilldown.key === "pending_payouts") setPaymentsSubTab("payouts");
     setActiveSection(drilldown.target);
   };
+  const changeOrderStatusFilter = (value: string) => {
+    if (dashboardDrilldown?.target === "orders") setDashboardDrilldown(null);
+    setOrderFilter(value);
+  };
+  const openOrderSummaryFilter = (value: string) => {
+    clearRecordFilters();
+    setDashboardDrilldown(null);
+    setOrderFilter(value);
+  };
   const latestGrowthPoint = { customers: dashboardAnalytics.growth.newCustomers, tailors: dashboardAnalytics.growth.newTailors, partners: dashboardAnalytics.growth.newDeliveryPartners };
   const comparisonLabel = (value: number | null) => dashboardPeriod === "lifetime" ? "Lifetime" : formatComparison(value);
   const revenueDelta = comparisonLabel(dashboardAnalytics.comparison.netRevenue);
@@ -1943,26 +2024,6 @@ export function AdminPortal() {
     .filter((order) => dashboardDrilldown?.key === "orders_realized" || isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds))
     .filter((order) => dashboardDrilldown?.target !== "orders" || drilldownIdSet.has(order.id))
     .filter((order) => {
-      const query = orderSearch.trim().toLowerCase();
-      const content = [
-        order.orderNumber,
-        order.darjiId,
-        order.customer?.name,
-        order.customer?.phone,
-        order.status,
-        order.paymentMethod,
-        order.paymentStatus,
-        order.tailor?.shopName,
-        order.tailor?.user?.name,
-        order.deliveryPartner?.user?.name,
-        order.deliveryPartner?.user?.phone,
-        order.pickupPartner?.user?.name,
-        order.pickupPartner?.user?.phone
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
       const orderPartnerId = String(order.deliveryPartner?.id ?? order.pickupPartner?.id ?? "");
       const partnerMatch = !deliveryPartnerFilter || orderPartnerId === deliveryPartnerFilter;
       const categoryMatch = !orderCategoryFilter || (order.items ?? []).some((item) => (item.service?.category?.name ?? "General") === orderCategoryFilter);
@@ -1979,7 +2040,7 @@ export function AdminPortal() {
         (orderFilter === "__PENDING__" && dashboardState === "pending") ||
         (orderFilter === "__RESOLVED__" && (dashboardState === "completed" || dashboardState === "cancelled")) ||
         normalizedStatus === orderFilter;
-      return (!query || content.includes(query)) && statusMatch && partnerMatch && categoryMatch && tailorMatch && paymentMethodMatch && paymentStatusMatch && dateMatch;
+      return matchesOrderSearch(order, orderSearch) && statusMatch && partnerMatch && categoryMatch && tailorMatch && paymentMethodMatch && paymentStatusMatch && dateMatch;
     })
     .sort((a, b) => new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime());
 
@@ -2132,7 +2193,7 @@ export function AdminPortal() {
   const bugReportsList = bugReportsQuery.data || [];
   const bugOpenCount = bugReportsList.filter(b => b.status === "NEW" || b.status === "INVESTIGATING" || b.status === "IN_PROGRESS").length;
 
-  const admins = users.filter((u) => u.role === "ADMIN");
+  const admins = users.filter((u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN");
   const customerTickets = tickets.filter(isCustomerSupportTicket);
   const tailorChatTickets = tickets.filter(isTailorSupportTicket);
   const deliveryChatTickets = tickets.filter(isDeliverySupportTicket);
@@ -2241,7 +2302,7 @@ export function AdminPortal() {
       setActiveSection("batches");
       setSidebarOpen(false);
     },
-    onStatusChange: (orderId, status) => statusMutation.mutate({ orderId, status }),
+    onStatusChange: (order, status) => statusMutation.mutate({ order, status }),
     batches: deliveryBatches,
     pending: statusMutation.isPending,
     priorities: orderPriorities
@@ -2304,14 +2365,15 @@ export function AdminPortal() {
     const metadata = alert.metadata ?? {};
     const ids = [alert.entityId, metadata.taskId, metadata.orderId, metadata.requestId, metadata.paymentId, metadata.batchId].filter(Boolean).map(String);
     const delivery = deliveryRequests.find((request) => ids.includes(request.id) || ids.includes(request.taskId) || ids.includes(request.orderId));
-    const order = allOrders.find((item) => ids.includes(item.id) || ids.includes(String(item.darjiId ?? "")) || ids.includes(String(item.orderNumber ?? "")));
+    const orderIds = delivery?.orderId ? [...ids, String(delivery.orderId)] : ids;
+    const order = allOrders.find((item) => orderIds.includes(item.id) || orderIds.includes(String(item.darjiId ?? "")) || orderIds.includes(String(item.orderNumber ?? "")));
     const tailoring = tailoringRequests.find((request) => ids.includes(request.id) || ids.includes(String(request.darjiId ?? "")));
-    if (delivery) {
-      setDeliveryDetail(delivery);
-      setActiveSection("delivery");
-    } else if (order) {
+    if (order) {
       setOrderDetail(order);
       setActiveSection("orders");
+    } else if (delivery) {
+      setDeliveryDetail(delivery);
+      setActiveSection("delivery");
     } else if (tailoring) {
       setTailoringDetail(tailoring);
       setActiveSection("tailoring");
@@ -2575,16 +2637,18 @@ export function AdminPortal() {
             paymentFilter={paymentFilter}
             tailors={tailors}
             onCategoryChange={setOrderCategoryFilter}
-            onCreate={() => toast.info("Order creation is not available in the current admin API.")}
+            onCreate={() => setCreateOrderOpen(true)}
             onDateChange={setOrderDateFilter}
             onDeliveryPartnerChange={setDeliveryPartnerFilter}
             onExport={() => downloadCsv("darzi-orders.csv", filteredOrders.map(orderToCsv))}
             onPaymentMethodChange={setPaymentFilter}
             onPaymentStatusChange={setOrderPaymentStatusFilter}
             onSearchChange={setOrderSearch}
-            onStatusChange={setOrderFilter}
+            onStatusChange={changeOrderStatusFilter}
+            onSummaryChange={openOrderSummaryFilter}
             onTailorChange={setOrderTailorFilter}
             onReset={() => {
+              setDashboardDrilldown(null);
               setOrderSearch("");
               setOrderFilter("");
               setDeliveryPartnerFilter("");
@@ -3041,6 +3105,39 @@ export function AdminPortal() {
         ) : null}
       </PortalFrame>
 
+      <CreateOrderDialog
+        catalog={catalogQuery.data ?? []}
+        customers={customerUsers}
+        draft={createOrderDraft}
+        loadingCatalog={catalogQuery.isLoading}
+        onChange={setCreateOrderDraft}
+        onSubmit={() => {
+          const pickupDate = new Date(createOrderDraft.pickupScheduledAt);
+          if (Number.isNaN(pickupDate.getTime())) {
+            toast.error("Choose a valid pickup date and time");
+            return;
+          }
+          createOrderMutation.mutate({
+            customerId: createOrderDraft.customerId,
+            address: { ...createOrderDraft.address, isDefault: false },
+            pickupScheduledAt: pickupDate.toISOString(),
+            paymentMethod: createOrderDraft.paymentMethod,
+            instructions: createOrderDraft.instructions.trim() || undefined,
+            items: createOrderDraft.items.map((item) => ({
+              serviceId: item.serviceId,
+              quantity: item.quantity,
+              instructions: item.instructions.trim() || undefined
+            }))
+          });
+        }}
+        open={createOrderOpen}
+        pending={createOrderMutation.isPending}
+        setOpen={(next) => {
+          if (createOrderMutation.isPending) return;
+          setCreateOrderOpen(next);
+          if (!next) setCreateOrderDraft(emptyAdminOrderDraft());
+        }}
+      />
       <OrderDetailDialog
         me={me}
         notes={orderDetail ? orderNotes[orderDetail.id] ?? [] : []}
@@ -3057,7 +3154,7 @@ export function AdminPortal() {
           if (!orderDetail) return;
           setOrderPriorities((current) => ({ ...current, [orderDetail.id]: priority }));
         }}
-        onStatusChange={(status) => orderDetail && statusMutation.mutate({ orderId: orderDetail.id, status })}
+        onStatusChange={(status) => orderDetail && statusMutation.mutate({ order: orderDetail, status })}
         open={Boolean(orderDetail)}
         order={orderDetail}
         deliveryRequests={deliveryRequests}
@@ -4620,6 +4717,34 @@ function FinanceBreakdownItem({ emphasized = false, label, onClick, tone = "inco
   return onClick ? <button aria-label={`View records for ${label}`} className="block w-full text-left transition hover:bg-[var(--accent-soft)]" onClick={onClick} type="button">{content}</button> : content;
 }
 
+function matchesOrderSearch(order: Order, rawQuery: string) {
+  const normalize = (value: unknown) => String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  const query = normalize(rawQuery);
+  if (!query) return true;
+  const fields = [
+    order.orderNumber,
+    order.darjiId,
+    order.id,
+    order.customer?.darjiCustomerId,
+    order.customer?.name,
+    order.customer?.phone,
+    order.tailor?.shopName,
+    order.tailor?.user?.name,
+    order.tailor?.darjiTailorId,
+    order.deliveryPartner?.user?.name,
+    order.deliveryPartner?.user?.phone,
+    order.deliveryPartner?.darjiPartnerId,
+    order.pickupPartner?.user?.name,
+    order.pickupPartner?.user?.phone,
+    order.pickupPartner?.darjiPartnerId
+  ].filter(Boolean).map(normalize);
+  const tokens = query.split(" ").filter(Boolean);
+  const compactQuery = query.replace(/[^a-z0-9]/g, "");
+  const compactIdentifiers = fields.map((field) => field.replace(/[^a-z0-9]/g, ""));
+  return tokens.every((token) => fields.some((field) => field.includes(token))) ||
+    (compactQuery.length >= 4 && compactIdentifiers.some((field) => field.includes(compactQuery)));
+}
+
 function OrdersManagementView({
   analyticsCounts,
   allOrders,
@@ -4639,6 +4764,7 @@ function OrdersManagementView({
   onReset,
   onSearchChange,
   onStatusChange,
+  onSummaryChange,
   onTailorChange,
   orderCategoryFilter,
   orderDateFilter,
@@ -4667,6 +4793,7 @@ function OrdersManagementView({
   onReset: () => void;
   onSearchChange: (value: string) => void;
   onStatusChange: (value: string) => void;
+  onSummaryChange: (value: string) => void;
   onTailorChange: (value: string) => void;
   orderCategoryFilter: string;
   orderDateFilter: string;
@@ -4722,11 +4849,11 @@ function OrdersManagementView({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <OrderSummaryCard icon={Package} label="Total Orders" value={allOrders.length} note="100% of all orders" tone="amber" />
-        <OrderSummaryCard icon={RotateCcw} label="Pending" value={counts.pending} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" />
-        <OrderSummaryCard icon={Hourglass} label="In Progress" value={counts.progress} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" />
-        <OrderSummaryCard icon={CheckCircle2} label="Completed" value={counts.completed} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" />
-        <OrderSummaryCard icon={X} label="Cancelled" value={counts.cancelled} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" />
+        <OrderSummaryCard icon={Package} label="Total Orders" value={authoritativeTotal} note="100% of selected period" tone="amber" onClick={() => onSummaryChange("")} />
+        <OrderSummaryCard icon={RotateCcw} label="Pending" value={counts.pending} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" onClick={() => onSummaryChange("__PENDING__")} />
+        <OrderSummaryCard icon={Hourglass} label="In Progress" value={counts.progress} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" onClick={() => onSummaryChange("__ACTIVE__")} />
+        <OrderSummaryCard icon={CheckCircle2} label="Completed" value={counts.completed} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" onClick={() => onSummaryChange("__COMPLETED__")} />
+        <OrderSummaryCard icon={X} label="Cancelled" value={counts.cancelled} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" onClick={() => onSummaryChange("__CANCELLED__")} />
       </div>
 
       <Panel className="overflow-hidden p-0">
@@ -4738,7 +4865,7 @@ function OrdersManagementView({
             <FilterSelect value={deliveryPartnerFilter} onChange={onDeliveryPartnerChange} options={[{ label: "All Delivery Partners", value: "" }, ...deliveryPartners.map((partner) => ({ label: getPartnerDisplayName(partner), value: partner.id }))]} />
             <FilterSelect value={paymentFilter} onChange={onPaymentMethodChange} options={[{ label: "All Payment Methods", value: "" }, { label: "COD", value: "COD" }, { label: "Online", value: "ONLINE" }, { label: "UPI", value: "UPI" }]} />
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto_auto]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto]">
             <FilterSelect value={orderTailorFilter} onChange={onTailorChange} options={[{ label: "All Tailors", value: "" }, ...tailors.map((tailor) => ({ label: getTailorDisplayName(tailor), value: tailor.id }))]} />
             <FilterSelect value={orderPaymentStatusFilter} onChange={onPaymentStatusChange} options={[{ label: "All Payment Status", value: "" }, { label: "Paid", value: "PAID" }, { label: "Pending", value: "PENDING" }, { label: "Failed", value: "FAILED" }, { label: "Refunded", value: "REFUNDED" }]} />
             <label className="relative flex h-12 items-center rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm text-[var(--foreground)] focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]">
@@ -4746,7 +4873,6 @@ function OrdersManagementView({
               <input aria-label="Order date" className="h-full min-w-0 flex-1 cursor-pointer bg-transparent text-sm text-[var(--foreground)] outline-none [color-scheme:light]" type="date" value={orderDateFilter} onChange={(event) => onDateChange(event.target.value)} />
             </label>
             <ActionButton className="h-12 rounded-xl px-5" variant="secondary" onClick={onReset}><RotateCcw size={16} /> Reset</ActionButton>
-            <ActionButton className="h-12 rounded-xl px-5" variant="secondary" onClick={() => toast.info("All available order filters are shown.")}><Filter size={16} /> More Filters</ActionButton>
           </div>
         </div>
         <div className="flex gap-7 overflow-x-auto border-t border-[var(--panel-border)] px-4 lg:px-5">
@@ -4763,12 +4889,12 @@ function OrdersManagementView({
 }
 
 function OrderSearchInput({ onChange, value }: { onChange: (value: string) => void; value: string }) {
-  return <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} /><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-11 pr-4 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]" onChange={(event) => onChange(event.target.value)} placeholder="Search orders..." value={value} /></div>;
+  return <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} /><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-11 pr-4 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]" onChange={(event) => onChange(event.target.value)} placeholder="Order ID, customer or phone" value={value} /></div>;
 }
 
-function OrderSummaryCard({ icon: Icon, label, note, tone, value }: { icon: ComponentType<{ size?: number }>; label: string; note: string; tone: "amber" | "sky" | "violet" | "emerald" | "rose"; value: number }) {
+function OrderSummaryCard({ icon: Icon, label, note, onClick, tone, value }: { icon: ComponentType<{ size?: number }>; label: string; note: string; onClick: () => void; tone: "amber" | "sky" | "violet" | "emerald" | "rose"; value: number }) {
   const tones = { amber: "bg-orange-50 text-orange-500", sky: "bg-blue-50 text-blue-600", violet: "bg-violet-50 text-violet-600", emerald: "bg-emerald-50 text-emerald-600", rose: "bg-rose-50 text-rose-600" };
-  return <Panel className="rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel>;
+  return <button aria-label={`Show ${label.toLowerCase()}`} className="rounded-2xl text-left outline-none transition hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2" onClick={onClick} type="button"><Panel className="h-full rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel></button>;
 }
 
 function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string }) {
@@ -4799,7 +4925,7 @@ function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef
     return "#c4b5fd";
   };
 
-  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 overflow-x-auto overscroll-x-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="bg-[#fffcf7] text-[11px] text-slate-500">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th className="whitespace-nowrap px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length}>{emptyMessage}</td></tr> : pageRows.map((row) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-slate-700 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
+  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-slate-500 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length}>{emptyMessage}</td></tr> : pageRows.map((row) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-slate-700 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
 }
 
 function SampleWorkModule({
@@ -4950,9 +5076,7 @@ function RolesModule({
   onDelete: (userId: string) => void;
 }) {
   const [phone, setPhone] = useState("");
-  const rows = admins.some((admin) => admin.phone === PROTECTED_ADMIN_PHONE)
-    ? admins
-    : [{ id: "protected-owner", phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN", name: "Owner Admin" } as AdminUser, ...admins];
+  const rows = admins;
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -4967,7 +5091,7 @@ function RolesModule({
 
   return (
     <div className="space-y-6">
-      <SectionIntro title="Admin Accounts" description="Only approved phone-number accounts can log in to this dashboard." />
+      <SectionIntro title="Admin Accounts" description="Every phone number in this list has full dashboard access. Numbers not listed here cannot log in." />
       <Panel>
         <form className="grid gap-3 md:grid-cols-[1fr_auto]" onSubmit={submit}>
           <div>
@@ -4981,7 +5105,7 @@ function RolesModule({
             />
           </div>
           <ActionButton className="self-end" disabled={pendingInvite} type="submit">
-            <UserRoundPlus size={16} /> Add Admin
+            <UserRoundPlus size={16} /> Grant Full Access
           </ActionButton>
         </form>
       </Panel>
@@ -4997,7 +5121,7 @@ function RolesModule({
                 return (
                   <tr key={admin.id} className="border-b border-[var(--panel-border)]">
                     <td className="px-4 py-3 font-semibold">+91 {admin.phone}</td>
-                    <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Owner locked" : "Admin"}</Badge></td>
+                    <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Full access · Owner" : "Full access"}</Badge></td>
                     <td className="px-4 py-3"><StatusBadge value={admin.accountStatus ?? "ACTIVE"} /></td>
                     <td className="px-4 py-3">
                       <ActionButton
@@ -6256,6 +6380,36 @@ function CustomerWebsiteSliderCard({
         {!isValid ? <p className="mt-3 text-sm font-medium text-rose-700">Add at least one image with alt text, use a 3–30 second duration, and keep button color contrast at 4.5:1 or higher.</p> : null}
       </div>
 
+      <div className="border-b border-[var(--panel-border)] bg-[var(--panel-strong)] px-4 py-4 sm:px-6">
+        <div className="flex items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+            <ImageIcon className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-[var(--foreground)]">Banner preparation guide</p>
+            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+              <div>
+                <dt className="text-xs text-[var(--muted)]">Resolution</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums text-[var(--foreground)]">1920 × 640 px</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-[var(--muted)]">Aspect ratio</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums text-[var(--foreground)]">3:1</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-[var(--muted)]">Format</dt>
+                <dd className="mt-0.5 text-sm font-semibold text-[var(--foreground)]">WebP preferred</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-[var(--muted)]">File size</dt>
+                <dd className="mt-0.5 text-sm font-semibold text-[var(--foreground)]">Aim below 500 KB</dd>
+              </div>
+            </dl>
+            <p className="mt-3 max-w-4xl text-xs leading-5 text-[var(--muted)]">PNG and JPG are also supported. The full image is preserved without cropping, so other proportions may show blank space at the sides. Keep essential artwork away from the edges and leave the bottom-left area clear for the fixed booking button.</p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
         <div className="border-b border-[var(--panel-border)] p-4 sm:p-6 xl:border-b-0 xl:border-r">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -6265,9 +6419,9 @@ function CustomerWebsiteSliderCard({
             </div>
             <span className="text-xs font-semibold tabular-nums text-[var(--muted)]">{draft.slides.length ? `${previewIndex + 1} / ${draft.slides.length}` : "No slides"}</span>
           </div>
-          <div className="relative aspect-[12/5] overflow-hidden rounded-2xl bg-[#f6f1e9] shadow-[0_22px_50px_rgba(8,17,31,0.12)]">
+          <div className="relative aspect-[3/1] overflow-hidden rounded-2xl bg-white shadow-[0_22px_50px_rgba(8,17,31,0.12)]">
             {activeSlide?.imageUrl ? (
-              <img className="h-full w-full object-cover" src={activeSlide.imageUrl} alt={activeSlide.altText || "Slider preview"} />
+              <img className="h-full w-full object-contain" src={activeSlide.imageUrl} alt={activeSlide.altText || "Slider preview"} />
             ) : (
               <div className="grid h-full place-items-center px-6 text-center text-sm text-[var(--muted)]">Upload an image to preview this slide.</div>
             )}
@@ -7650,6 +7804,170 @@ function humanizeFieldLabel(value: string) {
   return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function CreateOrderDialog({
+  catalog,
+  customers,
+  draft,
+  loadingCatalog,
+  onChange,
+  onSubmit,
+  open,
+  pending,
+  setOpen
+}: {
+  catalog: CatalogService[];
+  customers: AdminUser[];
+  draft: AdminCreateOrderDraft;
+  loadingCatalog: boolean;
+  onChange: (draft: AdminCreateOrderDraft) => void;
+  onSubmit: () => void;
+  open: boolean;
+  pending: boolean;
+  setOpen: (open: boolean) => void;
+}) {
+  const customerQuery = draft.customerSearch.trim().toLocaleLowerCase();
+  const customerOptions = customers
+    .filter((customer) => customer.id === draft.customerId || !customerQuery || [customer.name, customer.phone, customer.darjiCustomerId].some((value) => String(value ?? "").toLocaleLowerCase().includes(customerQuery)))
+    .sort((a, b) => getCustomerDisplayName(a).localeCompare(getCustomerDisplayName(b)));
+  const estimatedSubtotal = draft.items.reduce((total, item) => {
+    const service = catalog.find((entry) => entry.id === item.serviceId);
+    return total + Number(service?.price ?? 0) * Math.max(1, item.quantity);
+  }, 0);
+  const isValid = Boolean(
+    draft.customerId &&
+    draft.pickupScheduledAt &&
+    draft.items.length &&
+    draft.items.every((item) => item.serviceId && Number.isInteger(item.quantity) && item.quantity > 0) &&
+    draft.address.name.trim().length >= 2 &&
+    /^[6-9]\d{9}$/.test(draft.address.phone.trim()) &&
+    draft.address.line1.trim().length >= 5 &&
+    draft.address.city.trim().length >= 2 &&
+    draft.address.state.trim().length >= 2 &&
+    /^\d{6}$/.test(draft.address.pincode.trim())
+  );
+  const updateAddress = (key: keyof AdminCreateOrderDraft["address"], value: string) => onChange({
+    ...draft,
+    address: { ...draft.address, [key]: value }
+  });
+  const updateItem = (index: number, value: Partial<AdminCreateOrderDraft["items"][number]>) => onChange({
+    ...draft,
+    items: draft.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...value } : item)
+  });
+
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[min(920px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--panel-border)] bg-[#fffdfa] shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[#efe1ca] bg-[#fffdfa]/95 px-5 py-4 backdrop-blur-xl sm:px-6">
+            <div>
+              <Dialog.Title className="text-xl font-bold text-[var(--deep)]">Create order</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Create a customer order and schedule its pickup from the admin panel.</Dialog.Description>
+            </div>
+            <Dialog.Close asChild><button aria-label="Close create order" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[#efd9b5] bg-white text-[var(--deep)] transition hover:bg-orange-50" disabled={pending} type="button"><X size={18} /></button></Dialog.Close>
+          </div>
+
+          <div className="space-y-6 p-5 sm:p-6">
+            <section>
+              <h3 className="text-base font-bold text-[var(--deep)]">Customer</h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <Field label="Find customer">
+                  <input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]" placeholder="Name, phone or customer ID" value={draft.customerSearch} onChange={(event) => onChange({ ...draft, customerSearch: event.target.value })} />
+                </Field>
+                <Field label="Customer account">
+                  <select
+                    className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+                    value={draft.customerId}
+                    onChange={(event) => {
+                      const customerId = event.target.value;
+                      const customer = customers.find((item) => item.id === customerId);
+                      onChange({
+                        ...draft,
+                        customerId,
+                        address: {
+                          ...draft.address,
+                          name: customer?.name ?? draft.address.name,
+                          phone: customer?.phone ?? draft.address.phone
+                        }
+                      });
+                    }}
+                  >
+                    <option value="">Select customer</option>
+                    {customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{getCustomerDisplayName(customer)} · {customer.phone} · {customer.darjiCustomerId ?? customer.id.slice(0, 8)}</option>)}
+                  </select>
+                </Field>
+              </div>
+              {!customerOptions.length && customerQuery ? <p className="mt-2 text-sm text-rose-700">No customer matches that search. Create the customer account first.</p> : null}
+            </section>
+
+            <section className="border-t border-[var(--panel-border)] pt-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-bold text-[var(--deep)]">Services</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)]">Add each service included in this order.</p>
+                </div>
+                <ActionButton
+                  className="h-10 px-4"
+                  disabled={loadingCatalog || !catalog.length}
+                  onClick={() => onChange({ ...draft, items: [...draft.items, { serviceId: "", quantity: 1, instructions: "" }] })}
+                  variant="secondary"
+                >
+                  <Plus size={15} /> Add service
+                </ActionButton>
+              </div>
+              <div className="mt-3 space-y-3">
+                {draft.items.map((item, index) => (
+                  <div className="grid gap-3 rounded-2xl border border-[var(--panel-border)] bg-white p-3 md:grid-cols-[minmax(0,1fr)_110px_minmax(0,1fr)_40px]" key={index}>
+                    <select aria-label={`Service ${index + 1}`} className="h-11 min-w-0 rounded-xl border border-[var(--panel-border)] bg-[#fffdfa] px-3 text-sm outline-none focus:border-[var(--accent)]" disabled={loadingCatalog} value={item.serviceId} onChange={(event) => updateItem(index, { serviceId: event.target.value })}>
+                      <option value="">{loadingCatalog ? "Loading services…" : "Select service"}</option>
+                      {catalog.map((service) => <option key={service.id} value={service.id}>{service.category} · {service.name} · {formatCurrency(service.price)}</option>)}
+                    </select>
+                    <input aria-label={`Quantity for service ${index + 1}`} className="h-11 rounded-xl border border-[var(--panel-border)] bg-[#fffdfa] px-3 text-sm outline-none focus:border-[var(--accent)]" min={1} type="number" value={item.quantity} onChange={(event) => updateItem(index, { quantity: Math.max(1, Number(event.target.value) || 1) })} />
+                    <input aria-label={`Instructions for service ${index + 1}`} className="h-11 min-w-0 rounded-xl border border-[var(--panel-border)] bg-[#fffdfa] px-3 text-sm outline-none focus:border-[var(--accent)]" placeholder="Item instructions (optional)" value={item.instructions} onChange={(event) => updateItem(index, { instructions: event.target.value })} />
+                    <button aria-label={`Remove service ${index + 1}`} className="grid h-11 w-10 place-items-center rounded-xl text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-35" disabled={draft.items.length === 1} onClick={() => onChange({ ...draft, items: draft.items.filter((_, itemIndex) => itemIndex !== index) })} type="button"><Trash2 size={16} /></button>
+                  </div>
+                ))}
+                {!loadingCatalog && !catalog.length ? <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">No active services are available. Add a catalog service before creating an order.</p> : null}
+              </div>
+            </section>
+
+            <section className="border-t border-[var(--panel-border)] pt-5">
+              <h3 className="text-base font-bold text-[var(--deep)]">Pickup and payment</h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <Field label="Pickup date and time"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" min={localDateTimeInputValue(new Date())} type="datetime-local" value={draft.pickupScheduledAt} onChange={(event) => onChange({ ...draft, pickupScheduledAt: event.target.value })} /></Field>
+                <Field label="Payment method"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" value={draft.paymentMethod} onChange={(event) => onChange({ ...draft, paymentMethod: event.target.value as AdminCreateOrderDraft["paymentMethod"] })}><option value="COD">Cash on delivery</option><option value="UPI">UPI</option><option value="ONLINE">Online</option></select></Field>
+              </div>
+            </section>
+
+            <section className="border-t border-[var(--panel-border)] pt-5">
+              <h3 className="text-base font-bold text-[var(--deep)]">Pickup address</h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <Field label="Contact name"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" value={draft.address.name} onChange={(event) => updateAddress("name", event.target.value)} /></Field>
+                <Field label="Phone"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" inputMode="numeric" maxLength={10} placeholder="10-digit mobile number" value={draft.address.phone} onChange={(event) => updateAddress("phone", event.target.value.replace(/\D/g, "").slice(0, 10))} /></Field>
+                <Field label="Address line 1"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" placeholder="House, building and street" value={draft.address.line1} onChange={(event) => updateAddress("line1", event.target.value)} /></Field>
+                <Field label="Address line 2"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" placeholder="Area or locality (optional)" value={draft.address.line2} onChange={(event) => updateAddress("line2", event.target.value)} /></Field>
+                <Field label="City"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" value={draft.address.city} onChange={(event) => updateAddress("city", event.target.value)} /></Field>
+                <Field label="State"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" value={draft.address.state} onChange={(event) => updateAddress("state", event.target.value)} /></Field>
+                <Field label="Pincode"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" inputMode="numeric" maxLength={6} value={draft.address.pincode} onChange={(event) => updateAddress("pincode", event.target.value.replace(/\D/g, "").slice(0, 6))} /></Field>
+                <Field label="Landmark"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-[var(--accent)]" placeholder="Optional" value={draft.address.landmark} onChange={(event) => updateAddress("landmark", event.target.value)} /></Field>
+              </div>
+              <Field label="Order instructions"><textarea className="mt-3 min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3 text-sm outline-none focus:border-[var(--accent)]" maxLength={1000} placeholder="Pickup or order notes (optional)" value={draft.instructions} onChange={(event) => onChange({ ...draft, instructions: event.target.value })} /></Field>
+            </section>
+
+            <div className="flex flex-col gap-3 border-t border-[var(--panel-border)] pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div><p className="text-sm font-semibold text-[var(--deep)]">Estimated service subtotal</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--deep)]">{formatCurrency(estimatedSubtotal)}</p><p className="mt-1 text-xs text-[var(--muted)]">Platform and small-order fees are calculated by the server.</p></div>
+              <div className="flex justify-end gap-3">
+                <Dialog.Close asChild><ActionButton disabled={pending} variant="secondary">Cancel</ActionButton></Dialog.Close>
+                <ActionButton disabled={!isValid || pending || loadingCatalog} onClick={onSubmit}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}{pending ? "Creating…" : "Create order"}</ActionButton>
+              </div>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 function OrderDetailDialog({
   me,
   notes,
@@ -8832,7 +9150,7 @@ function InspectTicketDialog({
 
   if (!ticket) return null;
 
-  const admins = users.filter((u) => u.role === "ADMIN");
+  const admins = users.filter((u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN");
   const linkedOrder = orders.find(
     (o) => o.id === ticket.orderId || o.orderNumber === ticket.order?.orderNumber
   );
@@ -9173,7 +9491,7 @@ function InspectBugReportDialog({
 
   if (!bug) return null;
 
-  const admins = users.filter((u) => u.role === "ADMIN");
+  const admins = users.filter((u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN");
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
@@ -9550,7 +9868,7 @@ function getOrderColumns({
   onReportIssue: (order: Order) => void;
   onOpenBatch: (batch: BatchFocusTarget) => void;
   batches: DeliveryBatch[];
-  onStatusChange: (orderId: string, status: string) => void;
+  onStatusChange: (order: Order, status: string) => void;
   pending: boolean;
   priorities: Record<string, AdminOrderPriority>;
 }): Array<ColumnDef<Order>> {
@@ -9731,7 +10049,7 @@ function getOrderColumns({
                   <AlertTriangle size={14} /> Report Issue
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator className="my-2 h-px bg-[var(--panel-border)]" />
-                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-red-50" onSelect={() => onStatusChange(row.original.id, "CANCELLED")}>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-red-50" onSelect={() => onStatusChange(row.original, "CANCELLED")}>
                   <Trash2 size={14} className="text-red-500" /> Cancel Order
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
@@ -10553,6 +10871,16 @@ function buildLiveAlerts({
   const alerts: AdminAlert[] = [];
   const minutesAgo = (value?: string) => (value ? (now - new Date(value).getTime()) / 60000 : 0);
   const isOpenDelivery = (request: DeliveryRequest) => !["delivered", "completed", "cancelled", "CANCELLED"].includes(request.taskStatus);
+  const openOrderForDelivery = (request: DeliveryRequest) => {
+    const order = orders.find((item) => item.id === request.orderId || item.request?.id === request.orderId);
+    if (order) {
+      setOrderDetail(order);
+      setActiveSection("orders");
+    } else {
+      setDeliveryDetail(request);
+      setActiveSection("delivery");
+    }
+  };
 
   operationalAlerts
     .filter((alert) => alert.status === "OPEN")
@@ -10568,7 +10896,8 @@ function buildLiveAlerts({
         metadata.batchId
       ].filter(Boolean).map(String);
       const relatedDelivery = deliveryRequests.find((request) => candidateIds.includes(request.id) || candidateIds.includes(request.taskId) || candidateIds.includes(request.orderId));
-      const relatedOrder = orders.find((order) => candidateIds.includes(order.id) || candidateIds.includes(String(order.darjiId ?? "")) || candidateIds.includes(String(order.orderNumber ?? "")));
+      const orderIds = relatedDelivery?.orderId ? [...candidateIds, String(relatedDelivery.orderId)] : candidateIds;
+      const relatedOrder = orders.find((order) => orderIds.includes(order.id) || orderIds.includes(String(order.darjiId ?? "")) || orderIds.includes(String(order.orderNumber ?? "")));
       const relatedTailoring = tailoringRequests.find((request) => candidateIds.includes(request.id) || candidateIds.includes(String(request.darjiId ?? "")));
       const relatedPayment = payments.find((payment) => candidateIds.includes(payment.id) || candidateIds.includes(payment.orderId));
       const relatedBatch = deliveryRequests.find((request) => candidateIds.includes(String((request as DeliveryRequest & { batchId?: string }).batchId ?? "")));
@@ -10576,12 +10905,11 @@ function buildLiveAlerts({
         detail: alert.message,
         id: `operational-${alert.id}`,
         onOpen: () => {
-          if (relatedDelivery) {
-            setDeliveryDetail(relatedDelivery);
-            setActiveSection("delivery");
-          } else if (relatedOrder) {
+          if (relatedOrder) {
             setOrderDetail(relatedOrder);
             setActiveSection("orders");
+          } else if (relatedDelivery) {
+            openOrderForDelivery(relatedDelivery);
           } else if (relatedTailoring) {
             setTailoringDetail(relatedTailoring);
             setActiveSection("tailoring");
@@ -10609,12 +10937,18 @@ function buildLiveAlerts({
     .filter((request) => request.status === "QUOTE_REQUESTED" && minutesAgo(request.createdAt) >= 1.5)
     .slice(0, 2)
     .forEach((request) => {
+      const order = orders.find((item) => item.id === request.id || item.request?.id === request.id);
       alerts.push({
         detail: `${formatCustomerRequestId(request.id)} has been waiting ${Math.floor(minutesAgo(request.createdAt))} min for tailor quotes.`,
         id: `tailoring-wait-${request.id}`,
         onOpen: () => {
-          setTailoringDetail(request);
-          setActiveSection("tailoring");
+          if (order) {
+            setOrderDetail(order);
+            setActiveSection("orders");
+          } else {
+            setTailoringDetail(request);
+            setActiveSection("tailoring");
+          }
         },
         title: "Quote pending",
         tone: "amber"
@@ -10628,10 +10962,7 @@ function buildLiveAlerts({
       alerts.push({
         detail: `${request.taskId} has no delivery partner assigned.`,
         id: `delivery-unassigned-${request.id}`,
-        onOpen: () => {
-          setDeliveryDetail(request);
-          setActiveSection("delivery");
-        },
+        onOpen: () => openOrderForDelivery(request),
         title: "Delivery unassigned",
         tone: "amber"
       });
@@ -10644,10 +10975,7 @@ function buildLiveAlerts({
       alerts.push({
         detail: `${request.taskId} is past ETA for ${formatStatus(request.type)}.`,
         id: `delivery-delay-${request.id}`,
-        onOpen: () => {
-          setDeliveryDetail(request);
-          setActiveSection("delivery");
-        },
+        onOpen: () => openOrderForDelivery(request),
         title: request.type === "customer_to_tailor" ? "Pickup delayed" : "Drop delayed",
         tone: "rose"
       });
@@ -10660,10 +10988,7 @@ function buildLiveAlerts({
       alerts.push({
         detail: `${request.taskId}: ${request.lastFailureReason}`,
         id: `delivery-failure-${request.id}`,
-        onOpen: () => {
-          setDeliveryDetail(request);
-          setActiveSection("delivery");
-        },
+        onOpen: () => openOrderForDelivery(request),
         title: "Delivery exception",
         tone: "rose"
       });

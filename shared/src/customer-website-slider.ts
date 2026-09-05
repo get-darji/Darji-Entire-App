@@ -52,7 +52,7 @@ export type CustomerWebsiteSlider = z.infer<typeof customerWebsiteSliderSchema>;
 export function defaultCustomerWebsiteSlider(): CustomerWebsiteSlider {
   return {
     enabled: true,
-    intervalSeconds: 5,
+    intervalSeconds: 3,
     buttonText: "Book pickup now",
     buttonColor: "#c2410c",
     buttonTextColor: "#ffffff",

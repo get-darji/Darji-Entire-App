@@ -23,6 +23,7 @@ import type {
   TailoringRequest,
   BugReport,
   AccountChangeRequest,
+  CatalogService,
   SupportStats,
   WalletPayoutRow,
   WalletDetail,
@@ -30,7 +31,7 @@ import type {
   OperationalAlert,
 } from "@/src/types/admin";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://darji-entire-app-production.up.railway.app/api";
 let adminRefreshPromise: Promise<string | undefined> | undefined;
 
 export const api = axios.create({
@@ -115,6 +116,33 @@ export async function getAnalytics() {
 
 export async function getOrders(params?: AxiosRequestConfig["params"]) {
   return unwrap<Order[]>(api.get("/orders", { params }));
+}
+
+export async function getCatalog() {
+  return unwrap<CatalogService[]>(api.get("/catalog"));
+}
+
+export type AdminCreateOrderPayload = {
+  customerId: string;
+  address: {
+    name: string;
+    phone: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    pincode: string;
+    landmark?: string;
+    isDefault: boolean;
+  };
+  pickupScheduledAt: string;
+  paymentMethod: "COD" | "ONLINE" | "UPI";
+  instructions?: string;
+  items: Array<{ serviceId: string; quantity: number; instructions?: string }>;
+};
+
+export async function createAdminOrder(payload: AdminCreateOrderPayload) {
+  return unwrap<Order>(api.post("/admin/orders", payload));
 }
 
 export async function getTailoringRequests() {
@@ -260,6 +288,14 @@ export async function assignOrder(payload: { orderId: string; tailorId?: string;
 export async function updateOrderStatus(payload: { orderId: string; status: string }) {
   const { orderId, ...body } = payload;
   return unwrap<Order>(api.patch(`/orders/${orderId}/status`, body));
+}
+
+export async function updateTailoringWorkStatus(requestId: string, status: "WORKING" | "READY") {
+  return unwrap<TailoringRequest>(api.patch(`/tailoring-requests/${requestId}/work-status`, { status }));
+}
+
+export async function cancelTailoringRequest(requestId: string) {
+  return unwrap<TailoringRequest>(api.post(`/tailoring-requests/${requestId}/cancel`, { reason: "Cancelled by admin" }));
 }
 
 export async function markPaymentPaid(payload: { paymentId: string; providerRef?: string }) {

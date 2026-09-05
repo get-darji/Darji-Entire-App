@@ -285,7 +285,13 @@ export async function listOrders(user: { id: string; role: string }, query: Reco
     where.$or = [{ pickupPartnerId: partner?.id ?? "__none__" }, { deliveryPartnerId: partner?.id ?? "__none__" }];
   }
 
-  const orders = await OrderModel.find(where).sort({ createdAt: -1 }).limit(100);
+  const requestedLimit = Number(query.limit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(Math.floor(requestedLimit), 5000)
+    : user.role === "ADMIN" || user.role === "SUPER_ADMIN"
+      ? 1000
+      : 100;
+  const orders = await OrderModel.find(where).sort({ createdAt: -1 }).limit(limit);
   return Promise.all(orders.map((order) => hydrateOrder(order)));
 }
 

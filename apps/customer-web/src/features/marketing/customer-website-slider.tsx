@@ -1,5 +1,6 @@
 "use client";
 
+import { defaultCustomerWebsiteSlider } from "@darzi/shared";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
@@ -14,6 +15,8 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
   const sliderQuery = useQuery({
     queryKey: ["customer-website-slider"],
     queryFn: customerApi.getCustomerWebsiteSlider,
+    initialData: defaultCustomerWebsiteSlider,
+    initialDataUpdatedAt: 0,
     staleTime: 60_000,
     retry: 1
   });
@@ -54,7 +57,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
     image.src = nextSlide.imageUrl;
   }, [activeIndex, config]);
 
-  if (!config || sliderQuery.isError || !config.enabled || config.slides.length === 0) return null;
+  if (!config || !config.enabled || config.slides.length === 0) return null;
 
   const activeSlide = config.slides[activeIndex] ?? config.slides[0];
   const selectSlide = (index: number) => {
@@ -65,10 +68,10 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
   };
 
   return (
-    <section className="bg-white py-7 sm:py-12" aria-label="Darji highlights">
-      <div className="shell">
+    <section className="w-full bg-white pb-10 sm:pb-14 lg:pb-16" aria-label="Darji highlights">
+      <div className="w-full">
         <div
-          className="group relative isolate aspect-[7/4] overflow-hidden rounded-2xl bg-[#f8f4ee] shadow-[0_24px_70px_rgba(8,17,31,0.12)] sm:aspect-[12/5]"
+          className="group relative isolate aspect-[3/1] w-full overflow-hidden bg-white"
           role="region"
           aria-roledescription="carousel"
           aria-label="Featured Darji services"
@@ -94,7 +97,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
               <img
                 src={activeSlide.imageUrl}
                 alt={activeSlide.altText}
-                className="h-full w-full object-contain sm:object-cover"
+                className="h-full w-full object-contain"
                 draggable={false}
                 loading={activeIndex === 0 ? "eager" : "lazy"}
               />

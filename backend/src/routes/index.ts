@@ -2,6 +2,7 @@ import { Router } from "express";
 import { meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
   analyticsController,
+  adminCreateOrderController,
   dashboardAnalyticsController,
   assignOrderController,
   catalogController,
@@ -217,10 +218,11 @@ router.get("/addresses", requireAuth, listAddressesController);
 router.post("/addresses", requireAuth, createAddressController);
 
 router.get("/orders", requireAuth, listOrdersController);
-router.post("/orders", requireAuth, requireRole("CUSTOMER", "ADMIN"), createOrderController);
+router.post("/orders", requireAuth, requireRole("CUSTOMER", "ADMIN", "SUPER_ADMIN"), createOrderController);
+router.post("/admin/orders", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreateOrderController);
 router.get("/orders/:id", requireAuth, getOrderController);
-router.patch("/orders/:id/status", requireAuth, requireRole("TAILOR", "DELIVERY_PARTNER", "ADMIN"), updateOrderStatusController);
-router.patch("/orders/:id/assign", requireAuth, requireRole("ADMIN"), assignOrderController);
+router.patch("/orders/:id/status", requireAuth, requireRole("TAILOR", "DELIVERY_PARTNER", "ADMIN", "SUPER_ADMIN"), updateOrderStatusController);
+router.patch("/orders/:id/assign", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), assignOrderController);
 
 router.get("/tailors", requireAuth, listTailorsController);
 router.get("/tailors/tutorial-media", requireAuth, requireRole("TAILOR", "ADMIN", "SUPER_ADMIN"), getTailorTutorialMediaController);
@@ -290,7 +292,7 @@ router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponControlle
 router.get("/analytics", requireAuth, requireRole("ADMIN"), analyticsController);
 router.get("/admin/analytics/dashboard", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), dashboardAnalyticsController);
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
-router.post("/users/admin-invite", requireAuth, requireRole("SUPER_ADMIN"), inviteAdminController);
+router.post("/users/admin-invite", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), inviteAdminController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
 router.delete("/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);

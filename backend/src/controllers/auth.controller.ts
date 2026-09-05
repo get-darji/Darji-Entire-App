@@ -45,16 +45,14 @@ async function resetAutoVerifiedTailorProfile(userId: string) {
   return profile;
 }
 
-const OWNER_ADMIN_PHONE = "9971416471";
-
 async function assertAdminPhoneAllowed(phone: string, role?: string) {
-  if (role !== "ADMIN") return;
+  if (role !== "ADMIN" && role !== "SUPER_ADMIN") return;
   const approvedAdmin = await UserModel.findOne({
     phone,
     role: { $in: ["ADMIN", "SUPER_ADMIN"] },
     accountStatus: { $ne: "BANNED" }
   }).select("_id");
-  if (phone !== OWNER_ADMIN_PHONE && !approvedAdmin) {
+  if (!approvedAdmin) {
     throw new AppError(403, "This phone number is not allowed to access the admin portal");
   }
 }
@@ -137,7 +135,7 @@ export async function verifyOtpController(req: Request, res: Response) {
   await assertAdminPhoneAllowed(input.phone, input.role);
   await verifyOtp(input.phone, input.otp);
 
-  const role = input.role === "ADMIN" && input.phone === OWNER_ADMIN_PHONE ? "SUPER_ADMIN" : input.role;
+  const role = input.role === "ADMIN" || input.role === "SUPER_ADMIN" ? "ADMIN" : input.role;
   const user = await UserModel.findOneAndUpdate(
     { phone: input.phone },
     { $set: { role }, $setOnInsert: { phone: input.phone } },

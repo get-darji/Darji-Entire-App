@@ -40,7 +40,7 @@
       ]
     },
     "extra": {
-      "apiUrl": "https://backend-production-5a7e4.up.railway.app/api",
+      "apiUrl": "https://darji-entire-app-production.up.railway.app/api",
       "eas": {
         "projectId": "786e10da-ff11-4a9b-9116-c0bec2694f0a"
       }

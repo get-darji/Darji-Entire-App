@@ -5,7 +5,7 @@ import type { CustomerWebsiteSlider } from "@darzi/shared";
 import { useAuthStore } from "@/src/store/auth-store";
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailorQuote, UploadedMedia, WalletSummary } from "./types";
 
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "https://backend-production-5a7e4.up.railway.app/api";
+export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "https://darji-entire-app-production.up.railway.app/api";
 
 export const apiClient = axios.create({
   baseURL: apiBaseUrl,

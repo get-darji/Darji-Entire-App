@@ -4,6 +4,7 @@ import {
   CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
   addressSchema,
   couponSchema,
+  createOrderSchema,
   customerWebsiteSliderSchema,
   normalizeCustomerWebsiteSlider,
   serviceCatalog,
@@ -515,6 +516,25 @@ export async function listAddressesController(req: Request, res: Response) {
 
 export async function createOrderController(req: Request, res: Response) {
   const order = await createOrder(req.user!.id, req.body);
+  res.status(201).json({ data: order });
+}
+
+const adminCreateOrderSchema = createOrderSchema.omit({ addressId: true }).extend({
+  customerId: z.string().min(1),
+  address: addressSchema
+});
+
+export async function adminCreateOrderController(req: Request, res: Response) {
+  const input = adminCreateOrderSchema.parse(req.body);
+  const customer = await UserModel.findOne({ _id: input.customerId, role: "CUSTOMER" }).select("_id");
+  if (!customer) throw new AppError(404, "Customer not found");
+  const serviceIds = [...new Set(input.items.map((item) => item.serviceId))];
+  const activeServiceCount = await ServiceModel.countDocuments({ _id: { $in: serviceIds }, isActive: true });
+  if (activeServiceCount !== serviceIds.length) throw new AppError(400, "One or more selected services are no longer available");
+
+  const address = await AddressModel.create({ ...input.address, userId: input.customerId });
+  const { customerId, address: _address, ...orderInput } = input;
+  const order = await createOrder(customerId, { ...orderInput, addressId: address.id });
   res.status(201).json({ data: order });
 }
 
@@ -1081,15 +1101,15 @@ export async function updateOperationalAlertController(req: Request, res: Respon
 }
 
 export async function inviteAdminController(req: Request, res: Response) {
-  const phone = String(req.body.phone).trim();
-  if (!phone || phone.length < 10) throw new AppError(400, "Invalid phone number");
+  const phone = String(req.body.phone ?? "").replace(/\D/g, "").slice(-10);
+  if (!/^[6-9]\d{9}$/.test(phone)) throw new AppError(400, "Enter a valid 10 digit Indian mobile number");
   
   let user = await UserModel.findOne({ phone });
   if (user) {
-    if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
-      throw new AppError(400, "User is already an admin");
-    }
     user.role = "ADMIN";
+    user.accountStatus = "ACTIVE";
+    user.suspendedUntil = undefined;
+    user.moderationReason = undefined;
     await user.save();
   } else {
     user = await UserModel.create({
@@ -1099,7 +1119,7 @@ export async function inviteAdminController(req: Request, res: Response) {
   }
   
   const [result] = await attachProfilesToUsers([user.toJSON()]);
-  res.status(201).json({ data: result });
+  res.status(201).json({ data: result, message: "Full admin access granted" });
 }
 
 export async function updateDeliveryAvailabilityController(req: Request, res: Response) {
@@ -1592,7 +1612,7 @@ export async function updateSupportTicketController(req: Request, res: Response)
       },
       $push: { messages: { $each: systemMessages } }
     },
-    { new: true }
+    { returnDocument: "after" }
   );
 
   // Send push notification
@@ -2034,7 +2054,7 @@ export async function updateBugReportController(req: Request, res: Response) {
       },
       $push: { messages: { $each: systemMessages } }
     },
-    { new: true }
+    { returnDocument: "after" }
   );
 
   res.json({ data: updatedBug });
@@ -2439,7 +2459,7 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
       $set: { ...(autoStatus ? { status: autoStatus } : {}) },
       $push: { messages: { $each: [...systemMessages, newMessage] } }
     },
-    { new: true }
+    { returnDocument: "after" }
   );
 
   // Socket.IO real-time broadcast
@@ -2518,7 +2538,7 @@ export async function addBugReportMessageController(req: Request, res: Response)
   const updatedBug = await BugReportModel.findByIdAndUpdate(
     id,
     { $push: { messages: newMessage } },
-    { new: true }
+    { returnDocument: "after" }
   );
 
   if (updatedBug) {
@@ -2592,7 +2612,7 @@ export async function addChangeRequestMessageController(req: Request, res: Respo
   const updatedRequest = await AccountChangeRequestModel.findByIdAndUpdate(
     id,
     { $push: { messages: newMessage } },
-    { new: true }
+    { returnDocument: "after" }
   );
 
   if (updatedRequest) {
@@ -2877,7 +2897,7 @@ export async function updateRiderLocationController(req: Request, res: Response)
       lastLocationSpeed: Number.isFinite(Number(speed)) ? Number(speed) : undefined,
       ...(availabilityWasProvided ? { isAvailable } : {})
     },
-    { new: true, select: "_id darjiPartnerId isAvailable lastLocationUpdatedAt lastLocationAccuracy" }
+    { returnDocument: "after", select: "_id darjiPartnerId isAvailable lastLocationUpdatedAt lastLocationAccuracy" }
   );
 
   if (!partner) {

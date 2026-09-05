@@ -105,6 +105,16 @@ export type TailorProfile = {
   updatedAt?: string;
 };
 
+export type CatalogService = {
+  id: string;
+  category: string;
+  name: string;
+  price: number;
+  estimatedDelivery?: string;
+  description?: string;
+  imageUrl?: string;
+};
+
 export type DashboardAnalytics = {
   period: { start: string; endExclusive: string; previousStart: string | null; previousEndExclusive: string | null; lifetime: boolean };
   orders: {
