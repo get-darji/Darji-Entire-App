@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node ../../scripts/run-expo-with-clean-cache.cjs . start",
     "android": "node ../../scripts/run-expo-with-clean-cache.cjs . run:android",
-    "apk": "eas build --platform android --profile preview",
+    "apk": "eas build --platform android --profile production-apk",
     "aab": "eas build --platform android --profile production",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
