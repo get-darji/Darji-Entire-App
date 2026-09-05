@@ -1,7 +1,7 @@
 "use client";
 
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
-import type { CustomerWebsiteSlider } from "@darzi/shared";
+import type { CustomerWebsiteSlider } from "../../../../shared/src/customer-website-slider";
 import { useAuthStore } from "@/src/store/auth-store";
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailorQuote, UploadedMedia, WalletSummary } from "./types";
 

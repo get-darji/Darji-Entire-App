@@ -6,12 +6,11 @@ import {
   CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
   customerWebsiteSliderContrastRatio,
   defaultCustomerWebsiteSlider,
-  defaultPlatformStatus,
   normalizeCustomerWebsiteSlider,
-  orderStatuses,
-  type CustomerWebsiteSlider,
-  type PlatformStatus
-} from "@darzi/shared";
+  type CustomerWebsiteSlider
+} from "../../../../shared/src/customer-website-slider";
+import { defaultPlatformStatus, type PlatformStatus } from "../../../../shared/src/platform-status";
+import { orderStatuses } from "../../../../shared/src/order-statuses";
 import {
   useMutation,
   useQuery,

@@ -1,6 +1,6 @@
 "use client";
 
-import { defaultCustomerWebsiteSlider } from "@darzi/shared";
+import { defaultCustomerWebsiteSlider } from "../../../../../shared/src/customer-website-slider";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";

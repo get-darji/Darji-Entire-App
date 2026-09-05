@@ -2,7 +2,7 @@
 
 import axios, { type AxiosRequestConfig } from "axios";
 import { useAdminStore } from "@/src/store/admin-store";
-import type { PlatformStatus } from "@darzi/shared";
+import type { PlatformStatus } from "../../../../shared/src/platform-status";
 import type {
   AdminUser,
   AnalyticsSummary,

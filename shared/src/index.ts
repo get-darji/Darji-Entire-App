@@ -1,27 +1,16 @@
 import { z } from "zod";
+import { orderStatuses } from "./order-statuses.js";
+
+export { orderStatuses } from "./order-statuses.js";
+export type { OrderStatus } from "./order-statuses.js";
 
 export const roles = ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER", "ADMIN", "SUPER_ADMIN"] as const;
-export const orderStatuses = [
-  "ORDER_PLACED",
-  "PICKUP_ASSIGNED",
-  "CLOTH_PICKED",
-  "AT_TAILOR",
-  "CUTTING",
-  "STITCHING_STARTED",
-  "FINISHING",
-  "STITCHING_COMPLETED",
-  "READY",
-  "OUT_FOR_DELIVERY",
-  "DELIVERED",
-  "CANCELLED"
-] as const;
 
 export const paymentMethods = ["UPI", "COD", "ONLINE"] as const;
 export const paymentStatuses = ["PENDING", "PAID", "FAILED", "REFUNDED"] as const;
 export const supportStatuses = ["OPEN", "WAITING_FOR_CUSTOMER", "WAITING_FOR_ADMIN", "IN_REVIEW", "RESOLVED", "CLOSED"] as const;
 
 export type Role = (typeof roles)[number];
-export type OrderStatus = (typeof orderStatuses)[number];
 export type PaymentMethod = (typeof paymentMethods)[number];
 export type PaymentStatus = (typeof paymentStatuses)[number];
 
