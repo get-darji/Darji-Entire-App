@@ -622,7 +622,11 @@ export function AdminPortal() {
   const dashboardAnalyticsQuery = useQuery({
     queryKey: ["admin", "dashboard-analytics", dashboardPeriod, payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getDashboardAnalytics({ start: payoutPeriodParams.weekStart, endExclusive: payoutPeriodParams.weekEnd, lifetime: dashboardPeriod === "lifetime" }),
-    enabled: needsSection("dashboard", "payments", "analytics")
+    // The portal derives shared navigation counts, search results, and summary
+    // values from this payload even when another section is active. Treat it as
+    // required boot data so restoring a non-dashboard section cannot render
+    // with an undefined analytics object.
+    enabled: isAuthed
   });
   const measurementVisitsQuery = useQuery({
     queryKey: ["admin", "measurement-visits"],
@@ -748,10 +752,11 @@ export function AdminPortal() {
     netProfit: 0,
     pendingPayouts: 0
   };
-  const dashboardData = !meQuery.data
+  const dashboardData = !meQuery.data || !dashboardAnalyticsQuery.data
     ? null
     : {
         analytics: analyticsQuery.data ?? emptyAnalytics,
+        dashboardAnalytics: dashboardAnalyticsQuery.data,
         me: meQuery.data,
         orders: ordersQuery.data ?? [],
         tailoringRequests: tailoringQuery.data ?? [],
@@ -1520,7 +1525,7 @@ export function AdminPortal() {
     );
   }
 
-  const { analytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
+  const { analytics, dashboardAnalytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
   const measurementVisits = measurementVisitsQuery.data ?? [];
   
   const normalizedTailoringRequests: Order[] = tailoringRequests
@@ -1574,7 +1579,6 @@ export function AdminPortal() {
     });
 
   const allOrders = [...orders, ...normalizedTailoringRequests];
-  const dashboardAnalytics = dashboardAnalyticsQuery.data as DashboardAnalytics;
   const dashboardPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
   const dashboardOrders = allOrders.filter((order) => isDateInDashboardPeriod(order.createdAt, dashboardPeriodBounds));
   const dashboardPayments = payments.filter((payment) => isDateInDashboardPeriod(payment.paidAt ?? payment.updatedAt ?? payment.createdAt, dashboardPeriodBounds));
