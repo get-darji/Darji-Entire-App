@@ -37,7 +37,6 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { api, getPlatformStatus, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
-import { ensureDeliveryBackgroundLocation, stopDeliveryBackgroundLocation } from "./src/services/backgroundLocation";
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 async function backendReverseGeocode(lat: number, lng: number): Promise<{
@@ -3177,7 +3176,7 @@ function MainApp({
   const [notificationCenterItems, setNotificationCenterItems] = useState<DeliveryNotification[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Offline");
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number }>();
-  const [locationAccess, setLocationAccess] = useState<"checking" | "granted" | "denied" | "background_denied" | "services_off">("checking");
+  const [locationAccess, setLocationAccess] = useState<"checking" | "granted" | "denied" | "services_off">("checking");
   const [locationCanAskAgain, setLocationCanAskAgain] = useState(true);
   const [cancellationAlert, setCancellationAlert] = useState<CancellationAlert>();
   const dismissedRequestIdsRef = useRef<Set<string>>(new Set());
@@ -3188,7 +3187,7 @@ function MainApp({
 
   useEffect(() => registerIncomingRequestMessaging(), []);
 
-  const verifyAndSyncPhoneLocation = useCallback(async (requestBackground = false, activateOnline = false) => {
+  const verifyAndSyncPhoneLocation = useCallback(async (_requestBackground = false, activateOnline = false) => {
     if (!token) return false;
     setLocationAccess((current) => current === "granted" ? current : "checking");
     try {
@@ -3201,15 +3200,6 @@ function MainApp({
       setLocationCanAskAgain(permission.canAskAgain);
       if (!permission.granted) {
         setLocationAccess("denied");
-        return false;
-      }
-      let backgroundPermission = await Location.getBackgroundPermissionsAsync();
-      if (!backgroundPermission.granted && requestBackground && backgroundPermission.canAskAgain) {
-        backgroundPermission = await Location.requestBackgroundPermissionsAsync();
-      }
-      setLocationCanAskAgain(backgroundPermission.canAskAgain);
-      if (!backgroundPermission.granted) {
-        setLocationAccess("background_denied");
         return false;
       }
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
@@ -3713,7 +3703,6 @@ function MainApp({
         return;
       } else {
         setDeliveryOnline(false);
-        await stopDeliveryBackgroundLocation();
         // Save one final real GPS fix before stopping the online heartbeat. If
         // the phone cannot provide it, the previously persisted fix remains.
         const permission = await Location.getForegroundPermissionsAsync();
@@ -3732,7 +3721,6 @@ function MainApp({
       void onRefreshProfile();
     } catch (error) {
       setDeliveryOnline(online);
-      if (online) void ensureDeliveryBackgroundLocation().catch(() => undefined);
       showDialog({
         title: value ? "Could not go online" : "Could not go offline",
         message: error instanceof Error ? error.message : "The availability change did not reach Darji. Check your connection and try again.",
@@ -3746,12 +3734,7 @@ function MainApp({
   // GPS heartbeat — periodically sends rider location to backend while online
   // Only runs while rider is marked Online. Uses foreground location only.
   useEffect(() => {
-    if (!online || !token) {
-      void stopDeliveryBackgroundLocation().catch(() => undefined);
-      return undefined;
-    }
-
-    void ensureDeliveryBackgroundLocation().catch(() => setLocationAccess("background_denied"));
+    if (!online || !token) return undefined;
 
     let lastSentLat = 0;
     let lastSentLng = 0;
@@ -3762,13 +3745,8 @@ function MainApp({
       if (!isMounted) return;
       try {
         const perm = await Location.getForegroundPermissionsAsync();
-        const backgroundPerm = await Location.getBackgroundPermissionsAsync();
         if (!perm.granted) {
           setLocationAccess("denied");
-          return;
-        }
-        if (!backgroundPerm.granted) {
-          setLocationAccess("background_denied");
           return;
         }
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
@@ -3798,7 +3776,6 @@ function MainApp({
     return () => {
       isMounted = false;
       clearInterval(interval);
-      void stopDeliveryBackgroundLocation().catch(() => undefined);
     };
   }, [online, token]);
 
@@ -3806,7 +3783,7 @@ function MainApp({
     if (!token) return;
     if (accepting) return;
     if (!(await verifyAndSyncPhoneLocation(true))) {
-      throw new Error("Live background location is required before you can accept a delivery.");
+      throw new Error("Precise location access is required before you can accept a delivery.");
     }
     setAccepting(true);
     const acceptedPayload = await api<DeliveryTaskPayload>(`/delivery-requests/${taskId}/accept`, { method: "POST" }, token);
@@ -3898,8 +3875,8 @@ function MainApp({
   const selectedBatch = useMemo(() => batches.find((b) => b.batchId === activeBatchId), [batches, activeBatchId]);
 
   if (locationAccess !== "granted") {
-    const permissionBlocked = (locationAccess === "denied" || locationAccess === "background_denied") && !locationCanAskAgain;
-    return <Screen><View style={styles.centeredState}><Ionicons color={BRAND_ORANGE} name="location-outline" size={54} /><Text style={styles.centeredTitle}>{locationAccess === "checking" ? "Checking phone location" : locationAccess === "services_off" ? "Turn on device location" : locationAccess === "background_denied" ? "Allow location all the time" : "Location access required"}</Text><Text style={styles.centeredCopy}>{locationAccess === "checking" ? "Darji is verifying GPS access and securely updating your position." : locationAccess === "background_denied" ? "Choose Allow all the time in app settings. This keeps dispatch updated while the app is in the background and is required before you can go online or handle deliveries." : "Delivery partners must share precise phone GPS while using the app so dispatch can locate active riders and retain the last known position for safety."}</Text>{locationAccess !== "checking" ? <PrimaryButton icon="navigate-outline" label={permissionBlocked ? "Open App Settings" : "Allow Location Access"} onPress={() => { if (permissionBlocked) void Linking.openSettings(); else void verifyAndSyncPhoneLocation(true); }} /> : <ActivityIndicator color={BRAND_ORANGE} size="large" />}</View></Screen>;
+    const permissionBlocked = locationAccess === "denied" && !locationCanAskAgain;
+    return <Screen><View style={styles.centeredState}><Ionicons color={BRAND_ORANGE} name="location-outline" size={54} /><Text style={styles.centeredTitle}>{locationAccess === "checking" ? "Checking phone location" : locationAccess === "services_off" ? "Turn on device location" : "Location access required"}</Text><Text style={styles.centeredCopy}>{locationAccess === "checking" ? "Darji is verifying GPS access and securely updating your position." : "Delivery partners must share precise phone GPS while using the app so dispatch can locate active riders and retain the last known position for safety."}</Text>{locationAccess !== "checking" ? <PrimaryButton icon="navigate-outline" label={permissionBlocked ? "Open App Settings" : "Allow Location Access"} onPress={() => { if (permissionBlocked) void Linking.openSettings(); else void verifyAndSyncPhoneLocation(); }} /> : <ActivityIndicator color={BRAND_ORANGE} size="large" />}</View></Screen>;
   }
 
   if (activeOrder) {

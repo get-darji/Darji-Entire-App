@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ReactNode } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType, type ScrollViewProps } from "react-native";
@@ -418,12 +417,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       <Modal transparent visible={showIdentityDetails} animationType="fade" onRequestClose={() => setShowIdentityDetails(false)}>
         <Pressable style={styles.identityBackdrop} onPress={() => setShowIdentityDetails(false)}>
           <Pressable style={styles.identityCardShell} onPress={(event) => event.stopPropagation()}>
-            <BlurView
-              intensity={58}
-              tint={preferences.darkMode ? "dark" : "light"}
-              experimentalBlurMethod="dimezisBlurView"
-              style={styles.identityCard}
-            >
+            <View style={styles.identityCard}>
               <View pointerEvents="none" style={styles.identityGlowPrimary} />
               <View pointerEvents="none" style={styles.identityGlowSecondary} />
               <View style={styles.identityHeader}>
@@ -492,7 +486,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                   </View>
                 ))}
               </View>
-            </BlurView>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
