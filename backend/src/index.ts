@@ -20,6 +20,10 @@ const configuredOrigins = new Set((env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim().replace(/\/$/, ""))
   .filter(Boolean));
+const trustedVercelOrigins = [
+  /^https:\/\/darji-entire-app-admin-panel(?:-[a-z0-9-]+)?\.vercel\.app$/,
+  /^https:\/\/darji-entire-app-customer-web(?:-[a-z0-9-]+)?\.vercel\.app$/
+];
 // Preview administrators commonly run the panel locally while using the
 // deployed API. These exact loopback origins are safe to support in every
 // environment and do not grant access to arbitrary internet origins.
@@ -31,7 +35,12 @@ app.use(cors({
   credentials: true,
   origin(origin, callback) {
     const normalizedOrigin = origin?.replace(/\/$/, "");
-    if (!normalizedOrigin || configuredOrigins.has(normalizedOrigin)) return callback(null, true);
+    const isTrustedVercelOrigin = normalizedOrigin
+      ? trustedVercelOrigins.some((pattern) => pattern.test(normalizedOrigin))
+      : false;
+    if (!normalizedOrigin || configuredOrigins.has(normalizedOrigin) || isTrustedVercelOrigin) {
+      return callback(null, true);
+    }
     console.warn(`CORS rejected origin: ${normalizedOrigin}`);
     return callback(new Error(`Origin is not allowed by CORS: ${normalizedOrigin}`));
   }
