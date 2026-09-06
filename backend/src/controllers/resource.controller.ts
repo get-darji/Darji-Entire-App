@@ -2993,7 +2993,7 @@ export async function systemHealthController(_req: Request, res: Response) {
     { key: "storage", label: "Cloudinary Storage", status: cloudinaryConfigured ? "healthy" : "unconfigured", detail: cloudinaryConfigured ? "Cloudinary credentials are configured" : "Cloudinary credentials are missing" },
     { key: "payments", label: "Razorpay", status: razorpayConfigured ? "healthy" : "unconfigured", detail: razorpayConfigured ? "Razorpay credentials are configured" : "Razorpay credentials are missing" },
     { key: "maps", label: "Google Maps", status: env.GOOGLE_MAPS_API_KEY ? "healthy" : "unconfigured", detail: env.GOOGLE_MAPS_API_KEY ? "Maps key is configured" : "Maps key is missing" },
-    { key: "cors", label: "Browser Origins", status: env.CORS_ALLOWED_ORIGINS || env.NODE_ENV !== "production" ? "healthy" : "degraded", detail: env.CORS_ALLOWED_ORIGINS ? "Explicit origin allowlist configured" : env.NODE_ENV !== "production" ? "Local development origins enabled" : "CORS_ALLOWED_ORIGINS is missing" },
+    { key: "cors", label: "Browser Origins", status: env.CORS_ALLOWED_ORIGINS || env.NODE_ENV !== "production" ? "healthy" : "degraded", detail: env.CORS_ALLOWED_ORIGINS ? "Explicit external origin allowlist configured" : env.NODE_ENV !== "production" ? "Loopback development origins enabled" : "Loopback origins work, but CORS_ALLOWED_ORIGINS is required for deployed web frontends" },
     { key: "environment", label: "Environment", status: productionSecrets ? "healthy" : "degraded", detail: productionSecrets ? `${env.NODE_ENV} configuration loaded` : "Production is using development JWT secrets" }
   ];
   res.setHeader("Cache-Control", "no-store, max-age=0");

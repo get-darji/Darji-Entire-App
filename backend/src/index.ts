@@ -16,17 +16,24 @@ import { monitorNoQuoteRequests } from "./services/operational-alert.service.js"
 import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
 
 const app = express();
-const configuredOrigins = new Set((env.CORS_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean));
-if (env.NODE_ENV !== "production") {
-  ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"].forEach((origin) => configuredOrigins.add(origin));
-}
+const configuredOrigins = new Set((env.CORS_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean));
+// Preview administrators commonly run the panel locally while using the
+// deployed API. These exact loopback origins are safe to support in every
+// environment and do not grant access to arbitrary internet origins.
+["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"]
+  .forEach((origin) => configuredOrigins.add(origin));
 
 app.use(helmet());
 app.use(cors({
   credentials: true,
   origin(origin, callback) {
-    if (!origin || configuredOrigins.has(origin)) return callback(null, true);
-    return callback(new Error("Origin is not allowed by CORS"));
+    const normalizedOrigin = origin?.replace(/\/$/, "");
+    if (!normalizedOrigin || configuredOrigins.has(normalizedOrigin)) return callback(null, true);
+    console.warn(`CORS rejected origin: ${normalizedOrigin}`);
+    return callback(new Error(`Origin is not allowed by CORS: ${normalizedOrigin}`));
   }
 }));
 app.use(express.json({ limit: "10mb" }));
