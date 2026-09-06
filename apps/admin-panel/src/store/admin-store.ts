@@ -44,7 +44,7 @@ type AdminStore = {
   setActiveSection: (section: SectionId) => void;
   setHydrated: (value: boolean) => void;
   setSidebarOpen: (value: boolean) => void;
-  setSession: (session: { accessToken: string; refreshToken: string }) => void;
+  setSession: (session: { accessToken: string; refreshToken?: string }) => void;
   setToken: (token: string | null) => void;
   toggleTheme: () => void;
   setSupportSubTab: (tab: "customer" | "tailor" | "delivery" | "bugs") => void;
@@ -67,7 +67,7 @@ export const useAdminStore = create<AdminStore>()(
       setActiveSection: (activeSection) => set({ activeSection }),
       setHydrated: (hydrated) => set({ hydrated }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-      setSession: (session) => set({ token: session.accessToken, refreshToken: session.refreshToken, sessionNotice: null }),
+      setSession: (session) => set({ token: session.accessToken, refreshToken: session.refreshToken ?? null, sessionNotice: null }),
       setToken: (token) => set({ token, sessionNotice: null }),
       toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
       setSupportSubTab: (supportSubTab) => set({ supportSubTab })
@@ -81,14 +81,14 @@ export const useAdminStore = create<AdminStore>()(
         return {
           ...currentState,
           ...persisted,
+          token: null,
+          refreshToken: null,
           activeSection: retiredSection ? "dashboard" : persisted.activeSection ?? currentState.activeSection
         };
       },
       partialize: (state) => ({
         activeSection: state.activeSection,
         theme: state.theme,
-        token: state.token,
-        refreshToken: state.refreshToken,
         supportSubTab: state.supportSubTab
       }),
       onRehydrateStorage: () => (state) => state?.setHydrated(true)

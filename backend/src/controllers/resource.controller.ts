@@ -16,6 +16,7 @@ import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import {
   AddressModel,
   CouponModel,
+  CouponRedemptionModel,
   DeliveryBatchModel,
   DeliveryPartnerModel,
   NotificationModel,
@@ -39,14 +40,18 @@ import {
   DeliveryRequestModel,
   TailorQuoteModel,
   TailoringRequestModel,
-  deliveryTypes
+  deliveryTypes,
+  AdminAuditLogModel,
+  AdminOrderMetadataModel,
+  MeasurementVisitModel,
+  NotificationCampaignModel
 } from "../models.js";
 import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
-import { saveFcmToken, sendPushToUsers } from "../services/push.service.js";
+import { pushRuntimeStatus, saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
@@ -544,7 +549,7 @@ export async function listOrdersController(req: Request, res: Response) {
 }
 
 export async function getOrderController(req: Request, res: Response) {
-  const order = await getOrder(String(req.params.id));
+  const order = await getOrder(String(req.params.id), req.user!);
   if (!order) throw new AppError(404, "Order not found");
   res.json({ data: order });
 }
@@ -555,7 +560,7 @@ export async function updateOrderStatusController(req: Request, res: Response) {
 }
 
 export async function assignOrderController(req: Request, res: Response) {
-  const order = await assignOrder(String(req.params.id), req.body);
+  const order = await assignOrder(String(req.params.id), req.body, req.user!);
   res.json({ data: order });
 }
 
@@ -1395,13 +1400,8 @@ export async function getDeliveryFareSettingsController(_req: Request, res: Resp
 }
 
 export async function updateDeliveryFareSettingsController(req: Request, res: Response) {
-  const input = deliveryFareSettingsSchema.parse(req.body);
-  const setting = await SettingModel.findOneAndUpdate(
-    { key: "delivery_fare_settings" },
-    { value: input },
-    { upsert: true, returnDocument: "after" }
-  );
-  res.json({ data: setting.value });
+  deliveryFareSettingsSchema.parse(req.body);
+  throw new AppError(409, "Delivery pricing is code-controlled and cannot be changed from the admin panel");
 }
 
 export async function listNotificationsController(req: Request, res: Response) {
@@ -1421,6 +1421,14 @@ export async function createReviewController(req: Request, res: Response) {
   const kind = req.body.kind === "delivery" ? "delivery" : req.body.kind === "app" ? "app" : "tailor";
   const orderId = String(req.body.orderId);
   if (!orderId || orderId === "undefined" || orderId === "null") throw new AppError(400, "orderId is required");
+  const [ownedOrder, ownedRequest] = await Promise.all([
+    OrderModel.findOne({ _id: orderId, customerId: req.user!.id }).select("status").lean(),
+    TailoringRequestModel.findOne({ _id: orderId, customerId: req.user!.id }).select("status orderStatus").lean()
+  ]);
+  if (!ownedOrder && !ownedRequest) throw new AppError(403, "You can only review your own orders");
+  if (ownedOrder?.status !== "DELIVERED" && ownedRequest?.orderStatus !== "completed") {
+    throw new AppError(409, "Reviews can be submitted after delivery");
+  }
   const existingReview = await ReviewModel.findOne({ userId: req.user!.id, orderId, kind });
   if (existingReview) throw new AppError(409, "Review already submitted");
   const review = await ReviewModel.create({ userId: req.user!.id, orderId, kind, rating, comment: req.body.comment });
@@ -1430,7 +1438,7 @@ export async function createReviewController(req: Request, res: Response) {
       const partnerTasks = await DeliveryRequestModel.find({ assignedDeliveryPartnerId: task.assignedDeliveryPartnerId }).select("orderId");
       const orderIds = [...new Set(partnerTasks.map((item) => item.orderId).filter(Boolean))];
       const [ratingSummary] = await ReviewModel.aggregate<{ _id: null; averageRating: number }>([
-        { $match: { kind: "delivery", orderId: { $in: orderIds } } },
+        { $match: { kind: "delivery", isHidden: { $ne: true }, orderId: { $in: orderIds } } },
         { $group: { _id: null, averageRating: { $avg: "$rating" } } }
       ]);
       if (ratingSummary) {
@@ -1451,7 +1459,7 @@ export async function createReviewController(req: Request, res: Response) {
     ]);
     const orderIds = [...new Set([...tailorOrders.map((tailorOrder) => tailorOrder.id), ...tailorQuotes.map((quote) => quote.requestId)])];
     const [ratingSummary] = await ReviewModel.aggregate<{ _id: null; averageRating: number }>([
-      { $match: { kind: "tailor", orderId: { $in: orderIds } } },
+      { $match: { kind: "tailor", isHidden: { $ne: true }, orderId: { $in: orderIds } } },
       { $group: { _id: null, averageRating: { $avg: "$rating" } } }
     ]);
     if (ratingSummary) {
@@ -1477,7 +1485,7 @@ export async function listMyTailorReviewsController(req: Request, res: Response)
     ...selectedRequests.map((request) => request.id)
   ])];
   const reviews = orderIds.length
-    ? await ReviewModel.find({ kind: "tailor", orderId: { $in: orderIds } }).sort({ createdAt: -1 })
+    ? await ReviewModel.find({ kind: "tailor", isHidden: { $ne: true }, orderId: { $in: orderIds } }).sort({ createdAt: -1 })
     : [];
 
   res.json({
@@ -1548,10 +1556,7 @@ export async function updateSupportTicketController(req: Request, res: Response)
     assignedTo: z.string().optional().nullable()
   }).parse(req.body);
 
-  const isAdmin = isSupportAdmin(req.user!.role);
-  const ticket = isAdmin
-    ? await SupportTicketModel.findById(id)
-    : await SupportTicketModel.findOne({ _id: id, userId: req.user!.id, userRole: req.user!.role });
+  const ticket = await SupportTicketModel.findById(id);
   if (!ticket) {
     res.status(404).json({ message: "Ticket not found" });
     return;
@@ -1658,15 +1663,69 @@ export async function listSupportTicketsController(req: Request, res: Response) 
   res.json({ data });
 }
 
-export async function listCouponsController(_req: Request, res: Response) {
-  const coupons = await CouponModel.find().sort({ createdAt: -1 });
+export async function listCouponsController(req: Request, res: Response) {
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  const coupons = await CouponModel.find(isAdmin ? {} : {
+    isActive: true,
+    $and: [
+      { $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }] },
+      { $or: [{ usageLimit: null }, { usageLimit: { $exists: false } }, { $expr: { $lt: [{ $ifNull: ["$usedCount", 0] }, "$usageLimit"] } }] }
+    ]
+  }).sort({ createdAt: -1 });
   res.json({ data: coupons });
 }
 
 export async function createCouponController(req: Request, res: Response) {
   const input = couponSchema.parse(req.body);
-  const coupon = await CouponModel.create({ ...input, code: input.code.toUpperCase(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null });
-  res.status(201).json({ data: coupon });
+  try {
+    const coupon = await CouponModel.create({ ...input, code: input.code.toUpperCase(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null });
+    res.status(201).json({ data: coupon });
+  } catch (error: any) {
+    if (error?.code === 11000) throw new AppError(409, "A coupon with this code already exists");
+    throw error;
+  }
+}
+
+export async function updateCouponController(req: Request, res: Response) {
+  const input = z.object({
+    code: z.string().trim().min(3).max(24).optional(),
+    description: z.string().trim().min(3).max(500).optional(),
+    discountType: z.enum(["FLAT", "PERCENTAGE"]).optional(),
+    discountValue: z.number().positive().optional(),
+    minOrderValue: z.number().nonnegative().optional(),
+    maxDiscount: z.number().positive().nullable().optional(),
+    usageLimit: z.number().int().positive().nullable().optional(),
+    perCustomerLimit: z.number().int().positive().nullable().optional(),
+    expiresAt: z.string().datetime().nullable().optional(),
+    isActive: z.boolean().optional()
+  }).parse(req.body);
+  const current = await CouponModel.findById(String(req.params.id));
+  if (!current) throw new AppError(404, "Coupon not found");
+  const discountType = input.discountType ?? current.discountType;
+  const discountValue = input.discountValue ?? Number(current.discountValue);
+  if (discountType === "PERCENTAGE" && discountValue > 100) throw new AppError(400, "Percentage discount cannot exceed 100");
+  if (input.usageLimit != null && input.usageLimit < Number(current.usedCount ?? 0)) throw new AppError(400, "Usage limit cannot be lower than existing redemptions");
+  try {
+    const coupon = await CouponModel.findByIdAndUpdate(String(req.params.id), {
+      $set: {
+        ...input,
+        ...(input.code ? { code: input.code.toUpperCase() } : {}),
+        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {})
+      }
+    }, { returnDocument: "after", runValidators: true });
+    res.json({ data: coupon });
+  } catch (error: any) {
+    if (error?.code === 11000) throw new AppError(409, "A coupon with this code already exists");
+    throw error;
+  }
+}
+
+export async function deleteCouponController(req: Request, res: Response) {
+  const coupon = await CouponModel.findById(String(req.params.id));
+  if (!coupon) throw new AppError(404, "Coupon not found");
+  if (Number(coupon.usedCount ?? 0) > 0) throw new AppError(409, "Used coupons cannot be deleted. Disable the coupon instead.");
+  await coupon.deleteOne();
+  res.json({ data: { id: coupon.id, deleted: true } });
 }
 
 async function deliveryPartnerCostForOrder(orderId: string) {
@@ -1696,64 +1755,147 @@ async function deliveryPartnerCostForOrder(orderId: string) {
   return Number(cost.toFixed(2));
 }
 
+async function finalizedPartnerCostsForOrder(orderId: string) {
+  const [tailorTransactions, deliveryTransactions, tasks] = await Promise.all([
+    WalletTransactionModel.find({ orderId, userType: "TAILOR", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("amount").lean(),
+    WalletTransactionModel.find({ userType: "DELIVERY_PARTNER", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean(),
+    DeliveryRequestModel.find({ orderId, taskStatus: { $ne: "cancelled" } }).select("_id batchId finalPayout").lean()
+  ]);
+  if (!tailorTransactions.length || !tasks.length) return null;
+
+  const ledgerBySource = new Map<string, number>();
+  deliveryTransactions.forEach((transaction: any) => {
+    const sourceId = String(transaction.orderId ?? "");
+    if (sourceId) ledgerBySource.set(sourceId, (ledgerBySource.get(sourceId) ?? 0) + Number(transaction.amount ?? 0));
+  });
+  const batchIds = [...new Set(tasks.map((task: any) => String(task.batchId ?? "")).filter(Boolean))];
+  const batches = batchIds.length ? await DeliveryBatchModel.find({ batchId: { $in: batchIds } }).select("batchId finalPayout").lean() : [];
+  const batchMap = new Map(batches.map((batch: any) => [String(batch.batchId), batch]));
+  const activeCounts = new Map<string, number>();
+  await Promise.all(batchIds.map(async (batchId) => {
+    activeCounts.set(batchId, await DeliveryRequestModel.countDocuments({ batchId, taskStatus: { $ne: "cancelled" } }));
+  }));
+
+  let deliveryCost = 0;
+  for (const task of tasks as any[]) {
+    const batchId = String(task.batchId ?? "");
+    if (!batchId) {
+      const payout = task.finalPayout ?? ledgerBySource.get(String(task._id));
+      if (payout == null) return null;
+      deliveryCost += Number(payout);
+      continue;
+    }
+    const count = activeCounts.get(batchId) ?? 0;
+    const payout = batchMap.get(batchId)?.finalPayout ?? ledgerBySource.get(batchId);
+    if (payout == null || count <= 0) return null;
+    deliveryCost += Number(payout) / count;
+  }
+
+  return {
+    tailorCost: Number(tailorTransactions.reduce((sum, transaction) => sum + Number(transaction.amount ?? 0), 0).toFixed(2)),
+    deliveryCost: Number(deliveryCost.toFixed(2))
+  };
+}
+
 export async function paymentsController(req: Request, res: Response) {
-  const payments = await PaymentModel.find().sort({ createdAt: -1 });
-  const data = await Promise.all(
-    payments.map(async (payment) => {
-      const order = await OrderModel.findById(payment.orderId).select("orderNumber customerId status totalAmount");
-      if (order) {
-        if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN" && order.customerId !== req.user!.id) return null;
-        const [customer, deliveryEarnings] = await Promise.all([
-          UserModel.findById(order.customerId).select("name phone"),
-          deliveryPartnerCostForOrder(order.id)
-        ]);
-        const tailorQuote = Number(order.totalAmount ?? payment.amount ?? 0) * 0.45;
-        return {
-          ...payment.toJSON(),
-          source: "ORDER",
-          customerPaid: Number(payment.amount ?? 0),
-          tailorQuote,
-          deliveryEarnings,
-          netRevenue: Number(payment.amount ?? 0) - tailorQuote - deliveryEarnings,
-          order: {
-            ...order.toJSON(),
-            customerName: customer?.name,
-            customerPhone: customer?.phone
-          }
-        };
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  let authorizedOrderIds: string[] | undefined;
+  if (!isAdmin) {
+    const [orders, requests] = await Promise.all([
+      OrderModel.find({ customerId: req.user!.id }).select("_id").lean(),
+      TailoringRequestModel.find({ customerId: req.user!.id }).select("_id").lean()
+    ]);
+    authorizedOrderIds = [...orders, ...requests].map((item: any) => String(item._id));
+  }
+  const requestedLimit = Number(req.query.limit);
+  const limit = Math.min(Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.floor(requestedLimit) : isAdmin ? 2000 : 500, 5000);
+  const payments = await PaymentModel.find(authorizedOrderIds ? { orderId: { $in: authorizedOrderIds } } : {}).sort({ createdAt: -1 }).limit(limit);
+  const orderIds = [...new Set(payments.map((payment) => String(payment.orderId)))];
+  const [orders, tailoringRequests, tasks, tailorTransactions] = await Promise.all([
+    OrderModel.find({ _id: { $in: orderIds } }).select("orderNumber customerId status totalAmount").lean(),
+    TailoringRequestModel.find({ _id: { $in: orderIds } }).select("customerId orderStatus status totalAmount quoteAmount selectedQuoteId").lean(),
+    DeliveryRequestModel.find({ orderId: { $in: orderIds }, taskStatus: { $ne: "cancelled" } }).select("_id orderId batchId finalPayout").lean(),
+    WalletTransactionModel.find({ orderId: { $in: orderIds }, userType: "TAILOR", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean()
+  ]);
+  const batchIds = [...new Set(tasks.map((task: any) => String(task.batchId ?? "")).filter(Boolean))];
+  const taskIds = tasks.map((task: any) => String(task._id));
+  const quoteIds = tailoringRequests.map((request: any) => request.selectedQuoteId).filter(Boolean);
+  const customerIds = [...new Set([...orders, ...tailoringRequests].map((item: any) => String(item.customerId)))];
+  const [batches, allBatchTasks, deliveryTransactions, quotes, customers] = await Promise.all([
+    batchIds.length ? DeliveryBatchModel.find({ batchId: { $in: batchIds } }).select("batchId finalPayout").lean() : [],
+    batchIds.length ? DeliveryRequestModel.find({ batchId: { $in: batchIds }, taskStatus: { $ne: "cancelled" } }).select("batchId").lean() : [],
+    WalletTransactionModel.find({ orderId: { $in: [...taskIds, ...batchIds] }, userType: "DELIVERY_PARTNER", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean(),
+    quoteIds.length ? TailorQuoteModel.find({ _id: { $in: quoteIds } }).select("_id price").lean() : [],
+    UserModel.find({ _id: { $in: customerIds } }).select("_id name phone").lean()
+  ]);
+
+  const orderMap = new Map(orders.map((order: any) => [String(order._id), order]));
+  const requestMap = new Map(tailoringRequests.map((request: any) => [String(request._id), request]));
+  const customerMap = new Map(customers.map((customer: any) => [String(customer._id), customer]));
+  const quoteMap = new Map(quotes.map((quote: any) => [String(quote._id), Number(quote.price ?? 0)]));
+  const tailorCostMap = new Map<string, number>();
+  tailorTransactions.forEach((transaction: any) => tailorCostMap.set(String(transaction.orderId), (tailorCostMap.get(String(transaction.orderId)) ?? 0) + Number(transaction.amount ?? 0)));
+  const batchMap = new Map(batches.map((batch: any) => [String(batch.batchId), batch]));
+  const activeBatchCounts = new Map<string, number>();
+  allBatchTasks.forEach((task: any) => activeBatchCounts.set(String(task.batchId), (activeBatchCounts.get(String(task.batchId)) ?? 0) + 1));
+  const deliveryLedgerMap = new Map<string, number>();
+  deliveryTransactions.forEach((transaction: any) => deliveryLedgerMap.set(String(transaction.orderId), (deliveryLedgerMap.get(String(transaction.orderId)) ?? 0) + Number(transaction.amount ?? 0)));
+  const tasksByOrder = new Map<string, any[]>();
+  tasks.forEach((task: any) => tasksByOrder.set(String(task.orderId), [...(tasksByOrder.get(String(task.orderId)) ?? []), task]));
+  const deliveryCostFor = (orderId: string) => {
+    const orderTasks = tasksByOrder.get(orderId) ?? [];
+    if (!orderTasks.length) return null;
+    let total = 0;
+    for (const task of orderTasks) {
+      const batchId = String(task.batchId ?? "");
+      if (!batchId) {
+        const payout = task.finalPayout ?? deliveryLedgerMap.get(String(task._id));
+        if (payout == null) return null;
+        total += Number(payout);
+      } else {
+        const count = activeBatchCounts.get(batchId) ?? 0;
+        const payout = batchMap.get(batchId)?.finalPayout ?? deliveryLedgerMap.get(batchId);
+        if (payout == null || count <= 0) return null;
+        total += Number(payout) / count;
       }
+    }
+    return Number(total.toFixed(2));
+  };
 
-      const tailoringRequest = await TailoringRequestModel.findById(payment.orderId).select(
-        "customerId clothType workType orderStatus status totalAmount quoteAmount selectedQuoteId"
-      );
-      if (!tailoringRequest) return req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN" ? { ...payment.toJSON(), source: "ORDER" } : null;
-      if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN" && tailoringRequest.customerId !== req.user!.id) return null;
-
-      const [customer, selectedQuote, deliveryEarnings] = await Promise.all([
-        UserModel.findById(tailoringRequest.customerId).select("name phone"),
-        tailoringRequest.selectedQuoteId ? TailorQuoteModel.findById(tailoringRequest.selectedQuoteId).select("price") : null,
-        deliveryPartnerCostForOrder(tailoringRequest.id)
-      ]);
-      const tailorQuote = Number(tailoringRequest.quoteAmount ?? selectedQuote?.price ?? 0);
-
-      return {
-        ...payment.toJSON(),
-        source: "TAILORING_REQUEST",
-        customerPaid: Number(payment.amount ?? tailoringRequest.totalAmount ?? 0),
-        tailorQuote,
-        deliveryEarnings,
-        netRevenue: Number(payment.amount ?? tailoringRequest.totalAmount ?? 0) - tailorQuote - deliveryEarnings,
-        order: {
-          id: tailoringRequest.id,
-          orderNumber: `TR-${tailoringRequest.id.slice(0, 6).toUpperCase()}`,
-          customerId: tailoringRequest.customerId,
-          customerName: customer?.name,
-          customerPhone: customer?.phone,
-          status: String(tailoringRequest.orderStatus ?? tailoringRequest.status ?? "")
-        }
-      };
-    })
-  );
+  const data = payments.map((payment) => {
+    const orderId = String(payment.orderId);
+    const order: any = orderMap.get(orderId);
+    const request: any = requestMap.get(orderId);
+    if (!order && !request) return isAdmin ? { ...payment.toJSON(), source: "UNKNOWN", realized: false, netRevenue: null } : null;
+    const entity = order ?? request;
+    const customer: any = customerMap.get(String(entity.customerId));
+    const completed = order ? String(order.status) === "DELIVERED" : String(request.orderStatus).toLowerCase() === "completed";
+    const actualTailorCost = tailorCostMap.get(orderId);
+    const actualDeliveryCost = deliveryCostFor(orderId);
+    const realized = payment.status === "PAID" && completed && actualTailorCost != null && actualDeliveryCost != null;
+    const customerPaid = Number(payment.amount ?? entity.totalAmount ?? 0);
+    const expectedTailorCost = order ? Number(order.totalAmount ?? payment.amount ?? 0) * 0.45 : Number(request.quoteAmount ?? quoteMap.get(String(request.selectedQuoteId)) ?? 0);
+    const tailorQuote = actualTailorCost ?? expectedTailorCost;
+    const deliveryEarnings = actualDeliveryCost ?? 0;
+    return {
+      ...payment.toJSON(),
+      source: order ? "ORDER" : "TAILORING_REQUEST",
+      customerPaid,
+      tailorQuote,
+      deliveryEarnings,
+      netRevenue: realized ? Number((customerPaid - tailorQuote - deliveryEarnings - 8).toFixed(2)) : null,
+      packagingCost: realized ? 8 : 0,
+      realized,
+      order: {
+        id: orderId,
+        orderNumber: order?.orderNumber ?? `TR-${orderId.slice(0, 6).toUpperCase()}`,
+        customerId: entity.customerId,
+        customerName: customer?.name,
+        customerPhone: customer?.phone,
+        status: String(order?.status ?? request?.orderStatus ?? request?.status ?? "")
+      }
+    };
+  });
   res.json({ data: data.filter(Boolean) });
 }
 
@@ -1895,6 +2037,7 @@ export async function updatePlatformStatusController(req: Request, res: Response
 
 export async function updateSettingController(req: Request, res: Response) {
   const key = String(req.params.key);
+  if (key === "delivery_fare_settings") throw new AppError(409, "Delivery pricing is code-controlled and cannot be changed from the admin panel");
   const value = key === CUSTOMER_WEBSITE_SLIDER_SETTING_KEY
     ? customerWebsiteSliderSchema.parse(req.body.value)
     : req.body.value;
@@ -1922,11 +2065,15 @@ const orderRequestBatchResetTargets: ResetTarget[] = [
   { label: "tailorquotes", deleteMany: (filter = {}) => TailorQuoteModel.deleteMany(filter) },
   { label: "tailoringrequests", deleteMany: (filter = {}) => TailoringRequestModel.deleteMany(filter) },
   { label: "orders", deleteMany: (filter = {}) => OrderModel.deleteMany(filter) },
+  { label: "admin_order_metadata", deleteMany: (filter = {}) => AdminOrderMetadataModel.deleteMany(filter) },
+  { label: "coupon_redemptions", deleteMany: (filter = {}) => CouponRedemptionModel.deleteMany(filter) },
   { label: "payments", deleteMany: (filter = {}) => PaymentModel.deleteMany(filter) },
   { label: "transactions", deleteMany: (filter = {}) => TransactionModel.deleteMany(filter) },
   { label: "wallettransactions", deleteMany: (filter = {}) => WalletTransactionModel.deleteMany(filter) },
   { label: "paymenthistories", deleteMany: (filter = {}) => PaymentHistoryModel.deleteMany(filter) },
   { label: "notifications", deleteMany: (filter = {}) => NotificationModel.deleteMany(filter) },
+  { label: "operational_alerts", deleteMany: (filter = {}) => OperationalAlertModel.deleteMany(filter) },
+  { label: "measurement_visits", deleteMany: (filter = {}) => MeasurementVisitModel.deleteMany(filter) },
   { label: "reviews", deleteMany: (filter = {}) => ReviewModel.deleteMany(filter) },
   { label: "supporttickets", deleteMany: (filter = {}) => SupportTicketModel.deleteMany(filter) },
   { label: "bugreports", deleteMany: (filter = {}) => BugReportModel.deleteMany(filter) },
@@ -1935,10 +2082,11 @@ const orderRequestBatchResetTargets: ResetTarget[] = [
 
 export async function resetOrderRequestBatchDataController(_req: Request, res: Response) {
   const deleted = await deleteTargets(orderRequestBatchResetTargets);
-  const [tailors, deliveryPartners, wallets] = await Promise.all([
+  const [tailors, deliveryPartners, wallets, coupons] = await Promise.all([
     TailorModel.updateMany({}, { $set: { earnings: 0 } }),
     DeliveryPartnerModel.updateMany({}, { $set: { dailyEarnings: 0, weeklyEarnings: 0, monthlyEarnings: 0 } }),
-    WalletModel.updateMany({}, { $set: { balance: 0 } })
+    WalletModel.updateMany({}, { $set: { balance: 0 } }),
+    CouponModel.updateMany({}, { $set: { usedCount: 0 } })
   ]);
 
   res.json({
@@ -1947,7 +2095,8 @@ export async function resetOrderRequestBatchDataController(_req: Request, res: R
       reset: {
         tailors: tailors.modifiedCount,
         deliveryPartners: deliveryPartners.modifiedCount,
-        wallets: wallets.modifiedCount
+        wallets: wallets.modifiedCount,
+        coupons: coupons.modifiedCount
       }
     }
   });
@@ -1963,7 +2112,8 @@ export async function resetEverythingDataController(_req: Request, res: Response
     { label: "otprequests", deleteMany: (filter = {}) => OtpRequestModel.deleteMany(filter) },
     { label: "wallets", deleteMany: (filter = {}) => WalletModel.deleteMany(filter) },
     { label: "tailors", deleteMany: (filter = {}) => TailorModel.deleteMany(filter) },
-    { label: "deliverypartners", deleteMany: (filter = {}) => DeliveryPartnerModel.deleteMany(filter) }
+    { label: "deliverypartners", deleteMany: (filter = {}) => DeliveryPartnerModel.deleteMany(filter) },
+    { label: "notification_campaigns", deleteMany: (filter = {}) => NotificationCampaignModel.deleteMany(filter) }
   ]);
 
   const users = await UserModel.deleteMany({ role: { $nin: ["ADMIN", "SUPER_ADMIN"] } });
@@ -2421,7 +2571,7 @@ export async function addSupportTicketMessageController(req: Request, res: Respo
     return;
   }
 
-  const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
+  const senderRole = isAdmin && input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
 
@@ -2516,7 +2666,7 @@ export async function addBugReportMessageController(req: Request, res: Response)
     return;
   }
 
-  const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
+  const senderRole = isAdmin && input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
 
@@ -2583,14 +2733,23 @@ export async function addChangeRequestMessageController(req: Request, res: Respo
     isInternal: z.boolean().optional().default(false)
   }).parse(req.body);
 
-  const request = await AccountChangeRequestModel.findById(id);
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  if (!isAdmin && req.user!.role !== "TAILOR" && req.user!.role !== "DELIVERY_PARTNER") {
+    throw new AppError(403, "Account change requests are available only to partner accounts");
+  }
+  const request = isAdmin
+    ? await AccountChangeRequestModel.findById(id)
+    : await AccountChangeRequestModel.findOne({
+        _id: id,
+        userId: req.user!.id,
+        userRole: req.user!.role as "TAILOR" | "DELIVERY_PARTNER"
+      });
   if (!request) {
     res.status(404).json({ message: "Change request not found" });
     return;
   }
 
-  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
-  const senderRole = input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
+  const senderRole = isAdmin && input.isInternal ? "internal" : (isAdmin ? "admin" : "client");
   const user = await UserModel.findById(req.user!.id);
   const senderName = user?.name || (isAdmin ? "Admin" : "User");
 
@@ -2677,6 +2836,7 @@ export async function listAdminReviewsController(req: Request, res: Response) {
         rating: review.rating,
         comment: review.comment,
         isFeatured: review.isFeatured ?? false,
+        isHidden: review.isHidden ?? false,
         createdAt: review.createdAt,
         user: user ? { name: user.name, phone: user.phone, avatarUrl: user.avatarUrl } : null,
         orderNumber: context.orderNumber,
@@ -2695,14 +2855,63 @@ export async function toggleReviewFeaturedController(req: Request, res: Response
   const review = await ReviewModel.findById(id);
   if (!review) throw new AppError(404, "Review not found");
   
+  if (review.isHidden) throw new AppError(409, "Restore this review before featuring it");
   review.isFeatured = !review.isFeatured;
   await review.save();
   
   res.json({ data: review });
 }
 
+async function refreshReviewTargetRating(orderId: string, kind: string) {
+  if (kind === "delivery") {
+    const task = await DeliveryRequestModel.findOne({ orderId, assignedDeliveryPartnerId: { $exists: true, $ne: "" } }).sort({ updatedAt: -1 }).select("assignedDeliveryPartnerId").lean();
+    if (!task?.assignedDeliveryPartnerId) return;
+    const partnerTasks = await DeliveryRequestModel.find({ assignedDeliveryPartnerId: task.assignedDeliveryPartnerId }).select("orderId").lean();
+    const orderIds = [...new Set(partnerTasks.map((item) => String(item.orderId)).filter(Boolean))];
+    const [summary] = await ReviewModel.aggregate<{ _id: null; averageRating: number }>([
+      { $match: { kind: "delivery", isHidden: { $ne: true }, orderId: { $in: orderIds } } },
+      { $group: { _id: null, averageRating: { $avg: "$rating" } } }
+    ]);
+    await DeliveryPartnerModel.findByIdAndUpdate(task.assignedDeliveryPartnerId, { rating: summary ? Number(summary.averageRating.toFixed(1)) : 0 });
+    return;
+  }
+  if (kind !== "tailor") return;
+  const order = await OrderModel.findById(orderId).select("tailorId").lean();
+  const request = order?.tailorId ? null : await TailoringRequestModel.findById(orderId).select("selectedQuoteId").lean();
+  const quote = request?.selectedQuoteId ? await TailorQuoteModel.findById(request.selectedQuoteId).select("tailorId").lean() : null;
+  const tailorId = order?.tailorId ?? quote?.tailorId;
+  if (!tailorId) return;
+  const [orders, quotes] = await Promise.all([
+    OrderModel.find({ tailorId }).select("_id").lean(),
+    TailorQuoteModel.find({ tailorId, status: "ACCEPTED" }).select("requestId").lean()
+  ]);
+  const orderIds = [...new Set([...orders.map((item) => String(item._id)), ...quotes.map((item) => String(item.requestId))])];
+  const [summary] = await ReviewModel.aggregate<{ _id: null; averageRating: number }>([
+    { $match: { kind: "tailor", isHidden: { $ne: true }, orderId: { $in: orderIds } } },
+    { $group: { _id: null, averageRating: { $avg: "$rating" } } }
+  ]);
+  await TailorModel.findByIdAndUpdate(tailorId, { rating: summary ? Number(summary.averageRating.toFixed(1)) : 0 });
+}
+
+export async function toggleReviewHiddenController(req: Request, res: Response) {
+  const review = await ReviewModel.findById(String(req.params.id));
+  if (!review) throw new AppError(404, "Review not found");
+  review.isHidden = !review.isHidden;
+  if (review.isHidden) review.isFeatured = false;
+  await review.save();
+  await refreshReviewTargetRating(String(review.orderId), String(review.kind));
+  res.json({ data: review });
+}
+
+export async function deleteReviewController(req: Request, res: Response) {
+  const review = await ReviewModel.findByIdAndDelete(String(req.params.id));
+  if (!review) throw new AppError(404, "Review not found");
+  await refreshReviewTargetRating(String(review.orderId), String(review.kind));
+  res.json({ data: { id: review.id, deleted: true } });
+}
+
 export async function listFeaturedReviewsController(req: Request, res: Response) {
-  const reviews = await ReviewModel.find({ isFeatured: true }).sort({ createdAt: -1 });
+  const reviews = await ReviewModel.find({ isFeatured: true, isHidden: { $ne: true } }).sort({ createdAt: -1 });
   const populated = await Promise.all(
     reviews.map(async (review) => {
       const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
@@ -2724,6 +2933,71 @@ export async function dashboardAnalyticsController(req: Request, res: Response) 
   const data = await getDashboardAnalytics(req.query.start, req.query.endExclusive, String(req.query.lifetime).toLowerCase() === "true");
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data });
+}
+
+export async function listAdminActivityLogsController(req: Request, res: Response) {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  const search = String(req.query.search ?? "").trim().slice(0, 100);
+  const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const filter = search ? {
+    $or: ["actorName", "method", "path", "entityType", "entityId", "summary"].map((field) => ({ [field]: { $regex: escaped, $options: "i" } }))
+  } : {};
+  const logs = await AdminAuditLogModel.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+  res.json({ data: logs.map((log: any) => ({ ...log, id: String(log._id), _id: undefined })) });
+}
+
+export async function listAdminOrderMetadataController(_req: Request, res: Response) {
+  const records = await AdminOrderMetadataModel.find().sort({ updatedAt: -1 }).limit(5000).lean();
+  res.json({ data: records.map((record: any) => ({ ...record, id: String(record._id), _id: undefined })) });
+}
+
+export async function updateAdminOrderMetadataController(req: Request, res: Response) {
+  const input = z.object({
+    priority: z.enum(["Normal", "High", "Urgent", "VIP"]).optional(),
+    note: z.string().trim().min(1).max(2000).optional()
+  }).refine((value) => value.priority !== undefined || value.note !== undefined, "Provide a priority or note").parse(req.body);
+  const admin = await UserModel.findById(req.user!.id).select("name phone").lean();
+  const update: Record<string, unknown> = {
+    $set: { ...(input.priority ? { priority: input.priority } : {}), updatedBy: req.user!.id },
+    $setOnInsert: { entityId: String(req.params.id) }
+  };
+  if (input.note) {
+    update.$push = {
+      notes: {
+        $each: [{ adminId: req.user!.id, adminName: admin?.name || admin?.phone || "Admin", note: input.note, createdAt: new Date() }],
+        $position: 0
+      }
+    };
+  }
+  const metadata = await AdminOrderMetadataModel.findOneAndUpdate(
+    { entityId: String(req.params.id) },
+    update,
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  );
+  res.json({ data: metadata });
+}
+
+export async function systemHealthController(_req: Request, res: Response) {
+  const push = pushRuntimeStatus();
+  const cloudinaryConfigured = Boolean(env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET);
+  const razorpayConfigured = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+  const databaseHealthy = mongoose.connection.readyState === 1;
+  const productionSecrets = env.NODE_ENV !== "production" || (
+    env.JWT_ACCESS_SECRET !== "dev-access-secret-change-me" &&
+    env.JWT_REFRESH_SECRET !== "dev-refresh-secret-change-me"
+  );
+  const checks = [
+    { key: "backend", label: "Backend API", status: "healthy", detail: "Health endpoint is responding" },
+    { key: "database", label: "Database", status: databaseHealthy ? "healthy" : "degraded", detail: databaseHealthy ? "MongoDB connection is ready" : "MongoDB connection is not ready" },
+    { key: "firebase", label: "Firebase Push", status: push.firebaseReady ? "healthy" : push.firebaseConfigured ? "degraded" : "unconfigured", detail: push.firebaseReady ? "Firebase Admin initialized" : push.firebaseConfigured ? "Configured but not initialized" : "FCM credentials are missing" },
+    { key: "storage", label: "Cloudinary Storage", status: cloudinaryConfigured ? "healthy" : "unconfigured", detail: cloudinaryConfigured ? "Cloudinary credentials are configured" : "Cloudinary credentials are missing" },
+    { key: "payments", label: "Razorpay", status: razorpayConfigured ? "healthy" : "unconfigured", detail: razorpayConfigured ? "Razorpay credentials are configured" : "Razorpay credentials are missing" },
+    { key: "maps", label: "Google Maps", status: env.GOOGLE_MAPS_API_KEY ? "healthy" : "unconfigured", detail: env.GOOGLE_MAPS_API_KEY ? "Maps key is configured" : "Maps key is missing" },
+    { key: "cors", label: "Browser Origins", status: env.CORS_ALLOWED_ORIGINS || env.NODE_ENV !== "production" ? "healthy" : "degraded", detail: env.CORS_ALLOWED_ORIGINS ? "Explicit origin allowlist configured" : env.NODE_ENV !== "production" ? "Local development origins enabled" : "CORS_ALLOWED_ORIGINS is missing" },
+    { key: "environment", label: "Environment", status: productionSecrets ? "healthy" : "degraded", detail: productionSecrets ? `${env.NODE_ENV} configuration loaded` : "Production is using development JWT secrets" }
+  ];
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: { checkedAt: new Date().toISOString(), overall: checks.every((check) => check.status === "healthy") ? "healthy" : "attention", checks } });
 }
 
 // ---------------------------------------------------------------------------

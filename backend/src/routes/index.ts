@@ -1,19 +1,27 @@
 import { Router } from "express";
-import { meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
+import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
   analyticsController,
   adminCreateOrderController,
   dashboardAnalyticsController,
+  listAdminActivityLogsController,
+  listAdminOrderMetadataController,
+  updateAdminOrderMetadataController,
+  systemHealthController,
   assignOrderController,
   catalogController,
   createAddressController,
   createCouponController,
+  updateCouponController,
+  deleteCouponController,
   createOrderController,
   createReviewController,
   customerWebsiteSliderController,
   listMyTailorReviewsController,
   listAdminReviewsController,
   toggleReviewFeaturedController,
+  toggleReviewHiddenController,
+  deleteReviewController,
   listFeaturedReviewsController,
   createSupportTicketController,
   updateSupportTicketController,
@@ -92,6 +100,7 @@ import {
 } from "../controllers/resource.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
+import { auditAdminMutation } from "../middleware/admin-audit.js";
 import { notificationRoutes } from "./notificationRoutes.js";
 import { pushRuntimeStatus } from "../services/push.service.js";
 import {
@@ -150,9 +159,11 @@ router.get("/settings/customer-website-slider", customerWebsiteSliderController)
 router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
 router.post("/auth/refresh", refreshController);
+router.post("/auth/logout", requireAuth, logoutController);
 router.get("/auth/me", requireAuth, meController);
 router.patch("/auth/me", requireAuth, updateMeController);
 router.get("/catalog", catalogController);
+router.use(auditAdminMutation);
 
 router.post(
   "/tailoring-requests/media",
@@ -257,8 +268,10 @@ router.use("/notifications", notificationRoutes);
 router.post("/reviews", requireAuth, createReviewController);
 router.get("/tailors/me/reviews", requireAuth, requireRole("TAILOR"), listMyTailorReviewsController);
 router.get("/reviews/featured", listFeaturedReviewsController);
-router.get("/admin/reviews", requireAuth, requireRole("ADMIN"), listAdminReviewsController);
-router.patch("/admin/reviews/:id/featured", requireAuth, requireRole("ADMIN"), toggleReviewFeaturedController);
+router.get("/admin/reviews", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminReviewsController);
+router.patch("/admin/reviews/:id/featured", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), toggleReviewFeaturedController);
+router.patch("/admin/reviews/:id/hidden", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), toggleReviewHiddenController);
+router.delete("/admin/reviews/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteReviewController);
 router.get("/wallet", requireAuth, walletController);
 router.get("/transactions", requireAuth, transactionsController);
 router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
@@ -272,7 +285,7 @@ router.post("/admin/media", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), up
 router.get("/support/stats", requireAuth, requireRole("ADMIN"), getSupportStatsController);
 router.get("/support", requireAuth, listSupportTicketsController);
 router.post("/support", requireAuth, createSupportTicketController);
-router.patch("/support/:id", requireAuth, updateSupportTicketController);
+router.patch("/support/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateSupportTicketController);
 router.post("/support/:id/messages", requireAuth, addSupportTicketMessageController);
 
 router.post("/support/bug-reports", requireAuth, createBugReportController);
@@ -288,9 +301,15 @@ router.post("/support/change-requests/:id/messages", requireAuth, addChangeReque
 
 router.get("/coupons", requireAuth, listCouponsController);
 router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponController);
+router.patch("/coupons/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateCouponController);
+router.delete("/coupons/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteCouponController);
 
 router.get("/analytics", requireAuth, requireRole("ADMIN"), analyticsController);
 router.get("/admin/analytics/dashboard", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), dashboardAnalyticsController);
+router.get("/admin/activity-logs", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminActivityLogsController);
+router.get("/admin/order-metadata", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminOrderMetadataController);
+router.patch("/admin/orders/:id/metadata", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminOrderMetadataController);
+router.get("/admin/system-health", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), systemHealthController);
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
 router.post("/users/admin-invite", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), inviteAdminController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);

@@ -13,11 +13,22 @@ import { setupSocketServer } from "./services/socket.service.js";
 import { lockAndDispatchDueBatches } from "./services/hybrid-delivery.service.js";
 import { getPlatformStatus } from "./services/platform-status.service.js";
 import { monitorNoQuoteRequests } from "./services/operational-alert.service.js";
+import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
 
 const app = express();
+const configuredOrigins = new Set((env.CORS_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean));
+if (env.NODE_ENV !== "production") {
+  ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"].forEach((origin) => configuredOrigins.add(origin));
+}
 
 app.use(helmet());
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  credentials: true,
+  origin(origin, callback) {
+    if (!origin || configuredOrigins.has(origin)) return callback(null, true);
+    return callback(new Error("Origin is not allowed by CORS"));
+  }
+}));
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
 
@@ -37,6 +48,7 @@ async function processDueDeliveryBatches() {
   if (platformStatus.maintenanceMode) return;
   await lockAndDispatchDueBatches();
   await monitorNoQuoteRequests();
+  await processDueNotificationCampaigns();
 }
 
 const batchLockTimer = setInterval(() => {

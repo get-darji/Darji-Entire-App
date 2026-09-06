@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { orderStatuses } from "./order-statuses.js";
 
-export { orderStatuses } from "./order-statuses.js";
+export { allowedOrderStatusTransitions, orderStatuses, orderStatusTransitions } from "./order-statuses.js";
 export type { OrderStatus } from "./order-statuses.js";
 
 export const roles = ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER", "ADMIN", "SUPER_ADMIN"] as const;
@@ -80,8 +80,14 @@ export const couponSchema = z.object({
   discountValue: z.number().positive(),
   minOrderValue: z.number().nonnegative().default(0),
   maxDiscount: z.number().positive().optional().nullable(),
+  usageLimit: z.number().int().positive().optional().nullable(),
+  perCustomerLimit: z.number().int().positive().optional().nullable(),
   expiresAt: z.string().datetime().optional().nullable(),
   isActive: z.boolean().default(true)
+}).superRefine((coupon, context) => {
+  if (coupon.discountType === "PERCENTAGE" && coupon.discountValue > 100) {
+    context.addIssue({ code: "custom", path: ["discountValue"], message: "Percentage discount cannot exceed 100" });
+  }
 });
 
 export const supportMessageSchema = z.object({
@@ -195,6 +201,18 @@ export function getSmallOrderFee(orderValue: number) {
   if (orderValue <= 0) return 0;
   if (orderValue < 99) return 19;
   return 0;
+}
+
+export const HOME_MEASUREMENT_FEE = 30;
+
+export function calculateCouponDiscount(
+  coupon: { discountType?: unknown; discountValue?: unknown; maxDiscount?: unknown },
+  subtotal: number
+) {
+  const value = Number(coupon.discountValue ?? 0);
+  const raw = coupon.discountType === "PERCENTAGE" ? subtotal * value / 100 : value;
+  const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
+  return Number(Math.max(0, Math.min(capped, subtotal)).toFixed(2));
 }
 
 export * from "./localization.js";

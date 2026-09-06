@@ -1,10 +1,9 @@
-import { createOrderSchema, updateOrderStatusSchema, getPlatformFee, getSmallOrderFee } from "@darzi/shared";
+import { allowedOrderStatusTransitions, createOrderSchema, updateOrderStatusSchema, getPlatformFee, getSmallOrderFee } from "@darzi/shared";
 import {
   AddressModel,
   DeliveryBatchModel,
   DeliveryRequestModel,
   DeliveryType,
-  CouponModel,
   DeliveryPartnerModel,
   OrderModel,
   PaymentModel,
@@ -20,6 +19,7 @@ import { notifyUser, orderStatusMessage } from "./notification.service.js";
 import { creditOrderEarning } from "./wallet.service.js";
 import { addTaskToSilentBatch, nextOpenBatchSlot } from "./hybrid-delivery.service.js";
 import { randomUUID } from "crypto";
+import { reserveCouponUsage, validateCoupon } from "./coupon.service.js";
 
 type JsonDoc = { toJSON: () => Record<string, unknown> };
 
@@ -156,6 +156,76 @@ export async function hydrateOrder(orderInput: unknown) {
   };
 }
 
+async function hydrateOrders(orderInputs: unknown[]) {
+  const orders = orderInputs.map((input) => typeof (input as { toJSON?: unknown })?.toJSON === "function"
+    ? (input as { toJSON: () => Record<string, unknown> }).toJSON()
+    : input as Record<string, unknown>);
+  if (!orders.length) return [];
+  const ids = (key: string) => [...new Set(orders.map((order) => String(order[key] ?? "")).filter(Boolean))];
+  const orderIds = orders.map((order) => String(order.id ?? order._id));
+  const serviceIds = [...new Set(orders.flatMap((order) => ((order.items as Array<Record<string, unknown>> | undefined) ?? []).map((item) => String(item.serviceId ?? ""))).filter(Boolean))];
+
+  const [addresses, customers, tailors, partners, payments, reviews, services] = await Promise.all([
+    AddressModel.find({ _id: { $in: ids("addressId") } }),
+    UserModel.find({ _id: { $in: ids("customerId") } }).select("name phone role"),
+    TailorModel.find({ _id: { $in: ids("tailorId") } }),
+    DeliveryPartnerModel.find({ _id: { $in: [...ids("pickupPartnerId"), ...ids("deliveryPartnerId")] } }),
+    PaymentModel.find({ orderId: { $in: orderIds } }).sort({ createdAt: -1 }),
+    ReviewModel.find({ orderId: { $in: orderIds } }).sort({ createdAt: -1 }),
+    ServiceModel.find({ _id: { $in: serviceIds } })
+  ]);
+  const profileUserIds = [...new Set([...tailors, ...partners].map((profile) => String(profile.userId ?? "")).filter(Boolean))];
+  const categoryIds = [...new Set(services.map((service) => String(service.categoryId ?? "")).filter(Boolean))];
+  const [profileUsers, categories] = await Promise.all([
+    UserModel.find({ _id: { $in: profileUserIds } }).select("name phone role"),
+    ServiceCategoryModel.find({ _id: { $in: categoryIds } })
+  ]);
+
+  const mapById = (items: any[]) => new Map(items.map((item) => [String(item.id ?? item._id), item]));
+  const addressMap = mapById(addresses);
+  const customerMap = mapById(customers);
+  const tailorMap = mapById(tailors);
+  const partnerMap = mapById(partners);
+  const profileUserMap = mapById(profileUsers);
+  const serviceMap = mapById(services);
+  const categoryMap = mapById(categories);
+  const paymentsByOrder = new Map<string, any[]>();
+  payments.forEach((payment) => paymentsByOrder.set(String(payment.orderId), [...(paymentsByOrder.get(String(payment.orderId)) ?? []), payment]));
+  const reviewsByOrder = new Map<string, Map<string, any>>();
+  reviews.forEach((review) => {
+    const byKind = reviewsByOrder.get(String(review.orderId)) ?? new Map<string, any>();
+    if (!byKind.has(String(review.kind))) byKind.set(String(review.kind), review);
+    reviewsByOrder.set(String(review.orderId), byKind);
+  });
+  const partnerJson = (profile: any) => profile ? { ...profile.toJSON(), user: json(profileUserMap.get(String(profile.userId))) } : null;
+
+  return orders.map((order) => {
+    const orderId = String(order.id ?? order._id);
+    const byKind = reviewsByOrder.get(orderId) ?? new Map<string, any>();
+    const tailorReview = byKind.get("tailor");
+    const deliveryReview = byKind.get("delivery");
+    return {
+      ...order,
+      address: json(addressMap.get(String(order.addressId ?? ""))),
+      customer: json(customerMap.get(String(order.customerId ?? ""))),
+      tailor: partnerJson(tailorMap.get(String(order.tailorId ?? ""))),
+      pickupPartner: partnerJson(partnerMap.get(String(order.pickupPartnerId ?? ""))),
+      deliveryPartner: partnerJson(partnerMap.get(String(order.deliveryPartnerId ?? ""))),
+      items: ((order.items as Array<Record<string, unknown>> | undefined) ?? []).map((item) => {
+        const service = serviceMap.get(String(item.serviceId ?? ""));
+        return { ...item, id: item.id ?? item._id, service: service ? { ...service.toJSON(), category: json(categoryMap.get(String(service.categoryId))) } : null };
+      }),
+      payments: (paymentsByOrder.get(orderId) ?? []).map((payment) => json(payment)),
+      tailorRating: tailorReview?.rating,
+      tailorReview: tailorReview?.comment,
+      tailorRatingSubmittedAt: tailorReview?.createdAt,
+      deliveryRating: deliveryReview?.rating,
+      deliveryReview: deliveryReview?.comment,
+      deliveryRatingSubmittedAt: deliveryReview?.createdAt
+    };
+  });
+}
+
 export const orderInclude = {};
 
 export async function createOrder(customerId: string, payload: unknown) {
@@ -181,19 +251,19 @@ export async function createOrder(customerId: string, payload: unknown) {
   const smallOrderFee = getSmallOrderFee(subtotal);
 
   let discount = 0;
+  let couponId: string | undefined;
   if (input.couponCode) {
-    const coupon = await CouponModel.findOne({ code: input.couponCode.toUpperCase() });
-    if (coupon?.isActive && (!coupon.expiresAt || coupon.expiresAt > new Date()) && subtotal >= Number(coupon.minOrderValue)) {
-      discount =
-        coupon.discountType === "FLAT"
-          ? Number(coupon.discountValue)
-          : Math.min((subtotal * Number(coupon.discountValue)) / 100, Number(coupon.maxDiscount ?? subtotal));
-    }
+    const validated = await validateCoupon(input.couponCode, subtotal, customerId);
+    couponId = validated.coupon.id;
+    discount = validated.discount;
   }
 
   const totalAmount = Math.max(subtotal + platformFee + smallOrderFee - discount, 0);
 
+  const orderId = randomUUID();
+  if (couponId) await reserveCouponUsage(couponId, customerId, orderId);
   const order = await OrderModel.create({
+    _id: orderId,
     orderNumber: generateOrderNumber(),
     customerId,
     addressId: input.addressId,
@@ -203,6 +273,7 @@ export async function createOrder(customerId: string, payload: unknown) {
     platformFee,
     smallOrderFee,
     discount,
+    couponCode: input.couponCode?.toUpperCase(),
     totalAmount,
     pickupScheduledAt: new Date(input.pickupScheduledAt),
     instructions: input.instructions,
@@ -292,19 +363,77 @@ export async function listOrders(user: { id: string; role: string }, query: Reco
       ? 1000
       : 100;
   const orders = await OrderModel.find(where).sort({ createdAt: -1 }).limit(limit);
-  return Promise.all(orders.map((order) => hydrateOrder(order)));
+  return hydrateOrders(orders);
 }
 
-export async function getOrder(orderId: string) {
+type OrderActor = { id: string; role: string };
+
+async function assertOrderAccess(
+  order: { customerId?: unknown; tailorId?: unknown; pickupPartnerId?: unknown; deliveryPartnerId?: unknown; id?: unknown; _id?: unknown },
+  actor: OrderActor,
+  action: "read" | "status"
+) {
+  if (actor.role === "ADMIN" || actor.role === "SUPER_ADMIN") return;
+
+  if (actor.role === "CUSTOMER") {
+    if (action === "read" && String(order.customerId ?? "") === actor.id) return;
+    throw new AppError(403, action === "read" ? "You can only view your own orders" : "Customers cannot update order status");
+  }
+
+  if (actor.role === "TAILOR") {
+    const tailor = await TailorModel.findOne({ userId: actor.id }).select("_id").lean();
+    if (tailor && String(order.tailorId ?? "") === String(tailor._id)) return;
+    throw new AppError(403, "This order is not assigned to your tailor account");
+  }
+
+  if (actor.role === "DELIVERY_PARTNER") {
+    const partner = await DeliveryPartnerModel.findOne({ userId: actor.id }).select("_id").lean();
+    const partnerId = partner ? String(partner._id) : "";
+    const directlyAssigned = partnerId && [order.pickupPartnerId, order.deliveryPartnerId].some((id) => String(id ?? "") === partnerId);
+    const orderId = String(order.id ?? order._id ?? "");
+    const taskAssigned = partnerId && orderId
+      ? Boolean(await DeliveryRequestModel.exists({ orderId, assignedDeliveryPartnerId: partnerId, taskStatus: { $ne: "cancelled" } }))
+      : false;
+    if (directlyAssigned || taskAssigned) return;
+    throw new AppError(403, "This order is not assigned to your delivery account");
+  }
+
+  throw new AppError(403, "You do not have access to this order");
+}
+
+export async function getOrder(orderId: string, actor: OrderActor) {
   const order = await OrderModel.findById(orderId);
+  if (order) await assertOrderAccess(order, actor, "read");
   return order ? hydrateOrder(order) : null;
 }
 
-export async function updateOrderStatus(orderId: string, payload: unknown, actor: { id: string; role: string }) {
-  const input = updateOrderStatusSchema.parse(payload);
+export async function updateOrderStatus(orderId: string, payload: unknown, actor: OrderActor) {
+  const rawPayload = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  // The legacy tailor app calls the visible state "WORKING". Persist the
+  // canonical order status used by the backend and every other consumer.
+  const input = updateOrderStatusSchema.parse({
+    ...rawPayload,
+    status: rawPayload.status === "WORKING" ? "STITCHING_STARTED" : rawPayload.status
+  });
   const order = await OrderModel.findById(orderId);
   if (!order) {
     throw new AppError(404, "Order not found");
+  }
+
+  await assertOrderAccess(order, actor, "status");
+
+  const currentStatus = String(order.status);
+  if (input.status !== currentStatus && !allowedOrderStatusTransitions(currentStatus).includes(input.status)) {
+    throw new AppError(409, `Order cannot move from ${currentStatus} to ${input.status}`);
+  }
+
+  const roleAllowedStatuses: Record<string, readonly string[]> = {
+    TAILOR: ["CUTTING", "STITCHING_STARTED", "FINISHING", "STITCHING_COMPLETED", "READY"],
+    DELIVERY_PARTNER: ["CLOTH_PICKED", "AT_TAILOR", "OUT_FOR_DELIVERY", "DELIVERED"]
+  };
+  const allowedForRole = roleAllowedStatuses[actor.role];
+  if (allowedForRole && !allowedForRole.includes(input.status)) {
+    throw new AppError(403, `${actor.role === "TAILOR" ? "Tailors" : "Delivery partners"} cannot set ${input.status}`);
   }
 
   const data: Record<string, unknown> = { status: input.status };
@@ -314,7 +443,7 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
 
   const timelineEvent = {
     status: input.status,
-    description: `Order status changed to ${input.status}`,
+    description: input.note?.trim().slice(0, 500) || `Order status changed to ${input.status}`,
     timestamp: new Date(),
     userId: actor.id,
     userName: actor.role // Assuming role is available, otherwise could fetch name
@@ -351,32 +480,46 @@ export async function updateOrderStatus(orderId: string, payload: unknown, actor
   return hydrateOrder(updated);
 }
 
-export async function assignOrder(orderId: string, input: { tailorId?: string; deliveryPartnerId?: string; pickupPartnerId?: string; mode?: "pickup" | "delivery" }) {
+export async function assignOrder(orderId: string, input: { tailorId?: string; deliveryPartnerId?: string; pickupPartnerId?: string; mode?: "pickup" | "delivery" }, actor: OrderActor) {
   const data: Record<string, string> = {};
-  if (input.tailorId) data.tailorId = input.tailorId;
+  if (input.tailorId) {
+    const tailor = await TailorModel.findOne({ _id: input.tailorId, verificationStatus: "VERIFIED" }).select("_id").lean();
+    if (!tailor) throw new AppError(400, "Select a verified tailor");
+    data.tailorId = input.tailorId;
+  }
   
   if (input.deliveryPartnerId && input.mode === "delivery") data.deliveryPartnerId = input.deliveryPartnerId;
   else if (input.deliveryPartnerId && input.mode !== "delivery") data.pickupPartnerId = input.deliveryPartnerId;
   else if (input.pickupPartnerId) data.pickupPartnerId = input.pickupPartnerId;
-  
-  if (input.deliveryPartnerId || input.pickupPartnerId) {
-    data.status = input.mode === "delivery" ? "OUT_FOR_DELIVERY" : "PICKUP_ASSIGNED";
-  }
 
   if (Object.keys(data).length === 0) {
     throw new AppError(400, "Nothing to assign");
   }
 
+  const assignedPartnerId = data.deliveryPartnerId ?? data.pickupPartnerId;
+  if (assignedPartnerId) {
+    const expectedType = data.deliveryPartnerId ? DeliveryType.DROP : DeliveryType.PICKUP;
+    const partner = await DeliveryPartnerModel.findOne({ _id: assignedPartnerId, verificationStatus: "VERIFIED", deliveryType: expectedType }).select("_id").lean();
+    if (!partner) throw new AppError(400, `Select a verified ${expectedType.toLowerCase()} partner`);
+  }
+
+  const existingOrder = await OrderModel.findById(orderId).select("status customerId");
+  if (existingOrder && assignedPartnerId) {
+    const proposedStatus = data.deliveryPartnerId ? "OUT_FOR_DELIVERY" : "PICKUP_ASSIGNED";
+    if (allowedOrderStatusTransitions(String(existingOrder.status)).includes(proposedStatus)) data.status = proposedStatus;
+  }
+
   const timelineEvent = {
-    status: data.status || "ASSIGNED",
+    status: data.status || String(existingOrder?.status ?? "ASSIGNED"),
     description: input.tailorId ? "Tailor assigned" : "Delivery partner assigned",
     timestamp: new Date(),
-    userId: "admin",
-    userName: "Admin"
+    userId: actor.id,
+    userName: actor.role
   };
-  const assignedPartnerId = data.deliveryPartnerId ?? data.pickupPartnerId;
 
-  let order = await OrderModel.findByIdAndUpdate(orderId, { ...data, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
+  const order = existingOrder
+    ? await OrderModel.findByIdAndUpdate(orderId, { ...data, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" })
+    : null;
   
   if (!order) {
     // Fallback to TailoringRequest
@@ -386,10 +529,13 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
     if (data.deliveryPartnerId) trData.deliveryPartnerId = data.deliveryPartnerId;
     if (data.pickupPartnerId) trData.assignedDeliveryBoyId = data.pickupPartnerId;
     if (data.deliveryPartnerId) trData.assignedDeliveryBoyId = data.deliveryPartnerId;
-    if (data.pickupPartnerId) trData.orderStatus = "pickup_started";
-    if (data.deliveryPartnerId) trData.orderStatus = "out_for_delivery";
+    const existingRequest = await TailoringRequestModel.findById(orderId).select("orderStatus customerId");
+    if (data.pickupPartnerId && existingRequest?.orderStatus === "tailor_accepted") trData.orderStatus = "pickup_started";
+    if (data.deliveryPartnerId && existingRequest?.orderStatus === "ready_for_delivery") trData.orderStatus = "out_for_delivery";
 
-    const tr = await TailoringRequestModel.findByIdAndUpdate(orderId, { ...trData, $push: { timelineEvents: timelineEvent } }, { returnDocument: "after" });
+    const tr = existingRequest
+      ? await TailoringRequestModel.findByIdAndUpdate(orderId, { ...trData, $push: { timelineEvents: { ...timelineEvent, status: trData.orderStatus || String(existingRequest.orderStatus ?? "ASSIGNED") } } }, { returnDocument: "after" })
+      : null;
     if (!tr) {
       throw new AppError(404, "Order or Request not found");
     }

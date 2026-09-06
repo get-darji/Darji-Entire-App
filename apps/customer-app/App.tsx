@@ -1604,7 +1604,7 @@ function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
   if (subtotal < Number(coupon.minOrderValue ?? 0)) return 0;
   const raw = coupon.discountType === "PERCENTAGE" ? (subtotal * Number(coupon.discountValue ?? 0)) / 100 : Number(coupon.discountValue ?? 0);
   const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
-  return Math.min(Math.max(0, Math.round(capped)), subtotal);
+  return Number(Math.min(Math.max(0, capped), subtotal).toFixed(2));
 }
 
 function couponDiscountLabel(coupon: Coupon) {

@@ -64,6 +64,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     if (tokenRequestsAdmin && !accountAllowsAdmin) {
       return next(new AppError(403, "Admin access has been removed for this phone number"));
     }
+    // Downstream admin controllers consistently treat both admin account tiers as
+    // the administrative actor. Keep that normalized role while authorization
+    // still checks the persisted account tier above.
     const effectiveRole: Role = tokenRequestsAdmin && accountAllowsAdmin ? "ADMIN" : payload.role as Role;
     req.user = { id: String(user._id), role: effectiveRole };
     const isAdmin = effectiveRole === "ADMIN";

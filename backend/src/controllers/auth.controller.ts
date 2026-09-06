@@ -1,12 +1,32 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
+import { env } from "../env.js";
 import { requestOtpSchema, verifyOtpSchema } from "@darzi/shared";
 import { DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
 import { hasFreshDeliveryLocation } from "../services/delivery-location.service.js";
+import { z } from "zod";
+
+const adminRefreshCookie = "darzi_admin_refresh";
+
+function setAdminRefreshCookie(res: Response, token: string) {
+  const secure = env.NODE_ENV === "production";
+  res.append("Set-Cookie", `${adminRefreshCookie}=${encodeURIComponent(token)}; Path=/api/auth; HttpOnly; Max-Age=${30 * 24 * 60 * 60}; SameSite=${secure ? "None" : "Lax"}${secure ? "; Secure" : ""}`);
+}
+
+function clearAdminRefreshCookie(res: Response) {
+  const secure = env.NODE_ENV === "production";
+  res.append("Set-Cookie", `${adminRefreshCookie}=; Path=/api/auth; HttpOnly; Max-Age=0; SameSite=${secure ? "None" : "Lax"}${secure ? "; Secure" : ""}`);
+}
+
+function cookieValue(req: Request, name: string) {
+  const raw = req.headers.cookie ?? "";
+  const entry = raw.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  return entry ? decodeURIComponent(entry.slice(name.length + 1)) : "";
+}
 
 async function resetAutoVerifiedDeliveryProfile(userId: string, phone?: string) {
   const profile = await DeliveryPartnerModel.findOne({ userId });
@@ -135,12 +155,16 @@ export async function verifyOtpController(req: Request, res: Response) {
   await assertAdminPhoneAllowed(input.phone, input.role);
   await verifyOtp(input.phone, input.otp);
 
-  const role = input.role === "ADMIN" || input.role === "SUPER_ADMIN" ? "ADMIN" : input.role;
-  const user = await UserModel.findOneAndUpdate(
-    { phone: input.phone },
-    { $set: { role }, $setOnInsert: { phone: input.phone } },
-    { upsert: true, returnDocument: "after" }
-  );
+  const requestedAdmin = input.role === "ADMIN" || input.role === "SUPER_ADMIN";
+  const user = requestedAdmin
+    ? await UserModel.findOne({ phone: input.phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } })
+    : await UserModel.findOneAndUpdate(
+        { phone: input.phone },
+        { $set: { role: input.role }, $setOnInsert: { phone: input.phone } },
+        { upsert: true, returnDocument: "after" }
+      );
+  if (!user) throw new AppError(403, "This phone number is not allowed to access the admin portal");
+  const role = requestedAdmin ? (user.role as "ADMIN" | "SUPER_ADMIN") : input.role;
   await clearExpiredSuspension(user);
   assertUserCanAccess(user);
 
@@ -170,11 +194,13 @@ export async function verifyOtpController(req: Request, res: Response) {
     [`refreshTokenHashes.${role}`]: await bcrypt.hash(refreshToken, 10)
   });
 
-  res.json({ data: { user: { ...user.toJSON(), role }, accessToken, refreshToken } });
+  if (role === "ADMIN" || role === "SUPER_ADMIN") setAdminRefreshCookie(res, refreshToken);
+
+  res.json({ data: { user: { ...user.toJSON(), role }, accessToken, refreshToken: requestedAdmin ? undefined : refreshToken } });
 }
 
 export async function refreshController(req: Request, res: Response) {
-  const refreshToken = String(req.body.refreshToken ?? "");
+  const refreshToken = String(req.body?.refreshToken ?? cookieValue(req, adminRefreshCookie) ?? "");
   if (!refreshToken) {
     throw new AppError(400, "refreshToken is required");
   }
@@ -195,12 +221,32 @@ export async function refreshController(req: Request, res: Response) {
   await clearExpiredSuspension(user);
   assertUserCanAccess(user);
 
+  if (payload.role === "ADMIN" || payload.role === "SUPER_ADMIN") setAdminRefreshCookie(res, refreshToken);
+
   res.json({
     data: {
       accessToken: signAccessToken({ sub: user.id, role: payload.role, sid: payload.sid }),
-      refreshToken
+      refreshToken: payload.role === "ADMIN" || payload.role === "SUPER_ADMIN" ? undefined : refreshToken
     }
   });
+}
+
+export async function logoutController(req: Request, res: Response) {
+  const adminSession = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  await UserModel.findByIdAndUpdate(req.user!.id, {
+    $unset: {
+      [`activeSessionIds.${req.user!.role}`]: "",
+      [`refreshTokenHashes.${req.user!.role}`]: "",
+      ...(adminSession ? {
+        "activeSessionIds.ADMIN": "",
+        "activeSessionIds.SUPER_ADMIN": "",
+        "refreshTokenHashes.ADMIN": "",
+        "refreshTokenHashes.SUPER_ADMIN": ""
+      } : {})
+    }
+  });
+  clearAdminRefreshCookie(res);
+  res.json({ data: { ok: true } });
 }
 
 export async function meController(req: Request, res: Response) {
@@ -292,7 +338,14 @@ export async function meController(req: Request, res: Response) {
 }
 
 export async function updateMeController(req: Request, res: Response) {
-  const { name, email, gender, dateOfBirth, avatarPreset, avatarUri } = req.body;
+  const { name, email, gender, dateOfBirth, avatarPreset, avatarUri } = z.object({
+    name: z.string().trim().min(2).max(100).optional(),
+    email: z.union([z.string().trim().email(), z.literal(""), z.null()]).optional(),
+    gender: z.string().trim().max(40).optional().nullable(),
+    dateOfBirth: z.string().trim().max(40).optional().nullable(),
+    avatarPreset: z.string().trim().max(100).optional().nullable(),
+    avatarUri: z.string().trim().max(2048).optional().nullable()
+  }).parse(req.body ?? {});
   const updateData: Record<string, any> = {};
   if (name !== undefined) updateData.name = name;
   if (email !== undefined) updateData.email = email;

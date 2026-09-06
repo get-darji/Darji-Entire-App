@@ -29,6 +29,10 @@ import type {
   WalletDetail,
   DeliveryFareSettings,
   OperationalAlert,
+  AdminActivityLog,
+  AdminOrderMetadata,
+  SystemHealth,
+  NotificationCampaign,
 } from "@/src/types/admin";
 
 const RETIRED_API_URL = "https://backend-production-5a7e4.up.railway.app/api";
@@ -40,6 +44,7 @@ let adminRefreshPromise: Promise<string | undefined> | undefined;
 
 export const api = axios.create({
   baseURL: API_URL,
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json"
   }
@@ -55,11 +60,22 @@ api.interceptors.request.use((config) => {
 
 async function refreshAdminAccessToken() {
   const refreshToken = useAdminStore.getState().refreshToken;
-  if (!refreshToken) return undefined;
-  const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken: string }>>(`${API_URL}/auth/refresh`, { refreshToken });
+  const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken?: string }>>(`${API_URL}/auth/refresh`, refreshToken ? { refreshToken } : {}, { withCredentials: true });
   const session = response.data.data;
   useAdminStore.getState().setSession(session);
   return session.accessToken;
+}
+
+export async function restoreAdminSession() {
+  return refreshAdminAccessToken();
+}
+
+export async function logoutAdminSession() {
+  try {
+    await api.post("/auth/logout", {});
+  } finally {
+    useAdminStore.getState().logout();
+  }
 }
 
 api.interceptors.response.use(
@@ -68,7 +84,7 @@ api.interceptors.response.use(
     if (error?.response?.status === 401) {
       const message = String(error.response?.data?.message ?? "Session expired");
       const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
-      if (!/signed in on another device/i.test(message) && originalRequest && !originalRequest._retry && useAdminStore.getState().refreshToken) {
+      if (!/signed in on another device/i.test(message) && originalRequest && !originalRequest._retry) {
         originalRequest._retry = true;
         try {
           adminRefreshPromise ??= refreshAdminAccessToken().finally(() => {
@@ -187,8 +203,33 @@ export async function updateOperationalAlert(payload: { alertId: string; status:
   return unwrap<OperationalAlert>(api.patch(`/admin/operational-alerts/${alertId}`, body));
 }
 
-export async function sendAdminNotification(payload: { target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string }) {
-  return unwrap<{ ok: boolean; recipients: number }>(api.post("/notifications/admin-send", payload));
+export async function sendAdminNotification(payload: { channel: "push"; target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string; scheduledAt?: string | null }) {
+  return unwrap<{ ok: boolean; recipients: number; campaign: NotificationCampaign }>(api.post("/notifications/admin-send", payload));
+}
+
+export async function getAdminNotificationCampaigns() {
+  return unwrap<NotificationCampaign[]>(api.get("/notifications/admin-campaigns"));
+}
+
+export async function getAdminActivityLogs() {
+  return unwrap<AdminActivityLog[]>(api.get("/admin/activity-logs"));
+}
+
+export async function getAdminOrderMetadata() {
+  return unwrap<AdminOrderMetadata[]>(api.get("/admin/order-metadata"));
+}
+
+export async function updateAdminOrderMetadata(payload: { orderId: string; priority?: AdminOrderMetadata["priority"]; note?: string }) {
+  const { orderId, ...body } = payload;
+  return unwrap<AdminOrderMetadata>(api.patch(`/admin/orders/${orderId}/metadata`, body));
+}
+
+export async function getSystemHealth() {
+  return unwrap<SystemHealth>(api.get("/admin/system-health"));
+}
+
+export async function updateAdminProfile(payload: { name: string; avatarUri?: string }) {
+  return unwrap<MeResponse>(api.patch("/auth/me", payload));
 }
 
 export type NotifyDeliveryBatchResult = {
@@ -314,10 +355,21 @@ export async function createCoupon(payload: {
   discountValue: number;
   minOrderValue: number;
   maxDiscount?: number | null;
+  usageLimit?: number | null;
+  perCustomerLimit?: number | null;
   expiresAt?: string | null;
   isActive: boolean;
 }) {
   return unwrap<Coupon>(api.post("/coupons", payload));
+}
+
+export async function updateCoupon(payload: { couponId: string } & Partial<Omit<Coupon, "id" | "darjiId" | "createdAt" | "updatedAt" | "usedCount">>) {
+  const { couponId, ...body } = payload;
+  return unwrap<Coupon>(api.patch(`/coupons/${couponId}`, body));
+}
+
+export async function deleteCoupon(couponId: string) {
+  return unwrap<{ id: string; deleted: boolean }>(api.delete(`/coupons/${couponId}`));
 }
 
 export async function updateSetting(payload: { key: string; value: unknown }) {
@@ -479,6 +531,14 @@ export async function toggleReviewFeatured(reviewId: string) {
   return unwrap<AdminReview>(api.patch(`/admin/reviews/${reviewId}/featured`));
 }
 
+export async function toggleReviewHidden(reviewId: string) {
+  return unwrap<AdminReview>(api.patch(`/admin/reviews/${reviewId}/hidden`));
+}
+
+export async function deleteReview(reviewId: string) {
+  return unwrap<{ id: string; deleted: boolean }>(api.delete(`/admin/reviews/${reviewId}`));
+}
+
 export type AdminReview = {
   id: string;
   userId: string;
@@ -487,6 +547,7 @@ export type AdminReview = {
   rating: number;
   comment?: string;
   isFeatured: boolean;
+  isHidden: boolean;
   createdAt: string;
   orderNumber: string;
   targetId?: string;

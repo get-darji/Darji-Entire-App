@@ -23,7 +23,8 @@ const envSchema = z.object({
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
-  ENFORCE_CLIENT_CHECKOUT_TOTALS: z.coerce.boolean().default(false)
+  ENFORCE_CLIENT_CHECKOUT_TOTALS: z.coerce.boolean().default(false),
+  CORS_ALLOWED_ORIGINS: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);

@@ -5,7 +5,8 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { CouponModel, DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, MeasurementVisitModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, MeasurementVisitModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { reserveCouponUsage, validateCoupon } from "../services/coupon.service.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
 import { sendPushToUsers } from "../services/push.service.js";
@@ -31,7 +32,7 @@ import {
   nextTwoBatchSlotsAfter
 } from "../services/hybrid-delivery.service.js";
 import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorPoint, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
-import { getPlatformFee, getSmallOrderFee } from "@darzi/shared";
+import { getPlatformFee, getSmallOrderFee, HOME_MEASUREMENT_FEE } from "@darzi/shared";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -2242,6 +2243,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   ).trim();
   const preferredMeasurementSlot = input.preferredMeasurementSlot ?? storedMeasurementSlot;
   const hasHomeMeasurement = Boolean(request.homeMeasurementBooked || request.items?.some((item) => item.homeMeasurementBooked));
+  const expectedHomeMeasurementFee = hasHomeMeasurement ? HOME_MEASUREMENT_FEE : 0;
   if (hasHomeMeasurement && !preferredMeasurementSlot) {
     throw new AppError(400, "Select a measurement visit time slot before confirming this order");
   }
@@ -2265,7 +2267,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   const enforceClientCheckoutTotals = env.ENFORCE_CLIENT_CHECKOUT_TOTALS;
 
   if (enforceClientCheckoutTotals && Math.abs(input.deliveryFee - expectedDeliveryFee) > 1) {
-    throw new AppError(400, `Delivery fee mismatch. Expected: ?${expectedDeliveryFee}`);
+    throw new AppError(400, `Delivery fee mismatch. Expected: ₹${expectedDeliveryFee}`);
   }
 
   if (enforceClientCheckoutTotals && Math.abs(input.platformFee - expectedPlatformFee) > 1) {
@@ -2274,27 +2276,24 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   if (enforceClientCheckoutTotals && Math.abs(input.smallOrderFee - expectedSmallOrderFee) > 1) {
     throw new AppError(400, `Small order fee mismatch. Expected: ₹${expectedSmallOrderFee}`);
   }
+  if (enforceClientCheckoutTotals && Math.abs(input.homeMeasurementFee - expectedHomeMeasurementFee) > 1) {
+    throw new AppError(400, `Home measurement fee mismatch. Expected: ₹${expectedHomeMeasurementFee}`);
+  }
 
-  const subtotalBeforeDiscount = tailoringSubtotal + expectedDeliveryFee + expectedPlatformFee + expectedSmallOrderFee + input.homeMeasurementFee;
+  const subtotalBeforeDiscount = tailoringSubtotal + expectedDeliveryFee + expectedPlatformFee + expectedSmallOrderFee + expectedHomeMeasurementFee;
   let discountAmount = 0;
   let couponCode: string | undefined;
+  let couponId: string | undefined;
   if (input.couponCode) {
-    const coupon = await CouponModel.findOne({ code: input.couponCode.toUpperCase() });
-    if (!coupon || !coupon.isActive || (coupon.expiresAt && coupon.expiresAt <= new Date())) {
-      throw new AppError(400, "Coupon is invalid or expired");
-    }
-    if (subtotalBeforeDiscount < Number(coupon.minOrderValue ?? 0)) {
-      throw new AppError(400, `Coupon requires minimum cart value of ₹${Number(coupon.minOrderValue ?? 0).toFixed(0)}`);
-    }
-    discountAmount = coupon.discountType === "PERCENTAGE"
-      ? (subtotalBeforeDiscount * Number(coupon.discountValue ?? 0)) / 100
-      : Number(coupon.discountValue ?? 0);
-    if (coupon.maxDiscount != null) discountAmount = Math.min(discountAmount, Number(coupon.maxDiscount));
-    discountAmount = Math.min(Math.max(0, Number(discountAmount.toFixed(2))), subtotalBeforeDiscount);
-    couponCode = coupon.code;
+    const validated = await validateCoupon(input.couponCode, subtotalBeforeDiscount, request.customerId);
+    couponId = validated.coupon.id;
+    couponCode = validated.coupon.code;
+    discountAmount = validated.discount;
   }
   const payableAmount = Number(Math.max(subtotalBeforeDiscount - discountAmount, 0).toFixed(2));
   if (enforceClientCheckoutTotals && Math.abs(input.totalAmount - payableAmount) > 1) throw new AppError(400, "Checkout total changed. Refresh cart and try again.");
+
+  if (couponId) await reserveCouponUsage(couponId, request.customerId, request.id);
 
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: input.paymentMethod === "COD" ? "ACCEPTED" : "RESERVED" });
@@ -2312,7 +2311,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     deliveryFeeLockedAt: new Date(),
     platformFee: expectedPlatformFee,
     smallOrderFee: expectedSmallOrderFee,
-    homeMeasurementFee: input.homeMeasurementFee,
+    homeMeasurementFee: expectedHomeMeasurementFee,
     ...(preferredMeasurementSlot ? { preferredMeasurementSlot } : {}),
     couponCode,
     discountAmount,
@@ -2331,7 +2330,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
       totalChargeableDistanceMeters: lockedDelivery.totalChargeableDistanceMeters,
       platformFee: expectedPlatformFee,
       smallOrderFee: expectedSmallOrderFee,
-      homeMeasurementFee: input.homeMeasurementFee,
+      homeMeasurementFee: expectedHomeMeasurementFee,
       additionalItems: input.additionalItems,
       couponCode,
       discountAmount,

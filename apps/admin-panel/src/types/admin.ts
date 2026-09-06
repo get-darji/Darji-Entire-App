@@ -62,7 +62,9 @@ export type Payment = {
   customerPaid?: number;
   tailorQuote?: number;
   deliveryEarnings?: number;
-  netRevenue?: number;
+  netRevenue?: number | null;
+  packagingCost?: number;
+  realized?: boolean;
   source?: "ORDER" | "TAILORING_REQUEST";
   createdAt?: string;
   updatedAt?: string;
@@ -460,6 +462,9 @@ export type Coupon = {
   discountValue: number;
   minOrderValue: number;
   maxDiscount?: number | null;
+  usageLimit?: number | null;
+  perCustomerLimit?: number | null;
+  usedCount?: number;
   expiresAt?: string | null;
   isActive: boolean;
   createdAt?: string;
@@ -713,5 +718,59 @@ export type AdminUser = BasicUser & {
 export type AuthSession = {
   user: BasicUser;
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string;
+};
+
+export type AdminOrderNote = {
+  adminId: string;
+  adminName: string;
+  note: string;
+  createdAt: string;
+};
+
+export type AdminOrderMetadata = {
+  id: string;
+  entityId: string;
+  priority: "Normal" | "High" | "Urgent" | "VIP";
+  notes: AdminOrderNote[];
+  updatedAt?: string;
+};
+
+export type AdminActivityLog = {
+  id: string;
+  actorId: string;
+  actorRole: string;
+  actorName?: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  entityType?: string;
+  entityId?: string;
+  summary: string;
+  createdAt: string;
+};
+
+export type SystemHealth = {
+  checkedAt: string;
+  overall: "healthy" | "attention";
+  checks: Array<{
+    key: string;
+    label: string;
+    status: "healthy" | "degraded" | "unconfigured";
+    detail: string;
+  }>;
+};
+
+export type NotificationCampaign = {
+  id: string;
+  channel: "push";
+  target: "everyone" | "customers" | "tailors" | "delivery";
+  title: string;
+  body: string;
+  status: "SCHEDULED" | "SENDING" | "SENT" | "FAILED";
+  scheduledAt?: string;
+  sentAt?: string;
+  recipientCount: number;
+  error?: string;
+  createdAt: string;
 };

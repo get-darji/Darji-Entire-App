@@ -10,7 +10,7 @@ import {
   type CustomerWebsiteSlider
 } from "../../../../shared/src/customer-website-slider";
 import { defaultPlatformStatus, type PlatformStatus } from "../../../../shared/src/platform-status";
-import { orderStatuses } from "../../../../shared/src/order-statuses";
+import { allowedOrderStatusTransitions, orderStatuses } from "../../../../shared/src/order-statuses";
 import {
   useMutation,
   useQuery,
@@ -104,6 +104,8 @@ import {
   cancelTailoringRequest,
   createAdminOrder,
   createCoupon,
+  updateCoupon,
+  deleteCoupon,
   deleteAdminAccount,
   extractError,
   getAnalytics,
@@ -123,10 +125,8 @@ import {
   getWalletPayouts,
   getWalletDetail,
   createWalletPayout,
-  getDeliveryFareSettings,
   getOperationalAlerts,
   updateOperationalAlert,
-  updateDeliveryFareSettings,
   getSettings,
   resetEverythingDevelopment,
   resetOrdersRequestsBatches,
@@ -155,10 +155,20 @@ import {
   rejectAccountChangeRequest,
   getAdminReviews,
   toggleReviewFeatured,
+  toggleReviewHidden,
+  deleteReview,
   resolveDeliveryRetry,
   retryDeliveryNow,
   reassignDeliveryBatchTask,
   sendAdminNotification,
+  getAdminNotificationCampaigns,
+  getAdminActivityLogs,
+  getAdminOrderMetadata,
+  updateAdminOrderMetadata,
+  getSystemHealth,
+  updateAdminProfile,
+  restoreAdminSession,
+  logoutAdminSession,
   addSupportTicketMessage,
   addBugReportMessage,
   addChangeRequestMessage,
@@ -202,7 +212,10 @@ import type {
   WalletPayoutRow,
   WalletDetail,
   DeliveryFareSettings,
-  OperationalAlert
+  OperationalAlert,
+  AdminActivityLog,
+  SystemHealth,
+  NotificationCampaign
 } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
@@ -302,7 +315,9 @@ type PaymentBreakdown = {
   customerPaid: number;
   tailorQuote: number;
   deliveryEarnings: number;
+  packagingCost: number;
   netRevenue: number;
+  realized: boolean;
 };
 
 type FinanceSummary = {
@@ -460,6 +475,7 @@ export function AdminPortal() {
   const clearSessionNotice = useAdminStore((state) => state.clearSessionNotice);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [sessionRestoreDone, setSessionRestoreDone] = useState(false);
   const [dashboardDrilldown, setDashboardDrilldown] = useState<DashboardDrilldown | null>(null);
 
   useEffect(() => {
@@ -467,6 +483,15 @@ export function AdminPortal() {
     toast.error(sessionNotice);
     clearSessionNotice();
   }, [clearSessionNotice, sessionNotice]);
+  useEffect(() => {
+    if (!hydrated || sessionRestoreDone) return;
+    if (token) {
+      setSessionRestoreDone(true);
+      return;
+    }
+    void restoreAdminSession().catch(() => undefined).finally(() => setSessionRestoreDone(true));
+  }, [hydrated, sessionRestoreDone, token]);
+  const handleLogout = () => { void logoutAdminSession().catch(() => logout()); };
   const [orderSearch, setOrderSearch] = useState("");
   const [range] = useState<TrendRange>("monthly");
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriodPreset>("last_30_days");
@@ -534,6 +559,8 @@ export function AdminPortal() {
     discountValue: 100,
     minOrderValue: 499,
     maxDiscount: "",
+    usageLimit: "",
+    perCustomerLimit: "",
     expiresAt: "",
     isActive: true
   });
@@ -546,6 +573,8 @@ export function AdminPortal() {
   const [uploadingWebsiteSlideId, setUploadingWebsiteSlideId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const isAuthed = Boolean(token);
+  const globalLookupActive = globalSearch.trim().length >= 2;
+  const needsSection = (...sections: SectionId[]) => isAuthed && (sections.includes(activeSection) || globalLookupActive);
   const supportSubTab = persistedSupportSubTab;
 
   const meQuery = useQuery({
@@ -556,137 +585,155 @@ export function AdminPortal() {
   const analyticsQuery = useQuery({
     queryKey: ["admin", "analytics"],
     queryFn: getAnalytics,
-    enabled: isAuthed
+    enabled: needsSection("dashboard")
   });
   const ordersQuery = useQuery({
     queryKey: ["admin", "orders"],
-    queryFn: () => getOrders({ limit: 5000 }),
-    enabled: isAuthed
+    queryFn: () => getOrders({ limit: 1000 }),
+    enabled: needsSection("dashboard", "orders", "analytics", "activity", "exports")
   });
+  const [couponEditTarget, setCouponEditTarget] = useState<Coupon | null>(null);
   const catalogQuery = useQuery({
     queryKey: ["admin", "catalog"],
     queryFn: getCatalog,
-    enabled: isAuthed
+    enabled: needsSection("orders") || createOrderOpen
   });
   const tailoringQuery = useQuery({
     queryKey: ["admin", "tailoring-requests"],
     queryFn: getTailoringRequests,
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "orders", "tailoring", "measurements", "payments", "analytics", "exports")
   });
   const deliveryQuery = useQuery({
     queryKey: ["admin", "delivery-requests"],
     queryFn: getDeliveryRequests,
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "orders", "delivery", "batches", "payments", "analytics", "exports")
   });
   const deliveryRetriesQuery = useQuery({
     queryKey: ["admin", "delivery-retries"],
     queryFn: getDeliveryRetries,
-    enabled: isAuthed
+    enabled: needsSection("delivery")
   });
   const deliveryBatchesQuery = useQuery({
     queryKey: ["admin", "delivery-batches"],
     queryFn: getDeliveryBatches,
-    enabled: isAuthed,
-    refetchInterval: 5000
+    enabled: needsSection("dashboard", "delivery", "batches", "payments"),
+    refetchInterval: ["delivery", "batches"].includes(activeSection) ? 15_000 : false
   });
   const dashboardAnalyticsQuery = useQuery({
     queryKey: ["admin", "dashboard-analytics", dashboardPeriod, payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getDashboardAnalytics({ start: payoutPeriodParams.weekStart, endExclusive: payoutPeriodParams.weekEnd, lifetime: dashboardPeriod === "lifetime" }),
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "payments", "analytics")
   });
   const measurementVisitsQuery = useQuery({
     queryKey: ["admin", "measurement-visits"],
     queryFn: getMeasurementVisits,
-    enabled: isAuthed,
-    refetchInterval: 10000
+    enabled: needsSection("measurements"),
+    refetchInterval: activeSection === "measurements" ? 15_000 : false
   });
   const operationalAlertsQuery = useQuery({
     queryKey: ["admin", "operational-alerts", "ALL"],
     queryFn: () => getOperationalAlerts(),
-    enabled: isAuthed,
-    refetchInterval: 10000
+    enabled: needsSection("dashboard"),
+    refetchInterval: activeSection === "dashboard" ? 15_000 : false
   });
   const tailorsQuery = useQuery({
     queryKey: ["admin", "tailors"],
     queryFn: getTailors,
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "orders", "tailoring", "measurements", "tailors", "samples", "notifications", "analytics", "exports")
   });
   const partnersQuery = useQuery({
     queryKey: ["admin", "partners"],
     queryFn: getDeliveryPartners,
-    enabled: isAuthed,
-    refetchInterval: 5000
+    enabled: needsSection("dashboard", "orders", "delivery", "batches", "partners", "notifications", "analytics", "exports"),
+    refetchInterval: ["delivery", "batches", "partners"].includes(activeSection) ? 15_000 : false
   });
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: getUsers,
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "orders", "users", "roles", "notifications", "exports") || createOrderOpen
   });
   const paymentsQuery = useQuery({
     queryKey: ["admin", "payments"],
     queryFn: getPayments,
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "payments", "analytics", "activity", "exports")
   });
   const tailorPayoutsQuery = useQuery({
     queryKey: ["admin", "wallet-payouts", "tailors", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getWalletPayouts("TAILOR", payoutPeriodParams),
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "payments")
   });
   const deliveryPayoutsQuery = useQuery({
     queryKey: ["admin", "wallet-payouts", "delivery", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getWalletPayouts("DELIVERY_PARTNER", payoutPeriodParams),
-    enabled: isAuthed
+    enabled: needsSection("dashboard", "payments")
   });
   const walletDetailQuery = useQuery({
     queryKey: ["admin", "wallet-detail", walletDetailTarget?.userId],
     queryFn: () => getWalletDetail(walletDetailTarget!.userId),
     enabled: isAuthed && Boolean(walletDetailTarget)
   });
-  const deliveryFareSettingsQuery = useQuery({
-    queryKey: ["admin", "delivery-fare-settings"],
-    queryFn: getDeliveryFareSettings,
-    enabled: isAuthed
-  });
   const couponsQuery = useQuery({
     queryKey: ["admin", "coupons"],
     queryFn: getCoupons,
-    enabled: isAuthed
+    enabled: needsSection("coupons")
   });
   const supportQuery = useQuery({
     queryKey: ["admin", "support"],
     queryFn: getSupportTickets,
-    enabled: isAuthed
+    enabled: needsSection("support", "dashboard", "activity", "exports")
   });
   const settingsQuery = useQuery({
     queryKey: ["admin", "settings"],
     queryFn: getSettings,
-    enabled: isAuthed
+    enabled: needsSection("settings", "platform", "website", "batches", "tailors")
   });
   const platformStatusQuery = useQuery({
     queryKey: ["admin", "platform-status"],
     queryFn: getPlatformStatus,
-    enabled: isAuthed,
+    enabled: needsSection("platform", "dashboard"),
     refetchInterval: 60_000
   });
   const supportStatsQuery = useQuery({
     queryKey: ["admin", "support-stats"],
     queryFn: getSupportStats,
-    enabled: isAuthed
+    enabled: needsSection("support", "dashboard")
   });
   const bugReportsQuery = useQuery({
     queryKey: ["admin", "bug-reports"],
     queryFn: getBugReports,
-    enabled: isAuthed
+    enabled: needsSection("support")
   });
   const changeRequestsQuery = useQuery({
     queryKey: ["admin", "change-requests"],
     queryFn: getAccountChangeRequests,
-    enabled: isAuthed
+    enabled: needsSection("support")
   });
   const reviewsQuery = useQuery({
     queryKey: ["admin", "reviews"],
     queryFn: getAdminReviews,
-    enabled: isAuthed
+    enabled: needsSection("reviews", "analytics")
+  });
+  const orderMetadataQuery = useQuery({
+    queryKey: ["admin", "order-metadata"],
+    queryFn: getAdminOrderMetadata,
+    enabled: isAuthed && ["orders", "dashboard"].includes(activeSection)
+  });
+  const activityLogsQuery = useQuery({
+    queryKey: ["admin", "activity-logs"],
+    queryFn: getAdminActivityLogs,
+    enabled: isAuthed && activeSection === "activity"
+  });
+  const systemHealthQuery = useQuery({
+    queryKey: ["admin", "system-health"],
+    queryFn: getSystemHealth,
+    enabled: isAuthed && activeSection === "health",
+    refetchInterval: activeSection === "health" ? 30_000 : false
+  });
+  const notificationCampaignsQuery = useQuery({
+    queryKey: ["admin", "notification-campaigns"],
+    queryFn: getAdminNotificationCampaigns,
+    enabled: isAuthed && activeSection === "notifications",
+    refetchInterval: activeSection === "notifications" ? 15_000 : false
   });
   const emptyAnalytics: AnalyticsSummary = {
     totalOrders: 0,
@@ -763,24 +810,13 @@ export function AdminPortal() {
   }, [platformStatusQuery.data]);
 
   useEffect(() => {
-    try {
-      const storedPriorities = localStorage.getItem("darzi.admin.orderPriorities");
-      const storedNotes = localStorage.getItem("darzi.admin.orderNotes");
-      if (storedPriorities) setOrderPriorities(JSON.parse(storedPriorities) as Record<string, AdminOrderPriority>);
-      if (storedNotes) setOrderNotes(JSON.parse(storedNotes) as Record<string, AdminOrderNote[]>);
-    } catch {
-      setOrderPriorities({});
-      setOrderNotes({});
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("darzi.admin.orderPriorities", JSON.stringify(orderPriorities));
-  }, [orderPriorities]);
-
-  useEffect(() => {
-    localStorage.setItem("darzi.admin.orderNotes", JSON.stringify(orderNotes));
-  }, [orderNotes]);
+    if (!orderMetadataQuery.data) return;
+    setOrderPriorities(Object.fromEntries(orderMetadataQuery.data.map((item) => [item.entityId, item.priority])));
+    setOrderNotes(Object.fromEntries(orderMetadataQuery.data.map((item) => [
+      item.entityId,
+      item.notes.map((note) => ({ admin: note.adminName, note: note.note, createdAt: note.createdAt }))
+    ])));
+  }, [orderMetadataQuery.data]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -958,6 +994,8 @@ export function AdminPortal() {
         discountValue: 100,
         minOrderValue: 499,
         maxDiscount: "",
+        usageLimit: "",
+        perCustomerLimit: "",
         expiresAt: "",
         isActive: true
       });
@@ -1032,15 +1070,6 @@ export function AdminPortal() {
     }
   }
 
-  const deliveryFareMutation = useMutation({
-    mutationFn: updateDeliveryFareSettings,
-    onSuccess: async () => {
-      toast.success("Delivery fare settings saved");
-      await queryClient.invalidateQueries({ queryKey: ["admin", "delivery-fare-settings"] });
-    },
-    onError: (error) => toast.error(extractError(error))
-  });
-
   const deliveryRetryMutation = useMutation({
     mutationFn: ({ taskId, action }: { taskId: string; action: string }) => {
       if (action === "retry") return retryDeliveryNow(taskId);
@@ -1078,6 +1107,57 @@ export function AdminPortal() {
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] })
       ]);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const reviewHiddenMutation = useMutation({
+    mutationFn: toggleReviewHidden,
+    onSuccess: async () => {
+      toast.success("Review moderation updated");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const reviewDeleteMutation = useMutation({
+    mutationFn: deleteReview,
+    onSuccess: async () => {
+      toast.success("Review deleted");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "reviews"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const couponUpdateMutation = useMutation({
+    mutationFn: updateCoupon,
+    onSuccess: async () => {
+      setCouponEditTarget(null);
+      toast.success("Coupon updated");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "coupons"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const couponDeleteMutation = useMutation({
+    mutationFn: deleteCoupon,
+    onSuccess: async () => {
+      toast.success("Unused coupon deleted");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "coupons"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const orderMetadataMutation = useMutation({
+    mutationFn: updateAdminOrderMetadata,
+    onSuccess: async (metadata) => {
+      setOrderPriorities((current) => ({ ...current, [metadata.entityId]: metadata.priority }));
+      setOrderNotes((current) => ({
+        ...current,
+        [metadata.entityId]: metadata.notes.map((note) => ({ admin: note.adminName, note: note.note, createdAt: note.createdAt }))
+      }));
+      await queryClient.invalidateQueries({ queryKey: ["admin", "order-metadata"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "activity-logs"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1302,7 +1382,7 @@ export function AdminPortal() {
 
 
 
-  if (!hydrated) {
+  if (!hydrated || !sessionRestoreDone) {
     return (
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-8 text-center shadow-[var(--shadow)] backdrop-blur">
@@ -1355,7 +1435,7 @@ export function AdminPortal() {
         globalSearch={globalSearch}
         globalSearchResults={[]}
         onGlobalSearchChange={setGlobalSearch}
-        onLogout={logout}
+        onLogout={handleLogout}
         onOpenSidebar={() => setSidebarOpen(true)}
         onSectionChange={setActiveSection}
         sidebarOpen={sidebarOpen}
@@ -1370,7 +1450,7 @@ export function AdminPortal() {
               {meQuery.isFetching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
               Retry
             </ActionButton>
-            <ActionButton onClick={logout} variant="secondary">Sign in again</ActionButton>
+            <ActionButton onClick={handleLogout} variant="secondary">Sign in again</ActionButton>
           </div>
         </Panel>
       </PortalFrame>
@@ -1401,7 +1481,7 @@ export function AdminPortal() {
         globalSearch={globalSearch}
         globalSearchResults={[]}
         onGlobalSearchChange={setGlobalSearch}
-        onLogout={logout}
+        onLogout={handleLogout}
         onOpenSidebar={() => setSidebarOpen(true)}
         onSectionChange={setActiveSection}
         sidebarOpen={sidebarOpen}
@@ -1429,7 +1509,7 @@ export function AdminPortal() {
         globalSearchResults={[]}
         me={meQuery.data}
         onGlobalSearchChange={setGlobalSearch}
-        onLogout={logout}
+        onLogout={handleLogout}
         onOpenSidebar={() => setSidebarOpen(true)}
         onSectionChange={setActiveSection}
         sidebarOpen={sidebarOpen}
@@ -2355,7 +2435,14 @@ export function AdminPortal() {
     onMarkPaid: (paymentId) => paymentMutation.mutate({ paymentId }),
     pending: paymentMutation.isPending
   });
-  const couponColumns = getCouponColumns();
+  const couponColumns = getCouponColumns({
+    onDelete: (coupon) => {
+      if (window.confirm(`Delete unused coupon ${coupon.code}? This cannot be undone.`)) couponDeleteMutation.mutate(coupon.id);
+    },
+    onEdit: setCouponEditTarget,
+    onToggle: (coupon) => couponUpdateMutation.mutate({ couponId: coupon.id, isActive: !coupon.isActive }),
+    pendingId: couponUpdateMutation.isPending ? couponUpdateMutation.variables?.couponId : couponDeleteMutation.isPending ? couponDeleteMutation.variables : undefined
+  });
   const ticketColumns = getTicketColumns({ onOpen: setTicketDetail });
   const changeRequestColumns = getChangeRequestColumns({ onOpen: setActiveChangeRequest });
   const bugReportColumns = getBugReportColumns({ onOpen: setActiveBugReport, users });
@@ -2396,7 +2483,7 @@ export function AdminPortal() {
         globalSearchResults={globalSearchResults}
         me={me}
         onGlobalSearchChange={setGlobalSearch}
-        onLogout={logout}
+        onLogout={handleLogout}
         onOpenSidebar={() => setSidebarOpen(true)}
         onMarkAllNotificationsRead={() => notificationReadMutation.mutate(unreadHeaderNotifications.map((alert) => alert.id))}
         onNotificationOpen={openHeaderNotification}
@@ -2791,7 +2878,7 @@ export function AdminPortal() {
             {dashboardDrilldown?.target === "payments" ? <KpiDrilldownNotice count={dashboardDrilldown.key === "payments_paid" ? filteredPayments.length : activePayoutRows.filter((row) => dashboardDrilldown.key === "partner_cost" ? row.currentWeekEarnings > 0 : row.pendingAmount > 0).length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             <SectionIntro
               title="Payments and collections"
-              description="Payment ledger with net revenue calculated as customer paid minus tailor quote and delivery earnings."
+              description="Payment ledger reconciled against collected payments, recorded partner earnings, finalized delivery payout, and ₹8 packaging cost."
               action={
                 <div className="flex items-center gap-2">
                   <FilterSelect
@@ -2837,10 +2924,10 @@ export function AdminPortal() {
             {paymentsSubTab === "ledger" ? (
               <>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                  <FinanceStatCard label="Gross paid" value={formatCurrency(financeSummary.grossPaid)} note={`${financeSummary.paidCount} settled payments`} tone="emerald" />
+                  <FinanceStatCard label="Gross paid" value={formatCurrency(dashboardAnalytics.finance.grossPaid)} note={`${dashboardAnalytics.finance.paidOrders} paid orders in period`} tone="emerald" />
                   <FinanceStatCard label="Tailor due" value={formatCurrency(totalPendingTailorPayments)} note="Wallet balance due" tone="amber" />
                   <FinanceStatCard label="Delivery due" value={formatCurrency(totalPendingDeliveryPayments)} note="Delivery wallet due" tone="sky" />
-                  <FinanceStatCard label="Net revenue" value={formatCurrency(financeSummary.netRevenue)} note="Gross paid - partner cost" tone="violet" />
+                  <FinanceStatCard label="Realized net revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note={`${dashboardAnalytics.finance.realizedCompletedOrders} fully reconciled delivered orders`} tone="violet" />
                   <FinanceStatCard label="Wallet liabilities" value={formatCurrency(walletLiabilities)} note="All unpaid wallets" tone="rose" />
                 </div>
                 <DataTable columns={paymentColumns} data={filteredPayments} emptyMessage="No payment records match the current filters." />
@@ -2879,11 +2966,19 @@ export function AdminPortal() {
                 discountValue: Number(couponDraft.discountValue),
                 minOrderValue: Number(couponDraft.minOrderValue),
                 maxDiscount: couponDraft.maxDiscount ? Number(couponDraft.maxDiscount) : null,
+                usageLimit: couponDraft.usageLimit ? Number(couponDraft.usageLimit) : null,
+                perCustomerLimit: couponDraft.perCustomerLimit ? Number(couponDraft.perCustomerLimit) : null,
                 expiresAt: couponDraft.expiresAt ? new Date(couponDraft.expiresAt).toISOString() : null,
                 isActive: couponDraft.isActive
               })} pending={couponMutation.isPending} />}
             />
             <DataTable columns={couponColumns} data={filteredCoupons} emptyMessage="No coupons match the current search." />
+            <CouponEditDialog
+              coupon={couponEditTarget}
+              onClose={() => setCouponEditTarget(null)}
+              onSave={(payload) => couponEditTarget && couponUpdateMutation.mutate({ couponId: couponEditTarget.id, ...payload })}
+              pending={couponUpdateMutation.isPending}
+            />
           </div>
         ) : null}
         {activeSection === "support" ? (
@@ -2906,21 +3001,31 @@ export function AdminPortal() {
         {activeSection === "reviews" ? (
           <ReviewsManagementPanel
             loading={reviewsQuery.isLoading}
+            onDelete={(reviewId) => {
+              if (window.confirm("Permanently delete this review?")) reviewDeleteMutation.mutate(reviewId);
+            }}
+            onToggleHidden={(reviewId) => reviewHiddenMutation.mutate(reviewId)}
             onToggleFeatured={(reviewId) => reviewFeaturedMutation.mutate(reviewId)}
-            pendingReviewId={reviewFeaturedMutation.isPending ? reviewFeaturedMutation.variables : undefined}
+            pendingReviewId={reviewFeaturedMutation.isPending ? reviewFeaturedMutation.variables : reviewHiddenMutation.isPending ? reviewHiddenMutation.variables : reviewDeleteMutation.isPending ? reviewDeleteMutation.variables : undefined}
             reviews={reviewsQuery.data ?? []}
           />
         ) : null}
 
         {activeSection === "notifications" ? (
-          <NotificationsModule customers={filteredUsers} partners={partners} tailors={tailors} />
+          <NotificationsModule
+            campaigns={notificationCampaignsQuery.data ?? []}
+            customers={filteredUsers}
+            loading={notificationCampaignsQuery.isLoading}
+            onRefresh={() => void queryClient.invalidateQueries({ queryKey: ["admin", "notification-campaigns"] })}
+            partners={partners}
+            tailors={tailors}
+          />
         ) : null}
 
         {activeSection === "analytics" ? (
           <AnalyticsModule
             categoryBreakdown={categoryBreakdown}
-            financeSummary={financeSummary}
-            growthSeries={growthSeries}
+            dashboardAnalytics={dashboardAnalytics}
             orders={allOrders}
             payments={payments}
             reviews={reviewsQuery.data ?? []}
@@ -2930,10 +3035,8 @@ export function AdminPortal() {
 
         {activeSection === "activity" ? (
           <ActivityLogsModule
-            me={me}
-            orders={dashboardOrders}
-            payments={dashboardPayments}
-            tickets={tickets.filter((ticket) => isDateInDashboardPeriod(ticket.createdAt, dashboardPeriodBounds))}
+            loading={activityLogsQuery.isLoading}
+            logs={activityLogsQuery.data ?? []}
           />
         ) : null}
 
@@ -2949,11 +3052,10 @@ export function AdminPortal() {
 
         {activeSection === "health" ? (
           <SystemHealthModule
-            analyticsOk={analyticsQuery.isSuccess}
-            backendOk={meQuery.isSuccess}
-            batchOk={!deliveryBatchesQuery.isError}
-            paymentsOk={paymentsQuery.isSuccess}
-            supportOk={supportQuery.isSuccess}
+            error={systemHealthQuery.isError ? extractError(systemHealthQuery.error) : undefined}
+            health={systemHealthQuery.data}
+            loading={systemHealthQuery.isLoading}
+            onRetry={() => void systemHealthQuery.refetch()}
           />
         ) : null}
 
@@ -3015,11 +3117,15 @@ export function AdminPortal() {
               pending={settingMutation.isPending}
               uploading={uploadingTutorialMedia}
             />
-            <DeliveryFareSettingsCard
-              settings={deliveryFareSettingsQuery.data}
-              pending={deliveryFareMutation.isPending}
-              onSave={(value) => deliveryFareMutation.mutate(value)}
-            />
+            <Panel>
+              <h3 className="text-lg font-semibold">Delivery pricing policy</h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">Delivery prices and partner payouts are currently enforced by the backend distance-pricing engine. They are shown here as read-only so this panel cannot save values the live workflow would ignore.</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <DetailBox label="Standard" value="₹49 base" note="₹0.50 per 100 m round-trip" />
+                <DetailBox label="Express" value="₹59 base" note="₹0.50 per 100 m round-trip" />
+                <DetailBox label="Instant" value="₹69 base" note="₹1.00 per 100 m round-trip" />
+              </div>
+            </Panel>
             <BatchSettingsCard
               draft={batchSettingsDraft}
               pending={settingMutation.isPending}
@@ -3044,7 +3150,7 @@ export function AdminPortal() {
               onResetEverything={() => resetEverythingMutation.mutate()}
             />
             <div className="grid gap-4 xl:grid-cols-2">
-              {settings.filter((setting) => !["delivery_batch_settings", "platform_status", "tailor_tutorial_media", CUSTOMER_WEBSITE_SLIDER_SETTING_KEY].includes(setting.key)).map((setting) => (
+              {settings.filter((setting) => !["delivery_batch_settings", "delivery_fare_settings", "platform_status", "tailor_tutorial_media", CUSTOMER_WEBSITE_SLIDER_SETTING_KEY].includes(setting.key)).map((setting) => (
                 <Panel key={setting.id}>
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
@@ -3143,15 +3249,11 @@ export function AdminPortal() {
         onAssign={() => orderDetail && openOrderAssignment(orderDetail)}
         onAddNote={(note) => {
           if (!orderDetail) return;
-          const adminName = me.name ?? me.phone ?? "Admin";
-          setOrderNotes((current) => ({
-            ...current,
-            [orderDetail.id]: [{ admin: adminName, note, createdAt: new Date().toISOString() }, ...(current[orderDetail.id] ?? [])]
-          }));
+          orderMetadataMutation.mutate({ orderId: orderDetail.id, note });
         }}
         onPriorityChange={(priority) => {
           if (!orderDetail) return;
-          setOrderPriorities((current) => ({ ...current, [orderDetail.id]: priority }));
+          orderMetadataMutation.mutate({ orderId: orderDetail.id, priority });
         }}
         onStatusChange={(status) => orderDetail && statusMutation.mutate({ order: orderDetail, status })}
         open={Boolean(orderDetail)}
@@ -3651,24 +3753,34 @@ function PortalFrame({
   const setSupportSubTab = useAdminStore((state) => state.setSupportSubTab);
   const theme = useAdminStore((state) => state.theme);
   const toggleTheme = useAdminStore((state) => state.toggleTheme);
+  const queryClient = useQueryClient();
   const [adminProfileOpen, setAdminProfileOpen] = useState(false);
-  const [adminProfile, setAdminProfile] = useState(() => ({ name: "", age: "", avatarUrl: "" }));
+  const [adminProfile, setAdminProfile] = useState(() => ({ name: "", avatarUrl: "" }));
   const displayName = adminProfile.name || me?.name || "Super Admin";
   const profileMe: MeResponse | undefined = me ? { ...me, name: displayName, avatarUrl: adminProfile.avatarUrl || me.avatarUrl } : undefined;
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("darzi.admin.profilePrefs");
-      if (stored) setAdminProfile(JSON.parse(stored) as { name: string; age: string; avatarUrl: string });
-    } catch {
-      setAdminProfile({ name: "", age: "", avatarUrl: "" });
-    }
-  }, []);
+    if (me) setAdminProfile({ name: me.name ?? "", avatarUrl: me.avatarUrl ?? "" });
+  }, [me]);
+
+  const profileMutation = useMutation({
+    mutationFn: updateAdminProfile,
+    onSuccess: async (updated) => {
+      setAdminProfile({ name: updated.name ?? "", avatarUrl: updated.avatarUrl ?? "" });
+      setAdminProfileOpen(false);
+      toast.success("Admin profile saved to your account");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
 
   function saveAdminProfile() {
-    localStorage.setItem("darzi.admin.profilePrefs", JSON.stringify(adminProfile));
-    setAdminProfileOpen(false);
-    toast.success("Admin profile updated");
+    const name = adminProfile.name.trim();
+    if (name.length < 2) {
+      toast.error("Enter an admin name with at least 2 characters");
+      return;
+    }
+    profileMutation.mutate({ name, avatarUri: adminProfile.avatarUrl || undefined });
   }
 
   return (
@@ -3956,20 +4068,16 @@ function PortalFrame({
           <div className="mb-4 flex items-center justify-between">
             <div>
               <Dialog.Title className="text-lg font-semibold text-[var(--foreground)]">Edit Admin Profile</Dialog.Title>
-              <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Name, age and avatar shown inside this admin panel.</Dialog.Description>
+              <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Name and avatar are saved to your admin account across devices.</Dialog.Description>
             </div>
             <Dialog.Close className="rounded-2xl p-2 text-[var(--muted)] hover:bg-[#fff6e7]">
               <X size={18} />
             </Dialog.Close>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             <label className="space-y-1 text-sm font-semibold text-[var(--foreground)]">
               Name
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-white px-3 py-2.5 outline-none dark:bg-white/5" value={adminProfile.name} onChange={(event) => setAdminProfile((current) => ({ ...current, name: event.target.value }))} placeholder={me?.name ?? "Admin name"} />
-            </label>
-            <label className="space-y-1 text-sm font-semibold text-[var(--foreground)]">
-              Age
-              <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-white px-3 py-2.5 outline-none dark:bg-white/5" value={adminProfile.age} onChange={(event) => setAdminProfile((current) => ({ ...current, age: event.target.value }))} placeholder="Age" />
             </label>
           </div>
           <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-6">
@@ -3981,7 +4089,7 @@ function PortalFrame({
           </div>
           <div className="mt-5 flex justify-end gap-2">
             <button className="rounded-2xl border border-[var(--panel-border)] px-4 py-2 text-sm font-semibold" onClick={() => setAdminProfileOpen(false)} type="button">Cancel</button>
-            <button className="rounded-2xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[#111111]" onClick={saveAdminProfile} type="button">Save Profile</button>
+            <button className="rounded-2xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[#111111] disabled:cursor-not-allowed disabled:opacity-60" disabled={profileMutation.isPending} onClick={saveAdminProfile} type="button">{profileMutation.isPending ? "Saving..." : "Save Profile"}</button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -4241,6 +4349,14 @@ function SectionIntro({
   );
 }
 
+function LoadingState({ label }: { label: string }) {
+  return <div className="flex items-center justify-center gap-2 py-8 text-sm font-semibold text-[var(--muted)]" role="status"><LoaderCircle className="h-4 w-4 animate-spin text-[var(--accent)]" /><span>{label}</span></div>;
+}
+
+function InlineError({ message }: { message: string }) {
+  return <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><p>{message}</p></div>;
+}
+
 function KpiDrilldownNotice({ count, label, onClear, periodLabel }: { count: number; label: string; onClear: () => void; periodLabel: string }) {
   return (
     <div aria-live="polite" className="flex flex-col gap-3 rounded-2xl border border-orange-300 bg-orange-50 px-4 py-3 text-orange-950 sm:flex-row sm:items-center sm:justify-between">
@@ -4350,11 +4466,15 @@ function FinanceStatCard({
 
 function ReviewsManagementPanel({
   loading,
+  onDelete,
+  onToggleHidden,
   onToggleFeatured,
   pendingReviewId,
   reviews
 }: {
   loading: boolean;
+  onDelete: (reviewId: string) => void;
+  onToggleHidden: (reviewId: string) => void;
   onToggleFeatured: (reviewId: string) => void;
   pendingReviewId?: string;
   reviews: AdminReview[];
@@ -4366,8 +4486,8 @@ function ReviewsManagementPanel({
     const query = search.trim().toLowerCase();
     return reviews.filter((review) => {
       if (kindFilter !== "all" && review.kind !== kindFilter) return false;
-      if (featuredFilter === "featured" && !review.isFeatured) return false;
-      if (featuredFilter === "hidden" && review.isFeatured) return false;
+      if (featuredFilter === "featured" && (!review.isFeatured || review.isHidden)) return false;
+      if (featuredFilter === "hidden" && !review.isHidden) return false;
       if (!query) return true;
       return [
         review.user?.name,
@@ -4414,7 +4534,7 @@ function ReviewsManagementPanel({
               options={[
                 { label: "All visibility", value: "all" },
                 { label: "Shown in app", value: "featured" },
-                { label: "Hidden from app", value: "hidden" }
+                { label: "Moderated / hidden", value: "hidden" }
               ]}
             />
           </div>
@@ -4486,17 +4606,20 @@ function ReviewsManagementPanel({
                     <p className="font-semibold">{review.orderNumber}</p>
                     <p className="text-xs text-[var(--muted)]">{formatDate(review.createdAt, true)}</p>
                   </td>
-                  <td className="px-4 py-4"><Badge tone={review.isFeatured ? "emerald" : "slate"}>{review.isFeatured ? "Shown" : "Hidden"}</Badge></td>
+                  <td className="px-4 py-4"><Badge tone={review.isHidden ? "rose" : review.isFeatured ? "emerald" : "slate"}>{review.isHidden ? "Moderated" : review.isFeatured ? "Featured" : "Available"}</Badge></td>
                   <td className="px-4 py-4">
-                    <ActionButton
-                      className="px-3 py-2"
-                      disabled={pendingReviewId === review.id}
-                      onClick={() => onToggleFeatured(review.id)}
-                      variant={review.isFeatured ? "secondary" : "primary"}
-                    >
-                      {review.isFeatured ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
-                      {review.isFeatured ? "Hide" : "Show"}
-                    </ActionButton>
+                    <div className="flex flex-wrap gap-2">
+                      <ActionButton className="px-3 py-2" disabled={pendingReviewId === review.id || review.isHidden} onClick={() => onToggleFeatured(review.id)} variant={review.isFeatured ? "secondary" : "primary"}>
+                        {review.isFeatured ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                        {review.isFeatured ? "Unfeature" : "Feature"}
+                      </ActionButton>
+                      <ActionButton className="px-3 py-2" disabled={pendingReviewId === review.id} onClick={() => onToggleHidden(review.id)} variant="secondary">
+                        {review.isHidden ? "Restore" : "Moderate"}
+                      </ActionButton>
+                      <ActionButton aria-label={`Delete review ${review.id}`} className="px-3 py-2 text-rose-700" disabled={pendingReviewId === review.id} onClick={() => onDelete(review.id)} variant="secondary">
+                        <Trash2 size={16} />
+                      </ActionButton>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -4555,21 +4678,28 @@ function TodayOperationsWidget({ className, items, onOpen, title = "Today's Oper
   );
 }
 
-function NotificationsModule({ customers, partners, tailors }: { customers: AdminUser[]; partners: DeliveryPartnerProfile[]; tailors: TailorProfile[] }) {
-  const [channel, setChannel] = useState("push");
+function NotificationsModule({ campaigns, customers, loading, onRefresh, partners, tailors }: {
+  campaigns: NotificationCampaign[];
+  customers: AdminUser[];
+  loading: boolean;
+  onRefresh: () => void;
+  partners: DeliveryPartnerProfile[];
+  tailors: TailorProfile[];
+}) {
   const [target, setTarget] = useState("everyone");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
-  const [history, setHistory] = useState<Array<{ id: string; channel: string; target: string; title: string; scheduledAt?: string; createdAt: string }>>([]);
   const sendMutation = useMutation({
     mutationFn: sendAdminNotification,
     onSuccess: (result) => {
-      setHistory((current) => [{ id: crypto.randomUUID(), channel, target, title, scheduledAt, createdAt: new Date().toISOString() }, ...current]);
       setTitle("");
       setMessage("");
       setScheduledAt("");
-      toast.success(`Notification sent to ${result.recipients} user${result.recipients === 1 ? "" : "s"}`);
+      onRefresh();
+      toast.success(result.campaign.status === "SCHEDULED"
+        ? "Push campaign scheduled"
+        : `Notification sent to ${result.recipients} user${result.recipients === 1 ? "" : "s"}`);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -4577,18 +4707,11 @@ function NotificationsModule({ customers, partners, tailors }: { customers: Admi
 
   return (
     <div className="space-y-6">
-      <SectionIntro title="Notifications" description="Prepare push, SMS, email, and in-app notification campaigns for Darji users." />
+      <SectionIntro title="Notifications" description="Send or schedule push campaigns. Every attempt and provider failure is retained in the backend." />
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Channel">
-              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={channel} onChange={(event) => setChannel(event.target.value)}>
-                <option value="push">Push Notification</option>
-                <option value="sms">SMS</option>
-                <option value="email">Email</option>
-                <option value="in-app">In-App Notification</option>
-              </select>
-            </Field>
+            <Field label="Channel"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 text-[var(--foreground)]" disabled value="Push notification" /></Field>
             <Field label="Target">
               <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={target} onChange={(event) => setTarget(event.target.value)}>
                 <option value="everyone">Everyone</option>
@@ -4604,28 +4727,36 @@ function NotificationsModule({ customers, partners, tailors }: { customers: Admi
             <Field label="Schedule time">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
             </Field>
-            <ActionButton disabled={channel !== "push" || !title.trim() || !message.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate({ target: target as "everyone" | "customers" | "tailors" | "delivery", title: title.trim(), body: message.trim() })}>
-              {sendMutation.isPending ? "Sending..." : "Send notification"}
+            <ActionButton disabled={!title.trim() || !message.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate({
+              channel: "push",
+              target: target as "everyone" | "customers" | "tailors" | "delivery",
+              title: title.trim(),
+              body: message.trim(),
+              scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null
+            })}>
+              {sendMutation.isPending ? "Saving campaign..." : scheduledAt ? "Schedule notification" : "Send notification"}
             </ActionButton>
           </div>
         </Panel>
         <Panel>
           <h3 className="text-lg font-semibold">Campaign Preview</h3>
           <div className="mt-4 rounded-3xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
-            <Badge tone="sky">{channel.toUpperCase()} - {targetCount} recipients</Badge>
+            <Badge tone="sky">PUSH - {targetCount} potential recipients</Badge>
             <p className="mt-4 text-xl font-bold text-[var(--deep)]">{title || "Notification title"}</p>
             <p className="mt-2 text-sm text-[var(--muted)]">{message || "Message preview will appear here."}</p>
             <p className="mt-4 text-xs text-[var(--muted)]">{scheduledAt ? `Scheduled ${scheduledAt}` : "Send immediately"}</p>
           </div>
           <h4 className="mt-5 font-semibold">Delivery history</h4>
           <div className="mt-3 space-y-2">
-            {history.map((item) => (
+            {campaigns.map((item) => (
               <div key={item.id} className="rounded-2xl border border-[var(--panel-border)] p-3 text-sm">
-                <p className="font-semibold">{item.title}</p>
-                <p className="text-xs text-[var(--muted)]">{item.channel} to {item.target} - {formatDate(item.createdAt, true)}</p>
+                <div className="flex items-start justify-between gap-3"><p className="font-semibold">{item.title}</p><StatusBadge value={item.status} /></div>
+                <p className="mt-1 text-xs text-[var(--muted)]">Push to {item.target} · {item.status === "SCHEDULED" ? `Scheduled ${formatDate(item.scheduledAt, true)}` : formatDate(item.sentAt ?? item.createdAt, true)} · {item.recipientCount ?? 0} recipients</p>
+                {item.error ? <p className="mt-2 text-xs font-semibold text-rose-700">{item.error}</p> : null}
               </div>
             ))}
-            {!history.length ? <EmptyState message="No notification history in this browser yet." /> : null}
+            {loading ? <LoadingState label="Loading campaign history..." /> : null}
+            {!loading && !campaigns.length ? <EmptyState message="No push campaigns have been created yet." /> : null}
           </div>
         </Panel>
       </div>
@@ -4633,17 +4764,18 @@ function NotificationsModule({ customers, partners, tailors }: { customers: Admi
   );
 }
 
-function AnalyticsModule({ categoryBreakdown, financeSummary, growthSeries, orders, payments, reviews, serviceMix }: { categoryBreakdown: Array<{ name: string; value: number; share: number }>; financeSummary: FinanceSummary; growthSeries: GrowthPoint[]; orders: Order[]; payments: Payment[]; reviews: AdminReview[]; serviceMix: Array<{ name: string; value: number }> }) {
+function AnalyticsModule({ categoryBreakdown, dashboardAnalytics, orders, payments, reviews, serviceMix }: { categoryBreakdown: Array<{ name: string; value: number; share: number }>; dashboardAnalytics: DashboardAnalytics; orders: Order[]; payments: Payment[]; reviews: AdminReview[]; serviceMix: Array<{ name: string; value: number }> }) {
   const paid = payments.filter((payment) => payment.status === "PAID");
-  const repeatCustomers = new Set(orders.map((order) => order.customerId).filter((id) => orders.filter((item) => item.customerId === id).length > 1));
+  const customerOrderCounts = orders.reduce<Map<string, number>>((counts, order) => counts.set(order.customerId, (counts.get(order.customerId) ?? 0) + 1), new Map());
+  const repeatCustomers = [...customerOrderCounts.values()].filter((count) => count > 1).length;
   const avgRating = reviews.length ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1) : "-";
   return (
     <div className="space-y-6">
-      <SectionIntro title="Analytics" description="Dedicated MVP reporting for revenue, orders, customer growth, delivery performance, categories and repeat behavior." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-analytics.csv", [{ revenue: financeSummary.netRevenue, orders: orders.length, paid: paid.length, repeatCustomers: repeatCustomers.size }])}>Export CSV</ActionButton>} />
+      <SectionIntro title="Analytics" description="Reporting uses the same server-side order and realized-revenue definitions as the dashboard." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-analytics.csv", [{ realizedNetRevenue: dashboardAnalytics.finance.netRevenue, orders: dashboardAnalytics.orders.total, paid: paid.length, repeatCustomers }])}>Export CSV</ActionButton>} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <FinanceStatCard label="Net Revenue" value={formatCurrency(financeSummary.netRevenue)} note="Gross paid - partner cost" tone="emerald" />
-        <FinanceStatCard label="Orders" value={orders.length.toLocaleString("en-IN")} note="All visible orders" tone="sky" />
-        <FinanceStatCard label="Repeat Customers" value={repeatCustomers.size.toLocaleString("en-IN")} note="More than one order" tone="violet" />
+        <FinanceStatCard label="Realized Net Revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note="Paid − recorded partner costs − packaging" tone="emerald" />
+        <FinanceStatCard label="Orders" value={dashboardAnalytics.orders.total.toLocaleString("en-IN")} note="Created in selected period" tone="sky" />
+        <FinanceStatCard label="Repeat Customers" value={repeatCustomers.toLocaleString("en-IN")} note="More than one loaded order" tone="violet" />
         <FinanceStatCard label="Avg Review" value={avgRating} note={`${reviews.length} reviews`} tone="amber" />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -4656,7 +4788,7 @@ function AnalyticsModule({ categoryBreakdown, financeSummary, growthSeries, orde
         <Panel>
           <h3 className="text-lg font-semibold">Growth Snapshot</h3>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {(growthSeries.slice(-3).length ? growthSeries.slice(-3) : [{ label: "Now", customers: 0, tailors: 0, partners: 0 }]).map((point) => (
+            {(dashboardAnalytics.series.growth.slice(-3).length ? dashboardAnalytics.series.growth.slice(-3) : [{ label: "Now", customers: 0, tailors: 0, partners: 0 }]).map((point) => (
               <div key={point.label} className="rounded-2xl border border-[var(--panel-border)] p-4">
                 <p className="font-semibold">{point.label}</p>
                 <p className="mt-2 text-xs text-[var(--muted)]">Customers {point.customers} - Tailors {point.tailors} - Partners {point.partners}</p>
@@ -4675,24 +4807,24 @@ function AnalyticsModule({ categoryBreakdown, financeSummary, growthSeries, orde
   );
 }
 
-function ActivityLogsModule({ me, orders, payments, tickets }: { me: MeResponse; orders: Order[]; payments: Payment[]; tickets: SupportTicket[] }) {
-  const rows = [
-    ...orders.slice(0, 8).map((order) => ({ module: "Orders", action: "Viewed/managed order", value: getOrderDisplayNumber(order), at: order.updatedAt ?? order.createdAt })),
-    ...payments.slice(0, 6).map((payment) => ({ module: "Payments", action: "Payment state observed", value: payment.status, at: payment.updatedAt ?? payment.createdAt })),
-    ...tickets.slice(0, 6).map((ticket) => ({ module: "Support", action: "Ticket activity", value: ticket.subject, at: ticket.updatedAt ?? ticket.createdAt }))
-  ].sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+function ActivityLogsModule({ loading, logs }: { loading: boolean; logs: AdminActivityLog[] }) {
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toLowerCase();
+  const rows = logs.filter((row) => !needle || [row.actorName, row.actorRole, row.method, row.path, row.entityType, row.entityId].some((value) => String(value ?? "").toLowerCase().includes(needle)));
   return (
     <div className="space-y-6">
-      <SectionIntro title="Activity Logs" description="MVP audit view of recent operational records. Backend-level immutable audit logging can attach to this table later." />
+      <SectionIntro title="Activity Logs" description="Immutable backend records of successful admin mutations. Request bodies and secrets are intentionally excluded." action={<input aria-label="Search activity logs" className="h-10 min-w-[240px] rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 text-sm outline-none focus:border-[var(--accent)]" onChange={(event) => setSearch(event.target.value)} placeholder="Search admin, entity or route" value={search} />} />
       <Panel>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              <tr><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Module</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Value</th><th className="px-4 py-3">Timestamp</th></tr>
+              <tr><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Entity</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Timestamp</th></tr>
             </thead>
-            <tbody>{rows.map((row, index) => <tr key={`${row.module}-${index}`} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3">{me.name ?? me.phone}</td><td className="px-4 py-3">{row.module}</td><td className="px-4 py-3">{row.action}</td><td className="px-4 py-3">{row.value}</td><td className="px-4 py-3">{formatDate(row.at, true)}</td></tr>)}</tbody>
+            <tbody>{rows.map((row) => <tr key={row.id} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3"><p className="font-semibold">{row.actorName || row.actorRole}</p><p className="text-xs text-[var(--muted)]">{row.actorId}</p></td><td className="px-4 py-3"><p>{formatStatus(row.entityType ?? "Admin action")}</p><p className="text-xs text-[var(--muted)]">{row.entityId ?? "—"}</p></td><td className="px-4 py-3"><Badge tone={row.method === "DELETE" ? "rose" : row.method === "POST" ? "emerald" : "sky"}>{row.method}</Badge></td><td className="px-4 py-3 text-xs">{row.path}</td><td className="px-4 py-3">{formatDate(row.createdAt, true)}</td></tr>)}</tbody>
           </table>
         </div>
+        {loading ? <LoadingState label="Loading activity logs..." /> : null}
+        {!loading && !rows.length ? <EmptyState message={needle ? "No activity matches this search." : "No admin mutations have been recorded yet."} /> : null}
       </Panel>
     </div>
   );
@@ -4924,7 +5056,7 @@ function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef
     return "#c4b5fd";
   };
 
-  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-slate-500 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length}>{emptyMessage}</td></tr> : pageRows.map((row) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-slate-700 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
+  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length}>{emptyMessage}</td></tr> : pageRows.map((row) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
 }
 
 function SampleWorkModule({
@@ -5145,29 +5277,25 @@ function RolesModule({
   );
 }
 
-function SystemHealthModule({ analyticsOk, backendOk, batchOk, paymentsOk, supportOk }: { analyticsOk: boolean; backendOk: boolean; batchOk: boolean; paymentsOk: boolean; supportOk: boolean }) {
-  const checks = [
-    ["Backend Status", backendOk],
-    ["Database/API Reads", analyticsOk],
-    ["Payment Gateway API", paymentsOk],
-    ["Support API", supportOk],
-    ["Delivery Batch API", batchOk],
-    ["Storage", true],
-    ["Firebase", true],
-    ["Environment", true]
-  ] as const;
+function SystemHealthModule({ error, health, loading, onRetry }: { error?: string; health?: SystemHealth; loading: boolean; onRetry: () => void }) {
   return (
     <div className="space-y-6">
-      <SectionIntro title="System Health" description="Technical monitoring snapshot from admin API availability and configured services." />
+      <SectionIntro title="System Health" description={health ? `Backend configuration and live connection status checked ${formatDate(health.checkedAt, true)}.` : "Backend configuration and live connection status."} action={<ActionButton disabled={loading} onClick={onRetry} variant="secondary">{loading ? "Checking..." : "Check again"}</ActionButton>} />
+      {error ? <InlineError message={error} /> : null}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {checks.map(([label, ok]) => <Panel key={label}><Badge tone={ok ? "emerald" : "rose"}>{ok ? "Healthy" : "Attention"}</Badge><p className="mt-3 font-semibold">{label}</p><p className="mt-1 text-xs text-[var(--muted)]">{ok ? "Responding normally" : "Endpoint unavailable or failing"}</p></Panel>)}
+        {health?.checks.map((check) => <Panel key={check.key}><Badge tone={check.status === "healthy" ? "emerald" : check.status === "degraded" ? "rose" : "amber"}>{formatStatus(check.status)}</Badge><p className="mt-3 font-semibold">{check.label}</p><p className="mt-1 text-xs text-[var(--muted)]">{check.detail}</p></Panel>)}
       </div>
+      {loading && !health ? <LoadingState label="Checking backend services..." /> : null}
     </div>
   );
 }
 
 function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders, payments, supportTickets, tailors }: { analyticsRows: Array<Record<string, unknown>>; customers: AdminUser[]; deliveryPartners: DeliveryPartnerProfile[]; orders: Order[]; payments: Payment[]; supportTickets: SupportTicket[]; tailors: TailorProfile[] }) {
-  const exports = [
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const datasets = [
     ["Orders", "darzi-orders.csv", orders.map(orderToCsv)],
     ["Payments", "darzi-payments.csv", payments.map(paymentToCsv)],
     ["Customers", "darzi-customers.csv", customers.map(userToCsv)],
@@ -5176,18 +5304,25 @@ function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders
     ["Analytics", "darzi-analytics.csv", analyticsRows],
     ["Support Tickets", "darzi-support.csv", supportTickets.map(ticketToCsv)]
   ] as const;
+  const exports = datasets.map(([label, filename, rows]) => [label, filename, rows.filter((row) => exportRowMatches(row, { search, status, fromDate, toDate }))] as const);
   return (
     <div className="space-y-6">
-      <SectionIntro title="Export Center" description="Download operational data as CSV or Excel, or create a print-ready PDF report." />
+      <SectionIntro title="Export Center" description="Export the currently loaded operational records using the filters below." />
+      <Panel className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Field label="Search all columns"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" placeholder="Name, ID, phone..." value={search} onChange={(event) => setSearch(event.target.value)} /></Field>
+        <Field label="Status"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" placeholder="Paid, delivered, open..." value={status} onChange={(event) => setStatus(event.target.value)} /></Field>
+        <Field label="From date"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></Field>
+        <Field label="To date"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></Field>
+      </Panel>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {exports.map(([label, filename, rows]) => (
           <Panel key={label}>
             <h3 className="text-lg font-semibold">{label}</h3>
-            <p className="mt-1 text-sm text-[var(--muted)]">{rows.length} rows available</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">{rows.length} matching loaded rows</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <ActionButton onClick={() => downloadCsv(filename, rows)}>CSV</ActionButton>
-              <ActionButton variant="secondary" onClick={() => downloadExcel(filename.replace(/\.csv$/i, ".xls"), label, rows)}>Excel</ActionButton>
-              <ActionButton variant="secondary" onClick={() => printTableReport(label, rows)}>PDF</ActionButton>
+              <ActionButton variant="secondary" onClick={() => downloadExcel(filename.replace(/\.csv$/i, ".xls"), label, rows)}>Excel-compatible</ActionButton>
+              <ActionButton variant="secondary" onClick={() => printTableReport(label, rows)}>Print / PDF</ActionButton>
             </div>
           </Panel>
         ))}
@@ -7299,6 +7434,8 @@ function CouponComposer({
     discountValue: number;
     minOrderValue: number;
     maxDiscount: string;
+    usageLimit: string;
+    perCustomerLimit: string;
     expiresAt: string;
     isActive: boolean;
   };
@@ -7309,6 +7446,8 @@ function CouponComposer({
     discountValue: number;
     minOrderValue: number;
     maxDiscount: string;
+    usageLimit: string;
+    perCustomerLimit: string;
     expiresAt: string;
     isActive: boolean;
   }) => void;
@@ -7357,6 +7496,12 @@ function CouponComposer({
             <Field label="Maximum discount">
               <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" type="number" value={draft.maxDiscount} onChange={(event) => onChange({ ...draft, maxDiscount: event.target.value })} />
             </Field>
+            <Field label="Total usage limit">
+              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" min="1" placeholder="Unlimited" type="number" value={draft.usageLimit} onChange={(event) => onChange({ ...draft, usageLimit: event.target.value })} />
+            </Field>
+            <Field label="Per-customer limit">
+              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" min="1" placeholder="Unlimited" type="number" value={draft.perCustomerLimit} onChange={(event) => onChange({ ...draft, perCustomerLimit: event.target.value })} />
+            </Field>
             <Field label="Expiry">
               <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" type="datetime-local" value={draft.expiresAt} onChange={(event) => onChange({ ...draft, expiresAt: event.target.value })} />
             </Field>
@@ -7377,6 +7522,51 @@ function CouponComposer({
               Create coupon
             </ActionButton>
           </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function CouponEditDialog({ coupon, onClose, onSave, pending }: {
+  coupon: Coupon | null;
+  onClose: () => void;
+  onSave: (payload: Partial<Coupon>) => void;
+  pending: boolean;
+}) {
+  const [draft, setDraft] = useState({ description: "", discountType: "FLAT" as "FLAT" | "PERCENTAGE", discountValue: 0, minOrderValue: 0, maxDiscount: "", usageLimit: "", perCustomerLimit: "", expiresAt: "", isActive: true });
+  useEffect(() => {
+    if (!coupon) return;
+    setDraft({
+      description: coupon.description,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      minOrderValue: coupon.minOrderValue,
+      maxDiscount: coupon.maxDiscount == null ? "" : String(coupon.maxDiscount),
+      usageLimit: coupon.usageLimit == null ? "" : String(coupon.usageLimit),
+      perCustomerLimit: coupon.perCustomerLimit == null ? "" : String(coupon.perCustomerLimit),
+      expiresAt: coupon.expiresAt ? new Date(coupon.expiresAt).toISOString().slice(0, 16) : "",
+      isActive: coupon.isActive
+    });
+  }, [coupon]);
+  return (
+    <Dialog.Root open={Boolean(coupon)} onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[min(94vw,680px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+          <div className="flex items-start justify-between gap-4"><div><Dialog.Title className="text-xl font-semibold">Edit {coupon?.code}</Dialog.Title><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Changes apply to future validations; existing redemptions are preserved.</Dialog.Description></div><Dialog.Close asChild><button aria-label="Close coupon editor" className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--accent-soft)]"><X size={18} /></button></Dialog.Close></div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <Field label="Description"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field>
+            <Field label="Discount type"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.discountType} onChange={(event) => setDraft({ ...draft, discountType: event.target.value as "FLAT" | "PERCENTAGE" })}><option value="FLAT">Flat</option><option value="PERCENTAGE">Percentage</option></select></Field>
+            <Field label="Discount value"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="0" type="number" value={draft.discountValue} onChange={(event) => setDraft({ ...draft, discountValue: Number(event.target.value) })} /></Field>
+            <Field label="Minimum order"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="0" type="number" value={draft.minOrderValue} onChange={(event) => setDraft({ ...draft, minOrderValue: Number(event.target.value) })} /></Field>
+            <Field label="Maximum discount"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="No cap" type="number" value={draft.maxDiscount} onChange={(event) => setDraft({ ...draft, maxDiscount: event.target.value })} /></Field>
+            <Field label="Total usage limit"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="Unlimited" type="number" value={draft.usageLimit} onChange={(event) => setDraft({ ...draft, usageLimit: event.target.value })} /></Field>
+            <Field label="Per-customer limit"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="Unlimited" type="number" value={draft.perCustomerLimit} onChange={(event) => setDraft({ ...draft, perCustomerLimit: event.target.value })} /></Field>
+            <Field label="Expiry"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.expiresAt} onChange={(event) => setDraft({ ...draft, expiresAt: event.target.value })} /></Field>
+          </div>
+          <label className="mt-4 flex items-center gap-3 text-sm font-semibold"><input checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} type="checkbox" />Coupon active</label>
+          <div className="mt-6 flex justify-end gap-3"><ActionButton disabled={pending} onClick={onClose} variant="secondary">Cancel</ActionButton><ActionButton disabled={pending || draft.description.trim().length < 3 || draft.discountValue <= 0} onClick={() => onSave({ ...draft, maxDiscount: draft.maxDiscount ? Number(draft.maxDiscount) : null, usageLimit: draft.usageLimit ? Number(draft.usageLimit) : null, perCustomerLimit: draft.perCustomerLimit ? Number(draft.perCustomerLimit) : null, expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : null })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save coupon</ActionButton></div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -8100,7 +8290,7 @@ function OrderDetailDialog({
                   <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
                     <div>
                       <h4 className="text-lg font-semibold">Admin priority</h4>
-                      <p className="mt-1 text-sm text-[var(--muted)]">Local ops priority for triage and follow-up.</p>
+                      <p className="mt-1 text-sm text-[var(--muted)]">Shared operations priority for triage and follow-up.</p>
                       <div className="mt-4 flex flex-wrap items-center gap-3">
                         <select
                           className="h-12 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none"
@@ -8120,7 +8310,7 @@ function OrderDetailDialog({
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <h4 className="text-lg font-semibold">Admin notes</h4>
-                          <p className="mt-1 text-sm text-[var(--muted)]">Notes are saved in this browser for the MVP admin review.</p>
+                          <p className="mt-1 text-sm text-[var(--muted)]">Notes are securely shared with other administrators.</p>
                         </div>
                         <Badge tone="slate">{notes.length} notes</Badge>
                       </div>
@@ -8170,13 +8360,13 @@ function OrderDetailDialog({
                     <div className="mt-auto grid gap-2">
                       <ActionButton className="justify-start" variant="secondary" onClick={onAssign}><UserRoundPlus size={15} />Manage assignments</ActionButton>
                       <select className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 text-sm outline-none" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)}>
-                        {orderStatuses.map((status) => (
+                        {[order.status, ...allowedOrderStatusTransitions(order.status)].map((status) => (
                           <option key={status} value={status}>
                             {formatStatus(status)}
                           </option>
                         ))}
                       </select>
-                      <ActionButton className="w-full justify-center bg-gradient-to-r from-[#ffad16] to-[#ff8500] text-white" onClick={() => onStatusChange(nextStatus)}>Update status</ActionButton>
+                      <ActionButton disabled={nextStatus === order.status} className="w-full justify-center bg-gradient-to-r from-[#ffad16] to-[#ff8500] text-white" onClick={() => onStatusChange(nextStatus)}>Update status</ActionButton>
                     </div>
                   </div>
                 </Panel>
@@ -8385,7 +8575,7 @@ const OrderTrackingPanel = forwardRef<HTMLDivElement, { events: OrderTrackingEve
   const status = String(order.status).toUpperCase();
   const stageIndex = status === "DELIVERED" || status === "COMPLETED" ? 5 : status.includes("OUT_FOR_DELIVERY") ? 4 : status === "READY" ? 3 : ["AT_TAILOR", "STITCHING_STARTED", "WORKING"].includes(status) ? 2 : status.includes("PICKUP") || status === "CLOTH_PICKED" ? 1 : 0;
   const cancelled = ["CANCELLED", "FAILED"].includes(status);
-  return <Panel className="rounded-2xl p-4" ref={ref}><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-sm font-bold text-[var(--deep)]">Order Tracking</h4><p className="mt-1 text-xs text-[var(--muted)]">Live workflow milestones and delivery-task activity.</p></div><StatusBadge value={order.status} /></div><div className="mt-5 overflow-x-auto pb-2"><div className="flex min-w-[680px] items-start">{stages.map((stage, index) => { const reached = !cancelled && index <= stageIndex; return <div className="relative flex flex-1 flex-col items-center text-center" key={stage}>{index > 0 ? <span className={cn("absolute right-1/2 top-3 h-0.5 w-full", reached ? "bg-orange-400" : "bg-slate-200")} /> : null}<span className={cn("relative z-10 grid h-7 w-7 place-items-center rounded-full border-2 text-[10px] font-bold", reached ? "border-orange-400 bg-orange-500 text-white" : "border-slate-200 bg-white text-slate-400")}>{reached ? <CheckCircle2 size={14} /> : index + 1}</span><span className={cn("mt-2 text-[11px] font-semibold", reached ? "text-[var(--deep)]" : "text-[var(--muted)]")}>{stage}</span></div>; })}</div></div><div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-[#efe3d0] bg-white px-4">{events.length ? events.map((event, index) => <div className="flex gap-3 border-b border-[#f2e8d9] py-3 last:border-b-0" key={event.id}><span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", event.tone === "issue" ? "bg-rose-500" : index === events.length - 1 ? "bg-orange-500" : "bg-emerald-500")} /><div className="min-w-0 flex-1"><div className="flex flex-wrap justify-between gap-2"><p className="text-xs font-bold text-[var(--deep)]">{event.label}</p><p className="text-[10px] text-[var(--muted)]">{formatDate(event.timestamp, true)}</p></div><p className="mt-1 text-[11px] text-[var(--muted)]">{event.detail}</p></div></div>) : <p className="py-8 text-center text-xs text-[var(--muted)]">Tracking events will appear as the order moves through the workflow.</p>}</div></Panel>;
+  return <Panel className="rounded-2xl p-4" ref={ref}><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-sm font-bold text-[var(--deep)]">Order Tracking</h4><p className="mt-1 text-xs text-[var(--muted)]">Live workflow milestones and delivery-task activity.</p></div><StatusBadge value={order.status} /></div><div className="mt-5 overflow-x-auto pb-2"><div className="flex min-w-[680px] items-start">{stages.map((stage, index) => { const reached = !cancelled && index <= stageIndex; return <div className="relative flex flex-1 flex-col items-center text-center" key={stage}>{index > 0 ? <span className={cn("absolute right-1/2 top-3 h-0.5 w-full", reached ? "bg-orange-400" : "bg-slate-200")} /> : null}<span className={cn("relative z-10 grid h-7 w-7 place-items-center rounded-full border-2 text-[10px] font-bold", reached ? "border-orange-400 bg-orange-500 text-white" : "border-slate-200 bg-white text-amber-900")}>{reached ? <CheckCircle2 size={14} /> : index + 1}</span><span className={cn("mt-2 text-[11px] font-semibold", reached ? "text-[var(--deep)]" : "text-[var(--muted)]")}>{stage}</span></div>; })}</div></div><div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-[#efe3d0] bg-white px-4">{events.length ? events.map((event, index) => <div className="flex gap-3 border-b border-[#f2e8d9] py-3 last:border-b-0" key={event.id}><span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", event.tone === "issue" ? "bg-rose-500" : index === events.length - 1 ? "bg-orange-500" : "bg-emerald-500")} /><div className="min-w-0 flex-1"><div className="flex flex-wrap justify-between gap-2"><p className="text-xs font-bold text-[var(--deep)]">{event.label}</p><p className="text-[10px] text-[var(--muted)]">{formatDate(event.timestamp, true)}</p></div><p className="mt-1 text-[11px] text-[var(--muted)]">{event.detail}</p></div></div>) : <p className="py-8 text-center text-xs text-[var(--muted)]">Tracking events will appear as the order moves through the workflow.</p>}</div></Panel>;
 });
 OrderTrackingPanel.displayName = "OrderTrackingPanel";
 
@@ -10551,9 +10741,9 @@ function getPaymentColumns({
         const breakdown = breakdowns.get(row.original.id) ?? getPaymentBreakdown(row.original, new Map(), new Map());
         return (
           <div>
-            <p className="font-medium text-[var(--foreground)]">{formatCurrency(breakdown.tailorQuote + breakdown.deliveryEarnings)}</p>
+            <p className="font-medium text-[var(--foreground)]">{breakdown.realized ? formatCurrency(breakdown.tailorQuote + breakdown.deliveryEarnings) : "Awaiting final costs"}</p>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Tailor {formatCurrency(breakdown.tailorQuote)} + Delivery {formatCurrency(breakdown.deliveryEarnings)}
+              {breakdown.realized ? `Tailor ${formatCurrency(breakdown.tailorQuote)} + Delivery ${formatCurrency(breakdown.deliveryEarnings)}` : "Delivered order and finalized wallet records required"}
             </p>
           </div>
         );
@@ -10564,6 +10754,7 @@ function getPaymentColumns({
       header: "Net revenue",
       cell: ({ row }) => {
         const breakdown = breakdowns.get(row.original.id) ?? getPaymentBreakdown(row.original, new Map(), new Map());
+        if (!breakdown.realized) return <Badge tone="amber">Unrealized</Badge>;
         return (
           <span className={cn("font-semibold", breakdown.netRevenue >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
             {formatCurrency(breakdown.netRevenue)}
@@ -10597,7 +10788,7 @@ function getPaymentColumns({
   ];
 }
 
-function getCouponColumns(): Array<ColumnDef<Coupon>> {
+function getCouponColumns({ onDelete, onEdit, onToggle, pendingId }: { onDelete: (coupon: Coupon) => void; onEdit: (coupon: Coupon) => void; onToggle: (coupon: Coupon) => void; pendingId?: string }): Array<ColumnDef<Coupon>> {
   return [
     {
       accessorKey: "code",
@@ -10634,9 +10825,20 @@ function getCouponColumns(): Array<ColumnDef<Coupon>> {
       cell: ({ row }) => formatDate(row.original.expiresAt)
     },
     {
+      id: "usage",
+      header: "Usage",
+      cell: ({ row }) => `${row.original.usedCount ?? 0}${row.original.usageLimit ? ` / ${row.original.usageLimit}` : " / ∞"}`
+    },
+    {
       accessorKey: "isActive",
       header: "State",
       cell: ({ row }) => <Badge tone={row.original.isActive ? "emerald" : "slate"}>{row.original.isActive ? "Active" : "Disabled"}</Badge>
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      enableSorting: false,
+      cell: ({ row }) => <div className="flex flex-wrap gap-2"><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id} onClick={() => onEdit(row.original)} variant="secondary">Edit</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id} onClick={() => onToggle(row.original)} variant="secondary">{row.original.isActive ? "Disable" : "Enable"}</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id || Number(row.original.usedCount ?? 0) > 0} onClick={() => onDelete(row.original)} variant="danger">Delete</ActionButton></div>
     }
   ];
 }
@@ -11135,8 +11337,10 @@ function buildFinanceSummary(payments: Payment[], tailoringRequests: TailoringRe
       grossPaid += breakdown.customerPaid;
       tailorQuotes += breakdown.tailorQuote;
       deliveryEarnings += breakdown.deliveryEarnings;
-      netRevenue += breakdown.netRevenue;
-      if (isToday(payment.createdAt)) revenueToday += breakdown.netRevenue;
+      if (breakdown.realized) {
+        netRevenue += breakdown.netRevenue;
+        if (isToday(payment.createdAt)) revenueToday += breakdown.netRevenue;
+      }
     } else if (payment.status === "PENDING") {
       pendingCount += 1;
       pendingAmount += Number(payment.amount ?? 0);
@@ -11168,13 +11372,17 @@ function getPaymentBreakdown(payment: Payment, tailoringCosts: Map<string, numbe
   const customerPaid = Number(payment.customerPaid ?? payment.amount ?? 0);
   const tailorQuote = Number(payment.tailorQuote ?? tailoringCosts.get(payment.orderId) ?? 0);
   const deliveryEarnings = Number(payment.deliveryEarnings ?? deliveryCosts.get(payment.orderId) ?? 0);
-  const netRevenue = Number(payment.netRevenue ?? customerPaid - tailorQuote - deliveryEarnings);
+  const packagingCost = Number(payment.packagingCost ?? 0);
+  const realized = payment.realized === true && typeof payment.netRevenue === "number";
+  const netRevenue = realized ? Number(payment.netRevenue) : 0;
 
   return {
     customerPaid,
     tailorQuote,
     deliveryEarnings,
-    netRevenue
+    packagingCost,
+    netRevenue,
+    realized
   };
 }
 
@@ -11585,6 +11793,25 @@ function ticketToCsv(ticket: SupportTicket) {
   };
 }
 
+function exportRowMatches(row: Record<string, unknown>, filters: { search: string; status: string; fromDate: string; toDate: string }) {
+  const search = filters.search.trim().toLowerCase();
+  if (search && !Object.values(row).some((value) => String(value ?? "").toLowerCase().includes(search))) return false;
+  const status = filters.status.trim().toLowerCase();
+  if (status) {
+    const statusValues = Object.entries(row).filter(([key]) => /status|state/i.test(key)).map(([, value]) => String(value ?? "").toLowerCase());
+    if (!statusValues.some((value) => value.includes(status))) return false;
+  }
+  if (!filters.fromDate && !filters.toDate) return true;
+  const rawDate = Object.entries(row).find(([key]) => /created|date|time/i.test(key))?.[1];
+  if (!rawDate) return false;
+  const value = new Date(String(rawDate));
+  if (Number.isNaN(value.getTime())) return false;
+  const from = filters.fromDate ? new Date(`${filters.fromDate}T00:00:00`) : null;
+  const toExclusive = filters.toDate ? new Date(`${filters.toDate}T00:00:00`) : null;
+  if (toExclusive) toExclusive.setDate(toExclusive.getDate() + 1);
+  return (!from || value >= from) && (!toExclusive || value < toExclusive);
+}
+
 function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
   if (rows.length === 0) {
     toast.error("Nothing to export");
@@ -11602,7 +11829,7 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
         .join(",")
     )
   ].join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -11694,7 +11921,7 @@ function downloadExcel(filename: string, title: string, rows: Array<Record<strin
     .join("")}</tbody></table>`;
   const workbook = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body>${table}</body></html>`;
   downloadBlob(filename, `\ufeff${workbook}`, "application/vnd.ms-excel;charset=utf-8");
-  toast.success(`${title} Excel export downloaded`);
+  toast.success(`${title} Excel-compatible export downloaded`);
 }
 
 function printTableReport(title: string, rows: Array<Record<string, unknown>>) {
@@ -11709,7 +11936,7 @@ function printTableReport(title: string, rows: Array<Record<string, unknown>>) {
   }
   const headers = Object.keys(rows[0]);
   const cells = rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(row[header] ?? ""))}</td>`).join("")}</tr>`).join("");
-  reportWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} report</title><style>@page{size:landscape;margin:12mm}body{font:12px Arial,sans-serif;color:#172033}h1{font-size:22px;margin:0 0 4px}p{color:#667085;margin:0 0 18px}table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #d7dce3;padding:7px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#fff1cf;color:#3b2a0c}tr:nth-child(even){background:#f8fafc}</style></head><body><h1>Darji — ${escapeHtml(title)}</h1><p>${rows.length} rows · Generated ${escapeHtml(new Date().toLocaleString("en-IN"))}</p><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table><script>window.addEventListener('load',()=>window.print())<\/script></body></html>`);
+  reportWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} report</title><style>@page{size:landscape;margin:12mm}body{font:12px ui-sans-serif,system-ui,sans-serif;color:#172033}h1{font-size:22px;margin:0 0 4px}p{color:#667085;margin:0 0 18px}table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #d7dce3;padding:7px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#fff1cf;color:#3b2a0c}tr:nth-child(even){background:#f8fafc}</style></head><body><h1>Darji — ${escapeHtml(title)}</h1><p>${rows.length} rows · Generated ${escapeHtml(new Date().toLocaleString("en-IN"))}</p><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table><script>window.addEventListener('load',()=>window.print())<\/script></body></html>`);
   reportWindow.document.close();
 }
 
@@ -11797,7 +12024,7 @@ function openPrintableInvoice(order: Order) {
         <style>
           :root { color-scheme: light; }
           * { box-sizing: border-box; }
-          body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #faf7f0; color: #111827; }
+          body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #faf7f0; color: #111827; }
           .page { max-width: 860px; margin: 0 auto; padding: 28px; }
           .card { background: #fff; border: 1px solid #ead8b2; border-radius: 24px; padding: 24px; box-shadow: 0 20px 45px rgba(0,0,0,0.06); }
           .header { display: flex; justify-content: space-between; gap: 16px; align-items: start; }

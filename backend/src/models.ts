@@ -227,6 +227,7 @@ const orderSchema = new Schema(
     platformFee: { type: Number, default: 0 },
     smallOrderFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
+    couponCode: String,
     totalAmount: { type: Number, required: true },
     pickupScheduledAt: { type: Date, required: true },
     instructions: String,
@@ -360,12 +361,27 @@ const couponSchema = new Schema(
     discountValue: { type: Number, required: true },
     minOrderValue: { type: Number, default: 0 },
     maxDiscount: Number,
+    usageLimit: Number,
+    perCustomerLimit: Number,
+    usedCount: { type: Number, default: 0, min: 0 },
     expiresAt: Date,
     isActive: { type: Boolean, default: true }
   },
   baseOptions
 );
 attachDarjiIdPlugin(couponSchema, { field: "darjiId", prefix: "CPN" });
+
+const couponRedemptionSchema = new Schema(
+  {
+    _id: stringId,
+    couponId: { type: String, required: true, index: true },
+    customerId: { type: String, required: true, index: true },
+    count: { type: Number, default: 0, min: 0 },
+    orderIds: { type: [String], default: [] }
+  },
+  baseOptions
+);
+couponRedemptionSchema.index({ couponId: 1, customerId: 1 }, { unique: true });
 
 
 const notificationSchema = new Schema(
@@ -480,7 +496,8 @@ const reviewSchema = new Schema(
     kind: { type: String, enum: ["tailor", "delivery", "app"], default: "tailor", index: true },
     rating: { type: Number, min: 1, max: 5, required: true },
     comment: String,
-    isFeatured: { type: Boolean, default: false }
+    isFeatured: { type: Boolean, default: false },
+    isHidden: { type: Boolean, default: false }
   },
   baseOptions
 );
@@ -917,6 +934,63 @@ const settingSchema = new Schema(
   baseOptions
 );
 
+const adminOrderNoteSchema = new Schema(
+  {
+    adminId: { type: String, required: true },
+    adminName: { type: String, required: true },
+    note: { type: String, required: true, maxlength: 2000 },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { _id: true, versionKey: false }
+);
+
+const adminOrderMetadataSchema = new Schema(
+  {
+    _id: stringId,
+    entityId: { type: String, required: true, unique: true, index: true },
+    priority: { type: String, enum: ["Normal", "High", "Urgent", "VIP"], default: "Normal", index: true },
+    notes: { type: [adminOrderNoteSchema], default: [] },
+    updatedBy: String
+  },
+  baseOptions
+);
+
+const adminAuditLogSchema = new Schema(
+  {
+    _id: stringId,
+    actorId: { type: String, required: true, index: true },
+    actorRole: { type: String, required: true, index: true },
+    actorName: String,
+    method: { type: String, required: true },
+    path: { type: String, required: true, index: true },
+    statusCode: { type: Number, required: true },
+    entityType: { type: String, index: true },
+    entityId: { type: String, index: true },
+    summary: { type: String, required: true },
+    metadata: { type: Schema.Types.Mixed, default: {} }
+  },
+  baseOptions
+);
+adminAuditLogSchema.index({ createdAt: -1 });
+
+const notificationCampaignSchema = new Schema(
+  {
+    _id: stringId,
+    channel: { type: String, enum: ["push"], default: "push" },
+    target: { type: String, enum: ["everyone", "customers", "tailors", "delivery"], required: true },
+    title: { type: String, required: true, maxlength: 120 },
+    body: { type: String, required: true, maxlength: 500 },
+    status: { type: String, enum: ["SCHEDULED", "SENDING", "SENT", "FAILED"], required: true, index: true },
+    scheduledAt: { type: Date, index: true },
+    sentAt: Date,
+    recipientCount: { type: Number, default: 0 },
+    error: String,
+    createdBy: { type: String, required: true, index: true }
+  },
+  baseOptions
+);
+notificationCampaignSchema.index({ status: 1, scheduledAt: 1 });
+
 export const UserModel = mongoose.model("User", userSchema);
 export const AddressModel = mongoose.model("Address", addressSchema);
 export const ServiceCategoryModel = mongoose.model("ServiceCategory", serviceCategorySchema);
@@ -926,6 +1000,7 @@ export const TailorModel = mongoose.model("Tailor", tailorSchema);
 export const DeliveryPartnerModel = mongoose.model("DeliveryPartner", deliveryPartnerSchema);
 export const PaymentModel = mongoose.model("Payment", paymentSchema);
 export const CouponModel = mongoose.model("Coupon", couponSchema);
+export const CouponRedemptionModel = mongoose.model("CouponRedemption", couponRedemptionSchema, "coupon_redemptions");
 export const NotificationModel = mongoose.model("Notification", notificationSchema);
 export const OperationalAlertModel = mongoose.model("OperationalAlert", operationalAlertSchema, "operational_alerts");
 export const MeasurementVisitModel = mongoose.model("MeasurementVisit", measurementVisitSchema, "measurement_visits");
@@ -943,6 +1018,9 @@ export const TailorQuoteModel = mongoose.model("TailorQuote", tailorQuoteSchema)
 export const DeliveryRequestModel = mongoose.model("DeliveryTask", deliveryRequestSchema, "delivery_tasks");
 export const DeliveryBatchModel = mongoose.model("DeliveryBatch", deliveryBatchSchema, "delivery_batches");
 export const SettingModel = mongoose.model("Setting", settingSchema);
+export const AdminOrderMetadataModel = mongoose.model("AdminOrderMetadata", adminOrderMetadataSchema, "admin_order_metadata");
+export const AdminAuditLogModel = mongoose.model("AdminAuditLog", adminAuditLogSchema, "admin_audit_logs");
+export const NotificationCampaignModel = mongoose.model("NotificationCampaign", notificationCampaignSchema, "notification_campaigns");
 
 export type UserDoc = InferSchemaType<typeof userSchema> & { id: string; _id: string };
 

@@ -1494,9 +1494,9 @@ export default function SupportCommandCenter({
                   </span>
                   <div className="p-3 bg-[var(--panel-strong)] border border-[var(--panel-border)] text-[var(--muted)] text-xs rounded-[16px] rounded-tl-none flex items-center gap-2">
                     <span className="flex gap-1">
-                      <span className="w-1.5 h-1.5 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                      <span className="w-1.5 h-1.5 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                      <span className="w-1.5 h-1.5 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--muted)]" style={{ animationDelay: "0ms" }}></span>
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--muted)]" style={{ animationDelay: "150ms" }}></span>
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--muted)]" style={{ animationDelay: "300ms" }}></span>
                     </span>
                     typing...
                   </div>

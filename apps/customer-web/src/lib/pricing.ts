@@ -1,6 +1,7 @@
 import type { Coupon } from "./types";
+import { calculateCouponDiscount } from "@darzi/shared";
 
-export const HOME_MEASUREMENT_FEE = 99;
+export const HOME_MEASUREMENT_FEE = 30;
 
 export function deliveryFeeForUrgency(urgency: string) {
   if (/instant/i.test(urgency)) return 50;
@@ -33,9 +34,7 @@ export function couponDiscount(coupon: Coupon | undefined, subtotal: number) {
   if (!coupon?.isActive) return 0;
   if (coupon.expiresAt && new Date(coupon.expiresAt) <= new Date()) return 0;
   if (subtotal < Number(coupon.minOrderValue ?? 0)) return 0;
-  const raw = coupon.discountType === "PERCENTAGE" ? (subtotal * Number(coupon.discountValue ?? 0)) / 100 : Number(coupon.discountValue ?? 0);
-  const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
-  return Math.min(Math.max(0, Math.round(capped)), subtotal);
+  return calculateCouponDiscount(coupon, subtotal);
 }
 
 export function couponLabel(coupon: Coupon) {
