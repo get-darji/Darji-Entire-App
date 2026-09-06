@@ -314,13 +314,22 @@ const deliveryPartnerSchema = new Schema(
     verificationDraft: { type: Schema.Types.Mixed },
     // Live location tracking (optional, backward-compatible)
     currentLocation: {
-      type: {
-        type: String,
-        enum: ["Point"]
-      },
-      coordinates: {
-        type: [Number]
-      }
+      type: new Schema(
+        {
+          type: { type: String, enum: ["Point"], required: true },
+          coordinates: {
+            type: [Number],
+            required: true,
+            validate: {
+              validator: (coordinates: number[]) => coordinates.length === 2
+                && coordinates.every((coordinate) => Number.isFinite(coordinate)),
+              message: "A delivery location must contain valid longitude and latitude coordinates"
+            }
+          }
+        },
+        { _id: false }
+      ),
+      default: undefined
     },
     lastLocationAccuracy: { type: Number },
     lastLocationUpdatedAt: { type: Date },
