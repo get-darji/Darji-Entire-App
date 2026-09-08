@@ -7,9 +7,9 @@ import { ArrowRight, CheckCircle2, Heart } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 
 const footerGroups = [
-  { title: "Services", links: [["Alterations", "/#services"], ["Custom Stitching", "/#services"], ["Measurements", "/#services"], ["Repairs & Restyling", "/#services"], ["Garment Care", "/#services"], ["Corporate Services", "/#services"]] },
-  { title: "Company", links: [["About Us", "/blogs"], ["How It Works", "/blogs/the-art-of-the-perfect-saree-blouse-fit"], ["Why Darji", "/blogs/how-to-alter-a-mens-suit-jacket"], ["Careers", "/blogs/fabric-care-secrets-linen-silk-khadi"], ["Contact Us", "/blogs/the-unseen-tailors-of-old-delhi"], ["FAQs", "/#faq"]] },
-  { title: "Support", links: [["Track Order", "/about"], ["Help Center", "/about#story"], ["Privacy Policy", "/about#ecosystem"], ["Terms of Service", "/about#artisans"], ["Refund Policy", "/#faq"], ["Shipping & Delivery", "mailto:support@darji.in"]] }
+  { title: "Services", links: [["Explore Services", "/#services"], ["Book a Pickup", "/dashboard"], ["Frequently Asked Questions", "/#faq"]] },
+  { title: "Company", links: [["About Us", "/about"], ["Our Story", "/about#story"], ["How It Works", "/about#ecosystem"], ["Why Darji", "/about#artisans"], ["The Journal", "/blogs"]] },
+  { title: "Support", links: [["Customer Dashboard", "/dashboard"], ["Email Support", "mailto:support@darji.in"], ["Privacy Policy", "/privacy"], ["Terms of Service", "/terms"], ["Security", "/security"]] }
 ] as const;
 
 export function EditorialFooter() {
