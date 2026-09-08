@@ -69,10 +69,10 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
   };
 
   return (
-    <section className="w-full bg-white pb-8 sm:pb-14 lg:pb-16" aria-label="Darji highlights">
+    <section className="w-full bg-white px-3 pb-5 sm:px-0 sm:pb-14 lg:pb-16" aria-label="Darji highlights">
       <div className="w-full">
         <div
-          className="group relative isolate w-full overflow-hidden bg-white pb-3 sm:aspect-[3/1] sm:pb-0"
+          className="group relative isolate w-full overflow-hidden rounded-2xl border border-black/8 bg-[#f7f3ee] shadow-[0_14px_36px_rgba(8,17,31,0.12)] sm:aspect-[3/1] sm:rounded-none sm:border-0 sm:bg-white sm:shadow-none"
           role="region"
           aria-roledescription="carousel"
           aria-label="Featured Darji services"
@@ -84,7 +84,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
           }}
         >
           <div
-            className="relative aspect-[16/7] w-full touch-pan-y overflow-hidden bg-[#f7f3ee] sm:absolute sm:inset-0 sm:aspect-auto sm:bg-white"
+            className="relative aspect-[16/9] w-full touch-pan-y overflow-hidden bg-[#f7f3ee] sm:absolute sm:inset-0 sm:aspect-auto sm:bg-white"
             onTouchStart={(event) => {
               touchStartX.current = event.touches[0]?.clientX ?? null;
               setInteractionPaused(true);
@@ -130,7 +130,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_58%,rgba(8,17,31,0.16)_100%)]" aria-hidden="true" />
 
             {config.slides.length > 1 ? (
-              <div className="absolute right-2 top-2 z-20 flex items-center rounded-full bg-[#08111f]/86 p-1 text-white shadow-[0_10px_26px_rgba(8,17,31,0.2)] sm:hidden">
+              <div className="absolute bottom-3 right-3 z-20 flex items-center rounded-full bg-[#08111f]/90 p-1 text-white shadow-[0_10px_26px_rgba(8,17,31,0.24)] backdrop-blur-sm sm:hidden">
                 <button className="focus-ring grid h-11 w-11 place-items-center rounded-full" onClick={() => selectSlide(activeIndex - 1)} type="button" aria-label="Previous slide"><ChevronLeft className="h-5 w-5" /></button>
                 <span className="min-w-10 text-center text-xs font-bold tabular-nums" aria-hidden="true">{activeIndex + 1}/{config.slides.length}</span>
                 <button className="focus-ring grid h-11 w-11 place-items-center rounded-full" onClick={() => selectSlide(activeIndex + 1)} type="button" aria-label="Next slide"><ChevronRight className="h-5 w-5" /></button>
@@ -155,7 +155,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
           <button
             type="button"
             onClick={onBookPickup}
-            className="focus-ring relative z-20 mx-3 mt-3 flex min-h-11 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-full px-4 py-2 text-center text-sm font-black leading-tight shadow-[0_14px_32px_rgba(8,17,31,0.2)] transition active:scale-[0.99] sm:absolute sm:bottom-6 sm:left-6 sm:mx-0 sm:mt-0 sm:min-h-12 sm:w-auto sm:max-w-[min(32rem,calc(100%-220px))] sm:px-6 sm:text-base sm:hover:-translate-y-0.5 sm:hover:brightness-95"
+            className="focus-ring relative z-20 m-3 flex min-h-12 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl px-5 py-3 text-center text-sm font-black leading-tight shadow-[0_10px_24px_rgba(8,17,31,0.18)] transition active:scale-[0.99] sm:absolute sm:bottom-6 sm:left-6 sm:m-0 sm:min-h-12 sm:w-auto sm:max-w-[min(32rem,calc(100%-220px))] sm:rounded-full sm:px-6 sm:text-base sm:hover:-translate-y-0.5 sm:hover:brightness-95"
             style={{ backgroundColor: config.buttonColor, color: config.buttonTextColor }}
           >
             {config.buttonText}

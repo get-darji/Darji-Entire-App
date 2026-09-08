@@ -17,7 +17,7 @@ const trustIcons = [ShieldCheck, MapPin, Clock3, LockKeyhole];
 
 export function PremiumHero({ heroRef, onModelReady, onBookPickup }: PremiumHeroProps) {
   return (
-    <section ref={heroRef} className="hero-shell relative min-h-screen overflow-hidden bg-white">
+    <section ref={heroRef} className="hero-shell relative min-h-0 overflow-hidden bg-white lg:min-h-screen">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_24%,rgba(255,112,0,0.12),transparent_30rem),linear-gradient(180deg,#ffffff_0%,#fffaf5_48%,#ffffff_100%)]" />
       <div className="shell relative z-10">
         <nav className="darji-navbar flex min-h-[5.5rem] items-center justify-between gap-5 py-4">
@@ -45,7 +45,7 @@ export function PremiumHero({ heroRef, onModelReady, onBookPickup }: PremiumHero
           </div>
         </nav>
 
-        <div className="grid min-h-[calc(100svh-5.5rem)] items-center gap-8 pb-12 lg:grid-cols-[0.88fr_1.12fr] lg:gap-8 lg:pb-8">
+        <div className="grid items-start gap-8 pb-8 pt-6 lg:min-h-[calc(100svh-5.5rem)] lg:grid-cols-[0.88fr_1.12fr] lg:items-center lg:gap-8 lg:pb-8 lg:pt-0">
           <div className="max-w-2xl">
             <div className="darji-hero-kicker inline-flex items-center gap-2 rounded-full bg-[var(--color-primary-light)] px-4 py-2 text-xs font-bold uppercase tracking-[0.15em] text-[var(--color-primary)]">
               <Sparkles className="h-4 w-4" />
