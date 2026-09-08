@@ -6557,34 +6557,46 @@ function CustomerWebsiteSliderCard({
             </div>
             <span className="text-xs font-semibold tabular-nums text-[var(--muted)]">{draft.slides.length ? `${previewIndex + 1} / ${draft.slides.length}` : "No slides"}</span>
           </div>
-          <div className="relative aspect-[3/1] overflow-hidden rounded-2xl bg-white shadow-[0_22px_50px_rgba(8,17,31,0.12)]">
-            {activeSlide?.imageUrl ? (
-              <img className="h-full w-full object-contain" src={activeSlide.imageUrl} alt={activeSlide.altText || "Slider preview"} />
-            ) : (
-              <div className="grid h-full place-items-center px-6 text-center text-sm text-[var(--muted)]">Upload an image to preview this slide.</div>
-            )}
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_60%,rgba(8,17,31,0.18))]" />
+          <div className="relative overflow-hidden rounded-2xl bg-white pb-3 shadow-[0_22px_50px_rgba(8,17,31,0.12)] sm:aspect-[3/1] sm:pb-0">
+            <div className="relative aspect-[16/7] overflow-hidden bg-[#f7f3ee] sm:absolute sm:inset-0 sm:aspect-auto sm:bg-white">
+              {activeSlide?.imageUrl ? (
+                <>
+                  <img aria-hidden="true" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-xl sm:hidden" src={activeSlide.imageUrl} alt="" />
+                  <img className="relative h-full w-full object-contain" src={activeSlide.imageUrl} alt={activeSlide.altText || "Slider preview"} />
+                </>
+              ) : (
+                <div className="grid h-full place-items-center px-6 text-center text-sm text-[var(--muted)]">Upload an image to preview this slide.</div>
+              )}
+              <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_60%,rgba(8,17,31,0.18))]" />
+            </div>
             <div
-              className="absolute bottom-3 left-3 inline-flex min-h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold shadow-[0_12px_28px_rgba(8,17,31,0.22)]"
+              className="relative mx-3 mt-3 flex min-h-11 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-full px-4 text-sm font-semibold shadow-[0_12px_28px_rgba(8,17,31,0.22)] sm:absolute sm:bottom-3 sm:left-3 sm:mx-0 sm:mt-0 sm:min-h-10 sm:w-auto"
               style={{ backgroundColor: draft.buttonColor, color: draft.buttonTextColor }}
             >
               {draft.buttonText || "Button label"}<ArrowRight className="h-4 w-4" />
             </div>
             {draft.slides.length > 1 ? (
-              <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-[#08111f]/82 px-2 py-2">
-                {draft.slides.map((slide, index) => (
-                  <button
-                    aria-label={`Preview slide ${index + 1}`}
-                    aria-current={index === previewIndex ? "true" : undefined}
-                    className="grid h-6 w-6 place-items-center rounded-full"
-                    key={slide.id}
-                    onClick={() => setPreviewIndex(index)}
-                    type="button"
-                  >
-                    <span className={cn("h-1.5 rounded-full bg-white/55 transition-all", index === previewIndex && "w-4 bg-white", index !== previewIndex && "w-1.5")} />
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="absolute right-2 top-2 flex items-center rounded-full bg-[#08111f]/82 p-1 text-white sm:hidden">
+                  <button aria-label="Preview previous slide" className="grid h-11 w-11 place-items-center rounded-full" onClick={() => setPreviewIndex((previewIndex - 1 + draft.slides.length) % draft.slides.length)} type="button"><ChevronLeft className="h-5 w-5" /></button>
+                  <span className="min-w-10 text-center text-xs font-semibold tabular-nums" aria-hidden="true">{previewIndex + 1}/{draft.slides.length}</span>
+                  <button aria-label="Preview next slide" className="grid h-11 w-11 place-items-center rounded-full" onClick={() => setPreviewIndex((previewIndex + 1) % draft.slides.length)} type="button"><ChevronRight className="h-5 w-5" /></button>
+                </div>
+                <div className="absolute bottom-3 right-3 hidden items-center gap-1 rounded-full bg-[#08111f]/82 px-2 py-2 sm:flex">
+                  {draft.slides.map((slide, index) => (
+                    <button
+                      aria-label={`Preview slide ${index + 1}`}
+                      aria-current={index === previewIndex ? "true" : undefined}
+                      className="grid h-6 w-6 place-items-center rounded-full"
+                      key={slide.id}
+                      onClick={() => setPreviewIndex(index)}
+                      type="button"
+                    >
+                      <span className={cn("h-1.5 rounded-full bg-white/55 transition-all", index === previewIndex && "w-4 bg-white", index !== previewIndex && "w-1.5")} />
+                    </button>
+                  ))}
+                </div>
+              </>
             ) : null}
           </div>
 

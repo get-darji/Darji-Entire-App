@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Clock3, Mail, MapPin, MessageCircle, Phone, Scissors, X } from "lucide-react";
+import { ArrowRight, Clock3, Mail, MapPin, Menu, MessageCircle, Phone, Scissors, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
@@ -156,6 +156,7 @@ export function SupportModal({ open, onClose }: ModalProps) {
 
 export function MarketingHeader({ active }: { active?: "home" | "about" | "blogs" }) {
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const nav = [
     { label: "Home", href: "/", key: "home" },
@@ -183,14 +184,22 @@ export function MarketingHeader({ active }: { active?: "home" | "about" | "blogs
               </Link>
             ))}
           </nav>
-          <button
-            type="button"
-            onClick={() => setLaunchOpen(true)}
-            className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[#ff7000] px-5 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500]"
-          >
-            Book Pickup
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setLaunchOpen(true)} className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[#ff7000] px-4 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500] sm:px-5">Book Pickup</button>
+            <button type="button" onClick={() => setMenuOpen((open) => !open)} className="focus-ring grid h-11 w-11 place-items-center border border-black/10 bg-white text-[#101010] lg:hidden" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen}>
+              {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
+        <AnimatePresence>
+          {menuOpen ? (
+            <motion.nav initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }} className="overflow-hidden border-t border-black/8 bg-white lg:hidden" aria-label="Mobile navigation">
+              <div className="shell grid py-3">
+                {nav.map((item) => <Link key={item.label} href={item.href} onClick={() => setMenuOpen(false)} className={`focus-ring border-b border-black/6 px-1 py-3 text-sm font-bold last:border-0 ${active === item.key ? "text-[#ff7000]" : "text-[#4b5563]"}`}>{item.label}</Link>)}
+              </div>
+            </motion.nav>
+          ) : null}
+        </AnimatePresence>
       </header>
       <LaunchSoonModal open={launchOpen} onClose={() => setLaunchOpen(false)} />
     </>

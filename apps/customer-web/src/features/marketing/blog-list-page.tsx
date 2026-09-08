@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, BookOpen, CalendarDays, Clock, Filter, Layers, Search, Sparkles, User, X } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarDays, ChevronLeft, ChevronRight, Clock, Filter, Layers, Search, X } from "lucide-react";
 import Link from "next/link";
 import { blogArticles, blogCategories, type BlogArticle } from "./blog-data";
 import { MarketingHeader } from "./site-actions";
@@ -18,35 +18,39 @@ const reveal = {
 export function BlogListPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All Stories");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const categoryRailRef = useRef<HTMLDivElement>(null);
 
   const featuredArticle = useMemo(() => {
     return blogArticles.find((a) => a.featured) || blogArticles[0];
   }, []);
 
   const filteredArticles = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
     return blogArticles.filter((article) => {
       const matchesCategory =
         selectedCategory === "All Stories" || article.category === selectedCategory;
       const matchesSearch =
-        searchQuery.trim() === "" ||
-        article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        article.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        article.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        article.author.name.toLowerCase().includes(searchQuery.toLowerCase());
+        query === "" ||
+        article.title.toLocaleLowerCase().includes(query) ||
+        article.excerpt.toLocaleLowerCase().includes(query) ||
+        article.category.toLocaleLowerCase().includes(query) ||
+        article.tags.some((tag) => tag.toLocaleLowerCase().includes(query)) ||
+        article.author.name.toLocaleLowerCase().includes(query);
 
       return matchesCategory && matchesSearch;
     });
   }, [selectedCategory, searchQuery]);
 
+  function moveCategoryRail(direction: -1 | 1) {
+    categoryRailRef.current?.scrollBy({ left: direction * Math.min(420, window.innerWidth * 0.55), behavior: "smooth" });
+  }
+
   return (
-    <main className="min-h-screen bg-[#fdfaf6] text-[#08111f] font-sans selection:bg-[#ff7000]/20 selection:text-[#08111f]">
+    <main className="min-h-screen bg-[#f8f7f4] text-[#101010] font-sans selection:bg-black selection:text-white">
       <MarketingHeader active="blogs" />
 
       {/* 1. Masthead / Editorial Journal Hero */}
-      <section className="relative overflow-hidden border-b border-[#e6edf5] bg-[#040810] text-white pt-16 pb-20 sm:pt-24 sm:pb-28">
-        {/* Glow ambient background */}
-        <div className="pointer-events-none absolute -top-24 right-10 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,112,0,0.16),transparent_70%)] blur-3xl" />
-        <div className="pointer-events-none absolute bottom-0 left-0 h-64 w-64 rounded-full bg-[radial-gradient(circle_at_center,rgba(255,179,95,0.08),transparent_70%)] blur-2xl" />
+      <section className="relative overflow-hidden border-b border-white/10 bg-[#080808] pb-20 pt-16 text-white sm:pb-28 sm:pt-24">
 
         <div className="shell relative">
           <motion.div {...reveal} className="max-w-5xl">
@@ -55,7 +59,7 @@ export function BlogListPage() {
             </p>
 
             <h1 className="mt-6 font-editorial text-[clamp(3.4rem,8.5vw,7.8rem)] font-normal leading-[0.9] tracking-[-0.03em] text-white">
-              The Sartorial <span className="italic text-[#ffb35f]">Chronicle.</span>
+              The Sartorial <span className="italic text-white/62">Chronicle.</span>
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg sm:text-xl font-normal leading-relaxed text-white/70">
@@ -160,36 +164,47 @@ export function BlogListPage() {
 
       {/* 3. Sticky Category Navigation & Live Search Bar */}
       <section className="shell mt-16 sm:mt-24">
-        <div className="sticky top-20 z-40 rounded-2xl border border-[#e6edf5] bg-white/90 p-3 shadow-[0_12px_36px_rgba(8,17,31,0.06)] backdrop-blur-xl transition">
+        <div className="sticky top-20 z-40 border border-black/10 bg-[#f8f7f4]/94 p-3 shadow-[0_18px_42px_rgba(0,0,0,0.08)] backdrop-blur-xl">
           <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
             {/* Category Pills */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 lg:pb-0 scrollbar-none">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <button type="button" onClick={() => moveCategoryRail(-1)} className="focus-ring grid h-11 w-11 shrink-0 place-items-center border border-black/12 bg-white text-black transition hover:bg-black hover:text-white" aria-label="Previous blog categories">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div ref={categoryRailRef} className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scroll-smooth pb-2 lg:pb-0 scrollbar-none">
               {blogCategories.map((category) => {
                 const isSelected = selectedCategory === category;
                 return (
                   <button
                     key={category}
                     onClick={() => setSelectedCategory(category)}
-                    className={`focus-ring shrink-0 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-[0.14em] transition-all duration-200 ${
+                    className={`focus-ring shrink-0 border px-4 py-2.5 text-xs font-bold uppercase tracking-[0.12em] transition-all duration-300 ${
                       isSelected
-                        ? "bg-[#ff7000] text-white shadow-md shadow-[#ff7000]/25"
-                        : "bg-[#f5f8fc] text-[#4b5a70] hover:bg-[#fff0e5] hover:text-[#ff7000]"
+                        ? "border-black bg-black text-white"
+                        : "border-black/8 bg-white text-[#4b5563] hover:border-black/30 hover:text-black"
                     }`}
                   >
                     {category}
                   </button>
                 );
               })}
+              </div>
+              <button type="button" onClick={() => moveCategoryRail(1)} className="focus-ring grid h-11 w-11 shrink-0 place-items-center border border-black/12 bg-white text-black transition hover:bg-black hover:text-white" aria-label="Next blog categories">
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
 
             {/* Live Search Input */}
             <div className="relative min-w-[260px] sm:min-w-[300px]">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#687589]" />
+              <label htmlFor="blog-search" className="sr-only">Search journal articles</label>
               <input
+                id="blog-search"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search topics, fabrics, guides..."
+                autoComplete="off"
                 className="w-full rounded-xl border border-[#e6edf5] bg-[#f9fafc] pl-10 pr-9 py-2.5 text-sm text-[#08111f] placeholder-[#8c9aa8] focus:border-[#ff7000] focus:bg-white focus:outline-none transition"
               />
               {searchQuery && (
@@ -203,6 +218,7 @@ export function BlogListPage() {
               )}
             </div>
           </div>
+          <p className="sr-only" aria-live="polite">{filteredArticles.length} articles found</p>
         </div>
       </section>
 
@@ -236,7 +252,7 @@ export function BlogListPage() {
                   key={article.slug}
                   {...reveal}
                   transition={{ ...reveal.transition, delay: (index % 6) * 0.08 }}
-                  className={`group relative flex flex-col justify-between overflow-hidden rounded-3xl border border-[#e6edf5] bg-white transition-all duration-500 hover:-translate-y-1.5 hover:shadow-[0_24px_64px_rgba(8,17,31,0.1)] ${
+                  className={`group relative flex flex-col justify-between overflow-hidden border border-black/10 bg-white transition-[transform,box-shadow,border-color] duration-500 hover:-translate-y-1 hover:border-black/25 hover:shadow-[0_24px_60px_rgba(0,0,0,0.1)] ${
                     isWide ? "md:col-span-2 lg:col-span-2" : "col-span-1"
                   }`}
                 >
@@ -304,8 +320,7 @@ export function BlogListPage() {
 
       {/* 5. Masterclass Dispatch & Free Fit Guide Banner */}
       <section className="shell pb-20 sm:pb-28">
-        <div className="relative overflow-hidden rounded-3xl bg-[#08111f] text-white p-8 sm:p-14 lg:p-16 border border-white/10 shadow-[0_28px_80px_rgba(8,17,31,0.2)]">
-          <div className="pointer-events-none absolute -right-20 -top-20 h-80 w-80 rounded-full bg-[#ff7000]/20 blur-3xl" />
+        <div className="relative overflow-hidden border border-white/10 bg-[#080808] p-8 text-white shadow-[0_28px_80px_rgba(0,0,0,0.2)] sm:p-14 lg:p-16">
           <div className="relative max-w-2xl">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#ffb35f]">
               Artisan Guild Access

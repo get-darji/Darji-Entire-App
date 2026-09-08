@@ -85,6 +85,36 @@ export async function roadDistanceMeters(origin?: LatLng, destination?: LatLng) 
   return haversineMeters(origin, destination);
 }
 
+export async function geocodeAddress(address?: string | null): Promise<LatLng | undefined> {
+  const query = String(address ?? "").trim();
+  if (!query) return undefined;
+
+  const googleKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (googleKey) {
+    try {
+      const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${encodeURIComponent(googleKey)}`);
+      if (response.ok) {
+        const data = await response.json() as { results?: Array<{ geometry?: { location?: { lat?: number; lng?: number } } }> };
+        const point = pointFrom(data.results?.[0]?.geometry?.location);
+        if (point) return point;
+      }
+    } catch {
+      // Try the OpenStreetMap fallback below.
+    }
+  }
+
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, {
+      headers: { "User-Agent": "Darji-Backend/1.0" }
+    });
+    if (!response.ok) return undefined;
+    const data = await response.json() as Array<{ lat?: string; lon?: string }>;
+    return pointFrom({ lat: data[0]?.lat, lng: data[0]?.lon });
+  } catch {
+    return undefined;
+  }
+}
+
 export async function roadDistanceMatrix(points: LatLng[]) {
   if (points.length === 0) return [];
   try {

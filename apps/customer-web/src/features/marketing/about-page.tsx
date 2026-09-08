@@ -31,40 +31,40 @@ const reveal = {
 } as const;
 
 const stats = [
-  { value: "100%", label: "Verified Master Artisans", desc: "Every partner vetted for stitch tolerance" },
-  { value: "12,000+", label: "Fitted Wardrobe Pieces", desc: "From heirloom silks to bespoke blazers" },
-  { value: "48-Hour", label: "Express Alteration Option", desc: "Doorstep pickup to doorstep return" },
-  { value: "0 Guesswork", label: "Digitized Fit Profile", desc: "Photos, measurements & drape notes saved" }
+  { value: "Craftsmanship First", label: "", desc: "Every garment is handled by experienced tailoring professionals." },
+  { value: "Doorstep Convenience", label: "", desc: "Pickup, alteration, stitching, and delivery — without leaving home." },
+  { value: "Built Around Your Fit", label: "", desc: "Measurements, preferences, and notes saved for future orders." },
+  { value: "Human Support, Always", label: "", desc: "Real people helping you through every step of your order." }
 ];
 
 const problems = [
   {
     step: "01",
     title: "FIND",
-    label: "Finding a reliable master artisan",
-    problem: "Navigating crowded bazaars, guessing whether a local shop understands complex drape, or settling for mass-produced ill-fitting ready-made clothes.",
-    solution: "Darji routes your garment specifically to certified master tailors who specialize in that exact fabric and cut."
+    label: "Finding a tailor you can trust.",
+    problem: "Asking friends for recommendations, visiting multiple shops, and hoping the quality matched expectations.",
+    solution: "Darji connects you with verified tailoring professionals matched to your specific stitching or alteration needs."
   },
   {
     step: "02",
     title: "EXPLAIN",
-    label: "Explaining fit nuances in 2 minutes",
-    problem: "Trying to communicate darts, neck plunges, and sleeve taper over a noisy shop counter while the tailor jots vague notes on scrap paper.",
-    solution: "Doorstep concierge captures high-definition fit photos, digital annotations, and calibrated body measurements."
+    label: "Explaining your fit, again and again.",
+    problem: "Measurements written on paper, forgotten preferences, and repeated conversations every time you place an order.",
+    solution: "Your measurements, style preferences, and garment notes stay securely saved for future orders."
   },
   {
     step: "03",
-    title: "STITCH",
-    label: "Unpredictable dates and lost instructions",
-    problem: "Chasing for delivery updates, lost alterations, and repeat visits because the tailor forgot your specific instructions.",
-    solution: "Live milestone tracking, digitized order cards at the artisan's workbench, and a 7-point quality audit before return."
+    title: "WAIT",
+    label: "Never knowing when it’s ready.",
+    problem: "Calling shops for updates, unexpected delays, and uncertainty about delivery timelines.",
+    solution: "Track every order digitally, from pickup to delivery, with clear updates at every stage."
   },
   {
     step: "04",
-    title: "DELIVER",
-    label: "Wasting hours in city traffic",
-    problem: "Multiple trips across town in peak traffic, parking struggles, only to find the shop closed or the garment not ready.",
-    solution: "Padded dust-sealed doorstep pickup and return delivery at your chosen time slot, with a 100% fit guarantee."
+    title: "TRAVEL",
+    label: "Spending hours on something simple.",
+    problem: "Travelling through traffic just to drop off clothes, explain changes, and collect them later.",
+    solution: "Doorstep pickup and delivery make tailoring fit into your schedule, not the other way around."
   }
 ];
 
@@ -72,109 +72,109 @@ const ecosystemSteps = [
   {
     id: "customer",
     num: "01",
-    role: "THE CUSTOMER",
-    headline: "Wardrobe needs booked in 60 seconds",
-    desc: "Select custom stitching, alterations, or repairs. Upload reference inspiration or garment photos. Choose an exact doorstep fitting slot.",
-    highlight: "Saved anatomical measurements across all future orders",
+    role: "BOOK YOUR SERVICE",
+    headline: "Great clothing should begin with excitement.",
+    desc: "Choose stitching, alterations, or repairs. Select a convenient doorstep fitting slot, and let Darji take care of the rest.",
+    highlight: "Book your service in under 60 seconds.",
     icon: Users
   },
   {
     id: "concierge",
     num: "02",
-    role: "DARJI CONCIERGE",
-    headline: "Calibrated home measurement & intake",
-    desc: "Our trained fit captains arrive at your door with measuring calipers, sample swatches, and padded garment transit cases to record your exact fit preference.",
-    highlight: "Digital photographic intake eliminates miscommunication",
+    role: "WE TAKE YOUR MEASUREMENTS",
+    headline: "No guesswork. No awkward explanations.",
+    desc: "A trained Darji expert visits your doorstep to take precise measurements and understand your style, fabric and fit preferences.",
+    highlight: "Your measurements are securely saved for future orders.",
     icon: Ruler
   },
   {
     id: "artisan",
     num: "03",
-    role: "MASTER TAILOR GUILD",
-    headline: "Specialized cutting & artisanal stitch",
-    desc: "Garments are routed to certified master cut-and-sew tailors with decades of experience in bespoke formalwear, saree blouses, or denim engineering.",
-    highlight: "Artisans earn 40% higher income with direct digital demand",
+    role: "EXPERTS GET TO WORK",
+    headline: "Crafted by specialists who understand the details.",
+    desc: "Your garments are handled by experienced tailors who focus on fit, finish, and the finer details — just the way you like it.",
+    highlight: "Your order is crafted with care by expert tailors.",
     icon: Scissors
   },
   {
     id: "audit",
     num: "04",
-    role: "7-POINT QUALITY AUDIT",
-    headline: "Precision inspection before release",
-    desc: "Every seam, dart, hem, and stitch tension is audited against your digital intake profile, followed by professional steam pressing.",
-    highlight: "Zero garment leaves the hub without quality certification",
+    role: "EVERY DETAIL IS CHECKED",
+    headline: "Nothing leaves until it meets our standards.",
+    desc: "Each garment is carefully checked for fit, finish, and quality, so you receive exactly what you expect — and more.",
+    highlight: "Quality checked at every step.",
     icon: ShieldCheck
   },
   {
     id: "return",
     num: "05",
-    role: "DOORSTEP RETURN",
-    headline: "Delivered to your hands ready to wear",
-    desc: "Delivered in protective dust-proof garment bags with trial guarantee. If any adjustment is needed, we re-collect and perfect it free of charge.",
-    highlight: "100% Perfect Fit Guarantee on every order",
+    role: "DELIVERED TO YOUR DOOR",
+    headline: "Ready to wear. Perfected if needed.",
+    desc: "Your tailored garments are delivered to your doorstep, and if any final adjustments are needed, we’re just a message away.",
+    highlight: "Hassle-free delivery, with support even after delivery.",
     icon: Truck
   }
 ];
 
 const artisans = [
   {
-    name: "Master Rafiq Ahmed",
-    experience: "32 Years Experience",
-    specialty: "Bespoke Achkans, Sherwanis & Suit Jacket Tapering",
-    quote: "A suit covers the body; a master cut honors how a person walks into a room. You cannot rush the shears.",
+    name: "Doorstep First",
+    experience: "CUSTOMER EXPERIENCE",
+    specialty: "No travel. No waiting. No repeated visits.",
+    quote: "",
     image: "/hero-tailor-visual.png",
-    location: "Old Delhi Heritage Studio"
+    location: ""
   },
   {
-    name: "Sunita Sharma",
-    experience: "22 Years Experience",
-    specialty: "Saree Blouse Drape, Katori Cut & Bridal Alterations",
-    quote: "Every woman’s posture has its own rhythm. The armhole curve must be sculpted like fine architecture.",
+    name: "Measured Once, Remembered Always",
+    experience: "SMART PROFILES",
+    specialty: "Your preferences stay with you.",
+    quote: "",
     image: "/animations/service-womens-wear.png",
-    location: "South Delhi Fitting Hub"
+    location: ""
   },
   {
-    name: "Mohammad Imran",
-    experience: "18 Years Experience",
-    specialty: "Heavy Denim Rework, Chain-Stitch Hemming & Leather",
-    quote: "True craftsmanship is in the details nobody notices until they wear the garment for ten hours straight.",
+    name: "Quality You Can Trust",
+    experience: "QUALITY ASSURED",
+    specialty: "Every order goes through multiple checks before delivery.",
+    quote: "",
     image: "/animations/service-mens-wear.png",
-    location: "Noida Craft Atelier"
+    location: ""
   },
   {
-    name: "Ananya Sen",
-    experience: "Lead Garment Engineer",
-    specialty: "Digital Pattern Calibration & 7-Point Quality Standards",
-    quote: "We don't replace the master tailor’s tactile genius—we give them the digital clarity to execute flawlessly.",
+    name: "One Platform, Many Solutions",
+    experience: "COMPLETE ECOSYSTEM",
+    specialty: "Alterations, repairs, custom stitching, and more.",
+    quote: "",
     image: "/animations/service-custom-stitching.png",
-    location: "Darji Central Labs"
+    location: ""
   }
 ];
 
 const values = [
   {
     num: "01",
-    title: "LOCAL",
-    kicker: "Heritage & Community",
-    body: "We preserve India's storied tailoring lineages by connecting neighborhood master artisans directly with modern customers, eliminating predatory middlemen and elevating craft dignity."
+    title: "CONVENIENT",
+    kicker: "सुविधा",
+    body: "Tailored to fit your schedule."
   },
   {
     num: "02",
     title: "TRUSTED",
-    kicker: "Zero Ambiguity",
-    body: "From transparent upfront pricing to photographic intake records and fully insured garment transit, you always know exactly who is handling your clothes and when they will return."
+    kicker: "विश्वास",
+    body: "Verified professionals, reliable service."
   },
   {
     num: "03",
-    title: "CRAFTED",
-    kicker: "Millimeter Precision",
-    body: "We believe clothing should be cut to fit human beings, not the other way around. Every seam, dart, and collar is tailored with reverence for fabric drape and anatomical comfort."
+    title: "PRECISE",
+    kicker: "सटीकता",
+    body: "Accurate fittings, flawless finishing."
   },
   {
     num: "04",
     title: "CONNECTED",
-    kicker: "Doorstep Seamlessness",
-    body: "Effortless logistics bridging your wardrobe to heritage workshops. Calibrated home measurement visits, live milestone tracking, and a 100% Perfect Fit Guarantee."
+    kicker: "जुड़ाव",
+    body: "Real-time updates, complete transparency."
   }
 ];
 
@@ -183,30 +183,78 @@ export function AboutPage() {
   const [activeEcosystemStep, setActiveEcosystemStep] = useState<number>(0);
   const [activeCraftTab, setActiveCraftTab] = useState<"craft" | "tech">("craft");
   const [launchOpen, setLaunchOpen] = useState(false);
+  const dualityPanels = activeCraftTab === "craft"
+    ? {
+        left: {
+          kicker: "The People Behind Your Garment",
+          title: "Experience you can trust.",
+          body: "Your garments are handled by skilled tailors who understand fit, fabric and the finer details.",
+          bullets: [
+            "Expert stitching and alteration specialists",
+            "Attention to fit and finishing",
+            "Years of craftsmanship in every garment"
+          ],
+          icon: Scissors
+        },
+        right: {
+          kicker: "The Craft Behind the Finish",
+          title: "Details make the difference.",
+          body: "From measurement to finishing, experienced tailors give every garment the attention it deserves.",
+          bullets: [
+            "Careful cutting and precise stitching",
+            "Fit and finishing checked by hand",
+            "Specialists matched to each garment"
+          ],
+          icon: Sparkles
+        }
+      }
+    : {
+        left: {
+          kicker: "Your Smart Fit Profile",
+          title: "Measured once. Remembered always.",
+          body: "Your measurements, style preferences, and garment notes stay securely saved for future orders.",
+          bullets: [
+            "Measurements securely saved",
+            "Preferences kept with your profile",
+            "Faster, simpler repeat orders"
+          ],
+          icon: Layers
+        },
+        right: {
+          kicker: "The System That Keeps It Simple",
+          title: "Convenience you can feel.",
+          body: "From saved measurements to doorstep updates, technology keeps your experience smooth and hassle-free.",
+          bullets: [
+            "Live order tracking and updates",
+            "Clear progress at every stage",
+            "Faster turnaround with fewer mistakes"
+          ],
+          icon: Zap
+        }
+      };
+  const LeftDualityIcon = dualityPanels.left.icon;
+  const RightDualityIcon = dualityPanels.right.icon;
 
   return (
-    <main className="min-h-screen bg-[#fdfaf6] text-[#08111f] font-sans selection:bg-[#ff7000]/20 selection:text-[#08111f]">
+    <main className="min-h-screen bg-[#f8f7f4] text-[#101010] font-sans selection:bg-black selection:text-white">
       <MarketingHeader active="about" />
 
       {/* SECTION 01 — CINEMATIC INTRO HERO */}
-      <section className="relative overflow-hidden bg-[#040810] text-white pt-20 pb-28 sm:pt-28 sm:pb-36">
-        {/* Ambient atmospheric glows */}
-        <div className="pointer-events-none absolute -top-32 right-1/4 h-[550px] w-[550px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,112,0,0.18),transparent_70%)] blur-3xl" />
-        <div className="pointer-events-none absolute bottom-0 left-10 h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(255,179,95,0.1),transparent_70%)] blur-3xl" />
+      <section className="relative overflow-hidden bg-[#080808] pb-28 pt-20 text-white sm:pb-36 sm:pt-28">
 
         <div className="shell relative">
           <motion.div {...reveal} className="max-w-5xl">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#ffb35f]">
-              The Darji Manifesto • Est. 2026
+              About Darji
             </p>
 
             <h1 className="mt-6 font-editorial text-[clamp(3.2rem,8.2vw,7.6rem)] font-normal leading-[0.92] tracking-[-0.03em] text-white">
-              Clothes have stories. <br />
-              <span className="italic text-[#ffb35f]">We help you keep them going.</span>
+              Some clothes are more than clothes. <br />
+              <span className="italic text-white/62">They’re memories.</span>
             </h1>
 
             <p className="mt-8 max-w-2xl text-lg sm:text-xl font-normal leading-relaxed text-white/75">
-              Darji connects modern wardrobes with certified master Indian tailors for bespoke stitching, precision alterations, and effortless doorstep garment care.
+              Darji makes tailoring effortless. We connect you with skilled, trusted local tailors for alterations, repairs, and custom stitching — all from the comfort of your home.
             </p>
           </motion.div>
 
@@ -226,11 +274,11 @@ export function AboutPage() {
 
               {/* Floating asymmetrical badge */}
               <div className="absolute bottom-6 left-6 right-6 sm:bottom-10 sm:left-10 sm:right-auto max-w-md rounded-2xl bg-[#08111f]/90 backdrop-blur-xl border border-white/15 p-6 shadow-2xl">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#ff7000]">The Sacred Stitch</p>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#ff7000]">A Word from a Master</p>
                 <p className="mt-2 font-editorial text-xl sm:text-2xl text-white font-normal leading-snug">
-                  “When a garment fits with millimeter precision, you don't just look poised—you stand differently.”
+                  “Good tailoring is an act of care — it respects the person, the cloth, and the story behind it.”
                 </p>
-                <p className="mt-2 text-xs text-white/50 font-bold uppercase tracking-wider">— Master Rafiq Ahmed</p>
+                <p className="mt-2 text-xs text-white/50 font-bold uppercase tracking-wider">— Sabyasachi Mukherjee</p>
               </div>
             </div>
           </motion.div>
@@ -261,10 +309,10 @@ export function AboutPage() {
             <motion.div {...reveal} className="space-y-8">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ff7000]">
-                  01 / The Origin & Story
+                  01 / The Origin Story
                 </p>
                 <h2 className="mt-3 font-editorial text-[clamp(2.5rem,5vw,4.8rem)] font-normal leading-[0.98] tracking-[-0.025em] text-[#08111f]">
-                  The quiet art of Indian tailoring was getting lost in city noise.
+                  A childhood memory became a mission.
                 </h2>
               </div>
 
@@ -279,9 +327,9 @@ export function AboutPage() {
                 </div>
                 {/* Secondary Offset Overlap Card */}
                 <div className="absolute -bottom-8 -right-4 sm:-right-8 z-20 w-48 sm:w-60 overflow-hidden rounded-2xl border border-white bg-[#08111f] p-4 text-white shadow-2xl">
-                  <span className="text-[10px] font-black uppercase tracking-[0.16em] text-[#ffb35f]">Generational Knowledge</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.16em] text-[#ffb35f]">From Home to Darji</span>
                   <p className="mt-1 text-xs sm:text-sm text-white/80 font-normal leading-relaxed">
-                    Preserving centuries of bespoke pattern drafting for modern lifestyles.
+                    A simple observation became a mission to modernize India’s tailoring ecosystem.
                   </p>
                 </div>
               </div>
@@ -290,23 +338,23 @@ export function AboutPage() {
             {/* Right Column: Rich Editorial Prose */}
             <motion.div {...reveal} transition={{ ...reveal.transition, delay: 0.12 }} className="space-y-6 lg:pt-8">
               <p className="drop-cap text-xl sm:text-2xl font-normal leading-relaxed text-[#1e293b]">
-                For generations across India, the neighborhood tailor (दर्ज़ी) was not merely a service provider; they were the trusted custodian of family weddings, festive celebrations, and everyday wardrobe dignity.
+                For Aman Kumar Sah, the idea behind Darji did not begin in a boardroom. It began at home.
               </p>
 
               <p className="text-base sm:text-lg leading-relaxed text-[#4b5a70]">
-                A master tailor understood without asking that your right shoulder dips slightly from carrying a bag, that you prefer an extra half-inch of ease on your festive kurta, and how to drape a Banarasi saree blouse so it stays perfectly poised through eight hours of celebration.
+                Growing up, he watched his mother collect clothes from local tailors, spend hours hemming and finishing garments herself, and earn barely ₹20–30 per piece. Behind every stitched garment was skill, patience, and hard work — yet countless talented tailors remained invisible to customers and opportunities.
               </p>
 
               <p className="text-base sm:text-lg leading-relaxed text-[#4b5a70]">
-                Yet as our cities grew larger and life moved at lightning speed, that relationship fractured. Getting clothes altered or stitched turned into a gauntlet: navigating chaotic bazaars in peak traffic, struggling to convey nuanced fit adjustments in two minutes over a noisy counter, and chasing down delayed garments.
+                Years later, while almost every service had moved online, tailoring remained stuck offline. Finding a trusted tailor still meant multiple visits, uncertain timelines, and no easy way to track progress. Darji was created to bridge that gap — connecting customers, local tailoring professionals, and doorstep logistics through one seamless experience. What was once a neighborhood service can now reach every doorstep.
               </p>
 
-              <div className="rounded-2xl border-l-4 border-[#ff7000] bg-white p-6 shadow-sm">
+              <div className="border border-black/12 bg-white p-6 shadow-[0_16px_42px_rgba(0,0,0,0.06)]">
                 <p className="font-editorial text-xl italic text-[#08111f] leading-snug">
-                  “We built Darji to rescue that soulful human craft. By bringing doorstep logistics and digital measurement precision to master artisans, we turn a messy chore into a seamless luxury.”
+                  “If food, groceries and taxis can reach our doorstep, why can’t tailoring?”
                 </p>
                 <p className="mt-3 text-xs font-bold uppercase tracking-wider text-[#ff7000]">
-                  — Vikram Joshi, Founder of Darji
+                  — Aman Kumar Sah, Founder &amp; CEO, Darji
                 </p>
               </div>
             </motion.div>
@@ -319,38 +367,40 @@ export function AboutPage() {
         <div className="shell">
           <motion.div {...reveal} className="max-w-3xl">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ff7000]">
-              02 / The Inefficiency
+              02 / The Problem
             </p>
             <h2 className="mt-3 font-editorial text-[clamp(2.4rem,4.5vw,4.4rem)] font-normal leading-[1] tracking-[-0.025em] text-[#08111f]">
-              Four friction points that broke the traditional fitting room.
+              Tailoring shouldn’t feel harder than ordering food.
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#4b5a70] leading-relaxed">
-              Why commercial retail and chaotic street tailoring left both customers and artisans frustrated.
+              Millions of people still struggle with a process that should have become simple years ago.
             </p>
           </motion.div>
 
           {/* Interactive 4-Stage Breakdown */}
-          <div className="mt-14 grid gap-8 lg:grid-cols-4">
+          <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {problems.map((item, idx) => {
               const isSelected = activeProblem === idx;
               return (
-                <motion.div
+                <motion.button
+                  type="button"
                   key={item.step}
                   {...reveal}
                   transition={{ ...reveal.transition, delay: idx * 0.08 }}
                   onClick={() => setActiveProblem(idx)}
-                  className={`cursor-pointer rounded-3xl border p-7 transition-all duration-300 ${
+                  aria-pressed={isSelected}
+                  className={`focus-ring cursor-pointer p-7 text-left transition-[transform,box-shadow,border-color,background-color] duration-500 ${
                     isSelected
-                      ? "bg-white border-[#ff7000] shadow-[0_20px_50px_rgba(255,112,0,0.12)] -translate-y-1.5"
-                      : "bg-white/70 border-[#e6edf5] hover:border-[#ffc89b] hover:bg-white"
+                      ? "border border-black bg-white shadow-[0_22px_54px_rgba(0,0,0,0.11)] -translate-y-1"
+                      : "border border-black/10 bg-white/70 hover:border-black/35 hover:bg-white"
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`font-editorial text-3xl font-bold ${isSelected ? "text-[#ff7000]" : "text-[#8c9aa8]"}`}>
+                    <span className={`font-editorial text-3xl font-bold ${isSelected ? "text-black" : "text-[#8c9aa8]"}`}>
                       {item.step}
                     </span>
                     <span className={`rounded-full px-3 py-1 text-[11px] font-black tracking-wider uppercase ${
-                      isSelected ? "bg-[#ff7000] text-white" : "bg-[#eef2f7] text-[#687589]"
+                      isSelected ? "bg-black text-white" : "bg-[#eef2f7] text-[#687589]"
                     }`}>
                       {item.title}
                     </span>
@@ -360,18 +410,17 @@ export function AboutPage() {
                     {item.label}
                   </h3>
 
-                  <div className="mt-4 space-y-4 text-sm leading-relaxed">
-                    <div className="rounded-xl bg-rose-50/70 border border-rose-200/50 p-3.5 text-rose-900">
-                      <span className="block text-[11px] font-black uppercase tracking-wider text-rose-700">The Old Friction</span>
-                      <p className="mt-1 text-xs text-rose-800 leading-normal">{item.problem}</p>
+                  <div className="mt-7 divide-y divide-black/10 border-y border-black/10 text-sm leading-relaxed">
+                    <div className="py-4">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-black/42">The Old Way</span>
+                      <p className="mt-2 text-xs leading-relaxed text-[#555]">{item.problem}</p>
                     </div>
-
-                    <div className="rounded-xl bg-emerald-50/70 border border-emerald-200/50 p-3.5 text-emerald-950">
-                      <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-700">The Darji Fix</span>
-                      <p className="mt-1 text-xs text-emerald-800 leading-normal">{item.solution}</p>
+                    <div className="py-4">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-black">The Darji Way</span>
+                      <p className="mt-2 text-xs leading-relaxed text-[#242424]">{item.solution}</p>
                     </div>
                   </div>
-                </motion.div>
+                </motion.button>
               );
             })}
           </div>
@@ -379,19 +428,18 @@ export function AboutPage() {
       </section>
 
       {/* SECTION 04 — THE DARJI SOLUTION (THE LIVING TAILORING ECOSYSTEM) */}
-      <section id="ecosystem" className="py-20 sm:py-32 bg-[#040810] text-white overflow-hidden border-b border-white/10">
+      <section id="ecosystem" className="overflow-hidden border-b border-white/10 bg-[#080808] py-20 text-white sm:py-32">
         <div className="shell relative">
-          <div className="pointer-events-none absolute -top-20 -right-20 h-96 w-96 rounded-full bg-[#ff7000]/10 blur-3xl" />
 
           <motion.div {...reveal} className="max-w-4xl">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ffb35f]">
               03 / The Living Ecosystem
             </p>
             <h2 className="mt-3 font-editorial text-[clamp(2.5rem,5vw,5rem)] font-normal leading-[0.98] tracking-[-0.025em] text-white">
-              From a chaotic trip to an end-to-end craft platform.
+              From uncertainty to complete peace of mind.
             </h2>
             <p className="mt-4 text-base sm:text-lg text-white/70 leading-relaxed">
-              How Darji coordinates customer, concierge, master artisan, and delivery into one harmonious rhythm.
+              Every step is designed to remove friction, so you can focus on what matters while we handle the rest.
             </p>
           </motion.div>
 
@@ -487,10 +535,10 @@ export function AboutPage() {
               04 / The Duality
             </p>
             <h2 className="mt-3 font-editorial text-[clamp(2.4rem,4.8vw,4.6rem)] font-normal leading-[1] tracking-[-0.025em] text-[#08111f]">
-              Technology should elevate craftsmanship, never replace it.
+              Technology makes tailoring easier. Skilled hands make it perfect.
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#4b5a70] leading-relaxed">
-              We pair the tactile intuition of master Indian cutters with modern digital measurement infrastructure.
+              At Darji, we combine the expertise of skilled tailors with smart technology to give you a seamless, reliable experience.
             </p>
 
             {/* Interactive Toggle Switch */}
@@ -503,7 +551,7 @@ export function AboutPage() {
                     : "text-[#4b5a70] hover:text-[#08111f]"
                 }`}
               >
-                The Master's Craft
+                The People Behind Your Garment
               </button>
               <button
                 onClick={() => setActiveCraftTab("tech")}
@@ -513,7 +561,7 @@ export function AboutPage() {
                     : "text-[#4b5a70] hover:text-[#08111f]"
                 }`}
               >
-                The Digital Engine
+                The System That Keeps It Simple
               </button>
             </div>
           </motion.div>
@@ -530,26 +578,26 @@ export function AboutPage() {
               }`}
             >
               <div className="flex items-center gap-3 text-xs font-black uppercase tracking-[0.18em] text-[#ff7000]">
-                <Scissors className="h-4 w-4" /> The Human Artistry
+                <LeftDualityIcon className="h-4 w-4" /> {dualityPanels.left.kicker}
               </div>
               <h3 className="mt-4 font-editorial text-3xl sm:text-4xl font-normal text-[#08111f]">
-                Tactile Intuition & Drape
+                {dualityPanels.left.title}
               </h3>
               <p className="mt-4 text-base text-[#4b5a70] leading-relaxed">
-                Algorithms cannot feel the weight of Kanjeevaram silk, the natural stretch of raw denim, or how an Italian wool canvas should roll along a lapel.
+                {dualityPanels.left.body}
               </p>
               <ul className="mt-6 space-y-3.5 text-sm font-semibold text-[#1e293b]">
                 <li className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-[#ff7000]" />
-                  Hand-chalked balance curves calibrated to individual posture
+                  {dualityPanels.left.bullets[0]}
                 </li>
                 <li className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-[#ff7000]" />
-                  Internal horsehair and muslin chest canvas shaping
+                  {dualityPanels.left.bullets[1]}
                 </li>
                 <li className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-[#ff7000]" />
-                  Hand-stitched blind hems and precision armhole scoops
+                  {dualityPanels.left.bullets[2]}
                 </li>
               </ul>
             </motion.div>
@@ -565,26 +613,30 @@ export function AboutPage() {
               }`}
             >
               <div className="flex items-center gap-3 text-xs font-black uppercase tracking-[0.18em] text-[#ffb35f]">
-                <Zap className="h-4 w-4" /> Digital Infrastructure
+                <RightDualityIcon className="h-4 w-4" /> {dualityPanels.right.kicker}
               </div>
               <h3 className="mt-4 font-editorial text-3xl sm:text-4xl font-normal">
-                Precision & Frictionless Scale
+                {dualityPanels.right.title}
               </h3>
-              <p className="mt-4 text-base text-white/70 leading-relaxed">
-                Technology removes the logistical chaos: booking slots, digitizing fit history, routing to specialized makers, and real-time order visibility.
+              <p className={`mt-4 text-base leading-relaxed ${
+                activeCraftTab === "tech" ? "text-white/70" : "text-[#4b5a70]"
+              }`}>
+                {dualityPanels.right.body}
               </p>
-              <ul className="mt-6 space-y-3.5 text-sm font-semibold text-white/85">
+              <ul className={`mt-6 space-y-3.5 text-sm font-semibold ${
+                activeCraftTab === "tech" ? "text-white/85" : "text-[#1e293b]"
+              }`}>
                 <li className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-[#ffb35f]" />
-                  Encrypted Digital Measurement Vault across all garment types
+                  {dualityPanels.right.bullets[0]}
                 </li>
                 <li className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-[#ffb35f]" />
-                  Intelligent garment routing to verified tailoring guilds
+                  {dualityPanels.right.bullets[1]}
                 </li>
                 <li className="flex items-center gap-3">
                   <span className="h-2 w-2 rounded-full bg-[#ffb35f]" />
-                  Transparent live status updates with photographic completion proof
+                  {dualityPanels.right.bullets[2]}
                 </li>
               </ul>
             </motion.div>
@@ -597,13 +649,13 @@ export function AboutPage() {
         <div className="shell">
           <motion.div {...reveal} className="max-w-4xl">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ff7000]">
-              05 / The Master Craftspeople
+              05 / Why Darji
             </p>
             <h2 className="mt-3 font-editorial text-[clamp(2.5rem,5vw,4.8rem)] font-normal leading-[1] tracking-[-0.025em] text-[#08111f]">
-              Meet the hands behind your perfect fit.
+              Because convenience shouldn’t come at the cost of quality.
             </h2>
             <p className="mt-4 text-base sm:text-lg text-[#4b5a70] leading-relaxed">
-              Every Darji tailoring partner is a verified master artisan with decades of deep specialized experience in their craft.
+              We bring together skilled expertise, modern technology, and doorstep service into one seamless experience.
             </p>
           </motion.div>
 
@@ -634,12 +686,12 @@ export function AboutPage() {
 
                 <div className="p-6 sm:p-8 space-y-4">
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[#ff7000]">Specialty Area</span>
+                    <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[#ff7000]"></span>
                     <p className="text-sm font-bold text-[#08111f] mt-0.5">{artisan.specialty}</p>
                   </div>
                   <div className="border-t border-[#f0f4f8] pt-4">
                     <p className="text-xs italic text-[#5c6a7d] leading-relaxed">
-                      "{artisan.quote}"
+                      {artisan.quote}
                     </p>
                   </div>
                 </div>
@@ -650,14 +702,14 @@ export function AboutPage() {
       </section>
 
       {/* SECTION 07 — VALUES (OVERSIZED TYPOGRAPHIC STATEMENTS) */}
-      <section className="py-20 sm:py-32 bg-[#040810] text-white border-b border-white/10">
+      <section className="border-b border-white/10 bg-[#080808] py-20 text-white sm:py-32">
         <div className="shell">
           <motion.div {...reveal} className="max-w-3xl">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ffb35f]">
-              06 / The Core Pillars
+              06 / The Darji Values
             </p>
             <h2 className="mt-3 font-editorial text-[clamp(2.4rem,4.5vw,4.4rem)] font-normal leading-[1] tracking-[-0.025em] text-white">
-              The values woven into every garment.
+              The little details make all the difference.
             </h2>
           </motion.div>
 
@@ -686,22 +738,21 @@ export function AboutPage() {
       </section>
 
       {/* SECTION 08 — FINAL CTA (CINEMATIC CLOSING) */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#08111f] to-[#040810] py-24 sm:py-36 text-white text-center">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,112,0,0.18),transparent_60%)]" />
+      <section className="relative overflow-hidden bg-[#080808] py-24 text-center text-white sm:py-36">
 
         <div className="shell relative max-w-4xl mx-auto">
           <motion.div {...reveal} className="space-y-6">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#ffb35f]">
-              Start Your Fitting Journey
+              Start Your Darji Journey
             </p>
 
             <h2 className="font-editorial text-[clamp(2.8rem,6.5vw,5.8rem)] font-normal leading-[0.96] tracking-[-0.025em] text-white">
-              Your clothes deserve <br />
-              <span className="italic text-[#ffb35f]">the right hands.</span>
+              Great service begins <br />
+              <span className="italic text-white/62">at your doorstep.</span>
             </h2>
 
             <p className="mx-auto max-w-xl text-base sm:text-lg text-white/70 leading-relaxed font-normal">
-              Book calibrated doorstep measurements, custom stitching, and alterations with certified master tailors in Delhi NCR & Bangalore.
+              Book a pickup, schedule a measurement, or start your next alteration in minutes.
             </p>
 
             <div className="pt-6 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -710,14 +761,14 @@ export function AboutPage() {
                 onClick={() => setLaunchOpen(true)}
                 className="focus-ring inline-flex min-h-14 items-center justify-center gap-3 rounded-xl bg-[#ff7000] px-8 text-sm font-black text-white transition hover:bg-[#e56500] hover:-translate-y-0.5 shadow-lg shadow-[#ff7000]/25"
               >
-                Book Doorstep Pickup <ArrowRight className="h-4 w-4" />
+                Book a Pickup <ArrowRight className="h-4 w-4" />
               </button>
 
               <Link
                 href="/blogs"
                 className="focus-ring inline-flex min-h-14 items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/6 px-8 text-sm font-bold text-white transition hover:bg-white/12"
               >
-                Read The Darji Journal
+                Explore Services
               </Link>
             </div>
           </motion.div>

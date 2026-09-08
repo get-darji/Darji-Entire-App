@@ -80,11 +80,11 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
     .map((b) => b.text);
 
   return (
-    <main className="min-h-screen bg-[#fdfaf6] text-[#08111f] font-sans selection:bg-[#ff7000]/20 selection:text-[#08111f]">
+    <main className="min-h-screen bg-[#f8f7f4] text-[#101010] font-sans selection:bg-black selection:text-white">
       {/* 1. Sticky Reading Progress Bar at the top */}
       <div className="fixed top-0 left-0 right-0 z-[60] h-1.5 bg-[#e6edf5]">
         <div
-          className="h-full bg-gradient-to-r from-[#ff7000] via-[#ff9438] to-[#ffb35f] transition-all duration-150"
+          className="h-full bg-[#101010] transition-all duration-150"
           style={{ width: `${scrollProgress}%` }}
         />
       </div>
@@ -92,8 +92,7 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
       <MarketingHeader active="blogs" />
 
       {/* 2. Article Header & Masthead */}
-      <header className="relative overflow-hidden border-b border-[#e6edf5] bg-[#040810] text-white pt-12 pb-20 sm:pt-16 sm:pb-28">
-        <div className="pointer-events-none absolute -top-24 right-10 h-96 w-96 rounded-full bg-[#ff7000]/12 blur-3xl" />
+      <header className="relative overflow-hidden border-b border-white/10 bg-[#080808] pb-20 pt-12 text-white sm:pb-28 sm:pt-16">
 
         <div className="shell relative max-w-4xl">
           {/* Breadcrumb & Back link */}
@@ -106,7 +105,7 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
 
           {/* Category & Kicker */}
           <div className="mt-8 flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[#ff7000]" />
+            <span className="h-px w-5 bg-white/40" />
             <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ffb35f]">
               {article.category} • The Darji Journal
             </p>
@@ -263,7 +262,7 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
                   return (
                     <figure
                       key={idx}
-                      className="relative my-8 rounded-2xl border-l-4 border-[#ff7000] bg-white p-8 shadow-sm"
+                      className="relative my-8 border-y border-black/15 bg-white px-2 py-8"
                     >
                       <blockquote className="editorial-pullquote text-2xl font-normal italic leading-snug text-[#08111f]">
                         "{block.text}"

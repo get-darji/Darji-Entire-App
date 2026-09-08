@@ -317,6 +317,7 @@ type BackendTailoringRequest = {
   otherWorkDescription?: string;
   urgency: string;
   pickupAddress: string;
+  pickupLocation?: { lat: number; lng: number };
   media?: UploadedMedia[];
   voiceNotes?: UploadedMedia[];
   measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
@@ -481,6 +482,7 @@ type RequestDraft = {
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
   pickup: string;
+  pickupLocation?: { lat: number; lng: number };
   media: LocalMedia[];
   uploadedMedia: UploadedMedia[];
   voiceNotes?: LocalMedia[];
@@ -1020,10 +1022,11 @@ const sampleDraft: RequestDraft = {
   uploadedVoiceNotes: []
 };
 
-function makeEmptyDraft(pickup = ""): RequestDraft {
+function makeEmptyDraft(pickup = "", pickupLocation?: { lat: number; lng: number }): RequestDraft {
   return {
     description: "",
     pickup,
+    pickupLocation,
     media: [],
     uploadedMedia: [],
     voiceNotes: [],
@@ -1140,7 +1143,7 @@ function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?
 
 function clearActiveClothingItem(draft: RequestDraft): RequestDraft {
   return {
-    ...makeEmptyDraft(draft.pickup),
+    ...makeEmptyDraft(draft.pickup, draft.pickupLocation),
     urgency: draft.urgency,
     items: draft.items ?? [],
     backendRequestId: draft.backendRequestId
@@ -3138,12 +3141,12 @@ function NewRequestScreen({
   function updatePickupAddressField(key: keyof AddressFields, value: string) {
     const next = { ...pickupAddressFields, [key]: value, sourceAddress: undefined };
     setPickupAddressFields(next);
-    setDraft({ ...draft, pickup: formatAddressFields(next) });
+    setDraft({ ...draft, pickup: formatAddressFields(next), pickupLocation: undefined });
   }
 
-  function applyPickupAddress(fields: AddressFields) {
+  function applyPickupAddress(fields: AddressFields, pickupLocation?: { lat: number; lng: number }) {
     setPickupAddressFields(fields);
-    setDraft({ ...draft, pickup: displayAddressFields(fields) });
+    setDraft({ ...draft, pickup: displayAddressFields(fields), pickupLocation });
   }
 
   function withUploadTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -3378,9 +3381,9 @@ function NewRequestScreen({
         address = `Lat ${position.coords.latitude.toFixed(5)}, Lng ${position.coords.longitude.toFixed(5)}`;
       }
       if (fields) {
-        applyPickupAddress(fields);
+        applyPickupAddress(fields, { lat: position.coords.latitude, lng: position.coords.longitude });
       } else {
-        setDraft({ ...draft, pickup: address });
+        setDraft({ ...draft, pickup: address, pickupLocation: { lat: position.coords.latitude, lng: position.coords.longitude } });
       }
     } catch (error) {
       Alert.alert("Location failed", error instanceof Error ? error.message : "Unable to fetch current location.");
@@ -3542,7 +3545,7 @@ function NewRequestScreen({
                 <Text style={styles.formLabel}>Use Saved Address</Text>
                 <View style={styles.savedAddressList}>
                   {addresses.map((address) => (
-                    <Pressable key={address.id} style={[styles.savedAddressChoice, pickupAddressText === address.address && styles.savedAddressChoiceSelected]} onPress={() => applyPickupAddress(address.fields ?? addressFieldsFromText(address.address))}>
+                    <Pressable key={address.id} style={[styles.savedAddressChoice, pickupAddressText === address.address && styles.savedAddressChoiceSelected]} onPress={() => applyPickupAddress(address.fields ?? addressFieldsFromText(address.address), address.lat != null && address.lng != null ? { lat: address.lat, lng: address.lng } : undefined)}>
                       <Ionicons name="home-outline" size={15} color={pickupAddressText === address.address ? BRAND_ORANGE : "#6b7890"} />
                       <View style={styles.savedAddressChoiceText}>
                         <Text style={styles.savedAddressChoiceTitle}>{address.label}</Text>
@@ -5635,7 +5638,7 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     price: 0
   };
 
-  const fallbackDraft = existingOrder?.draft ?? makeEmptyDraft(request.pickupAddress);
+  const fallbackDraft = existingOrder?.draft ?? makeEmptyDraft(request.pickupAddress, request.pickupLocation);
   const items = clothingItemsFromBackendRequest(request, fallbackDraft);
   const primaryItem = items[0];
   const draft: RequestDraft = {
@@ -5649,6 +5652,7 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     otherWorkDescription: primaryItem?.otherWorkDescription,
     urgency: request.urgency,
     pickup: request.pickupAddress,
+    pickupLocation: request.pickupLocation,
     measurements: primaryItem?.measurements,
     measurementNotes: primaryItem?.measurementNotes,
     sampleProvided: primaryItem?.sampleProvided ?? request.sampleProvided,
@@ -5800,6 +5804,7 @@ function OrderSummaryScreen({
             ...primary,
             urgency: draft.urgency,
             pickupAddress: draft.pickup,
+            pickupLocation: draft.pickupLocation,
             preferredMeasurementSlot,
             items: itemPayloads
           })
@@ -6084,14 +6089,29 @@ function QuotesScreen({
       });
       return;
     }
-    setSelectedQuote(quote);
     if (!quote.backendRequestId || !quote.backendQuoteId || !token) {
+      setSelectedQuote(quote);
       setScreen("confirmOrder");
       return;
     }
-    setConfirming(true);
-    setScreen("confirmOrder");
-    setConfirming(false);
+    try {
+      setConfirming(true);
+      const response = await api<{ request: BackendTailoringRequest; quote: BackendTailorQuote }>(
+        `/tailoring-requests/${quote.backendRequestId}/quotes/${quote.backendQuoteId}/select`,
+        { method: "POST" },
+        token
+      );
+      setSelectedQuote(quoteFromBackend(response.quote));
+      setScreen("confirmOrder");
+    } catch (error) {
+      showDialog({
+        title: "Could not select tailor",
+        message: error instanceof Error ? error.message : "Delivery charges could not be calculated. Please try again.",
+        actions: [{ label: "OK" }]
+      });
+    } finally {
+      setConfirming(false);
+    }
   }
 
   async function performDeleteRequest() {
@@ -10719,7 +10739,12 @@ export default function App() {
     setRequestProgressScreen("newRequest");
     setDraft((current) => {
       const shouldKeepActiveDraft = REQUEST_FLOW_SCREENS.has(screen) && hasRequestDraftData(current);
-      const base = shouldKeepActiveDraft ? current : makeEmptyDraft(defaultAddress?.address ?? current.pickup);
+      const base = shouldKeepActiveDraft
+        ? current
+        : makeEmptyDraft(
+            defaultAddress?.address ?? current.pickup,
+            defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined
+          );
       return applyRequestPreset(base, preset);
     });
     if (screen !== "newRequest") {
@@ -10981,7 +11006,7 @@ export default function App() {
   }
 
   function resetRequestDraft() {
-    setDraft(makeEmptyDraft(defaultAddress?.address ?? ""));
+    setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
     setSelectedQuote(undefined);
     setRequestProgressScreen("newRequest");
   }
@@ -11468,7 +11493,11 @@ export default function App() {
           hasCapturedCurrentAddress: true,
           addresses: [currentAddress, ...data.addresses.filter((item) => item.id !== "current-location").map((item) => ({ ...item, isDefault: false }))]
         }));
-        setDraft((currentDraft) => (hasRequestDraftData(currentDraft) ? currentDraft : { ...currentDraft, pickup: resolvedAddress }));
+        setDraft((currentDraft) => (hasRequestDraftData(currentDraft) ? currentDraft : {
+          ...currentDraft,
+          pickup: resolvedAddress,
+          pickupLocation: { lat: current.coords.latitude, lng: current.coords.longitude }
+        }));
       } catch { /* Keep the previous genuine location and retry next time the app opens. */ }
     }
 
@@ -11555,7 +11584,7 @@ export default function App() {
 
       if (response.mode === "cod" && response.request) {
         storeConfirmedOrder(response.request, selectedQuote, orderDraft);
-        setDraft(makeEmptyDraft(defaultAddress?.address ?? ""));
+        setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
         setSelectedQuote(undefined);
         setScreen("orderDetails");
         setDialog({
@@ -11646,7 +11675,7 @@ export default function App() {
       );
       if (result.request) {
         storeConfirmedOrder(result.request, paymentSheet.quote, paymentSheet.draft);
-        setDraft(makeEmptyDraft(defaultAddress?.address ?? ""));
+        setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
         setSelectedQuote(undefined);
         setScreen("orderDetails");
         setDialog({

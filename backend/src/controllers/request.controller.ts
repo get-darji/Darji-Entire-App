@@ -31,7 +31,7 @@ import {
   nextOpenBatchSlot,
   nextTwoBatchSlotsAfter
 } from "../services/hybrid-delivery.service.js";
-import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorPoint, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
+import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorPoint, geocodeAddress, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
 import { getPlatformFee, getSmallOrderFee, HOME_MEASUREMENT_FEE } from "@darzi/shared";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
 
@@ -491,11 +491,25 @@ async function hydrateTailorQuote(quoteInput: unknown) {
         { $group: { _id: null, averageRating: { $avg: "$rating" }, ratingCount: { $sum: 1 } } }
       ]).then((items) => items[0])
       : undefined,
-    TailoringRequestModel.findById(String(quote.requestId)).select("urgency pickupLocation")
+    TailoringRequestModel.findById(String(quote.requestId)).select("urgency pickupLocation pickupAddress selectedQuoteId deliveryFee customerToTailorDistanceMeters totalChargeableDistanceMeters deliveryFeeLockedAt")
   ]);
   const quoteDeliveryMode = deliveryModeFromUrgency(String(requestForEstimate?.urgency ?? ""));
-  const quoteDistance = await roadDistanceMeters(pointFrom(requestForEstimate?.pickupLocation), extractTailorPoint(tailor?.toJSON() as Record<string, unknown> | undefined));
-  const deliveryEstimate = customerDeliveryCharge(quoteDeliveryMode, quoteDistance);
+  const isLockedSelection = String(requestForEstimate?.selectedQuoteId ?? "") === String(quote.id ?? quote._id)
+    && requestForEstimate?.deliveryFeeLockedAt
+    && Number.isFinite(Number(requestForEstimate.deliveryFee));
+  let deliveryEstimate;
+  if (isLockedSelection) {
+    deliveryEstimate = {
+      oneWayDistanceMeters: Number(requestForEstimate?.customerToTailorDistanceMeters ?? 0),
+      totalChargeableDistanceMeters: Number(requestForEstimate?.totalChargeableDistanceMeters ?? 0),
+      deliveryFee: Number(requestForEstimate?.deliveryFee ?? 0)
+    };
+  } else {
+    const quoteTailor = tailor?.toJSON() as Record<string, unknown> | undefined;
+    const quotePoints = await customerAndTailorPoints(requestForEstimate ?? {}, quoteTailor);
+    const quoteDistance = await roadDistanceMeters(quotePoints.customerPoint, quotePoints.tailorPoint);
+    deliveryEstimate = customerDeliveryCharge(quoteDeliveryMode, quoteDistance);
+  }
   return {
     ...quote,
     deliveryEstimate: {
@@ -561,6 +575,17 @@ async function deliveryTaskEstimatedEarnings(
   return 0;
 }
 
+async function customerAndTailorPoints(
+  request: { pickupLocation?: unknown; pickupAddress?: string | null },
+  tailor: Record<string, unknown> | null | undefined
+) {
+  const [customerPoint, tailorPoint] = await Promise.all([
+    pointFrom(request.pickupLocation) ?? geocodeAddress(request.pickupAddress),
+    extractTailorPoint(tailor) ?? geocodeAddress(tailorDropAddress(tailor))
+  ]);
+  return { customerPoint, tailorPoint };
+}
+
 async function createDeliveryRequestForTailoringRequest(requestId: string, type: "customer_to_tailor" | "tailor_to_customer", acceptedTailorId?: string) {
   const request = await TailoringRequestModel.findById(requestId);
   if (!request) return null;
@@ -584,8 +609,7 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
   const tailorAddress = tailorDropAddress(tailorJson);
   const pickupAddress = type === "customer_to_tailor" ? customerAddress : tailorAddress;
   const dropAddress = type === "customer_to_tailor" ? tailorAddress : customerAddress;
-  const customerPoint = pointFrom(request.pickupLocation);
-  const tailorPoint = extractTailorPoint(tailorJson);
+  const { customerPoint, tailorPoint } = await customerAndTailorPoints(request, tailorJson);
   const pickupLocation = type === "customer_to_tailor" ? customerPoint : tailorPoint;
   const dropLocation = type === "customer_to_tailor" ? tailorPoint : customerPoint;
   const distanceMeters = Number(request.customerToTailorDistanceMeters ?? await roadDistanceMeters(customerPoint, tailorPoint));
@@ -2259,10 +2283,26 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const expectedPlatformFee = getPlatformFee(tailoringSubtotal);
   const expectedSmallOrderFee = getSmallOrderFee(tailoringSubtotal);
-  const selectedTailor = await TailorModel.findById(quote.tailorId);
-  const selectedTailorJson = selectedTailor?.toJSON() as Record<string, unknown> | undefined;
-  const customerToTailorDistanceMeters = await roadDistanceMeters(pointFrom(request.pickupLocation), extractTailorPoint(selectedTailorJson));
-  const lockedDelivery = customerDeliveryCharge(currentDeliveryMode, customerToTailorDistanceMeters);
+  const hasLockedDeliveryFee = String(request.selectedQuoteId ?? "") === String(quote.id)
+    && request.deliveryFeeLockedAt
+    && Number.isFinite(Number(request.deliveryFee));
+  let lockedDelivery;
+  if (hasLockedDeliveryFee) {
+    lockedDelivery = {
+      oneWayDistanceMeters: Number(request.customerToTailorDistanceMeters ?? 0),
+      totalChargeableDistanceMeters: Number(request.totalChargeableDistanceMeters ?? 0),
+      deliveryFee: Number(request.deliveryFee ?? 0)
+    };
+  } else {
+    const selectedTailor = await TailorModel.findById(quote.tailorId);
+    const selectedTailorJson = selectedTailor?.toJSON() as Record<string, unknown> | undefined;
+    const checkoutPoints = await customerAndTailorPoints(request, selectedTailorJson);
+    if (!checkoutPoints.customerPoint || !checkoutPoints.tailorPoint) {
+      throw new AppError(422, "Delivery distance could not be calculated. Refresh the pickup location and try again.");
+    }
+    const customerToTailorDistanceMeters = await roadDistanceMeters(checkoutPoints.customerPoint, checkoutPoints.tailorPoint);
+    lockedDelivery = customerDeliveryCharge(currentDeliveryMode, customerToTailorDistanceMeters);
+  }
   const expectedDeliveryFee = lockedDelivery.deliveryFee;
   const enforceClientCheckoutTotals = env.ENFORCE_CLIENT_CHECKOUT_TOTALS;
 
@@ -2437,11 +2477,31 @@ export async function selectTailorQuoteController(req: Request, res: Response) {
   const quote = await TailorQuoteModel.findOne({ _id: String(req.params.quoteId), requestId: request.id });
   if (!quote) throw new AppError(404, "Quote not found");
 
+  const selectedTailor = await TailorModel.findById(quote.tailorId);
+  if (!selectedTailor) throw new AppError(404, "Tailor not found");
+  const selectionPoints = await customerAndTailorPoints(request, selectedTailor.toJSON() as Record<string, unknown>);
+  if (!selectionPoints.customerPoint || !selectionPoints.tailorPoint) {
+    throw new AppError(422, "Delivery distance could not be calculated. Refresh the pickup location and try again.");
+  }
+  const distanceMeters = await roadDistanceMeters(selectionPoints.customerPoint, selectionPoints.tailorPoint);
+  const deliveryMode = deliveryModeFromUrgency(request.urgency);
+  const deliveryEstimate = customerDeliveryCharge(deliveryMode, distanceMeters);
+
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: "RESERVED" });
   const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
     request.id,
-    { status: "PAYMENT_PENDING", selectedQuoteId: quote.id, paymentStatus: "PENDING", orderStatus: "payment_pending" },
+    {
+      status: "PAYMENT_PENDING",
+      selectedQuoteId: quote.id,
+      paymentStatus: "PENDING",
+      orderStatus: "payment_pending",
+      deliveryMode,
+      deliveryFee: deliveryEstimate.deliveryFee,
+      customerToTailorDistanceMeters: deliveryEstimate.oneWayDistanceMeters,
+      totalChargeableDistanceMeters: deliveryEstimate.totalChargeableDistanceMeters,
+      deliveryFeeLockedAt: new Date()
+    },
     { returnDocument: "after" }
   );
   res.json({ data: { request: await hydrateTailoringRequest(updatedRequest), quote: await hydrateTailorQuote(await TailorQuoteModel.findById(quote.id)) } });

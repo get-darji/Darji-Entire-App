@@ -775,8 +775,8 @@ export function LandingPage() {
               <div className="mt-4 grid gap-2 text-sm font-bold text-white/70">
                 <a href="#faq" className="transition hover:text-white">Help Center</a>
                 <button type="button" onClick={() => setSupportOpen(true)} className="text-left transition hover:text-white">Contact Us</button>
-                <a href="mailto:support@darji.in?subject=Privacy%20Policy%20Request" className="transition hover:text-white">Privacy Policy</a>
-                <a href="mailto:support@darji.in?subject=Terms%20%26%20Conditions%20Request" className="transition hover:text-white">Terms & Conditions</a>
+                <a href="/privacy" className="focus-ring transition hover:text-white">Privacy Policy</a>
+                <a href="/terms" className="focus-ring transition hover:text-white">Terms of Service</a>
               </div>
             </div>
             <div><h3 className="font-black">Contact Us</h3><div className="mt-4 grid gap-3 text-sm font-bold text-white/70">{[[Phone, "+91 98765 43210"], [MapPin, "New Delhi, India"], [Clock3, "Pickup in 30 min average"]].map(([Icon, item]) => { const ContactIcon = Icon as typeof Phone; return <span key={String(item)} className="flex items-center gap-2"><ContactIcon className="h-4 w-4 text-[var(--darji-orange)]" />{String(item)}</span>; })}</div></div>
