@@ -124,7 +124,7 @@ const sections: LegalSection[] = [
     audience: "Everyone",
     paragraphs: [
       "These Terms are governed by the laws of India. Courts with jurisdiction under applicable law may hear disputes, and customer rights under consumer law remain unaffected. Before formal proceedings, please contact support so we can try to resolve the issue using the order and communication record.",
-      "We may update these Terms when the service or law changes. The revised version will show a new update date, and we will provide additional notice where required. Questions, complaints, and service disputes can be sent to support@darji.in."
+      "We may update these Terms when the service or law changes. The revised version will show a new update date, and we will provide additional notice where required. Questions, complaints, and service disputes can be sent to help.darji@gmail.com."
     ]
   }
 ];

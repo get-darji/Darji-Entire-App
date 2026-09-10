@@ -12,10 +12,11 @@ export function BrandLogo({ className = "", imageClassName = "h-16 w-auto", ...p
         className="pointer-events-none absolute -inset-4 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,184,38,0.34),rgba(255,112,0,0.16)_42%,transparent_72%)] blur-xl"
       />
       <img
-        src="/darji-logo-cropped.png"
+        src="/darji-transparent.png"
         alt="Darji"
         className={`relative z-10 block object-contain drop-shadow-[0_0_10px_rgba(255,177,35,0.62)] drop-shadow-[0_10px_18px_rgba(255,112,0,0.18)] ${imageClassName}`}
       />
     </div>
   );
 }
+

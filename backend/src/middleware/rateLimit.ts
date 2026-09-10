@@ -8,7 +8,7 @@ type Hit = {
 
 const buckets = new Map<string, Hit>();
 
-export function rateLimit({ windowMs, max, keyPrefix }: { windowMs: number; max: number; keyPrefix: string }) {
+export function rateLimit({ windowMs, max, keyPrefix, message = "Too many requests. Please wait before trying again." }: { windowMs: number; max: number; keyPrefix: string; message?: string }) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const identity = req.user?.id ?? req.ip ?? "anonymous";
     const key = `${keyPrefix}:${identity}`;
@@ -22,7 +22,7 @@ export function rateLimit({ windowMs, max, keyPrefix }: { windowMs: number; max:
 
     hit.count += 1;
     if (hit.count > max) {
-      return next(new AppError(429, "Too many uploads. Please wait before trying again."));
+      return next(new AppError(429, message));
     }
 
     return next();

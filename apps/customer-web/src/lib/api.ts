@@ -69,6 +69,8 @@ async function request<T>(config: AxiosRequestConfig, retry = true): Promise<T> 
 
 export const customerApi = {
   getCustomerWebsiteSlider: () => request<CustomerWebsiteSlider>({ method: "GET", url: "/settings/customer-website-slider" }),
+  createMarketingSignup: (data: { source: "launch_notify"; clientId: string } | { source: "footer_newsletter"; email: string }) =>
+    request<{ id: string; source: string; email?: string; createdAt?: string }>({ method: "POST", url: "/marketing-signups", data }),
   requestOtp: (phone: string) => request<{ otp?: string }>({ method: "POST", url: "/auth/request-otp", data: { phone, role: "CUSTOMER" } }),
   verifyOtp: (phone: string, otp: string) => request<AuthSession>({ method: "POST", url: "/auth/verify-otp", data: { phone, otp, role: "CUSTOMER" } }),
   me: () => request<AuthSession["user"] & { wallet?: { balance?: number } }>({ method: "GET", url: "/auth/me" }),

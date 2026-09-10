@@ -9,6 +9,7 @@ import { BrandLogo } from "@/src/components/brand-logo";
 import { SectionEyebrow } from "@/src/components/ui";
 import BorderGlow from "@/src/components/border-glow";
 import TiltedCard from "@/src/components/tilted-card";
+import { EditorialFooter } from "@/src/components/editorial-footer";
 import { HowItWorksSection } from "./steps-animation";
 import { PremiumHero } from "./premium-hero";
 import { CustomerWebsiteSlider } from "./customer-website-slider";
@@ -269,12 +270,16 @@ export function LandingPage() {
     "@id": "https://darji.in/#localbusiness",
     "name": "Darji Doorstep Tailoring",
     "image": "https://darji.in/og-image.png",
-    "telephone": "+919876543210",
+    "telephone": "+919971416471",
     "url": "https://darji.in",
     "priceRange": "$$",
+    "areaServed": [
+      { "@type": "City", "name": "Delhi" },
+      { "@type": "City", "name": "Gurugram" }
+    ],
     "address": {
       "@type": "PostalAddress",
-      "addressLocality": "New Delhi",
+      "addressLocality": "Delhi",
       "addressCountry": "IN"
     }
   };
@@ -414,7 +419,6 @@ export function LandingPage() {
               <p className="mx-auto mt-3 max-w-3xl text-base font-semibold leading-relaxed text-[var(--color-text-secondary)] sm:text-lg">Four reasons customers keep choosing Darji for tailoring, alterations, pressing, and repairs.</p>
             </div>
             
-            {/* Redesigned 4-column layout replacing the scrolling FlowingMenu */}
             <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 { title: "Doorstep Convenience", description: "We come to you. No travel. No waiting.", icon: MapPin },
@@ -445,7 +449,6 @@ export function LandingPage() {
         <section id="download-app" className="bg-white py-8 sm:py-24">
           <div className="shell">
             <div className="relative overflow-hidden rounded-[24px] bg-[#0c101a] px-4 py-7 shadow-xl sm:rounded-[32px] sm:px-12 sm:py-16 md:px-16 lg:grid lg:grid-cols-[1.2fr_0.8fr] lg:gap-12 lg:items-center">
-              {/* Decorative radial glows */}
               <div className="pointer-events-none absolute -right-20 -top-20 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(255,112,0,0.15),transparent_70%)]" />
               <div className="pointer-events-none absolute -left-20 -bottom-20 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(255,112,0,0.08),transparent_70%)]" />
 
@@ -467,21 +470,16 @@ export function LandingPage() {
                 </div>
               </div>
 
-              {/* Right side: Mock iPhone */}
               <div className="relative z-10 mt-12 hidden justify-center sm:flex lg:mt-0">
                 <div className="relative h-[460px] w-[250px] shrink-0 overflow-hidden rounded-[36px] border-[6px] border-[#222222] bg-[#0c101a] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)]">
-                  {/* Phone notch */}
                   <div className="absolute left-1/2 top-0 h-4 w-28 -translate-x-1/2 rounded-b-xl bg-[#222222] z-30" />
                   
-                  {/* Phone screen */}
                   <div className="flex h-full w-full flex-col bg-[#faf9f6] p-4 pt-6 text-[var(--color-text-primary)]">
-                    {/* Header */}
                     <div className="flex items-center justify-between pb-3 border-b border-gray-100">
                       <img src="/darji-logo-cropped.png" alt="Darji" className="h-5 object-contain" />
                       <div className="h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]" />
                     </div>
 
-                    {/* Active Order Card */}
                     <div className="mt-4 rounded-xl border border-gray-100 bg-white p-3 shadow-[0_4px_12px_rgba(9,13,22,0.03)] text-left">
                       <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[var(--color-primary)]">Active Order</p>
                       <h4 className="mt-1 text-sm font-extrabold text-[#090d16]">Stitching Blazer</h4>
@@ -495,18 +493,13 @@ export function LandingPage() {
                       </div>
                     </div>
 
-                    {/* Delivery Route Card */}
                     <div className="mt-3 flex flex-1 flex-col justify-between rounded-xl border border-gray-100 bg-white p-3 shadow-[0_4px_12px_rgba(9,13,22,0.03)] text-left">
                       <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-400">Tailor Delivery Route</p>
                       
-                      {/* Map graphic (SVG) */}
                       <div className="my-2 flex-1 relative min-h-24 bg-[#fffaf5] rounded-lg border border-orange-50/50 overflow-hidden flex items-center justify-center">
                         <svg className="w-full h-full max-h-20" viewBox="0 0 100 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          {/* Dotted path line */}
                           <path d="M15 65 C 25 65, 40 15, 80 20" stroke="var(--color-primary)" strokeWidth="2.5" strokeDasharray="3 3" strokeLinecap="round" />
-                          {/* Starting point */}
                           <circle cx="15" cy="65" r="4.5" fill="var(--color-primary)" stroke="white" strokeWidth="1.5" />
-                          {/* Ending point */}
                           <circle cx="80" cy="20" r="4.5" fill="var(--color-primary)" stroke="white" strokeWidth="1.5" />
                           <circle cx="80" cy="20" r="8" stroke="var(--color-primary)" strokeWidth="1.5" strokeDasharray="2 2" className="animate-pulse" />
                         </svg>
@@ -544,7 +537,6 @@ export function LandingPage() {
             
             <div className="testimonial-marquee-wrapper mt-7 sm:mt-10">
               <div className="testimonial-marquee-track">
-                {/* First set for scrolling */}
                 <div className="testimonial-group">
                   {[...testimonials, ...testimonials].map((testimonial, index) => (
                     <article key={`t1-${testimonial.name}-${index}`} className="reference-testimonial-card testimonial-card relative flex flex-col justify-between overflow-hidden">
@@ -571,7 +563,6 @@ export function LandingPage() {
                     </article>
                   ))}
                 </div>
-                {/* Duplicate set for seamless scrolling */}
                 <div className="testimonial-group" aria-hidden="true">
                   {[...testimonials, ...testimonials].map((testimonial, index) => (
                     <article key={`t2-${testimonial.name}-${index}`} className="reference-testimonial-card testimonial-card relative flex flex-col justify-between overflow-hidden">
@@ -619,24 +610,19 @@ export function LandingPage() {
         </section>
 
         <section id="faq" className="relative shell py-20 overflow-visible">
-          {/* Background Dotted Thread Trails & Spool Decor */}
           <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden select-none">
-            {/* Left Thread Trail */}
             <svg className="absolute top-[20%] left-[-4%] h-48 w-48 text-[#eee4dc] opacity-60 hidden xl:block" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3,3">
               <path d="M0,50 C30,20 70,80 100,50" />
             </svg>
-            {/* Right Thread Trail */}
             <svg className="absolute bottom-[20%] right-[-4%] h-48 w-48 text-[#eee4dc] opacity-60 hidden xl:block" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3,3">
               <path d="M0,50 C30,80 70,20 100,50" />
             </svg>
             
-            {/* Bottom Left Needle */}
             <svg className="absolute bottom-[-5%] left-[-6%] h-24 w-24 text-[#ff7000]/12 hidden xl:block rotate-[15deg]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="4" r="2" />
               <path d="M12 6L12 22" />
             </svg>
             
-            {/* Bottom Right Spool */}
             <svg className="absolute bottom-[-5%] right-[-6%] h-24 w-24 text-[#ff7000]/12 hidden xl:block rotate-[-15deg]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="6" y="2" width="12" height="4" rx="1" />
               <rect x="8" y="6" width="8" height="12" />
@@ -732,7 +718,6 @@ export function LandingPage() {
             })}
           </div>
 
-          {/* Still have questions card */}
           <div className="mx-auto mt-10 max-w-4xl rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 md:p-6 shadow-sm">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-4 text-center sm:text-left flex-col sm:flex-row">
@@ -755,34 +740,7 @@ export function LandingPage() {
           </div>
         </section>
 
-        <footer className="border-t-2 border-[var(--darji-orange)] bg-[var(--darji-ink)] py-12">
-          <div className="shell grid gap-8 text-white md:grid-cols-[1.2fr_1fr_1fr_1fr]">
-            <div><BrandLogo imageClassName="h-[72px] w-auto" /><p className="mt-3 max-w-sm text-sm font-semibold leading-6 text-white/70">Your trusted tailoring partner. Picked up from your doorstep, delivered with perfection.</p></div>
-            <div>
-              <h3 className="font-black">Quick Links</h3>
-              <div className="mt-4 grid gap-2 text-sm font-bold text-white/70">
-                {[
-                  { label: "Home", href: "#site" },
-                  { label: "Services", href: "#services" },
-                  { label: "FAQs", href: "#faq" },
-                  { label: "Blog", href: "/blogs" },
-                  { label: "About Us", href: "/about" }
-                ].map((item) => <a key={item.label} href={item.href} className="transition hover:text-white">{item.label}</a>)}
-              </div>
-            </div>
-            <div>
-              <h3 className="font-black">Support</h3>
-              <div className="mt-4 grid gap-2 text-sm font-bold text-white/70">
-                <a href="#faq" className="transition hover:text-white">Help Center</a>
-                <button type="button" onClick={() => setSupportOpen(true)} className="text-left transition hover:text-white">Contact Us</button>
-                <a href="/privacy" className="focus-ring transition hover:text-white">Privacy Policy</a>
-                <a href="/terms" className="focus-ring transition hover:text-white">Terms of Service</a>
-              </div>
-            </div>
-            <div><h3 className="font-black">Contact Us</h3><div className="mt-4 grid gap-3 text-sm font-bold text-white/70">{[[Phone, "+91 98765 43210"], [MapPin, "New Delhi, India"], [Clock3, "Pickup in 30 min average"]].map(([Icon, item]) => { const ContactIcon = Icon as typeof Phone; return <span key={String(item)} className="flex items-center gap-2"><ContactIcon className="h-4 w-4 text-[var(--darji-orange)]" />{String(item)}</span>; })}</div></div>
-          </div>
-          <div className="shell mt-8 border-t border-white/10 pt-5 text-center text-xs font-bold text-white/50">&copy; 2026 Darji. All rights reserved.</div>
-        </footer>
+        <EditorialFooter />
       </main>
       <LaunchSoonModal open={launchSoonOpen} onClose={() => setLaunchSoonOpen(false)} />
       <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />

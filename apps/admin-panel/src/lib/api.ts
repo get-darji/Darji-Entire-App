@@ -33,6 +33,7 @@ import type {
   AdminOrderMetadata,
   SystemHealth,
   NotificationCampaign,
+  MarketingAudienceSummary,
 } from "@/src/types/admin";
 
 const RETIRED_API_URL = "https://backend-production-5a7e4.up.railway.app/api";
@@ -226,6 +227,10 @@ export async function updateAdminOrderMetadata(payload: { orderId: string; prior
 
 export async function getSystemHealth() {
   return unwrap<SystemHealth>(api.get("/admin/system-health"));
+}
+
+export async function getMarketingSignups() {
+  return unwrap<MarketingAudienceSummary>(api.get("/admin/marketing-signups"));
 }
 
 export async function updateAdminProfile(payload: { name: string; avatarUri?: string }) {

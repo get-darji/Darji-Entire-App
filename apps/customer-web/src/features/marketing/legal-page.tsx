@@ -79,7 +79,7 @@ export function LegalPage({ title, intro, updatedOn, sections, companion }: Lega
           <div>
             <Mail className="h-6 w-6 text-[#ff8a32]" aria-hidden="true" />
             <h2 className="mt-5 font-editorial text-3xl font-normal">Questions about this document?</h2>
-            <p className="mt-3 max-w-2xl leading-7 text-white/68">Email <a className="font-semibold text-white underline decoration-white/40 underline-offset-4 hover:decoration-white" href="mailto:support@darji.in">support@darji.in</a> with your account phone number and a clear description of your request. Never send an OTP by email.</p>
+            <p className="mt-3 max-w-2xl leading-7 text-white/68">Email <a className="font-semibold text-white underline decoration-white/40 underline-offset-4 hover:decoration-white" href="mailto:help.darji@gmail.com">help.darji@gmail.com</a> with your account phone number and a clear description of your request. Never send an OTP by email.</p>
           </div>
           <Link href={companion.href} className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 border border-white/28 px-5 text-sm font-bold transition hover:border-white hover:bg-white hover:text-[#08111f]">{companion.label} <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
         </div>

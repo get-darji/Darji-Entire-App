@@ -48,6 +48,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   ChevronRight,
   CreditCard,
   Download,
@@ -166,6 +167,7 @@ import {
   getAdminOrderMetadata,
   updateAdminOrderMetadata,
   getSystemHealth,
+  getMarketingSignups,
   updateAdminProfile,
   restoreAdminSession,
   logoutAdminSession,
@@ -215,7 +217,8 @@ import type {
   OperationalAlert,
   AdminActivityLog,
   SystemHealth,
-  NotificationCampaign
+  NotificationCampaign,
+  MarketingAudienceSummary
 } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
@@ -422,7 +425,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
   { id: "exports", icon: Paperclip, label: "Export Center", description: "Central data export hub" },
   { id: "platform", icon: AlertTriangle, label: "Platform Settings", description: "Live and maintenance controls" },
-  { id: "website", icon: ImageIcon, label: "Configure Website", description: "Homepage slider and promotions" },
+  { id: "website", icon: ImageIcon, label: "Configure Website", description: "Homepage content and audience" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
 
@@ -690,6 +693,12 @@ export function AdminPortal() {
     queryKey: ["admin", "settings"],
     queryFn: getSettings,
     enabled: needsSection("settings", "platform", "website", "batches", "tailors")
+  });
+  const marketingSignupsQuery = useQuery({
+    queryKey: ["admin", "marketing-signups"],
+    queryFn: getMarketingSignups,
+    enabled: needsSection("website"),
+    refetchInterval: activeSection === "website" ? 30_000 : false
   });
   const platformStatusQuery = useQuery({
     queryKey: ["admin", "platform-status"],
@@ -3094,7 +3103,7 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Configure customer website"
-              description="Manage the promotional slider shown immediately below the homepage hero. The booking button stays in one consistent position while the artwork changes."
+              description="Manage the homepage slider and review interest collected from the launch popup and footer newsletter."
             />
             <CustomerWebsiteSliderCard
               draft={websiteSliderDraft}
@@ -3103,6 +3112,12 @@ export function AdminPortal() {
               onUpload={handleWebsiteSlideUpload}
               pending={settingMutation.isPending}
               uploadingSlideId={uploadingWebsiteSlideId}
+            />
+            <MarketingAudienceCard
+              data={marketingSignupsQuery.data}
+              error={marketingSignupsQuery.error ? extractError(marketingSignupsQuery.error) : undefined}
+              loading={marketingSignupsQuery.isLoading}
+              onRetry={() => marketingSignupsQuery.refetch()}
             />
           </div>
         ) : null}
@@ -6440,6 +6455,74 @@ function normalizeDeliveryBatchSettings(value: unknown): DeliveryBatchSettingsDr
     lockMinutes: Number.isFinite(Number(raw.lockMinutes)) ? Math.max(45, Number(raw.lockMinutes)) : base.lockMinutes,
     maxOrdersPerBatch: Number.isFinite(Number(raw.maxOrdersPerBatch)) ? Math.max(1, Number(raw.maxOrdersPerBatch)) : base.maxOrdersPerBatch
   };
+}
+
+function MarketingAudienceCard({
+  data,
+  error,
+  loading,
+  onRetry
+}: {
+  data?: MarketingAudienceSummary;
+  error?: string;
+  loading: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <Panel className="overflow-hidden p-0">
+      <div className="flex flex-col gap-3 border-b border-[var(--panel-border)] px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div>
+          <h3 className="text-xl font-semibold tracking-tight">Website audience</h3>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">Live interest recorded from the pickup popup and newsletter form.</p>
+        </div>
+        <ActionButton disabled={loading} onClick={onRetry} variant="secondary">
+          {loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+          Refresh
+        </ActionButton>
+      </div>
+
+      {error ? <div className="p-4 sm:p-6"><InlineError message={error} /></div> : loading && !data ? <LoadingState label="Loading website audience…" /> : (
+        <>
+          <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-6">
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-orange-800"><Bell className="h-4 w-4" />Launch interest</div>
+              <p className="mt-3 text-3xl font-semibold tabular-nums text-[var(--deep)]">{(data?.launchNotifyCount ?? 0).toLocaleString("en-IN")}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Unique browsers that clicked Notify Me</p>
+            </div>
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-sky-800"><Mail className="h-4 w-4" />Newsletter subscribers</div>
+              <p className="mt-3 text-3xl font-semibold tabular-nums text-[var(--deep)]">{(data?.newsletterCount ?? 0).toLocaleString("en-IN")}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Unique emails submitted through the footer</p>
+            </div>
+          </div>
+
+          <div className="border-t border-[var(--panel-border)] px-4 py-5 sm:px-6">
+            <div className="mb-3">
+              <h4 className="font-semibold text-[var(--foreground)]">Subscriber emails</h4>
+              <p className="mt-1 text-xs text-[var(--muted)]">Newest footer signups appear first.</p>
+            </div>
+            {data?.newsletterSignups.length ? (
+              <div className="max-h-80 overflow-auto rounded-2xl border border-[var(--panel-border)]">
+                <table className="w-full min-w-[520px] text-left text-sm">
+                  <thead className="sticky top-0 bg-[var(--panel)] text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+                    <tr><th className="px-4 py-3 font-semibold">Email</th><th className="px-4 py-3 font-semibold">Subscribed</th></tr>
+                  </thead>
+                  <tbody>
+                    {data.newsletterSignups.map((signup) => (
+                      <tr className="border-t border-[var(--panel-border)]" key={signup.id}>
+                        <td className="px-4 py-3 font-medium text-[var(--foreground)]"><a className="hover:text-[var(--accent)] hover:underline" href={`mailto:${signup.email}`}>{signup.email}</a></td>
+                        <td className="px-4 py-3 text-[var(--muted)]">{formatDate(signup.createdAt, true)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <EmptyState message="No footer newsletter signups yet." />}
+          </div>
+        </>
+      )}
+    </Panel>
+  );
 }
 
 function CustomerWebsiteSliderCard({

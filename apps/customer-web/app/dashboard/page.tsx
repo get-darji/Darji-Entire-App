@@ -1,5 +1,5 @@
-import { LaunchSoonPage } from "@/src/features/marketing/site-actions";
+import { redirect } from "next/navigation";
 
 export default function DashboardPage() {
-  return <LaunchSoonPage />;
+  redirect("/");
 }

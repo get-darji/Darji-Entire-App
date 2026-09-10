@@ -107,7 +107,7 @@ const sections: LegalSection[] = [
     audience: "Everyone",
     paragraphs: [
       "Subject to applicable law, you may ask for a summary of personal data being processed, request correction or completion, request erasure, withdraw consent where processing relies on consent, and raise a grievance. You may also update available profile or notification settings directly in the relevant Darji app.",
-      "Send requests to support@darji.in from the contact details connected to your account. We may verify your identity before acting and may retain information that must be kept for completed transactions, payouts, legal duties, safety, fraud prevention, or unresolved disputes. You may nominate another person to exercise rights where applicable law provides for it."
+      "Send requests to help.darji@gmail.com from the contact details connected to your account. We may verify your identity before acting and may retain information that must be kept for completed transactions, payouts, legal duties, safety, fraud prevention, or unresolved disputes. You may nominate another person to exercise rights where applicable law provides for it."
     ]
   },
   {
@@ -116,7 +116,7 @@ const sections: LegalSection[] = [
     audience: "Everyone",
     paragraphs: [
       "Darji accounts and partner work are intended for adults. A person under 18 should not create or operate an account independently. If we learn that a child’s personal data was provided without the legally required involvement of a parent or lawful guardian, we will take appropriate steps.",
-      "We may update this policy as the service or law changes. We will post the revised version with a new update date and provide additional notice where required. Privacy questions and grievances can be sent to support@darji.in."
+      "We may update this policy as the service or law changes. We will post the revised version with a new update date and provide additional notice where required. Privacy questions and grievances can be sent to help.darji@gmail.com."
     ]
   }
 ];

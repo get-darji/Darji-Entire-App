@@ -1,7 +1,9 @@
 "use client";
 
-import { ArrowRight, Clock3, LockKeyhole, MapPin, Phone, ShieldCheck, Sparkles, Star } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Clock3, LockKeyhole, MapPin, Menu, Phone, ShieldCheck, Sparkles, Star, X } from "lucide-react";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import type { RefObject } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { heroTrustItems } from "./hero-config";
@@ -15,7 +17,17 @@ type PremiumHeroProps = {
 
 const trustIcons = [ShieldCheck, MapPin, Clock3, LockKeyhole];
 
+const navLinks = [
+  { label: "Home", href: "/" },
+  { label: "Services", href: "/#services" },
+  { label: "FAQs", href: "/#faq" },
+  { label: "Blog", href: "/blogs" },
+  { label: "About Us", href: "/about" }
+];
+
 export function PremiumHero({ heroRef, onModelReady, onBookPickup }: PremiumHeroProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <section ref={heroRef} className="hero-shell relative min-h-0 overflow-hidden bg-white lg:min-h-screen">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_24%,rgba(255,112,0,0.12),transparent_30rem),linear-gradient(180deg,#ffffff_0%,#fffaf5_48%,#ffffff_100%)]" />
@@ -25,25 +37,65 @@ export function PremiumHero({ heroRef, onModelReady, onBookPickup }: PremiumHero
             <BrandLogo imageClassName="h-[72px] w-auto" />
           </Link>
           <div className="hidden items-center gap-8 text-sm font-bold text-[var(--color-text-secondary)] lg:flex">
-            {[
-              ["Home", "/"],
-              ["Services", "/#services"],
-              ["FAQs", "#faq"],
-              ["Blog", "/blogs"],
-              ["About Us", "/about"]
-            ].map(([label, href], index) => (
-              <a key={label} href={href} className={`relative rounded-full py-2 transition-colors duration-200 hover:text-[var(--color-primary)] ${index === 0 ? "text-[var(--color-primary)]" : ""}`}>
-                {label}
+            {navLinks.map((item, index) => (
+              <a
+                key={item.label}
+                href={item.href}
+                className={`relative rounded-full py-2 transition-colors duration-200 hover:text-[var(--color-primary)] ${index === 0 ? "text-[var(--color-primary)]" : ""}`}
+              >
+                {item.label}
                 {index === 0 ? <span className="absolute -bottom-1 left-0 h-0.5 w-full rounded-full bg-[var(--color-primary)]" /> : null}
               </a>
             ))}
           </div>
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={onBookPickup} className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--color-primary)] px-5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-[var(--color-primary-hover)] active:translate-y-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <button
+              type="button"
+              onClick={onBookPickup}
+              className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--color-primary)] px-4 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-[var(--color-primary-hover)] active:translate-y-0 sm:px-5"
+            >
               Book Pickup
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              className="focus-ring grid h-11 w-11 place-items-center rounded-xl border border-[var(--color-border)] bg-white text-[var(--color-text-primary)] shadow-sm transition hover:bg-[var(--color-surface-secondary)] lg:hidden"
+              aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
         </nav>
+
+        {/* Mobile Navigation Dropdown */}
+        <AnimatePresence>
+          {mobileMenuOpen ? (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              className="mb-4 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-white/95 p-4 shadow-xl backdrop-blur-md lg:hidden"
+            >
+              <div className="grid gap-1">
+                {navLinks.map((item, index) => (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm font-bold transition hover:bg-[var(--color-primary-light)] hover:text-[var(--color-primary)] ${
+                      index === 0 ? "text-[var(--color-primary)] bg-[var(--color-primary-light)]/40" : "text-[var(--color-text-primary)]"
+                    }`}
+                  >
+                    <span>{item.label}</span>
+                    <ArrowRight className="h-4 w-4 opacity-40" />
+                  </Link>
+                ))}
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         <div className="grid items-start gap-8 pb-8 pt-6 lg:min-h-[calc(100svh-5.5rem)] lg:grid-cols-[0.88fr_1.12fr] lg:items-center lg:gap-8 lg:pb-8 lg:pt-0">
           <div className="max-w-2xl">
@@ -93,7 +145,7 @@ export function PremiumHero({ heroRef, onModelReady, onBookPickup }: PremiumHero
                 ))}
               </div>
               <div>
-                <p className="text-sm font-bold text-[var(--color-text-primary)]">10,000+ happy customers trust Darji</p>
+                <p className="text-sm font-bold text-[var(--color-text-primary)]">100+ happy customers trust Darji</p>
                 <div className="mt-1 flex gap-1 text-[var(--color-primary)]">
                   {Array.from({ length: 5 }).map((_, index) => (
                     <Star key={index} className="h-4 w-4 fill-current" />

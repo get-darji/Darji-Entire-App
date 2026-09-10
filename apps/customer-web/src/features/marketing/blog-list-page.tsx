@@ -55,30 +55,30 @@ export function BlogListPage() {
         <div className="shell relative">
           <motion.div {...reveal} className="max-w-5xl">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#ffb35f]">
-              The Darji Journal • Issue 04
+              The Darji Blog
             </p>
 
             <h1 className="mt-6 font-editorial text-[clamp(3.4rem,8.5vw,7.8rem)] font-normal leading-[0.9] tracking-[-0.03em] text-white">
-              The Sartorial <span className="italic text-white/62">Chronicle.</span>
+              Stories behind <span className="italic text-white/62">every stitch.</span>
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg sm:text-xl font-normal leading-relaxed text-white/70">
-              Curated essays on bespoke tailoring, garment anatomy, fabric preservation rituals, and the living heritage of master Indian artisans.
+              Founder stories, practical tailoring advice, and honest updates from the people building Darji.
             </p>
 
             {/* Publication metadata stats */}
             <div className="mt-10 flex flex-wrap items-center gap-6 sm:gap-10 border-t border-white/15 pt-6 text-xs sm:text-sm font-bold uppercase tracking-[0.14em] text-white/60">
               <div className="flex items-center gap-2">
                 <BookOpen className="h-4 w-4 text-[#ff7000]" />
-                <span>{blogArticles.length} Curated Essays</span>
+                <span>{blogArticles.length} Founder Story</span>
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-[#ff7000]" />
-                <span>45 Min Total Reading</span>
+                <span>6 Min Reading</span>
               </div>
               <div className="flex items-center gap-2">
                 <Layers className="h-4 w-4 text-[#ff7000]" />
-                <span>Doorstep Fit Masterclasses</span>
+                <span>People, Purpose &amp; Progress</span>
               </div>
             </div>
           </motion.div>
@@ -163,7 +163,7 @@ export function BlogListPage() {
       )}
 
       {/* 3. Sticky Category Navigation & Live Search Bar */}
-      <section className="shell mt-16 sm:mt-24">
+      <section className={`shell mt-16 sm:mt-24 ${blogArticles.length <= 1 ? "hidden" : ""}`}>
         <div className="sticky top-20 z-40 border border-black/10 bg-[#f8f7f4]/94 p-3 shadow-[0_18px_42px_rgba(0,0,0,0.08)] backdrop-blur-xl">
           <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
             {/* Category Pills */}
@@ -223,7 +223,7 @@ export function BlogListPage() {
       </section>
 
       {/* 4. Asymmetrical Editorial Article Grid */}
-      <section className="shell py-12 sm:py-16">
+      <section className={`shell py-12 sm:py-16 ${blogArticles.length <= 1 ? "hidden" : ""}`}>
         {filteredArticles.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-[#d1dce8] bg-white p-16 text-center">
             <Filter className="mx-auto h-12 w-12 text-[#ff7000]/60" />
@@ -323,20 +323,20 @@ export function BlogListPage() {
         <div className="relative overflow-hidden border border-white/10 bg-[#080808] p-8 text-white shadow-[0_28px_80px_rgba(0,0,0,0.2)] sm:p-14 lg:p-16">
           <div className="relative max-w-2xl">
             <p className="text-xs font-black uppercase tracking-[0.24em] text-[#ffb35f]">
-              Artisan Guild Access
+              The Story Behind Darji
             </p>
             <h2 className="mt-4 font-editorial text-[clamp(2.2rem,4vw,3.8rem)] font-normal leading-[1.05] text-white">
-              Have an heirloom garment that needs restoration?
+              A personal struggle became a shared mission.
             </h2>
             <p className="mt-4 text-base sm:text-lg text-white/70 leading-relaxed font-normal">
-              From restoring vintage Paithani zari seams to bespoke tuxedos, our master tailors provide home fitting assessments across Delhi NCR & Bangalore.
+              Read how Aman Kumar Sah’s experience at home inspired a platform built for customers and local tailors.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
-                href="/about"
+                href="/blogs/founder-story-darji"
                 className="focus-ring inline-flex min-h-14 items-center justify-center gap-2 rounded-xl bg-[#ff7000] px-8 text-sm font-black text-white transition hover:bg-[#e56500] hover:-translate-y-0.5"
               >
-                Learn How Darji Works <ArrowRight className="h-4 w-4" />
+                Read the Founder Story <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
                 href="/#services"

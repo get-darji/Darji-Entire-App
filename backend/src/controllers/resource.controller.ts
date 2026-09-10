@@ -44,7 +44,8 @@ import {
   AdminAuditLogModel,
   AdminOrderMetadataModel,
   MeasurementVisitModel,
-  NotificationCampaignModel
+  NotificationCampaignModel,
+  MarketingSignupModel
 } from "../models.js";
 import multer from "multer";
 import { z } from "zod";
@@ -2021,6 +2022,57 @@ export async function customerWebsiteSliderController(_req: Request, res: Respon
   const setting = await SettingModel.findOne({ key: CUSTOMER_WEBSITE_SLIDER_SETTING_KEY }).select("value").lean();
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data: normalizeCustomerWebsiteSlider(setting?.value) });
+}
+
+const marketingSignupInputSchema = z.discriminatedUnion("source", [
+  z.object({
+    source: z.literal("launch_notify"),
+    clientId: z.string().trim().min(8).max(120)
+  }),
+  z.object({
+    source: z.literal("footer_newsletter"),
+    email: z.string().trim().email().max(254)
+  })
+]);
+
+export async function createMarketingSignupController(req: Request, res: Response) {
+  const input = marketingSignupInputSchema.parse(req.body);
+  const identity = input.source === "launch_notify"
+    ? { source: input.source, clientId: input.clientId }
+    : { source: input.source, email: input.email.toLowerCase() };
+
+  const signup = await MarketingSignupModel.findOneAndUpdate(
+    identity,
+    { $setOnInsert: identity },
+    { upsert: true, returnDocument: "after" }
+  );
+
+  res.status(201).json({ data: signup });
+}
+
+export async function listMarketingSignupsController(_req: Request, res: Response) {
+  const [launchNotifyCount, newsletterCount, newsletterSignups] = await Promise.all([
+    MarketingSignupModel.countDocuments({ source: "launch_notify" }),
+    MarketingSignupModel.countDocuments({ source: "footer_newsletter" }),
+    MarketingSignupModel.find({ source: "footer_newsletter", email: { $exists: true } })
+      .select("email source createdAt")
+      .sort({ createdAt: -1 })
+      .lean()
+  ]);
+
+  res.json({
+    data: {
+      total: launchNotifyCount + newsletterCount,
+      launchNotifyCount,
+      newsletterCount,
+      newsletterSignups: newsletterSignups.map((signup) => ({
+        id: String(signup._id),
+        source: signup.source,
+        email: signup.email,
+        createdAt: signup.createdAt
+      }))
+    }
+  });
 }
 
 export async function platformStatusController(_req: Request, res: Response) {

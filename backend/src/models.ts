@@ -943,6 +943,24 @@ const settingSchema = new Schema(
   baseOptions
 );
 
+const marketingSignupSchema = new Schema(
+  {
+    _id: stringId,
+    source: { type: String, enum: ["launch_notify", "footer_newsletter"], required: true, index: true },
+    email: { type: String, trim: true, lowercase: true },
+    clientId: { type: String, trim: true }
+  },
+  baseOptions
+);
+marketingSignupSchema.index(
+  { source: 1, email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: "string" } } }
+);
+marketingSignupSchema.index(
+  { source: 1, clientId: 1 },
+  { unique: true, partialFilterExpression: { clientId: { $type: "string" } } }
+);
+
 const adminOrderNoteSchema = new Schema(
   {
     adminId: { type: String, required: true },
@@ -1027,6 +1045,7 @@ export const TailorQuoteModel = mongoose.model("TailorQuote", tailorQuoteSchema)
 export const DeliveryRequestModel = mongoose.model("DeliveryTask", deliveryRequestSchema, "delivery_tasks");
 export const DeliveryBatchModel = mongoose.model("DeliveryBatch", deliveryBatchSchema, "delivery_batches");
 export const SettingModel = mongoose.model("Setting", settingSchema);
+export const MarketingSignupModel = mongoose.model("MarketingSignup", marketingSignupSchema, "marketing_signups");
 export const AdminOrderMetadataModel = mongoose.model("AdminOrderMetadata", adminOrderMetadataSchema, "admin_order_metadata");
 export const AdminAuditLogModel = mongoose.model("AdminAuditLog", adminAuditLogSchema, "admin_audit_logs");
 export const NotificationCampaignModel = mongoose.model("NotificationCampaign", notificationCampaignSchema, "notification_campaigns");

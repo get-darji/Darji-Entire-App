@@ -167,7 +167,7 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
           />
         </div>
         <p className="mt-3 text-right text-xs text-[#8c9aa8] italic">
-          Photography from the Darji Master Artisan Workshop & Archive.
+          The story behind Darji began at home.
         </p>
       </div>
 
@@ -378,6 +378,37 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
                     </div>
                   );
 
+                case "table":
+                  return (
+                    <div key={idx} className="my-10 overflow-hidden rounded-2xl border border-[#e6edf5] bg-white shadow-sm">
+                      <div className="bg-[#08111f] px-6 py-5 text-white">
+                        <h4 className="font-editorial text-2xl font-normal">{block.title}</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[640px] border-collapse text-left">
+                          <thead>
+                            <tr className="border-b border-[#e6edf5] bg-[#fff8f0]">
+                              <th className="w-36 px-5 py-4 text-xs font-black uppercase tracking-[0.14em] text-[#687589]">Focus</th>
+                              {block.columns.map((column) => (
+                                <th key={column} className="px-5 py-4 text-sm font-black text-[#08111f]">{column}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {block.rows.map((row) => (
+                              <tr key={row.label} className="border-b border-[#eef2f6] last:border-0">
+                                <th className="px-5 py-4 text-sm font-black text-[#ff7000]">{row.label}</th>
+                                {row.values.map((value, valueIndex) => (
+                                  <td key={`${row.label}-${valueIndex}`} className="px-5 py-4 text-sm leading-6 text-[#4b5a70]">{value}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+
                 case "takeaways":
                   return (
                     <div
@@ -460,7 +491,7 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
               Need this garment tailored?
             </h4>
             <p className="mt-2 text-xs leading-relaxed text-white/70">
-              Book a calibrated home fitting visit with Darji's verified master tailors in Delhi NCR & Bangalore.
+              Darji currently serves customers across Delhi and Gurugram.
             </p>
             <Link
               href="/#services"

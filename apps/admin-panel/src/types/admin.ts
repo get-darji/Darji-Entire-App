@@ -774,3 +774,17 @@ export type NotificationCampaign = {
   error?: string;
   createdAt: string;
 };
+
+export type MarketingSignup = {
+  id: string;
+  source: "launch_notify" | "footer_newsletter";
+  email?: string;
+  createdAt: string;
+};
+
+export type MarketingAudienceSummary = {
+  total: number;
+  launchNotifyCount: number;
+  newsletterCount: number;
+  newsletterSignups: MarketingSignup[];
+};

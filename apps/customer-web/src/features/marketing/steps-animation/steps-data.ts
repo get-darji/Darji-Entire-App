@@ -52,8 +52,8 @@ export const STATS: Stat[] = [
   {
     icon: PackageCheck,
     label: "Orders Completed",
-    defaultValue: "10,000+",
-    targetValue: 10000,
+    defaultValue: "100+",
+    targetValue: 100,
     step: 10,
     format: (v) => `${Math.round(v).toLocaleString("en-US")}+`,
   },

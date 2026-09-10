@@ -3,8 +3,9 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Clock3, Mail, MapPin, Menu, MessageCircle, Phone, Scissors, X } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
+import { customerApi, errorMessage } from "@/src/lib/api";
 
 type ModalProps = {
   open: boolean;
@@ -19,6 +20,34 @@ const modalMotion = {
 } as const;
 
 export function LaunchSoonModal({ open, onClose }: ModalProps) {
+  const [notifyState, setNotifyState] = useState<"idle" | "saving" | "saved">("idle");
+  const [notifyError, setNotifyError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  async function handleNotifyClick() {
+    if (notifyState !== "idle") return;
+    setNotifyState("saving");
+    setNotifyError("");
+    try {
+      const existingId = window.localStorage.getItem("darji-launch-notify-id");
+      const clientId = existingId || window.crypto.randomUUID?.() || `launch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      if (!existingId) window.localStorage.setItem("darji-launch-notify-id", clientId);
+      await customerApi.createMarketingSignup({ source: "launch_notify", clientId });
+      setNotifyState("saved");
+    } catch (error) {
+      setNotifyState("idle");
+      setNotifyError(errorMessage(error));
+    }
+  }
+
   return (
     <AnimatePresence>
       {open ? (
@@ -41,37 +70,42 @@ export function LaunchSoonModal({ open, onClose }: ModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="focus-ring absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-full bg-[#f5f7fb] text-[#08111f] transition hover:bg-[#fff0e5] hover:text-[#ff7000]"
+              className="focus-ring absolute right-4 top-4 z-20 grid h-14 w-14 place-items-center rounded-full bg-[#f5f7fb] text-[#08111f] transition hover:bg-[#fff0e5] hover:text-[#ff7000] sm:right-5 sm:top-5"
               aria-label="Close launch message"
             >
-              <X className="h-5 w-5" />
+              <X className="pointer-events-none h-7 w-7" />
             </button>
             <div className="relative">
               <span className="inline-grid h-14 w-14 place-items-center rounded-2xl bg-[#fff0e5] text-[#ff7000]">
                 <Scissors className="h-7 w-7" />
               </span>
               <p className="mt-6 text-sm font-black uppercase tracking-[0.16em] text-[#ff7000]">Coming soon</p>
-              <h2 id="launch-soon-title" className="mt-2 max-w-[11ch] text-[clamp(2.2rem,6vw,4.7rem)] font-black leading-[0.9] tracking-[-0.035em] text-[#08111f]">
-                Pickup bookings are almost ready.
+              <h2 id="launch-soon-title" className="mt-2 max-w-[12ch] text-[clamp(2.2rem,6vw,4.7rem)] font-black leading-[0.9] tracking-[-0.035em] text-[#08111f]">
+                A little more time. A much better experience.
               </h2>
               <p className="mt-5 max-w-lg text-base font-semibold leading-7 text-[#4b5a70]">
-                We are launching Book Pickup bookings soon. For now, our team is finishing the booking flow so your first order feels smooth from pickup to delivery.
+                We’re putting the finishing touches on Darji’s pickup service. When we open our doors, every step—from booking to delivery—will feel simple, seamless, and worth the wait.
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="focus-ring inline-flex min-h-12 items-center justify-center rounded-xl bg-[#ff7000] px-6 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500]"
+                  onClick={handleNotifyClick}
+                  disabled={notifyState !== "idle"}
+                  className="focus-ring inline-flex min-h-12 items-center justify-center rounded-xl bg-[#ff7000] px-6 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500] disabled:cursor-default disabled:opacity-75"
                 >
-                  Okay, got it
+                  {notifyState === "saving" ? "Saving…" : notifyState === "saved" ? "Interest recorded" : "Notify Me"}
                 </button>
                 <a
-                  href="mailto:support@darji.in"
+                  href="https://wa.me/919971416471?text=Hi%20Darji%2C%20I%20would%20like%20help%20with%20your%20pickup%20service."
+                  target="_blank"
+                  rel="noreferrer"
                   className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[#e6edf5] bg-white px-6 text-sm font-black text-[#08111f] transition hover:border-[#ffc89b] hover:bg-[#fff8f0]"
                 >
                   Contact team <ArrowRight className="h-4 w-4" />
                 </a>
               </div>
+              {notifyState === "saved" ? <p role="status" className="mt-3 text-sm font-semibold text-emerald-700">Thanks—we’ve added your interest to our launch list.</p> : null}
+              {notifyError ? <p role="alert" className="mt-3 text-sm font-semibold text-rose-700">Could not save your interest: {notifyError}</p> : null}
             </div>
           </motion.div>
         </motion.div>
@@ -82,10 +116,10 @@ export function LaunchSoonModal({ open, onClose }: ModalProps) {
 
 export function SupportModal({ open, onClose }: ModalProps) {
   const options = [
-    { label: "Call support", value: "+91 98765 43210", href: "tel:+919876543210", icon: Phone },
-    { label: "WhatsApp", value: "Message Darji support", href: "https://wa.me/919876543210", icon: MessageCircle },
-    { label: "Email", value: "support@darji.in", href: "mailto:support@darji.in", icon: Mail },
-    { label: "Service city", value: "New Delhi, India", href: "https://maps.google.com/?q=New%20Delhi%20India", icon: MapPin }
+    { label: "Call support", value: "+91 9971416471", href: "tel:+919971416471", icon: Phone },
+    { label: "WhatsApp", value: "Message Darji support", href: "https://wa.me/919971416471", icon: MessageCircle },
+    { label: "Email", value: "help.darji@gmail.com", href: "mailto:help.darji@gmail.com", icon: Mail },
+    { label: "Service areas", value: "Delhi & Gurugram", href: "https://maps.google.com/?q=Delhi%20Gurugram", icon: MapPin }
   ];
 
   return (
@@ -225,7 +259,7 @@ export function LaunchSoonPage() {
               <Link href="/" className="focus-ring inline-flex min-h-12 items-center justify-center rounded-xl bg-[#ff7000] px-6 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500]">
                 Back to home
               </Link>
-              <a href="mailto:support@darji.in" className="focus-ring inline-flex min-h-12 items-center justify-center rounded-xl border border-[#e6edf5] bg-white px-6 text-sm font-black text-[#08111f] transition hover:border-[#ffc89b] hover:bg-[#fff8f0]">
+              <a href="mailto:help.darji@gmail.com" className="focus-ring inline-flex min-h-12 items-center justify-center rounded-xl border border-[#e6edf5] bg-white px-6 text-sm font-black text-[#08111f] transition hover:border-[#ffc89b] hover:bg-[#fff8f0]">
                 Contact support
               </a>
             </div>

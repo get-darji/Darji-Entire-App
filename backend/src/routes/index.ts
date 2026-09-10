@@ -16,6 +16,8 @@ import {
   deleteCouponController,
   createOrderController,
   createReviewController,
+  createMarketingSignupController,
+  listMarketingSignupsController,
   customerWebsiteSliderController,
   listMyTailorReviewsController,
   listAdminReviewsController,
@@ -156,6 +158,11 @@ export const router = Router();
 router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend", push: pushRuntimeStatus() } }));
 router.get("/platform-status", platformStatusController);
 router.get("/settings/customer-website-slider", customerWebsiteSliderController);
+router.post(
+  "/marketing-signups",
+  rateLimit({ keyPrefix: "marketing-signups", windowMs: 60 * 60 * 1000, max: 20 }),
+  createMarketingSignupController
+);
 router.post("/auth/request-otp", requestOtpController);
 router.post("/auth/verify-otp", verifyOtpController);
 router.post("/auth/refresh", refreshController);
@@ -315,4 +322,5 @@ router.post("/users/admin-invite", requireAuth, requireRole("ADMIN", "SUPER_ADMI
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
 router.delete("/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.get("/settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), settingsController);
+router.get("/admin/marketing-signups", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listMarketingSignupsController);
 router.put("/settings/:key", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateSettingController);
