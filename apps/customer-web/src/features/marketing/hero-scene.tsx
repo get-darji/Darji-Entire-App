@@ -2,7 +2,7 @@
 
 import { ContactShadows } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { Clock3, PackageCheck, Ruler, Sparkles } from "lucide-react";
+import { MessageSquareText, PackageCheck, Ruler, Truck } from "lucide-react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type { Group, PerspectiveCamera } from "three";
@@ -21,10 +21,10 @@ type HeroSceneProps = {
 
 const heroMetricCards = [
   {
-    label: "Pickup in",
-    value: "30 min",
-    helper: "On average",
-    icon: Clock3,
+    label: "Doorstep",
+    value: "Pickup",
+    helper: "And return",
+    icon: Truck,
     className: "bottom-[14%] right-[2%]",
     delay: "0s"
   },
@@ -45,10 +45,10 @@ const heroMetricCards = [
     delay: "-2.1s"
   },
   {
-    label: "Tailors",
-    value: "150+",
-    helper: "Verified shops",
-    icon: Sparkles,
+    label: "Tailor quotes",
+    value: "Compare",
+    helper: "Before you pay",
+    icon: MessageSquareText,
     className: "bottom-[20%] left-[5%] hidden lg:block",
     delay: "-3s"
   }

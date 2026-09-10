@@ -3,7 +3,7 @@ import { AboutPage } from "@/src/features/marketing/about-page";
 
 export const metadata: Metadata = {
   title: "About Darji | Doorstep Tailoring Network",
-  description: "Learn how Darji connects customers, verified tailors, and delivery partners into a smoother doorstep tailoring experience."
+  description: "Learn how Darji connects customers, local tailors, and delivery partners into a smoother doorstep tailoring experience."
 };
 
 export default function Page() {

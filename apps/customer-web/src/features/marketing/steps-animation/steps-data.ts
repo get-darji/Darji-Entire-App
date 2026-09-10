@@ -1,4 +1,4 @@
-import { Clock3, PackageCheck, Star, Users } from "lucide-react";
+import { MapPin, PackageCheck, Route, Star } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 export interface Step {
@@ -33,7 +33,7 @@ export const STEPS: Step[] = [
   },
   {
     title: "Tailor Gets to Work",
-    copy: "Our verified tailor reviews and starts working on it.",
+    copy: "Your chosen tailor reviews the request and starts working on it.",
     image: "/animations/s3.png",
   },
   {
@@ -58,20 +58,20 @@ export const STATS: Stat[] = [
     format: (v) => `${Math.round(v).toLocaleString("en-US")}+`,
   },
   {
-    icon: Users,
-    label: "Verified Tailors",
-    defaultValue: "150+",
-    targetValue: 150,
+    icon: Route,
+    label: "Tracked Service Stages",
+    defaultValue: "5",
+    targetValue: 5,
     step: 1,
-    format: (v) => `${Math.round(v)}+`,
+    format: (v) => `${Math.round(v)}`,
   },
   {
-    icon: Clock3,
-    label: "Average Pickup Time",
-    defaultValue: "30 min",
-    targetValue: 30,
+    icon: MapPin,
+    label: "Current Service Areas",
+    defaultValue: "2",
+    targetValue: 2,
     step: 1,
-    format: (v) => `${Math.round(v)} min`,
+    format: (v) => `${Math.round(v)}`,
   },
   {
     icon: Star,

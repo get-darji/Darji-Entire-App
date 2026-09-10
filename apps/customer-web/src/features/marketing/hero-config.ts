@@ -23,4 +23,4 @@ export const heroSceneConfig = {
   }
 };
 
-export const heroTrustItems = ["Verified Tailors", "Live Tracking", "On-time Delivery", "Secure Payments"];
+export const heroTrustItems = ["Tailor Quotes", "Live Tracking", "Doorstep Service", "Secure Payments"];

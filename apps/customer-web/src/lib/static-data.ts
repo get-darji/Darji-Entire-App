@@ -19,7 +19,7 @@ export const services = [
 export const howItWorks = [
   { title: "Upload Photos", copy: "Add garment photos, videos, notes, measurements, or sample references.", icon: Shirt },
   { title: "Schedule Pickup", copy: "Choose an address and slot. A verified delivery partner comes home.", icon: CalendarCheck },
-  { title: "Verified Tailor Accepts", copy: "Local tailors quote and accept with transparent pricing.", icon: BadgeCheck },
+  { title: "A Tailor Accepts", copy: "Local tailors quote and accept with transparent pricing.", icon: BadgeCheck },
   { title: "Live Tracking", copy: "Track pickup, tailor handoff, work status, and delivery.", icon: MapPinned },
   { title: "Delivered Home", copy: "Get your finished clothes back with photo proof and invoices.", icon: Truck }
 ];

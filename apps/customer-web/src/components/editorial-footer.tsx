@@ -7,12 +7,12 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
   ArrowRight,
   CheckCircle2,
-  Clock3,
   Heart,
   Mail,
   MapPin,
   Phone,
-  ShieldCheck
+  ShieldCheck,
+  Truck
 } from "lucide-react";
 import { BrandLogo } from "./brand-logo";
 import { customerApi, errorMessage } from "@/src/lib/api";
@@ -22,14 +22,12 @@ const footerNavigation = {
     { label: "Home", href: "/" },
     { label: "Services", href: "/#services" },
     { label: "FAQs", href: "/#faq" },
-    { label: "The Journal", href: "/blogs" },
-    { label: "About Us", href: "/about" },
-    { label: "Our Story", href: "/about#story" },
     { label: "How It Works", href: "/about#ecosystem" }
   ],
-  services: [
-    { label: "Custom Stitching", href: "/#services" },
-    { label: "Alterations & Fitting", href: "/#services" }
+  story: [
+    { label: "About Darji", href: "/about" },
+    { label: "Founder Story", href: "/blogs/founder-story-darji" },
+    { label: "The Darji Journal", href: "/blogs" }
   ],
   support: [
     { label: "Help Center & FAQs", href: "/#faq" },
@@ -130,7 +128,7 @@ export function EditorialFooter() {
   const [submitting, setSubmitting] = useState(false);
   const [subscribeError, setSubscribeError] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const letterRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const wordRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -138,28 +136,23 @@ export function EditorialFooter() {
     gsap.registerPlugin(ScrollTrigger);
 
     const ctx = gsap.context(() => {
-      const letters = letterRefs.current.filter(Boolean);
-      if (!letters.length || !wrapperRef.current) return;
+      if (!wordRef.current || !wrapperRef.current) return;
 
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        gsap.set(letters, { xPercent: 0, opacity: 1, filter: "blur(0px)" });
+        gsap.set(wordRef.current, { xPercent: 0 });
         return;
       }
 
-      gsap.set(letters, { xPercent: -115, autoAlpha: 0 });
-      gsap.timeline({
+      gsap.fromTo(wordRef.current, { xPercent: -12 }, {
+        xPercent: 12,
+        ease: "none",
         scrollTrigger: {
           trigger: wrapperRef.current,
-          start: "top 92%",
-          end: "top 42%",
-          scrub: 0.55,
+          start: "top bottom",
+          end: "bottom top",
+          scrub: 0.25,
           invalidateOnRefresh: true
         }
-      }).to(letters, {
-        xPercent: 0,
-        autoAlpha: 1,
-        stagger: 0.13,
-        ease: "none"
       });
     }, wrapperRef);
 
@@ -268,9 +261,9 @@ export function EditorialFooter() {
 
               <div className="flex items-center gap-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-[#ff7000]">
-                  <Clock3 className="h-4 w-4" />
+                  <Truck className="h-4 w-4" />
                 </div>
-                <span>Pickup in 30 min average</span>
+                <span>Doorstep pickup &amp; return</span>
               </div>
 
               <a
@@ -304,13 +297,13 @@ export function EditorialFooter() {
             </ul>
           </nav>
 
-          {/* Services */}
-          <nav aria-label="Services">
+          {/* Story and journal */}
+          <nav aria-label="Our Story">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#ff7000]">
-              Services
+              Our Story
             </p>
             <ul className="mt-5 space-y-3 text-sm text-white/65">
-              {footerNavigation.services.map((item) => (
+              {footerNavigation.story.map((item) => (
                 <li key={item.label}>
                   <Link
                     href={item.href}
@@ -378,6 +371,7 @@ export function EditorialFooter() {
           className="overflow-hidden border-b border-white/12 py-14 sm:py-24 select-none"
         >
           <div
+            ref={wordRef}
             className="mx-auto grid w-full max-w-7xl grid-cols-5 px-1 sm:px-3"
             aria-label="DARJI"
           >
@@ -386,12 +380,7 @@ export function EditorialFooter() {
                 key={index}
                 className="inline-flex min-w-0 items-center justify-center overflow-hidden text-center"
               >
-                <span
-                  ref={(el) => {
-                    letterRefs.current[index] = el;
-                  }}
-                  className="inline-block font-sans text-[clamp(4rem,13vw,11rem)] font-black leading-[0.8] text-white transition-transform duration-300 hover:scale-105"
-                >
+                <span className="inline-block font-sans text-[clamp(4rem,13vw,11rem)] font-black leading-[0.8] text-white transition-transform duration-300 hover:scale-105">
                   {char}
                 </span>
               </div>

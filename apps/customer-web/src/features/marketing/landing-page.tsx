@@ -220,7 +220,7 @@ function StoreButton({ type }: { type: "play" | "apple" }) {
 const faqList = [
   {
     question: "How does Darji work?",
-    answer: "Upload a photo of your clothing or describe your tailoring need. Our verified tailors will review your request and send you the best offers. Choose your tailor, confirm, and we'll handle the pickup and delivery."
+    answer: "Upload a photo of your clothing or describe your tailoring need. Tailors review your request and send their offers. Compare them, choose your tailor, and we'll handle pickup and delivery."
   },
   {
     question: "How much does the service cost?",

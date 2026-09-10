@@ -135,7 +135,7 @@ export function VideoSection() {
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-black/45 via-black/10 to-transparent" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-black/55 via-black/12 to-transparent" />
-          <video ref={videoRef} className="h-full w-full object-cover will-change-transform" src="/video.mp4" muted={isMuted} playsInline preload="auto" loop />
+          <video ref={videoRef} className="h-full w-full object-cover object-center will-change-transform" src="/darji-INTRO.mp4" muted={isMuted} playsInline preload="auto" loop />
 
           <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/88 backdrop-blur-md sm:left-6 sm:top-6">
             Doorstep tailoring in motion
