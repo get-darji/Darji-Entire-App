@@ -20,6 +20,10 @@ export const DELIVERY_PRICING = {
 } as const;
 
 const OSRM_URL = process.env.OSRM_URL ?? "https://router.project-osrm.org";
+const GEOCODE_SUCCESS_TTL_MS = 6 * 60 * 60 * 1000;
+const GEOCODE_FAILURE_TTL_MS = 5 * 60 * 1000;
+const geocodeCache = new Map<string, { point?: LatLng; expiresAt: number }>();
+const geocodeInFlight = new Map<string, Promise<LatLng | undefined>>();
 
 export function deliveryModeFromUrgency(urgency?: string | null): DeliveryMode {
   const value = String(urgency ?? "").toLowerCase();
@@ -53,9 +57,17 @@ export function batchDeliveryPayout(payableDistanceMeters: number, completedJobs
 export function pointFrom(value: unknown): LatLng | undefined {
   if (!value || typeof value !== "object") return undefined;
   const source = value as Record<string, unknown>;
-  const lat = Number(source.lat ?? source.latitude);
-  const lng = Number(source.lng ?? source.longitude);
-  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+  const coordinates = Array.isArray(source.coordinates) ? source.coordinates : undefined;
+  const lat = Number(source.lat ?? source.latitude ?? coordinates?.[1]);
+  const lng = Number(source.lng ?? source.longitude ?? coordinates?.[0]);
+  return Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && lat >= -90
+    && lat <= 90
+    && lng >= -180
+    && lng <= 180
+    ? { lat, lng }
+    : undefined;
 }
 
 function haversineMeters(a?: LatLng, b?: LatLng) {
@@ -85,10 +97,7 @@ export async function roadDistanceMeters(origin?: LatLng, destination?: LatLng) 
   return haversineMeters(origin, destination);
 }
 
-export async function geocodeAddress(address?: string | null): Promise<LatLng | undefined> {
-  const query = String(address ?? "").trim();
-  if (!query) return undefined;
-
+async function resolveAddress(query: string): Promise<LatLng | undefined> {
   const googleKey = process.env.GOOGLE_MAPS_API_KEY;
   if (googleKey) {
     try {
@@ -103,16 +112,51 @@ export async function geocodeAddress(address?: string | null): Promise<LatLng | 
     }
   }
 
-  try {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`, {
-      headers: { "User-Agent": "Darji-Backend/1.0" }
-    });
-    if (!response.ok) return undefined;
-    const data = await response.json() as Array<{ lat?: string; lon?: string }>;
-    return pointFrom({ lat: data[0]?.lat, lng: data[0]?.lon });
-  } catch {
-    return undefined;
+  const postalCode = query.match(/\b\d{6}\b/)?.[0];
+  const fallbackQueries = [query, postalCode ? `${postalCode}, India` : undefined]
+    .filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of fallbackQueries) {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=in&q=${encodeURIComponent(candidate)}`, {
+        headers: {
+          "User-Agent": "Darji-Backend/1.0",
+          "Accept-Language": "en"
+        }
+      });
+      if (!response.ok) continue;
+      const data = await response.json() as Array<{ lat?: string; lon?: string }>;
+      const point = pointFrom({ lat: data[0]?.lat, lng: data[0]?.lon });
+      if (point) return point;
+    } catch {
+      // Try the less-specific fallback below when the full address cannot be resolved.
+    }
   }
+  return undefined;
+}
+
+export async function geocodeAddress(address?: string | null): Promise<LatLng | undefined> {
+  const query = String(address ?? "").trim();
+  if (!query) return undefined;
+
+  const cacheKey = query.toLocaleLowerCase("en-IN").replace(/\s+/g, " ");
+  const cached = geocodeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.point;
+
+  const existingRequest = geocodeInFlight.get(cacheKey);
+  if (existingRequest) return existingRequest;
+
+  const request = resolveAddress(query)
+    .then((point) => {
+      geocodeCache.set(cacheKey, {
+        point,
+        expiresAt: Date.now() + (point ? GEOCODE_SUCCESS_TTL_MS : GEOCODE_FAILURE_TTL_MS)
+      });
+      return point;
+    })
+    .finally(() => geocodeInFlight.delete(cacheKey));
+  geocodeInFlight.set(cacheKey, request);
+  return request;
 }
 
 export async function roadDistanceMatrix(points: LatLng[]) {
