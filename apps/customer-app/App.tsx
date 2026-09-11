@@ -373,6 +373,13 @@ type CheckoutVerifyResponse = {
   quote?: BackendRequestQuote | null;
   deliveryRequest?: { id: string } | null;
 };
+type CheckoutStatusResponse = {
+  status: "paid" | "pending" | "failed";
+  request?: BackendTailoringRequest;
+  quote?: BackendRequestQuote | null;
+  deliveryRequest?: { id: string } | null;
+  message?: string;
+};
 type PaymentSheetState = {
   requestId: string;
   quote: Quote;
@@ -10577,6 +10584,8 @@ export default function App() {
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
   const paymentMessageHandledRef = useRef(false);
+  const paymentRecoveryInFlightRef = useRef(false);
+  const paymentExternalOpenRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   const updatePromptShownRef = useRef(false);
   const homeScrollOffsetRef = useRef(0);
@@ -10632,6 +10641,22 @@ export default function App() {
     });
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!paymentSheet || verifyingPayment) return;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && paymentExternalOpenRef.current) {
+        void recoverPaymentSheet({ closeWhenPending: true });
+      }
+    });
+    const timeout = setTimeout(() => {
+      void recoverPaymentSheet({ closeWhenPending: true });
+    }, 90000);
+    return () => {
+      subscription.remove();
+      clearTimeout(timeout);
+    };
+  }, [paymentSheet, verifyingPayment, token]);
 
   const customerPhone = user?.phone ?? (user?.id ? `user-${user.id}` : "guest");
   const customerData = customerDataByPhone[customerPhone] ?? makeDefaultCustomerData(user?.phone ?? customerPhone, user?.name);
@@ -11176,6 +11201,8 @@ export default function App() {
                   onPress: () => {
                     const quote = paymentSheet?.quote;
                     const draftState = paymentSheet?.draft;
+                    paymentMessageHandledRef.current = true;
+                    paymentExternalOpenRef.current = false;
                     setPaymentSheet(undefined);
                     if (quote) setSelectedQuote(quote);
                     if (draftState) setDraft(draftState);
@@ -11191,7 +11218,22 @@ export default function App() {
           <SafeAreaView style={styles.safe}>
             <View style={[styles.rowBetween, { paddingHorizontal: 20, paddingTop: 12 }]}>
               <Text style={styles.sectionTitle}>{verifyingPayment ? "Confirming payment" : "Complete Payment"}</Text>
-              <View style={{ width: 22 }} />
+              {verifyingPayment ? (
+                <View style={{ width: 22 }} />
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    if (paymentSheet) {
+                      paymentMessageHandledRef.current = true;
+                      paymentExternalOpenRef.current = false;
+                      setPaymentSheet(undefined);
+                      restorePaymentCheckout(paymentSheet);
+                    }
+                  }}
+                >
+                  <Ionicons name="close" size={22} color="#0b2241" />
+                </Pressable>
+              )}
             </View>
             {paymentSheet ? (
               <View style={styles.paymentSheetWrap}>
@@ -11249,6 +11291,8 @@ export default function App() {
                   }}
                   onError={(event) => {
                     const message = event.nativeEvent.description || "The payment page could not be opened.";
+                    paymentMessageHandledRef.current = true;
+                    paymentExternalOpenRef.current = false;
                     setPaymentSheet(undefined);
                     setSelectedQuote(paymentSheet.quote);
                     setDraft(paymentSheet.draft);
@@ -11274,8 +11318,11 @@ export default function App() {
                     if (url.startsWith("intent://")) {
                       url = parseIntentUrl(url);
                     }
+                    paymentExternalOpenRef.current = true;
                     void Linking.openURL(url)
                       .catch(() => {
+                        paymentMessageHandledRef.current = true;
+                        paymentExternalOpenRef.current = false;
                         setPaymentSheet(undefined);
                         setSelectedQuote(paymentSheet.quote);
                         setDraft(paymentSheet.draft);
@@ -11598,6 +11645,7 @@ export default function App() {
       if (response.razorpay) {
         if (response.request) storeConfirmedOrder(response.request, selectedQuote, orderDraft);
         paymentMessageHandledRef.current = false;
+        paymentExternalOpenRef.current = false;
         setPaymentSheet({
           requestId: selectedQuote.backendRequestId,
           quote: selectedQuote,
@@ -11617,6 +11665,67 @@ export default function App() {
     }
   }
 
+  function restorePaymentCheckout(sheet: PaymentSheetState) {
+    setSelectedQuote(sheet.quote);
+    setDraft(sheet.draft);
+    setRequestProgressScreen("confirmOrder");
+    setScreen("confirmOrder");
+    void refreshCustomerOrders();
+  }
+
+  async function recoverPaymentSheet(options: { closeWhenPending?: boolean } = {}) {
+    const sheet = paymentSheet;
+    if (!sheet || !token) return;
+    if (paymentMessageHandledRef.current || paymentRecoveryInFlightRef.current) return;
+    paymentRecoveryInFlightRef.current = true;
+    try {
+      setVerifyingPayment(true);
+      const result = await api<CheckoutStatusResponse>(`/tailoring-requests/${sheet.requestId}/checkout/status`, {}, token);
+      if (result.status === "paid" && result.request) {
+        paymentMessageHandledRef.current = true;
+        paymentExternalOpenRef.current = false;
+        storeConfirmedOrder(result.request, sheet.quote, sheet.draft);
+        setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
+        setSelectedQuote(undefined);
+        setPaymentSheet(undefined);
+        setScreen("orderDetails");
+        setDialog({
+          title: "Payment successful",
+          message: `Order REQ-${result.request.id.slice(0, 8).toUpperCase()} is confirmed and the tailor has been notified.`,
+          actions: [{ label: "View Order" }]
+        });
+        void refreshCustomerOrders();
+        return;
+      }
+      if (options.closeWhenPending) {
+        paymentMessageHandledRef.current = true;
+        paymentExternalOpenRef.current = false;
+        setPaymentSheet(undefined);
+        restorePaymentCheckout(sheet);
+        setDialog({
+          title: result.status === "failed" ? "Payment failed" : "Payment not confirmed yet",
+          message: result.message ?? (result.status === "failed" ? "Razorpay reported this payment as failed." : "Razorpay has not confirmed this payment yet. If money was deducted, wait a moment and retry from this order."),
+          actions: [{ label: "OK" }]
+        });
+      }
+    } catch (error) {
+      if (options.closeWhenPending) {
+        paymentMessageHandledRef.current = true;
+        paymentExternalOpenRef.current = false;
+        setPaymentSheet(undefined);
+        restorePaymentCheckout(sheet);
+        setDialog({
+          title: "Payment status unavailable",
+          message: error instanceof Error ? error.message : "Could not confirm the payment status. Please retry after a moment.",
+          actions: [{ label: "OK" }]
+        });
+      }
+    } finally {
+      paymentRecoveryInFlightRef.current = false;
+      setVerifyingPayment(false);
+    }
+  }
+
   async function handlePaymentSheetMessage(raw: string) {
     if (!paymentSheet || !token) return;
     if (paymentMessageHandledRef.current) return;
@@ -11628,12 +11737,9 @@ export default function App() {
     }
     if (payload.type === "cancel") {
       paymentMessageHandledRef.current = true;
+      paymentExternalOpenRef.current = false;
       setPaymentSheet(undefined);
-      setSelectedQuote(paymentSheet.quote);
-      setDraft(paymentSheet.draft);
-      setRequestProgressScreen("confirmOrder");
-      setScreen("confirmOrder");
-      void refreshCustomerOrders();
+      restorePaymentCheckout(paymentSheet);
       setDialog({
         title: "Payment cancelled",
         message: "You can retry online payment or switch to COD.",
@@ -11643,13 +11749,10 @@ export default function App() {
     }
     if (payload.type === "failure") {
       paymentMessageHandledRef.current = true;
+      paymentExternalOpenRef.current = false;
       setPaymentSheet(undefined);
       console.warn("Razorpay payment failed", payload.error);
-      setSelectedQuote(paymentSheet.quote);
-      setDraft(paymentSheet.draft);
-      setRequestProgressScreen("confirmOrder");
-      setScreen("confirmOrder");
-      void refreshCustomerOrders();
+      restorePaymentCheckout(paymentSheet);
       setDialog({
         title: "Payment failed",
         message: razorpayFailureMessage(payload.error),
@@ -11674,6 +11777,7 @@ export default function App() {
         token
       );
       if (result.request) {
+        paymentExternalOpenRef.current = false;
         storeConfirmedOrder(result.request, paymentSheet.quote, paymentSheet.draft);
         setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
         setSelectedQuote(undefined);
@@ -11686,11 +11790,8 @@ export default function App() {
         void refreshCustomerOrders();
       }
     } catch (error) {
-      setSelectedQuote(paymentSheet.quote);
-      setDraft(paymentSheet.draft);
-      setRequestProgressScreen("confirmOrder");
-      setScreen("confirmOrder");
-      void refreshCustomerOrders();
+      paymentExternalOpenRef.current = false;
+      restorePaymentCheckout(paymentSheet);
       setDialog({
         title: "Payment verification failed",
         message: error instanceof Error ? error.message : "Could not verify payment.",

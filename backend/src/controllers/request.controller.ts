@@ -461,6 +461,21 @@ async function createRazorpayOrder(input: { amount: number; receipt: string; not
   return response.json() as Promise<{ id: string; amount: number; currency: string; receipt: string; status: string }>;
 }
 
+async function fetchRazorpayOrderPayments(orderId: string) {
+  assertRazorpayConfigured();
+  const token = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
+  const response = await fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(orderId)}/payments`, {
+    headers: {
+      Authorization: `Basic ${token}`
+    }
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new AppError(502, `Razorpay payment status check failed${body ? `: ${body}` : ""}`);
+  }
+  return response.json() as Promise<{ items?: Array<{ id: string; order_id?: string; status?: string; captured?: boolean; amount?: number; currency?: string }> }>;
+}
+
 async function findSelectedQuote(requestId: string, selectedQuoteId?: string | null) {
   if (selectedQuoteId) {
     const selected = await TailorQuoteModel.findById(selectedQuoteId);
@@ -2456,6 +2471,99 @@ export async function verifyTailoringCheckoutController(req: Request, res: Respo
       }
     )
   });
+}
+
+export async function recoverTailoringCheckoutController(req: Request, res: Response) {
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
+  if (!request.selectedQuoteId) throw new AppError(409, "No quote is reserved for this request");
+  if (!request.paymentMethod || request.paymentMethod === "COD") throw new AppError(409, "This request is not waiting for online payment");
+
+  const paidPayment = await PaymentModel.findOne({
+    orderId: request.id,
+    method: request.paymentMethod,
+    status: "PAID"
+  }).sort({ paidAt: -1, updatedAt: -1 });
+
+  if (paidPayment) {
+    const result = request.status === "TAILOR_SELECTED"
+      ? {
+          request: await hydrateTailoringRequest(request),
+          quote: await hydrateTailorQuote(await TailorQuoteModel.findById(request.selectedQuoteId)),
+          deliveryRequest: await DeliveryRequestModel.findOne({ orderId: request.id }).sort({ createdAt: -1 })
+        }
+      : await finalizeTailoringRequestConfirmation(
+          request.id,
+          request.selectedQuoteId,
+          request.paymentMethod as "ONLINE" | "UPI",
+          "PAID",
+          {
+            deliveryFee: Number(request.deliveryFee ?? 0),
+            deliveryMode: request.deliveryMode ?? deliveryModeFromUrgency(request.urgency),
+            customerToTailorDistanceMeters: Number(request.customerToTailorDistanceMeters ?? 0),
+            totalChargeableDistanceMeters: Number(request.totalChargeableDistanceMeters ?? 0),
+            platformFee: Number(request.platformFee ?? 0),
+            smallOrderFee: Number(request.smallOrderFee ?? 0),
+            homeMeasurementFee: Number(request.homeMeasurementFee ?? 0),
+            additionalItems: Array.isArray(request.additionalItems) ? request.additionalItems : [],
+            couponCode: request.couponCode ?? undefined,
+            discountAmount: Number(request.discountAmount ?? 0),
+            totalAmount: Number(request.totalAmount ?? paidPayment.amount)
+          }
+        );
+    res.json({ data: { status: "paid", ...result } });
+    return;
+  }
+
+  const pendingPayment = await PaymentModel.findOne({
+    orderId: request.id,
+    method: request.paymentMethod,
+    status: "PENDING"
+  }).sort({ createdAt: -1 });
+
+  if (!pendingPayment?.providerRef) {
+    res.json({ data: { status: "pending", message: "No pending Razorpay order was found for this checkout." } });
+    return;
+  }
+
+  const razorpayPayments = await fetchRazorpayOrderPayments(pendingPayment.providerRef);
+  const providerPayments = razorpayPayments.items ?? [];
+  const capturedPayment = providerPayments.find((payment) => String(payment.status ?? "").toLowerCase() === "captured" || payment.captured === true);
+
+  if (!capturedPayment) {
+    const hasFailedPayment = providerPayments.some((payment) => String(payment.status ?? "").toLowerCase() === "failed");
+    if (hasFailedPayment) await PaymentModel.findByIdAndUpdate(pendingPayment.id, { status: "FAILED" });
+    res.json({
+      data: {
+        status: hasFailedPayment ? "failed" : "pending",
+        message: hasFailedPayment ? "Razorpay reported this payment as failed." : "Razorpay has not confirmed this payment yet."
+      }
+    });
+    return;
+  }
+
+  await PaymentModel.findByIdAndUpdate(pendingPayment.id, { status: "PAID", paidAt: new Date() });
+  const result = await finalizeTailoringRequestConfirmation(
+    request.id,
+    request.selectedQuoteId,
+    request.paymentMethod as "ONLINE" | "UPI",
+    "PAID",
+    {
+      deliveryFee: Number(request.deliveryFee ?? 0),
+      deliveryMode: request.deliveryMode ?? deliveryModeFromUrgency(request.urgency),
+      customerToTailorDistanceMeters: Number(request.customerToTailorDistanceMeters ?? 0),
+      totalChargeableDistanceMeters: Number(request.totalChargeableDistanceMeters ?? 0),
+      platformFee: Number(request.platformFee ?? 0),
+      smallOrderFee: Number(request.smallOrderFee ?? 0),
+      homeMeasurementFee: Number(request.homeMeasurementFee ?? 0),
+      additionalItems: Array.isArray(request.additionalItems) ? request.additionalItems : [],
+      couponCode: request.couponCode ?? undefined,
+      discountAmount: Number(request.discountAmount ?? 0),
+      totalAmount: Number(request.totalAmount ?? pendingPayment.amount)
+    }
+  );
+  res.json({ data: { status: "paid", ...result } });
 }
 
 export async function cancelTailoringRequestController(req: Request, res: Response) {

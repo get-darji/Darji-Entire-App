@@ -140,6 +140,7 @@ import {
   selectTailorQuoteController,
   saveDeliveryTaskPhotosController,
   startTailoringCheckoutController,
+  recoverTailoringCheckoutController,
   updateDeliveryTaskStatusController,
   retryDeliveryTaskNowController,
   verifyDeliveryTaskOtpController,
@@ -188,6 +189,7 @@ router.post("/tailoring-requests/:id/audit-media", requireAuth, requireRole("TAI
 router.delete("/tailoring-requests/:id/audit-media", requireAuth, requireRole("TAILOR", "ADMIN"), deleteTailoringAuditMediaController);
 router.patch("/tailoring-requests/:id/work-status", requireAuth, requireRole("TAILOR", "ADMIN"), updateTailoringWorkStatusController);
 router.post("/tailoring-requests/:id/checkout", requireAuth, requireRole("CUSTOMER", "ADMIN"), startTailoringCheckoutController);
+router.get("/tailoring-requests/:id/checkout/status", requireAuth, requireRole("CUSTOMER", "ADMIN"), recoverTailoringCheckoutController);
 router.post("/tailoring-requests/:id/checkout/verify", requireAuth, requireRole("CUSTOMER", "ADMIN"), verifyTailoringCheckoutController);
 router.post("/tailoring-requests/:id/cancel", requireAuth, requireRole("CUSTOMER", "ADMIN"), cancelTailoringRequestController);
 router.post("/tailoring-requests/:id/decline", requireAuth, requireRole("TAILOR", "ADMIN"), declineTailoringRequestController);
