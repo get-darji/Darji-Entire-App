@@ -69,10 +69,10 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
   };
 
   return (
-    <section className="w-full bg-white px-3 pb-5 sm:px-0 sm:pb-14 lg:pb-16" aria-label="Darji highlights">
+    <section className="w-full bg-white px-0 pb-5 sm:pb-14 lg:pb-16" aria-label="Darji highlights">
       <div className="w-full">
         <div
-          className="group relative isolate w-full overflow-hidden rounded-2xl border border-black/8 bg-[#f7f3ee] shadow-[0_14px_36px_rgba(8,17,31,0.12)] aspect-[3/1] sm:aspect-[3/1] sm:rounded-none sm:border-0 sm:bg-white sm:shadow-none"
+          className="group relative isolate w-full overflow-hidden bg-white sm:aspect-[3/1]"
           role="region"
           aria-roledescription="carousel"
           aria-label="Featured Darji services"
@@ -84,7 +84,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
           }}
         >
           <div
-            className="relative aspect-[3/1] w-full touch-pan-y overflow-hidden bg-[#f7f3ee] sm:absolute sm:inset-0 sm:aspect-auto sm:bg-white"
+            className="relative aspect-[2.4/1] w-full touch-pan-y overflow-hidden bg-white sm:absolute sm:inset-0 sm:aspect-auto"
             onTouchStart={(event) => {
               touchStartX.current = event.touches[0]?.clientX ?? null;
               setInteractionPaused(true);
@@ -101,7 +101,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
             <AnimatePresence initial={false} mode="popLayout">
               <motion.div
                 key={activeSlide.id}
-                className="absolute inset-0 flex items-center justify-center bg-[#f7f3ee] sm:bg-white overflow-hidden"
+                className="absolute inset-0 h-full w-full"
                 initial={reducedMotion ? false : { opacity: 0, x: "3%", filter: "blur(8px)" }}
                 animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
                 exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: "-2%", filter: "blur(5px)" }}
@@ -111,50 +111,22 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
                 aria-label={`${activeIndex + 1} of ${config.slides.length}`}
               >
                 <img
-                  aria-hidden="true"
-                  className="absolute inset-0 h-full w-full scale-105 object-cover opacity-20 blur-2xl"
-                  src={activeSlide.imageUrl}
-                  alt=""
-                />
-                <img
                   src={activeSlide.imageUrl}
                   alt={activeSlide.altText}
-                  className="relative h-full w-full object-contain object-center"
+                  className="h-full w-full object-cover object-center"
                   draggable={false}
                   loading={activeIndex === 0 ? "eager" : "lazy"}
                 />
               </motion.div>
             </AnimatePresence>
 
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_65%,rgba(8,17,31,0.14)_100%)]" aria-hidden="true" />
-
-            {config.slides.length > 1 ? (
-              <div className="absolute bottom-3 right-3 z-20 flex items-center rounded-full bg-[#08111f]/90 p-1 text-white shadow-[0_10px_26px_rgba(8,17,31,0.24)] backdrop-blur-sm sm:hidden">
-                <button className="focus-ring grid h-11 w-11 place-items-center rounded-full" onClick={() => selectSlide(activeIndex - 1)} type="button" aria-label="Previous slide"><ChevronLeft className="h-5 w-5" /></button>
-                <span className="min-w-10 text-center text-xs font-bold tabular-nums" aria-hidden="true">{activeIndex + 1}/{config.slides.length}</span>
-                <button className="focus-ring grid h-11 w-11 place-items-center rounded-full" onClick={() => selectSlide(activeIndex + 1)} type="button" aria-label="Next slide"><ChevronRight className="h-5 w-5" /></button>
-                <span className="mx-0.5 h-6 w-px bg-white/25" aria-hidden="true" />
-                <button
-                  className="focus-ring grid h-11 w-11 place-items-center rounded-full"
-                  onClick={() => {
-                    setUserPaused((current) => {
-                      setAnnouncement(current ? "Slideshow playing" : "Slideshow paused");
-                      return !current;
-                    });
-                  }}
-                  type="button"
-                  aria-label={userPaused ? "Play slideshow" : "Pause slideshow"}
-                >
-                  {userPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                </button>
-              </div>
-            ) : null}
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_65%,rgba(8,17,31,0.12)_100%)]" aria-hidden="true" />
           </div>
 
           <button
             type="button"
             onClick={onBookPickup}
-            className="focus-ring relative z-20 m-3 flex min-h-12 w-[calc(100%-24px)] items-center justify-center gap-2 rounded-xl px-5 py-3 text-center text-sm font-black leading-tight shadow-[0_10px_24px_rgba(8,17,31,0.18)] transition active:scale-[0.99] sm:absolute sm:bottom-6 sm:left-6 sm:m-0 sm:min-h-12 sm:w-auto sm:max-w-[min(32rem,calc(100%-220px))] sm:rounded-full sm:px-6 sm:text-base sm:hover:-translate-y-0.5 sm:hover:brightness-95"
+            className="focus-ring relative z-20 mx-4 my-3 flex min-h-12 w-[calc(100%-32px)] items-center justify-center gap-2 rounded-xl px-5 py-3 text-center text-sm font-black leading-tight shadow-[0_10px_24px_rgba(8,17,31,0.18)] transition active:scale-[0.99] sm:absolute sm:bottom-6 sm:left-6 sm:m-0 sm:min-h-12 sm:w-auto sm:max-w-[min(32rem,calc(100%-220px))] sm:rounded-full sm:px-6 sm:text-base sm:hover:-translate-y-0.5 sm:hover:brightness-95"
             style={{ backgroundColor: config.buttonColor, color: config.buttonTextColor }}
           >
             {config.buttonText}
