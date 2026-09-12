@@ -59,6 +59,10 @@ import { couponDiscount, couponLabel, deliveryFeeForUrgency, HOME_MEASUREMENT_FE
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailoringRequestItem, TailorQuote, UploadedMedia, WalletSummary } from "@/src/lib/types";
 import { useAuthStore } from "@/src/store/auth-store";
 
+const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
+const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
+const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
+
 type CustomerScreen = "home" | "newRequest" | "clothIssue" | "summary" | "quotes" | "confirm" | "orders" | "orderDetails" | "profile" | "support" | "editProfile" | "savedAddresses" | "wallet" | "helpCenter" | "aboutDarji";
 type PaymentMethod = "ONLINE" | "UPI" | "COD";
 type SaveAction = "another" | "summary";
@@ -709,8 +713,8 @@ function AuthPanel() {
 
           <div className="pt-4 text-center text-xs font-bold leading-relaxed text-slate-400">
             By continuing, you agree to our{" "}
-            <a href="/dashboard?screen=helpCenter" className="text-[var(--darji-orange)] hover:underline">Terms & Conditions</a> and{" "}
-            <a href="/dashboard?screen=helpCenter" className="text-[var(--darji-orange)] hover:underline">Privacy Policy</a>.
+            <a href={DARJI_TERMS_URL} target="_blank" rel="noreferrer" className="text-[var(--darji-orange)] hover:underline">Terms & Conditions</a> and{" "}
+            <a href={DARJI_PRIVACY_URL} target="_blank" rel="noreferrer" className="text-[var(--darji-orange)] hover:underline">Privacy Policy</a>.
           </div>
         </div>
       </div>
@@ -3503,20 +3507,20 @@ function HelpCenterScreen({ setScreen }: { setScreen: (s: CustomerScreen) => voi
         {tab === "terms" && (
           <div className="rounded-[2.5rem] border border-[var(--darji-line)] bg-white p-6 sm:p-8 shadow-[0_2px_12px_rgba(8,17,31,0.03)] text-xs sm:text-sm leading-relaxed text-[var(--darji-muted)] space-y-4">
             <h2 className="text-lg font-black text-[var(--darji-ink)]">Terms of Service</h2>
-            <p>Welcome to Darji. By utilizing our premium doorstep tailoring, alterations, repairs, and booking application, you consent to these terms and conditions.</p>
-            <p className="font-bold text-[var(--darji-ink)]">1. Booking & Fabrication</p>
-            <p>Customers are responsible for providing precise descriptions and fabric materials. Tailors perform alterations and custom stitching based on the details submitted in the app.</p>
-            <p className="font-bold text-[var(--darji-ink)]">2. Payments & Payouts</p>
-            <p>Payments are processed securely via Razorpay or COD. In case of issues, refunds are credited back to your original payment method or your secure Darji Wallet.</p>
+            <p>Read the current Darji Terms of Service on the official website.</p>
+            <a href={DARJI_TERMS_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-[var(--darji-orange)] px-4 text-sm font-black text-[#111111] transition hover:brightness-95">
+              Open Terms of Service
+            </a>
           </div>
         )}
 
         {tab === "privacy" && (
           <div className="rounded-[2.5rem] border border-[var(--darji-line)] bg-white p-6 sm:p-8 shadow-[0_2px_12px_rgba(8,17,31,0.03)] text-xs sm:text-sm leading-relaxed text-[var(--darji-muted)] space-y-4">
             <h2 className="text-lg font-black text-[var(--darji-ink)]">Privacy Policy</h2>
-            <p>At Darji, we value your privacy. We never share your personal information or mobile numbers with third parties without your explicit authorization.</p>
-            <p className="font-bold text-[var(--darji-ink)]">1. Information Collection</p>
-            <p>We collect your phone number for OTP authentication, location coordinates for doorstep pickups, and photos/videos of garments to provide tailors with fitting references.</p>
+            <p>Read the current Darji Privacy Policy on the official website.</p>
+            <a href={DARJI_PRIVACY_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-[var(--darji-orange)] px-4 text-sm font-black text-[#111111] transition hover:brightness-95">
+              Open Privacy Policy
+            </a>
           </div>
         )}
       </div>
@@ -3543,6 +3547,9 @@ function AboutDarjiScreen({ setScreen }: { setScreen: (s: CustomerScreen) => voi
           <p>Darji is a premium doorstep tailoring and alterations service. We connect customers with highly skilled, verified local tailors to handle custom stitching, repairs, resizing, and alterations directly from the comfort of their homes.</p>
           <p>Our app coordinates pickup, delivery tracking, secure payouts, and communication with tailors, giving you a completely hands-off premium custom tailoring experience.</p>
         </div>
+        <a href={DARJI_ABOUT_URL} target="_blank" rel="noreferrer" className="mt-6 inline-flex min-h-12 items-center justify-center rounded-2xl bg-[var(--darji-orange)] px-5 text-sm font-black text-[#111111] transition hover:brightness-95">
+          See more info
+        </a>
       </div>
     </div>
   );

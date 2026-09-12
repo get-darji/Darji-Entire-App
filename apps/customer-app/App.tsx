@@ -541,6 +541,9 @@ const BRAND_DEEP = "#0b2241";
 const SCREEN_BG = "#f7faff";
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 const CARD_DARK = "#111111";
+const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
+const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
+const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
 const customerAppIcon = require("./app-icon.png");
 const darjiLogo = require("./darji transparent.png");
 const measurementsImage = require("./measurements.png");
@@ -572,6 +575,10 @@ type PullToRefreshState = {
   refreshSignal: number;
   onRefresh?: () => void;
 };
+
+function openDarjiUrl(url: string) {
+  Linking.openURL(url).catch(() => undefined);
+}
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false, refreshSignal: 0 });
 
@@ -2048,9 +2055,9 @@ function AuthScreen() {
             )}
             <Text style={styles.termsText}>
               {localize(language, "By continuing, you agree to our ", "आगे बढ़कर आप हमारी ")}
-              <Text style={styles.orangeText}>{localize(language, "Terms of Service", "सेवा की शर्तों")}</Text>
+              <Text style={styles.orangeText} onPress={() => openDarjiUrl(DARJI_TERMS_URL)}>{localize(language, "Terms of Service", "सेवा की शर्तों")}</Text>
               {localize(language, " and ", " और ")}
-              <Text style={styles.orangeText}>{localize(language, "Privacy Policy", "गोपनीयता नीति")}</Text>
+              <Text style={styles.orangeText} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)}>{localize(language, "Privacy Policy", "गोपनीयता नीति")}</Text>
               {localize(language, "", " से सहमत होते हैं।")}
             </Text>
           </View>
@@ -7492,8 +7499,8 @@ function ProfileScreen({
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="close-circle-outline" label="Cancellation Policy" value={t(language, "refundAndCancellationRules")} onPress={() => setScreen("cancellationPolicy")} styles={profileStyles} noBorder />
           <ProfileRow icon="information-circle-outline" label={t(language, "aboutDarji")} value={t(language, "whoWeAreHowItWorks")} onPress={() => setScreen("aboutDarji")} styles={profileStyles} />
-          <ProfileRow icon="shield-checkmark-outline" label={t(language, "privacyPolicy")} value={t(language, "readPrivacyPolicy")} onPress={() => setScreen("privacyPolicy")} styles={profileStyles} />
-          <ProfileRow icon="document-text-outline" label={t(language, "termsOfUse")} value={t(language, "readTermsOfService")} onPress={() => setScreen("termsService")} styles={profileStyles} />
+          <ProfileRow icon="shield-checkmark-outline" label={t(language, "privacyPolicy")} value={t(language, "readPrivacyPolicy")} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)} styles={profileStyles} />
+          <ProfileRow icon="document-text-outline" label={t(language, "termsOfUse")} value={t(language, "readTermsOfService")} onPress={() => openDarjiUrl(DARJI_TERMS_URL)} styles={profileStyles} />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
@@ -9568,6 +9575,10 @@ function PolicyScreen({ title, setScreen }: { title: string; setScreen: (screen:
             : "By using Darji, you agree to provide accurate request details, confirm pickup addresses, and pay for confirmed orders. Tailor quotes and delivery timelines may vary based on garment condition and service availability."}
         </Text>
       </View>
+      <Pressable style={styles.aboutInfoButton} onPress={() => openDarjiUrl(isPrivacy ? DARJI_PRIVACY_URL : DARJI_TERMS_URL)}>
+        <Ionicons name="open-outline" size={18} color="#111111" />
+        <Text style={styles.aboutInfoButtonText}>{isPrivacy ? "Open Privacy Policy" : "Open Terms of Service"}</Text>
+      </Pressable>
     </ProfileSubPage>
   );
 }
@@ -9627,6 +9638,10 @@ function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) =
           ))}
         </View>
       </View>
+      <Pressable style={profileStyles.aboutInfoButton} onPress={() => openDarjiUrl(DARJI_ABOUT_URL)}>
+        <Ionicons name="open-outline" size={18} color="#111111" />
+        <Text style={profileStyles.aboutInfoButtonText}>See more info</Text>
+      </Pressable>
     </ProfileSubPage>
   );
 }
@@ -13001,6 +13016,8 @@ function createStyles(isDark = false) {
   aboutPromiseRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 18 },
   aboutPromiseItem: { width: "23%", alignItems: "center", gap: 7 },
   aboutPromiseText: { color: text, fontSize: 9, lineHeight: 13, fontWeight: "900", textAlign: "center" },
+  aboutInfoButton: { minHeight: 52, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 2, marginBottom: 14, paddingHorizontal: 16 },
+  aboutInfoButtonText: { color: "#111111", fontSize: 14, lineHeight: 18, fontWeight: "900" },
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },

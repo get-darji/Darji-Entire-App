@@ -414,6 +414,8 @@ const SURFACE = "#ffffff";
 const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
+const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
+const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const darziLogo = require("./darji transparent.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
@@ -424,6 +426,10 @@ type PullToRefreshState = {
 };
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+function openDarjiUrl(url: string) {
+  Linking.openURL(url).catch(() => undefined);
+}
 
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function AppScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
@@ -1071,7 +1077,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
         {step === "login" ? (
           <Text style={styles.authTerms}>
             {localize(language, "By continuing, you agree to our", "जारी रखकर, आप हमारी शर्तों से सहमत हैं")}{"\n"}
-            <Text style={styles.authTermsLink}>Terms of Service</Text> {localize(language, "and", "और")} <Text style={styles.authTermsLink}>Privacy Policy</Text>
+            <Text style={styles.authTermsLink} onPress={() => openDarjiUrl(DARJI_TERMS_URL)}>Terms of Service</Text> {localize(language, "and", "और")} <Text style={styles.authTermsLink} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)}>Privacy Policy</Text>
           </Text>
         ) : null}
         </ScrollView>

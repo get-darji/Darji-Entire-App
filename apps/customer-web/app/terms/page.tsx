@@ -2,8 +2,33 @@ import type { Metadata } from "next";
 import { LegalPage, type LegalSection } from "@/src/features/marketing/legal-page";
 
 export const metadata: Metadata = {
-  title: "Terms of Service | Darji",
-  description: "Terms for customers, tailors, and delivery partners using Darji."
+  title: "Terms of Service",
+  description: "Terms for customers, tailors, and delivery partners using Darji.",
+  alternates: {
+    canonical: "https://www.getdarji.in/terms"
+  },
+  openGraph: {
+    title: "Terms of Service | Darji",
+    description: "Terms for customers, tailors, and delivery partners using Darji.",
+    url: "https://www.getdarji.in/terms",
+    siteName: "Darji",
+    locale: "en_IN",
+    type: "website",
+    images: [
+      {
+        url: "https://www.getdarji.in/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Darji Terms of Service"
+      }
+    ]
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Terms of Service | Darji",
+    description: "Terms for customers, tailors, and delivery partners using Darji.",
+    images: ["https://www.getdarji.in/og-image.jpg"]
+  }
 };
 
 const sections: LegalSection[] = [

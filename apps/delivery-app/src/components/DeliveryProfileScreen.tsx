@@ -67,6 +67,9 @@ const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const DANGER = "#dc2626";
+const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
+const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
+const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 10;
 
@@ -76,6 +79,10 @@ type PullToRefreshState = {
 };
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+function openDarjiUrl(url: string) {
+  Linking.openURL(url).catch(() => undefined);
+}
 
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
@@ -652,8 +659,8 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
 
       <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
         <InfoRow icon="information-circle-outline" title={t(language, "aboutDarji")} value={language === "hi" ? "Darji Delivery Partner नेटवर्क के बारे में जानें" : "Learn about Darji Delivery Partner network"} styles={styles} onPress={() => setSupportScreen("about")} noBorder />
-        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "जानें आपकी निजी जानकारी कैसे सुरक्षित रखी जाती है" : "How your personal data is handled"} styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of service agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
+        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "जानें आपकी निजी जानकारी कैसे सुरक्षित रखी जाती है" : "How your personal data is handled"} styles={styles} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)} />
+        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of service agreements"} styles={styles} onPress={() => openDarjiUrl(DARJI_TERMS_URL)} />
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
@@ -870,6 +877,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "How data is handled",
     icon: "document-text-outline",
     copy: "Darji stores your verification details, profile, and delivery activity to complete orders and support admin review.",
+    action: { label: "Open Privacy Policy", run: () => openDarjiUrl(DARJI_PRIVACY_URL) },
     points: ["Verification photos are used for account approval.", "Location is shared while you are online and during active delivery tracking.", "Support logs may be retained for dispute handling."]
   },
   terms: {
@@ -877,6 +885,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "Delivery partner terms",
     icon: "reader-outline",
     copy: "Use accurate account details, follow OTP handoff checks, and keep route updates running during accepted tasks.",
+    action: { label: "Open Terms of Service", run: () => openDarjiUrl(DARJI_TERMS_URL) },
     points: ["Do not mark tasks complete without OTP confirmation.", "Keep all-time location access enabled while you are online.", "Repeated service issues can lead to account pause."]
   },
   safety: {
@@ -898,6 +907,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "Darji Delivery Partner network",
     icon: "information-circle-outline",
     copy: "Darji Delivery is an automated, area-based logistics assignment platform that connects tailors and customers.",
+    action: { label: "See more info", run: () => openDarjiUrl(DARJI_ABOUT_URL) },
     points: [
       "View automated area batches dynamically scheduled for 1 PM and 6 PM rounds.",
       "Track live navigation and stops in sequence.",

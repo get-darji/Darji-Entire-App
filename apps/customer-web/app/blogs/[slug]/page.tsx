@@ -22,10 +22,11 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
     };
   }
 
-  const articleUrl = `https://darji.in/blogs/${article.slug}`;
+  const articleUrl = `https://www.getdarji.in/blogs/${article.slug}`;
+  const imageUrl = article.image.startsWith("http") ? article.image : `https://www.getdarji.in${article.image}`;
 
   return {
-    title: `${article.title} | The Darji Journal`,
+    title: article.title,
     description: article.excerpt,
     keywords: [
       "Darji",
@@ -39,7 +40,7 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
     },
     openGraph: {
       type: "article",
-      locale: "en_US",
+      locale: "en_IN",
       url: articleUrl,
       title: article.title,
       description: article.excerpt,
@@ -49,7 +50,7 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
       tags: article.tags,
       images: [
         {
-          url: article.image,
+          url: imageUrl,
           width: 1200,
           height: 630,
           alt: article.title
@@ -60,7 +61,7 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
       card: "summary_large_image",
       title: article.title,
       description: article.excerpt,
-      images: [article.image]
+      images: [imageUrl]
     }
   };
 }
@@ -72,6 +73,8 @@ export default async function BlogArticlePage({ params }: ArticlePageProps) {
   if (!article) notFound();
 
   const relatedArticles = getRelatedArticles(slug, 3);
+  const articleUrl = `https://www.getdarji.in/blogs/${article.slug}`;
+  const imageUrl = article.image.startsWith("http") ? article.image : `https://www.getdarji.in${article.image}`;
 
   // JSON-LD Structured Data Schema for Rich Google Snippets
   const jsonLd = {
@@ -79,7 +82,7 @@ export default async function BlogArticlePage({ params }: ArticlePageProps) {
     "@type": "BlogPosting",
     headline: article.title,
     description: article.excerpt,
-    image: [article.image],
+    image: [imageUrl],
     datePublished: article.date,
     dateModified: article.date,
     author: {
@@ -92,12 +95,12 @@ export default async function BlogArticlePage({ params }: ArticlePageProps) {
       name: "Darji",
       logo: {
         "@type": "ImageObject",
-        url: "https://darji.in/darji-logo-cropped.png"
+        url: "https://www.getdarji.in/darji-logo-cropped.png"
       }
     },
     mainEntityOfPage: {
       "@type": "WebPage",
-      "@id": `https://darji.in/blogs/${article.slug}`
+      "@id": articleUrl
     }
   };
 

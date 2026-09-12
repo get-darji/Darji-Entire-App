@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /dashboard
 
-Sitemap: https://darji.in/sitemap.xml
+Sitemap: https://www.getdarji.in/sitemap.xml

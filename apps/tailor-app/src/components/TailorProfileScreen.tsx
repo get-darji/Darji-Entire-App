@@ -68,6 +68,9 @@ const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const DANGER = "#dc2626";
+const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
+const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
+const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
 const CHAT_BOTTOM_INSET = Platform.OS === "android" ? 42 : 22;
@@ -78,6 +81,10 @@ type PullToRefreshState = {
 };
 
 const PullToRefreshContext = createContext<PullToRefreshState>({ refreshing: false });
+
+function openDarjiUrl(url: string) {
+  Linking.openURL(url).catch(() => undefined);
+}
 
 const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScrollView({ children, refreshControl, horizontal, ...props }, ref) {
   const pullToRefresh = useContext(PullToRefreshContext);
@@ -879,8 +886,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
       <Section title={t(language, "policiesInformation")} icon="document-text-outline" styles={styles}>
         <InfoRow icon="information-circle-outline" title={t(language, "aboutDarji")} value={language === "hi" ? "Darji Tailor Partner ऐप के बारे में जानें" : "Learn about Darji Tailor Partner app"} styles={styles} onPress={() => setSupportScreen("about")} noBorder />
-        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "जानें आपकी निजी जानकारी कैसे सुरक्षित रखी जाती है" : "How your personal data is handled"} styles={styles} onPress={() => setSupportScreen("privacy")} />
-        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of use agreements"} styles={styles} onPress={() => setSupportScreen("terms")} />
+        <InfoRow icon="shield-checkmark-outline" title={t(language, "privacyPolicy")} value={language === "hi" ? "जानें आपकी निजी जानकारी कैसे सुरक्षित रखी जाती है" : "How your personal data is handled"} styles={styles} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)} />
+        <InfoRow icon="reader-outline" title={t(language, "termsOfUse")} value={language === "hi" ? "सेवा उपयोग की शर्तें" : "Terms of use agreements"} styles={styles} onPress={() => openDarjiUrl(DARJI_TERMS_URL)} />
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
@@ -1165,6 +1172,10 @@ function TailorAboutScreen({ styles, palette, onBack }: { styles: ReturnType<typ
         <Image source={tailorAppLogo} style={styles.aboutLogo} resizeMode="contain" />
         <Text style={styles.aboutTagline}>Great tailoring, connected to more customers.</Text>
         <Text style={styles.aboutHeroCopy}>Darji helps skilled local tailors manage requests, measurements, doorstep logistics, and earnings from one trusted workspace.</Text>
+        <Pressable style={styles.aboutInfoButton} onPress={() => openDarjiUrl(DARJI_ABOUT_URL)}>
+          <Ionicons name="open-outline" size={18} color="#111111" />
+          <Text style={styles.aboutInfoButtonText}>See more info</Text>
+        </Pressable>
       </View>
       <View style={styles.section}>
         <View style={styles.aboutSectionHeader}>
@@ -2698,6 +2709,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "How data is handled",
     icon: "document-text-outline",
     copy: "Darji uses tailor profile, order, and proof photo data only to run the service and resolve order issues.",
+    action: { label: "Open Privacy Policy", url: DARJI_PRIVACY_URL },
     points: ["Customer personal details are hidden unless required for delivery.", "Proof photos are linked to orders for dispute checks.", "Do not save or share customer data outside Darji."]
   },
   terms: {
@@ -2705,6 +2717,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "Tailor partner terms",
     icon: "reader-outline",
     copy: "These terms explain expected app use and order handling.",
+    action: { label: "Open Terms of Service", url: DARJI_TERMS_URL },
     points: ["Accept only work you can complete on time.", "Upload honest proof photos.", "Keep all customer communication inside Darji channels."]
   },
   cancellation: {
@@ -2726,6 +2739,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "Darji Tailor Partner ecosystem",
     icon: "information-circle-outline",
     copy: "Darji is a modern custom tailoring ecosystem connecting expert tailors with design-conscious customers.",
+    action: { label: "See more info", url: DARJI_ABOUT_URL },
     points: [
       "Expand your local customer reach.",
       "Accept orders and provide prices digitally.",
@@ -2838,6 +2852,8 @@ function createStyles(palette: typeof lightPalette) {
     aboutLogo: { width: 84, height: 84, borderRadius: 18 },
     aboutTagline: { maxWidth: 300, color: palette.text, fontSize: 21, lineHeight: 27, fontWeight: "900", textAlign: "center", marginTop: 14 },
     aboutHeroCopy: { maxWidth: 330, color: palette.muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 10 },
+    aboutInfoButton: { minHeight: 48, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 18, paddingHorizontal: 16, alignSelf: "stretch" },
+    aboutInfoButtonText: { color: "#111111", fontSize: 14, lineHeight: 18, fontWeight: "900" },
     aboutSectionHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
     aboutSectionTitle: { color: palette.text, fontSize: 17, lineHeight: 22, fontWeight: "900", marginBottom: 12 },
     aboutJourney: { gap: 2 },
