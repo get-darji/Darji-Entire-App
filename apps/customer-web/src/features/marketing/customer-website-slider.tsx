@@ -72,7 +72,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
     <section className="w-full bg-white px-3 pb-5 sm:px-0 sm:pb-14 lg:pb-16" aria-label="Darji highlights">
       <div className="w-full">
         <div
-          className="group relative isolate w-full overflow-hidden rounded-2xl border border-black/8 bg-[#f7f3ee] shadow-[0_14px_36px_rgba(8,17,31,0.12)] sm:aspect-[3/1] sm:rounded-none sm:border-0 sm:bg-white sm:shadow-none"
+          className="group relative isolate w-full overflow-hidden rounded-2xl border border-black/8 bg-[#f7f3ee] shadow-[0_14px_36px_rgba(8,17,31,0.12)] aspect-[3/1] sm:aspect-[3/1] sm:rounded-none sm:border-0 sm:bg-white sm:shadow-none"
           role="region"
           aria-roledescription="carousel"
           aria-label="Featured Darji services"
@@ -84,7 +84,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
           }}
         >
           <div
-            className="relative aspect-[16/9] w-full touch-pan-y overflow-hidden bg-[#f7f3ee] sm:absolute sm:inset-0 sm:aspect-auto sm:bg-white"
+            className="relative aspect-[3/1] w-full touch-pan-y overflow-hidden bg-[#f7f3ee] sm:absolute sm:inset-0 sm:aspect-auto sm:bg-white"
             onTouchStart={(event) => {
               touchStartX.current = event.touches[0]?.clientX ?? null;
               setInteractionPaused(true);
@@ -101,7 +101,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
             <AnimatePresence initial={false} mode="popLayout">
               <motion.div
                 key={activeSlide.id}
-                className="absolute inset-0"
+                className="absolute inset-0 flex items-center justify-center bg-[#f7f3ee] sm:bg-white overflow-hidden"
                 initial={reducedMotion ? false : { opacity: 0, x: "3%", filter: "blur(8px)" }}
                 animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
                 exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: "-2%", filter: "blur(5px)" }}
@@ -111,16 +111,22 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
                 aria-label={`${activeIndex + 1} of ${config.slides.length}`}
               >
                 <img
+                  aria-hidden="true"
+                  className="absolute inset-0 h-full w-full scale-105 object-cover opacity-20 blur-2xl"
+                  src={activeSlide.imageUrl}
+                  alt=""
+                />
+                <img
                   src={activeSlide.imageUrl}
                   alt={activeSlide.altText}
-                  className="relative h-full w-full object-cover object-center"
+                  className="relative h-full w-full object-contain object-center"
                   draggable={false}
                   loading={activeIndex === 0 ? "eager" : "lazy"}
                 />
               </motion.div>
             </AnimatePresence>
 
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_58%,rgba(8,17,31,0.16)_100%)]" aria-hidden="true" />
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_65%,rgba(8,17,31,0.14)_100%)]" aria-hidden="true" />
 
             {config.slides.length > 1 ? (
               <div className="absolute bottom-3 right-3 z-20 flex items-center rounded-full bg-[#08111f]/90 p-1 text-white shadow-[0_10px_26px_rgba(8,17,31,0.24)] backdrop-blur-sm sm:hidden">
@@ -159,7 +165,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
             <>
               <button
                 type="button"
-                className="focus-ring absolute left-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[#08111f]/82 text-white shadow-[0_12px_28px_rgba(8,17,31,0.24)] backdrop-blur-sm transition hover:scale-105 hover:bg-[#08111f] sm:flex"
+                className="focus-ring absolute left-3 md:left-5 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[#08111f]/82 text-white shadow-[0_12px_28px_rgba(8,17,31,0.24)] backdrop-blur-sm transition hover:scale-105 hover:bg-[#08111f] sm:flex"
                 onClick={() => selectSlide(activeIndex - 1)}
                 aria-label="Previous slide"
               >
@@ -167,7 +173,7 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
               </button>
               <button
                 type="button"
-                className="focus-ring absolute right-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[#08111f]/82 text-white shadow-[0_12px_28px_rgba(8,17,31,0.24)] backdrop-blur-sm transition hover:scale-105 hover:bg-[#08111f] sm:flex"
+                className="focus-ring absolute right-3 md:right-5 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[#08111f]/82 text-white shadow-[0_12px_28px_rgba(8,17,31,0.24)] backdrop-blur-sm transition hover:scale-105 hover:bg-[#08111f] sm:flex"
                 onClick={() => selectSlide(activeIndex + 1)}
                 aria-label="Next slide"
               >
