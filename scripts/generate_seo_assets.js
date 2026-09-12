@@ -91,15 +91,20 @@ async function generateAssets() {
   console.log('Created icon-512.png');
 
   // 4. Social Sharing Image (og-image.jpg and og-image.png) (1200x630)
-  // Minimalist logo-only design on luxury background
-  const bgPath = path.resolve('C:/Users/amank/.gemini/antigravity-ide/brain/f06a20f6-f6be-4bad-863f-2a8389f9cdef/og_brand_bg_1789228376952.jpg');
-  
-  const bgBuffer = await sharp(bgPath)
-    .resize(1200, 630, { fit: 'cover' })
+  // Pure solid black background with centered Darji logo only
+  const solidBlackBg = await sharp({
+    create: {
+      width: 1200,
+      height: 630,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 }
+    }
+  })
+    .png()
     .toBuffer();
 
   const logoBuffer = await sharp(DARJI_LOGO_CROPPED)
-    .resize(600, null, { fit: 'inside' })
+    .resize(680, null, { fit: 'inside' })
     .png()
     .toBuffer();
 
@@ -107,7 +112,7 @@ async function generateAssets() {
   const left = Math.round((1200 - logoMeta.width) / 2);
   const top = Math.round((630 - logoMeta.height) / 2);
 
-  const ogComposite = await sharp(bgBuffer)
+  const ogComposite = await sharp(solidBlackBg)
     .composite([
       {
         input: logoBuffer,
@@ -119,14 +124,14 @@ async function generateAssets() {
 
   // Save both og-image.jpg and og-image.png
   await sharp(ogComposite)
-    .jpeg({ quality: 95, chromaSubsampling: '4:4:4' })
+    .jpeg({ quality: 96, chromaSubsampling: '4:4:4' })
     .toFile(path.join(PUBLIC_DIR, 'og-image.jpg'));
-  console.log('Created og-image.jpg (Logo-only luxury edition)');
+  console.log('Created og-image.jpg (Solid black + logo only)');
 
   await sharp(ogComposite)
     .png({ compressionLevel: 9 })
     .toFile(path.join(PUBLIC_DIR, 'og-image.png'));
-  console.log('Created og-image.png (Logo-only luxury edition)');
+  console.log('Created og-image.png (Solid black + logo only)');
 
   // 5. Create site.webmanifest
   const manifest = {
