@@ -2046,10 +2046,10 @@ const lightPalette = {
   accentSurface: "#fff9ee",
   accentBorder: BORDER,
   iconSurface: "#fff4dc",
-  glass: "rgba(255,255,255,0.72)",
-  glassBorder: "rgba(255,255,255,0.92)",
-  glassSurface: "rgba(255,255,255,0.54)",
-  glassDivider: "rgba(11,34,65,0.11)"
+  glass: "#ffffff",
+  glassBorder: "#dde4ee",
+  glassSurface: "#f8fafc",
+  glassDivider: "#e2e8f0"
 };
 
 const darkPalette = {
@@ -2061,10 +2061,10 @@ const darkPalette = {
   accentSurface: "#0d1b30",
   accentBorder: "#182a44",
   iconSurface: "#142033",
-  glass: "rgba(8,18,34,0.74)",
-  glassBorder: "rgba(255,255,255,0.15)",
-  glassSurface: "rgba(255,255,255,0.08)",
-  glassDivider: "rgba(255,255,255,0.13)"
+  glass: "#0a1322",
+  glassBorder: "#182a44",
+  glassSurface: "#111c2e",
+  glassDivider: "#182a44"
 };
 
 function createStyles(palette: typeof lightPalette) {
@@ -2132,32 +2132,32 @@ function createStyles(palette: typeof lightPalette) {
     bulletDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND_ORANGE, marginTop: 6 },
     bulletText: { flex: 1, color: palette.subtext, fontSize: 13, lineHeight: 20, fontWeight: "700" },
     dangerText: { color: DANGER },
-    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.42)", justifyContent: "center", alignItems: "center", padding: 22 },
+    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.65)", justifyContent: "center", alignItems: "center", padding: 22 },
     identityCardShell: { width: "100%", maxWidth: 370, borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
-    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.glass, borderWidth: 1, borderColor: palette.glassBorder, padding: 18 },
-    identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.20)" },
-    identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.11)" },
+    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, padding: 18 },
+    identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.08)" },
+    identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.05)" },
     identityHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 18 },
-    identityHeaderIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityHeaderIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.accentSurface, alignItems: "center", justifyContent: "center" },
     identityTitle: { color: palette.text, fontSize: 16, lineHeight: 21, fontWeight: "900" },
     identitySubtitle: { color: palette.subtext, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 1 },
-    identityClose: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityClose: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.iconSurface, alignItems: "center", justifyContent: "center" },
     identityHero: { flexDirection: "row", alignItems: "center", gap: 15, paddingBottom: 17 },
-    identityAvatarFrame: { width: 86, height: 86, borderRadius: 26, padding: 3, backgroundColor: "rgba(255,255,255,0.58)", borderWidth: 1, borderColor: "rgba(255,255,255,0.82)" },
+    identityAvatarFrame: { width: 86, height: 86, borderRadius: 26, padding: 3, backgroundColor: palette.accentSurface, borderWidth: 1, borderColor: palette.cardBorder },
     identityAvatarImage: { width: "100%", height: "100%", borderRadius: 22 },
-    identityVerifiedBadge: { position: "absolute", right: -3, bottom: -3, width: 25, height: 25, borderRadius: 13, backgroundColor: "#2563eb", borderWidth: 3, borderColor: palette.glassBorder, alignItems: "center", justifyContent: "center" },
+    identityVerifiedBadge: { position: "absolute", right: -3, bottom: -3, width: 25, height: 25, borderRadius: 13, backgroundColor: "#2563eb", borderWidth: 3, borderColor: palette.card, alignItems: "center", justifyContent: "center" },
     identityHeroCopy: { flex: 1, minWidth: 0 },
     identityName: { color: palette.text, fontSize: 21, lineHeight: 26, fontWeight: "900" },
     identityRole: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 17, fontWeight: "900", marginTop: 2 },
-    identityEmailBand: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
+    identityEmailBand: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.cardBorder, paddingVertical: 10 },
     identityEmailValue: { flexShrink: 1, color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "800", marginTop: 2 },
-    identityIdBand: { minHeight: 62, borderRadius: 14, backgroundColor: palette.glassSurface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 13, marginBottom: 6 },
+    identityIdBand: { minHeight: 62, borderRadius: 14, backgroundColor: palette.accentSurface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 13, marginBottom: 6 },
     identityIdIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "rgba(246,163,19,0.14)", alignItems: "center", justifyContent: "center" },
     identityIdLabel: { color: palette.subtext, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 0.45 },
     identityIdValue: { color: palette.text, fontSize: 15, lineHeight: 20, fontWeight: "900", marginTop: 1 },
     identityDetails: { marginTop: 4 },
-    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
-    identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.cardBorder, paddingVertical: 10 },
+    identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.accentSurface, alignItems: "center", justifyContent: "center" },
     identityLabel: { color: palette.subtext, fontSize: 10, lineHeight: 14, fontWeight: "800" },
     identityValue: { color: palette.text, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 2 }
   });

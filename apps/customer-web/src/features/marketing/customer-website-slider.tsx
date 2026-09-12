@@ -112,15 +112,8 @@ export function CustomerWebsiteSlider({ onBookPickup }: CustomerWebsiteSliderPro
               >
                 <img
                   src={activeSlide.imageUrl}
-                  alt=""
-                  aria-hidden="true"
-                  className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-xl sm:hidden"
-                  draggable={false}
-                />
-                <img
-                  src={activeSlide.imageUrl}
                   alt={activeSlide.altText}
-                  className="relative h-full w-full object-contain"
+                  className="relative h-full w-full object-cover object-center"
                   draggable={false}
                   loading={activeIndex === 0 ? "eager" : "lazy"}
                 />

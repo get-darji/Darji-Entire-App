@@ -31,11 +31,40 @@ export type TailorQuote = {
   message?: string;
   pickupIncluded?: boolean;
   status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+  deliveryEstimate?: {
+    deliveryMode?: string;
+    oneWayDistanceMeters?: number;
+    totalChargeableDistanceMeters?: number;
+    deliveryFee?: number;
+  };
   tailor?: {
     id: string;
     shopName?: string;
     rating?: number;
     specialization?: string[];
+    verification?: {
+      shop?: {
+        shopAddress?: string;
+        shopAddressLine?: string;
+        shopArea?: string;
+        shopCity?: string;
+        shopState?: string;
+        shopPincode?: string;
+        address?: string;
+        area?: string;
+        city?: string;
+      };
+      personal?: {
+        address?: string;
+        area?: string;
+        city?: string;
+      };
+    };
+    user?: {
+      name?: string;
+      phone?: string;
+      avatarUrl?: string;
+    };
   };
 };
 

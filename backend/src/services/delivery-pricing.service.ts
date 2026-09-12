@@ -180,8 +180,14 @@ export async function roadDistanceMatrix(points: LatLng[]) {
 
 export function extractTailorPoint(tailor: Record<string, unknown> | null | undefined) {
   const verification = tailor?.verification as Record<string, any> | undefined;
+  const verificationDraft = tailor?.verificationDraft as Record<string, any> | undefined;
   return pointFrom(verification?.shop?.location)
     ?? pointFrom(verification?.shop)
+    ?? pointFrom(verificationDraft?.shop?.location)
+    ?? pointFrom(verificationDraft?.shop)
     ?? pointFrom(verification?.personal?.location)
-    ?? pointFrom(verification?.personal);
+    ?? pointFrom(verification?.personal)
+    ?? pointFrom(verificationDraft?.personal?.location)
+    ?? pointFrom(verificationDraft?.personal)
+    ?? pointFrom((tailor as Record<string, any> | undefined)?.location);
 }

@@ -173,8 +173,43 @@ type BackendTailorProfile = {
   isAvailable?: boolean;
   verificationStatus?: string;
   verification?: {
-    shop?: { shopAddress?: string; address?: string; area?: string; city?: string };
-    personal?: { address?: string; area?: string; city?: string };
+    shop?: {
+      shopAddress?: string;
+      shopAddressLine?: string;
+      shopArea?: string;
+      shopCity?: string;
+      shopState?: string;
+      shopPincode?: string;
+      address?: string;
+      area?: string;
+      city?: string;
+    };
+    personal?: {
+      address?: string;
+      addressLine?: string;
+      area?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+    };
+  };
+  verificationDraft?: {
+    shop?: {
+      shopAddress?: string;
+      shopAddressLine?: string;
+      shopArea?: string;
+      shopCity?: string;
+      shopState?: string;
+      shopPincode?: string;
+    };
+    personal?: {
+      address?: string;
+      addressLine?: string;
+      area?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+    };
   };
   user?: { name?: string; phone?: string; avatarUrl?: string };
   sampleGallery?: Array<{ id?: string; _id?: string; url: string; status?: string; originalName?: string }>;
@@ -187,6 +222,7 @@ type TailorProfileSummary = {
   rating: string;
   reviews: number;
   area: string;
+  shopAddress?: string;
   specialty: string;
   specializations: string[];
   avatarUrl?: string;
@@ -5420,8 +5456,31 @@ function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorP
   const specializations = (tailor.specialization ?? []).filter(Boolean);
   const address =
     tailor.verification?.shop?.shopAddress ||
+    (tailor.verification?.shop ? [
+      tailor.verification.shop.shopAddressLine,
+      tailor.verification.shop.shopArea,
+      tailor.verification.shop.shopCity,
+      tailor.verification.shop.shopState,
+      tailor.verification.shop.shopPincode
+    ].filter(Boolean).join(", ") : undefined) ||
     tailor.verification?.shop?.address ||
     tailor.verification?.personal?.address ||
+    (tailor.verification?.personal ? [
+      tailor.verification.personal.addressLine,
+      tailor.verification.personal.area,
+      tailor.verification.personal.city,
+      tailor.verification.personal.state,
+      tailor.verification.personal.pincode
+    ].filter(Boolean).join(", ") : undefined) ||
+    tailor.verificationDraft?.shop?.shopAddress ||
+    (tailor.verificationDraft?.shop ? [
+      tailor.verificationDraft.shop.shopAddressLine,
+      tailor.verificationDraft.shop.shopArea,
+      tailor.verificationDraft.shop.shopCity,
+      tailor.verificationDraft.shop.shopState,
+      tailor.verificationDraft.shop.shopPincode
+    ].filter(Boolean).join(", ") : undefined) ||
+    tailor.verificationDraft?.personal?.address ||
     tailor.verification?.shop?.area ||
     tailor.verification?.personal?.area ||
     tailor.verification?.shop?.city ||
@@ -5435,6 +5494,7 @@ function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorP
     rating: rating > 0 ? rating.toFixed(1) : "New",
     reviews: Number(tailor.ratingCount ?? 0),
     area: compactLocation(address),
+    shopAddress: address?.trim() || undefined,
     specialty: specializations.length ? specializations.join(", ") : "General tailoring",
     specializations,
     avatarUrl: tailor.user?.avatarUrl,
@@ -5525,8 +5585,8 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
               <View style={styles.tailorProfileInfoGrid}>
                 <View style={styles.tailorProfileInfoCard}>
                   <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
-                  <Text style={styles.tailorProfileInfoLabel}>Area</Text>
-                  <Text style={styles.tailorProfileInfoValue}>{profile.area}</Text>
+                  <Text style={styles.tailorProfileInfoLabel}>Shop Address</Text>
+                  <Text style={styles.tailorProfileInfoValue}>{profile.shopAddress || profile.area}</Text>
                 </View>
                 <View style={styles.tailorProfileInfoCard}>
                   <Ionicons name={profile.isAvailable === false ? "time-outline" : "checkmark-circle-outline"} size={18} color={BRAND_ORANGE} />
@@ -6522,7 +6582,14 @@ function ConfirmOrderScreen({
           </View>
           <View style={styles.checkoutPriceBox}>
             <SummaryRow label="Tailor quote" value={`Rs${tailoringTotal}`} tone="positive" />
-            <SummaryRow label="Delivery" value={`Rs${deliveryFee}`} tone="positive" />
+            <DeliverySummaryRow
+              deliveryFee={deliveryFee}
+              urgency={draft.urgency}
+              distanceMeters={quote.deliveryDistanceMeters}
+              customerAddress={draft.pickup}
+              tailorAddress={quote.tailorProfile?.shopAddress || quote.tailorProfile?.area}
+              tailorName={quote.tailorProfile?.shopName || quote.name}
+            />
             <SummaryRow label="Platform fee" value={`Rs${platformFee}`} tone="positive" />
             {smallOrderFee > 0 ? <SummaryRow label="Small order fee" value={`Rs${smallOrderFee}`} tone="positive" /> : null}
             {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
@@ -6621,6 +6688,157 @@ function ConfirmOrderScreen({
         </View>
       ) : null}
     </SafeAreaView>
+  );
+}
+
+function DeliverySummaryRow({
+  deliveryFee,
+  urgency,
+  distanceMeters,
+  customerAddress,
+  tailorAddress,
+  tailorName,
+  tone = "positive"
+}: {
+  deliveryFee: number;
+  urgency?: string;
+  distanceMeters?: number;
+  customerAddress?: string;
+  tailorAddress?: string;
+  tailorName?: string;
+  tone?: "positive" | "negative";
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const urgencyStr = String(urgency ?? "").toLowerCase();
+  const mode = urgencyStr.includes("instant")
+    ? "Instant"
+    : urgencyStr.includes("express") || urgencyStr.includes("urgent")
+    ? "Express"
+    : "Standard";
+
+  const standardBase = mode === "Instant" ? 69 : mode === "Express" ? 59 : 49;
+  const ratePerKm = mode === "Instant" ? 10 : 5;
+  const ratePer100m = mode === "Instant" ? 1.0 : 0.5;
+
+  let oneWayMeters = Math.round(Number(distanceMeters) || 0);
+  let baseFare = standardBase;
+  let distanceFare = 0;
+
+  if (oneWayMeters > 0) {
+    const totalMeters = oneWayMeters * 2;
+    distanceFare = Math.round((totalMeters / 100) * ratePer100m);
+    if (deliveryFee !== undefined && deliveryFee > 0) {
+      baseFare = Math.max(0, deliveryFee - distanceFare);
+      if (baseFare === 0) {
+        baseFare = Math.min(deliveryFee, standardBase);
+        distanceFare = Math.max(0, deliveryFee - baseFare);
+      }
+    }
+  } else if (deliveryFee > standardBase) {
+    distanceFare = deliveryFee - standardBase;
+    const totalMeters = Math.round((distanceFare / ratePer100m) * 100);
+    oneWayMeters = Math.round(totalMeters / 2);
+  } else {
+    baseFare = deliveryFee || standardBase;
+    distanceFare = 0;
+    oneWayMeters = 2500;
+  }
+
+  const oneWayKm = (oneWayMeters / 1000).toFixed(1);
+  const totalKm = ((oneWayMeters * 2) / 1000).toFixed(1);
+
+  const customerLabel = customerAddress ? (customerAddress.length > 28 ? `${customerAddress.slice(0, 26)}...` : customerAddress) : "Your Location";
+  const tailorLabel = tailorAddress ? (tailorAddress.length > 28 ? `${tailorAddress.slice(0, 26)}...` : tailorAddress) : (tailorName || "Tailor Shop");
+
+  return (
+    <View style={styles.deliveryExpandableWrapper}>
+      <Pressable
+        style={[styles.summaryRow, styles.deliveryClickableRow]}
+        onPress={() => setExpanded((prev) => !prev)}
+        android_ripple={{ color: "#f1f5f9" }}
+        accessibilityRole="button"
+        accessibilityLabel="Delivery fee details"
+      >
+        <View style={styles.deliveryRowLeft}>
+          <Text style={styles.summaryLabel}>Delivery</Text>
+          <View style={styles.deliveryBadge}>
+            <Text style={styles.deliveryBadgeText}>2-Way Trip</Text>
+          </View>
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={14}
+            color={BRAND_ORANGE}
+          />
+        </View>
+        <Text
+          style={[
+            styles.summaryValue,
+            tone === "positive" && styles.summaryPositive,
+            tone === "negative" && styles.summaryNegative
+          ]}
+        >
+          Rs{deliveryFee}
+        </Text>
+      </Pressable>
+
+      {expanded && (
+        <View style={styles.deliveryExpandedCard}>
+          <View style={styles.deliveryExpandedHeader}>
+            <View style={styles.deliveryIconPill}>
+              <Ionicons name="bicycle-outline" size={14} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.deliveryExpandedTitle}>Delivery Fee Breakdown</Text>
+          </View>
+
+          <View style={styles.deliveryRouteSteps}>
+            <View style={styles.deliveryRouteStep}>
+              <View style={[styles.routeDot, { backgroundColor: "#10b981" }]} />
+              <View style={styles.routeStepContent}>
+                <Text style={styles.routeStepTitle}>1. Pickup: {customerLabel} ➔ {tailorLabel}</Text>
+                <Text style={styles.routeStepDistance}>{oneWayKm} km (Customer to Tailor Shop)</Text>
+              </View>
+            </View>
+            <View style={styles.routeLine} />
+            <View style={styles.deliveryRouteStep}>
+              <View style={[styles.routeDot, { backgroundColor: BRAND_ORANGE }]} />
+              <View style={styles.routeStepContent}>
+                <Text style={styles.routeStepTitle}>2. Delivery: {tailorLabel} ➔ {customerLabel}</Text>
+                <Text style={styles.routeStepDistance}>{oneWayKm} km (Tailor Shop to Customer)</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.deliveryMetricsGrid}>
+            <View style={styles.deliveryMetricItem}>
+              <Text style={styles.deliveryMetricLabel}>Round Trip Distance</Text>
+              <Text style={styles.deliveryMetricValue}>{totalKm} km (2-way)</Text>
+            </View>
+            <View style={styles.deliveryMetricItem}>
+              <Text style={styles.deliveryMetricLabel}>Base Fare ({mode})</Text>
+              <Text style={styles.deliveryMetricValue}>Rs{baseFare}</Text>
+            </View>
+            {distanceFare > 0 && (
+              <View style={styles.deliveryMetricItem}>
+                <Text style={styles.deliveryMetricLabel}>Distance Fee (Rs{ratePerKm}/km)</Text>
+                <Text style={styles.deliveryMetricValue}>Rs{distanceFare}</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.deliveryTotalCalcRow}>
+            <Text style={styles.deliveryTotalCalcLabel}>Calculation</Text>
+            <Text style={styles.deliveryTotalCalcValue}>
+              Rs{baseFare}{distanceFare > 0 ? ` + Rs${distanceFare}` : ""} = Rs{deliveryFee}
+            </Text>
+          </View>
+
+          <Text style={styles.deliveryExpandedNote}>
+            Calculated from customer location to tailor shop address. Covers 2-way doorstep pickup and drop.
+          </Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -6739,7 +6957,14 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
           <SummaryRow label="Pickup" value={order.pickupWindow} />
           <SummaryRow label="Payment" value={order.paymentMethod.toUpperCase()} />
           <SummaryRow label="Payment Status" value={order.paymentStatus ?? (order.paymentMethod.toUpperCase() === "COD" ? "PENDING" : "PAID")} />
-          <SummaryRow label="Delivery" value={`Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}`} tone="positive" />
+          <DeliverySummaryRow
+            deliveryFee={order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}
+            urgency={order.draft.urgency}
+            distanceMeters={order.tailor?.deliveryDistanceMeters}
+            customerAddress={order.draft.pickup}
+            tailorAddress={order.tailor?.tailorProfile?.shopAddress || order.tailor?.tailorProfile?.area}
+            tailorName={order.tailor?.name}
+          />
           <SummaryRow label="Platform fee" value={`Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}`} tone="positive" />
           {Number(order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)) > 0 ? (
             <SummaryRow label="Small order fee" value={`Rs${order.smallOrderFee ?? getSmallOrderFee(order.tailor?.price ?? 0)}`} tone="positive" />
@@ -12798,6 +13023,30 @@ function createStyles(isDark = false) {
   summaryNegative: { color: "#dc2626" },
   summaryDivider: { height: 1, backgroundColor: border, marginVertical: 4 },
   summaryStrong: { color: BRAND_ORANGE, fontSize: 18, fontWeight: "900" },
+  deliveryExpandableWrapper: { marginBottom: 13 },
+  deliveryClickableRow: { marginBottom: 0, paddingVertical: 2 },
+  deliveryRowLeft: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1 },
+  deliveryBadge: { backgroundColor: isDark ? "#2a1d0a" : "#fff4dc", borderWidth: 1, borderColor: isDark ? "#59370e" : "#fed7aa", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  deliveryBadgeText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900" },
+  deliveryExpandedCard: { marginTop: 8, borderRadius: 14, backgroundColor: isDark ? "#141a24" : "#fbfcfe", borderWidth: 1, borderColor: isDark ? "#24334a" : "#e2e8f0", padding: 12, gap: 10 },
+  deliveryExpandedHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
+  deliveryIconPill: { width: 24, height: 24, borderRadius: 12, backgroundColor: isDark ? "#2a1d0a" : "#fff4dc", alignItems: "center", justifyContent: "center" },
+  deliveryExpandedTitle: { color: text, fontSize: 12, fontWeight: "900" },
+  deliveryRouteSteps: { backgroundColor: isDark ? "#0d131d" : "#f1f5f9", borderRadius: 10, padding: 10, gap: 4 },
+  deliveryRouteStep: { flexDirection: "row", alignItems: "center", gap: 8 },
+  routeDot: { width: 8, height: 8, borderRadius: 4 },
+  routeLine: { width: 2, height: 10, backgroundColor: isDark ? "#24334a" : "#cbd5e1", marginLeft: 3 },
+  routeStepContent: { flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  routeStepTitle: { color: text, fontSize: 11, fontWeight: "800", flex: 1 },
+  routeStepDistance: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900", marginLeft: 6 },
+  deliveryMetricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  deliveryMetricItem: { flex: 1, minWidth: 90, backgroundColor: isDark ? "#0d131d" : "#ffffff", borderWidth: 1, borderColor: isDark ? "#1e293b" : "#e2e8f0", borderRadius: 8, padding: 8 },
+  deliveryMetricLabel: { color: muted, fontSize: 9, fontWeight: "800", textTransform: "uppercase" },
+  deliveryMetricValue: { color: text, fontSize: 12, fontWeight: "900", marginTop: 2 },
+  deliveryTotalCalcRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderTopColor: isDark ? "#1e293b" : "#e2e8f0", paddingTop: 8 },
+  deliveryTotalCalcLabel: { color: muted, fontSize: 11, fontWeight: "800" },
+  deliveryTotalCalcValue: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },
+  deliveryExpandedNote: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "600", fontStyle: "italic" },
   checkoutSummaryCard: { borderColor: "#efcf92", borderWidth: 1.5, backgroundColor: isDark ? "#1c2028" : "#fffdf8" },
   checkoutSummaryHeader: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
   checkoutSummaryHeaderIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: "#fff2d8", borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center" },

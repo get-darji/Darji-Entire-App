@@ -20,7 +20,6 @@ const trustIcons = [ShieldCheck, MapPin, Clock3, LockKeyhole];
 const navLinks = [
   { label: "Home", href: "/" },
   { label: "Services", href: "/#services" },
-  { label: "FAQs", href: "/#faq" },
   { label: "Blog", href: "/blogs" },
   { label: "About Us", href: "/about" }
 ];

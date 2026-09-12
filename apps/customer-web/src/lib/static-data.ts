@@ -3,8 +3,7 @@ import { BadgeCheck, Bell, Boxes, CalendarCheck, CreditCard, MapPinned, Ruler, S
 export const navItems = [
   { label: "How it works", href: "#how" },
   { label: "Services", href: "#services" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "FAQs", href: "#faq" }
+  { label: "Pricing", href: "#pricing" }
 ];
 
 export const services = [

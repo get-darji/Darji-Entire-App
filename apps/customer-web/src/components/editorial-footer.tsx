@@ -21,7 +21,6 @@ const footerNavigation = {
   quickLinks: [
     { label: "Home", href: "/" },
     { label: "Services", href: "/#services" },
-    { label: "FAQs", href: "/#faq" },
     { label: "How It Works", href: "/about#ecosystem" }
   ],
   story: [
@@ -30,11 +29,12 @@ const footerNavigation = {
     { label: "The Darji Journal", href: "/blogs" }
   ],
   support: [
-    { label: "Help Center & FAQs", href: "/#faq" },
-    { label: "Email Support", href: "mailto:help.darji@gmail.com" },
+    { label: "Help Center", href: "mailto:help.darji@gmail.com?subject=Darji%20Help%20Center" },
+    { label: "Email Support", href: "mailto:help.darji@gmail.com?subject=Darji%20Support" },
     { label: "Privacy Policy", href: "/privacy" },
     { label: "Terms of Service", href: "/terms" },
-    { label: "Security Standards", href: "/security" }
+    { label: "Security Standards", href: "/security" },
+    { label: "Sitemap", href: "/sitemap.xml" }
   ]
 };
 
@@ -121,6 +121,30 @@ const socialLinks = [
 ];
 
 const darjiChars = ["D", "A", "R", "J", "I"];
+
+function FooterLink({ item }: { item: { label: string; href: string } }) {
+  const className = "focus-ring inline-block transition hover:text-white hover:translate-x-1 duration-200";
+  const opensOutsideApp = item.href.startsWith("mailto:") || item.href.startsWith("tel:") || item.href.startsWith("http") || item.href.endsWith(".xml");
+
+  if (opensOutsideApp) {
+    return (
+      <a
+        href={item.href}
+        className={className}
+        target={item.href.startsWith("http") ? "_blank" : undefined}
+        rel={item.href.startsWith("http") ? "noopener noreferrer" : undefined}
+      >
+        {item.label}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={item.href} className={className}>
+      {item.label}
+    </Link>
+  );
+}
 
 export function EditorialFooter() {
   const [email, setEmail] = useState("");
@@ -286,12 +310,7 @@ export function EditorialFooter() {
             <ul className="mt-5 space-y-3 text-sm text-white/65">
               {footerNavigation.quickLinks.map((item) => (
                 <li key={item.label}>
-                  <Link
-                    href={item.href}
-                    className="focus-ring inline-block transition hover:text-white hover:translate-x-1 duration-200"
-                  >
-                    {item.label}
-                  </Link>
+                  <FooterLink item={item} />
                 </li>
               ))}
             </ul>
@@ -305,12 +324,7 @@ export function EditorialFooter() {
             <ul className="mt-5 space-y-3 text-sm text-white/65">
               {footerNavigation.story.map((item) => (
                 <li key={item.label}>
-                  <Link
-                    href={item.href}
-                    className="focus-ring inline-block transition hover:text-white hover:translate-x-1 duration-200"
-                  >
-                    {item.label}
-                  </Link>
+                  <FooterLink item={item} />
                 </li>
               ))}
             </ul>
@@ -324,12 +338,7 @@ export function EditorialFooter() {
             <ul className="mt-5 space-y-3 text-sm text-white/65">
               {footerNavigation.support.map((item) => (
                 <li key={item.label}>
-                  <Link
-                    href={item.href}
-                    className="focus-ring inline-block transition hover:text-white hover:translate-x-1 duration-200"
-                  >
-                    {item.label}
-                  </Link>
+                  <FooterLink item={item} />
                 </li>
               ))}
             </ul>

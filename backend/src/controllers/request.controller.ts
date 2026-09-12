@@ -565,6 +565,7 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
     ...request,
     customer: customer?.toJSON(),
     ownQuote: ownQuote?.toJSON() ?? null,
+
     selectedQuote: selectedQuoteDoc ? await hydrateTailorQuote(selectedQuoteDoc) : null,
     quoteCount,
     tailorRating: tailorReview?.rating,
@@ -577,8 +578,30 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
 }
 
 function tailorDropAddress(tailor: Record<string, unknown> | null | undefined) {
-  const verification = tailor?.verification as { shop?: { shopAddress?: string }; personal?: { address?: string } } | undefined;
-  return verification?.shop?.shopAddress || verification?.personal?.address || String(tailor?.shopName ?? "Tailor address pending");
+  if (!tailor) return "Tailor address pending";
+  const verification = tailor.verification as Record<string, any> | undefined;
+  const verificationDraft = tailor.verificationDraft as Record<string, any> | undefined;
+
+  const vShopAddress = verification?.shop?.shopAddress
+    || (verification?.shop ? [verification.shop.shopAddressLine, verification.shop.shopArea, verification.shop.shopCity, verification.shop.shopState, verification.shop.shopPincode].filter(Boolean).join(", ") : undefined);
+
+  const draftShopAddress = verificationDraft?.shop?.shopAddress
+    || (verificationDraft?.shop ? [verificationDraft.shop.shopAddressLine, verificationDraft.shop.shopArea, verificationDraft.shop.shopCity, verificationDraft.shop.shopState, verificationDraft.shop.shopPincode].filter(Boolean).join(", ") : undefined);
+
+  const personalAddress = verification?.personal?.address
+    || (verification?.personal ? [verification.personal.addressLine, verification.personal.area, verification.personal.city, verification.personal.state, verification.personal.pincode].filter(Boolean).join(", ") : undefined);
+
+  const draftPersonalAddress = verificationDraft?.personal?.address
+    || (verificationDraft?.personal ? [verificationDraft.personal.addressLine, verificationDraft.personal.area, verificationDraft.personal.city, verificationDraft.personal.state, verificationDraft.personal.pincode].filter(Boolean).join(", ") : undefined);
+
+  return (
+    vShopAddress ||
+    draftShopAddress ||
+    personalAddress ||
+    draftPersonalAddress ||
+    (typeof tailor.shopAddress === "string" ? tailor.shopAddress : undefined) ||
+    String(tailor.shopName ?? "Tailor address pending")
+  );
 }
 
 async function deliveryTaskEstimatedEarnings(

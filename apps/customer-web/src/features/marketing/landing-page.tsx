@@ -16,6 +16,8 @@ import { CustomerWebsiteSlider } from "./customer-website-slider";
 import { LaunchSoonModal, SupportModal } from "./site-actions";
 import { VideoSection } from "./video-section";
 
+type StoreTarget = "play" | "apple";
+
 const serviceCards = [
   {
     title: "Stitching",
@@ -190,7 +192,7 @@ function AppleStoreLogo({ className }: { className?: string }) {
   );
 }
 
-function StoreButton({ type }: { type: "play" | "apple" }) {
+function StoreButton({ type, onClick }: { type: StoreTarget; onClick: () => void }) {
   const isPlay = type === "play";
   const Logo = isPlay ? PlayStoreLogo : AppleStoreLogo;
 
@@ -206,7 +208,7 @@ function StoreButton({ type }: { type: "play" | "apple" }) {
       coneSpread={22}
       colors={isPlay ? ["#34a853", "#fbbc05", "#ea4335", "#4285f4"] : ["#ffffff", "#cccccc", "#888888"]}
     >
-      <button className="store-button" type="button" aria-label={isPlay ? "Get it on Google Play" : "Download on the App Store"}>
+      <button className="store-button" type="button" onClick={onClick} aria-label={isPlay ? "Get it on Google Play" : "Download on the App Store"}>
         <Logo className="h-6 w-6 object-contain" />
         <span className="store-button-copy">
           <span className="store-button-kicker">{isPlay ? "GET IT ON" : "Download on the"}</span>
@@ -251,8 +253,13 @@ const faqList = [
 export function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [launchSoonOpen, setLaunchSoonOpen] = useState(false);
+  const [launchSoonTarget, setLaunchSoonTarget] = useState<"booking" | StoreTarget>("booking");
   const [supportOpen, setSupportOpen] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
+  const openLaunchSoon = (target: "booking" | StoreTarget = "booking") => {
+    setLaunchSoonTarget(target);
+    setLaunchSoonOpen(true);
+  };
 
   const organizationSchema = {
     "@context": "https://schema.org",
@@ -336,8 +343,8 @@ export function LandingPage() {
       />
       <main id="site">
         <SmoothScroll />
-        <PremiumHero heroRef={heroRef} onBookPickup={() => setLaunchSoonOpen(true)} />
-        <CustomerWebsiteSlider onBookPickup={() => setLaunchSoonOpen(true)} />
+        <PremiumHero heroRef={heroRef} onBookPickup={() => openLaunchSoon("booking")} />
+        <CustomerWebsiteSlider onBookPickup={() => openLaunchSoon("booking")} />
         <VideoSection />
         <HowItWorksSection />
 
@@ -404,7 +411,7 @@ export function LandingPage() {
                 </motion.div>
               ))}
             </div>
-            <button type="button" onClick={() => setLaunchSoonOpen(true)} className="focus-ring mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5 hover:bg-[#fff7f0]">
+            <button type="button" onClick={() => openLaunchSoon("booking")} className="focus-ring mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--darji-orange)] bg-white px-6 text-sm font-black text-[var(--darji-orange)] transition hover:-translate-y-0.5 hover:bg-[#fff7f0]">
               View All Services <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -465,8 +472,8 @@ export function LandingPage() {
                   <span className="hidden sm:inline">Book pickups, track progress, chat with your tailor, and reorder your favorite services without leaving the app.</span>
                 </p>
                 <div className="mt-5 flex flex-nowrap gap-2 sm:mt-8 sm:flex-wrap sm:gap-4">
-                  <StoreButton type="play" />
-                  <StoreButton type="apple" />
+                  <StoreButton type="play" onClick={() => openLaunchSoon("play")} />
+                  <StoreButton type="apple" onClick={() => openLaunchSoon("apple")} />
                 </div>
               </div>
 
@@ -742,7 +749,7 @@ export function LandingPage() {
 
         <EditorialFooter />
       </main>
-      <LaunchSoonModal open={launchSoonOpen} onClose={() => setLaunchSoonOpen(false)} />
+      <LaunchSoonModal open={launchSoonOpen} onClose={() => setLaunchSoonOpen(false)} target={launchSoonTarget} />
       <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
       <IntroReveal />
     </>

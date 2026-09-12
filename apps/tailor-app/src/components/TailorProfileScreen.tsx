@@ -125,7 +125,35 @@ type TailorProfile = {
   workingHours?: { from?: string; to?: string };
   settings?: TailorSettings;
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
-  verification?: { personal?: { email?: string }; idVerification?: { facePhotoUrl?: string } };
+  verification?: {
+    personal?: { name?: string; email?: string; address?: string };
+    shop?: {
+      workFromHome?: boolean;
+      shopName?: string;
+      shopAddress?: string;
+      shopAddressLine?: string;
+      shopArea?: string;
+      shopCity?: string;
+      shopState?: string;
+      shopPincode?: string;
+      gstNumber?: string;
+    };
+    idVerification?: { facePhotoUrl?: string };
+  };
+  verificationDraft?: {
+    personal?: { name?: string; email?: string; address?: string; addressLine?: string; area?: string; city?: string; state?: string; pincode?: string };
+    shop?: {
+      workFromHome?: boolean;
+      shopName?: string;
+      shopAddress?: string;
+      shopAddressLine?: string;
+      shopArea?: string;
+      shopCity?: string;
+      shopState?: string;
+      shopPincode?: string;
+      gstNumber?: string;
+    };
+  };
   sampleGallery?: Array<{ id?: string; _id?: string; url: string; status?: "PENDING" | "APPROVED" | "REJECTED"; originalName?: string; uploadedAt?: string; rejectionReason?: string }>;
 };
 type MeResponse = {
@@ -225,6 +253,41 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const verificationAvatarUrl = profile?.verification?.idVerification?.facePhotoUrl;
   const serverEmail = me?.email?.trim() || profile?.verification?.personal?.email?.trim() || "";
   const avatarLocked = Boolean(verificationAvatarUrl) || profile?.verificationStatus === "VERIFIED";
+  const resolvedShopAddress = (
+    profile?.verification?.shop?.shopAddress?.trim() ||
+    (profile?.verification?.shop ? [
+      profile.verification.shop.shopAddressLine,
+      profile.verification.shop.shopArea,
+      profile.verification.shop.shopCity,
+      profile.verification.shop.shopState,
+      profile.verification.shop.shopPincode
+    ].filter(Boolean).join(", ") : "") ||
+    profile?.verificationDraft?.shop?.shopAddress?.trim() ||
+    (profile?.verificationDraft?.shop ? [
+      profile.verificationDraft.shop.shopAddressLine,
+      profile.verificationDraft.shop.shopArea,
+      profile.verificationDraft.shop.shopCity,
+      profile.verificationDraft.shop.shopState,
+      profile.verificationDraft.shop.shopPincode
+    ].filter(Boolean).join(", ") : "") ||
+    profile?.verification?.personal?.address?.trim() ||
+    (profile?.verification?.personal ? [
+      (profile.verification.personal as any).addressLine,
+      (profile.verification.personal as any).area,
+      (profile.verification.personal as any).city,
+      (profile.verification.personal as any).state,
+      (profile.verification.personal as any).pincode
+    ].filter(Boolean).join(", ") : "") ||
+    profile?.verificationDraft?.personal?.address?.trim() ||
+    (profile?.verificationDraft?.personal ? [
+      profile.verificationDraft.personal.addressLine,
+      profile.verificationDraft.personal.area,
+      profile.verificationDraft.personal.city,
+      profile.verificationDraft.personal.state,
+      profile.verificationDraft.personal.pincode
+    ].filter(Boolean).join(", ") : "") ||
+    ""
+  );
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
@@ -493,6 +556,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
           </View>
           <Text style={styles.profileTapHint}>Tap to view partner details</Text>
           <ProfileMetaRow icon={avatarLocked ? "shield-checkmark-outline" : "person-outline"} text={avatarLocked ? `${name || "Tailor Partner"} - Verification photo locked` : name || "Tailor Partner"} color={avatarLocked ? "#2563eb" : MUTED} styles={styles} />
+          <ProfileMetaRow icon="location-outline" text={resolvedShopAddress || "Shop address not added"} styles={styles} />
           <ProfileMetaRow icon="call-outline" text={`+91 ${me?.phone ?? "XXXXXXXXXX"}`} styles={styles} />
           <ProfileMetaRow icon="mail-outline" text={email.trim() || serverEmail || "Email not added"} muted={!(email.trim() || serverEmail)} styles={styles} />
           <View style={styles.completedPill}>
@@ -562,6 +626,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View style={styles.identityDetails}>
                 {[
                   { icon: "storefront-outline" as const, label: "Shop name", value: shopName || profile?.shopName || "Darji Tailor" },
+                  { icon: "location-outline" as const, label: "Shop address", value: resolvedShopAddress || "Address not provided" },
                   { icon: "call-outline" as const, label: "Phone number", value: me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available" }
                 ].map((item) => (
                   <View key={item.label} style={styles.identityRow}>
@@ -702,6 +767,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
                 <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>SHOP CONFIGURATION</Text>
               </View>
               <InfoRow icon="storefront-outline" title="Shop Name" value={shopName} styles={styles} />
+              <InfoRow icon="location-outline" title="Shop Address" value={resolvedShopAddress || "Address not provided"} styles={styles} />
               <InfoRow icon="time-outline" title="Active Work" value={`${activeOrders} orders in progress`} styles={styles} />
               <InfoRow icon="ribbon-outline" title="Specializations" value={profile?.specialization?.join(", ") || "Custom tailoring"} styles={styles} />
             </View>
@@ -2669,8 +2735,8 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   }
 };
 
-const lightPalette = { bg: SCREEN_BG, surface: SURFACE, surfaceAlt: "#fff9ee", text: BRAND_DEEP, muted: MUTED, border: BORDER, glass: "rgba(255,255,255,0.72)", glassBorder: "rgba(255,255,255,0.92)", glassSurface: "rgba(255,255,255,0.54)", glassDivider: "rgba(11,34,65,0.11)" };
-const darkPalette = { bg: "#050c18", surface: "#0a1322", surfaceAlt: "#0d1b30", text: "#ffffff", muted: "#a8bad2", border: "#182a44", glass: "rgba(8,18,34,0.74)", glassBorder: "rgba(255,255,255,0.15)", glassSurface: "rgba(255,255,255,0.08)", glassDivider: "rgba(255,255,255,0.13)" };
+const lightPalette = { bg: SCREEN_BG, surface: SURFACE, surfaceAlt: "#fff9ee", text: BRAND_DEEP, muted: MUTED, border: BORDER, glass: "#ffffff", glassBorder: "#e2e8f0", glassSurface: "#f8fafc", glassDivider: "#e2e8f0" };
+const darkPalette = { bg: "#050c18", surface: "#0a1322", surfaceAlt: "#0d1b30", text: "#ffffff", muted: "#a8bad2", border: "#182a44", glass: "#0a1322", glassBorder: "#1e293b", glassSurface: "#0f172a", glassDivider: "#1e293b" };
 
 function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
@@ -2831,32 +2897,32 @@ function createStyles(palette: typeof lightPalette) {
     bugScreenshotReplace: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: palette.surface },
     bugScreenshotReplaceText: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 16, fontWeight: "900" },
     bugDeviceCard: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 6, marginTop: 14, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
-    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.42)", justifyContent: "center", alignItems: "center", padding: 22 },
+    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.65)", justifyContent: "center", alignItems: "center", padding: 22 },
     identityCardShell: { width: "100%", maxWidth: 370, borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
-    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.glass, borderWidth: 1, borderColor: palette.glassBorder, padding: 18 },
-    identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.20)" },
-    identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.11)" },
+    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 18 },
+    identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.08)" },
+    identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.05)" },
     identityHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 18 },
-    identityHeaderIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityHeaderIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     identityTitle: { color: palette.text, fontSize: 16, lineHeight: 21, fontWeight: "900" },
     identitySubtitle: { color: palette.muted, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 1 },
-    identityClose: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityClose: { width: 48, height: 48, borderRadius: 14, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     identityHero: { flexDirection: "row", alignItems: "center", gap: 15, paddingBottom: 17 },
-    identityAvatarFrame: { width: 86, height: 86, borderRadius: 26, padding: 3, backgroundColor: "rgba(255,255,255,0.58)", borderWidth: 1, borderColor: "rgba(255,255,255,0.82)" },
+    identityAvatarFrame: { width: 86, height: 86, borderRadius: 26, padding: 3, backgroundColor: palette.surfaceAlt, borderWidth: 1, borderColor: palette.border },
     identityAvatarImage: { width: "100%", height: "100%", borderRadius: 22 },
-    identityVerifiedBadge: { position: "absolute", right: -3, bottom: -3, width: 25, height: 25, borderRadius: 13, backgroundColor: "#2563eb", borderWidth: 3, borderColor: palette.glassBorder, alignItems: "center", justifyContent: "center" },
+    identityVerifiedBadge: { position: "absolute", right: -3, bottom: -3, width: 25, height: 25, borderRadius: 13, backgroundColor: "#2563eb", borderWidth: 3, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
     identityHeroCopy: { flex: 1, minWidth: 0 },
     identityName: { color: palette.text, fontSize: 21, lineHeight: 26, fontWeight: "900" },
     identityRole: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 17, fontWeight: "900", marginTop: 2 },
-    identityEmailBand: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
+    identityEmailBand: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 10 },
     identityEmailValue: { flexShrink: 1, color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "800", marginTop: 2 },
-    identityIdBand: { minHeight: 62, borderRadius: 14, backgroundColor: palette.glassSurface, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 13, marginBottom: 6 },
+    identityIdBand: { minHeight: 62, borderRadius: 14, backgroundColor: palette.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 13, marginBottom: 6 },
     identityIdIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "rgba(246,163,19,0.14)", alignItems: "center", justifyContent: "center" },
     identityIdLabel: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 0.45 },
     identityIdValue: { color: palette.text, fontSize: 15, lineHeight: 20, fontWeight: "900", marginTop: 1 },
     identityDetails: { marginTop: 4 },
-    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.glassDivider, paddingVertical: 10 },
-    identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.glassSurface, alignItems: "center", justifyContent: "center" },
+    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 10 },
+    identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     identityLabel: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "800" },
     identityValue: { color: palette.text, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 2 },
     dangerModalBackdrop: { flex: 1, backgroundColor: "rgba(7,13,24,0.52)", justifyContent: "center", alignItems: "center", padding: 24 },

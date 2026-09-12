@@ -11,7 +11,9 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  Truck,
   Bug,
   Clock,
   CreditCard,
@@ -1770,6 +1772,138 @@ function SummaryLine({ label, value, strong = false }: { label: string; value: s
   );
 }
 
+function DeliverySummaryLine({
+  deliveryFee,
+  urgency,
+  distanceMeters,
+  customerAddress,
+  tailorAddress,
+  tailorName
+}: {
+  deliveryFee: number;
+  urgency?: string;
+  distanceMeters?: number;
+  customerAddress?: string;
+  tailorAddress?: string;
+  tailorName?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const urgencyStr = String(urgency ?? "").toLowerCase();
+  const mode = urgencyStr.includes("instant")
+    ? "Instant"
+    : urgencyStr.includes("express") || urgencyStr.includes("urgent")
+    ? "Express"
+    : "Standard";
+
+  const standardBase = mode === "Instant" ? 69 : mode === "Express" ? 59 : 49;
+  const ratePerKm = mode === "Instant" ? 10 : 5;
+  const ratePer100m = mode === "Instant" ? 1.0 : 0.5;
+
+  let oneWayMeters = Math.round(Number(distanceMeters) || 0);
+  let baseFare = standardBase;
+  let distanceFare = 0;
+
+  if (oneWayMeters > 0) {
+    const totalMeters = oneWayMeters * 2;
+    distanceFare = Math.round((totalMeters / 100) * ratePer100m);
+    if (deliveryFee !== undefined && deliveryFee > 0) {
+      baseFare = Math.max(0, deliveryFee - distanceFare);
+      if (baseFare === 0) {
+        baseFare = Math.min(deliveryFee, standardBase);
+        distanceFare = Math.max(0, deliveryFee - baseFare);
+      }
+    }
+  } else if (deliveryFee > standardBase) {
+    distanceFare = deliveryFee - standardBase;
+    const totalMeters = Math.round((distanceFare / ratePer100m) * 100);
+    oneWayMeters = Math.round(totalMeters / 2);
+  } else {
+    baseFare = deliveryFee || standardBase;
+    distanceFare = 0;
+    oneWayMeters = 2500;
+  }
+
+  const oneWayKm = (oneWayMeters / 1000).toFixed(1);
+  const totalKm = ((oneWayMeters * 2) / 1000).toFixed(1);
+
+  const customerLabel = customerAddress ? (customerAddress.length > 25 ? `${customerAddress.slice(0, 23)}...` : customerAddress) : "Your Location";
+  const tailorLabel = tailorAddress ? (tailorAddress.length > 25 ? `${tailorAddress.slice(0, 23)}...` : tailorAddress) : (tailorName || "Tailor Shop");
+
+  return (
+    <div className="rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] overflow-hidden transition-all">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm font-bold text-left hover:bg-[#f1f5f9] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[var(--darji-muted)]">Delivery</span>
+          <span className="rounded-md bg-[#fff4dc] border border-[#fed7aa] px-1.5 py-0.5 text-[10px] font-black text-[var(--darji-orange)] uppercase tracking-wider">
+            2-Way Trip
+          </span>
+          <ChevronDown className={`h-3.5 w-3.5 text-[var(--darji-orange)] transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+        </div>
+        <span className="text-right text-[var(--darji-ink)]">{formatMoney(deliveryFee)}</span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-[#e2e8f0] bg-white p-3 space-y-3 text-xs">
+          <div className="flex items-center gap-1.5 font-black text-[#08111f]">
+            <Truck className="h-3.5 w-3.5 text-[var(--darji-orange)]" />
+            <span>Delivery Fee Calculation</span>
+          </div>
+
+          <div className="rounded-xl bg-[#f8fafc] p-2.5 space-y-2 border border-[#f1f5f9]">
+            <div className="flex items-center justify-between text-[11px] font-bold">
+              <span className="flex items-center gap-1.5 text-slate-700">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                1. Pickup: {customerLabel} ➔ {tailorLabel}
+              </span>
+              <span className="font-black text-[var(--darji-orange)]">{oneWayKm} km</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] font-bold">
+              <span className="flex items-center gap-1.5 text-slate-700">
+                <span className="h-2 w-2 rounded-full bg-[var(--darji-orange)]" />
+                2. Delivery: {tailorLabel} ➔ {customerLabel}
+              </span>
+              <span className="font-black text-[var(--darji-orange)]">{oneWayKm} km</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
+              <p className="text-[9px] font-black uppercase text-[var(--darji-muted)]">Round Trip</p>
+              <p className="mt-0.5 font-black text-[#08111f]">{totalKm} km</p>
+            </div>
+            <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2">
+              <p className="text-[9px] font-black uppercase text-[var(--darji-muted)]">Base Fare ({mode})</p>
+              <p className="mt-0.5 font-black text-[#08111f]">{formatMoney(baseFare)}</p>
+            </div>
+            {distanceFare > 0 && (
+              <div className="rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2 col-span-2 sm:col-span-1">
+                <p className="text-[9px] font-black uppercase text-[var(--darji-muted)]">Distance ({formatMoney(ratePerKm)}/km)</p>
+                <p className="mt-0.5 font-black text-[#08111f]">{formatMoney(distanceFare)}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[#f1f5f9] pt-2 text-[11px] font-bold">
+            <span className="text-[var(--darji-muted)]">Breakdown Total</span>
+            <span className="font-black text-[var(--darji-orange)]">
+              {formatMoney(baseFare)}{distanceFare > 0 ? ` + ${formatMoney(distanceFare)}` : ""} = {formatMoney(deliveryFee)}
+            </span>
+          </div>
+
+          <p className="text-[10px] font-semibold italic text-[var(--darji-muted)] leading-tight">
+            Calculated from customer location to tailor shop address. Covers 2-way doorstep pickup and drop.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrderSummaryStep({
   draft,
   setDraft,
@@ -2242,7 +2376,14 @@ function ConfirmOrderStep({
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--darji-muted)]">Payment Summary</p>
               <div className="mt-4 grid gap-3">
                 <SummaryLine label="Tailor quote" value={formatMoney(quote.price)} />
-                <SummaryLine label="Delivery" value={formatMoney(deliveryFee)} />
+                <DeliverySummaryLine
+                  deliveryFee={deliveryFee}
+                  urgency={draft.urgency}
+                  distanceMeters={quote.deliveryEstimate?.oneWayDistanceMeters}
+                  customerAddress={draft.pickup}
+                  tailorAddress={quote.tailor?.verification?.shop?.shopAddress || quote.tailor?.verification?.shop?.shopArea || quote.tailor?.shopName}
+                  tailorName={quote.tailor?.shopName || quote.tailor?.user?.name || "Tailor Shop"}
+                />
                 <SummaryLine label="Platform fee" value={formatMoney(platformFee)} />
                 {smallOrderFee ? <SummaryLine label="Small order fee" value={formatMoney(smallOrderFee)} /> : null}
                 {homeFee ? <SummaryLine label="Home measurement" value={formatMoney(homeFee)} /> : null}
@@ -2796,7 +2937,14 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
           </div>
           <div className="rounded-2xl border border-[#e6edf5] bg-white p-5 space-y-2">
             {selectedQuote ? <SummaryLine label="Tailor quote" value={formatMoney(selectedQuote.price)} /> : null}
-            <SummaryLine label="Delivery" value={formatMoney(deliveryFee)} />
+            <DeliverySummaryLine
+              deliveryFee={deliveryFee}
+              urgency={request.urgency}
+              distanceMeters={selectedQuote?.deliveryEstimate?.oneWayDistanceMeters}
+              customerAddress={request.pickupAddress}
+              tailorAddress={selectedQuote?.tailor?.verification?.shop?.shopAddress || selectedQuote?.tailor?.verification?.shop?.shopArea || selectedQuote?.tailor?.shopName}
+              tailorName={selectedQuote?.tailor?.shopName || selectedQuote?.tailor?.user?.name || "Tailor Shop"}
+            />
             <SummaryLine label="Platform fee" value={formatMoney(platformFee)} />
             {smallOrderFee ? <SummaryLine label="Small order fee" value={formatMoney(smallOrderFee)} /> : null}
             {homeFee ? <SummaryLine label="Home measurement" value={formatMoney(homeFee)} /> : null}

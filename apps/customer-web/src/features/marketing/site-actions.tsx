@@ -12,6 +12,8 @@ type ModalProps = {
   onClose: () => void;
 };
 
+type LaunchSoonTarget = "booking" | "play" | "apple";
+
 const modalMotion = {
   initial: { opacity: 0, y: 22, scale: 0.98 },
   animate: { opacity: 1, y: 0, scale: 1 },
@@ -19,9 +21,32 @@ const modalMotion = {
   transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
 } as const;
 
-export function LaunchSoonModal({ open, onClose }: ModalProps) {
+export function LaunchSoonModal({ open, onClose, target = "booking" }: ModalProps & { target?: LaunchSoonTarget }) {
   const [notifyState, setNotifyState] = useState<"idle" | "saving" | "saved">("idle");
   const [notifyError, setNotifyError] = useState("");
+  const copy = {
+    booking: {
+      eyebrow: "Coming soon",
+      title: "A little more time. A much better experience.",
+      body: "We're putting the finishing touches on Darji's pickup service. When we open our doors, every step from booking to delivery will feel simple, seamless, and worth the wait."
+    },
+    play: {
+      eyebrow: "Google Play launch soon",
+      title: "Darji is coming soon to Google Play.",
+      body: "The Android app is almost ready. Soon you'll be able to book pickups, track orders, and manage tailoring from the Darji app on Google Play."
+    },
+    apple: {
+      eyebrow: "App Store launch soon",
+      title: "Darji is coming soon to the App Store.",
+      body: "The iPhone app is almost ready. Soon you'll be able to book pickups, track orders, and manage tailoring from the Darji app on the App Store."
+    }
+  }[target];
+
+  useEffect(() => {
+    if (!open) return;
+    setNotifyState("idle");
+    setNotifyError("");
+  }, [open, target]);
 
   useEffect(() => {
     if (!open) return;
@@ -79,12 +104,12 @@ export function LaunchSoonModal({ open, onClose }: ModalProps) {
               <span className="inline-grid h-14 w-14 place-items-center rounded-2xl bg-[#fff0e5] text-[#ff7000]">
                 <Scissors className="h-7 w-7" />
               </span>
-              <p className="mt-6 text-sm font-black uppercase tracking-[0.16em] text-[#ff7000]">Coming soon</p>
+              <p className="mt-6 text-sm font-black uppercase tracking-[0.16em] text-[#ff7000]">{copy.eyebrow}</p>
               <h2 id="launch-soon-title" className="mt-2 max-w-[12ch] text-[clamp(2.2rem,6vw,4.7rem)] font-black leading-[0.9] tracking-[-0.035em] text-[#08111f]">
-                A little more time. A much better experience.
+                {copy.title}
               </h2>
               <p className="mt-5 max-w-lg text-base font-semibold leading-7 text-[#4b5a70]">
-                We’re putting the finishing touches on Darji’s pickup service. When we open our doors, every step—from booking to delivery—will feel simple, seamless, and worth the wait.
+                {copy.body}
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <button
@@ -195,7 +220,6 @@ export function MarketingHeader({ active }: { active?: "home" | "about" | "blogs
   const nav = [
     { label: "Home", href: "/", key: "home" },
     { label: "Services", href: "/#services", key: "services" },
-    { label: "FAQs", href: "/#faq", key: "faq" },
     { label: "Blog", href: "/blogs", key: "blogs" },
     { label: "About Us", href: "/about", key: "about" }
   ];
