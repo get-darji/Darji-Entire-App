@@ -91,102 +91,42 @@ async function generateAssets() {
   console.log('Created icon-512.png');
 
   // 4. Social Sharing Image (og-image.jpg and og-image.png) (1200x630)
-  // Let's create an ultra-clean, high-end Open Graph card
-  const logoCroppedBuffer = await sharp(DARJI_LOGO_CROPPED)
-    .resize(380, null, { fit: 'inside' })
+  // Minimalist logo-only design on luxury background
+  const bgPath = path.resolve('C:/Users/amank/.gemini/antigravity-ide/brain/f06a20f6-f6be-4bad-863f-2a8389f9cdef/og_brand_bg_1789228376952.jpg');
+  
+  const bgBuffer = await sharp(bgPath)
+    .resize(1200, 630, { fit: 'cover' })
+    .toBuffer();
+
+  const logoBuffer = await sharp(DARJI_LOGO_CROPPED)
+    .resize(600, null, { fit: 'inside' })
     .png()
     .toBuffer();
 
-  const logoMeta = await sharp(logoCroppedBuffer).metadata();
+  const logoMeta = await sharp(logoBuffer).metadata();
+  const left = Math.round((1200 - logoMeta.width) / 2);
+  const top = Math.round((630 - logoMeta.height) / 2);
 
-  const ogSvg = `
-  <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <!-- Background Gradients -->
-      <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#07080a" />
-        <stop offset="50%" stop-color="#0d0f14" />
-        <stop offset="100%" stop-color="#08090c" />
-      </linearGradient>
-
-      <radialGradient id="amberGlow" cx="50%" cy="36%" r="48%">
-        <stop offset="0%" stop-color="#ff7000" stop-opacity="0.24" />
-        <stop offset="40%" stop-color="#ffaa00" stop-opacity="0.09" />
-        <stop offset="100%" stop-color="#ff7000" stop-opacity="0" />
-      </radialGradient>
-
-      <linearGradient id="cardBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12" />
-        <stop offset="50%" stop-color="#ff7000" stop-opacity="0.28" />
-        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.06" />
-      </linearGradient>
-    </defs>
-
-    <!-- Base Canvas -->
-    <rect width="1200" height="630" fill="url(#bgGradient)" />
-
-    <!-- Ambient Amber Lighting Glow -->
-    <circle cx="600" cy="220" r="480" fill="url(#amberGlow)" />
-
-    <!-- Outer Decorative Border Frame -->
-    <rect x="40" y="40" width="1120" height="550" rx="24" fill="none" stroke="url(#cardBorder)" stroke-width="1.5" />
-
-    <!-- Subtle corner accents -->
-    <path d="M 60 90 L 60 60 L 90 60" stroke="#ffaa00" stroke-width="2" fill="none" opacity="0.6" />
-    <path d="M 1140 90 L 1140 60 L 1110 60" stroke="#ffaa00" stroke-width="2" fill="none" opacity="0.6" />
-    <path d="M 60 540 L 60 570 L 90 570" stroke="#ffaa00" stroke-width="2" fill="none" opacity="0.6" />
-    <path d="M 1140 540 L 1140 570 L 1110 570" stroke="#ffaa00" stroke-width="2" fill="none" opacity="0.6" />
-
-    <!-- Top Badge -->
-    <g transform="translate(600, 75)">
-      <rect x="-140" y="-16" width="280" height="32" rx="16" fill="#141820" stroke="#ff7000" stroke-opacity="0.4" stroke-width="1" />
-      <circle cx="-110" cy="0" r="4" fill="#ff7000" />
-      <text x="-95" y="5" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600" letter-spacing="1.5" fill="#f1f5f9">DOORSTEP TAILORING</text>
-    </g>
-
-    <!-- Main Headline / Tagline -->
-    <text x="600" y="430" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="38" font-weight="700" letter-spacing="-0.5" fill="#ffffff">
-      Doorstep Tailoring &amp; Alteration Services
-    </text>
-
-    <!-- Subtitle -->
-    <text x="600" y="480" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="21" font-weight="400" fill="#94a3b8">
-      Custom stitching, precise alterations &amp; repairs picked up from your home
-    </text>
-
-    <!-- Bottom Feature Pills -->
-    <g transform="translate(600, 536)">
-      <text x="-250" y="0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="500" fill="#cbd5e1">✦ Expert Tailors</text>
-      <text x="0" y="0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="500" fill="#cbd5e1">✦ Doorstep Pickup &amp; Delivery</text>
-      <text x="250" y="0" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="500" fill="#cbd5e1">✦ Perfect Fit Guarantee</text>
-    </g>
-  </svg>
-  `;
-
-  // Overlay the exact Darji logo right in the upper-center of the OG card
-  const logoTop = Math.round(110);
-  const logoLeft = Math.round(600 - logoMeta.width / 2);
-
-  const ogComposite = await sharp(Buffer.from(ogSvg))
+  const ogComposite = await sharp(bgBuffer)
     .composite([
       {
-        input: logoCroppedBuffer,
-        top: logoTop,
-        left: logoLeft
+        input: logoBuffer,
+        top: top,
+        left: left
       }
     ])
     .toBuffer();
 
-  // Save both og-image.jpg and og-image.png (for maximum compatibility across platforms)
+  // Save both og-image.jpg and og-image.png
   await sharp(ogComposite)
-    .jpeg({ quality: 94, chromaSubsampling: '4:4:4' })
+    .jpeg({ quality: 95, chromaSubsampling: '4:4:4' })
     .toFile(path.join(PUBLIC_DIR, 'og-image.jpg'));
-  console.log('Created og-image.jpg');
+  console.log('Created og-image.jpg (Logo-only luxury edition)');
 
   await sharp(ogComposite)
     .png({ compressionLevel: 9 })
     .toFile(path.join(PUBLIC_DIR, 'og-image.png'));
-  console.log('Created og-image.png');
+  console.log('Created og-image.png (Logo-only luxury edition)');
 
   // 5. Create site.webmanifest
   const manifest = {
