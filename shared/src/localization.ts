@@ -474,3 +474,9 @@ export function t(language: AppLanguage, key: TranslationKey) {
 export function localize(language: AppLanguage, english: string, hindi: string) {
   return language === "hi" ? hindi : english;
 }
+
+export function localizeKnownEnglish(language: AppLanguage, english: string) {
+  if (language !== "hi") return english;
+  const match = Object.values(translations).find((entry) => entry.en === english.trim());
+  return match?.hi ?? english;
+}

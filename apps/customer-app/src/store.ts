@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { AppLanguage } from "../../../shared/src/localization";
 import type { ServiceItem } from "./shared";
 
-type User = { id: string; phone: string; name?: string; role: string; email?: string; gender?: string; dateOfBirth?: string; avatarUri?: string; avatarUrl?: string; avatarPreset?: string };
+type User = { id: string; phone: string; name?: string; role: string; email?: string; gender?: string; dateOfBirth?: string; avatarUri?: string; avatarUrl?: string; avatarPreset?: string; preferredLanguage?: AppLanguage };
 type CartItem = { service: ServiceItem; quantity: number; instructions?: string };
 
 type Store = {
@@ -33,8 +33,8 @@ export const useAppStore = create<Store>()(persist((set) => ({
   language: "en",
   hasSelectedLanguage: false,
   favoriteTailorIds: [],
-  setSession: (token, user, refreshToken) => set({ token, user, refreshToken, sessionNotice: undefined }),
-  setUser: (user) => set({ user }),
+  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, sessionNotice: undefined })),
+  setUser: (user) => set((state) => ({ user, language: user.preferredLanguage ?? state.language })),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [], favoriteTailorIds: [] }),

@@ -1,6 +1,8 @@
 import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAppStore } from "./store";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
+import type { AppLanguage } from "../../../shared/src/localization";
 
 const apiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
@@ -98,6 +100,40 @@ export async function api<T>(path: string, options: RequestInit = {}, token?: st
     if (!nextToken) throw error;
     return requestJson<T>(path, options, nextToken);
   }
+}
+
+export type DynamicTranslation = {
+  translatedText: string;
+  cached: boolean;
+  sourceLanguage: AppLanguage;
+  targetLanguage: AppLanguage;
+};
+
+function dynamicTranslationCacheKey(text: string, targetLanguage: AppLanguage, sourceLanguage: AppLanguage | "auto", context: string) {
+  return `darji:translation:${sourceLanguage}:${targetLanguage}:${context}:${text.replace(/\s+/g, " ").trim()}`;
+}
+
+export async function translateDynamicText(input: { text: string; targetLanguage: AppLanguage; sourceLanguage?: AppLanguage | "auto"; context?: string }, token?: string) {
+  const sourceLanguage = input.sourceLanguage ?? "auto";
+  const context = input.context ?? "general";
+  const normalizedText = input.text.replace(/\s+/g, " ").trim();
+  if (!normalizedText) return { translatedText: "", cached: true, sourceLanguage: input.targetLanguage, targetLanguage: input.targetLanguage } satisfies DynamicTranslation;
+  const cacheKey = dynamicTranslationCacheKey(normalizedText, input.targetLanguage, sourceLanguage, context);
+  const cached = await AsyncStorage.getItem(cacheKey);
+  if (cached) return JSON.parse(cached) as DynamicTranslation;
+  const result = await api<DynamicTranslation>("/translation/translate", {
+    method: "POST",
+    body: JSON.stringify({ text: normalizedText, sourceLanguage, targetLanguage: input.targetLanguage, context })
+  }, token);
+  await AsyncStorage.setItem(cacheKey, JSON.stringify(result));
+  return result;
+}
+
+export async function savePreferredLanguage(preferredLanguage: AppLanguage, token?: string) {
+  return api<{ preferredLanguage?: AppLanguage }>("/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify({ preferredLanguage })
+  }, token);
 }
 
 export type UploadedMedia = {

@@ -1,11 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text, TextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
-import { api, deleteTailorSample, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
+import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps } from "react";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { api, deleteTailorSample, savePreferredLanguage, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
 import { CompactLanguageToggle } from "../../../../shared/src/compact-language-toggle";
+import { translateStaticChildren, translateStaticText } from "../../../../shared/src/static-translations";
+
+function Text({ children, ...props }: ComponentProps<typeof RNText>) {
+  const language = useAppStore((state) => state.language);
+  return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
+
+function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
+  const language = useAppStore((state) => state.language);
+  return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
+}
 
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();
@@ -298,6 +309,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
+    if (token) void savePreferredLanguage(nextLanguage, token).catch(() => undefined);
     showDialog({ title: t(nextLanguage, "languageUpdated"), message: t(nextLanguage, "languageUpdatedMessage"), icon: "checkmark-circle-outline" });
   }
 

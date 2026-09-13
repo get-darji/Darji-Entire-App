@@ -105,6 +105,7 @@ import { rateLimit } from "../middleware/rateLimit.js";
 import { auditAdminMutation } from "../middleware/admin-audit.js";
 import { notificationRoutes } from "./notificationRoutes.js";
 import { pushRuntimeStatus } from "../services/push.service.js";
+import { translateController } from "../controllers/translation.controller.js";
 import {
   acceptMeasurementVisitController,
   adminAssignMeasurementVisitController,
@@ -170,6 +171,12 @@ router.post("/auth/refresh", refreshController);
 router.post("/auth/logout", requireAuth, logoutController);
 router.get("/auth/me", requireAuth, meController);
 router.patch("/auth/me", requireAuth, updateMeController);
+router.post(
+  "/translation/translate",
+  requireAuth,
+  rateLimit({ keyPrefix: "translation", windowMs: 60 * 1000, max: 30 }),
+  translateController
+);
 router.get("/catalog", catalogController);
 router.use(auditAdminMutation);
 

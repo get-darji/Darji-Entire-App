@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AppLanguage } from "../../../shared/src/localization";
 
-type User = { id: string; phone: string; name?: string; role: string; tailorProfile?: { id: string; earnings: string; isAvailable: boolean } };
+type User = { id: string; phone: string; name?: string; role: string; preferredLanguage?: AppLanguage; tailorProfile?: { id: string; earnings: string; isAvailable: boolean } };
 
 type Store = {
   token?: string;
@@ -24,9 +24,9 @@ type Store = {
 export const useAppStore = create<Store>()(persist((set) => ({
   language: "en",
   hasSelectedLanguage: false,
-  setSession: (token, user, refreshToken) => set({ token, user, refreshToken, sessionNotice: undefined }),
+  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, sessionNotice: undefined })),
   setAccessToken: (token) => set({ token }),
-  setUser: (user) => set({ user }),
+  setUser: (user) => set((state) => ({ user, language: user.preferredLanguage ?? state.language })),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined }),
   invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, sessionNotice }),

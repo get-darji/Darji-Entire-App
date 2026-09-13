@@ -20,6 +20,12 @@ export const apiClient = axios.create({
 
 type ApiEnvelope<T> = { data: T; message?: string };
 type AuthSession = { accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string; name?: string; email?: string } };
+type DynamicTranslation = {
+  translatedText: string;
+  cached: boolean;
+  sourceLanguage: "en" | "hi";
+  targetLanguage: "en" | "hi";
+};
 
 let refreshPromise: Promise<string | undefined> | undefined;
 
@@ -75,6 +81,22 @@ export const customerApi = {
   verifyOtp: (phone: string, otp: string) => request<AuthSession>({ method: "POST", url: "/auth/verify-otp", data: { phone, otp, role: "CUSTOMER" } }),
   me: () => request<AuthSession["user"] & { wallet?: { balance?: number } }>({ method: "GET", url: "/auth/me" }),
   updateProfile: (data: unknown) => request<AuthSession["user"]>({ method: "PATCH", url: "/auth/me", data }),
+  translateDynamicText: async (input: { text: string; targetLanguage: "en" | "hi"; sourceLanguage?: "en" | "hi" | "auto"; context?: string }) => {
+    const sourceLanguage = input.sourceLanguage ?? "auto";
+    const context = input.context ?? "general";
+    const normalizedText = input.text.replace(/\s+/g, " ").trim();
+    if (!normalizedText) return { translatedText: "", cached: true, sourceLanguage: input.targetLanguage, targetLanguage: input.targetLanguage } satisfies DynamicTranslation;
+    const cacheKey = `darji:translation:${sourceLanguage}:${input.targetLanguage}:${context}:${normalizedText}`;
+    const cached = typeof window !== "undefined" ? window.localStorage.getItem(cacheKey) : null;
+    if (cached) return JSON.parse(cached) as DynamicTranslation;
+    const result = await request<DynamicTranslation>({
+      method: "POST",
+      url: "/translation/translate",
+      data: { text: normalizedText, sourceLanguage, targetLanguage: input.targetLanguage, context }
+    });
+    if (typeof window !== "undefined") window.localStorage.setItem(cacheKey, JSON.stringify(result));
+    return result;
+  },
   uploadMedia: async (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("media", file));

@@ -21,6 +21,7 @@ const envSchema = z.object({
   ADMIN_ALERT_EMAILS: z.string().optional(),
   NO_QUOTE_ALERT_MINUTES: z.coerce.number().default(2),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
+  GOOGLE_TRANSLATE_API_KEY: z.string().optional(),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   ENFORCE_CLIENT_CHECKOUT_TOTALS: z.coerce.boolean().default(false),

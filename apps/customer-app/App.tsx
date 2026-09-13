@@ -14,7 +14,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
-import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
@@ -36,15 +36,15 @@ import {
   ScrollView as RNScrollView,
   type ScrollViewProps,
   StyleSheet,
-  Text,
-  TextInput,
+  Text as RNText,
+  TextInput as RNTextInput,
   StatusBar,
   useWindowDimensions,
   View,
   TouchableOpacity
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, uploadMedia, type UploadedMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, savePreferredLanguage, uploadMedia, type UploadedMedia } from "./src/api";
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 // Calls GET /api/location/reverse-geocode which uses Google Geocoding API server-side
@@ -110,6 +110,7 @@ import { getLanguageLabel, localize, t, type AppLanguage } from "../../shared/sr
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
+import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   GENDER_FIT_OPTIONS,
@@ -118,6 +119,16 @@ import {
   getServiceCategory,
   type GenderFitType
 } from "./src/config/clothDetails";
+
+function Text({ children, ...props }: ComponentProps<typeof RNText>) {
+  const language = useAppStore((state) => state.language);
+  return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
+
+function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
+  const language = useAppStore((state) => state.language);
+  return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
+}
 
 type Screen =
   | "home"
@@ -214,6 +225,12 @@ type BackendTailorProfile = {
   user?: { name?: string; phone?: string; avatarUrl?: string };
   sampleGallery?: Array<{ id?: string; _id?: string; url: string; status?: string; originalName?: string }>;
 };
+type DeliveryPartnerContact = {
+  id?: string;
+  user?: { name?: string; phone?: string; avatarUrl?: string };
+  deliveryTaskId?: string;
+  stitchedPickupVerifiedAt?: string;
+};
 type TailorProfileSummary = {
   id: string;
   initials: string;
@@ -306,6 +323,7 @@ type CustomerOrder = {
   homeMeasurementFee?: number;
   couponCode?: string;
   discountAmount?: number;
+  deliveryPartner?: DeliveryPartnerContact | null;
 };
 type CheckoutAdditionalItem = {
   gender?: string;
@@ -388,6 +406,7 @@ type BackendTailoringRequest = {
   deliveryReview?: string;
   tailorRatingSubmittedAt?: string;
   deliveryRatingSubmittedAt?: string;
+  deliveryPartner?: DeliveryPartnerContact | null;
 };
 type CheckoutStartResponse = {
   mode: "cod" | "online";
@@ -5700,6 +5719,17 @@ function orderMeasurementEntries(order: CustomerOrder) {
     .filter((item) => item.fields.length || item.notes);
 }
 
+function shouldShowDeliveryPartnerContact(order: CustomerOrder) {
+  return Boolean(
+    order.deliveryPartner?.user?.phone &&
+    ["Tailor Completed", "On the Way", "Delivered"].includes(order.status)
+  );
+}
+
+function deliveryPartnerDisplayName(partner?: DeliveryPartnerContact | null) {
+  return partner?.user?.name?.trim() || "Delivery partner";
+}
+
 function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder?: CustomerOrder): CustomerOrder | undefined {
   const selectedQuote = request.selectedQuote ? quoteFromBackend(request.selectedQuote) : existingOrder?.tailor ?? {
     id: `pending-${request.id}`,
@@ -5759,6 +5789,7 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     homeMeasurementFee: request.homeMeasurementFee ?? existingOrder?.homeMeasurementFee,
     couponCode: request.couponCode ?? existingOrder?.couponCode,
     discountAmount: request.discountAmount ?? existingOrder?.discountAmount,
+    deliveryPartner: request.deliveryPartner ?? existingOrder?.deliveryPartner,
     tailorRating: request.tailorRating ?? existingOrder?.tailorRating,
     deliveryRating: request.deliveryRating ?? existingOrder?.deliveryRating,
     tailorReview: request.tailorReview ?? existingOrder?.tailorReview,
@@ -6700,10 +6731,7 @@ function ConfirmOrderScreen({
 
 function DeliverySummaryRow({
   deliveryFee,
-  urgency,
   distanceMeters,
-  customerAddress,
-  tailorAddress,
   tailorName,
   tone = "positive"
 }: {
@@ -6717,46 +6745,13 @@ function DeliverySummaryRow({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const urgencyStr = String(urgency ?? "").toLowerCase();
-  const mode = urgencyStr.includes("instant")
-    ? "Instant"
-    : urgencyStr.includes("express") || urgencyStr.includes("urgent")
-    ? "Express"
-    : "Standard";
-
-  const standardBase = mode === "Instant" ? 69 : mode === "Express" ? 59 : 49;
-  const ratePerKm = mode === "Instant" ? 10 : 5;
-  const ratePer100m = mode === "Instant" ? 1.0 : 0.5;
-
-  let oneWayMeters = Math.round(Number(distanceMeters) || 0);
-  let baseFare = standardBase;
-  let distanceFare = 0;
-
-  if (oneWayMeters > 0) {
-    const totalMeters = oneWayMeters * 2;
-    distanceFare = Math.round((totalMeters / 100) * ratePer100m);
-    if (deliveryFee !== undefined && deliveryFee > 0) {
-      baseFare = Math.max(0, deliveryFee - distanceFare);
-      if (baseFare === 0) {
-        baseFare = Math.min(deliveryFee, standardBase);
-        distanceFare = Math.max(0, deliveryFee - baseFare);
-      }
-    }
-  } else if (deliveryFee > standardBase) {
-    distanceFare = deliveryFee - standardBase;
-    const totalMeters = Math.round((distanceFare / ratePer100m) * 100);
-    oneWayMeters = Math.round(totalMeters / 2);
-  } else {
-    baseFare = deliveryFee || standardBase;
-    distanceFare = 0;
-    oneWayMeters = 2500;
-  }
-
-  const oneWayKm = (oneWayMeters / 1000).toFixed(1);
+  const oneWayMeters = Math.round(Number(distanceMeters) || 0);
+  const hasDistance = oneWayMeters > 0;
+  const oneWayKm = hasDistance ? (oneWayMeters / 1000).toFixed(1) : undefined;
   const totalKm = ((oneWayMeters * 2) / 1000).toFixed(1);
-
-  const customerLabel = customerAddress ? (customerAddress.length > 28 ? `${customerAddress.slice(0, 26)}...` : customerAddress) : "Your Location";
-  const tailorLabel = tailorAddress ? (tailorAddress.length > 28 ? `${tailorAddress.slice(0, 26)}...` : tailorAddress) : (tailorName || "Tailor Shop");
+  const routeLabel = tailorName ? `${tailorName} to your home` : "Tailor shop to your home";
+  const customerLabel = "Your home";
+  const tailorLabel = tailorName || "Tailor shop";
 
   return (
     <View style={styles.deliveryExpandableWrapper}>
@@ -6795,15 +6790,19 @@ function DeliverySummaryRow({
             <View style={styles.deliveryIconPill}>
               <Ionicons name="bicycle-outline" size={14} color={BRAND_ORANGE} />
             </View>
-            <Text style={styles.deliveryExpandedTitle}>Delivery Fee Breakdown</Text>
+            <View style={styles.deliveryExpandedTitleBlock}>
+              <Text style={styles.deliveryExpandedTitle}>Two-way doorstep delivery</Text>
+              <Text style={styles.deliveryExpandedSubtitle}>Pickup and drop are included in this delivery charge.</Text>
+            </View>
           </View>
 
           <View style={styles.deliveryRouteSteps}>
+            <Text style={styles.deliveryRouteIntro}>{routeLabel}</Text>
             <View style={styles.deliveryRouteStep}>
               <View style={[styles.routeDot, { backgroundColor: "#10b981" }]} />
               <View style={styles.routeStepContent}>
                 <Text style={styles.routeStepTitle}>1. Pickup: {customerLabel} ➔ {tailorLabel}</Text>
-                <Text style={styles.routeStepDistance}>{oneWayKm} km (Customer to Tailor Shop)</Text>
+                <Text style={styles.routeStepDistance}>{hasDistance ? `${oneWayKm} km one way` : "Distance will be confirmed"}</Text>
               </View>
             </View>
             <View style={styles.routeLine} />
@@ -6811,38 +6810,11 @@ function DeliverySummaryRow({
               <View style={[styles.routeDot, { backgroundColor: BRAND_ORANGE }]} />
               <View style={styles.routeStepContent}>
                 <Text style={styles.routeStepTitle}>2. Delivery: {tailorLabel} ➔ {customerLabel}</Text>
-                <Text style={styles.routeStepDistance}>{oneWayKm} km (Tailor Shop to Customer)</Text>
+                <Text style={styles.routeStepDistance}>{hasDistance ? `${totalKm} km total` : "Two-way delivery"}</Text>
               </View>
             </View>
           </View>
 
-          <View style={styles.deliveryMetricsGrid}>
-            <View style={styles.deliveryMetricItem}>
-              <Text style={styles.deliveryMetricLabel}>Round Trip Distance</Text>
-              <Text style={styles.deliveryMetricValue}>{totalKm} km (2-way)</Text>
-            </View>
-            <View style={styles.deliveryMetricItem}>
-              <Text style={styles.deliveryMetricLabel}>Base Fare ({mode})</Text>
-              <Text style={styles.deliveryMetricValue}>Rs{baseFare}</Text>
-            </View>
-            {distanceFare > 0 && (
-              <View style={styles.deliveryMetricItem}>
-                <Text style={styles.deliveryMetricLabel}>Distance Fee (Rs{ratePerKm}/km)</Text>
-                <Text style={styles.deliveryMetricValue}>Rs{distanceFare}</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.deliveryTotalCalcRow}>
-            <Text style={styles.deliveryTotalCalcLabel}>Calculation</Text>
-            <Text style={styles.deliveryTotalCalcValue}>
-              Rs{baseFare}{distanceFare > 0 ? ` + Rs${distanceFare}` : ""} = Rs{deliveryFee}
-            </Text>
-          </View>
-
-          <Text style={styles.deliveryExpandedNote}>
-            Calculated from customer location to tailor shop address. Covers 2-way doorstep pickup and drop.
-          </Text>
         </View>
       )}
     </View>
@@ -6954,6 +6926,31 @@ function OrderDetailsScreen({ order, setScreen }: { order: CustomerOrder; setScr
             </View>
           </View>
         </View>
+
+        {shouldShowDeliveryPartnerContact(order) ? (
+          <View style={styles.deliveryPartnerCard}>
+            <View style={styles.deliveryPartnerHeader}>
+              <View style={styles.deliveryPartnerIcon}>
+                <Ionicons name="bicycle-outline" size={21} color="#047857" />
+              </View>
+              <View style={styles.deliveryPartnerCopy}>
+                <Text style={styles.cardLabel}>DELIVERY PARTNER</Text>
+                <Text style={styles.addressTitle}>{deliveryPartnerDisplayName(order.deliveryPartner)}</Text>
+                <Text style={styles.mutedSmall}>Stitched order pickup verified by tailor OTP.</Text>
+              </View>
+            </View>
+            <Pressable
+              style={styles.deliveryPartnerCallButton}
+              onPress={() => {
+                const phone = order.deliveryPartner?.user?.phone;
+                if (phone) void Linking.openURL(`tel:${phone}`);
+              }}
+            >
+              <Ionicons name="call-outline" size={17} color="#ffffff" />
+              <Text style={styles.deliveryPartnerCallText}>Call +91 {order.deliveryPartner?.user?.phone}</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>REQUEST SUMMARY</Text>
@@ -7745,9 +7742,11 @@ function AppLanguageScreen({
   setScreen: (screen: Screen) => void;
 }) {
   const [selected, setSelected] = useState<AppLanguage>(language);
+  const token = useAppStore((state) => state.token);
 
   function saveLanguage() {
     setLanguagePreference(selected);
+    if (token) void savePreferredLanguage(selected, token).catch(() => undefined);
     Alert.alert(t(selected, "languageUpdated"), t(selected, "languageUpdatedMessage"));
     setScreen("profile");
   }
@@ -7756,11 +7755,11 @@ function AppLanguageScreen({
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.preferencePageContent}>
         <Header title={t(language, "appLanguage")} onBack={() => setScreen("profile")} />
-        <Text style={styles.preferenceIntro}>Choose your preferred language for the Darji app.</Text>
+        <Text style={styles.preferenceIntro}>{localize(language, "Choose your preferred language for the Darji app.", "Darji ऐप के लिए अपनी पसंदीदा भाषा चुनें।")}</Text>
         <View style={styles.languageOptionList}>
           {([
-            { value: "en" as const, title: "English", subtitle: "Default", badge: "EN" },
-            { value: "hi" as const, title: "Hindi", subtitle: "\u0939\u093f\u0902\u0926\u0940", badge: "\u0939\u093f\u0902" }
+            { value: "en" as const, title: t(language, "english"), subtitle: localize(language, "Default", "डिफॉल्ट"), badge: "EN" },
+            { value: "hi" as const, title: t(language, "hindi"), subtitle: "\u0939\u093f\u0902\u0926\u0940", badge: "\u0939\u093f\u0902" }
           ]).map((item) => {
             const active = selected === item.value;
             return (
@@ -7781,7 +7780,7 @@ function AppLanguageScreen({
       <View style={styles.fixedBottomAction}>
         <Pressable style={styles.preferenceSaveButton} onPress={saveLanguage}>
           <Ionicons name="save-outline" size={18} color="#111111" />
-          <Text style={styles.primaryWideButtonText}>Save Language</Text>
+          <Text style={styles.primaryWideButtonText}>{localize(language, "Save Language", "भाषा सेव करें")}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -11182,8 +11181,32 @@ export default function App() {
   }
 
   function updateOrder(nextOrder: CustomerOrder) {
-    setCustomerOrders((current) => current.map((order) => (order.id === nextOrder.id ? nextOrder : order)));
+    setCustomerOrders((current) => current.map((order) =>
+      order.id === nextOrder.id || order.backendOrderId === nextOrder.backendOrderId ? nextOrder : order
+    ));
     setActiveOrder(nextOrder);
+  }
+
+  async function refreshCustomerOrder(requestId: string) {
+    if (!token) return;
+    try {
+      const request = await api<BackendTailoringRequest>(`/tailoring-requests/${requestId}`, {}, token);
+      let nextOrder: CustomerOrder | undefined;
+      setCustomerOrders((current) => {
+        const existing = current.find((order) => order.backendOrderId === request.id || order.id === request.id);
+        nextOrder = orderFromBackendRequest(request, existing);
+        if (!nextOrder) return current;
+        const rest = current.filter((order) => order.id !== nextOrder?.id && order.backendOrderId !== nextOrder?.backendOrderId);
+        return [nextOrder, ...rest].sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
+      });
+      if (nextOrder) {
+        setActiveOrder((current) =>
+          current && (current.backendOrderId === request.id || current.id === request.id) ? nextOrder : current
+        );
+      }
+    } catch (error) {
+      if (isSessionError(error)) signOut();
+    }
   }
 
   async function refreshCustomerOrders() {
@@ -11714,6 +11737,7 @@ export default function App() {
     });
     socket.on("customer:delivery_status_updated", ({ tailoringRequestId, status }: { tailoringRequestId?: string; status?: string }) => {
       if (tailoringRequestId && status) applyRealtimeOrderStatus(tailoringRequestId, status);
+      if (tailoringRequestId) void refreshCustomerOrder(tailoringRequestId);
     });
     socket.on("customer:quote_received", ({ requestId, quote }: { requestId?: string; quote?: BackendTailorQuote }) => {
       if (!requestId || !quote) return;
@@ -13006,6 +13030,12 @@ function createStyles(isDark = false) {
   quoteConfirmButton: { backgroundColor: BRAND_DEEP, borderRadius: 14, marginTop: 22 },
   quoteConfirmButtonText: { color: "#ffffff" },
   whiteCard: { borderRadius: 20, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 18, marginBottom: 14 },
+  deliveryPartnerCard: { borderRadius: 20, backgroundColor: isDark ? "#0f2119" : "#ecfdf5", borderWidth: 1.5, borderColor: "#86efac", padding: 16, marginBottom: 14 },
+  deliveryPartnerHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  deliveryPartnerIcon: { width: 46, height: 46, borderRadius: 16, backgroundColor: isDark ? "#143326" : "#dcfce7", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  deliveryPartnerCopy: { flex: 1, minWidth: 0 },
+  deliveryPartnerCallButton: { minHeight: 46, borderRadius: 14, backgroundColor: "#047857", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 14, marginTop: 14 },
+  deliveryPartnerCallText: { color: "#ffffff", fontSize: 14, lineHeight: 18, fontWeight: "900" },
   aboutHero: { alignItems: "center", paddingVertical: 10, marginBottom: 16 },
   aboutLogo: { width: 220, height: 100 },
   aboutTagline: { color: text, fontSize: 16, lineHeight: 24, fontWeight: "900", textAlign: "center", marginTop: 4 },
@@ -13046,15 +13076,18 @@ function createStyles(isDark = false) {
   deliveryBadge: { backgroundColor: isDark ? "#2a1d0a" : "#fff4dc", borderWidth: 1, borderColor: isDark ? "#59370e" : "#fed7aa", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   deliveryBadgeText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900" },
   deliveryExpandedCard: { marginTop: 8, borderRadius: 14, backgroundColor: isDark ? "#141a24" : "#fbfcfe", borderWidth: 1, borderColor: isDark ? "#24334a" : "#e2e8f0", padding: 12, gap: 10 },
-  deliveryExpandedHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
+  deliveryExpandedHeader: { flexDirection: "row", alignItems: "flex-start", gap: 9 },
   deliveryIconPill: { width: 24, height: 24, borderRadius: 12, backgroundColor: isDark ? "#2a1d0a" : "#fff4dc", alignItems: "center", justifyContent: "center" },
+  deliveryExpandedTitleBlock: { flex: 1, minWidth: 0 },
   deliveryExpandedTitle: { color: text, fontSize: 12, fontWeight: "900" },
-  deliveryRouteSteps: { backgroundColor: isDark ? "#0d131d" : "#f1f5f9", borderRadius: 10, padding: 10, gap: 4 },
+  deliveryExpandedSubtitle: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 2 },
+  deliveryRouteSteps: { backgroundColor: isDark ? "#0d131d" : "#f1f5f9", borderRadius: 12, padding: 11, gap: 7 },
+  deliveryRouteIntro: { color: text, fontSize: 12, lineHeight: 16, fontWeight: "900" },
   deliveryRouteStep: { flexDirection: "row", alignItems: "center", gap: 8 },
   routeDot: { width: 8, height: 8, borderRadius: 4 },
-  routeLine: { width: 2, height: 10, backgroundColor: isDark ? "#24334a" : "#cbd5e1", marginLeft: 3 },
+  routeLine: { width: 2, height: 8, backgroundColor: isDark ? "#24334a" : "#cbd5e1", marginLeft: 3 },
   routeStepContent: { flex: 1, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  routeStepTitle: { color: text, fontSize: 11, fontWeight: "800", flex: 1 },
+  routeStepTitle: { display: "none" },
   routeStepDistance: { color: BRAND_ORANGE, fontSize: 11, fontWeight: "900", marginLeft: 6 },
   deliveryMetricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   deliveryMetricItem: { flex: 1, minWidth: 90, backgroundColor: isDark ? "#0d131d" : "#ffffff", borderWidth: 1, borderColor: isDark ? "#1e293b" : "#e2e8f0", borderRadius: 8, padding: 8 },

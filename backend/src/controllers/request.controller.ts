@@ -426,6 +426,11 @@ function taskOtp(taskId: string, stage: "pickup" | "drop"): string {
   return otp;
 }
 
+function deliveryTaskOtp(task: any, stage: "pickup" | "drop"): string {
+  const override = stage === "pickup" ? task.pickupOtpOverride : task.dropOtpOverride;
+  return typeof override === "string" && /^\d{4}$/.test(override) ? override : taskOtp(task.id, stage);
+}
+
 function otpMatches(actual: string, expected: string) {
   const actualBuffer = Buffer.from(actual);
   const expectedBuffer = Buffer.from(expected);
@@ -542,6 +547,26 @@ async function hydrateTailorQuote(quoteInput: unknown) {
   };
 }
 
+async function verifiedDropDeliveryPartnerForRequest(requestId: string) {
+  const task = await DeliveryRequestModel.findOne({
+    orderId: requestId,
+    type: "tailor_to_customer",
+    assignedDeliveryPartnerId: { $exists: true, $ne: null },
+    pickupOtpVerifiedAt: { $exists: true, $ne: null }
+  }).sort({ pickupOtpVerifiedAt: -1, updatedAt: -1 });
+  if (!task?.assignedDeliveryPartnerId) return null;
+
+  const partner = await DeliveryPartnerModel.findById(task.assignedDeliveryPartnerId);
+  if (!partner) return null;
+  const user = await UserModel.findById(partner.userId).select("name phone role avatarUrl");
+  return {
+    ...partner.toJSON(),
+    user: user?.toJSON(),
+    stitchedPickupVerifiedAt: task.pickupOtpVerifiedAt,
+    deliveryTaskId: task.id
+  };
+}
+
 async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: string) {
   const request =
     typeof (requestInput as { toJSON?: unknown })?.toJSON === "function"
@@ -549,9 +574,11 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
       : (requestInput as Record<string, unknown>);
   if (!request) return null;
 
-  const [customer, tailor] = await Promise.all([
+  const requestId = String(request.id ?? request._id);
+  const [customer, tailor, deliveryPartner] = await Promise.all([
     UserModel.findById(request.customerId).select("name phone role"),
-    tailorUserId ? TailorModel.findOne({ userId: tailorUserId }) : null
+    tailorUserId ? TailorModel.findOne({ userId: tailorUserId }) : null,
+    verifiedDropDeliveryPartnerForRequest(requestId)
   ]);
   const ownQuote = tailor ? await TailorQuoteModel.findOne({ requestId: String(request.id ?? request._id), tailorId: tailor.id }) : null;
   const selectedQuoteDoc = await findSelectedQuote(String(request.id ?? request._id), typeof request.selectedQuoteId === "string" ? request.selectedQuoteId : undefined);
@@ -565,6 +592,7 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
     ...request,
     customer: customer?.toJSON(),
     ownQuote: ownQuote?.toJSON() ?? null,
+    deliveryPartner,
 
     selectedQuote: selectedQuoteDoc ? await hydrateTailorQuote(selectedQuoteDoc) : null,
     quoteCount,
@@ -1680,7 +1708,7 @@ export async function verifyDeliveryTaskOtpController(req: Request, res: Respons
     taskStatus: expectedStatus
   });
   if (!task) throw new AppError(409, `${input.stage === "pickup" ? "Pickup" : "Delivery"} OTP is not available at this stage`);
-  const expectedOtp = taskOtp(task.id, input.stage);
+  const expectedOtp = deliveryTaskOtp(task, input.stage);
   if (!otpMatches(input.otp, expectedOtp)) throw new AppError(400, "Incorrect OTP. Ask the recipient to check and try again.");
 
   const timestampField = input.stage === "pickup" ? "pickupOtpVerifiedAt" : "dropOtpVerifiedAt";
@@ -1814,7 +1842,7 @@ export async function getDeliveryTaskOtpsController(req: Request, res: Response)
       orderId: task.orderId,
       type: task.type,
       stage,
-      otp: taskOtp(task.id, stage),
+      otp: deliveryTaskOtp(task, stage),
       verified: stage === "pickup" ? Boolean(task.pickupOtpVerifiedAt) : Boolean(task.dropOtpVerifiedAt),
       taskStatus: task.taskStatus,
       retryStatus: task.retryStatus,

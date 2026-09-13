@@ -306,7 +306,72 @@ async function calculateOptimizedBatch(tasks: any[], startLocation?: unknown) {
   }
   const completedJobs = tasks.filter((task) => ["delivered", "completed"].includes(String(task.taskStatus))).length || tasks.length;
   const estimatedPayout = batchDeliveryPayout(payableDistance, completedJobs);
-  return { ordered, payableDistance, totalDistance, durationSeconds, estimatedPayout };
+  return { ordered, payableDistance, totalDistance, durationSeconds, estimatedPayout, matrix, usablePoints };
+}
+
+function assertDeliveryOptimizationTestMode() {
+  const dbName = String(DeliveryBatchModel.db.name ?? "").toLowerCase();
+  const envEnabled = process.env.DARJI_DELIVERY_OPTIMIZATION_TEST === "1";
+  const testDatabase = /test|memory|delivery-optimization/.test(dbName);
+  if (!envEnabled || !testDatabase) {
+    throw new Error(`Refusing delivery optimization test adapter outside test mode. env=${envEnabled ? "on" : "off"} db=${dbName || "unknown"}`);
+  }
+}
+
+export async function optimizeDeliveryBatchForTesting(batchId: string, now = new Date()) {
+  assertDeliveryOptimizationTestMode();
+  const batch = await DeliveryBatchModel.findOne({ batchId });
+  if (!batch) throw new Error(`Delivery batch ${batchId} not found`);
+  const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } }).sort({ createdAt: 1 });
+  const optimized = await calculateOptimizedBatch(tasks, batch.riderStartLocation);
+  await Promise.all(
+    optimized.ordered.map((task, index) =>
+      DeliveryRequestModel.findByIdAndUpdate(task.id, {
+        routePosition: index + 1,
+        routeTotal: optimized.ordered.length,
+        etaWindowStart: new Date(batch.roundAt.getTime() + index * 20 * 60 * 1000),
+        etaWindowEnd: new Date(batch.roundAt.getTime() + (index + 1) * 20 * 60 * 1000)
+      })
+    )
+  );
+  const updatedBatch = await DeliveryBatchModel.findOneAndUpdate(
+    { batchId },
+    {
+      $set: {
+        status: String(batch.status) === "active" ? "active" : "locked",
+        lockedAt: batch.lockedAt ?? now,
+        routeOptimizedAt: now,
+        deliveryJobIds: optimized.ordered.map((task) => task.id),
+        optimizedStops: optimized.ordered.map((task, index) => ({
+          taskId: task.id,
+          orderId: task.orderId,
+          stop: index + 1,
+          type: task.deliveryType,
+          jobType: task.type,
+          pickupAddress: task.pickupAddress,
+          dropAddress: task.dropAddress
+        })),
+        payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
+        optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
+        estimatedDurationSeconds: Math.round(optimized.durationSeconds),
+        estimatedPayout: optimized.estimatedPayout,
+        estimatedEarnings: optimized.estimatedPayout,
+        totalDistance: Number((optimized.payableDistance / 1000).toFixed(2))
+      }
+    },
+    { returnDocument: "after" }
+  );
+  const orderedTasks = await DeliveryRequestModel.find({ _id: { $in: optimized.ordered.map((task) => task.id) } }).sort({ routePosition: 1, createdAt: 1 });
+  return {
+    batch: updatedBatch,
+    orderedTasks,
+    matrix: optimized.matrix,
+    usablePoints: optimized.usablePoints,
+    optimizerStatus: optimized.usablePoints ? "OR_TOOLS_EXECUTED_OR_FELL_BACK_INTERNALLY" : "NO_USABLE_POINT_MATRIX",
+    payableDistance: optimized.payableDistance,
+    totalDistance: optimized.totalDistance,
+    durationSeconds: optimized.durationSeconds
+  };
 }
 
 async function refreshRoutePositions(batchId?: string) {

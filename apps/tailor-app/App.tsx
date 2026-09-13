@@ -12,7 +12,7 @@ import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
-import { createContext, forwardRef, type Dispatch, type SetStateAction, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, forwardRef, type ComponentProps, type Dispatch, type SetStateAction, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -34,8 +34,8 @@ import {
   StyleSheet,
   StatusBar,
   Switch,
-  Text,
-  TextInput,
+  Text as RNText,
+  TextInput as RNTextInput,
   useWindowDimensions,
   Vibration,
   View
@@ -110,6 +110,7 @@ import { localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
+import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   emptyPartnerWallet,
@@ -121,6 +122,16 @@ import {
   type PartnerWalletSummary,
   type PartnerWalletTransaction
 } from "../../shared/src/partner-wallet";
+
+function Text({ children, ...props }: ComponentProps<typeof RNText>) {
+  const language = useAppStore((state) => state.language);
+  return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
+
+function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
+  const language = useAppStore((state) => state.language);
+  return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
+}
 
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();

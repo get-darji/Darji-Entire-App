@@ -8,7 +8,7 @@ import * as Updates from "expo-updates";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -30,8 +30,8 @@ import {
   StatusBar,
   StyleSheet,
   Switch,
-  Text,
-  TextInput,
+  Text as RNText,
+  TextInput as RNTextInput,
   Vibration,
   View
 } from "react-native";
@@ -106,6 +106,7 @@ import { localize, t } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
+import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   emptyPartnerWallet,
@@ -118,6 +119,16 @@ import {
   type PartnerWalletTransaction
 } from "../../shared/src/partner-wallet";
 import type { NotificationDestination } from "./src/utils/deepLinking";
+
+function Text({ children, ...props }: ComponentProps<typeof RNText>) {
+  const language = useAppStore((state) => state.language);
+  return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
+
+function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
+  const language = useAppStore((state) => state.language);
+  return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
+}
 
 type AuthStep = "login" | "otp";
 type AppStage = "auth" | "loading" | "onboarding" | "pending" | "main";
@@ -198,6 +209,7 @@ type DeliveryRequest = {
   deadlineAt?: string;
   deliveredAt?: string;
   acceptedAt?: string;
+  pickedUpAt?: string;
   createdAt?: string;
   notificationSentAt?: string;
   batchId?: string;
@@ -227,6 +239,40 @@ type DeliveryTaskPayload = Omit<DeliveryRequest, "tailoringRequestId" | "leg" | 
   batchTasks?: DeliveryTaskPayload[];
   payableOptimizedDistanceMeters?: number;
   estimatedDurationSeconds?: number;
+};
+
+type DeliveryBatchSummary = {
+  batchId: string;
+  deliveryRound: string;
+  roundAt: string;
+  deliveryType: string;
+  area: string;
+  estimatedEarnings: number;
+  pickupCount?: number;
+  dropCount?: number;
+  stopsCount?: number;
+  payableDistanceMeters?: number;
+  estimatedDurationSeconds?: number;
+  status: string;
+  isInstant?: boolean;
+  requests: DeliveryRequest[];
+};
+
+type BatchRouteStop = {
+  id: string;
+  sequence: number;
+  stopType: "PICKUP" | "DROP";
+  status: "NEXT" | "UPCOMING" | "COMPLETED" | "LOCKED" | "ACTION_REQUIRED";
+  request: DeliveryRequest;
+  requestId: string;
+  title: string;
+  name: string;
+  address: string;
+  distanceLabel: string;
+  durationLabel: string;
+  lockedReason?: string;
+  prerequisiteLabel?: string;
+  completedAt?: string;
 };
 
 type DeliveryProfile = {
@@ -591,6 +637,79 @@ function formatDuration(seconds?: number) {
   const minutes = Math.max(1, Math.round(value / 60));
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function routeRoundLabel(round?: string) {
+  return round === "ONE_PM" ? "1 PM Batch" : round === "SIX_PM" ? "6 PM Batch" : round || "Batch";
+}
+
+function serviceLevelLabel(level?: string) {
+  if (level === "INSTANT") return "Instant";
+  if (level === "EXPRESS") return "Express";
+  return "Normal";
+}
+
+function routeStatusForBatch(batch: DeliveryBatchSummary) {
+  if (batch.isInstant) return { label: "Direct request", tone: "red" as const, detail: "Instant deliveries stay outside batch routing." };
+  if (batch.status === "offered") return { label: "Optimization pending", tone: "orange" as const, detail: "Route will be optimized after acceptance." };
+  if (!batch.requests.length) return { label: "No eligible stops", tone: "blue" as const, detail: "All deliveries are completed or unavailable." };
+  const hasOrder = batch.requests.every((request) => Number.isFinite(Number(request.routePosition)));
+  const hasMetrics = Number(batch.payableDistanceMeters ?? 0) > 0 || Number(batch.estimatedDurationSeconds ?? 0) > 0;
+  if (hasOrder && hasMetrics) return { label: "Optimized", tone: "green" as const, detail: "Using backend route order with OSRM road metrics when available." };
+  if (hasOrder) return { label: "Route available", tone: "blue" as const, detail: "Some distance or ETA information is unavailable." };
+  return { label: "Failed", tone: "red" as const, detail: "Backend route order is unavailable." };
+}
+
+function taskPickupCompleted(request: DeliveryRequest) {
+  return Boolean(request.pickupOtpVerifiedAt || request.pickedUpAt || request.taskStatus === "picked_up" || request.taskStatus === "delivered");
+}
+
+function taskDropCompleted(request: DeliveryRequest) {
+  return Boolean(request.dropOtpVerifiedAt || request.deliveredAt || request.taskStatus === "delivered");
+}
+
+function buildBatchRouteStops(batch: DeliveryBatchSummary): BatchRouteStop[] {
+  const eligibleRequests = sortDeliveryTasksForRoute(batch.requests.filter((request) => request.serviceLevel !== "INSTANT" && request.taskStatus !== "cancelled"));
+  const stops: BatchRouteStop[] = [];
+  eligibleRequests.forEach((request) => {
+    const pickupSequence = stops.length + 1;
+    const pickupComplete = taskPickupCompleted(request);
+    const pickupIsCustomer = request.type === "customer_to_tailor";
+    const pickupTitle = pickupIsCustomer ? "Customer pickup" : "Tailor pickup";
+    stops.push({
+      id: `${request.id}:pickup`,
+      sequence: pickupSequence,
+      stopType: "PICKUP",
+      status: pickupComplete ? "COMPLETED" : "UPCOMING",
+      request,
+      requestId: `REQ-${request.orderId.slice(0, 8).toUpperCase()}`,
+      title: pickupTitle,
+      name: pickupIsCustomer ? request.customerName || "Customer" : request.tailorName || "Tailor",
+      address: request.pickupAddress,
+      distanceLabel: request.routePosition === 1 ? "From GPS" : "Leg pending",
+      durationLabel: request.etaWindowStart && request.etaWindowEnd ? `${formatTimestamp(request.etaWindowStart)} - ${formatTimestamp(request.etaWindowEnd)}` : "ETA pending",
+      completedAt: request.pickupOtpVerifiedAt ?? request.pickedUpAt
+    });
+    const dropComplete = taskDropCompleted(request);
+    stops.push({
+      id: `${request.id}:drop`,
+      sequence: stops.length + 1,
+      stopType: "DROP",
+      status: dropComplete ? "COMPLETED" : pickupComplete ? "UPCOMING" : "LOCKED",
+      request,
+      requestId: `REQ-${request.orderId.slice(0, 8).toUpperCase()}`,
+      title: request.type === "customer_to_tailor" ? "Tailor drop" : "Customer drop",
+      name: request.type === "customer_to_tailor" ? request.tailorName || "Tailor" : request.customerName || "Customer",
+      address: request.dropAddress,
+      distanceLabel: request.distanceMeters ? formatKm(request.distanceMeters) : request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Leg pending",
+      durationLabel: "ETA pending",
+      lockedReason: pickupComplete ? undefined : "Pickup required first",
+      prerequisiteLabel: `Complete Stop ${pickupSequence}: ${pickupTitle}`,
+      completedAt: request.dropOtpVerifiedAt ?? request.deliveredAt
+    });
+  });
+  const firstActionable = stops.find((stop) => stop.status === "UPCOMING");
+  return stops.map((stop) => stop.id === firstActionable?.id ? { ...stop, status: "NEXT" } : stop);
 }
 
 function incomingPayloadFromDeliveryRequest(request?: DeliveryRequest): IncomingRequestPayload | undefined {
@@ -2111,34 +2230,165 @@ function BatchOfferModal({
   );
 }
 
+function RouteStatusBadge({ status }: { status: ReturnType<typeof routeStatusForBatch> }) {
+  const toneStyle = status.tone === "green" ? styles.routeBadgeGreen : status.tone === "blue" ? styles.routeBadgeBlue : status.tone === "red" ? styles.routeBadgeRed : styles.routeBadgeOrange;
+  return (
+    <View style={[styles.routeStatusBadge, toneStyle]}>
+      <Ionicons
+        name={status.tone === "green" ? "checkmark-circle-outline" : status.tone === "red" ? "alert-circle-outline" : status.tone === "blue" ? "map-outline" : "time-outline"}
+        size={14}
+        color={status.tone === "green" ? SUCCESS : status.tone === "red" ? "#b91c1c" : status.tone === "blue" ? "#2563eb" : "#c2410c"}
+      />
+      <Text style={[styles.routeStatusText, status.tone === "green" && styles.routeTextGreen, status.tone === "blue" && styles.routeTextBlue, status.tone === "red" && styles.routeTextRed]}>{status.label}</Text>
+    </View>
+  );
+}
+
+function RouteMetric({ label, value, tone = "blue" }: { label: string; value: string; tone?: "orange" | "green" | "blue" }) {
+  return (
+    <View style={[styles.routeMetric, tone === "green" && styles.routeMetricGreen, tone === "orange" && styles.routeMetricOrange]}>
+      <Text style={styles.routeMetricLabel}>{label}</Text>
+      <Text style={[styles.routeMetricValue, tone === "green" && styles.greenText, tone === "orange" && { color: BRAND_ORANGE }]}>{value}</Text>
+    </View>
+  );
+}
+
+function StopTypeBadge({ type }: { type: "PICKUP" | "DROP" }) {
+  const pickup = type === "PICKUP";
+  return (
+    <View style={[styles.stopTypeBadge, pickup ? styles.stopPickupBadge : styles.stopDropBadge]}>
+      <Ionicons name={pickup ? "cube-outline" : "flag-outline"} size={13} color={pickup ? "#047857" : "#1d4ed8"} />
+      <Text style={[styles.stopTypeText, pickup ? styles.stopPickupText : styles.stopDropText]}>{type}</Text>
+    </View>
+  );
+}
+
+function StopStatePill({ status }: { status: BatchRouteStop["status"] }) {
+  const style = status === "NEXT" ? styles.stopStateNext : status === "COMPLETED" ? styles.stopStateDone : status === "LOCKED" ? styles.stopStateLocked : status === "ACTION_REQUIRED" ? styles.stopStateAction : styles.stopStateUpcoming;
+  return <Text style={[styles.stopStatePill, style]}>{status === "NEXT" ? "NEXT STOP" : status.replace("_", " ")}</Text>;
+}
+
+function NextStopCard({ stop, onNavigate, onDetails }: { stop?: BatchRouteStop; onNavigate: (stop: BatchRouteStop) => void; onDetails: (stop: BatchRouteStop) => void }) {
+  if (!stop) {
+    return (
+      <Card style={styles.noStopsCard}>
+        <Ionicons name="checkmark-circle-outline" size={28} color={SUCCESS} />
+        <View style={styles.flexOne}>
+          <Text style={styles.cardTitle}>No active batch stops</Text>
+          <Text style={styles.helperText}>All deliveries are completed or unavailable.</Text>
+        </View>
+      </Card>
+    );
+  }
+  return (
+    <View style={styles.nextStopCard}>
+      <View style={styles.nextStopHeader}>
+        <Text style={styles.nextStopLabel}>NEXT STOP</Text>
+        <Text style={styles.nextStopCount}>{stop.sequence} of {stop.request.routeTotal ? stop.request.routeTotal * 2 : "route"}</Text>
+      </View>
+      <StopTypeBadge type={stop.stopType} />
+      <Text style={styles.nextStopTitle}>{stop.title}</Text>
+      <Text style={styles.nextStopRequest}>{stop.requestId}</Text>
+      <Text style={styles.nextStopMeta}>{stop.request.clothType || "Clothes"} - {stop.request.workType || "Tailoring"}</Text>
+      <Text style={styles.nextStopAddress}>{stop.stopType === "PICKUP" ? "Customer pickup" : "Drop"}: {stop.address}</Text>
+      <View style={styles.nextStopMetrics}>
+        <Text style={styles.nextStopMetric}>{stop.distanceLabel}</Text>
+        <Text style={styles.nextStopMetric}>{stop.durationLabel}</Text>
+      </View>
+      <View style={styles.navRow}>
+        <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Start navigation" onPress={() => onNavigate(stop)} /></View>
+        <View style={styles.flexOne}><PrimaryButton icon="reader-outline" label="View details" variant="secondary" onPress={() => onDetails(stop)} /></View>
+      </View>
+    </View>
+  );
+}
+
+function RouteTimeline({ stops, onStopPress }: { stops: BatchRouteStop[]; onStopPress: (stop: BatchRouteStop) => void }) {
+  return (
+    <View style={styles.routeTimelineCard}>
+      <Text style={styles.routeSectionTitle}>YOUR ROUTE</Text>
+      <View style={styles.routeStartRow}>
+        <View style={styles.routeStartDot}><Ionicons name="navigate-outline" size={15} color="#ffffff" /></View>
+        <View style={styles.flexOne}>
+          <Text style={styles.timelineTitle}>START</Text>
+          <Text style={styles.timelineMeta}>Your current location</Text>
+        </View>
+      </View>
+      {stops.map((stop, index) => (
+        <Pressable key={stop.id} style={styles.routeStopRow} onPress={() => onStopPress(stop)}>
+          <View style={styles.timelineRail}>
+            <View style={[styles.timelineStopDot, stop.status === "NEXT" && styles.timelineStopDotNext, stop.status === "COMPLETED" && styles.timelineStopDotDone, stop.status === "LOCKED" && styles.timelineStopDotLocked]}>
+              {stop.status === "COMPLETED" ? <Ionicons name="checkmark" size={13} color="#ffffff" /> : stop.status === "LOCKED" ? <Ionicons name="lock-closed" size={12} color="#ffffff" /> : <Text style={styles.timelineDotText}>{stop.sequence}</Text>}
+            </View>
+            {index < stops.length - 1 ? <View style={styles.timelineLine} /> : null}
+          </View>
+          <View style={[styles.routeStopBody, stop.status === "NEXT" && styles.routeStopBodyNext, stop.status === "LOCKED" && styles.routeStopBodyLocked]}>
+            <View style={styles.rowBetween}>
+              <StopTypeBadge type={stop.stopType} />
+              <StopStatePill status={stop.status} />
+            </View>
+            <Text style={styles.routeStopTitle}>{stop.name}</Text>
+            <Text style={styles.routeStopMeta}>{stop.requestId}</Text>
+            <Text style={styles.routeStopMeta}>{stop.distanceLabel} - {stop.durationLabel}</Text>
+            {stop.lockedReason ? <Text style={styles.lockReason}>{stop.lockedReason}. {stop.prerequisiteLabel}</Text> : null}
+          </View>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function StopDetailsPanel({ stop, onBack, onNavigate, onOpenTask }: { stop: BatchRouteStop; onBack: () => void; onNavigate: (stop: BatchRouteStop) => void; onOpenTask: (request: DeliveryRequest) => void }) {
+  const locked = stop.status === "LOCKED";
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent}>
+      <Header title={`Stop ${stop.sequence}`} subtitle={`${stop.stopType} - ${stop.status === "NEXT" ? "Current" : stop.status.toLowerCase()}`} onBack={onBack} />
+      <Card style={locked ? styles.lockedStopCard : stop.status === "NEXT" ? styles.currentStopCard : undefined}>
+        <View style={styles.rowBetween}>
+          <StopTypeBadge type={stop.stopType} />
+          <StopStatePill status={stop.status} />
+        </View>
+        <Text style={styles.stopDetailName}>{stop.name}</Text>
+        <Text style={styles.nextStopRequest}>{stop.requestId}</Text>
+        <Text style={styles.nextStopMeta}>{stop.request.clothType || "Clothes"} - {stop.request.workType || "Tailoring"}</Text>
+        <Text style={styles.stopDetailAddress}>{stop.address}</Text>
+        <Text style={styles.stopDetailDistance}>{stop.distanceLabel} - {stop.durationLabel}</Text>
+        <View style={styles.cardDivider} />
+        <StatusRow label="Prerequisites" value={locked ? stop.lockedReason || "Pickup required first" : "None"} />
+        {locked && stop.prerequisiteLabel ? <Text style={styles.lockReason}>{stop.prerequisiteLabel}</Text> : null}
+        {stop.completedAt ? <StatusRow label="Completed at" value={formatTimestamp(stop.completedAt)} /> : null}
+        <Text style={styles.routeSectionTitle}>Stop instructions</Text>
+        <ChecklistRow label={stop.stopType === "PICKUP" ? "Reach the pickup location" : "Reach the drop location"} complete={false} current={!locked} locked={locked} />
+        <ChecklistRow label={stop.stopType === "PICKUP" ? "Verify pickup OTP and photo proof" : "Verify delivery OTP and handoff proof"} complete={stop.status === "COMPLETED"} current={!locked} locked={locked} />
+        <View style={styles.navRow}>
+          <View style={styles.flexOne}><PrimaryButton icon="map-outline" label="View on map" variant="secondary" disabled={locked} onPress={() => onNavigate(stop)} /></View>
+          <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Start navigation" disabled={locked} onPress={() => onNavigate(stop)} /></View>
+        </View>
+        <PrimaryButton icon="checkbox-outline" label={stop.status === "COMPLETED" ? "Completed" : "Open task actions"} disabled={locked || stop.status === "COMPLETED"} onPress={() => onOpenTask(stop.request)} />
+      </Card>
+    </ScrollView>
+  );
+}
+
 function BatchDetailsView({
   batch,
   accepting,
   onBack,
   onAcceptBatch,
-  onOpenOrder
+  onOpenOrder,
+  currentLocation,
+  onRetryLocation
 }: {
-  batch: {
-    batchId: string;
-    deliveryRound: string;
-    roundAt: string;
-    deliveryType: string;
-    area: string;
-    estimatedEarnings: number;
-    pickupCount?: number;
-    dropCount?: number;
-    stopsCount?: number;
-    payableDistanceMeters?: number;
-    estimatedDurationSeconds?: number;
-    status: string;
-    requests: DeliveryRequest[];
-  };
+  batch: DeliveryBatchSummary;
   accepting: boolean;
   onBack: () => void;
   onAcceptBatch: (batch: { requests: DeliveryRequest[] }) => void;
   onOpenOrder: (order: DeliveryRequest) => void;
+  currentLocation?: { latitude: number; longitude: number };
+  onRetryLocation: () => Promise<boolean>;
 }) {
-  const roundLabel = batch.deliveryRound === "ONE_PM" ? "1 PM Round" : "6 PM Round";
+  const [selectedStop, setSelectedStop] = useState<BatchRouteStop | undefined>();
+  const roundLabel = routeRoundLabel(batch.deliveryRound);
   const dateStr = new Date(batch.roundAt).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short"
@@ -2148,6 +2398,24 @@ function BatchDetailsView({
   const completedRequests = batch.requests.filter(r => r.taskStatus === "delivered");
   const cancelledRequests = batch.requests.filter(r => r.taskStatus === "cancelled");
   const isOffered = batch.requests.some((r) => r.taskStatus === "pending") && !batch.requests.some((r) => r.taskStatus === "accepted" || r.taskStatus === "picked_up");
+  const routeStatus = routeStatusForBatch(batch);
+  const routeStops = useMemo(() => buildBatchRouteStops(batch), [batch]);
+  const nextStop = routeStops.find((stop) => stop.status === "NEXT");
+  const completedStops = routeStops.filter((stop) => stop.status === "COMPLETED").length;
+  const eligibleJobCount = batch.requests.filter((request) => request.serviceLevel !== "INSTANT").length;
+  const routeOrigin = currentLocation ? `${currentLocation.latitude},${currentLocation.longitude}` : undefined;
+  const navigateToStop = (stop: BatchRouteStop) => openDirections(stop.address, routeOrigin);
+
+  if (selectedStop) {
+    return (
+      <StopDetailsPanel
+        stop={selectedStop}
+        onBack={() => setSelectedStop(undefined)}
+        onNavigate={navigateToStop}
+        onOpenTask={onOpenOrder}
+      />
+    );
+  }
 
   const renderStopCard = (request: DeliveryRequest, index: number) => {
     const priority = request.routePosition ?? index + 1;
@@ -2161,7 +2429,7 @@ function BatchDetailsView({
             <Text style={styles.prominentOrderId}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
             <Text style={styles.cardTitle}>{request.customerName || "Customer"}</Text>
             <Text style={styles.cardMeta}>Stop {priority} - {request.type === "customer_to_tailor" ? "PICKUP" : "DROP"}</Text>
-            <Text style={styles.cardMeta}>{request.clothType} • {request.workType}</Text>
+            <Text style={styles.cardMeta}>{request.clothType} - {request.workType}</Text>
             <TimestampBadge label={request.acceptedAt ? "Assigned" : "Request created"} value={request.acceptedAt ?? request.createdAt} />
           </View>
           <StatusPill status={request.status} />
@@ -2179,6 +2447,102 @@ function BatchDetailsView({
       </Pressable>
     );
   };
+
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent}>
+      <Header
+        title="Batch Route"
+        subtitle={`${roundLabel} - ${dateStr}`}
+        onBack={onBack}
+      />
+
+      <View style={styles.heroCard}>
+        <View style={styles.flexOne}>
+          <Text style={styles.heroLabel}>BATCH ID: {batch.batchId.slice(0, 8).toUpperCase()}</Text>
+          <Text style={styles.heroTitle}>{roundLabel}</Text>
+          <Text style={styles.heroCopy}>{isOffered ? "Route will be optimized after acceptance." : "Route optimized from your current location."}</Text>
+        </View>
+        <View style={styles.heroIcon}>
+          <Ionicons name="map-outline" size={32} color="#111111" />
+        </View>
+      </View>
+
+      <Card style={styles.routeSummaryCard}>
+        <View style={styles.rowBetween}>
+          <RouteStatusBadge status={routeStatus} />
+          <Text style={styles.cardMeta}>{completedStops}/{routeStops.length} stops completed</Text>
+        </View>
+        <Text style={styles.routeStatusDetail}>{routeStatus.detail}</Text>
+        {!isOffered && currentLocation ? <Text style={styles.cardMeta}>Starting point: Your current location</Text> : null}
+        {!isOffered && !currentLocation ? (
+          <View style={styles.routeAlert}>
+            <Ionicons name="location-outline" size={18} color="#b91c1c" />
+            <Text style={styles.routeAlertText}>Current location unavailable. Enable location permission to calculate the route from your position.</Text>
+          </View>
+        ) : null}
+        <View style={styles.routeMetricGrid}>
+          <RouteMetric label="Estimated earnings" value={`Rs ${batch.estimatedEarnings.toFixed(0)}`} tone="green" />
+          <RouteMetric label="Payable distance" value={isOffered ? "Pending" : formatKm(batch.payableDistanceMeters)} />
+          <RouteMetric label="Estimated duration" value={isOffered ? "Pending" : formatDuration(batch.estimatedDurationSeconds)} />
+          <RouteMetric label="Jobs" value={`${eligibleJobCount}`} tone="orange" />
+          <RouteMetric label="Stops" value={`${routeStops.length}`} />
+          <RouteMetric label="Pickup / Drop" value={`${batch.pickupCount ?? 0}/${batch.dropCount ?? 0}`} tone="orange" />
+        </View>
+      </Card>
+
+      {isOffered ? (
+        <Card accent>
+          <View style={styles.cardTopRow}>
+            <Ionicons name="information-circle-outline" size={22} color={BRAND_ORANGE} />
+            <View style={styles.flexOne}>
+              <Text style={styles.cardTitle}>Route preview</Text>
+              <Text style={styles.helperText}>The final route will be optimized after you accept this batch. Your current location will be used as the starting point.</Text>
+            </View>
+          </View>
+          <PrimaryButton
+            disabled={accepting}
+            icon="checkmark-outline"
+            label="Accept offer"
+            loading={accepting}
+            onPress={() => onAcceptBatch(batch)}
+          />
+        </Card>
+      ) : routeStatus.label === "Failed" ? (
+        <Card style={styles.routeErrorCard}>
+          <Ionicons name="alert-circle-outline" size={28} color="#b91c1c" />
+          <Text style={styles.cardTitle}>Route optimization unavailable</Text>
+          <Text style={styles.helperText}>We could not calculate the road route right now. Please retry or contact support.</Text>
+          <PrimaryButton icon="refresh-outline" label="Retry" variant="secondary" onPress={() => void onRetryLocation()} />
+        </Card>
+      ) : (
+        <>
+          {!currentLocation ? (
+            <Card style={styles.routeErrorCard}>
+              <Text style={styles.cardTitle}>Current location unavailable</Text>
+              <Text style={styles.helperText}>Enable location permission to calculate the route from your current position.</Text>
+              <PrimaryButton icon="navigate-outline" label="Try again" onPress={() => void onRetryLocation()} />
+            </Card>
+          ) : null}
+          <NextStopCard stop={nextStop} onNavigate={navigateToStop} onDetails={setSelectedStop} />
+        </>
+      )}
+
+      <RouteTimeline stops={routeStops} onStopPress={setSelectedStop} />
+
+      {cancelledRequests.length > 0 ? (
+        <Card style={styles.routeErrorCard}>
+          <Text style={styles.cardTitle}>Cancelled stops</Text>
+          <Text style={styles.helperText}>{cancelledRequests.length} cancelled request{cancelledRequests.length === 1 ? "" : "s"} are excluded from the active route.</Text>
+        </Card>
+      ) : null}
+
+      <View style={styles.mapPreview}>
+        <Ionicons name="map-outline" size={28} color="#2563eb" />
+        <Text style={styles.mapPreviewText}>Route map fallback</Text>
+        <Text style={styles.helperText}>Ordered stops are shown in the timeline. Map markers can use the same backend route order when coordinate payloads are available.</Text>
+      </View>
+    </ScrollView>
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
@@ -2332,22 +2696,7 @@ function OrdersScreen({
   accepting,
   deliveryType
 }: {
-  batches: Array<{
-    batchId: string;
-    deliveryRound: string;
-    roundAt: string;
-    deliveryType: string;
-    area: string;
-    estimatedEarnings: number;
-    pickupCount?: number;
-    dropCount?: number;
-    stopsCount?: number;
-    payableDistanceMeters?: number;
-    estimatedDurationSeconds?: number;
-    status: string;
-    isInstant?: boolean;
-    requests: DeliveryRequest[];
-  }>;
+  batches: DeliveryBatchSummary[];
   onOpenBatch: (batchId: string) => void;
   onAcceptBatch: (batch: { requests: DeliveryRequest[] }) => void;
   accepting: boolean;
@@ -2448,6 +2797,10 @@ function OrdersScreen({
         
         const isInstant = item.isInstant || item.requests.some((request) => request.serviceLevel === "INSTANT");
         const isActiveTime = queue === "accepted" && !isInstant && item.deliveryRound === expectedRound;
+        const routeStatus = routeStatusForBatch(item);
+        const completedCount = item.requests.filter(r => r.taskStatus === "delivered").length;
+        const batchLabel = isInstant ? "Direct instant delivery request" : `${serviceLevelLabel(item.requests[0]?.serviceLevel)} - ${routeRoundLabel(item.deliveryRound)}`;
+        const routeStopCount = isInstant ? 0 : buildBatchRouteStops(item).length;
         const queueCardStyle = queue === "requested" ? styles.requestedOrderCard : queue === "accepted" ? styles.activeOrderCard : queue === "history" ? styles.completedOrderCard : styles.cancelledOrderCard;
         const queueIconStyle = queue === "requested" ? styles.requestedOrderIcon : queue === "accepted" ? styles.activeOrderIcon : queue === "history" ? styles.completedOrderIcon : styles.cancelledOrderIcon;
 
@@ -2485,14 +2838,20 @@ function OrdersScreen({
                   </Text>
                 </View>
               </View>
-              <Text style={styles.cardMeta}>{item.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{item.requests.length} orders completed • Area: {item.area}</Text>
+              <Text style={styles.cardMeta}>{batchLabel}</Text>
+              <Text style={styles.cardMeta}>{completedCount}/{item.requests.length} jobs completed - Area: {item.area}</Text>
             </View>
             <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : item.status === "offered" ? "OPEN" : "CANCELLED"} />
           </View>
           <View style={styles.cardDivider} />
           <TimestampBadge label={isInstant ? item.status === "active" ? "Instant assigned" : "Instant offered" : item.status === "active" ? "Batch assigned" : "Batch offered"} value={item.requests[0]?.acceptedAt ?? item.requests[0]?.notificationSentAt ?? item.roundAt} />
+          {!isInstant ? (
+            <View style={styles.batchCardMetaGrid}>
+              <RouteStatusBadge status={routeStatus} />
+            </View>
+          ) : null}
           <Text style={styles.cardCopy} numberOfLines={2}>
-            {isInstant ? "Direct instant delivery request." : `Route contains ${item.requests.length} stop${item.requests.length !== 1 ? "s" : ""}.`}
+            {isInstant ? "Direct instant delivery request. It is handled outside batch route optimization." : `Route contains ${routeStopCount} ordered stop${routeStopCount !== 1 ? "s" : ""} from the accepted backend sequence.`}
           </Text>
           {!isInstant ? (
             <Text style={styles.cardMeta}>
@@ -3933,6 +4292,7 @@ function MainApp({
           <BatchDetailsView
             accepting={accepting}
             batch={selectedBatch}
+            currentLocation={currentLocation}
             onAcceptBatch={(batch) => {
               const task = batch.requests.find((request) => request.taskStatus === "pending") ?? batch.requests[0];
               if (!task) return;
@@ -3948,6 +4308,7 @@ function MainApp({
               setActiveOrder(order);
               setActiveOrderScreen("summary");
             }}
+            onRetryLocation={() => verifyAndSyncPhoneLocation(true)}
           />
         </Screen>
       </NotificationProvider>
@@ -4525,6 +4886,74 @@ const styles = StyleSheet.create({
   checklistLabel: { flex: 1, fontSize: 14, fontWeight: "900" },
   mapPreview: { minHeight: 150, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center", marginTop: 12 },
   mapPreviewText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900", marginTop: 8 },
+  routeSummaryCard: { borderColor: "#dbeafe", backgroundColor: "#fbfdff" },
+  routeStatusBadge: { minHeight: 32, borderRadius: 13, borderWidth: 1, borderColor: "#fed7aa", backgroundColor: "#fff7ed", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10 },
+  routeBadgeGreen: { borderColor: "#bbf7d0", backgroundColor: "#ecfdf5" },
+  routeBadgeBlue: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
+  routeBadgeRed: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
+  routeBadgeOrange: { borderColor: "#fed7aa", backgroundColor: "#fff7ed" },
+  routeStatusText: { color: "#c2410c", fontSize: 11, lineHeight: 15, fontWeight: "900" },
+  routeTextGreen: { color: SUCCESS },
+  routeTextBlue: { color: "#2563eb" },
+  routeTextRed: { color: "#b91c1c" },
+  routeStatusDetail: { color: BRAND_DEEP, fontSize: 13, lineHeight: 19, fontWeight: "800", marginTop: 12 },
+  routeAlert: { minHeight: 52, borderRadius: 14, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginTop: 12 },
+  routeAlertText: { flex: 1, color: "#991b1b", fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  routeMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 },
+  routeMetric: { width: "48%", flexGrow: 1, minHeight: 74, borderRadius: 14, borderWidth: 1, borderColor: "#bfdbfe", backgroundColor: "#eff6ff", padding: 11, justifyContent: "center" },
+  routeMetricGreen: { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4" },
+  routeMetricOrange: { borderColor: "#fed7aa", backgroundColor: "#fff7ed" },
+  routeMetricLabel: { color: MUTED, fontSize: 10, lineHeight: 14, fontWeight: "900" },
+  routeMetricValue: { color: "#2563eb", fontSize: 16, lineHeight: 21, fontWeight: "900", marginTop: 4 },
+  nextStopCard: { borderRadius: 20, backgroundColor: "#ecfdf5", borderWidth: 1, borderColor: "#86efac", padding: 17, marginBottom: 14 },
+  nextStopHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 },
+  nextStopLabel: { color: "#047857", fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  nextStopCount: { color: "#166534", fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  nextStopTitle: { color: "#052e16", fontSize: 23, lineHeight: 29, fontWeight: "900", marginTop: 10 },
+  nextStopRequest: { color: "#dc2626", fontSize: 13, lineHeight: 18, fontWeight: "900", marginTop: 4 },
+  nextStopMeta: { color: "#315342", fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 4 },
+  nextStopAddress: { color: "#092f1c", fontSize: 14, lineHeight: 21, fontWeight: "800", marginTop: 12 },
+  nextStopMetrics: { flexDirection: "row", gap: 10, marginTop: 14 },
+  nextStopMetric: { overflow: "hidden", borderRadius: 12, backgroundColor: "#ffffff", color: "#047857", paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  noStopsCard: { flexDirection: "row", alignItems: "center", gap: 12, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4" },
+  stopTypeBadge: { alignSelf: "flex-start", minHeight: 28, borderRadius: 10, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8 },
+  stopPickupBadge: { borderColor: "#bbf7d0", backgroundColor: "#ecfdf5" },
+  stopDropBadge: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff" },
+  stopTypeText: { fontSize: 10, lineHeight: 14, fontWeight: "900" },
+  stopPickupText: { color: "#047857" },
+  stopDropText: { color: "#1d4ed8" },
+  stopStatePill: { overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6, fontSize: 9, lineHeight: 12, fontWeight: "900" },
+  stopStateNext: { color: "#047857", backgroundColor: "#dcfce7" },
+  stopStateDone: { color: SUCCESS, backgroundColor: "#dcfce7" },
+  stopStateLocked: { color: "#64748b", backgroundColor: "#e2e8f0" },
+  stopStateAction: { color: "#b91c1c", backgroundColor: "#fee2e2" },
+  stopStateUpcoming: { color: "#2563eb", backgroundColor: "#dbeafe" },
+  routeTimelineCard: { borderRadius: 20, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, padding: 15, marginBottom: 14 },
+  routeSectionTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 14, marginBottom: 10 },
+  routeStartRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 46 },
+  routeStartDot: { width: 30, height: 30, borderRadius: 15, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center" },
+  timelineMeta: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "700", marginTop: 2 },
+  routeStopRow: { flexDirection: "row", gap: 12 },
+  timelineRail: { width: 30, alignItems: "center" },
+  timelineStopDot: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#94a3b8", alignItems: "center", justifyContent: "center" },
+  timelineStopDotNext: { backgroundColor: SUCCESS },
+  timelineStopDotDone: { backgroundColor: BRAND_ORANGE },
+  timelineStopDotLocked: { backgroundColor: "#64748b" },
+  timelineDotText: { color: "#ffffff", fontSize: 11, lineHeight: 15, fontWeight: "900" },
+  timelineLine: { width: 2, flex: 1, minHeight: 42, backgroundColor: "#dbe3ee", marginVertical: 4 },
+  routeStopBody: { flex: 1, minWidth: 0, borderRadius: 16, borderWidth: 1, borderColor: "#e4e9f1", backgroundColor: "#fbfdff", padding: 12, marginBottom: 10 },
+  routeStopBodyNext: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
+  routeStopBodyLocked: { borderColor: "#cbd5e1", backgroundColor: "#f8fafc" },
+  routeStopTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 9 },
+  routeStopMeta: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "800", marginTop: 3 },
+  lockReason: { color: "#475569", fontSize: 11, lineHeight: 16, fontWeight: "800", marginTop: 8 },
+  lockedStopCard: { backgroundColor: "#f8fafc", borderColor: "#cbd5e1" },
+  currentStopCard: { backgroundColor: "#ecfdf5", borderColor: "#86efac" },
+  stopDetailName: { color: BRAND_DEEP, fontSize: 24, lineHeight: 30, fontWeight: "900", marginTop: 14 },
+  stopDetailAddress: { color: BRAND_DEEP, fontSize: 15, lineHeight: 23, fontWeight: "800", marginTop: 14 },
+  stopDetailDistance: { color: "#2563eb", fontSize: 14, lineHeight: 20, fontWeight: "900", marginTop: 10 },
+  routeErrorCard: { borderColor: "#fecaca", backgroundColor: "#fff1f2" },
+  batchCardMetaGrid: { gap: 7, marginTop: 10 },
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
   proofImage: { width: 82, height: 82, borderRadius: 14, backgroundColor: "#fff4dc" },
   sampleBlock: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 14 },

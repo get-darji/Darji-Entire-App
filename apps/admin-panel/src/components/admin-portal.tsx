@@ -1571,6 +1571,17 @@ export function AdminPortal() {
         status: mappedStatus.toUpperCase(),
         paymentMethod: request.paymentMethod || "UNKNOWN",
         paymentStatus: request.paymentStatus || "PENDING",
+        subtotal: request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0,
+        deliveryFee: request.deliveryFee ?? 0,
+        deliveryMode: request.deliveryMode,
+        customerToTailorDistanceMeters: request.customerToTailorDistanceMeters,
+        totalChargeableDistanceMeters: request.totalChargeableDistanceMeters,
+        deliveryFeeLockedAt: request.deliveryFeeLockedAt,
+        platformFee: request.platformFee ?? 0,
+        smallOrderFee: request.smallOrderFee ?? 0,
+        homeMeasurementFee: request.homeMeasurementFee ?? 0,
+        couponCode: request.couponCode,
+        discount: request.discountAmount ?? 0,
         totalAmount: request.totalAmount || request.quoteAmount || request.selectedQuote?.price || request.ownQuote?.price || 0,
         createdAt: request.confirmedAt || request.createdAt,
         request,
@@ -8313,6 +8324,7 @@ function OrderDetailDialog({
 
   const linkedDeliveryRequests = order ? deliveryRequests.filter((request) => request.orderId === order.id) : [];
   const trackingEvents = order ? buildOrderTrackingEvents(order, linkedDeliveryRequests) : [];
+  const pricingDetails = order ? buildOrderPricingDetails(order) : null;
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
@@ -8353,6 +8365,33 @@ function OrderDetailDialog({
                       <OrderDetailRow label="Tracking Tasks" value={`${linkedDeliveryRequests.length} linked`} />
                     </div>
                   </Panel>
+
+                  {pricingDetails ? (
+                    <Panel className="rounded-2xl p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-[var(--deep)]">Price Details</h4>
+                          <p className="mt-1 text-xs text-[var(--muted)]">Saved checkout values from the customer flow.</p>
+                        </div>
+                        <Badge tone={pricingDetails.couponCode ? "emerald" : "slate"}>{pricingDetails.couponCode ? `Coupon ${pricingDetails.couponCode}` : "No coupon"}</Badge>
+                      </div>
+                      <div className="mt-4 space-y-2 text-xs">
+                        <OrderDetailRow label="Tailor quote" value={formatCurrency(pricingDetails.tailorQuote)} />
+                        <OrderDetailRow label="Delivery charges" value={formatCurrency(pricingDetails.deliveryFee)} />
+                        <OrderDetailRow label="Distance" value={pricingDetails.distanceLabel} />
+                        <OrderDetailRow label="Delivery mode" value={pricingDetails.deliveryMode} />
+                        <OrderDetailRow label="Tailor measurement visit" value={pricingDetails.homeMeasurementLabel} />
+                        <OrderDetailRow label="Platform fee" value={formatCurrency(pricingDetails.platformFee)} />
+                        {pricingDetails.smallOrderFee > 0 ? <OrderDetailRow label="Small order fee" value={formatCurrency(pricingDetails.smallOrderFee)} /> : null}
+                        <OrderDetailRow label="Coupon applied" value={pricingDetails.couponLabel} />
+                      </div>
+                      <div className="mt-4 space-y-2 border-t border-[#efe3d0] pt-3 text-xs">
+                        <div className="flex justify-between text-[var(--muted)]"><span>Subtotal before discount</span><span>{formatCurrency(pricingDetails.subtotalBeforeDiscount)}</span></div>
+                        <div className="flex justify-between text-[var(--muted)]"><span>Discount</span><span>-{formatCurrency(pricingDetails.discount)}</span></div>
+                        <div className="flex justify-between border-t border-[#efe3d0] pt-2 font-bold text-[var(--deep)]"><span>Customer total</span><span>{formatCurrency(pricingDetails.totalAmount)}</span></div>
+                      </div>
+                    </Panel>
+                  ) : null}
 
                 <Panel className="rounded-2xl p-4">
                   <h4 className="text-sm font-bold text-[var(--deep)]">Order Items</h4>
@@ -8646,6 +8685,55 @@ function OrderDetailDialog({
 
 function OrderDrawerSummary({ detail, icon: Icon, label, value }: { detail: string; icon: ComponentType<{ size?: number }>; label: string; value: string }) {
   return <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#f3e8d7] bg-white px-3 py-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-50 text-orange-500"><Icon size={16} /></span><div className="min-w-0"><p className="text-[10px] font-semibold text-[var(--muted)]">{label}</p><p className="mt-0.5 truncate text-sm font-bold text-[var(--deep)]">{value}</p><p className="truncate text-[11px] text-[var(--muted)]">{detail}</p></div></div>;
+}
+
+function buildOrderPricingDetails(order: Order) {
+  const request = (order.request ?? {}) as Partial<TailoringRequest>;
+  const tailorQuote = Number(
+    request.quoteAmount
+    ?? request.selectedQuote?.price
+    ?? request.ownQuote?.price
+    ?? order.subtotal
+    ?? order.items?.reduce((sum, item) => sum + Number(item.price ?? item.service?.price ?? 0) * Math.max(1, item.quantity ?? 1), 0)
+    ?? 0
+  );
+  const deliveryFee = Number(order.deliveryFee ?? request.deliveryFee ?? 0);
+  const platformFee = Number(order.platformFee ?? request.platformFee ?? 0);
+  const smallOrderFee = Number(order.smallOrderFee ?? request.smallOrderFee ?? 0);
+  const homeMeasurementFee = Number(order.homeMeasurementFee ?? request.homeMeasurementFee ?? 0);
+  const discount = Number(order.discount ?? request.discountAmount ?? 0);
+  const totalAmount = Number(order.totalAmount ?? request.totalAmount ?? 0);
+  const oneWayMeters = Number(order.customerToTailorDistanceMeters ?? request.customerToTailorDistanceMeters ?? 0);
+  const chargeableMeters = Number(order.totalChargeableDistanceMeters ?? request.totalChargeableDistanceMeters ?? 0);
+  const couponCode = order.couponCode ?? request.couponCode;
+  const homeMeasurementBooked = Boolean(request.homeMeasurementBooked || homeMeasurementFee > 0);
+
+  return {
+    tailorQuote,
+    deliveryFee,
+    platformFee,
+    smallOrderFee,
+    homeMeasurementFee,
+    discount,
+    totalAmount,
+    couponCode,
+    subtotalBeforeDiscount: tailorQuote + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee,
+    distanceLabel: formatOrderDistance(oneWayMeters, chargeableMeters),
+    deliveryMode: formatStatus(String(order.deliveryMode ?? request.deliveryMode ?? "Not locked")),
+    homeMeasurementLabel: homeMeasurementBooked ? `Yes, ${formatCurrency(homeMeasurementFee)}` : "No",
+    couponLabel: couponCode ? `${couponCode} saved ${formatCurrency(discount)}` : "No coupon applied"
+  };
+}
+
+function formatOrderDistance(oneWayMeters?: number, chargeableMeters?: number) {
+  const oneWay = Number(oneWayMeters ?? 0);
+  const chargeable = Number(chargeableMeters ?? 0);
+  if (oneWay > 0) {
+    const roundTrip = chargeable > 0 ? chargeable : oneWay * 2;
+    return `${(oneWay / 1000).toFixed(1)} km tailor to customer, ${(roundTrip / 1000).toFixed(1)} km two-way`;
+  }
+  if (chargeable > 0) return `${(chargeable / 1000).toFixed(1)} km two-way`;
+  return "Not captured";
 }
 
 function OrderDetailRow({ label, value }: { label: string; value: string }) {

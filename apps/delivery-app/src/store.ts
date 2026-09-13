@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AppLanguage } from "../../../shared/src/localization";
 
-type User = { id: string; phone: string; name?: string; role: string };
+type User = { id: string; phone: string; name?: string; role: string; preferredLanguage?: AppLanguage };
 
 type Store = {
   token?: string;
@@ -26,7 +26,7 @@ export const useAppStore = create<Store>()(persist((set) => ({
   language: "en",
   hasSelectedLanguage: false,
   deliveryOnline: false,
-  setSession: (token, user, refreshToken) => set({ token, user, refreshToken, deliveryOnline: false, sessionNotice: undefined }),
+  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, deliveryOnline: false, sessionNotice: undefined })),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
   setDeliveryOnline: (deliveryOnline) => set({ deliveryOnline }),

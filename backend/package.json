@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/backend/src/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:delivery-optimization": "tsx src/tests/delivery-optimization/run.ts",
     "clear:orders": "tsx src/clear-dev-data.ts",
     "db:seed": "tsx src/seed.ts",
     "db:reset": "tsx src/reset-database.ts",

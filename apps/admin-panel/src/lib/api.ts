@@ -237,6 +237,35 @@ export async function updateAdminProfile(payload: { name: string; avatarUri?: st
   return unwrap<MeResponse>(api.patch("/auth/me", payload));
 }
 
+export type DynamicTranslation = {
+  translatedText: string;
+  cached: boolean;
+  sourceLanguage: "en" | "hi";
+  targetLanguage: "en" | "hi";
+};
+
+function dynamicTranslationCacheKey(text: string, targetLanguage: "en" | "hi", sourceLanguage: "en" | "hi" | "auto", context: string) {
+  return `darji:translation:${sourceLanguage}:${targetLanguage}:${context}:${text.replace(/\s+/g, " ").trim()}`;
+}
+
+export async function translateDynamicText(input: { text: string; targetLanguage: "en" | "hi"; sourceLanguage?: "en" | "hi" | "auto"; context?: string }) {
+  const sourceLanguage = input.sourceLanguage ?? "auto";
+  const context = input.context ?? "general";
+  const normalizedText = input.text.replace(/\s+/g, " ").trim();
+  if (!normalizedText) return { translatedText: "", cached: true, sourceLanguage: input.targetLanguage, targetLanguage: input.targetLanguage } satisfies DynamicTranslation;
+  const cacheKey = dynamicTranslationCacheKey(normalizedText, input.targetLanguage, sourceLanguage, context);
+  const cached = typeof window !== "undefined" ? window.localStorage.getItem(cacheKey) : null;
+  if (cached) return JSON.parse(cached) as DynamicTranslation;
+  const result = await unwrap<DynamicTranslation>(api.post("/translation/translate", {
+    text: normalizedText,
+    sourceLanguage,
+    targetLanguage: input.targetLanguage,
+    context
+  }));
+  if (typeof window !== "undefined") window.localStorage.setItem(cacheKey, JSON.stringify(result));
+  return result;
+}
+
 export type NotifyDeliveryBatchResult = {
   batchId: string;
   notifiedPartners: number;

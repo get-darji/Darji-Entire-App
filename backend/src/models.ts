@@ -60,6 +60,7 @@ const userSchema = new Schema(
     dateOfBirth: String,
     avatarPreset: String,
     avatarUri: String,
+    preferredLanguage: { type: String, enum: ["en", "hi"], default: "en" },
     role: { type: String, enum: roles, default: "CUSTOMER", index: true },
     accountStatus: { type: String, enum: ["ACTIVE", "SUSPENDED", "BANNED"], default: "ACTIVE", index: true },
     suspendedUntil: Date,
@@ -883,6 +884,8 @@ const deliveryRequestSchema = new Schema(
     acceptedAt: Date,
     pickedUpAt: Date,
     deliveredAt: Date,
+    pickupOtpOverride: String,
+    dropOtpOverride: String,
     pickupOtpVerifiedAt: Date,
     dropOtpVerifiedAt: Date,
     notificationSentAt: Date,
@@ -1016,6 +1019,23 @@ const notificationCampaignSchema = new Schema(
   },
   baseOptions
 );
+
+const translationCacheSchema = new Schema(
+  {
+    translationKey: { type: String, required: true, unique: true, index: true },
+    sourceLanguage: { type: String, enum: ["en", "hi"], required: true, index: true },
+    targetLanguage: { type: String, enum: ["en", "hi"], required: true, index: true },
+    sourceText: { type: String, required: true },
+    normalizedText: { type: String, required: true },
+    translatedText: { type: String, required: true },
+    context: { type: String, default: "general", index: true },
+    usageCount: { type: Number, default: 1 },
+    lastUsedAt: { type: Date, default: Date.now }
+  },
+  baseOptions
+);
+
+translationCacheSchema.index({ sourceLanguage: 1, targetLanguage: 1, normalizedText: 1, context: 1 }, { unique: true });
 notificationCampaignSchema.index({ status: 1, scheduledAt: 1 });
 
 export const UserModel = mongoose.model("User", userSchema);
@@ -1049,6 +1069,7 @@ export const MarketingSignupModel = mongoose.model("MarketingSignup", marketingS
 export const AdminOrderMetadataModel = mongoose.model("AdminOrderMetadata", adminOrderMetadataSchema, "admin_order_metadata");
 export const AdminAuditLogModel = mongoose.model("AdminAuditLog", adminAuditLogSchema, "admin_audit_logs");
 export const NotificationCampaignModel = mongoose.model("NotificationCampaign", notificationCampaignSchema, "notification_campaigns");
+export const TranslationCacheModel = mongoose.model("TranslationCache", translationCacheSchema, "translation_cache");
 
 export type UserDoc = InferSchemaType<typeof userSchema> & { id: string; _id: string };
 

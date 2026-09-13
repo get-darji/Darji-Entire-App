@@ -338,13 +338,14 @@ export async function meController(req: Request, res: Response) {
 }
 
 export async function updateMeController(req: Request, res: Response) {
-  const { name, email, gender, dateOfBirth, avatarPreset, avatarUri } = z.object({
+  const { name, email, gender, dateOfBirth, avatarPreset, avatarUri, preferredLanguage } = z.object({
     name: z.string().trim().min(2).max(100).optional(),
     email: z.union([z.string().trim().email(), z.literal(""), z.null()]).optional(),
     gender: z.string().trim().max(40).optional().nullable(),
     dateOfBirth: z.string().trim().max(40).optional().nullable(),
     avatarPreset: z.string().trim().max(100).optional().nullable(),
-    avatarUri: z.string().trim().max(2048).optional().nullable()
+    avatarUri: z.string().trim().max(2048).optional().nullable(),
+    preferredLanguage: z.enum(["en", "hi"]).optional()
   }).parse(req.body ?? {});
   const updateData: Record<string, any> = {};
   if (name !== undefined) updateData.name = name;
@@ -353,6 +354,7 @@ export async function updateMeController(req: Request, res: Response) {
   if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth;
   if (avatarPreset !== undefined) updateData.avatarPreset = avatarPreset;
   if (avatarUri !== undefined) updateData.avatarUri = avatarUri;
+  if (preferredLanguage !== undefined) updateData.preferredLanguage = preferredLanguage;
 
   if (avatarUri) {
     updateData.avatarUrl = avatarUri;

@@ -1,0 +1,2653 @@
+{
+  "runId": "DARJI-ROUTE-TEST-20260913085846493-12345",
+  "status": "PARTIAL",
+  "finalVerdict": "ROUTE WORKS BUT OPTIMIZATION NOT PROVEN",
+  "args": {
+    "stops": 50,
+    "orders": 25,
+    "seed": 12345,
+    "batch": "STANDARD",
+    "simulateOsrmFailure": false
+  },
+  "safety": {
+    "database": "test",
+    "testMode": true,
+    "productionDataModified": false,
+    "realNotificationsSent": false,
+    "paymentsCreated": false
+  },
+  "batch": {
+    "batchId": "DARJI-ROUTE-TEST-20260913085846493-12345-BATCH",
+    "batchType": "STANDARD",
+    "status": "locked",
+    "rider": "Test Rider 001",
+    "releaseTime": "2026-09-13T08:58:49.031Z",
+    "optimizationTotalDistanceMeters": 227510,
+    "payableOptimizedDistanceMeters": 226895,
+    "estimatedDurationSeconds": 20628
+  },
+  "orders": [
+    {
+      "id": "c667caa8-58d5-4894-a200-9f8e6d45d1fe",
+      "label": "TEST-ORDER-001",
+      "customer": "Customer 001",
+      "tailor": "Tailor 001",
+      "pickupStop": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+      "dropStop": "fb2e417b-6e8f-4f16-9722-0250a9df7806:DROP"
+    },
+    {
+      "id": "4b47f543-4aef-4373-83d8-ebf6d88ee07f",
+      "label": "TEST-ORDER-002",
+      "customer": "Customer 002",
+      "tailor": "Tailor 002",
+      "pickupStop": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+      "dropStop": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:DROP"
+    },
+    {
+      "id": "a4ebb6c7-650d-4716-93fa-3cd17b25cbb2",
+      "label": "TEST-ORDER-003",
+      "customer": "Customer 003",
+      "tailor": "Tailor 003",
+      "pickupStop": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+      "dropStop": "e83d4028-1d81-4994-b21d-06122a6a596d:DROP"
+    },
+    {
+      "id": "3c8d9536-3295-4539-a675-54433a41e90e",
+      "label": "TEST-ORDER-004",
+      "customer": "Customer 004",
+      "tailor": "Tailor 004",
+      "pickupStop": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+      "dropStop": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:DROP"
+    },
+    {
+      "id": "ca9eba9e-9261-4a78-bfdd-e6976492f252",
+      "label": "TEST-ORDER-005",
+      "customer": "Customer 005",
+      "tailor": "Tailor 005",
+      "pickupStop": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+      "dropStop": "43a4233b-823c-4031-b95e-e872c80d1f27:DROP"
+    },
+    {
+      "id": "0822ebf2-1301-4725-a45b-0feb40a475c2",
+      "label": "TEST-ORDER-006",
+      "customer": "Customer 006",
+      "tailor": "Tailor 006",
+      "pickupStop": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+      "dropStop": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:DROP"
+    },
+    {
+      "id": "7e3c3af6-5597-4588-9348-340cc9bb8a15",
+      "label": "TEST-ORDER-007",
+      "customer": "Customer 007",
+      "tailor": "Tailor 007",
+      "pickupStop": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+      "dropStop": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:DROP"
+    },
+    {
+      "id": "b3e3de8f-6c7c-4dec-95dd-59c0b99f7bce",
+      "label": "TEST-ORDER-008",
+      "customer": "Customer 008",
+      "tailor": "Tailor 008",
+      "pickupStop": "543964c2-37ee-4bd0-a2aa-6864853237e5:PICKUP",
+      "dropStop": "543964c2-37ee-4bd0-a2aa-6864853237e5:DROP"
+    },
+    {
+      "id": "828423e9-f630-4367-9ba9-0d553d095b3c",
+      "label": "TEST-ORDER-009",
+      "customer": "Customer 009",
+      "tailor": "Tailor 009",
+      "pickupStop": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+      "dropStop": "cff41793-4bd5-447e-9517-593504f366eb:DROP"
+    },
+    {
+      "id": "25f16de3-f669-4f87-92d5-024aff271cca",
+      "label": "TEST-ORDER-010",
+      "customer": "Customer 010",
+      "tailor": "Tailor 010",
+      "pickupStop": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+      "dropStop": "f4f701c3-cdd7-449a-8933-cc668bf95727:DROP"
+    },
+    {
+      "id": "9416202a-5261-4180-af51-96d2729c14fd",
+      "label": "TEST-ORDER-011",
+      "customer": "Customer 011",
+      "tailor": "Tailor 011",
+      "pickupStop": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:PICKUP",
+      "dropStop": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:DROP"
+    },
+    {
+      "id": "a8983f7a-e47a-4889-b055-083b5a6a42d1",
+      "label": "TEST-ORDER-012",
+      "customer": "Customer 012",
+      "tailor": "Tailor 012",
+      "pickupStop": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+      "dropStop": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:DROP"
+    },
+    {
+      "id": "e914149f-3236-4733-82db-1089e25beb31",
+      "label": "TEST-ORDER-013",
+      "customer": "Customer 013",
+      "tailor": "Tailor 013",
+      "pickupStop": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+      "dropStop": "33292958-11c2-48ff-967e-413cfacffcf7:DROP"
+    },
+    {
+      "id": "4d1ce064-16e5-43d8-8077-5dae701f32fc",
+      "label": "TEST-ORDER-014",
+      "customer": "Customer 014",
+      "tailor": "Tailor 014",
+      "pickupStop": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+      "dropStop": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:DROP"
+    },
+    {
+      "id": "a8656a04-a2ac-494f-99c6-6f919a690a8a",
+      "label": "TEST-ORDER-015",
+      "customer": "Customer 015",
+      "tailor": "Tailor 015",
+      "pickupStop": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+      "dropStop": "398523f7-36d4-4240-bedb-c406dcca1777:DROP"
+    },
+    {
+      "id": "b29e9c6d-101c-4f51-b61a-f4e36f762b76",
+      "label": "TEST-ORDER-016",
+      "customer": "Customer 016",
+      "tailor": "Tailor 016",
+      "pickupStop": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+      "dropStop": "40fee98e-6886-47ed-b585-02df21b42981:DROP"
+    },
+    {
+      "id": "b0c16d5c-5654-4bc7-8089-6e2263064449",
+      "label": "TEST-ORDER-017",
+      "customer": "Customer 017",
+      "tailor": "Tailor 017",
+      "pickupStop": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+      "dropStop": "d2d7d672-59a7-4397-940b-4ebc311c9b48:DROP"
+    },
+    {
+      "id": "fc08cf99-884d-4ce8-974f-7d0927e3d164",
+      "label": "TEST-ORDER-018",
+      "customer": "Customer 018",
+      "tailor": "Tailor 018",
+      "pickupStop": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+      "dropStop": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:DROP"
+    },
+    {
+      "id": "7ca50f60-e15d-4d98-89b2-1fc0faded4f8",
+      "label": "TEST-ORDER-019",
+      "customer": "Customer 019",
+      "tailor": "Tailor 019",
+      "pickupStop": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+      "dropStop": "89933c4e-d01b-4398-ad91-740bed25c772:DROP"
+    },
+    {
+      "id": "21e7cea2-757d-4c7d-9583-343fa9bed43e",
+      "label": "TEST-ORDER-020",
+      "customer": "Customer 020",
+      "tailor": "Tailor 020",
+      "pickupStop": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+      "dropStop": "96370381-c116-486a-994a-bcb4b99cfa1d:DROP"
+    },
+    {
+      "id": "c192f5cf-acf2-4e85-92d9-1b15b5f1ab88",
+      "label": "TEST-ORDER-021",
+      "customer": "Customer 021",
+      "tailor": "Tailor 021",
+      "pickupStop": "46922e4c-d175-4b05-b866-2a79853cad32:PICKUP",
+      "dropStop": "46922e4c-d175-4b05-b866-2a79853cad32:DROP"
+    },
+    {
+      "id": "65c63f0e-696a-4f74-8280-2219cf8c4658",
+      "label": "TEST-ORDER-022",
+      "customer": "Customer 022",
+      "tailor": "Tailor 022",
+      "pickupStop": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+      "dropStop": "1b95110f-0e32-4a7e-8510-8bb202992745:DROP"
+    },
+    {
+      "id": "a9c35ed8-3a4a-4d13-8848-ec1cf72a5423",
+      "label": "TEST-ORDER-023",
+      "customer": "Customer 023",
+      "tailor": "Tailor 023",
+      "pickupStop": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+      "dropStop": "8562653e-1483-43d6-b6b5-2771a919a82b:DROP"
+    },
+    {
+      "id": "0fc3abaa-f985-43b7-ad29-59c7e18361d8",
+      "label": "TEST-ORDER-024",
+      "customer": "Customer 024",
+      "tailor": "Tailor 024",
+      "pickupStop": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+      "dropStop": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:DROP"
+    },
+    {
+      "id": "ea3246c7-78a9-4cba-815d-c54309ef2c0e",
+      "label": "TEST-ORDER-025",
+      "customer": "Customer 025",
+      "tailor": "Tailor 025",
+      "pickupStop": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+      "dropStop": "c9594e88-fc55-4748-8bcf-4a2768621de2:DROP"
+    }
+  ],
+  "optimizerStatus": "OR_TOOLS_EXECUTED_OR_FELL_BACK_INTERNALLY",
+  "osrm": {
+    "status": "PASS"
+  },
+  "validation": {
+    "expectedStops": 50,
+    "returnedStops": 50,
+    "duplicates": [],
+    "missing": [],
+    "dependencyFailures": [],
+    "sequenceContinuous": true,
+    "batchMembership": true,
+    "dbPersistenceMatches": true,
+    "routePositionsMatch": true
+  },
+  "validationChecklist": [
+    {
+      "label": "All expected stops included",
+      "status": "PASS"
+    },
+    {
+      "label": "No duplicate stops",
+      "status": "PASS",
+      "reason": ""
+    },
+    {
+      "label": "No missing stops",
+      "status": "PASS",
+      "reason": ""
+    },
+    {
+      "label": "Pickup-before-drop",
+      "status": "PASS",
+      "reason": ""
+    },
+    {
+      "label": "Valid sequence numbers",
+      "status": "PASS"
+    },
+    {
+      "label": "All stops belong to batch",
+      "status": "PASS"
+    },
+    {
+      "label": "Correct rider assigned",
+      "status": "PASS"
+    },
+    {
+      "label": "Database route matches optimizer output",
+      "status": "PASS"
+    },
+    {
+      "label": "Delivery app route matches backend",
+      "status": "NOT TESTED",
+      "reason": "The Expo delivery app/runtime and authenticated HTTP API were not launched by this runner. Database routePosition persistence was verified instead."
+    },
+    {
+      "label": "OSRM distance matrix available",
+      "status": "PASS"
+    },
+    {
+      "label": "Optimizer executed",
+      "status": "PASS"
+    }
+  ],
+  "comparisons": [
+    {
+      "routeType": "Actual Darji optimizer",
+      "totalDistanceKm": 227.51,
+      "totalTravelTimeMinutes": 345.4,
+      "valid": true,
+      "notes": "OR_TOOLS_EXECUTED_OR_FELL_BACK_INTERNALLY"
+    },
+    {
+      "routeType": "Original creation order",
+      "totalDistanceKm": 232.26,
+      "totalTravelTimeMinutes": 348.2,
+      "valid": true,
+      "notes": "Diagnostic baseline only"
+    },
+    {
+      "routeType": "Nearest-neighbor diagnostic",
+      "totalDistanceKm": 254.19,
+      "totalTravelTimeMinutes": 369.5,
+      "valid": true,
+      "notes": "Independent diagnostic route, not production optimizer"
+    }
+  ],
+  "savings": {
+    "distanceSavedKm": 4.75,
+    "percentageSaved": 2,
+    "distanceGapVsExactKm": null
+  },
+  "explanations": [
+    {
+      "previous": "RIDER-START",
+      "next": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 0.12
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 0.24
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 0.33
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 0.36
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 0.44
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 0.45
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 0.5
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 0.51
+        },
+        {
+          "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+          "distanceKm": 0.52
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 0.53
+        },
+        {
+          "stopId": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:PICKUP",
+          "distanceKm": 0.61
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 0.61
+        },
+        {
+          "stopId": "46922e4c-d175-4b05-b866-2a79853cad32:PICKUP",
+          "distanceKm": 0.87
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 4.51
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 4.55
+        },
+        {
+          "stopId": "543964c2-37ee-4bd0-a2aa-6864853237e5:PICKUP",
+          "distanceKm": 5.03
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 5.1
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 5.24
+        },
+        {
+          "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+          "distanceKm": 5.26
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 5.29
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 5.34
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 5.34
+        },
+        {
+          "stopId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+          "distanceKm": 5.35
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 5.35
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 6.05
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:DROP",
+      "next": "543964c2-37ee-4bd0-a2aa-6864853237e5:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "46922e4c-d175-4b05-b866-2a79853cad32:PICKUP",
+          "distanceKm": 2.27
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 2.37
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 2.4
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.51
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.52
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 2.6
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.61
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 2.66
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.66
+        },
+        {
+          "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+          "distanceKm": 2.71
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.71
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.92
+        },
+        {
+          "stopId": "543964c2-37ee-4bd0-a2aa-6864853237e5:PICKUP",
+          "distanceKm": 3.54
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.59
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 3.61
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.64
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 3.75
+        },
+        {
+          "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+          "distanceKm": 3.77
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 3.8
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 3.85
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 3.85
+        },
+        {
+          "stopId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+          "distanceKm": 3.86
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 3.86
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 4.56
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "543964c2-37ee-4bd0-a2aa-6864853237e5:DROP",
+      "next": "46922e4c-d175-4b05-b866-2a79853cad32:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 3.79
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 3.92
+        },
+        {
+          "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+          "distanceKm": 3.95
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.99
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 4
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 4.08
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 4.13
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 4.14
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 4.14
+        },
+        {
+          "stopId": "46922e4c-d175-4b05-b866-2a79853cad32:PICKUP",
+          "distanceKm": 4.38
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.62
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 4.71
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.62
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.67
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 8.21
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 8.36
+        },
+        {
+          "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+          "distanceKm": 8.37
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 8.4
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 8.45
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 8.45
+        },
+        {
+          "stopId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+          "distanceKm": 8.46
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 8.46
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 9.16
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "46922e4c-d175-4b05-b866-2a79853cad32:DROP",
+      "next": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 2.18
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 2.21
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.32
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.33
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 2.41
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.42
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 2.47
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.47
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.52
+        },
+        {
+          "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+          "distanceKm": 2.53
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.73
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.86
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.91
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 4.45
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 4.6
+        },
+        {
+          "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+          "distanceKm": 4.61
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 4.64
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 4.69
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.69
+        },
+        {
+          "stopId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+          "distanceKm": 4.7
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.7
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 5.4
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:DROP",
+      "next": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 3.24
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 3.37
+        },
+        {
+          "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+          "distanceKm": 3.4
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.44
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 3.45
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.53
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.58
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 3.59
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.59
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.07
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 4.16
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.07
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.12
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 7.66
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 7.8
+        },
+        {
+          "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+          "distanceKm": 7.82
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 7.85
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 7.9
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.9
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 7.91
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.61
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "e83d4028-1d81-4994-b21d-06122a6a596d:DROP",
+      "next": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 1.9
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 1.93
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.04
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.05
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 2.13
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.14
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 2.19
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.19
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.24
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.45
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.75
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.79
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 4.34
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 4.48
+        },
+        {
+          "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+          "distanceKm": 4.5
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 4.53
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 4.58
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.58
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.59
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 5.29
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:DROP",
+      "next": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 3.24
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 3.36
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.43
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 3.45
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.52
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.57
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.58
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 3.59
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.07
+        },
+        {
+          "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+          "distanceKm": 4.15
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.07
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.11
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 7.66
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 7.8
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 7.84
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 7.9
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.9
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 7.91
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.61
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "cff41793-4bd5-447e-9517-593504f366eb:DROP",
+      "next": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 2.18
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 2.21
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.32
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.33
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.42
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 2.47
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.47
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.52
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.73
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.34
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.38
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 3.93
+        },
+        {
+          "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+          "distanceKm": 4.07
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 4.12
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 4.17
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.17
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.18
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 4.88
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:DROP",
+      "next": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.98
+        },
+        {
+          "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+          "distanceKm": 3.11
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.18
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 3.19
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.27
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.32
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 3.33
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.33
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 3.81
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 6.81
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 6.85
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 7.4
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 7.59
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 7.64
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.64
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 7.65
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.35
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "43a4233b-823c-4031-b95e-e872c80d1f27:DROP",
+      "next": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 1.89
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 1.92
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.04
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.05
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.14
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.18
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.24
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.44
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.45
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.5
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 4.04
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 4.23
+        },
+        {
+          "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+          "distanceKm": 4.28
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.28
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.3
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 4.99
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "1b95110f-0e32-4a7e-8510-8bb202992745:DROP",
+      "next": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 3.3
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.49
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 3.51
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.58
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.63
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.64
+        },
+        {
+          "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+          "distanceKm": 3.65
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.13
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.13
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.17
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 7.72
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 7.9
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.96
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 7.97
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.67
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "398523f7-36d4-4240-bedb-c406dcca1777:DROP",
+      "next": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 2.04
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.15
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.16
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.25
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.3
+        },
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 2.35
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.56
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.42
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.46
+        },
+        {
+          "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+          "distanceKm": 4.01
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 4.2
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.25
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.26
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 4.96
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "96370381-c116-486a-994a-bcb4b99cfa1d:DROP",
+      "next": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+      "selectedNearest": true,
+      "nearest": [
+        {
+          "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+          "distanceKm": 3.37
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.57
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 3.58
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.66
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.71
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.72
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.2
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.2
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.25
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 7.98
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 8.03
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 8.04
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.74
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "33292958-11c2-48ff-967e-413cfacffcf7:DROP",
+      "next": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 1.88
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 1.99
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.09
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 2.14
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 2.4
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.58
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.62
+        },
+        {
+          "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+          "distanceKm": 4.36
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.41
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.42
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 5.12
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:DROP",
+      "next": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.47
+        },
+        {
+          "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+          "distanceKm": 3.49
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.56
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.61
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.62
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.1
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.1
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.15
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.93
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 7.94
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.64
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "fb2e417b-6e8f-4f16-9722-0250a9df7806:DROP",
+      "next": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.07
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.16
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.21
+        },
+        {
+          "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+          "distanceKm": 3.22
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 3.7
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 6.7
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 6.75
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.53
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 7.55
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 8.24
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "d2d7d672-59a7-4397-940b-4ebc311c9b48:DROP",
+      "next": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 2.28
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 2.39
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.4
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.49
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.44
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.49
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 3.7
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 3.71
+        },
+        {
+          "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+          "distanceKm": 4.41
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:DROP",
+      "next": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.53
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.62
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.67
+        },
+        {
+          "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+          "distanceKm": 4.16
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.16
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 7.21
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.99
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 8
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "89933c4e-d01b-4398-ad91-740bed25c772:DROP",
+      "next": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 2.21
+        },
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.33
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.42
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.86
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.91
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.69
+        },
+        {
+          "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+          "distanceKm": 4.7
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:DROP",
+      "next": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.27
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.36
+        },
+        {
+          "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+          "distanceKm": 3.41
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 6.9
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 6.94
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 7.73
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "c9594e88-fc55-4748-8bcf-4a2768621de2:DROP",
+      "next": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 2.16
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 2.25
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.37
+        },
+        {
+          "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+          "distanceKm": 3.41
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 4.2
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "40fee98e-6886-47ed-b585-02df21b42981:DROP",
+      "next": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.57
+        },
+        {
+          "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+          "distanceKm": 3.66
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.2
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 8.03
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "8562653e-1483-43d6-b6b5-2771a919a82b:DROP",
+      "next": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+      "selectedNearest": false,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.2
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.5
+        },
+        {
+          "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+          "distanceKm": 3.99
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "f4f701c3-cdd7-449a-8933-cc668bf95727:DROP",
+      "next": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+      "selectedNearest": true,
+      "nearest": [
+        {
+          "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+          "distanceKm": 3.97
+        },
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 7.6
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    },
+    {
+      "previous": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:DROP",
+      "next": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+      "selectedNearest": true,
+      "nearest": [
+        {
+          "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+          "distanceKm": 3.32
+        }
+      ],
+      "reason": "Selected by the existing Darji batch optimizer job sequence. The diagnostic nearest-feasible list is shown separately and is not treated as the solver reason."
+    }
+  ],
+  "deliveryAppSynchronization": {
+    "status": "NOT TESTED",
+    "reason": "The Expo delivery app/runtime and authenticated HTTP API were not launched by this runner. Database routePosition persistence was verified instead."
+  },
+  "bugs": [
+    {
+      "id": "BUG-001",
+      "severity": "MEDIUM",
+      "description": "Delivery app synchronization is not fully proven by this automated backend-only run.",
+      "expected": "An authenticated delivery app/API test confirms the exact optimized order shown to the rider.",
+      "actual": "The runner verified database routePosition and optimizedStops only.",
+      "file": "apps/delivery-app/App.tsx",
+      "functionName": "buildBatchList / routePosition sorting",
+      "suggestedFix": "Add an authenticated API integration test that calls /delivery-requests as the test rider and asserts batch task order by routePosition."
+    }
+  ],
+  "performance": {
+    "dataCreationMs": 693,
+    "osrmProbeMs": 1096,
+    "matrixCalculationMs": 300,
+    "optimizationMs": 804,
+    "totalMs": 3355,
+    "stops": 50,
+    "distanceCalculations": 2601
+  },
+  "route": [
+    {
+      "sequence": 1,
+      "stopId": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:PICKUP",
+      "taskId": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6",
+      "orderId": "9416202a-5261-4180-af51-96d2729c14fd",
+      "type": "PICKUP",
+      "entity": "Customer 011",
+      "address": "TEST CUSTOMER LOCATION 011",
+      "latitude": 28.619722,
+      "longitude": 77.069711,
+      "distanceFromPreviousMeters": 615,
+      "distanceFromPreviousKm": 0.61,
+      "travelTimeFromPreviousMinutes": 1.6,
+      "cumulativeDistanceKm": 0.61,
+      "cumulativeTravelTimeMinutes": 1.6
+    },
+    {
+      "sequence": 2,
+      "stopId": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6:DROP",
+      "taskId": "3a1d5cba-636c-48e8-88c5-ae140e5dc6a6",
+      "orderId": "9416202a-5261-4180-af51-96d2729c14fd",
+      "type": "DROP",
+      "entity": "Tailor 011",
+      "address": "TEST TAILOR LOCATION 011",
+      "latitude": 28.629792,
+      "longitude": 77.055964,
+      "distanceFromPreviousMeters": 2736,
+      "distanceFromPreviousKm": 2.74,
+      "travelTimeFromPreviousMinutes": 5.4,
+      "cumulativeDistanceKm": 3.35,
+      "cumulativeTravelTimeMinutes": 7
+    },
+    {
+      "sequence": 3,
+      "stopId": "543964c2-37ee-4bd0-a2aa-6864853237e5:PICKUP",
+      "taskId": "543964c2-37ee-4bd0-a2aa-6864853237e5",
+      "orderId": "b3e3de8f-6c7c-4dec-95dd-59c0b99f7bce",
+      "type": "PICKUP",
+      "entity": "Customer 008",
+      "address": "TEST CUSTOMER LOCATION 008",
+      "latitude": 28.613414,
+      "longitude": 77.033394,
+      "distanceFromPreviousMeters": 3536,
+      "distanceFromPreviousKm": 3.54,
+      "travelTimeFromPreviousMinutes": 6.1,
+      "cumulativeDistanceKm": 6.89,
+      "cumulativeTravelTimeMinutes": 13.2
+    },
+    {
+      "sequence": 4,
+      "stopId": "543964c2-37ee-4bd0-a2aa-6864853237e5:DROP",
+      "taskId": "543964c2-37ee-4bd0-a2aa-6864853237e5",
+      "orderId": "b3e3de8f-6c7c-4dec-95dd-59c0b99f7bce",
+      "type": "DROP",
+      "entity": "Tailor 008",
+      "address": "TEST TAILOR LOCATION 008",
+      "latitude": 28.631388,
+      "longitude": 77.100327,
+      "distanceFromPreviousMeters": 8504,
+      "distanceFromPreviousKm": 8.5,
+      "travelTimeFromPreviousMinutes": 11.3,
+      "cumulativeDistanceKm": 15.39,
+      "cumulativeTravelTimeMinutes": 24.5
+    },
+    {
+      "sequence": 5,
+      "stopId": "46922e4c-d175-4b05-b866-2a79853cad32:PICKUP",
+      "taskId": "46922e4c-d175-4b05-b866-2a79853cad32",
+      "orderId": "c192f5cf-acf2-4e85-92d9-1b15b5f1ab88",
+      "type": "PICKUP",
+      "entity": "Customer 021",
+      "address": "TEST CUSTOMER LOCATION 021",
+      "latitude": 28.624833,
+      "longitude": 77.070218,
+      "distanceFromPreviousMeters": 4383,
+      "distanceFromPreviousKm": 4.38,
+      "travelTimeFromPreviousMinutes": 6.1,
+      "cumulativeDistanceKm": 19.77,
+      "cumulativeTravelTimeMinutes": 30.5
+    },
+    {
+      "sequence": 6,
+      "stopId": "46922e4c-d175-4b05-b866-2a79853cad32:DROP",
+      "taskId": "46922e4c-d175-4b05-b866-2a79853cad32",
+      "orderId": "c192f5cf-acf2-4e85-92d9-1b15b5f1ab88",
+      "type": "DROP",
+      "entity": "Tailor 021",
+      "address": "TEST TAILOR LOCATION 021",
+      "latitude": 28.629363,
+      "longitude": 77.056473,
+      "distanceFromPreviousMeters": 2872,
+      "distanceFromPreviousKm": 2.87,
+      "travelTimeFromPreviousMinutes": 5.4,
+      "cumulativeDistanceKm": 22.65,
+      "cumulativeTravelTimeMinutes": 35.9
+    },
+    {
+      "sequence": 7,
+      "stopId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:PICKUP",
+      "taskId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e",
+      "orderId": "4d1ce064-16e5-43d8-8077-5dae701f32fc",
+      "type": "PICKUP",
+      "entity": "Customer 014",
+      "address": "TEST CUSTOMER LOCATION 014",
+      "latitude": 28.612211,
+      "longitude": 77.035344,
+      "distanceFromPreviousMeters": 4704,
+      "distanceFromPreviousKm": 4.7,
+      "travelTimeFromPreviousMinutes": 7.9,
+      "cumulativeDistanceKm": 27.35,
+      "cumulativeTravelTimeMinutes": 43.9
+    },
+    {
+      "sequence": 8,
+      "stopId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e:DROP",
+      "taskId": "66ed9b4a-af6c-457d-8e2e-8bc7485f2f4e",
+      "orderId": "4d1ce064-16e5-43d8-8077-5dae701f32fc",
+      "type": "DROP",
+      "entity": "Tailor 014",
+      "address": "TEST TAILOR LOCATION 014",
+      "latitude": 28.635766,
+      "longitude": 77.097715,
+      "distanceFromPreviousMeters": 8182,
+      "distanceFromPreviousKm": 8.18,
+      "travelTimeFromPreviousMinutes": 11.9,
+      "cumulativeDistanceKm": 35.53,
+      "cumulativeTravelTimeMinutes": 55.7
+    },
+    {
+      "sequence": 9,
+      "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:PICKUP",
+      "taskId": "e83d4028-1d81-4994-b21d-06122a6a596d",
+      "orderId": "a4ebb6c7-650d-4716-93fa-3cd17b25cbb2",
+      "type": "PICKUP",
+      "entity": "Customer 003",
+      "address": "TEST CUSTOMER LOCATION 003",
+      "latitude": 28.621686,
+      "longitude": 77.071669,
+      "distanceFromPreviousMeters": 3402,
+      "distanceFromPreviousKm": 3.4,
+      "travelTimeFromPreviousMinutes": 4.4,
+      "cumulativeDistanceKm": 38.94,
+      "cumulativeTravelTimeMinutes": 60.1
+    },
+    {
+      "sequence": 10,
+      "stopId": "e83d4028-1d81-4994-b21d-06122a6a596d:DROP",
+      "taskId": "e83d4028-1d81-4994-b21d-06122a6a596d",
+      "orderId": "a4ebb6c7-650d-4716-93fa-3cd17b25cbb2",
+      "type": "DROP",
+      "entity": "Tailor 003",
+      "address": "TEST TAILOR LOCATION 003",
+      "latitude": 28.629161,
+      "longitude": 77.058635,
+      "distanceFromPreviousMeters": 2051,
+      "distanceFromPreviousKm": 2.05,
+      "travelTimeFromPreviousMinutes": 4.2,
+      "cumulativeDistanceKm": 40.99,
+      "cumulativeTravelTimeMinutes": 64.3
+    },
+    {
+      "sequence": 11,
+      "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:PICKUP",
+      "taskId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9",
+      "orderId": "0fc3abaa-f985-43b7-ad29-59c7e18361d8",
+      "type": "PICKUP",
+      "entity": "Customer 024",
+      "address": "TEST CUSTOMER LOCATION 024",
+      "latitude": 28.613211,
+      "longitude": 77.034989,
+      "distanceFromPreviousMeters": 4495,
+      "distanceFromPreviousKm": 4.5,
+      "travelTimeFromPreviousMinutes": 7.3,
+      "cumulativeDistanceKm": 45.48,
+      "cumulativeTravelTimeMinutes": 71.6
+    },
+    {
+      "sequence": 12,
+      "stopId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9:DROP",
+      "taskId": "1b6828ac-7fcf-4b49-8fb6-2c70b05011d9",
+      "orderId": "0fc3abaa-f985-43b7-ad29-59c7e18361d8",
+      "type": "DROP",
+      "entity": "Tailor 024",
+      "address": "TEST TAILOR LOCATION 024",
+      "latitude": 28.634143,
+      "longitude": 77.097076,
+      "distanceFromPreviousMeters": 8588,
+      "distanceFromPreviousKm": 8.59,
+      "travelTimeFromPreviousMinutes": 12,
+      "cumulativeDistanceKm": 54.07,
+      "cumulativeTravelTimeMinutes": 83.6
+    },
+    {
+      "sequence": 13,
+      "stopId": "cff41793-4bd5-447e-9517-593504f366eb:PICKUP",
+      "taskId": "cff41793-4bd5-447e-9517-593504f366eb",
+      "orderId": "828423e9-f630-4367-9ba9-0d553d095b3c",
+      "type": "PICKUP",
+      "entity": "Customer 009",
+      "address": "TEST CUSTOMER LOCATION 009",
+      "latitude": 28.62104,
+      "longitude": 77.069775,
+      "distanceFromPreviousMeters": 4154,
+      "distanceFromPreviousKm": 4.15,
+      "travelTimeFromPreviousMinutes": 4.9,
+      "cumulativeDistanceKm": 58.22,
+      "cumulativeTravelTimeMinutes": 88.5
+    },
+    {
+      "sequence": 14,
+      "stopId": "cff41793-4bd5-447e-9517-593504f366eb:DROP",
+      "taskId": "cff41793-4bd5-447e-9517-593504f366eb",
+      "orderId": "828423e9-f630-4367-9ba9-0d553d095b3c",
+      "type": "DROP",
+      "entity": "Tailor 009",
+      "address": "TEST TAILOR LOCATION 009",
+      "latitude": 28.628069,
+      "longitude": 77.055071,
+      "distanceFromPreviousMeters": 2806,
+      "distanceFromPreviousKm": 2.81,
+      "travelTimeFromPreviousMinutes": 4.7,
+      "cumulativeDistanceKm": 61.03,
+      "cumulativeTravelTimeMinutes": 93.2
+    },
+    {
+      "sequence": 15,
+      "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:PICKUP",
+      "taskId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af",
+      "orderId": "a8983f7a-e47a-4889-b055-083b5a6a42d1",
+      "type": "PICKUP",
+      "entity": "Customer 012",
+      "address": "TEST CUSTOMER LOCATION 012",
+      "latitude": 28.613385,
+      "longitude": 77.035149,
+      "distanceFromPreviousMeters": 4072,
+      "distanceFromPreviousKm": 4.07,
+      "travelTimeFromPreviousMinutes": 6.5,
+      "cumulativeDistanceKm": 65.1,
+      "cumulativeTravelTimeMinutes": 99.7
+    },
+    {
+      "sequence": 16,
+      "stopId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af:DROP",
+      "taskId": "f4913791-d8cb-4a77-9fd6-bbac8112e2af",
+      "orderId": "a8983f7a-e47a-4889-b055-083b5a6a42d1",
+      "type": "DROP",
+      "entity": "Tailor 012",
+      "address": "TEST TAILOR LOCATION 012",
+      "latitude": 28.635932,
+      "longitude": 77.095614,
+      "distanceFromPreviousMeters": 7707,
+      "distanceFromPreviousKm": 7.71,
+      "travelTimeFromPreviousMinutes": 10.7,
+      "cumulativeDistanceKm": 72.81,
+      "cumulativeTravelTimeMinutes": 110.5
+    },
+    {
+      "sequence": 17,
+      "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:PICKUP",
+      "taskId": "43a4233b-823c-4031-b95e-e872c80d1f27",
+      "orderId": "ca9eba9e-9261-4a78-bfdd-e6976492f252",
+      "type": "PICKUP",
+      "entity": "Customer 005",
+      "address": "TEST CUSTOMER LOCATION 005",
+      "latitude": 28.622399,
+      "longitude": 77.071361,
+      "distanceFromPreviousMeters": 3106,
+      "distanceFromPreviousKm": 3.11,
+      "travelTimeFromPreviousMinutes": 4,
+      "cumulativeDistanceKm": 75.91,
+      "cumulativeTravelTimeMinutes": 114.4
+    },
+    {
+      "sequence": 18,
+      "stopId": "43a4233b-823c-4031-b95e-e872c80d1f27:DROP",
+      "taskId": "43a4233b-823c-4031-b95e-e872c80d1f27",
+      "orderId": "ca9eba9e-9261-4a78-bfdd-e6976492f252",
+      "type": "DROP",
+      "entity": "Tailor 005",
+      "address": "TEST TAILOR LOCATION 005",
+      "latitude": 28.627838,
+      "longitude": 77.057408,
+      "distanceFromPreviousMeters": 2582,
+      "distanceFromPreviousKm": 2.58,
+      "travelTimeFromPreviousMinutes": 4.4,
+      "cumulativeDistanceKm": 78.5,
+      "cumulativeTravelTimeMinutes": 118.8
+    },
+    {
+      "sequence": 19,
+      "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:PICKUP",
+      "taskId": "1b95110f-0e32-4a7e-8510-8bb202992745",
+      "orderId": "65c63f0e-696a-4f74-8280-2219cf8c4658",
+      "type": "PICKUP",
+      "entity": "Customer 022",
+      "address": "TEST CUSTOMER LOCATION 022",
+      "latitude": 28.612899,
+      "longitude": 77.035984,
+      "distanceFromPreviousMeters": 4284,
+      "distanceFromPreviousKm": 4.28,
+      "travelTimeFromPreviousMinutes": 6.9,
+      "cumulativeDistanceKm": 82.78,
+      "cumulativeTravelTimeMinutes": 125.7
+    },
+    {
+      "sequence": 20,
+      "stopId": "1b95110f-0e32-4a7e-8510-8bb202992745:DROP",
+      "taskId": "1b95110f-0e32-4a7e-8510-8bb202992745",
+      "orderId": "65c63f0e-696a-4f74-8280-2219cf8c4658",
+      "type": "DROP",
+      "entity": "Tailor 022",
+      "address": "TEST TAILOR LOCATION 022",
+      "latitude": 28.63596,
+      "longitude": 77.098271,
+      "distanceFromPreviousMeters": 8226,
+      "distanceFromPreviousKm": 8.23,
+      "travelTimeFromPreviousMinutes": 11.9,
+      "cumulativeDistanceKm": 91.01,
+      "cumulativeTravelTimeMinutes": 137.6
+    },
+    {
+      "sequence": 21,
+      "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:PICKUP",
+      "taskId": "398523f7-36d4-4240-bedb-c406dcca1777",
+      "orderId": "a8656a04-a2ac-494f-99c6-6f919a690a8a",
+      "type": "PICKUP",
+      "entity": "Customer 015",
+      "address": "TEST CUSTOMER LOCATION 015",
+      "latitude": 28.6215,
+      "longitude": 77.070471,
+      "distanceFromPreviousMeters": 3647,
+      "distanceFromPreviousKm": 3.65,
+      "travelTimeFromPreviousMinutes": 5,
+      "cumulativeDistanceKm": 94.65,
+      "cumulativeTravelTimeMinutes": 142.6
+    },
+    {
+      "sequence": 22,
+      "stopId": "398523f7-36d4-4240-bedb-c406dcca1777:DROP",
+      "taskId": "398523f7-36d4-4240-bedb-c406dcca1777",
+      "orderId": "a8656a04-a2ac-494f-99c6-6f919a690a8a",
+      "type": "DROP",
+      "entity": "Tailor 015",
+      "address": "TEST TAILOR LOCATION 015",
+      "latitude": 28.628049,
+      "longitude": 77.056402,
+      "distanceFromPreviousMeters": 2442,
+      "distanceFromPreviousKm": 2.44,
+      "travelTimeFromPreviousMinutes": 4.5,
+      "cumulativeDistanceKm": 97.1,
+      "cumulativeTravelTimeMinutes": 147.1
+    },
+    {
+      "sequence": 23,
+      "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:PICKUP",
+      "taskId": "96370381-c116-486a-994a-bcb4b99cfa1d",
+      "orderId": "21e7cea2-757d-4c7d-9583-343fa9bed43e",
+      "type": "PICKUP",
+      "entity": "Customer 020",
+      "address": "TEST CUSTOMER LOCATION 020",
+      "latitude": 28.612925,
+      "longitude": 77.033717,
+      "distanceFromPreviousMeters": 4010,
+      "distanceFromPreviousKm": 4.01,
+      "travelTimeFromPreviousMinutes": 5.7,
+      "cumulativeDistanceKm": 101.11,
+      "cumulativeTravelTimeMinutes": 152.7
+    },
+    {
+      "sequence": 24,
+      "stopId": "96370381-c116-486a-994a-bcb4b99cfa1d:DROP",
+      "taskId": "96370381-c116-486a-994a-bcb4b99cfa1d",
+      "orderId": "21e7cea2-757d-4c7d-9583-343fa9bed43e",
+      "type": "DROP",
+      "entity": "Tailor 020",
+      "address": "TEST TAILOR LOCATION 020",
+      "latitude": 28.635122,
+      "longitude": 77.098095,
+      "distanceFromPreviousMeters": 8129,
+      "distanceFromPreviousKm": 8.13,
+      "travelTimeFromPreviousMinutes": 10.7,
+      "cumulativeDistanceKm": 109.24,
+      "cumulativeTravelTimeMinutes": 163.5
+    },
+    {
+      "sequence": 25,
+      "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:PICKUP",
+      "taskId": "33292958-11c2-48ff-967e-413cfacffcf7",
+      "orderId": "e914149f-3236-4733-82db-1089e25beb31",
+      "type": "PICKUP",
+      "entity": "Customer 013",
+      "address": "TEST CUSTOMER LOCATION 013",
+      "latitude": 28.623202,
+      "longitude": 77.072436,
+      "distanceFromPreviousMeters": 3374,
+      "distanceFromPreviousKm": 3.37,
+      "travelTimeFromPreviousMinutes": 4.6,
+      "cumulativeDistanceKm": 112.61,
+      "cumulativeTravelTimeMinutes": 168.1
+    },
+    {
+      "sequence": 26,
+      "stopId": "33292958-11c2-48ff-967e-413cfacffcf7:DROP",
+      "taskId": "33292958-11c2-48ff-967e-413cfacffcf7",
+      "orderId": "e914149f-3236-4733-82db-1089e25beb31",
+      "type": "DROP",
+      "entity": "Tailor 013",
+      "address": "TEST TAILOR LOCATION 013",
+      "latitude": 28.627771,
+      "longitude": 77.058057,
+      "distanceFromPreviousMeters": 3362,
+      "distanceFromPreviousKm": 3.36,
+      "travelTimeFromPreviousMinutes": 5.2,
+      "cumulativeDistanceKm": 115.97,
+      "cumulativeTravelTimeMinutes": 173.3
+    },
+    {
+      "sequence": 27,
+      "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:PICKUP",
+      "taskId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97",
+      "orderId": "4b47f543-4aef-4373-83d8-ebf6d88ee07f",
+      "type": "PICKUP",
+      "entity": "Customer 002",
+      "address": "TEST CUSTOMER LOCATION 002",
+      "latitude": 28.612951,
+      "longitude": 77.035072,
+      "distanceFromPreviousMeters": 4355,
+      "distanceFromPreviousKm": 4.36,
+      "travelTimeFromPreviousMinutes": 7.5,
+      "cumulativeDistanceKm": 120.33,
+      "cumulativeTravelTimeMinutes": 180.8
+    },
+    {
+      "sequence": 28,
+      "stopId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97:DROP",
+      "taskId": "9453e3bd-7e6a-4f28-ae3f-46387142bd97",
+      "orderId": "4b47f543-4aef-4373-83d8-ebf6d88ee07f",
+      "type": "DROP",
+      "entity": "Tailor 002",
+      "address": "TEST TAILOR LOCATION 002",
+      "latitude": 28.636935,
+      "longitude": 77.095444,
+      "distanceFromPreviousMeters": 7759,
+      "distanceFromPreviousKm": 7.76,
+      "travelTimeFromPreviousMinutes": 10.8,
+      "cumulativeDistanceKm": 128.09,
+      "cumulativeTravelTimeMinutes": 191.6
+    },
+    {
+      "sequence": 29,
+      "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:PICKUP",
+      "taskId": "fb2e417b-6e8f-4f16-9722-0250a9df7806",
+      "orderId": "c667caa8-58d5-4894-a200-9f8e6d45d1fe",
+      "type": "PICKUP",
+      "entity": "Customer 001",
+      "address": "TEST CUSTOMER LOCATION 001",
+      "latitude": 28.622000000000003,
+      "longitude": 77.0743,
+      "distanceFromPreviousMeters": 3485,
+      "distanceFromPreviousKm": 3.49,
+      "travelTimeFromPreviousMinutes": 4.8,
+      "cumulativeDistanceKm": 131.57,
+      "cumulativeTravelTimeMinutes": 196.4
+    },
+    {
+      "sequence": 30,
+      "stopId": "fb2e417b-6e8f-4f16-9722-0250a9df7806:DROP",
+      "taskId": "fb2e417b-6e8f-4f16-9722-0250a9df7806",
+      "orderId": "c667caa8-58d5-4894-a200-9f8e6d45d1fe",
+      "type": "DROP",
+      "entity": "Tailor 001",
+      "address": "TEST TAILOR LOCATION 001",
+      "latitude": 28.633821,
+      "longitude": 77.095108,
+      "distanceFromPreviousMeters": 3139,
+      "distanceFromPreviousKm": 3.14,
+      "travelTimeFromPreviousMinutes": 4.6,
+      "cumulativeDistanceKm": 134.71,
+      "cumulativeTravelTimeMinutes": 201
+    },
+    {
+      "sequence": 31,
+      "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:PICKUP",
+      "taskId": "d2d7d672-59a7-4397-940b-4ebc311c9b48",
+      "orderId": "b0c16d5c-5654-4bc7-8089-6e2263064449",
+      "type": "PICKUP",
+      "entity": "Customer 017",
+      "address": "TEST CUSTOMER LOCATION 017",
+      "latitude": 28.622548,
+      "longitude": 77.07025,
+      "distanceFromPreviousMeters": 3222,
+      "distanceFromPreviousKm": 3.22,
+      "travelTimeFromPreviousMinutes": 4.7,
+      "cumulativeDistanceKm": 137.93,
+      "cumulativeTravelTimeMinutes": 205.7
+    },
+    {
+      "sequence": 32,
+      "stopId": "d2d7d672-59a7-4397-940b-4ebc311c9b48:DROP",
+      "taskId": "d2d7d672-59a7-4397-940b-4ebc311c9b48",
+      "orderId": "b0c16d5c-5654-4bc7-8089-6e2263064449",
+      "type": "DROP",
+      "entity": "Tailor 017",
+      "address": "TEST TAILOR LOCATION 017",
+      "latitude": 28.628848,
+      "longitude": 77.055276,
+      "distanceFromPreviousMeters": 2784,
+      "distanceFromPreviousKm": 2.78,
+      "travelTimeFromPreviousMinutes": 5.2,
+      "cumulativeDistanceKm": 140.72,
+      "cumulativeTravelTimeMinutes": 210.9
+    },
+    {
+      "sequence": 33,
+      "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:PICKUP",
+      "taskId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58",
+      "orderId": "3c8d9536-3295-4539-a675-54433a41e90e",
+      "type": "PICKUP",
+      "entity": "Customer 004",
+      "address": "TEST CUSTOMER LOCATION 004",
+      "latitude": 28.611189,
+      "longitude": 77.035453,
+      "distanceFromPreviousMeters": 4410,
+      "distanceFromPreviousKm": 4.41,
+      "travelTimeFromPreviousMinutes": 8.6,
+      "cumulativeDistanceKm": 145.13,
+      "cumulativeTravelTimeMinutes": 219.5
+    },
+    {
+      "sequence": 34,
+      "stopId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58:DROP",
+      "taskId": "cc73e2fd-16e7-4d53-aade-ace1a31d3a58",
+      "orderId": "3c8d9536-3295-4539-a675-54433a41e90e",
+      "type": "DROP",
+      "entity": "Tailor 004",
+      "address": "TEST TAILOR LOCATION 004",
+      "latitude": 28.63713,
+      "longitude": 77.095308,
+      "distanceFromPreviousMeters": 8940,
+      "distanceFromPreviousKm": 8.94,
+      "travelTimeFromPreviousMinutes": 12.1,
+      "cumulativeDistanceKm": 154.07,
+      "cumulativeTravelTimeMinutes": 231.6
+    },
+    {
+      "sequence": 35,
+      "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:PICKUP",
+      "taskId": "89933c4e-d01b-4398-ad91-740bed25c772",
+      "orderId": "7ca50f60-e15d-4d98-89b2-1fc0faded4f8",
+      "type": "PICKUP",
+      "entity": "Customer 019",
+      "address": "TEST CUSTOMER LOCATION 019",
+      "latitude": 28.620366,
+      "longitude": 77.071164,
+      "distanceFromPreviousMeters": 4163,
+      "distanceFromPreviousKm": 4.16,
+      "travelTimeFromPreviousMinutes": 4.8,
+      "cumulativeDistanceKm": 158.23,
+      "cumulativeTravelTimeMinutes": 236.4
+    },
+    {
+      "sequence": 36,
+      "stopId": "89933c4e-d01b-4398-ad91-740bed25c772:DROP",
+      "taskId": "89933c4e-d01b-4398-ad91-740bed25c772",
+      "orderId": "7ca50f60-e15d-4d98-89b2-1fc0faded4f8",
+      "type": "DROP",
+      "entity": "Tailor 019",
+      "address": "TEST TAILOR LOCATION 019",
+      "latitude": 28.629511,
+      "longitude": 77.056582,
+      "distanceFromPreviousMeters": 2735,
+      "distanceFromPreviousKm": 2.73,
+      "travelTimeFromPreviousMinutes": 4.8,
+      "cumulativeDistanceKm": 160.96,
+      "cumulativeTravelTimeMinutes": 241.2
+    },
+    {
+      "sequence": 37,
+      "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:PICKUP",
+      "taskId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f",
+      "orderId": "fc08cf99-884d-4ce8-974f-7d0927e3d164",
+      "type": "PICKUP",
+      "entity": "Customer 018",
+      "address": "TEST CUSTOMER LOCATION 018",
+      "latitude": 28.612304,
+      "longitude": 77.035626,
+      "distanceFromPreviousMeters": 4704,
+      "distanceFromPreviousKm": 4.7,
+      "travelTimeFromPreviousMinutes": 7.9,
+      "cumulativeDistanceKm": 165.67,
+      "cumulativeTravelTimeMinutes": 249.1
+    },
+    {
+      "sequence": 38,
+      "stopId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f:DROP",
+      "taskId": "35c05967-ad08-4e31-a4a1-56c3d3b3ea2f",
+      "orderId": "fc08cf99-884d-4ce8-974f-7d0927e3d164",
+      "type": "DROP",
+      "entity": "Tailor 018",
+      "address": "TEST TAILOR LOCATION 018",
+      "latitude": 28.638466,
+      "longitude": 77.093561,
+      "distanceFromPreviousMeters": 7967,
+      "distanceFromPreviousKm": 7.97,
+      "travelTimeFromPreviousMinutes": 11.5,
+      "cumulativeDistanceKm": 173.64,
+      "cumulativeTravelTimeMinutes": 260.6
+    },
+    {
+      "sequence": 39,
+      "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:PICKUP",
+      "taskId": "c9594e88-fc55-4748-8bcf-4a2768621de2",
+      "orderId": "ea3246c7-78a9-4cba-815d-c54309ef2c0e",
+      "type": "PICKUP",
+      "entity": "Customer 025",
+      "address": "TEST CUSTOMER LOCATION 025",
+      "latitude": 28.623062,
+      "longitude": 77.070072,
+      "distanceFromPreviousMeters": 3405,
+      "distanceFromPreviousKm": 3.41,
+      "travelTimeFromPreviousMinutes": 5.4,
+      "cumulativeDistanceKm": 177.04,
+      "cumulativeTravelTimeMinutes": 266.1
+    },
+    {
+      "sequence": 40,
+      "stopId": "c9594e88-fc55-4748-8bcf-4a2768621de2:DROP",
+      "taskId": "c9594e88-fc55-4748-8bcf-4a2768621de2",
+      "orderId": "ea3246c7-78a9-4cba-815d-c54309ef2c0e",
+      "type": "DROP",
+      "entity": "Tailor 025",
+      "address": "TEST TAILOR LOCATION 025",
+      "latitude": 28.627418,
+      "longitude": 77.05678,
+      "distanceFromPreviousMeters": 2622,
+      "distanceFromPreviousKm": 2.62,
+      "travelTimeFromPreviousMinutes": 4.9,
+      "cumulativeDistanceKm": 179.66,
+      "cumulativeTravelTimeMinutes": 271
+    },
+    {
+      "sequence": 41,
+      "stopId": "40fee98e-6886-47ed-b585-02df21b42981:PICKUP",
+      "taskId": "40fee98e-6886-47ed-b585-02df21b42981",
+      "orderId": "b29e9c6d-101c-4f51-b61a-f4e36f762b76",
+      "type": "PICKUP",
+      "entity": "Customer 016",
+      "address": "TEST CUSTOMER LOCATION 016",
+      "latitude": 28.61301,
+      "longitude": 77.038327,
+      "distanceFromPreviousMeters": 3410,
+      "distanceFromPreviousKm": 3.41,
+      "travelTimeFromPreviousMinutes": 6.4,
+      "cumulativeDistanceKm": 183.07,
+      "cumulativeTravelTimeMinutes": 277.4
+    },
+    {
+      "sequence": 42,
+      "stopId": "40fee98e-6886-47ed-b585-02df21b42981:DROP",
+      "taskId": "40fee98e-6886-47ed-b585-02df21b42981",
+      "orderId": "b29e9c6d-101c-4f51-b61a-f4e36f762b76",
+      "type": "DROP",
+      "entity": "Tailor 016",
+      "address": "TEST TAILOR LOCATION 016",
+      "latitude": 28.635121,
+      "longitude": 77.09829,
+      "distanceFromPreviousMeters": 7858,
+      "distanceFromPreviousKm": 7.86,
+      "travelTimeFromPreviousMinutes": 10.9,
+      "cumulativeDistanceKm": 190.93,
+      "cumulativeTravelTimeMinutes": 288.3
+    },
+    {
+      "sequence": 43,
+      "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:PICKUP",
+      "taskId": "8562653e-1483-43d6-b6b5-2771a919a82b",
+      "orderId": "a9c35ed8-3a4a-4d13-8848-ec1cf72a5423",
+      "type": "PICKUP",
+      "entity": "Customer 023",
+      "address": "TEST CUSTOMER LOCATION 023",
+      "latitude": 28.621294,
+      "longitude": 77.072491,
+      "distanceFromPreviousMeters": 3661,
+      "distanceFromPreviousKm": 3.66,
+      "travelTimeFromPreviousMinutes": 5.2,
+      "cumulativeDistanceKm": 194.59,
+      "cumulativeTravelTimeMinutes": 293.5
+    },
+    {
+      "sequence": 44,
+      "stopId": "8562653e-1483-43d6-b6b5-2771a919a82b:DROP",
+      "taskId": "8562653e-1483-43d6-b6b5-2771a919a82b",
+      "orderId": "a9c35ed8-3a4a-4d13-8848-ec1cf72a5423",
+      "type": "DROP",
+      "entity": "Tailor 023",
+      "address": "TEST TAILOR LOCATION 023",
+      "latitude": 28.631453,
+      "longitude": 77.051765,
+      "distanceFromPreviousMeters": 3459,
+      "distanceFromPreviousKm": 3.46,
+      "travelTimeFromPreviousMinutes": 6.7,
+      "cumulativeDistanceKm": 198.05,
+      "cumulativeTravelTimeMinutes": 300.2
+    },
+    {
+      "sequence": 45,
+      "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:PICKUP",
+      "taskId": "f4f701c3-cdd7-449a-8933-cc668bf95727",
+      "orderId": "25f16de3-f669-4f87-92d5-024aff271cca",
+      "type": "PICKUP",
+      "entity": "Customer 010",
+      "address": "TEST CUSTOMER LOCATION 010",
+      "latitude": 28.613055,
+      "longitude": 77.036218,
+      "distanceFromPreviousMeters": 3994,
+      "distanceFromPreviousKm": 3.99,
+      "travelTimeFromPreviousMinutes": 8.1,
+      "cumulativeDistanceKm": 202.05,
+      "cumulativeTravelTimeMinutes": 308.3
+    },
+    {
+      "sequence": 46,
+      "stopId": "f4f701c3-cdd7-449a-8933-cc668bf95727:DROP",
+      "taskId": "f4f701c3-cdd7-449a-8933-cc668bf95727",
+      "orderId": "25f16de3-f669-4f87-92d5-024aff271cca",
+      "type": "DROP",
+      "entity": "Tailor 010",
+      "address": "TEST TAILOR LOCATION 010",
+      "latitude": 28.633804,
+      "longitude": 77.097779,
+      "distanceFromPreviousMeters": 8287,
+      "distanceFromPreviousKm": 8.29,
+      "travelTimeFromPreviousMinutes": 11.5,
+      "cumulativeDistanceKm": 210.33,
+      "cumulativeTravelTimeMinutes": 319.8
+    },
+    {
+      "sequence": 47,
+      "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:PICKUP",
+      "taskId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef",
+      "orderId": "7e3c3af6-5597-4588-9348-340cc9bb8a15",
+      "type": "PICKUP",
+      "entity": "Customer 007",
+      "address": "TEST CUSTOMER LOCATION 007",
+      "latitude": 28.62143,
+      "longitude": 77.0715,
+      "distanceFromPreviousMeters": 3966,
+      "distanceFromPreviousKm": 3.97,
+      "travelTimeFromPreviousMinutes": 5.2,
+      "cumulativeDistanceKm": 214.3,
+      "cumulativeTravelTimeMinutes": 325
+    },
+    {
+      "sequence": 48,
+      "stopId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef:DROP",
+      "taskId": "9b39ed5b-b32e-45fb-a50f-04cda55348ef",
+      "orderId": "7e3c3af6-5597-4588-9348-340cc9bb8a15",
+      "type": "DROP",
+      "entity": "Tailor 007",
+      "address": "TEST TAILOR LOCATION 007",
+      "latitude": 28.627455,
+      "longitude": 77.055532,
+      "distanceFromPreviousMeters": 2478,
+      "distanceFromPreviousKm": 2.48,
+      "travelTimeFromPreviousMinutes": 4.5,
+      "cumulativeDistanceKm": 216.78,
+      "cumulativeTravelTimeMinutes": 329.5
+    },
+    {
+      "sequence": 49,
+      "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:PICKUP",
+      "taskId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b",
+      "orderId": "0822ebf2-1301-4725-a45b-0feb40a475c2",
+      "type": "PICKUP",
+      "entity": "Customer 006",
+      "address": "TEST CUSTOMER LOCATION 006",
+      "latitude": 28.611861,
+      "longitude": 77.039128,
+      "distanceFromPreviousMeters": 3315,
+      "distanceFromPreviousKm": 3.32,
+      "travelTimeFromPreviousMinutes": 6.4,
+      "cumulativeDistanceKm": 220.09,
+      "cumulativeTravelTimeMinutes": 335.9
+    },
+    {
+      "sequence": 50,
+      "stopId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b:DROP",
+      "taskId": "539bf1b6-254e-4d53-aa89-eec618b8ae2b",
+      "orderId": "0822ebf2-1301-4725-a45b-0feb40a475c2",
+      "type": "DROP",
+      "entity": "Tailor 006",
+      "address": "TEST TAILOR LOCATION 006",
+      "latitude": 28.637228,
+      "longitude": 77.097373,
+      "distanceFromPreviousMeters": 7417,
+      "distanceFromPreviousKm": 7.42,
+      "travelTimeFromPreviousMinutes": 9.5,
+      "cumulativeDistanceKm": 227.51,
+      "cumulativeTravelTimeMinutes": 345.4
+    }
+  ]
+}
