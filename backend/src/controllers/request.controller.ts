@@ -1129,7 +1129,25 @@ export async function listDeliveryRequestsController(req: Request, res: Response
   }
 
   const requests = await DeliveryRequestModel.find(where).sort({ retryCount: -1, nextScheduledBatch: 1, createdAt: -1 }).limit(100);
-  res.json({ data: requests });
+  const batchIds = [...new Set(requests.map((request) => String(request.batchId ?? "")).filter(Boolean))];
+  const batches = batchIds.length ? await DeliveryBatchModel.find({ batchId: { $in: batchIds } }) : [];
+  const batchById = new Map(batches.map((batch) => [String(batch.batchId), batch]));
+  res.json({
+    data: requests.map((request) => {
+      const payload = typeof request.toJSON === "function" ? request.toJSON() : request;
+      const batch = request.batchId ? batchById.get(String(request.batchId)) : undefined;
+      if (!batch) return payload;
+      return {
+        ...payload,
+        batchOrdersCount: Number(batch.ordersCount ?? 0) || undefined,
+        batchEstimatedEarnings: Number(batch.estimatedPayout ?? batch.estimatedEarnings ?? 0) || undefined,
+        batchPayableDistanceMeters: Number(batch.payableOptimizedDistanceMeters ?? 0) || undefined,
+        batchEstimatedDurationSeconds: Number(batch.estimatedDurationSeconds ?? 0) || undefined,
+        batchArea: batch.area,
+        batchOptimizedStops: batch.optimizedStops ?? []
+      };
+    })
+  });
 }
 
 export async function getDeliveryRequestController(req: Request, res: Response) {

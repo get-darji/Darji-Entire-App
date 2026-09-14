@@ -170,6 +170,10 @@ function matrixDistance(matrix: Array<Array<{ distance: number; duration: number
   return Number(matrix[from]?.[to]?.distance ?? Number.POSITIVE_INFINITY);
 }
 
+function matrixDuration(matrix: Array<Array<{ distance: number; duration: number }>>, from: number, to: number) {
+  return Number(matrix[from]?.[to]?.duration ?? 0);
+}
+
 async function solveJobOrderWithOrTools(tasks: any[], matrix: Array<Array<{ distance: number; duration: number }>>) {
   if (tasks.length <= 1) return tasks;
   try {
@@ -222,6 +226,94 @@ async function solveJobOrderWithOrTools(tasks: any[], matrix: Array<Array<{ dist
   }
 }
 
+type OptimizedStop = {
+  task: any;
+  nodeIndex: number;
+  taskIndex: number;
+  stopType: "PICKUP" | "DROP";
+  sequence: number;
+  address: string;
+  distanceFromPreviousMeters: number;
+  durationFromPreviousSeconds: number;
+  payableDistanceFromPreviousMeters: number;
+};
+
+function taskPickupCompleted(task: any) {
+  return Boolean(task.pickupOtpVerifiedAt || task.pickedUpAt || task.taskStatus === "picked_up" || task.taskStatus === "delivered");
+}
+
+function taskDropCompleted(task: any) {
+  return Boolean(task.dropOtpVerifiedAt || task.deliveredAt || task.taskStatus === "delivered");
+}
+
+function nodeIndexForTask(taskIndex: number, stopType: "PICKUP" | "DROP") {
+  return 1 + taskIndex * 2 + (stopType === "DROP" ? 1 : 0);
+}
+
+function buildOptimizedStopRoute(tasks: any[], matrix: Array<Array<{ distance: number; duration: number }>>, usablePoints: boolean, startLocation?: unknown) {
+  const normalizedTasks = tasks.map((task, taskIndex) => ({ task, taskIndex }));
+  const pendingPickups = new Set(normalizedTasks.filter(({ task }) => !taskPickupCompleted(task)).map(({ taskIndex }) => taskIndex));
+  const carriedPickups = new Set(normalizedTasks.filter(({ task }) => taskPickupCompleted(task) && !taskDropCompleted(task)).map(({ taskIndex }) => taskIndex));
+  const pendingDrops = new Set(normalizedTasks.filter(({ task }) => !taskDropCompleted(task)).map(({ taskIndex }) => taskIndex));
+  const stops: OptimizedStop[] = [];
+  let cursorIndex = usablePoints && pointFrom(startLocation) ? 0 : undefined;
+  let cursorPoint = pointFrom(startLocation);
+
+  while (pendingPickups.size || pendingDrops.size) {
+    const candidates: Array<{ task: any; taskIndex: number; stopType: "PICKUP" | "DROP"; nodeIndex: number }> = [];
+    pendingPickups.forEach((taskIndex) => {
+      const task = tasks[taskIndex];
+      candidates.push({ task, taskIndex, stopType: "PICKUP", nodeIndex: nodeIndexForTask(taskIndex, "PICKUP") });
+    });
+    pendingDrops.forEach((taskIndex) => {
+      if (!carriedPickups.has(taskIndex)) return;
+      const task = tasks[taskIndex];
+      candidates.push({ task, taskIndex, stopType: "DROP", nodeIndex: nodeIndexForTask(taskIndex, "DROP") });
+    });
+    if (!candidates.length) break;
+
+    let next = candidates[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      const candidatePoint = pointFrom(candidate.stopType === "PICKUP" ? candidate.task.pickupLocation : candidate.task.dropLocation);
+      const distance = usablePoints && cursorIndex != null
+        ? matrixDistance(matrix, cursorIndex, candidate.nodeIndex)
+        : cursorPoint && candidatePoint
+          ? Math.hypot(cursorPoint.lat - candidatePoint.lat, cursorPoint.lng - candidatePoint.lng) * 111_000
+          : Number.POSITIVE_INFINITY;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        next = candidate;
+      }
+    }
+
+    const distanceFromPreviousMeters = Number.isFinite(bestDistance) ? bestDistance : 0;
+    const durationFromPreviousSeconds = usablePoints && cursorIndex != null ? matrixDuration(matrix, cursorIndex, next.nodeIndex) : 0;
+    stops.push({
+      ...next,
+      sequence: stops.length + 1,
+      address: next.stopType === "PICKUP" ? next.task.pickupAddress : next.task.dropAddress,
+      distanceFromPreviousMeters,
+      durationFromPreviousSeconds,
+      // The rider starts wherever they are. Payout starts from the first route
+      // stop, then counts each optimized leg between stops.
+      payableDistanceFromPreviousMeters: stops.length === 0 ? 0 : distanceFromPreviousMeters
+    });
+
+    if (next.stopType === "PICKUP") {
+      pendingPickups.delete(next.taskIndex);
+      carriedPickups.add(next.taskIndex);
+    } else {
+      pendingDrops.delete(next.taskIndex);
+      carriedPickups.delete(next.taskIndex);
+    }
+    cursorIndex = next.nodeIndex;
+    cursorPoint = pointFrom(next.stopType === "PICKUP" ? next.task.pickupLocation : next.task.dropLocation) ?? cursorPoint;
+  }
+
+  return stops;
+}
+
 async function routeOrder(tasks: any[], startLocation?: unknown) {
   const points = [
     pointFrom(startLocation),
@@ -229,84 +321,41 @@ async function routeOrder(tasks: any[], startLocation?: unknown) {
   ];
   const usablePoints = points.every(Boolean);
   const matrix = usablePoints ? await roadDistanceMatrix(points as Array<{ lat: number; lng: number }>) : [];
-  const remaining = [...tasks].sort((a, b) => String(a.pickupAddress).localeCompare(String(b.pickupAddress)));
-  const ordered: any[] = [];
-  let cursorIndex = usablePoints && pointFrom(startLocation) ? 0 : undefined;
-  let cursorPoint: { lat: number; lng: number } | undefined = pointFrom(startLocation);
-
-  if (usablePoints) {
-    return { ordered: await solveJobOrderWithOrTools(tasks, matrix), matrix, usablePoints };
-  }
-
-  while (remaining.length) {
-    let index = 0;
-    if (usablePoints && cursorIndex != null) {
-      let best = Number.POSITIVE_INFINITY;
-      remaining.forEach((task, candidate) => {
-        const originalIndex = tasks.findIndex((item) => String(item.id) === String(task.id));
-        const pickupIndex = 1 + originalIndex * 2;
-        const candidateDistance = matrixDistance(matrix, cursorIndex!, pickupIndex);
-        if (candidateDistance < best) {
-          best = candidateDistance;
-          index = candidate;
-        }
-      });
-    } else if (cursorPoint) {
-      let best = Number.POSITIVE_INFINITY;
-      remaining.forEach((task, candidate) => {
-        const taskPoint = pointFrom(task.pickupLocation);
-        const candidateDistance = !taskPoint ? Number.POSITIVE_INFINITY : Math.hypot(cursorPoint!.lat - taskPoint.lat, cursorPoint!.lng - taskPoint.lng);
-        if (candidateDistance < best) {
-          best = candidateDistance;
-          index = candidate;
-        }
-      });
-    }
-    const [next] = remaining.splice(index, 1);
-    ordered.push(next);
-    if (usablePoints) {
-      const originalIndex = tasks.findIndex((item) => String(item.id) === String(next.id));
-      cursorIndex = 1 + originalIndex * 2 + 1;
-    }
-    cursorPoint = pointFrom(next.dropLocation) ?? pointFrom(next.pickupLocation) ?? cursorPoint;
-  }
-
-  return { ordered, matrix, usablePoints };
+  const stops = buildOptimizedStopRoute(tasks, matrix, usablePoints, startLocation);
+  const ordered = [...new Map(stops.map((stop) => [String(stop.task.id), stop.task])).values()];
+  return { ordered, stops, matrix, usablePoints };
 }
 
 async function calculateOptimizedBatch(tasks: any[], startLocation?: unknown) {
-  const { ordered, matrix, usablePoints } = await routeOrder(tasks, startLocation);
-  let payableDistance = 0;
-  let totalDistance = 0;
-  let durationSeconds = 0;
-  if (usablePoints) {
-    for (let index = 0; index < ordered.length; index += 1) {
-      const task = ordered[index];
-      const originalIndex = tasks.findIndex((item) => String(item.id) === String(task.id));
-      const pickupIndex = 1 + originalIndex * 2;
-      const dropIndex = pickupIndex + 1;
-      if (index > 0) {
-        const previous = ordered[index - 1];
-        const previousOriginalIndex = tasks.findIndex((item) => String(item.id) === String(previous.id));
-        const previousDropIndex = 1 + previousOriginalIndex * 2 + 1;
-        payableDistance += matrixDistance(matrix, previousDropIndex, pickupIndex);
-        durationSeconds += Number(matrix[previousDropIndex]?.[pickupIndex]?.duration ?? 0);
-      }
-      payableDistance += matrixDistance(matrix, pickupIndex, dropIndex);
-      durationSeconds += Number(matrix[pickupIndex]?.[dropIndex]?.duration ?? 0);
-    }
-    if (pointFrom(startLocation) && ordered.length) {
-      const firstOriginalIndex = tasks.findIndex((item) => String(item.id) === String(ordered[0].id));
-      totalDistance += matrixDistance(matrix, 0, 1 + firstOriginalIndex * 2);
-    }
-    totalDistance += payableDistance;
-  } else {
-    payableDistance = tasks.reduce((sum, task) => sum + Number(task.distanceMeters ?? 0), 0);
-    totalDistance = payableDistance;
-  }
+  const { ordered, stops, matrix, usablePoints } = await routeOrder(tasks, startLocation);
+  const payableDistance = stops.reduce((sum, stop) => sum + Number(stop.payableDistanceFromPreviousMeters ?? 0), 0);
+  const totalDistance = stops.reduce((sum, stop) => sum + Number(stop.distanceFromPreviousMeters ?? 0), 0);
+  const durationSeconds = stops.reduce((sum, stop) => sum + Number(stop.durationFromPreviousSeconds ?? 0), 0);
   const completedJobs = tasks.filter((task) => ["delivered", "completed"].includes(String(task.taskStatus))).length || tasks.length;
   const estimatedPayout = batchDeliveryPayout(payableDistance, completedJobs);
-  return { ordered, payableDistance, totalDistance, durationSeconds, estimatedPayout, matrix, usablePoints };
+  return { ordered, stops, payableDistance, totalDistance, durationSeconds, estimatedPayout, matrix, usablePoints };
+}
+
+function optimizedStopPayload(stop: OptimizedStop) {
+  return {
+    taskId: stop.task.id,
+    orderId: stop.task.orderId,
+    sequence: stop.sequence,
+    stop: stop.sequence,
+    stopType: stop.stopType,
+    type: stop.stopType,
+    deliveryType: stop.task.deliveryType,
+    jobType: stop.task.type,
+    address: stop.address,
+    name: stop.stopType === "PICKUP"
+      ? (stop.task.type === "customer_to_tailor" ? stop.task.customerName : stop.task.tailorName)
+      : (stop.task.type === "customer_to_tailor" ? stop.task.tailorName : stop.task.customerName),
+    pickupAddress: stop.task.pickupAddress,
+    dropAddress: stop.task.dropAddress,
+    distanceFromPreviousMeters: Math.round(stop.distanceFromPreviousMeters),
+    payableDistanceFromPreviousMeters: Math.round(stop.payableDistanceFromPreviousMeters),
+    durationFromPreviousSeconds: Math.round(stop.durationFromPreviousSeconds)
+  };
 }
 
 function assertDeliveryOptimizationTestMode() {
@@ -342,15 +391,7 @@ export async function optimizeDeliveryBatchForTesting(batchId: string, now = new
         lockedAt: batch.lockedAt ?? now,
         routeOptimizedAt: now,
         deliveryJobIds: optimized.ordered.map((task) => task.id),
-        optimizedStops: optimized.ordered.map((task, index) => ({
-          taskId: task.id,
-          orderId: task.orderId,
-          stop: index + 1,
-          type: task.deliveryType,
-          jobType: task.type,
-          pickupAddress: task.pickupAddress,
-          dropAddress: task.dropAddress
-        })),
+        optimizedStops: optimized.stops.map(optimizedStopPayload),
         payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
         optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
         estimatedDurationSeconds: Math.round(optimized.durationSeconds),
@@ -391,15 +432,7 @@ async function refreshRoutePositions(batchId?: string) {
   );
   await DeliveryBatchModel.findOneAndUpdate({ batchId }, {
     deliveryJobIds: optimized.ordered.map((task) => task.id),
-    optimizedStops: optimized.ordered.map((task, index) => ({
-      taskId: task.id,
-      orderId: task.orderId,
-      stop: index + 1,
-      type: task.deliveryType,
-      jobType: task.type,
-      pickupAddress: task.pickupAddress,
-      dropAddress: task.dropAddress
-    })),
+    optimizedStops: optimized.stops.map(optimizedStopPayload),
     optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
     payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
     estimatedDurationSeconds: Math.round(optimized.durationSeconds),
@@ -421,10 +454,10 @@ async function recalculateBatchTotals(batchId?: string) {
       $set: {
         tasks: tasks.map((task) => task.id),
         deliveryJobIds: optimized.ordered.map((task) => task.id),
-        optimizedStops: optimized.ordered.map((task, index) => ({ taskId: task.id, orderId: task.orderId, stop: index + 1, type: task.deliveryType, jobType: task.type, pickupAddress: task.pickupAddress, dropAddress: task.dropAddress })),
+        optimizedStops: optimized.stops.map(optimizedStopPayload),
         ordersCount: tasks.length,
-        pickupCount: tasks.filter((task) => task.deliveryType === DeliveryType.PICKUP).length,
-        dropCount: tasks.filter((task) => task.deliveryType === DeliveryType.DROP).length,
+        pickupCount: optimized.stops.filter((stop) => stop.stopType === "PICKUP").length,
+        dropCount: optimized.stops.filter((stop) => stop.stopType === "DROP").length,
         estimatedEarnings: optimized.estimatedPayout,
         estimatedPayout: optimized.estimatedPayout,
         finalPayout: allCompleted ? optimized.estimatedPayout : undefined,
@@ -487,7 +520,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
   );
   await DeliveryBatchModel.findOneAndUpdate({ batchId: claimed.batchId }, {
     deliveryJobIds: optimized.ordered.map((task) => task.id),
-    optimizedStops: optimized.ordered.map((task, index) => ({ taskId: task.id, orderId: task.orderId, stop: index + 1, type: task.deliveryType, jobType: task.type, pickupAddress: task.pickupAddress, dropAddress: task.dropAddress })),
+    optimizedStops: optimized.stops.map(optimizedStopPayload),
     payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
     optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
     estimatedDurationSeconds: Math.round(optimized.durationSeconds),
@@ -521,6 +554,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
   const batchPayableDistanceMeters = Math.round(optimized.payableDistance);
   const batchEstimatedDurationSeconds = Math.round(optimized.durationSeconds);
   const effectiveBatchEarnings = Number(optimized.estimatedPayout || batchEstimatedEarnings);
+  const batchOptimizedStops = optimized.stops.map(optimizedStopPayload);
   const batchTasks = batchTasksForOffer.map((task) => ({
     ...(typeof task.toJSON === "function" ? task.toJSON() : task),
     batchId: claimed.batchId,
@@ -532,7 +566,8 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     batchEstimatedEarnings: effectiveBatchEarnings,
     batchPayableDistanceMeters,
     batchEstimatedDurationSeconds,
-    batchArea: claimed.area
+    batchArea: claimed.area,
+    batchOptimizedStops
   }));
 
   const representativePayload = {
@@ -548,6 +583,7 @@ async function notifyScheduledBatch(batch: any, now = new Date()) {
     batchPayableDistanceMeters,
     batchEstimatedDurationSeconds,
     batchArea: claimed.area,
+    batchOptimizedStops,
     batchTasks
   };
 

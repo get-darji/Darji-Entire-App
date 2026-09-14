@@ -168,6 +168,23 @@ const DELIVERY_FAILURE_REASONS = [
 ] as const;
 
 type DeliveryMedia = { url: string; publicId?: string; resourceType: "image" | "video"; bytes?: number; format?: string; originalName?: string };
+type OptimizedRouteStopPayload = {
+  taskId?: string;
+  orderId?: string;
+  sequence?: number;
+  stop?: number;
+  stopType?: "PICKUP" | "DROP";
+  type?: "PICKUP" | "DROP";
+  deliveryType?: "PICKUP" | "DROP";
+  jobType?: "customer_to_tailor" | "tailor_to_customer";
+  address?: string;
+  name?: string;
+  pickupAddress?: string;
+  dropAddress?: string;
+  distanceFromPreviousMeters?: number;
+  payableDistanceFromPreviousMeters?: number;
+  durationFromPreviousSeconds?: number;
+};
 type DeliveryRequest = {
   id: string;
   orderId: string;
@@ -221,6 +238,7 @@ type DeliveryRequest = {
   batchEstimatedEarnings?: number;
   batchPayableDistanceMeters?: number;
   batchEstimatedDurationSeconds?: number;
+  batchOptimizedStops?: OptimizedRouteStopPayload[];
   batchArea?: string;
   retryStatus?: "ACTIVE" | "PENDING_RETRY" | "ACTION_REQUIRED" | "CANCELLED" | "RESOLVED";
   retryCount?: number;
@@ -361,6 +379,7 @@ function normalizeDeliveryTaskPayloads(payload: DeliveryTaskPayload): DeliveryRe
     batchEstimatedEarnings: task.batchEstimatedEarnings ?? payload.batchEstimatedEarnings,
     batchPayableDistanceMeters: task.batchPayableDistanceMeters ?? payload.batchPayableDistanceMeters ?? payload.payableOptimizedDistanceMeters,
     batchEstimatedDurationSeconds: task.batchEstimatedDurationSeconds ?? payload.batchEstimatedDurationSeconds ?? payload.estimatedDurationSeconds,
+    batchOptimizedStops: task.batchOptimizedStops ?? payload.batchOptimizedStops,
     batchArea: task.batchArea ?? payload.batchArea ?? payload.assignedArea
   }));
 }
@@ -653,7 +672,8 @@ function routeStatusForBatch(batch: DeliveryBatchSummary) {
   if (batch.isInstant) return { label: "Direct request", tone: "red" as const, detail: "Instant deliveries stay outside batch routing." };
   if (batch.status === "offered") return { label: "Optimization pending", tone: "orange" as const, detail: "Route will be optimized after acceptance." };
   if (!batch.requests.length) return { label: "No eligible stops", tone: "blue" as const, detail: "All deliveries are completed or unavailable." };
-  const hasOrder = batch.requests.every((request) => Number.isFinite(Number(request.routePosition)));
+  const hasOptimizedStops = batch.requests.some((request) => Array.isArray(request.batchOptimizedStops) && request.batchOptimizedStops.length > 0);
+  const hasOrder = hasOptimizedStops || batch.requests.every((request) => Number.isFinite(Number(request.routePosition)));
   const hasMetrics = Number(batch.payableDistanceMeters ?? 0) > 0 || Number(batch.estimatedDurationSeconds ?? 0) > 0;
   if (hasOrder && hasMetrics) return { label: "Optimized", tone: "green" as const, detail: "Using backend route order with OSRM road metrics when available." };
   if (hasOrder) return { label: "Route available", tone: "blue" as const, detail: "Some distance or ETA information is unavailable." };
@@ -670,6 +690,46 @@ function taskDropCompleted(request: DeliveryRequest) {
 
 function buildBatchRouteStops(batch: DeliveryBatchSummary): BatchRouteStop[] {
   const eligibleRequests = sortDeliveryTasksForRoute(batch.requests.filter((request) => request.serviceLevel !== "INSTANT" && request.taskStatus !== "cancelled"));
+  const taskById = new Map(eligibleRequests.flatMap((request) => [[request.id, request], [request.orderId, request]]));
+  const optimizedStops = eligibleRequests.find((request) => Array.isArray(request.batchOptimizedStops) && request.batchOptimizedStops.length)?.batchOptimizedStops ?? [];
+  if (optimizedStops.length) {
+    const stops = optimizedStops.flatMap((optimized, index): BatchRouteStop[] => {
+      const request = taskById.get(String(optimized.taskId ?? "")) ?? taskById.get(String(optimized.orderId ?? ""));
+      const stopType = (optimized.stopType ?? optimized.type) === "DROP" ? "DROP" : "PICKUP";
+      if (!request) return [];
+      const pickupComplete = taskPickupCompleted(request);
+      const dropComplete = taskDropCompleted(request);
+      const completed = stopType === "PICKUP" ? pickupComplete : dropComplete;
+      const locked = stopType === "DROP" && !pickupComplete;
+      const sequence = Number(optimized.sequence ?? optimized.stop ?? index + 1);
+      const isCustomerStop = stopType === "PICKUP"
+        ? request.type === "customer_to_tailor"
+        : request.type === "tailor_to_customer";
+      const title = stopType === "PICKUP"
+        ? (isCustomerStop ? "Customer pickup" : "Tailor pickup")
+        : (isCustomerStop ? "Customer drop" : "Tailor drop");
+      const distanceMeters = Number(optimized.distanceFromPreviousMeters ?? 0);
+      const durationSeconds = Number(optimized.durationFromPreviousSeconds ?? 0);
+      return [{
+        id: `${request.id}:${stopType.toLowerCase()}:${sequence}`,
+        sequence,
+        stopType,
+        status: completed ? "COMPLETED" : locked ? "LOCKED" : "UPCOMING",
+        request,
+        requestId: `REQ-${request.orderId.slice(0, 8).toUpperCase()}`,
+        title,
+        name: optimized.name || (isCustomerStop ? request.customerName || "Customer" : request.tailorName || "Tailor"),
+        address: optimized.address || (stopType === "PICKUP" ? request.pickupAddress : request.dropAddress),
+        distanceLabel: sequence === 1 ? "First stop" : distanceMeters > 0 ? formatKm(distanceMeters) : "Leg pending",
+        durationLabel: durationSeconds > 0 ? formatDuration(durationSeconds) : "ETA pending",
+        lockedReason: locked ? "Pickup required first" : undefined,
+        prerequisiteLabel: locked ? "Complete this order pickup first" : undefined,
+        completedAt: stopType === "PICKUP" ? request.pickupOtpVerifiedAt ?? request.pickedUpAt : request.dropOtpVerifiedAt ?? request.deliveredAt
+      }];
+    }).sort((a, b) => a.sequence - b.sequence);
+    const firstActionable = stops.find((stop) => stop.status === "UPCOMING");
+    return stops.map((stop) => stop.id === firstActionable?.id ? { ...stop, status: "NEXT" } : stop);
+  }
   const stops: BatchRouteStop[] = [];
   eligibleRequests.forEach((request) => {
     const pickupSequence = stops.length + 1;
@@ -810,6 +870,20 @@ function openDirections(destination: string, origin?: string) {
   Linking.openURL(url).catch(() => {
     Linking.openURL(`https://www.google.com/maps/dir/?api=1${origin ? `&origin=${encodeURIComponent(origin)}` : ""}&destination=${encodeURIComponent(destination)}&travelmode=driving`).catch(() => undefined);
   });
+}
+
+function openRouteDirections(stops: BatchRouteStop[], origin?: string) {
+  const activeStops = stops.filter((stop) => stop.status !== "COMPLETED" && stop.status !== "LOCKED" && stop.address);
+  const routeStops = activeStops.length ? activeStops : stops.filter((stop) => stop.address);
+  if (!routeStops.length) return;
+  if (routeStops.length === 1) {
+    openDirections(routeStops[0].address, origin);
+    return;
+  }
+  const destination = routeStops[routeStops.length - 1].address;
+  const waypoints = routeStops.slice(0, -1).map((stop) => stop.address).join("|");
+  const url = `https://www.google.com/maps/dir/?api=1${origin ? `&origin=${encodeURIComponent(origin)}` : ""}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(waypoints)}&travelmode=driving`;
+  Linking.openURL(url).catch(() => openDirections(routeStops[0].address, origin));
 }
 
 function Screen({ children }: { children: ReactNode }) {
@@ -2387,7 +2461,6 @@ function BatchDetailsView({
   currentLocation?: { latitude: number; longitude: number };
   onRetryLocation: () => Promise<boolean>;
 }) {
-  const [selectedStop, setSelectedStop] = useState<BatchRouteStop | undefined>();
   const roundLabel = routeRoundLabel(batch.deliveryRound);
   const dateStr = new Date(batch.roundAt).toLocaleDateString("en-IN", {
     day: "numeric",
@@ -2404,18 +2477,7 @@ function BatchDetailsView({
   const completedStops = routeStops.filter((stop) => stop.status === "COMPLETED").length;
   const eligibleJobCount = batch.requests.filter((request) => request.serviceLevel !== "INSTANT").length;
   const routeOrigin = currentLocation ? `${currentLocation.latitude},${currentLocation.longitude}` : undefined;
-  const navigateToStop = (stop: BatchRouteStop) => openDirections(stop.address, routeOrigin);
-
-  if (selectedStop) {
-    return (
-      <StopDetailsPanel
-        stop={selectedStop}
-        onBack={() => setSelectedStop(undefined)}
-        onNavigate={navigateToStop}
-        onOpenTask={onOpenOrder}
-      />
-    );
-  }
+  const navigateOptimizedRoute = () => openRouteDirections(routeStops, routeOrigin);
 
   const renderStopCard = (request: DeliveryRequest, index: number) => {
     const priority = request.routePosition ?? index + 1;
@@ -2488,6 +2550,9 @@ function BatchDetailsView({
           <RouteMetric label="Stops" value={`${routeStops.length}`} />
           <RouteMetric label="Pickup / Drop" value={`${batch.pickupCount ?? 0}/${batch.dropCount ?? 0}`} tone="orange" />
         </View>
+        {!isOffered && routeStops.length ? (
+          <PrimaryButton icon="navigate-outline" label="Start optimized route" onPress={navigateOptimizedRoute} />
+        ) : null}
       </Card>
 
       {isOffered ? (
@@ -2523,11 +2588,11 @@ function BatchDetailsView({
               <PrimaryButton icon="navigate-outline" label="Try again" onPress={() => void onRetryLocation()} />
             </Card>
           ) : null}
-          <NextStopCard stop={nextStop} onNavigate={navigateToStop} onDetails={setSelectedStop} />
+          <NextStopCard stop={nextStop} onNavigate={navigateOptimizedRoute} onDetails={(stop) => onOpenOrder(stop.request)} />
         </>
       )}
 
-      <RouteTimeline stops={routeStops} onStopPress={setSelectedStop} />
+      <RouteTimeline stops={routeStops} onStopPress={(stop) => onOpenOrder(stop.request)} />
 
       {cancelledRequests.length > 0 ? (
         <Card style={styles.routeErrorCard}>
@@ -3610,8 +3675,13 @@ function MainApp({
       const first = sortedList[0];
       const batchMetricEarnings = Number(first?.batchEstimatedEarnings ?? 0);
       const estimatedEarnings = batchMetricEarnings > 0 ? batchMetricEarnings : sortedList.reduce((sum, r) => sum + requestEarning(r), 0);
-      const pickupCount = sortedList.filter((r) => r.type === "customer_to_tailor" || r.deliveryType === "PICKUP").length;
-      const dropCount = sortedList.filter((r) => r.type === "tailor_to_customer" || r.deliveryType === "DROP").length;
+      const optimizedStops = first?.batchOptimizedStops ?? [];
+      const pickupCount = optimizedStops.length
+        ? optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "PICKUP").length
+        : sortedList.filter((r) => r.type === "customer_to_tailor" || r.deliveryType === "PICKUP").length;
+      const dropCount = optimizedStops.length
+        ? optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "DROP").length
+        : sortedList.filter((r) => r.type === "tailor_to_customer" || r.deliveryType === "DROP").length;
       const payableDistanceMeters = Number(first?.batchPayableDistanceMeters ?? 0) || sortedList.reduce((sum, r) => sum + Number(r.distanceMeters ?? (r.estimatedDistanceKm ?? 0) * 1000), 0);
       const estimatedDurationSeconds = Number(first?.batchEstimatedDurationSeconds ?? 0);
       const isCompleted = list.length > 0 && list.every((r) => r.taskStatus === "delivered");
