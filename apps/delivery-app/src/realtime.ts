@@ -1,13 +1,28 @@
 import Constants from "expo-constants";
 import { io, type Socket } from "socket.io-client";
+import { getActiveApiUrl } from "./api";
 
 export type ConnectionStatus = "Connected" | "Reconnecting" | "Offline";
 
-const apiUrl =
+const configuredApiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
   "https://darji-entire-app-production.up.railway.app/api";
-const socketUrl = apiUrl.replace(/\/api\/?$/, "");
+const devHostApiUrl = Constants.expoConfig?.hostUri
+  ? `http://${Constants.expoConfig.hostUri.split(":")[0]}:4000/api`
+  : undefined;
+const socketUrls = Array.from(new Set([
+  configuredApiUrl,
+  devHostApiUrl,
+  "http://localhost:4000/api",
+  "http://10.0.2.2:4000/api",
+  "http://127.0.0.1:4000/api"
+].filter(Boolean).map((url) => String(url).replace(/\/api\/?$/, ""))));
+
+function activeSocketUrl() {
+  const active = getActiveApiUrl().replace(/\/api\/?$/, "");
+  return socketUrls.includes(active) ? active : socketUrls[0];
+}
 
 export function createRealtimeSocket(
   token: string,
@@ -15,7 +30,7 @@ export function createRealtimeSocket(
   refreshToken?: () => Promise<string | undefined>
 ) {
   let refreshingAuthentication = false;
-  const socket: Socket = io(socketUrl, {
+  const socket: Socket = io(activeSocketUrl(), {
     auth: { token },
     transports: ["websocket", "polling"],
     reconnection: true,

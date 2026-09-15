@@ -131,7 +131,7 @@ function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>
 }
 
 type AuthStep = "login" | "otp";
-type AppStage = "auth" | "loading" | "onboarding" | "pending" | "main";
+type AppStage = "auth" | "loading" | "onboarding" | "pending" | "main" | "accountError";
 type OnboardingStep = "personal" | "identity" | "license" | "vehicle" | "bank" | "preferences" | "tutorial" | "review";
 type Tab = "home" | "orders" | "earnings" | "earningDetails" | "notifications" | "profile" | "transactions";
 type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
@@ -2414,6 +2414,11 @@ function RouteTimeline({ stops, onStopPress }: { stops: BatchRouteStop[]; onStop
 
 function StopDetailsPanel({ stop, onBack, onNavigate, onOpenTask }: { stop: BatchRouteStop; onBack: () => void; onNavigate: (stop: BatchRouteStop) => void; onOpenTask: (request: DeliveryRequest) => void }) {
   const locked = stop.status === "LOCKED";
+  const completed = stop.status === "COMPLETED";
+  const canOpenTaskActions = !locked && !completed && (
+    (stop.stopType === "PICKUP" && stop.request.taskStatus === "accepted") ||
+    (stop.stopType === "DROP" && stop.request.taskStatus === "picked_up")
+  );
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <Header title={`Stop ${stop.sequence}`} subtitle={`${stop.stopType} - ${stop.status === "NEXT" ? "Current" : stop.status.toLowerCase()}`} onBack={onBack} />
@@ -2432,13 +2437,13 @@ function StopDetailsPanel({ stop, onBack, onNavigate, onOpenTask }: { stop: Batc
         {locked && stop.prerequisiteLabel ? <Text style={styles.lockReason}>{stop.prerequisiteLabel}</Text> : null}
         {stop.completedAt ? <StatusRow label="Completed at" value={formatTimestamp(stop.completedAt)} /> : null}
         <Text style={styles.routeSectionTitle}>Stop instructions</Text>
-        <ChecklistRow label={stop.stopType === "PICKUP" ? "Reach the pickup location" : "Reach the drop location"} complete={false} current={!locked} locked={locked} />
-        <ChecklistRow label={stop.stopType === "PICKUP" ? "Verify pickup OTP and photo proof" : "Verify delivery OTP and handoff proof"} complete={stop.status === "COMPLETED"} current={!locked} locked={locked} />
+        <ChecklistRow label={stop.stopType === "PICKUP" ? "Reach the pickup location" : "Reach the drop location"} complete={completed} current={!locked && !completed} locked={locked} />
+        <ChecklistRow label={stop.stopType === "PICKUP" ? "Verify pickup OTP and photo proof" : "Verify delivery OTP and handoff proof"} complete={completed} current={!locked && !completed} locked={locked} />
         <View style={styles.navRow}>
-          <View style={styles.flexOne}><PrimaryButton icon="map-outline" label="View on map" variant="secondary" disabled={locked} onPress={() => onNavigate(stop)} /></View>
-          <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Start navigation" disabled={locked} onPress={() => onNavigate(stop)} /></View>
+          <View style={styles.flexOne}><PrimaryButton icon="map-outline" label="View on map" variant="secondary" disabled={locked || completed} onPress={() => onNavigate(stop)} /></View>
+          <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label="Start navigation" disabled={locked || completed} onPress={() => onNavigate(stop)} /></View>
         </View>
-        <PrimaryButton icon="checkbox-outline" label={stop.status === "COMPLETED" ? "Completed" : "Open task actions"} disabled={locked || stop.status === "COMPLETED"} onPress={() => onOpenTask(stop.request)} />
+        <PrimaryButton icon={completed ? "checkmark-circle-outline" : "checkbox-outline"} label={completed ? "Completed" : "Open task actions"} disabled={!canOpenTaskActions} onPress={() => onOpenTask(stop.request)} />
       </Card>
     </ScrollView>
   );
@@ -2593,6 +2598,30 @@ function BatchDetailsView({
       )}
 
       <RouteTimeline stops={routeStops} onStopPress={(stop) => onOpenOrder(stop.request)} />
+
+      {completedRequests.length > 0 ? (
+        <Card style={styles.completedJobsCard}>
+          <View style={styles.cardTopRow}>
+            <Ionicons name="checkmark-circle-outline" size={24} color={SUCCESS} />
+            <View style={styles.flexOne}>
+              <Text style={styles.cardTitle}>Completed jobs</Text>
+              <Text style={styles.helperText}>You have completed {completedRequests.length} job{completedRequests.length === 1 ? "" : "s"} in this batch.</Text>
+            </View>
+          </View>
+          {completedRequests.map((request) => (
+            <Pressable key={request.id} style={styles.completedJobRow} onPress={() => onOpenOrder(request)}>
+              <View style={styles.completedJobIcon}>
+                <Ionicons name="checkmark" size={14} color="#ffffff" />
+              </View>
+              <View style={styles.flexOne}>
+                <Text style={styles.completedJobTitle}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
+                <Text style={styles.completedJobMeta}>{requestTitle(request)} - {(request.deliveredAt ?? request.createdAt) ? formatTimestamp(request.deliveredAt ?? request.createdAt) : "Completed"}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
 
       {cancelledRequests.length > 0 ? (
         <Card style={styles.routeErrorCard}>
@@ -2986,6 +3015,7 @@ function ActiveOrderScreenView({
   const [failureReason, setFailureReason] = useState<(typeof DELIVERY_FAILURE_REASONS)[number] | "">("");
   const pickupOtpVerified = Boolean(order.pickupOtpVerifiedAt);
   const dropOtpVerified = Boolean(order.dropOtpVerifiedAt);
+  const orderCompleted = order.taskStatus === "delivered";
   const requiredPhotoCount = deliveryItemCount(order);
   const clothPhotoCount = order.clothPhotos?.length ?? 0;
   const deliveryPhotoCount = order.deliveryPhotos?.length ?? 0;
@@ -3184,6 +3214,17 @@ function ActiveOrderScreenView({
             </View>
           </Card>
         ) : null}
+        {orderCompleted ? (
+          <Card style={styles.completedJobsCard}>
+            <View style={styles.cancelledNoticeRow}>
+              <Ionicons name="checkmark-circle-outline" size={24} color={SUCCESS} />
+              <View style={styles.flexOne}>
+                <Text style={styles.completedNoticeTitle}>You completed this job</Text>
+                <Text style={styles.completedNoticeCopy}>This delivery is saved in History. Actions are locked because the handoff is already complete.</Text>
+              </View>
+            </View>
+          </Card>
+        ) : null}
         <View style={styles.detailSectionNav}>
           {(["summary", "route", "confirmations"] as ActiveOrderScreen[]).map((item) => (
             <Pressable style={[styles.detailSectionButton, screen === item && styles.detailSectionButtonActive]} key={item} onPress={() => setScreen(item)}>
@@ -3209,13 +3250,13 @@ function ActiveOrderScreenView({
               <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call pickup" onPress={() => Linking.openURL(`tel:${order.leg === "CUSTOMER_TO_TAILOR" ? order.customerPhone ?? "" : order.tailorPhone ?? ""}`)} variant="secondary" /></View>
               <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label={`Go to ${routeDestinationLabel}`} onPress={() => openDirections(routeDestination, routeOrigin)} /></View>
             </View>
-            {order.taskStatus === "accepted" || order.taskStatus === "picked_up" ? (
+            {!orderCompleted && (order.taskStatus === "accepted" || order.taskStatus === "picked_up") ? (
               <PrimaryButton icon="alert-circle-outline" label="Mark Failed" variant="danger" loading={updating} onPress={() => setFailureModalOpen(true)} />
             ) : null}
           </Card>
         ) : null}
 
-        {screen === "route" ? (
+        {screen === "route" && !orderCompleted ? (
           <Card accent>
             <Text style={styles.cardTitle}>Next destination: {routeDestinationLabel}</Text>
             <Text style={styles.helperText}>{headingToPickup ? "Navigate to the pickup point first." : "Pickup is complete. Continue only to the drop point."}</Text>
@@ -3224,7 +3265,7 @@ function ActiveOrderScreenView({
           </Card>
         ) : null}
 
-        {screen === "confirmations" && order.taskStatus === "accepted" && order.type === "customer_to_tailor" && pickupOtpVerified && !pickupChecklistComplete ? (
+        {screen === "confirmations" && !orderCompleted && order.taskStatus === "accepted" && order.type === "customer_to_tailor" && pickupOtpVerified && !pickupChecklistComplete ? (
           <Card>
             <Text style={styles.cardTitle}>Cloth photos</Text>
             <Text style={styles.helperText}>Upload one clear pickup photo per clothing item: {Math.min(clothProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
@@ -3252,7 +3293,7 @@ function ActiveOrderScreenView({
           </Card>
         ) : null}
 
-        {screen === "confirmations" && order.taskStatus === "picked_up" && order.type === "tailor_to_customer" && dropOtpVerified && !deliveryPhotosUploaded ? (
+        {screen === "confirmations" && !orderCompleted && order.taskStatus === "picked_up" && order.type === "tailor_to_customer" && dropOtpVerified && !deliveryPhotosUploaded ? (
           <Card>
             <Text style={styles.cardTitle}>Final delivery photos</Text>
             <Text style={styles.helperText}>Upload one final handover photo per clothing item: {Math.min(deliveryProofs.length, requiredPhotoCount)}/{requiredPhotoCount} ready.</Text>
@@ -4550,6 +4591,7 @@ export default function App() {
   const platform = usePlatformStatus(getPlatformStatus, token);
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
+  const [accountCheckError, setAccountCheckError] = useState<string>();
   const [dialog, setDialog] = useState<DialogState>();
   const skipLoadingScreenRef = useRef(false);
   const updatePromptShownRef = useRef(false);
@@ -4631,6 +4673,7 @@ export default function App() {
     try {
       const profile = await api<MeResponse>("/auth/me", {}, token);
       setMe(profile);
+      setAccountCheckError(undefined);
       const verificationStatus = profile.deliveryProfile?.verificationStatus ?? "NOT_SUBMITTED";
       if (verificationStatus === "VERIFIED") setStage("main");
       else if (verificationStatus === "PENDING") setStage("pending");
@@ -4641,7 +4684,8 @@ export default function App() {
         handleSessionExpired();
         return;
       }
-      setStage("onboarding");
+      setAccountCheckError(error instanceof Error ? error.message : "Could not reach Darji backend.");
+      setStage("accountError");
     }
   }, [handleSessionExpired, token]);
 
@@ -4686,6 +4730,26 @@ export default function App() {
             <ActivityIndicator color={BRAND_ORANGE} size="large" />
             <Text style={styles.centeredTitle}>Checking account</Text>
             <Text style={styles.centeredCopy}>Loading your delivery profile and verification status.</Text>
+          </View>
+        </Screen>
+        <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
+        {incomingAlertPermissionGuide}
+      </>
+    );
+  }
+  if (stage === "accountError") {
+    return (
+      <>
+        <Screen>
+          <View style={styles.centeredState}>
+            <Ionicons color={BRAND_ORANGE} name="cloud-offline-outline" size={54} />
+            <Text style={styles.centeredTitle}>Could not check account</Text>
+            <Text style={styles.centeredCopy}>{accountCheckError ?? "Darji backend is not reachable right now. Your saved login has not been changed."}</Text>
+            {sessionUser?.phone ? <Text style={styles.centeredCopy}>Saved account: +91 {sessionUser.phone}</Text> : null}
+            <View style={styles.accountErrorActions}>
+              <PrimaryButton icon="refresh-outline" label="Try again" onPress={() => { setStage("loading"); void refreshProfile(); }} />
+              <PrimaryButton icon="log-out-outline" label="Use another number" variant="secondary" onPress={handleSignOut} />
+            </View>
           </View>
         </Screen>
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
@@ -4751,6 +4815,7 @@ const styles = StyleSheet.create({
   centeredState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
   centeredTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", marginTop: 18 },
   centeredCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 8 },
+  accountErrorActions: { width: "100%", gap: 10, marginTop: 18 },
   pendingHero: { borderRadius: 24, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 22, alignItems: "center", marginBottom: 14 },
   pendingBadge: { width: 74, height: 74, borderRadius: 37, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: BORDER },
   pendingTitle: { color: BRAND_DEEP, fontSize: 24, fontWeight: "900", textAlign: "center", marginTop: 16 },
@@ -4825,6 +4890,8 @@ const styles = StyleSheet.create({
   cancelledNoticeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   cancelledNoticeTitle: { color: "#991b1b", fontSize: 15, fontWeight: "900" },
   cancelledNoticeCopy: { color: "#b91c1c", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
+  completedNoticeTitle: { color: "#047857", fontSize: 15, fontWeight: "900" },
+  completedNoticeCopy: { color: "#047857", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 3 },
   navRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   documentBox: { minHeight: 96, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 10, marginTop: 10, overflow: "hidden" },
   documentPreview: { width: 70, height: 70, flexShrink: 0, borderRadius: 12, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center", overflow: "hidden" },
@@ -5014,6 +5081,11 @@ const styles = StyleSheet.create({
   routeStopBody: { flex: 1, minWidth: 0, borderRadius: 16, borderWidth: 1, borderColor: "#e4e9f1", backgroundColor: "#fbfdff", padding: 12, marginBottom: 10 },
   routeStopBodyNext: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
   routeStopBodyLocked: { borderColor: "#cbd5e1", backgroundColor: "#f8fafc" },
+  completedJobsCard: { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4" },
+  completedJobRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: "#bbf7d0", paddingTop: 10, marginTop: 10 },
+  completedJobIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: SUCCESS, alignItems: "center", justifyContent: "center" },
+  completedJobTitle: { color: BRAND_DEEP, fontSize: 13, fontWeight: "900" },
+  completedJobMeta: { color: "#047857", fontSize: 12, fontWeight: "700", marginTop: 2 },
   routeStopTitle: { color: BRAND_DEEP, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 9 },
   routeStopMeta: { color: MUTED, fontSize: 11, lineHeight: 16, fontWeight: "800", marginTop: 3 },
   lockReason: { color: "#475569", fontSize: 11, lineHeight: 16, fontWeight: "800", marginTop: 8 },

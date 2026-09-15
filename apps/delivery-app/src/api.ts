@@ -4,26 +4,81 @@ import { useAppStore } from "./store";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
 import type { AppLanguage } from "../../../shared/src/localization";
 
-const apiUrl =
+const configuredApiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
   "https://darji-entire-app-production.up.railway.app/api";
+const devHostApiUrl = Constants.expoConfig?.hostUri
+  ? `http://${Constants.expoConfig.hostUri.split(":")[0]}:4000/api`
+  : undefined;
+const apiUrls = Array.from(new Set([
+  configuredApiUrl,
+  devHostApiUrl,
+  "http://localhost:4000/api",
+  "http://10.0.2.2:4000/api",
+  "http://127.0.0.1:4000/api"
+].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
+let activeApiUrl = apiUrls[0];
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
 const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
 const REQUEST_TIMEOUT_MS = 15000;
 
+function markApiUrlReachable(url: string) {
+  activeApiUrl = url;
+}
+
+function withStatus(error: Error, status?: number) {
+  return Object.assign(error, { status });
+}
+
+function shouldTryFallback(error: unknown) {
+  const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : undefined;
+  if (status && status !== 404 && status < 500) return false;
+  if (error instanceof Error && sessionErrorPattern.test(error.message)) return false;
+  return true;
+}
+
+function orderedApiUrls() {
+  return [activeApiUrl, ...apiUrls.filter((url) => url !== activeApiUrl)];
+}
+
+export function getActiveApiUrl() {
+  return activeApiUrl;
+}
+
+async function fetchWithApiFallback<T>(request: (apiUrl: string) => Promise<T>) {
+  let lastError: unknown;
+  for (const url of orderedApiUrls()) {
+    try {
+      const result = await request(url);
+      markApiUrlReachable(url);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!shouldTryFallback(error)) throw error;
+    }
+  }
+  throw lastError;
+}
+
 async function performAccessTokenRefresh() {
   const refreshToken = useAppStore.getState().refreshToken;
   if (!refreshToken) return undefined;
 
-  const response = await fetch(`${apiUrl}/auth/refresh`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true"
-    },
-    body: JSON.stringify({ refreshToken })
+  const response = await fetchWithApiFallback(async (apiUrl) => {
+    const response = await fetch(`${apiUrl}/auth/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true"
+      },
+      body: JSON.stringify({ refreshToken })
+    });
+    if (!response.ok && [404, 500, 502, 503, 504].includes(response.status)) {
+      throw withStatus(new Error("Backend refresh endpoint is unavailable"), response.status);
+    }
+    return response;
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -60,7 +115,7 @@ export async function getPlatformStatus() {
   }
 }
 
-async function requestJson<T>(path: string, options: RequestInit, token?: string) {
+async function requestJsonAt<T>(apiUrl: string, path: string, options: RequestInit, token?: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -82,7 +137,7 @@ async function requestJson<T>(path: string, options: RequestInit, token?: string
             .flatMap(([field, messages]) => Array.isArray(messages) ? messages.map((message) => `${field}: ${message}`) : [])
             .join("\n")
         : "";
-      throw new Error(issueMessage || body.message || "Request failed");
+      throw withStatus(new Error(issueMessage || body.message || "Request failed"), response.status);
     }
     return body.data as T;
   } catch (error) {
@@ -91,6 +146,10 @@ async function requestJson<T>(path: string, options: RequestInit, token?: string
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function requestJson<T>(path: string, options: RequestInit, token?: string) {
+  return fetchWithApiFallback((apiUrl) => requestJsonAt<T>(apiUrl, path, options, token));
 }
 
 export async function api<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
@@ -152,7 +211,7 @@ export type UploadedMedia = {
   originalName?: string;
 };
 
-function sendMediaUpload(files: { uri: string; name: string }[], token: string): Promise<UploadedMedia[]> {
+function sendMediaUploadAt(apiUrl: string, files: { uri: string; name: string }[], token: string): Promise<UploadedMedia[]> {
   const form = new FormData();
   files.forEach((file) => form.append("media", { uri: file.uri, name: file.name, type: "image/jpeg" } as unknown as File));
   return new Promise((resolve, reject) => {
@@ -161,13 +220,20 @@ function sendMediaUpload(files: { uri: string; name: string }[], token: string):
     request.setRequestHeader("Authorization", `Bearer ${token}`);
     request.onload = () => {
       const body = JSON.parse(request.responseText || "{}") as { data?: UploadedMedia[]; message?: string };
-      if (request.status < 200 || request.status >= 300) reject(new Error(body.message ?? "Upload failed"));
-      else resolve(body.data ?? []);
+      if (request.status < 200 || request.status >= 300) reject(withStatus(new Error(body.message ?? "Upload failed"), request.status));
+      else {
+        markApiUrlReachable(apiUrl);
+        resolve(body.data ?? []);
+      }
     };
     request.onerror = () => reject(new Error("Upload failed. Check backend connection."));
     request.timeout = 120000;
     request.send(form);
   });
+}
+
+function sendMediaUpload(files: { uri: string; name: string }[], token: string): Promise<UploadedMedia[]> {
+  return fetchWithApiFallback((apiUrl) => sendMediaUploadAt(apiUrl, files, token));
 }
 
 export async function uploadDeliveryMedia(files: { uri: string; name: string }[], token?: string) {
@@ -183,7 +249,7 @@ export async function uploadDeliveryMedia(files: { uri: string; name: string }[]
   }
 }
 
-function sendSingleImageUpload(path: string, fieldName: string, file: { uri: string; name: string }, token: string) {
+function sendSingleImageUploadAt(apiUrl: string, path: string, fieldName: string, file: { uri: string; name: string }, token: string) {
   const form = new FormData();
   form.append(fieldName, { uri: file.uri, name: file.name, type: "image/jpeg" } as unknown as File);
   return new Promise<{ avatarUrl?: string; user?: unknown }>((resolve, reject) => {
@@ -192,8 +258,11 @@ function sendSingleImageUpload(path: string, fieldName: string, file: { uri: str
     request.setRequestHeader("Authorization", `Bearer ${token}`);
     request.onload = () => {
       const body = JSON.parse(request.responseText || "{}") as { data?: { avatarUrl?: string; user?: unknown }; message?: string };
-      if (request.status < 200 || request.status >= 300) reject(new Error(body.message ?? "Upload failed"));
-      else resolve(body.data ?? {});
+      if (request.status < 200 || request.status >= 300) reject(withStatus(new Error(body.message ?? "Upload failed"), request.status));
+      else {
+        markApiUrlReachable(apiUrl);
+        resolve(body.data ?? {});
+      }
     };
     request.onerror = () => reject(new Error("Upload failed. Check backend connection."));
     request.timeout = 120000;
@@ -201,7 +270,11 @@ function sendSingleImageUpload(path: string, fieldName: string, file: { uri: str
   });
 }
 
-function sendVerificationUpload(path: string, files: { uri: string; name: string }[], token: string): Promise<UploadedMedia[]> {
+function sendSingleImageUpload(path: string, fieldName: string, file: { uri: string; name: string }, token: string) {
+  return fetchWithApiFallback((apiUrl) => sendSingleImageUploadAt(apiUrl, path, fieldName, file, token));
+}
+
+function sendVerificationUploadAt(apiUrl: string, path: string, files: { uri: string; name: string }[], token: string): Promise<UploadedMedia[]> {
   const form = new FormData();
   files.forEach((file) => form.append("media", { uri: file.uri, name: file.name, type: "image/jpeg" } as unknown as File));
   return new Promise((resolve, reject) => {
@@ -210,13 +283,20 @@ function sendVerificationUpload(path: string, files: { uri: string; name: string
     request.setRequestHeader("Authorization", `Bearer ${token}`);
     request.onload = () => {
       const body = JSON.parse(request.responseText || "{}") as { data?: UploadedMedia[]; message?: string };
-      if (request.status < 200 || request.status >= 300) reject(new Error(body.message ?? "Upload failed"));
-      else resolve(body.data ?? []);
+      if (request.status < 200 || request.status >= 300) reject(withStatus(new Error(body.message ?? "Upload failed"), request.status));
+      else {
+        markApiUrlReachable(apiUrl);
+        resolve(body.data ?? []);
+      }
     };
     request.onerror = () => reject(new Error("Upload failed. Check backend connection."));
     request.timeout = 120000;
     request.send(form);
   });
+}
+
+function sendVerificationUpload(path: string, files: { uri: string; name: string }[], token: string): Promise<UploadedMedia[]> {
+  return fetchWithApiFallback((apiUrl) => sendVerificationUploadAt(apiUrl, path, files, token));
 }
 
 export async function uploadDeliveryAvatar(file: { uri: string; name: string }, token?: string) {
