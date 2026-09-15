@@ -14,6 +14,7 @@ const devHostApiUrl = Constants.expoConfig?.hostUri
 const socketUrls = Array.from(new Set([
   configuredApiUrl,
   devHostApiUrl,
+  "http://192.168.1.2:4000/api",
   "http://localhost:4000/api",
   "http://10.0.2.2:4000/api",
   "http://127.0.0.1:4000/api"
