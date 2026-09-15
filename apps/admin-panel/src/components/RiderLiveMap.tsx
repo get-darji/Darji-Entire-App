@@ -7,12 +7,8 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { io, type Socket } from "socket.io-client";
 import type { DeliveryPartnerProfile } from "../types/admin";
+import { getActiveApiUrl, getSocketUrl, markApiUrlReachable, nextApiUrlAfter, shouldTryApiFallback } from "../lib/api-base";
 
-const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL;
-const API_URL = configuredApiUrl === "https://backend-production-5a7e4.up.railway.app/api"
-  ? "https://darji-entire-app-production.up.railway.app/api"
-  : configuredApiUrl ?? "https://darji-entire-app-production.up.railway.app/api";
-const SOCKET_URL = API_URL.replace(/\/api$/, "");
 const STALE_MS = 5 * 60 * 1000;
 const addressCache = new Map<string, string>();
 
@@ -95,15 +91,25 @@ async function reverseAddress(lat: number, lng: number, token?: string | null): 
   const cached = addressCache.get(key);
   if (cached) return cached;
   if (token) {
-    const backendResponse = await fetch(`${API_URL}/location/reverse-geocode?lat=${lat}&lng=${lng}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (backendResponse.ok) {
-      const body = await backendResponse.json() as { data?: { formattedAddress?: string } };
-      const backendAddress = body.data?.formattedAddress;
-      if (backendAddress) {
-        addressCache.set(key, backendAddress);
-        return backendAddress;
+    let apiUrl: string | undefined = getActiveApiUrl();
+    while (apiUrl) {
+      try {
+        const backendResponse = await fetch(`${apiUrl}/location/reverse-geocode?lat=${lat}&lng=${lng}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (backendResponse.ok) {
+          markApiUrlReachable(apiUrl);
+          const body = await backendResponse.json() as { data?: { formattedAddress?: string } };
+          const backendAddress = body.data?.formattedAddress;
+          if (backendAddress) {
+            addressCache.set(key, backendAddress);
+            return backendAddress;
+          }
+        }
+        if (!shouldTryApiFallback(backendResponse.status)) break;
+        apiUrl = nextApiUrlAfter(apiUrl);
+      } catch {
+        apiUrl = nextApiUrlAfter(apiUrl);
       }
     }
   }
@@ -208,7 +214,7 @@ export default function RiderLiveMap({
   // Socket.IO — only the affected marker moves, zero React re-renders
   useEffect(() => {
     if (!token) return;
-    const socket = io(SOCKET_URL, { auth: { token }, transports: ["websocket", "polling"] });
+    const socket = io(getSocketUrl(), { auth: { token }, transports: ["websocket", "polling"] });
     socketRef.current = socket;
 
     socket.on("rider:location_updated", (data: RiderLocationEvent) => {

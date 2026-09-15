@@ -2,6 +2,7 @@
 
 import axios, { type AxiosRequestConfig } from "axios";
 import { useAdminStore } from "@/src/store/admin-store";
+import { getActiveApiUrl, markApiUrlReachable, nextApiUrlAfter, shouldTryApiFallback } from "@/src/lib/api-base";
 import type { PlatformStatus } from "../../../../shared/src/platform-status";
 import type {
   AdminUser,
@@ -36,15 +37,10 @@ import type {
   MarketingAudienceSummary,
 } from "@/src/types/admin";
 
-const RETIRED_API_URL = "https://backend-production-5a7e4.up.railway.app/api";
-const LIVE_API_URL = "https://darji-entire-app-production.up.railway.app/api";
-const API_URL = process.env.NEXT_PUBLIC_API_URL === RETIRED_API_URL
-  ? LIVE_API_URL
-  : process.env.NEXT_PUBLIC_API_URL ?? LIVE_API_URL;
 let adminRefreshPromise: Promise<string | undefined> | undefined;
 
 export const api = axios.create({
-  baseURL: API_URL,
+  baseURL: getActiveApiUrl(),
   withCredentials: true,
   headers: {
     "Content-Type": "application/json"
@@ -52,6 +48,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+  config.baseURL = getActiveApiUrl();
   const token = useAdminStore.getState().token;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -61,10 +58,23 @@ api.interceptors.request.use((config) => {
 
 async function refreshAdminAccessToken() {
   const refreshToken = useAdminStore.getState().refreshToken;
-  const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken?: string }>>(`${API_URL}/auth/refresh`, refreshToken ? { refreshToken } : {}, { withCredentials: true });
-  const session = response.data.data;
-  useAdminStore.getState().setSession(session);
-  return session.accessToken;
+  let apiUrl: string | undefined = getActiveApiUrl();
+  let lastError: unknown;
+  while (apiUrl) {
+    try {
+      const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken?: string }>>(`${apiUrl}/auth/refresh`, refreshToken ? { refreshToken } : {}, { withCredentials: true });
+      markApiUrlReachable(apiUrl);
+      const session = response.data.data;
+      useAdminStore.getState().setSession(session);
+      return session.accessToken;
+    } catch (error) {
+      lastError = error;
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (!shouldTryApiFallback(status)) throw error;
+      apiUrl = nextApiUrlAfter(apiUrl);
+    }
+  }
+  throw lastError;
 }
 
 export async function restoreAdminSession() {
@@ -80,11 +90,24 @@ export async function logoutAdminSession() {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.config.baseURL) markApiUrlReachable(response.config.baseURL);
+    return response;
+  },
   async (error) => {
+    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean; _apiFallbackBaseUrl?: string }) | undefined;
+    const status = error?.response?.status as number | undefined;
+    if (originalRequest && shouldTryApiFallback(status)) {
+      const fallbackUrl = nextApiUrlAfter(originalRequest._apiFallbackBaseUrl ?? originalRequest.baseURL ?? getActiveApiUrl());
+      if (fallbackUrl) {
+        originalRequest._apiFallbackBaseUrl = fallbackUrl;
+        originalRequest.baseURL = fallbackUrl;
+        markApiUrlReachable(fallbackUrl);
+        return api(originalRequest);
+      }
+    }
     if (error?.response?.status === 401) {
       const message = String(error.response?.data?.message ?? "Session expired");
-      const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
       if (!/signed in on another device/i.test(message) && originalRequest && !originalRequest._retry) {
         originalRequest._retry = true;
         try {
