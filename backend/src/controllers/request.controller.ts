@@ -1132,12 +1132,18 @@ export async function listDeliveryRequestsController(req: Request, res: Response
   const batchIds = [...new Set(requests.map((request) => String(request.batchId ?? "")).filter(Boolean))];
   const batches = batchIds.length ? await DeliveryBatchModel.find({ batchId: { $in: batchIds } }) : [];
   const batchById = new Map(batches.map((batch) => [String(batch.batchId), batch]));
+  const redactUnassignedPartnerContacts = (payload: Record<string, unknown>) => {
+    if (req.user!.role !== "DELIVERY_PARTNER" || !partner) return payload;
+    if (String(payload.assignedDeliveryPartnerId ?? "") === String(partner._id)) return payload;
+    const { customerPhone: _customerPhone, tailorPhone: _tailorPhone, ...redacted } = payload;
+    return redacted;
+  };
   res.json({
     data: requests.map((request) => {
       const payload = typeof request.toJSON === "function" ? request.toJSON() : request;
       const batch = request.batchId ? batchById.get(String(request.batchId)) : undefined;
-      if (!batch) return payload;
-      return {
+      if (!batch) return redactUnassignedPartnerContacts(payload);
+      return redactUnassignedPartnerContacts({
         ...payload,
         batchOrdersCount: Number(batch.ordersCount ?? 0) || undefined,
         batchEstimatedEarnings: Number(batch.estimatedPayout ?? batch.estimatedEarnings ?? 0) || undefined,
@@ -1145,20 +1151,33 @@ export async function listDeliveryRequestsController(req: Request, res: Response
         batchEstimatedDurationSeconds: Number(batch.estimatedDurationSeconds ?? 0) || undefined,
         batchArea: batch.area,
         batchOptimizedStops: batch.optimizedStops ?? []
-      };
+      });
     })
   });
 }
 
 export async function getDeliveryRequestController(req: Request, res: Response) {
+  let partner: { _id: unknown; verificationStatus?: string } | null = null;
   if (req.user!.role === "DELIVERY_PARTNER") {
-    const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id }).select("verificationStatus");
+    partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id }).select("verificationStatus");
     if (!partner) throw new AppError(404, "Delivery partner profile not found");
     if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to access delivery jobs");
   }
   const request = await DeliveryRequestModel.findById(String(req.params.id));
   if (!request) throw new AppError(404, "Delivery request not found");
-  res.json({ data: request });
+  const payload = typeof request.toJSON === "function" ? request.toJSON() : request;
+  if (req.user!.role === "DELIVERY_PARTNER" && partner) {
+    const assignedPartnerId = String(payload.assignedDeliveryPartnerId ?? "");
+    const isAssignedToMe = assignedPartnerId === String(partner._id);
+    const isOpenUnassigned = !assignedPartnerId && payload.taskStatus === "pending";
+    if (!isAssignedToMe && !isOpenUnassigned) throw new AppError(403, "You can only view assigned or available delivery jobs");
+    if (!isAssignedToMe) {
+      const { customerPhone: _customerPhone, tailorPhone: _tailorPhone, ...redacted } = payload;
+      res.json({ data: redacted });
+      return;
+    }
+  }
+  res.json({ data: payload });
 }
 
 async function assertCustomerCanManageDeliveryTask(req: Request) {

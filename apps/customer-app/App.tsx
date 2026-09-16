@@ -6036,6 +6036,14 @@ function QuotesScreen({
   const noQuoteAlertSentRef = useRef(false);
   const waitExpiredDialogShownRef = useRef(false);
   const waitTimerStartedAtRef = useRef<number | undefined>(undefined);
+
+  function showDeliveryChargeInfo() {
+    showDialog({
+      title: "Why is my delivery charge different?",
+      message: "Delivery charges are calculated based on the distance between your selected tailor and your home.\n\nDarji is currently expanding in Janakpuri and Uttam Nagar, so some of our tailors may be located farther from you.\n\nFor your order, we need to collect your clothes from your home, deliver them to the tailor for stitching, and bring them back to you after the work is completed.\n\nThat's why delivery charges may vary depending on the tailor you choose.\n\nWe show the delivery charge upfront so you can compare your options before placing an order.",
+      actions: [{ label: "OK" }]
+    });
+  }
   const [waitProgressPercent, setWaitProgressPercent] = useState(0);
   const [waitProgressComplete, setWaitProgressComplete] = useState(false);
   const itemCount = backendRequest?.itemCount ?? checkoutItemCount(draft);
@@ -6332,6 +6340,8 @@ function QuotesScreen({
           const isFavoriteTailor = (quote.tailorId && favoriteTailorIds.includes(quote.tailorId)) ||
                                    (quote.tailorProfile?.id && favoriteTailorIds.includes(quote.tailorProfile.id));
           const numericRating = Number(quote.rating);
+          const deliveryFee = Number.isFinite(Number(quote.deliveryFee)) ? Number(quote.deliveryFee) : undefined;
+          const comparisonTotal = deliveryFee !== undefined ? quote.price + deliveryFee : undefined;
           return (
             <Pressable
               key={quote.id}
@@ -6370,8 +6380,8 @@ function QuotesScreen({
                   </View>
                 </View>
                 <View style={styles.quotePriceWrap}>
-                  <Text style={styles.quotePrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>Rs{quote.price}</Text>
-                  <Text style={styles.quotePriceLabel}>Total Quote</Text>
+                  <Text style={styles.quotePrice} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>Rs{comparisonTotal ?? quote.price}</Text>
+                  <Text style={styles.quotePriceLabel}>{comparisonTotal !== undefined ? "Stitch + Delivery" : "Stitching Price"}</Text>
                   <View style={styles.quoteEtaBadge}>
                     <Ionicons name="bus-outline" size={15} color="#15803d" />
                     <Text style={styles.quoteEtaBadgeText}>{quote.eta}</Text>
@@ -6387,6 +6397,34 @@ function QuotesScreen({
                   </View>
                 </View>
               ) : null}
+              <View style={styles.quotePriceBreakdown}>
+                <View style={styles.quotePriceLine}>
+                  <Text style={styles.quotePriceLineLabel}>Stitching Price</Text>
+                  <Text style={styles.quotePriceLineValue}>Rs{quote.price}</Text>
+                </View>
+                <View style={styles.quotePriceLine}>
+                  <View style={styles.quoteDeliveryLabelWrap}>
+                    <Text style={styles.quotePriceLineLabel}>Delivery Charge</Text>
+                    <Pressable
+                      hitSlop={8}
+                      style={styles.quoteInfoIconButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        showDeliveryChargeInfo();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Why delivery charge may differ"
+                    >
+                      <Ionicons name="information-circle-outline" size={17} color={BRAND_DEEP} />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.quotePriceLineValue}>{deliveryFee !== undefined ? `Rs${deliveryFee}` : "At checkout"}</Text>
+                </View>
+                <View style={[styles.quotePriceLine, styles.quoteTotalLine]}>
+                  <Text style={styles.quoteTotalLabel}>Total</Text>
+                  <Text style={styles.quoteTotalValue}>{comparisonTotal !== undefined ? `Rs${comparisonTotal}` : "Shown after selection"}</Text>
+                </View>
+              </View>
               <View style={styles.quoteCardDivider} />
               <View style={styles.quoteCardActions}>
                 <Pressable style={styles.quoteProfileButton} onPress={() => setProfileTailor(quote.tailorProfile ?? tailorProfileFromQuote(quote))}>
@@ -12987,6 +13025,15 @@ function createStyles(isDark = false) {
   quotePriceLabel: { color: muted, fontSize: 11, fontWeight: "800", marginTop: 3 },
   quoteEtaBadge: { minHeight: 34, borderRadius: 9, backgroundColor: "#e9f9ed", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 9, marginTop: 14 },
   quoteEtaBadgeText: { color: "#15803d", fontSize: 12, fontWeight: "900" },
+  quotePriceBreakdown: { borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 12, paddingVertical: 10, marginTop: 14, gap: 8 },
+  quotePriceLine: { minHeight: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  quotePriceLineLabel: { color: muted, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  quotePriceLineValue: { color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  quoteDeliveryLabelWrap: { flexDirection: "row", alignItems: "center", gap: 5, flex: 1, minWidth: 0 },
+  quoteInfoIconButton: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  quoteTotalLine: { borderTopWidth: 1, borderTopColor: border, paddingTop: 8, marginTop: 1 },
+  quoteTotalLabel: { color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  quoteTotalValue: { color: BRAND_ORANGE, fontSize: 14, lineHeight: 19, fontWeight: "900" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 22, paddingLeft: 72 },
   quoteChip: { color: muted, backgroundColor: surface, overflow: "hidden", borderRadius: 10, borderWidth: 1, borderColor: border, paddingHorizontal: 10, paddingVertical: 7, fontSize: 11, fontWeight: "900" },
   quoteInfoGrid: { flexDirection: "row", gap: 10, marginTop: 14 },

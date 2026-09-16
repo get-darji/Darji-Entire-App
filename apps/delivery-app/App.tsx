@@ -2480,6 +2480,8 @@ function BatchDetailsView({
   const routeStops = useMemo(() => buildBatchRouteStops(batch), [batch]);
   const nextStop = routeStops.find((stop) => stop.status === "NEXT");
   const completedStops = routeStops.filter((stop) => stop.status === "COMPLETED").length;
+  const pendingRouteStops = routeStops.filter((stop) => stop.status !== "COMPLETED");
+  const completedRouteStops = routeStops.filter((stop) => stop.status === "COMPLETED");
   const eligibleJobCount = batch.requests.filter((request) => request.serviceLevel !== "INSTANT").length;
   const routeOrigin = currentLocation ? `${currentLocation.latitude},${currentLocation.longitude}` : undefined;
   const navigateOptimizedRoute = () => openRouteDirections(routeStops, routeOrigin);
@@ -2597,26 +2599,27 @@ function BatchDetailsView({
         </>
       )}
 
-      <RouteTimeline stops={routeStops} onStopPress={(stop) => onOpenOrder(stop.request)} />
+      <RouteTimeline stops={pendingRouteStops} onStopPress={(stop) => onOpenOrder(stop.request)} />
 
-      {completedRequests.length > 0 ? (
+      {completedRouteStops.length > 0 ? (
         <Card style={styles.completedJobsCard}>
           <View style={styles.cardTopRow}>
             <Ionicons name="checkmark-circle-outline" size={24} color={SUCCESS} />
             <View style={styles.flexOne}>
-              <Text style={styles.cardTitle}>Completed jobs</Text>
-              <Text style={styles.helperText}>You have completed {completedRequests.length} job{completedRequests.length === 1 ? "" : "s"} in this batch.</Text>
+              <Text style={styles.cardTitle}>Completed stops</Text>
+              <Text style={styles.helperText}>{completedRouteStops.length} completed stop{completedRouteStops.length === 1 ? "" : "s"} remain visible in this batch.</Text>
             </View>
           </View>
-          {completedRequests.map((request) => (
-            <Pressable key={request.id} style={styles.completedJobRow} onPress={() => onOpenOrder(request)}>
+          {completedRouteStops.map((stop) => (
+            <Pressable key={stop.id} style={styles.completedJobRow} onPress={() => onOpenOrder(stop.request)}>
               <View style={styles.completedJobIcon}>
                 <Ionicons name="checkmark" size={14} color="#ffffff" />
               </View>
               <View style={styles.flexOne}>
-                <Text style={styles.completedJobTitle}>REQ-{request.orderId.slice(0, 8).toUpperCase()}</Text>
-                <Text style={styles.completedJobMeta}>{requestTitle(request)} - {(request.deliveredAt ?? request.createdAt) ? formatTimestamp(request.deliveredAt ?? request.createdAt) : "Completed"}</Text>
+                <Text style={styles.completedJobTitle}>Stop {stop.sequence}: {stop.title}</Text>
+                <Text style={styles.completedJobMeta}>{stop.requestId} - {stop.completedAt ? formatTimestamp(stop.completedAt) : "Completed"}</Text>
               </View>
+              <StopStatePill status="COMPLETED" />
               <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
             </Pressable>
           ))}
@@ -3033,6 +3036,8 @@ function ActiveOrderScreenView({
     : (order.type === "customer_to_tailor" ? order.dropAddress : order.pickupAddress);
   const routeDestinationLabel = destinationIsCustomer ? "Customer" : "Tailor";
   const routeOrigin = currentLocation ? `${currentLocation.latitude},${currentLocation.longitude}` : undefined;
+  const customerPhoneLabel = order.customerPhone ? `+91 ${order.customerPhone}` : "Available after assignment";
+  const tailorPhoneLabel = order.tailorPhone ? `+91 ${order.tailorPhone}` : "Available after assignment";
 
   async function addProof(kind: "cloth" | "sample" | "delivery") {
     if (kind === "delivery" ? !dropOtpVerified : !pickupOtpVerified) {
@@ -3239,7 +3244,9 @@ function ActiveOrderScreenView({
             <StatusPill status={order.status} />
             <StatusRow label="Job" value={requestTitle(order)} />
             <StatusRow label="Customer" value={order.customerName ?? "Customer"} />
+            <StatusRow label="Customer phone" value={customerPhoneLabel} />
             <StatusRow label="Tailor" value={order.tailorName ?? "Tailor"} />
+            <StatusRow label="Tailor phone" value={tailorPhoneLabel} />
             <StatusRow label="Clothes" value={`${order.clothType ?? "Clothes"} - ${order.workType ?? "Tailoring"}`} />
             <StatusRow label="Clothing items" value={`${requiredPhotoCount}`} />
             <StatusRow label="Payment" value={paymentLabel(order)} />
@@ -3247,7 +3254,10 @@ function ActiveOrderScreenView({
             {order.etaWindowStart && order.etaWindowEnd ? <StatusRow label="ETA" value={`${deadlineLabel(order.etaWindowStart)} - ${deadlineLabel(order.etaWindowEnd)}`} /> : null}
             {order.routePosition && order.routeTotal ? <StatusRow label="Priority" value={`${order.routePosition} of ${order.routeTotal}`} /> : null}
             <View style={styles.navRow}>
-              <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call pickup" onPress={() => Linking.openURL(`tel:${order.leg === "CUSTOMER_TO_TAILOR" ? order.customerPhone ?? "" : order.tailorPhone ?? ""}`)} variant="secondary" /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call customer" disabled={!order.customerPhone} onPress={() => Linking.openURL(`tel:${order.customerPhone ?? ""}`)} variant="secondary" /></View>
+              <View style={styles.flexOne}><PrimaryButton icon="call-outline" label="Call tailor" disabled={!order.tailorPhone} onPress={() => Linking.openURL(`tel:${order.tailorPhone ?? ""}`)} variant="secondary" /></View>
+            </View>
+            <View style={styles.navRow}>
               <View style={styles.flexOne}><PrimaryButton icon="navigate-outline" label={`Go to ${routeDestinationLabel}`} onPress={() => openDirections(routeDestination, routeOrigin)} /></View>
             </View>
             {!orderCompleted && (order.taskStatus === "accepted" || order.taskStatus === "picked_up") ? (
