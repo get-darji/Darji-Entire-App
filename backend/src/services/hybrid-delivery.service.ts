@@ -331,8 +331,8 @@ async function calculateOptimizedBatch(tasks: any[], startLocation?: unknown) {
   const payableDistance = stops.reduce((sum, stop) => sum + Number(stop.payableDistanceFromPreviousMeters ?? 0), 0);
   const totalDistance = stops.reduce((sum, stop) => sum + Number(stop.distanceFromPreviousMeters ?? 0), 0);
   const durationSeconds = stops.reduce((sum, stop) => sum + Number(stop.durationFromPreviousSeconds ?? 0), 0);
-  const completedJobs = tasks.filter((task) => ["delivered", "completed"].includes(String(task.taskStatus))).length || tasks.length;
-  const estimatedPayout = batchDeliveryPayout(payableDistance, completedJobs);
+  const estimatedJobCount = tasks.length;
+  const estimatedPayout = estimatedJobCount > 0 ? batchDeliveryPayout(payableDistance, estimatedJobCount) : 0;
   return { ordered, stops, payableDistance, totalDistance, durationSeconds, estimatedPayout, matrix, usablePoints };
 }
 
@@ -356,6 +356,44 @@ function optimizedStopPayload(stop: OptimizedStop) {
     payableDistanceFromPreviousMeters: Math.round(stop.payableDistanceFromPreviousMeters),
     durationFromPreviousSeconds: Math.round(stop.durationFromPreviousSeconds)
   };
+}
+
+function optimizedStopKey(stop: Record<string, any>) {
+  const stopType = (stop.stopType ?? stop.type) === "DROP" ? "DROP" : "PICKUP";
+  return `${String(stop.taskId ?? stop.orderId ?? "")}:${stopType}`;
+}
+
+function taskStopCompleted(task: any, stopType: "PICKUP" | "DROP") {
+  return stopType === "PICKUP" ? taskPickupCompleted(task) : taskDropCompleted(task);
+}
+
+function mergeCompletedStopPayloads(tasks: any[], activeStops: OptimizedStop[], existingStops: any[] = []) {
+  const payloads = activeStops.map(optimizedStopPayload);
+  const seen = new Set(payloads.map(optimizedStopKey));
+  const taskById = new Map(tasks.flatMap((task) => [[String(task.id), task], [String(task._id), task], [String(task.orderId), task]]));
+
+  for (const existing of existingStops) {
+    const stopType = (existing?.stopType ?? existing?.type) === "DROP" ? "DROP" : "PICKUP";
+    const task = taskById.get(String(existing?.taskId ?? "")) ?? taskById.get(String(existing?.orderId ?? ""));
+    if (!task || !taskStopCompleted(task, stopType)) continue;
+    const normalized = {
+      ...existing,
+      taskId: task.id,
+      orderId: task.orderId,
+      stopType,
+      type: stopType,
+      deliveryType: task.deliveryType,
+      jobType: task.type,
+      pickupAddress: task.pickupAddress,
+      dropAddress: task.dropAddress
+    };
+    const key = optimizedStopKey(normalized);
+    if (seen.has(key)) continue;
+    payloads.push(normalized);
+    seen.add(key);
+  }
+
+  return payloads;
 }
 
 function assertDeliveryOptimizationTestMode() {
@@ -391,7 +429,7 @@ export async function optimizeDeliveryBatchForTesting(batchId: string, now = new
         lockedAt: batch.lockedAt ?? now,
         routeOptimizedAt: now,
         deliveryJobIds: optimized.ordered.map((task) => task.id),
-        optimizedStops: optimized.stops.map(optimizedStopPayload),
+        optimizedStops: mergeCompletedStopPayloads(tasks, optimized.stops, batch.optimizedStops ?? []),
         payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
         optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
         estimatedDurationSeconds: Math.round(optimized.durationSeconds),
@@ -420,6 +458,7 @@ async function refreshRoutePositions(batchId?: string) {
   const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } }).sort({ roundAt: 1, acceptedAt: 1, createdAt: 1 });
   const batch = await DeliveryBatchModel.findOne({ batchId });
   const optimized = await calculateOptimizedBatch(tasks, batch?.riderStartLocation);
+  const stablePayout = Number(batch?.finalPayout ?? batch?.estimatedPayout ?? batch?.estimatedEarnings ?? optimized.estimatedPayout);
   await Promise.all(
     optimized.ordered.map((task, index) =>
       DeliveryRequestModel.findByIdAndUpdate(task.id, {
@@ -432,40 +471,42 @@ async function refreshRoutePositions(batchId?: string) {
   );
   await DeliveryBatchModel.findOneAndUpdate({ batchId }, {
     deliveryJobIds: optimized.ordered.map((task) => task.id),
-    optimizedStops: optimized.stops.map(optimizedStopPayload),
+    optimizedStops: mergeCompletedStopPayloads(tasks, optimized.stops, batch?.optimizedStops ?? []),
     optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
     payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
     estimatedDurationSeconds: Math.round(optimized.durationSeconds),
-    estimatedPayout: optimized.estimatedPayout,
-    estimatedEarnings: optimized.estimatedPayout,
+    estimatedPayout: stablePayout,
+    estimatedEarnings: stablePayout,
     totalDistance: Number((optimized.payableDistance / 1000).toFixed(2))
   });
 }
 
-async function recalculateBatchTotals(batchId?: string) {
+export async function recalculateBatchTotals(batchId?: string) {
   if (!batchId) return null;
   const tasks = await DeliveryRequestModel.find({ batchId, taskStatus: { $ne: "cancelled" } });
   const batch = await DeliveryBatchModel.findOne({ batchId });
   const optimized = await calculateOptimizedBatch(tasks, batch?.riderStartLocation);
+  const optimizedStops = mergeCompletedStopPayloads(tasks, optimized.stops, batch?.optimizedStops ?? []);
   const allCompleted = tasks.length > 0 && tasks.every((task) => ["delivered", "completed"].includes(String(task.taskStatus)));
+  const stablePayout = Number(batch?.finalPayout ?? batch?.estimatedPayout ?? batch?.estimatedEarnings ?? optimized.estimatedPayout);
   return DeliveryBatchModel.findOneAndUpdate(
     { batchId },
     {
       $set: {
         tasks: tasks.map((task) => task.id),
         deliveryJobIds: optimized.ordered.map((task) => task.id),
-        optimizedStops: optimized.stops.map(optimizedStopPayload),
+        optimizedStops,
         ordersCount: tasks.length,
-        pickupCount: optimized.stops.filter((stop) => stop.stopType === "PICKUP").length,
-        dropCount: optimized.stops.filter((stop) => stop.stopType === "DROP").length,
-        estimatedEarnings: optimized.estimatedPayout,
-        estimatedPayout: optimized.estimatedPayout,
-        finalPayout: allCompleted ? optimized.estimatedPayout : undefined,
+        pickupCount: optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "PICKUP").length,
+        dropCount: optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "DROP").length,
+        estimatedEarnings: stablePayout,
+        estimatedPayout: stablePayout,
+        finalPayout: allCompleted ? stablePayout : undefined,
         optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
         payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
         estimatedDurationSeconds: Math.round(optimized.durationSeconds),
         totalDistance: Number((optimized.payableDistance / 1000).toFixed(2)),
-        ...(allCompleted ? { status: "completed", finalPayout: optimized.estimatedPayout } : {})
+        ...(allCompleted ? { status: "completed", finalPayout: stablePayout } : {})
       }
     },
     { returnDocument: "after" }

@@ -118,8 +118,7 @@ async function handleDeliveryLocation(socket: Socket, user: SocketUser, payload:
       lastLocationAccuracy: Number.isFinite(Number(payload.accuracy)) ? Number(payload.accuracy) : undefined,
       lastLocationHeading: Number.isFinite(Number(payload.heading)) ? Number(payload.heading) : undefined,
       lastLocationSpeed: Number.isFinite(Number(payload.speed)) ? Number(payload.speed) : undefined,
-      lastLocationUpdatedAt: locationUpdatedAt,
-      isAvailable: true
+      lastLocationUpdatedAt: locationUpdatedAt
     })
   ]);
   if (!request) return;

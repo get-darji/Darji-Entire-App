@@ -1,5 +1,4 @@
 import { AppError } from "../middleware/error.js";
-import { DeliveryPartnerModel } from "../models.js";
 
 export const DELIVERY_LOCATION_MAX_AGE_MS = 5 * 60 * 1000;
 
@@ -25,15 +24,6 @@ export function assertFreshDeliveryLocation(partner: PartnerLocationState | null
 }
 
 export function markStaleDeliveryPartnersOffline(now = Date.now()) {
-  return DeliveryPartnerModel.updateMany(
-    {
-      isAvailable: true,
-      $or: [
-        { lastLocationUpdatedAt: { $exists: false } },
-        { lastLocationUpdatedAt: { $lt: new Date(now - DELIVERY_LOCATION_MAX_AGE_MS) } },
-        { "currentLocation.coordinates.1": { $exists: false } }
-      ]
-    },
-    { $set: { isAvailable: false } }
-  );
+  void now;
+  return Promise.resolve({ acknowledged: true, matchedCount: 0, modifiedCount: 0 });
 }

@@ -5952,10 +5952,7 @@ function BatchSection({
                   <tbody>
                     {tasks.length ? tasks.map((task) => {
                       const order = orders.find((candidate) => candidate.id === task.orderId || candidate.request?.id === task.orderId);
-                      const targetBatches = activeTargetBatches.filter((target) =>
-                        target.batchId !== batch.batchId &&
-                        target.deliveryRound === batch.deliveryRound
-                      );
+                      const targetBatches = activeTargetBatches.filter((target) => target.batchId !== batch.batchId);
                       const pending = pendingTaskId === task.id;
                       return (
                         <tr key={task.id} className="border-b border-[var(--panel-border)] last:border-0">
@@ -5999,7 +5996,7 @@ function BatchSection({
                                 if (event.target.value) onReassign(task.id, event.target.value);
                               }}
                             >
-                              <option value="">{pending ? "Moving..." : targetBatches.length ? "Select batch" : "No compatible batch"}</option>
+                              <option value="">{pending ? "Moving..." : targetBatches.length ? "Select any active batch" : "No active batch"}</option>
                               {targetBatches.map((target) => (
                               <option key={target.batchId} value={target.batchId}>
                                   BATCH-{target.batchId.slice(0, 8).toUpperCase()} - {target.area} - {formatDate(target.roundAt, true)} - {target.ordersCount ?? (target.tasks ?? []).length} orders

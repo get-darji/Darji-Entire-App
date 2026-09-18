@@ -7,7 +7,6 @@ import { DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, Ta
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
-import { hasFreshDeliveryLocation } from "../services/delivery-location.service.js";
 import { z } from "zod";
 
 const adminRefreshCookie = "darzi_admin_refresh";
@@ -41,9 +40,6 @@ async function resetAutoVerifiedDeliveryProfile(userId: string, phone?: string) 
       { verificationStatus: "NOT_SUBMITTED", isAvailable: false },
       { returnDocument: "after" }
     );
-  }
-  if (profile?.isAvailable && !hasFreshDeliveryLocation(profile)) {
-    return DeliveryPartnerModel.findByIdAndUpdate(profile.id, { isAvailable: false }, { returnDocument: "after" });
   }
   return profile;
 }

@@ -4,18 +4,28 @@ import { useAppStore } from "./store";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
 import type { AppLanguage } from "../../../shared/src/localization";
 
+const PRODUCTION_API_URL = "https://darji-entire-app-production.up.railway.app/api";
 const configuredApiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "https://darji-entire-app-production.up.railway.app/api";
+  PRODUCTION_API_URL;
 const devHostApiUrl = Constants.expoConfig?.hostUri
   ? `http://${Constants.expoConfig.hostUri.split(":")[0]}:4000/api`
   : undefined;
 const apiUrls = Array.from(new Set([
+  PRODUCTION_API_URL,
   configuredApiUrl,
   devHostApiUrl,
   "http://192.168.1.2:4000/api",
   "http://localhost:4000/api",
+  "http://10.0.2.2:4000/api",
+  "http://127.0.0.1:4000/api"
+].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
+const accountCheckApiUrls = Array.from(new Set([
+  PRODUCTION_API_URL,
+  configuredApiUrl,
+  devHostApiUrl,
+  "http://192.168.1.2:4000/api",
   "http://10.0.2.2:4000/api",
   "http://127.0.0.1:4000/api"
 ].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
@@ -24,9 +34,9 @@ type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
 const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
 const REQUEST_TIMEOUT_MS = 15000;
-const ACCOUNT_CHECK_TIMEOUT_MS = 8000;
+const ACCOUNT_CHECK_TIMEOUT_MS = 5000;
 
-type ApiRequestInit = RequestInit & { timeoutMs?: number };
+type ApiRequestInit = RequestInit & { timeoutMs?: number; fallbackUrls?: string[] };
 
 function markApiUrlReachable(url: string) {
   activeApiUrl = url;
@@ -43,17 +53,18 @@ function shouldTryFallback(error: unknown) {
   return true;
 }
 
-function orderedApiUrls() {
-  return [activeApiUrl, ...apiUrls.filter((url) => url !== activeApiUrl)];
+function orderedApiUrls(urls = apiUrls, forceFirstUrl?: string) {
+  if (forceFirstUrl && urls.includes(forceFirstUrl)) return [forceFirstUrl, ...urls.filter((url) => url !== forceFirstUrl)];
+  return urls.includes(activeApiUrl) ? [activeApiUrl, ...urls.filter((url) => url !== activeApiUrl)] : urls;
 }
 
 export function getActiveApiUrl() {
   return activeApiUrl;
 }
 
-async function fetchWithApiFallback<T>(request: (apiUrl: string) => Promise<T>) {
+async function fetchWithApiFallback<T>(request: (apiUrl: string) => Promise<T>, urls = apiUrls, forceFirstUrl?: string) {
   let lastError: unknown;
-  for (const url of orderedApiUrls()) {
+  for (const url of orderedApiUrls(urls, forceFirstUrl)) {
     try {
       const result = await request(url);
       markApiUrlReachable(url);
@@ -70,31 +81,20 @@ async function performAccessTokenRefresh() {
   const refreshToken = useAppStore.getState().refreshToken;
   if (!refreshToken) return undefined;
 
-  const response = await fetchWithApiFallback(async (apiUrl) => {
-    const response = await fetch(`${apiUrl}/auth/refresh`, {
+  try {
+    const data = await fetchWithApiFallback((apiUrl) => requestJsonAt<RefreshResponse>(apiUrl, "/auth/refresh", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true"
-      },
-      body: JSON.stringify({ refreshToken })
-    });
-    if (!response.ok && [404, 500, 502, 503, 504].includes(response.status)) {
-      throw withStatus(new Error("Backend refresh endpoint is unavailable"), response.status);
-    }
-    return response;
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = String(body.message ?? "Session expired");
+      body: JSON.stringify({ refreshToken }),
+      timeoutMs: ACCOUNT_CHECK_TIMEOUT_MS
+    }), accountCheckApiUrls, PRODUCTION_API_URL);
+    useAppStore.getState().setAccessToken(data.accessToken);
+    return data.accessToken;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Session expired";
     if (/signed in on another device/i.test(message)) useAppStore.getState().invalidateSession(message);
-    else useAppStore.getState().signOut();
-    throw new Error(message);
+    else if (sessionErrorPattern.test(message)) useAppStore.getState().signOut();
+    throw error;
   }
-
-  const data = body.data as RefreshResponse;
-  useAppStore.getState().setAccessToken(data.accessToken);
-  return data.accessToken;
 }
 
 export function refreshAccessToken() {
@@ -124,7 +124,7 @@ function timeoutError(timeoutMs: number) {
 }
 
 async function requestJsonAt<T>(apiUrl: string, path: string, options: ApiRequestInit, token?: string) {
-  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const { timeoutMs = REQUEST_TIMEOUT_MS, fallbackUrls: _fallbackUrls, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let timeoutReject: ReturnType<typeof setTimeout> | undefined;
@@ -166,7 +166,11 @@ async function requestJsonAt<T>(apiUrl: string, path: string, options: ApiReques
 }
 
 async function requestJson<T>(path: string, options: ApiRequestInit, token?: string) {
-  return fetchWithApiFallback((apiUrl) => requestJsonAt<T>(apiUrl, path, options, token));
+  return fetchWithApiFallback(
+    (apiUrl) => requestJsonAt<T>(apiUrl, path, options, token),
+    options.fallbackUrls,
+    options.fallbackUrls ? PRODUCTION_API_URL : undefined
+  );
 }
 
 export async function api<T>(path: string, options: ApiRequestInit = {}, token?: string): Promise<T> {
@@ -220,7 +224,7 @@ export async function savePreferredLanguage(preferredLanguage: AppLanguage, toke
 }
 
 export async function getCurrentAccount<T>(token?: string) {
-  return api<T>("/auth/me", { timeoutMs: ACCOUNT_CHECK_TIMEOUT_MS }, token);
+  return api<T>("/auth/me", { timeoutMs: ACCOUNT_CHECK_TIMEOUT_MS, fallbackUrls: accountCheckApiUrls }, token);
 }
 
 export type UploadedMedia = {

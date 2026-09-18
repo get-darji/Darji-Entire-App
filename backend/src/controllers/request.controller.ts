@@ -39,6 +39,12 @@ const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const MAX_FILES = 20;
 
+function assertDeliveryPartnerOnline(partner: { isAvailable?: boolean }) {
+  if (!partner.isAvailable) {
+    throw new AppError(400, "Go online before completing delivery actions");
+  }
+}
+
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
   api_key: env.CLOUDINARY_API_KEY,
@@ -1147,6 +1153,7 @@ export async function listDeliveryRequestsController(req: Request, res: Response
         ...payload,
         batchOrdersCount: Number(batch.ordersCount ?? 0) || undefined,
         batchEstimatedEarnings: Number(batch.estimatedPayout ?? batch.estimatedEarnings ?? 0) || undefined,
+        batchFinalPayout: Number(batch.finalPayout ?? 0) || undefined,
         batchPayableDistanceMeters: Number(batch.payableOptimizedDistanceMeters ?? 0) || undefined,
         batchEstimatedDurationSeconds: Number(batch.estimatedDurationSeconds ?? 0) || undefined,
         batchArea: batch.area,
@@ -1380,6 +1387,7 @@ export async function failDeliveryTaskController(req: Request, res: Response) {
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner && req.user!.role !== "ADMIN") throw new AppError(404, "Delivery partner profile not found");
   if (partner?.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+  if (partner) assertDeliveryPartnerOnline(partner);
   if (partner) assertFreshDeliveryLocation(partner);
 
   const ownerFilter = req.user!.role === "ADMIN" ? {} : { assignedDeliveryPartnerId: partner!.id };
@@ -1577,6 +1585,7 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery partner profile not found");
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+  assertDeliveryPartnerOnline(partner);
   assertFreshDeliveryLocation(partner);
 
   const expectedStatus = input.status === "picked_up" ? "accepted" : "picked_up";
@@ -1737,6 +1746,7 @@ export async function verifyDeliveryTaskOtpController(req: Request, res: Respons
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery partner profile not found");
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+  assertDeliveryPartnerOnline(partner);
   assertFreshDeliveryLocation(partner);
   const expectedStatus = input.stage === "pickup" ? "accepted" : "picked_up";
   const task = await DeliveryRequestModel.findOne({
@@ -1791,6 +1801,7 @@ export async function saveDeliveryTaskPhotosController(req: Request, res: Respon
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery partner profile not found");
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+  assertDeliveryPartnerOnline(partner);
   assertFreshDeliveryLocation(partner);
   const task = await DeliveryRequestModel.findOne({
     _id: String(req.params.id),
@@ -1822,6 +1833,7 @@ export async function confirmDeliveryCashCollectionController(req: Request, res:
   const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id });
   if (!partner) throw new AppError(404, "Delivery partner profile not found");
   if (partner.verificationStatus !== "VERIFIED") throw new AppError(403, "Complete admin verification to update delivery jobs");
+  assertDeliveryPartnerOnline(partner);
   assertFreshDeliveryLocation(partner);
 
   const task = await DeliveryRequestModel.findOne({

@@ -56,7 +56,7 @@ import { pushRuntimeStatus, saveFcmToken, sendPushToUsers } from "../services/pu
 import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
-import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow } from "../services/hybrid-delivery.service.js";
+import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow, recalculateBatchTotals } from "../services/hybrid-delivery.service.js";
 import { emitToCustomer, emitToAdmins, emitToUserRole, publishPlatformStatus } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
@@ -939,10 +939,6 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
   if (targetBatch.status === "cancelled" || targetBatch.status === "completed") {
     throw new AppError(409, "Cannot move orders into a completed or cancelled batch");
   }
-  if (targetBatch.deliveryRound !== task.deliveryRound) {
-    throw new AppError(409, "Delivery tasks can only move to a batch in the same time round");
-  }
-
   const previousBatchId = String(task.batchId ?? "");
   if (previousBatchId === targetBatch.batchId) {
     return res.json({ data: task });
@@ -988,6 +984,12 @@ export async function reassignDeliveryBatchTaskController(req: Request, res: Res
       }
     }
   );
+  await Promise.all([
+    previousBatchId && previousBatchId !== targetBatch.batchId ? recalculateBatchTotals(previousBatchId) : Promise.resolve(null),
+    recalculateBatchTotals(targetBatch.batchId),
+    OrderModel.findByIdAndUpdate(task.orderId, { deliveryType: task.deliveryType, deliveryRound: targetBatch.deliveryRound, batchId: targetBatch.batchId }),
+    TailoringRequestModel.findByIdAndUpdate(task.orderId, { deliveryType: task.deliveryType, deliveryRound: targetBatch.deliveryRound, batchId: targetBatch.batchId })
+  ]);
   res.json({ data: updatedTask });
 }
 
