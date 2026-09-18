@@ -5565,6 +5565,12 @@ function quoteResponseLabel(count: number) {
   return `${count} ${count === 1 ? "tailor" : "tailors"} responded`;
 }
 
+function quoteDistanceLabel(distanceMeters?: number) {
+  const meters = Math.round(Number(distanceMeters) || 0);
+  if (meters <= 0) return "Distance pending";
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
 function quoteAvatarTone(index: number) {
   const tones = ["#ffc247", "#bca5ff", "#ccef8e"];
   return { backgroundColor: tones[index % tones.length] };
@@ -6401,6 +6407,10 @@ function QuotesScreen({
                 <View style={styles.quotePriceLine}>
                   <Text style={styles.quotePriceLineLabel}>Stitching Price</Text>
                   <Text style={styles.quotePriceLineValue}>Rs{quote.price}</Text>
+                </View>
+                <View style={styles.quotePriceLine}>
+                  <Text style={styles.quotePriceLineLabel}>Tailor Distance</Text>
+                  <Text style={styles.quotePriceLineValue}>{quoteDistanceLabel(quote.deliveryDistanceMeters)}</Text>
                 </View>
                 <View style={styles.quotePriceLine}>
                   <View style={styles.quoteDeliveryLabelWrap}>

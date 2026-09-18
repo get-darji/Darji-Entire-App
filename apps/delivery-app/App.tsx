@@ -36,7 +36,7 @@ import {
   View
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
+import { api, getCurrentAccount, getPlatformStatus, refreshAccessToken, uploadDeliveryMedia, uploadDeliveryVerificationDocs } from "./src/api";
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 async function backendReverseGeocode(lat: number, lng: number): Promise<{
@@ -4681,7 +4681,7 @@ export default function App() {
       return;
     }
     try {
-      const profile = await api<MeResponse>("/auth/me", {}, token);
+      const profile = await getCurrentAccount<MeResponse>(token);
       setMe(profile);
       setAccountCheckError(undefined);
       const verificationStatus = profile.deliveryProfile?.verificationStatus ?? "NOT_SUBMITTED";

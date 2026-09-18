@@ -24,6 +24,9 @@ type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
 const sessionErrorPattern = /invalid or expired token|authentication required|invalid session|signed in on another device/i;
 const REQUEST_TIMEOUT_MS = 15000;
+const ACCOUNT_CHECK_TIMEOUT_MS = 8000;
+
+type ApiRequestInit = RequestInit & { timeoutMs?: number };
 
 function markApiUrlReachable(url: string) {
   activeApiUrl = url;
@@ -116,20 +119,32 @@ export async function getPlatformStatus() {
   }
 }
 
-async function requestJsonAt<T>(apiUrl: string, path: string, options: RequestInit, token?: string) {
+function timeoutError(timeoutMs: number) {
+  return new Error(`Backend connection timed out after ${Math.round(timeoutMs / 1000)} seconds. Make sure the backend is running on this network.`);
+}
+
+async function requestJsonAt<T>(apiUrl: string, path: string, options: ApiRequestInit, token?: string) {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutReject: ReturnType<typeof setTimeout> | undefined;
   try {
-    const response = await fetch(`${apiUrl}${path}`, {
-      ...options,
-      signal: options.signal ?? controller.signal,
+    const fetchRequest = fetch(`${apiUrl}${path}`, {
+      ...fetchOptions,
+      signal: fetchOptions.signal ?? controller.signal,
       headers: {
         "Content-Type": "application/json",
         "ngrok-skip-browser-warning": "true",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers
+        ...fetchOptions.headers
       }
     });
+    const response = await Promise.race([
+      fetchRequest,
+      new Promise<never>((_, reject) => {
+        timeoutReject = setTimeout(() => reject(timeoutError(timeoutMs)), timeoutMs + 250);
+      })
+    ]);
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       const issues = body.issues?.fieldErrors;
@@ -142,18 +157,19 @@ async function requestJsonAt<T>(apiUrl: string, path: string, options: RequestIn
     }
     return body.data as T;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") throw new Error("Backend connection timed out. Make sure the backend is running on this network.");
+    if (error instanceof Error && error.name === "AbortError") throw timeoutError(timeoutMs);
     throw error;
   } finally {
     clearTimeout(timeout);
+    if (timeoutReject) clearTimeout(timeoutReject);
   }
 }
 
-async function requestJson<T>(path: string, options: RequestInit, token?: string) {
+async function requestJson<T>(path: string, options: ApiRequestInit, token?: string) {
   return fetchWithApiFallback((apiUrl) => requestJsonAt<T>(apiUrl, path, options, token));
 }
 
-export async function api<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+export async function api<T>(path: string, options: ApiRequestInit = {}, token?: string): Promise<T> {
   const currentToken = token ?? useAppStore.getState().token;
   try {
     return await requestJson<T>(path, options, currentToken);
@@ -201,6 +217,10 @@ export async function savePreferredLanguage(preferredLanguage: AppLanguage, toke
     method: "PATCH",
     body: JSON.stringify({ preferredLanguage })
   }, token);
+}
+
+export async function getCurrentAccount<T>(token?: string) {
+  return api<T>("/auth/me", { timeoutMs: ACCOUNT_CHECK_TIMEOUT_MS }, token);
 }
 
 export type UploadedMedia = {
