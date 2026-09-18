@@ -133,6 +133,23 @@ function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>
   return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
 }
 
+function useTranslatedAlerts(language: AppLanguage) {
+  useEffect(() => {
+    const originalAlert = Alert.alert;
+    Alert.alert = ((title, message, buttons, options) => originalAlert(
+      typeof title === "string" ? translateStaticText(language, title) : title,
+      typeof message === "string" ? translateStaticText(language, message) : message,
+      Array.isArray(buttons)
+        ? buttons.map((button) => button && typeof button.text === "string" ? { ...button, text: translateStaticText(language, button.text) } : button)
+        : buttons,
+      options
+    )) as typeof Alert.alert;
+    return () => {
+      Alert.alert = originalAlert;
+    };
+  }, [language]);
+}
+
 function normalizedAvatarGender(gender?: string) {
   const value = gender?.trim().toLowerCase();
   if (!value) return undefined;
@@ -6076,12 +6093,15 @@ export default function App() {
   const signOut = useAppStore((state) => state.signOut);
   const sessionNotice = useAppStore((state) => state.sessionNotice);
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
+  const language = useAppStore((state) => state.language);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
   const platform = usePlatformStatus(getPlatformStatus, token);
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [me, setMe] = useState<MeResponse>();
   const [verifiedWelcomeDismissed, setVerifiedWelcomeDismissed] = useState(false);
+
+  useTranslatedAlerts(language);
 
   useEffect(() => {
     if (!sessionNotice) return;

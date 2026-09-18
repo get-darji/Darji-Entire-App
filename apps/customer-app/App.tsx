@@ -130,6 +130,23 @@ function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>
   return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
 }
 
+function useTranslatedAlerts(language: AppLanguage) {
+  useEffect(() => {
+    const originalAlert = Alert.alert;
+    Alert.alert = ((title, message, buttons, options) => originalAlert(
+      typeof title === "string" ? translateStaticText(language, title) : title,
+      typeof message === "string" ? translateStaticText(language, message) : message,
+      Array.isArray(buttons)
+        ? buttons.map((button) => button && typeof button.text === "string" ? { ...button, text: translateStaticText(language, button.text) } : button)
+        : buttons,
+      options
+    )) as typeof Alert.alert;
+    return () => {
+      Alert.alert = originalAlert;
+    };
+  }, [language]);
+}
+
 type Screen =
   | "home"
   | "search"
@@ -2004,6 +2021,7 @@ function AuthScreen() {
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
+  useTranslatedAlerts(language);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "CUSTOMER" } });
 

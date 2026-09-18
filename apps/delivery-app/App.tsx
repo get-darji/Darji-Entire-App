@@ -102,7 +102,7 @@ import { createRealtimeSocket, type ConnectionStatus } from "./src/realtime";
 import { playAppSound } from "./src/services/soundService";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { useAppStore } from "./src/store";
-import { localize, t } from "../../shared/src/localization";
+import { localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
@@ -128,6 +128,23 @@ function Text({ children, ...props }: ComponentProps<typeof RNText>) {
 function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
   const language = useAppStore((state) => state.language);
   return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
+}
+
+function useTranslatedAlerts(language: AppLanguage) {
+  useEffect(() => {
+    const originalAlert = Alert.alert;
+    Alert.alert = ((title, message, buttons, options) => originalAlert(
+      typeof title === "string" ? translateStaticText(language, title) : title,
+      typeof message === "string" ? translateStaticText(language, message) : message,
+      Array.isArray(buttons)
+        ? buttons.map((button) => button && typeof button.text === "string" ? { ...button, text: translateStaticText(language, button.text) } : button)
+        : buttons,
+      options
+    )) as typeof Alert.alert;
+    return () => {
+      Alert.alert = originalAlert;
+    };
+  }, [language]);
 }
 
 type AuthStep = "login" | "otp";
@@ -659,13 +676,13 @@ function requestEarning(request: DeliveryRequest) {
 
 function formatKm(meters?: number) {
   const value = Number(meters ?? 0);
-  if (!Number.isFinite(value) || value <= 0) return "Optimizing";
+  if (!Number.isFinite(value) || value <= 0) return "Calculating";
   return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} km`;
 }
 
 function formatDuration(seconds?: number) {
   const value = Number(seconds ?? 0);
-  if (!Number.isFinite(value) || value <= 0) return "ETA pending";
+  if (!Number.isFinite(value) || value <= 0) return "Calculating";
   const minutes = Math.max(1, Math.round(value / 60));
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
@@ -844,7 +861,7 @@ function incomingPayloadFromDeliveryRequest(request?: DeliveryRequest): Incoming
       expiresAt,
       rows: [
         { icon: "people-outline", label: "Customer", value: `${housesCount} ${housesCount === 1 ? "house" : "houses"}` },
-        { icon: "location-outline", label: "Pickup", value: request.batchArea ?? request.assignedArea ?? "Assigned area" },
+        { icon: "location-outline", label: "Route", value: "Optimized batch route" },
         { icon: "navigate-outline", label: "Drop", value: request.deliveryType === "DROP" ? "Customer route" : "Tailor route" },
         { icon: "map-outline", label: "Distance", value: request.estimatedDistanceKm ? `${request.estimatedDistanceKm.toFixed(1)} km` : "Route optimized" },
         { icon: "time-outline", label: "ETA", value: request.etaWindowStart && request.etaWindowEnd ? `${formatTimestamp(request.etaWindowStart)} - ${formatTimestamp(request.etaWindowEnd)}` : roundLabel },
@@ -2150,13 +2167,12 @@ function HomeScreen({
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.cardMeta}>{activeRequestsCount} active {activeRequestsCount === 1 ? "request" : "requests"} remaining • Area: {activeBatch.area}</Text>
+                <Text style={styles.cardMeta}>{activeRequestsCount} active {activeRequestsCount === 1 ? "request" : "requests"} remaining</Text>
               </View>
               <StatusPill status="ACCEPTED" />
             </View>
             <View style={styles.cardDivider} />
             <StatusRow label="Route mix" value={`${activeBatch.pickupCount ?? activeBatch.requests.filter((r) => r.type === "customer_to_tailor" || r.deliveryType === "PICKUP").length} pickup / ${activeBatch.dropCount ?? activeBatch.requests.filter((r) => r.type === "tailor_to_customer" || r.deliveryType === "DROP").length} drop`} />
-            <StatusRow label="Operational Area" value={activeBatch.area} />
             <TimestampBadge label="Batch assigned" value={activeBatch.requests[0]?.acceptedAt ?? activeBatch.roundAt} />
             <PrimaryButton icon="navigate-outline" label="Open active batch" onPress={() => onOpenBatch(activeBatch.batchId)} />
           </Card>
@@ -2641,8 +2657,8 @@ function BatchDetailsView({
         ) : null}
         <View style={styles.routeMetricGrid}>
           <RouteMetric label="Estimated earnings" value={`Rs ${batch.estimatedEarnings.toFixed(0)}`} tone="green" />
-          <RouteMetric label="Payable distance" value={isOffered ? "Pending" : formatKm(batch.payableDistanceMeters)} />
-          <RouteMetric label="Estimated duration" value={isOffered ? "Pending" : formatDuration(batch.estimatedDurationSeconds)} />
+          <RouteMetric label="Payable distance" value={formatKm(batch.payableDistanceMeters)} />
+          <RouteMetric label="Estimated duration" value={formatDuration(batch.estimatedDurationSeconds)} />
           <RouteMetric label="Jobs" value={`${eligibleJobCount}`} tone="orange" />
           <RouteMetric label="Stops" value={`${routeStops.length}`} />
           <RouteMetric label="Pickup / Drop" value={`${batch.pickupCount ?? 0}/${batch.dropCount ?? 0}`} tone="orange" />
@@ -2738,7 +2754,7 @@ function BatchDetailsView({
         <View style={styles.flexOne}>
           <Text style={styles.heroLabel}>BATCH ID: {batch.batchId.slice(0, 8).toUpperCase()}</Text>
           <Text style={styles.heroTitle}>{batch.deliveryRound === "ONE_PM" ? "1 PM Batch" : "6 PM Batch"}</Text>
-          <Text style={styles.heroCopy}>{batch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{batch.requests.length} orders completed • Route in {batch.area} ({batch.pickupCount ?? 0} pickup / {batch.dropCount ?? 0} drop)</Text>
+          <Text style={styles.heroCopy}>{batch.requests.filter(r => r.taskStatus === "delivered" || r.taskStatus === "cancelled").length}/{batch.requests.length} orders completed • {batch.pickupCount ?? 0} pickup / {batch.dropCount ?? 0} drop</Text>
         </View>
         <View style={styles.heroIcon}>
           <Ionicons name="map-outline" size={32} color="#111111" />
@@ -3021,7 +3037,7 @@ function OrdersScreen({
                 </View>
               </View>
               <Text style={styles.cardMeta}>{batchLabel}</Text>
-              <Text style={styles.cardMeta}>{completedCount}/{item.requests.length} jobs completed - Area: {item.area}</Text>
+              <Text style={styles.cardMeta}>{completedCount}/{item.requests.length} jobs completed</Text>
             </View>
             <StatusPill status={item.status === "active" ? "ACCEPTED" : item.status === "completed" ? "COMPLETED" : item.status === "offered" ? "OPEN" : "CANCELLED"} />
           </View>
@@ -3813,12 +3829,13 @@ function MainApp({
       const estimatedEarnings = batchMetricEarnings > 0 ? batchMetricEarnings : sortedList.reduce((sum, r) => sum + requestEarning(r), 0);
       const optimizedStops = first?.batchOptimizedStops ?? [];
       const isInstant = sortedList.some((request) => request.serviceLevel === "INSTANT");
+      const lockedStopsCount = optimizedStops.length || (Number(first?.batchOrdersCount ?? 0) > 0 ? Number(first?.batchOrdersCount) * 2 : 0);
       const routeStops = isInstant ? [] : buildBatchRouteStops({
         batchId,
         deliveryRound: first?.deliveryRound || batchId,
         roundAt: first?.roundAt || first?.createdAt || new Date().toISOString(),
         deliveryType: first ? (first.type === "customer_to_tailor" ? "PICKUP" : "DROP") : (me?.deliveryProfile?.deliveryType || "PICKUP"),
-        area: first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
+        area: first?.batchArea || first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
         estimatedEarnings,
         status: "",
         requests: sortedList
@@ -3829,7 +3846,7 @@ function MainApp({
       const dropCount = optimizedStops.length
         ? optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "DROP").length
         : sortedList.filter((r) => r.type === "tailor_to_customer" || r.deliveryType === "DROP").length;
-      const payableDistanceMeters = Number(first?.batchPayableDistanceMeters ?? 0) || sortedList.reduce((sum, r) => sum + Number(r.distanceMeters ?? (r.estimatedDistanceKm ?? 0) * 1000), 0);
+      const payableDistanceMeters = Number(first?.batchPayableDistanceMeters ?? 0);
       const estimatedDurationSeconds = Number(first?.batchEstimatedDurationSeconds ?? 0);
       const isCompleted = list.length > 0 && (list.every((r) => r.taskStatus === "delivered") || (routeStops.length > 0 && routeStops.every((stop) => stop.status === "COMPLETED")));
       const isCancelled = list.length > 0 && list.every((r) => r.taskStatus === "cancelled");
@@ -3840,11 +3857,11 @@ function MainApp({
         deliveryRound: first?.deliveryRound || batchId,
         roundAt: first?.roundAt || first?.createdAt || new Date().toISOString(),
         deliveryType: first ? (first.type === "customer_to_tailor" ? "PICKUP" : "DROP") : (me?.deliveryProfile?.deliveryType || "PICKUP"),
-        area: first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
+        area: first?.batchArea || first?.assignedArea || me?.deliveryProfile?.assignedArea || "All Areas",
         estimatedEarnings,
         pickupCount,
         dropCount,
-        stopsCount: routeStops.length || sortedList.length,
+        stopsCount: lockedStopsCount || routeStops.length || sortedList.length,
         payableDistanceMeters,
         estimatedDurationSeconds,
         status,
@@ -4703,6 +4720,7 @@ export default function App() {
   const signOut = useAppStore((state) => state.signOut);
   const sessionNotice = useAppStore((state) => state.sessionNotice);
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
+  const language = useAppStore((state) => state.language);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
   const platform = usePlatformStatus(getPlatformStatus, token);
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
@@ -4711,6 +4729,18 @@ export default function App() {
   const [dialog, setDialog] = useState<DialogState>();
   const skipLoadingScreenRef = useRef(false);
   const updatePromptShownRef = useRef(false);
+  const meRef = useRef<MeResponse | undefined>(undefined);
+  const stageRef = useRef<AppStage>(stage);
+
+  useTranslatedAlerts(language);
+
+  useEffect(() => {
+    meRef.current = me;
+  }, [me]);
+
+  useEffect(() => {
+    stageRef.current = stage;
+  }, [stage]);
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -4806,6 +4836,9 @@ export default function App() {
         return;
       }
       setAccountCheckError(error instanceof Error ? error.message : "Could not reach Darji backend.");
+      if (meRef.current && ["main", "pending", "onboarding"].includes(stageRef.current)) {
+        return;
+      }
       setStage("accountError");
     }
   }, [handleSessionExpired, token]);
@@ -4816,7 +4849,7 @@ export default function App() {
       setStage("auth");
       return;
     }
-    if (!skipLoadingScreenRef.current) {
+    if (!skipLoadingScreenRef.current && !meRef.current) {
       setStage("loading");
     }
     skipLoadingScreenRef.current = false;

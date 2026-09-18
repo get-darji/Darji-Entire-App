@@ -184,6 +184,9 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const profile = me?.deliveryProfile;
+  const verificationPersonal = ((profile?.verification as { personal?: Record<string, unknown> } | undefined)?.personal ?? {}) as Record<string, unknown>;
+  const draftPersonal = ((profile?.verificationDraft as { personal?: Record<string, unknown> } | undefined)?.personal ?? {}) as Record<string, unknown>;
+  const registeredAddress = String(draftPersonal.address ?? verificationPersonal.address ?? (profile?.verificationDraft as { address?: string } | undefined)?.address ?? "").trim();
   const verificationGender = String(
     ((profile?.verificationDraft as { personal?: { gender?: string }; gender?: string } | undefined)?.personal?.gender) ??
     ((profile?.verificationDraft as { gender?: string } | undefined)?.gender) ??
@@ -428,7 +431,8 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
           <Text style={styles.profileTapHint}>Tap to view partner details</Text>
           <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}{avatarLocked ? " - verification photo locked" : ""}</Text>
           <Text style={styles.meta}>{email || "Email not added"}</Text>
-          <Text style={styles.meta}>Role: {profile?.deliveryType || "PICKUP"} ({profile?.assignedArea || "unassigned"})</Text>
+          <Text style={styles.meta}>Role: {profile?.deliveryType === "DROP" ? "Drop partner" : "Pickup partner"}</Text>
+          {registeredAddress ? <Text style={styles.meta} numberOfLines={2}>Address: {registeredAddress}</Text> : null}
           <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
         </Pressable>
       </View>
@@ -494,7 +498,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                 {[
                   { icon: "call-outline" as const, label: "Phone number", value: me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available" },
                   { icon: "car-outline" as const, label: "Vehicle number", value: vehicleNumber || profile?.vehicleNumber || "Not added" },
-                  { icon: "location-outline" as const, label: "Assigned area", value: profile?.assignedArea || "Not assigned" }
+                  { icon: "location-outline" as const, label: "Registered address", value: registeredAddress || "Not added" }
                 ].map((item) => (
                   <View key={item.label} style={styles.identityRow}>
                     <View style={styles.identityRowIcon}><Ionicons name={item.icon} size={17} color={BRAND_ORANGE} /></View>
@@ -559,7 +563,6 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               </View>
               <InfoRow icon="car-outline" title="Vehicle Number" value={vehicleNumber || "Not registered"} styles={styles} />
               <InfoRow icon="shield-checkmark-outline" title="Verification Status" value={profile?.verificationStatus || "NOT_SUBMITTED"} styles={styles} />
-              <InfoRow icon="location-outline" title="Assigned Area" value={profile?.assignedArea || "Not assigned"} styles={styles} />
               <InfoRow icon="options-outline" title="Delivery Type" value={profile?.deliveryType || "PICKUP"} styles={styles} />
             </View>
 

@@ -459,6 +459,15 @@ async function refreshRoutePositions(batchId?: string) {
   const batch = await DeliveryBatchModel.findOne({ batchId });
   const optimized = await calculateOptimizedBatch(tasks, batch?.riderStartLocation);
   const stablePayout = Number(batch?.finalPayout ?? batch?.estimatedPayout ?? batch?.estimatedEarnings ?? optimized.estimatedPayout);
+  const stablePayableDistance = Number(batch?.payableOptimizedDistanceMeters ?? 0) > 0
+    ? Number(batch?.payableOptimizedDistanceMeters)
+    : Math.round(optimized.payableDistance);
+  const stableTotalDistance = Number(batch?.optimizationTotalDistanceMeters ?? 0) > 0
+    ? Number(batch?.optimizationTotalDistanceMeters)
+    : Math.round(optimized.totalDistance);
+  const stableDuration = Number(batch?.estimatedDurationSeconds ?? 0) > 0
+    ? Number(batch?.estimatedDurationSeconds)
+    : Math.round(optimized.durationSeconds);
   await Promise.all(
     optimized.ordered.map((task, index) =>
       DeliveryRequestModel.findByIdAndUpdate(task.id, {
@@ -472,12 +481,12 @@ async function refreshRoutePositions(batchId?: string) {
   await DeliveryBatchModel.findOneAndUpdate({ batchId }, {
     deliveryJobIds: optimized.ordered.map((task) => task.id),
     optimizedStops: mergeCompletedStopPayloads(tasks, optimized.stops, batch?.optimizedStops ?? []),
-    optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
-    payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
-    estimatedDurationSeconds: Math.round(optimized.durationSeconds),
+    optimizationTotalDistanceMeters: stableTotalDistance,
+    payableOptimizedDistanceMeters: stablePayableDistance,
+    estimatedDurationSeconds: stableDuration,
     estimatedPayout: stablePayout,
     estimatedEarnings: stablePayout,
-    totalDistance: Number((optimized.payableDistance / 1000).toFixed(2))
+    totalDistance: Number((stablePayableDistance / 1000).toFixed(2))
   });
 }
 
@@ -489,6 +498,22 @@ export async function recalculateBatchTotals(batchId?: string) {
   const optimizedStops = mergeCompletedStopPayloads(tasks, optimized.stops, batch?.optimizedStops ?? []);
   const allCompleted = tasks.length > 0 && tasks.every((task) => ["delivered", "completed"].includes(String(task.taskStatus)));
   const stablePayout = Number(batch?.finalPayout ?? batch?.estimatedPayout ?? batch?.estimatedEarnings ?? optimized.estimatedPayout);
+  const stablePayableDistance = Number(batch?.payableOptimizedDistanceMeters ?? 0) > 0
+    ? Number(batch?.payableOptimizedDistanceMeters)
+    : Math.round(optimized.payableDistance);
+  const stableTotalDistance = Number(batch?.optimizationTotalDistanceMeters ?? 0) > 0
+    ? Number(batch?.optimizationTotalDistanceMeters)
+    : Math.round(optimized.totalDistance);
+  const stableDuration = Number(batch?.estimatedDurationSeconds ?? 0) > 0
+    ? Number(batch?.estimatedDurationSeconds)
+    : Math.round(optimized.durationSeconds);
+  const stablePickupCount = Number(batch?.pickupCount ?? 0) > 0
+    ? Number(batch?.pickupCount)
+    : optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "PICKUP").length;
+  const stableDropCount = Number(batch?.dropCount ?? 0) > 0
+    ? Number(batch?.dropCount)
+    : optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "DROP").length;
+  const stableOrdersCount = Number(batch?.ordersCount ?? 0) > 0 ? Number(batch?.ordersCount) : tasks.length;
   return DeliveryBatchModel.findOneAndUpdate(
     { batchId },
     {
@@ -496,16 +521,16 @@ export async function recalculateBatchTotals(batchId?: string) {
         tasks: tasks.map((task) => task.id),
         deliveryJobIds: optimized.ordered.map((task) => task.id),
         optimizedStops,
-        ordersCount: tasks.length,
-        pickupCount: optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "PICKUP").length,
-        dropCount: optimizedStops.filter((stop) => (stop.stopType ?? stop.type) === "DROP").length,
+        ordersCount: stableOrdersCount,
+        pickupCount: stablePickupCount,
+        dropCount: stableDropCount,
         estimatedEarnings: stablePayout,
         estimatedPayout: stablePayout,
         finalPayout: allCompleted ? stablePayout : undefined,
-        optimizationTotalDistanceMeters: Math.round(optimized.totalDistance),
-        payableOptimizedDistanceMeters: Math.round(optimized.payableDistance),
-        estimatedDurationSeconds: Math.round(optimized.durationSeconds),
-        totalDistance: Number((optimized.payableDistance / 1000).toFixed(2)),
+        optimizationTotalDistanceMeters: stableTotalDistance,
+        payableOptimizedDistanceMeters: stablePayableDistance,
+        estimatedDurationSeconds: stableDuration,
+        totalDistance: Number((stablePayableDistance / 1000).toFixed(2)),
         ...(allCompleted ? { status: "completed", finalPayout: stablePayout } : {})
       }
     },
