@@ -191,3 +191,12 @@ export function extractTailorPoint(tailor: Record<string, unknown> | null | unde
     ?? pointFrom(verificationDraft?.personal)
     ?? pointFrom((tailor as Record<string, any> | undefined)?.location);
 }
+
+export function extractTailorShopPoint(tailor: Record<string, unknown> | null | undefined) {
+  const verification = tailor?.verification as Record<string, any> | undefined;
+  const verificationDraft = tailor?.verificationDraft as Record<string, any> | undefined;
+  return pointFrom(verification?.shop?.location)
+    ?? pointFrom(verification?.shop)
+    ?? pointFrom(verificationDraft?.shop?.location)
+    ?? pointFrom(verificationDraft?.shop);
+}

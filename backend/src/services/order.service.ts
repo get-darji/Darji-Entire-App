@@ -498,9 +498,8 @@ export async function assignOrder(orderId: string, input: { tailorId?: string; d
 
   const assignedPartnerId = data.deliveryPartnerId ?? data.pickupPartnerId;
   if (assignedPartnerId) {
-    const expectedType = data.deliveryPartnerId ? DeliveryType.DROP : DeliveryType.PICKUP;
-    const partner = await DeliveryPartnerModel.findOne({ _id: assignedPartnerId, verificationStatus: "VERIFIED", deliveryType: expectedType }).select("_id").lean();
-    if (!partner) throw new AppError(400, `Select a verified ${expectedType.toLowerCase()} partner`);
+    const partner = await DeliveryPartnerModel.findOne({ _id: assignedPartnerId, verificationStatus: "VERIFIED" }).select("_id").lean();
+    if (!partner) throw new AppError(400, "Select a verified delivery partner");
   }
 
   const existingOrder = await OrderModel.findById(orderId).select("status customerId");

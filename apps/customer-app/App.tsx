@@ -524,6 +524,11 @@ type AppReviewDraft = { id: string; rating: number; review: string; createdAt: s
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean; cancel?: boolean };
 type AppDialogState = { title: string; message: string; actions: DialogAction[] };
+type UpdateGateState = {
+  status: "idle" | "downloading" | "ready" | "error";
+  message?: string;
+  totalBytes?: number;
+};
 type RequestPreset = Partial<Pick<RequestDraft, "gender" | "clothType" | "serviceCategory" | "workType" | "selectedWorkItems" | "otherWorkDescription">>;
 type RazorpayFailurePayload = {
   code?: string;
@@ -588,6 +593,122 @@ const doorstepConvenienceImage = require("./assets/icons/doorstep convinence.png
 const expertCraftsmanshipImage = require("./assets/icons/expert craftsmanship.png");
 const qualityCheckedImage = require("./assets/icons/quality checked.png");
 const alterationImage = require("./assets/icons/alteration.png");
+
+function updateGateProgress(status: UpdateGateState["status"], downloadProgress?: number) {
+  if (status === "ready") return 1;
+  if (status === "error") return 1;
+  if (status === "downloading") return Math.min(0.94, Math.max(0.08, Number(downloadProgress ?? 0.08)));
+  return 0;
+}
+
+function formatUpdateMb(bytes?: number | null) {
+  if (!Number.isFinite(Number(bytes)) || Number(bytes) <= 0) return "Calculating";
+  return `${(Number(bytes) / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function updateManifestAssetUrls(manifest: unknown) {
+  const data = manifest as { launchAsset?: { url?: unknown }; assets?: Array<{ url?: unknown }> } | null | undefined;
+  const urls = [
+    typeof data?.launchAsset?.url === "string" ? data.launchAsset.url : undefined,
+    ...(Array.isArray(data?.assets) ? data.assets.map((asset) => typeof asset?.url === "string" ? asset.url : undefined) : [])
+  ].filter((url): url is string => Boolean(url));
+  return Array.from(new Set(urls));
+}
+
+async function fetchUpdateContentBytes(manifest: unknown) {
+  const urls = updateManifestAssetUrls(manifest);
+  if (!urls.length) return undefined;
+  let total = 0;
+  let foundSize = false;
+  await Promise.all(urls.map(async (url) => {
+    try {
+      const response = await fetch(url, { method: "HEAD" });
+      const contentLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(contentLength) && contentLength > 0) {
+        total += contentLength;
+        foundSize = true;
+      }
+    } catch {
+      // Some update asset hosts do not allow HEAD; progress still works without byte totals.
+    }
+  }));
+  return foundSize ? total : undefined;
+}
+
+function UpdateGateScreen({
+  appName,
+  state,
+  downloadProgress,
+  restarting,
+  onRestart,
+  onRetry
+}: {
+  appName: string;
+  state: UpdateGateState & { status: "downloading" | "ready" | "error" };
+  downloadProgress?: number;
+  restarting: boolean;
+  onRestart: () => void;
+  onRetry: () => void;
+}) {
+  const progress = updateGateProgress(state.status, downloadProgress);
+  const percent = Math.round(progress * 100);
+  const isReady = state.status === "ready";
+  const isError = state.status === "error";
+  const remainingBytes = state.totalBytes ? Math.max(0, state.totalBytes * (1 - progress)) : undefined;
+  const title = isReady ? "Update ready" : isError ? "Update paused" : "Updating Darji";
+  const copy = isReady
+    ? "The latest update is installed. Restart the app to continue."
+    : isError
+      ? state.message ?? "We could not download the update. Please retry to continue."
+      : "Please keep the app open while we install the latest fixes.";
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#f7faff" }}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f7faff" />
+      <View style={{ flex: 1, justifyContent: "center", padding: 22 }}>
+        <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "#dde4ee", backgroundColor: "#ffffff", padding: 22 }}>
+          <View style={{ width: 54, height: 54, borderRadius: 8, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
+            <Ionicons name={isReady ? "checkmark-circle-outline" : isError ? "alert-circle-outline" : "cloud-download-outline"} size={28} color={isError ? "#b91c1c" : BRAND_ORANGE} />
+          </View>
+          <Text style={{ color: BRAND_DEEP, fontSize: 24, lineHeight: 30, fontWeight: "900" }}>{title}</Text>
+          <Text style={{ color: "#65748a", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8 }}>{copy}</Text>
+          <View style={{ height: 10, borderRadius: 5, backgroundColor: "#e8eef6", overflow: "hidden", marginTop: 22 }}>
+            <View style={{ width: `${percent}%`, height: "100%", backgroundColor: isError ? "#ef4444" : BRAND_ORANGE }} />
+          </View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
+            <Text style={{ color: BRAND_DEEP, fontSize: 12, fontWeight: "900" }}>{percent}%</Text>
+            <Text style={{ color: "#65748a", fontSize: 12, fontWeight: "800" }}>{appName}</Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
+              <Text style={{ color: "#65748a", fontSize: 10, fontWeight: "900" }}>UPDATE SIZE</Text>
+              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{formatUpdateMb(state.totalBytes)}</Text>
+            </View>
+            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
+              <Text style={{ color: "#65748a", fontSize: 10, fontWeight: "900" }}>LEFT</Text>
+              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{isReady ? "0 MB" : formatUpdateMb(remainingBytes)}</Text>
+            </View>
+          </View>
+          {isReady || isError ? (
+            <Pressable
+              style={{ minHeight: 52, borderRadius: 8, backgroundColor: isError ? BRAND_DEEP : BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8, opacity: restarting ? 0.7 : 1 }}
+              disabled={restarting}
+              onPress={isReady ? onRestart : onRetry}
+            >
+              {restarting ? <ActivityIndicator color={isError ? "#ffffff" : "#111111"} /> : <Ionicons name={isReady ? "refresh-outline" : "reload-outline"} size={18} color={isError ? "#ffffff" : "#111111"} />}
+              <Text style={{ color: isError ? "#ffffff" : "#111111", fontSize: 14, fontWeight: "900" }}>{isReady ? "Restart app" : "Retry update"}</Text>
+            </Pressable>
+          ) : (
+            <View style={{ minHeight: 52, borderRadius: 8, backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8 }}>
+              <ActivityIndicator color={BRAND_ORANGE} />
+              <Text style={{ color: BRAND_DEEP, fontSize: 14, fontWeight: "900" }}>Downloading update</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
 const repairsImage = require("./assets/icons/repairs.png");
 const stitchingImage = require("./assets/icons/stitching.png");
 const avatarImages = {
@@ -10860,6 +10981,7 @@ function TrackOrderScreenV2({
 export default function App() {
   const token = useAppStore((state) => state.token);
   const user = useAppStore((state) => state.user);
+  const sessionHydrated = useAppStore((state) => state.hasHydrated);
   const setUser = useAppStore((state) => state.setUser);
   const signOut = useAppStore((state) => state.signOut);
   const sessionNotice = useAppStore((state) => state.sessionNotice);
@@ -10888,11 +11010,15 @@ export default function App() {
   const [isFetchingOrders, setIsFetchingOrders] = useState(true);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const updatesState = Updates.useUpdates();
+  const [updateGate, setUpdateGate] = useState<UpdateGateState>({ status: "idle" });
+  const [updateRestarting, setUpdateRestarting] = useState(false);
   const paymentMessageHandledRef = useRef(false);
   const paymentRecoveryInFlightRef = useRef(false);
   const paymentExternalOpenRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   const updatePromptShownRef = useRef(false);
+  const updateCheckInFlightRef = useRef(false);
   const homeScrollOffsetRef = useRef(0);
   const profileScrollOffsetRef = useRef(0);
 
@@ -10913,31 +11039,23 @@ export default function App() {
 
   useEffect(() => {
     async function checkForAppUpdate() {
-      if (updatePromptShownRef.current || !Updates.isEnabled) return;
+      if (updatePromptShownRef.current || updateCheckInFlightRef.current || !Updates.isEnabled) return;
+      updateCheckInFlightRef.current = true;
       try {
         const result = await Updates.checkForUpdateAsync();
-        if (!result.isAvailable || updatePromptShownRef.current) return;
+        if ((!result.isAvailable && !result.isRollBackToEmbedded) || updatePromptShownRef.current) return;
         updatePromptShownRef.current = true;
-        setDialog({
-          title: "Update available",
-          message: "A newer Darji update is ready. Update now for the latest fixes and improvements.",
-          actions: [
-            { label: "Later" },
-            {
-              label: "Update now",
-              onPress: async () => {
-                try {
-                  await Updates.fetchUpdateAsync();
-                  await Updates.reloadAsync();
-                } catch {
-                  setDialog({ title: "Update failed", message: "Could not install the update right now. Please try again later.", actions: [{ label: "OK" }] });
-                }
-              }
-            }
-          ]
-        });
-      } catch {
+        const totalBytes = result.isAvailable ? await fetchUpdateContentBytes(result.manifest) : undefined;
+        setUpdateGate({ status: "downloading", totalBytes });
+        await Updates.fetchUpdateAsync();
+        setUpdateGate({ status: "ready", totalBytes });
+      } catch (error) {
+        if (updatePromptShownRef.current) {
+          setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
+        }
         // Updates are disabled in Expo Go/dev builds; no prompt is needed there.
+      } finally {
+        updateCheckInFlightRef.current = false;
       }
     }
     void checkForAppUpdate();
@@ -10946,6 +11064,29 @@ export default function App() {
     });
     return () => subscription.remove();
   }, []);
+
+  const restartForUpdate = useCallback(async () => {
+    setUpdateRestarting(true);
+    try {
+      await Updates.reloadAsync();
+    } catch (error) {
+      setUpdateRestarting(false);
+      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not restart the app." });
+    }
+  }, []);
+
+  const retryAppUpdate = useCallback(async () => {
+    updatePromptShownRef.current = true;
+    const totalBytes = await fetchUpdateContentBytes(updatesState.availableUpdate?.manifest);
+    setUpdateGate({ status: "downloading", totalBytes });
+    setUpdateRestarting(false);
+    try {
+      await Updates.fetchUpdateAsync();
+      setUpdateGate({ status: "ready", totalBytes });
+    } catch (error) {
+      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
+    }
+  }, [updatesState.availableUpdate?.manifest]);
 
   useEffect(() => {
     if (!paymentSheet || verifyingPayment) return;
@@ -12141,6 +12282,19 @@ export default function App() {
         refreshing={platform.refreshing}
         error={platform.error}
         onRefresh={() => void platform.refresh(true)}
+      />
+    );
+  }
+  if (!sessionHydrated) return withAppChrome(<LocationFetchingScreen title="Checking account" message="Loading your saved Darji session." />);
+  if (updateGate.status !== "idle") {
+    return (
+      <UpdateGateScreen
+        appName="Darji"
+        downloadProgress={updatesState.downloadProgress}
+        restarting={updateRestarting || updatesState.isRestarting}
+        state={updateGate as UpdateGateState & { status: "downloading" | "ready" | "error" }}
+        onRestart={() => void restartForUpdate()}
+        onRetry={() => void retryAppUpdate()}
       />
     );
   }

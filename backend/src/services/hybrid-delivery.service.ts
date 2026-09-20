@@ -1024,7 +1024,10 @@ export async function lockAndDispatchDueBatches(now = new Date()) {
   for (const batch of completedCandidates) {
     const tasks = await DeliveryRequestModel.find({ batchId: batch.batchId, taskStatus: { $ne: "cancelled" } }).select("taskStatus");
     if (tasks.length && tasks.every((task) => task.taskStatus === "delivered")) {
-      await DeliveryBatchModel.updateOne({ _id: batch.id }, { status: "completed" });
+      await DeliveryBatchModel.updateOne(
+        { _id: batch.id },
+        [{ $set: { status: "completed", finalPayout: { $ifNull: ["$finalPayout", { $ifNull: ["$estimatedPayout", "$estimatedEarnings"] }] } } }]
+      );
     }
   }
 
@@ -1066,7 +1069,10 @@ export async function completeFinishedBatches() {
   for (const batch of candidates) {
     const tasks = await DeliveryRequestModel.find({ batchId: batch.batchId, taskStatus: { $ne: "cancelled" } }).select("taskStatus");
     if (tasks.length && tasks.every((task) => task.taskStatus === "delivered")) {
-      await DeliveryBatchModel.updateOne({ _id: batch.id }, { status: "completed" });
+      await DeliveryBatchModel.updateOne(
+        { _id: batch.id },
+        [{ $set: { status: "completed", finalPayout: { $ifNull: ["$finalPayout", { $ifNull: ["$estimatedPayout", "$estimatedEarnings"] }] } } }]
+      );
     }
   }
 }

@@ -431,7 +431,6 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
           <Text style={styles.profileTapHint}>Tap to view partner details</Text>
           <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}{avatarLocked ? " - verification photo locked" : ""}</Text>
           <Text style={styles.meta}>{email || "Email not added"}</Text>
-          <Text style={styles.meta}>Role: {profile?.deliveryType === "DROP" ? "Drop partner" : "Pickup partner"}</Text>
           {registeredAddress ? <Text style={styles.meta} numberOfLines={2}>Address: {registeredAddress}</Text> : null}
           <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
         </Pressable>
@@ -470,7 +469,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                 </View>
                 <View style={styles.identityHeroCopy}>
                   <Text style={styles.identityName} numberOfLines={2}>{name || me?.name || "Delivery Partner"}</Text>
-                  <Text style={styles.identityRole} numberOfLines={1}>{profile?.deliveryType === "DROP" ? "Drop partner" : "Pickup partner"}</Text>
+                  <Text style={styles.identityRole} numberOfLines={1}>Delivery partner</Text>
                 </View>
               </View>
 
@@ -563,7 +562,6 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               </View>
               <InfoRow icon="car-outline" title="Vehicle Number" value={vehicleNumber || "Not registered"} styles={styles} />
               <InfoRow icon="shield-checkmark-outline" title="Verification Status" value={profile?.verificationStatus || "NOT_SUBMITTED"} styles={styles} />
-              <InfoRow icon="options-outline" title="Delivery Type" value={profile?.deliveryType || "PICKUP"} styles={styles} />
             </View>
 
                         <View style={styles.requestCard}>

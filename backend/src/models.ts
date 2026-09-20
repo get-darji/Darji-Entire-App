@@ -272,7 +272,7 @@ const tailorSchema = new Schema(
     tailorRoles: { type: [String], enum: ["STITCHING_TAILOR", "MEASUREMENT_PARTNER"], default: ["STITCHING_TAILOR"], index: true },
     measurementPartner: {
       isEnabled: { type: Boolean, default: false, index: true },
-      visitPayout: { type: Number, default: 75 },
+      visitPayout: { type: Number, default: 30 },
       serviceAreas: { type: [String], default: [] }
     },
     verificationStatus: { type: String, enum: ["NOT_SUBMITTED", "PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"], default: "NOT_SUBMITTED", index: true },
@@ -473,10 +473,12 @@ const measurementVisitSchema = new Schema(
     },
     scheduledAt: { type: Date, required: true, index: true },
     preferredMeasurementSlot: String,
-    visitPayout: { type: Number, default: 75 },
+    visitPayout: { type: Number, default: 30 },
+    measurementDistanceMeters: Number,
     customerName: String,
     customerPhone: String,
     pickupAddress: String,
+    pickupLocation: { type: Schema.Types.Mixed },
     garmentSummary: String,
     poolOpenedAt: Date,
     acceptedAt: Date,

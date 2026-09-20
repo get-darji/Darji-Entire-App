@@ -11,11 +11,13 @@ type Store = {
   user?: User;
   language: AppLanguage;
   hasSelectedLanguage: boolean;
+  hasHydrated: boolean;
   deliveryOnline: boolean;
   sessionNotice?: string;
   setSession: (token: string, user: User, refreshToken: string) => void;
   setAccessToken: (token: string) => void;
   setLanguagePreference: (language: AppLanguage) => void;
+  setHasHydrated: (hasHydrated: boolean) => void;
   setDeliveryOnline: (online: boolean) => void;
   signOut: () => void;
   invalidateSession: (message: string) => void;
@@ -25,10 +27,12 @@ type Store = {
 export const useAppStore = create<Store>()(persist((set) => ({
   language: "en",
   hasSelectedLanguage: false,
+  hasHydrated: false,
   deliveryOnline: false,
   setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, deliveryOnline: false, sessionNotice: undefined })),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
+  setHasHydrated: (hasHydrated) => set({ hasHydrated }),
   setDeliveryOnline: (deliveryOnline) => set({ deliveryOnline }),
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined, deliveryOnline: false }),
   invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, deliveryOnline: false, sessionNotice }),
@@ -38,6 +42,9 @@ export const useAppStore = create<Store>()(persist((set) => ({
   version: 2,
   storage: createJSONStorage(() => AsyncStorage),
   partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage, deliveryOnline: state.deliveryOnline }),
+  onRehydrateStorage: () => (state) => {
+    state?.setHasHydrated(true);
+  },
   migrate: (persistedState, version) => {
     const persisted = (persistedState ?? {}) as Partial<Store>;
     if (version < 1) {

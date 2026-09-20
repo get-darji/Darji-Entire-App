@@ -31,7 +31,7 @@ import {
   nextOpenBatchSlot,
   nextTwoBatchSlotsAfter
 } from "../services/hybrid-delivery.service.js";
-import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorPoint, geocodeAddress, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
+import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorShopPoint, geocodeAddress, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
 import { getPlatformFee, getSmallOrderFee, HOME_MEASUREMENT_FEE } from "@darzi/shared";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
 
@@ -622,18 +622,9 @@ function tailorDropAddress(tailor: Record<string, unknown> | null | undefined) {
   const draftShopAddress = verificationDraft?.shop?.shopAddress
     || (verificationDraft?.shop ? [verificationDraft.shop.shopAddressLine, verificationDraft.shop.shopArea, verificationDraft.shop.shopCity, verificationDraft.shop.shopState, verificationDraft.shop.shopPincode].filter(Boolean).join(", ") : undefined);
 
-  const personalAddress = verification?.personal?.address
-    || (verification?.personal ? [verification.personal.addressLine, verification.personal.area, verification.personal.city, verification.personal.state, verification.personal.pincode].filter(Boolean).join(", ") : undefined);
-
-  const draftPersonalAddress = verificationDraft?.personal?.address
-    || (verificationDraft?.personal ? [verificationDraft.personal.addressLine, verificationDraft.personal.area, verificationDraft.personal.city, verificationDraft.personal.state, verificationDraft.personal.pincode].filter(Boolean).join(", ") : undefined);
-
   return (
     vShopAddress ||
     draftShopAddress ||
-    personalAddress ||
-    draftPersonalAddress ||
-    (typeof tailor.shopAddress === "string" ? tailor.shopAddress : undefined) ||
     String(tailor.shopName ?? "Tailor address pending")
   );
 }
@@ -653,7 +644,7 @@ async function customerAndTailorPoints(
 ) {
   const [customerPoint, tailorPoint] = await Promise.all([
     pointFrom(request.pickupLocation) ?? geocodeAddress(request.pickupAddress),
-    extractTailorPoint(tailor) ?? geocodeAddress(tailorDropAddress(tailor))
+    extractTailorShopPoint(tailor) ?? geocodeAddress(tailorDropAddress(tailor))
   ]);
   return { customerPoint, tailorPoint };
 }
@@ -1113,7 +1104,6 @@ export async function listDeliveryRequestsController(req: Request, res: Response
     const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
     const enableAreaFiltering = areaFilteringSetting?.value === true;
 
-    where.deliveryType = partner.deliveryType;
     where.retryStatus = { $ne: "ACTION_REQUIRED" };
     where.$or = [
       enableAreaFiltering

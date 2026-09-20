@@ -4,6 +4,7 @@ import { MeasurementVisitModel, TailorModel } from "../models.js";
 import { AppError } from "../middleware/error.js";
 import {
   assignMeasurementVisit,
+  measurementVisitPayoutForTailor,
   measurementVisitOtp,
   moveMeasurementVisitToPool,
   submitMeasurementVisit
@@ -77,12 +78,18 @@ export async function listMeasurementVisitsController(req: Request, res: Respons
   }
   const visits = await MeasurementVisitModel.find(where).sort({ updatedAt: -1, createdAt: -1 }).limit(100);
   res.json({
-    data: visits.map((visit) => {
+    data: await Promise.all(visits.map(async (visit) => {
       const data = visit.toJSON() as Record<string, unknown>;
+      const isAssignedToThisTailor = tailorReferences.includes(String(visit.assignedTailorId ?? ""));
+      if (!isAssignedToThisTailor || !Number.isFinite(Number(data.measurementDistanceMeters))) {
+        const payout = await measurementVisitPayoutForTailor(visit, tailor.toJSON() as Record<string, unknown>);
+        data.visitPayout = payout.visitPayout;
+        data.measurementDistanceMeters = payout.measurementDistanceMeters;
+      }
       const maySeePhone = tailorReferences.includes(String(visit.assignedTailorId ?? "")) && ["ACCEPTED", "IN_PROGRESS"].includes(String(visit.status));
       if (!maySeePhone) delete data.customerPhone;
       return data;
-    })
+    }))
   });
 }
 
@@ -175,7 +182,6 @@ export async function updateTailorMeasurementCapabilitiesController(req: Request
       $set: {
         tailorRoles: roles.length ? roles : ["STITCHING_TAILOR"],
         "measurementPartner.isEnabled": input.measurementPartner,
-        ...(input.visitPayout != null ? { "measurementPartner.visitPayout": input.visitPayout } : {}),
         ...(input.serviceAreas ? { "measurementPartner.serviceAreas": input.serviceAreas } : {})
       }
     },

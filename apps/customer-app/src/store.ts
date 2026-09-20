@@ -14,12 +14,14 @@ type Store = {
   cart: CartItem[];
   language: AppLanguage;
   hasSelectedLanguage: boolean;
+  hasHydrated: boolean;
   sessionNotice?: string;
   favoriteTailorIds?: string[];
   setSession: (token: string, user: User, refreshToken?: string) => void;
   setUser: (user: User) => void;
   setAccessToken: (token: string) => void;
   setLanguagePreference: (language: AppLanguage) => void;
+  setHasHydrated: (hasHydrated: boolean) => void;
   signOut: () => void;
   invalidateSession: (message: string) => void;
   clearSessionNotice: () => void;
@@ -32,11 +34,13 @@ export const useAppStore = create<Store>()(persist((set) => ({
   cart: [],
   language: "en",
   hasSelectedLanguage: false,
+  hasHydrated: false,
   favoriteTailorIds: [],
   setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, sessionNotice: undefined })),
   setUser: (user) => set((state) => ({ user, language: user.preferredLanguage ?? state.language })),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
+  setHasHydrated: (hasHydrated) => set({ hasHydrated }),
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [], favoriteTailorIds: [] }),
   invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, cart: [], sessionNotice }),
   clearSessionNotice: () => set({ sessionNotice: undefined }),
@@ -67,5 +71,8 @@ export const useAppStore = create<Store>()(persist((set) => ({
     language: state.language,
     hasSelectedLanguage: state.hasSelectedLanguage,
     favoriteTailorIds: state.favoriteTailorIds
-  })
+  }),
+  onRehydrateStorage: () => (state) => {
+    state?.setHasHydrated(true);
+  }
 }));

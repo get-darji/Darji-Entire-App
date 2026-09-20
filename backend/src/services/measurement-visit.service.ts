@@ -2,10 +2,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { MeasurementVisitModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel } from "../models.js";
 import { env } from "../env.js";
 import { sendPushToUsers } from "./push.service.js";
-import { emitToAdmins, emitToCustomer, emitToTailor, emitToTailors } from "./socket.service.js";
+import { emitToAdmins, emitToCustomer, emitToTailor } from "./socket.service.js";
 import { upsertOperationalAlert, resolveOperationalAlert } from "./operational-alert.service.js";
+import { extractTailorShopPoint, geocodeAddress, pointFrom, roadDistanceMeters } from "./delivery-pricing.service.js";
 
-const DEFAULT_VISIT_PAYOUT = 75;
+const DEFAULT_VISIT_PAYOUT = 30;
+const MEASUREMENT_VISIT_BASE_PAYOUT = 30;
+const MEASUREMENT_VISIT_PER_KM = 10;
 
 function hasHomeMeasurement(request: any) {
   if (request.homeMeasurementBooked) return true;
@@ -33,6 +36,46 @@ function selectedMeasurementSlot(request: any) {
     ? request.items.find((candidate: any) => candidate?.homeMeasurementBooked && typeof candidate.preferredMeasurementSlot === "string" && candidate.preferredMeasurementSlot.trim())
     : undefined;
   return typeof item?.preferredMeasurementSlot === "string" ? item.preferredMeasurementSlot.trim() : "";
+}
+
+function tailorShopAddress(tailor: Record<string, unknown> | null | undefined) {
+  if (!tailor) return "";
+  const verification = tailor.verification as Record<string, any> | undefined;
+  const verificationDraft = tailor.verificationDraft as Record<string, any> | undefined;
+  const verifiedShopAddress = verification?.shop?.shopAddress
+    || (verification?.shop ? [verification.shop.shopAddressLine, verification.shop.shopArea, verification.shop.shopCity, verification.shop.shopState, verification.shop.shopPincode].filter(Boolean).join(", ") : undefined);
+  const draftShopAddress = verificationDraft?.shop?.shopAddress
+    || (verificationDraft?.shop ? [verificationDraft.shop.shopAddressLine, verificationDraft.shop.shopArea, verificationDraft.shop.shopCity, verificationDraft.shop.shopState, verificationDraft.shop.shopPincode].filter(Boolean).join(", ") : undefined);
+  return String(verifiedShopAddress || draftShopAddress || "");
+}
+
+export function measurementVisitPayout(distanceMeters?: number | null) {
+  const km = Math.max(0, Number(distanceMeters) || 0) / 1000;
+  return Math.round(MEASUREMENT_VISIT_BASE_PAYOUT + km * MEASUREMENT_VISIT_PER_KM);
+}
+
+export async function measurementVisitPayoutForTailor(
+  visit: { pickupAddress?: string | null; pickupLocation?: unknown },
+  tailor: Record<string, unknown> | null | undefined
+) {
+  const [customerPoint, tailorPoint] = await Promise.all([
+    pointFrom(visit.pickupLocation) ?? geocodeAddress(visit.pickupAddress),
+    extractTailorShopPoint(tailor) ?? geocodeAddress(tailorShopAddress(tailor))
+  ]);
+  const distanceMeters = customerPoint && tailorPoint ? await roadDistanceMeters(customerPoint, tailorPoint) : 0;
+  return {
+    measurementDistanceMeters: Math.round(distanceMeters),
+    visitPayout: measurementVisitPayout(distanceMeters)
+  };
+}
+
+function withMeasurementPayout(visit: any, payout: { visitPayout: number; measurementDistanceMeters: number }) {
+  const data = typeof visit?.toJSON === "function" ? visit.toJSON() : { ...visit };
+  return {
+    ...data,
+    visitPayout: payout.visitPayout,
+    measurementDistanceMeters: payout.measurementDistanceMeters
+  };
 }
 
 function resolveScheduledAt(slot?: string) {
@@ -76,7 +119,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
 
   const [customer, stitchingTailor] = await Promise.all([
     UserModel.findById(request.customerId).select("name phone"),
-    TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner tailorRoles")
+    TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner tailorRoles verification verificationDraft shopName")
   ]);
 
   const stitchingTailorCanMeasure = Boolean(
@@ -87,6 +130,10 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
   );
 
   const preferredSlot = selectedMeasurementSlot(request);
+  const calculatedPayout = await measurementVisitPayoutForTailor(
+    { pickupAddress: request.pickupAddress, pickupLocation: request.pickupLocation },
+    stitchingTailor?.toJSON() as Record<string, unknown> | undefined
+  );
   const visit = await MeasurementVisitModel.findOneAndUpdate(
     { requestId: request.id },
     {
@@ -98,10 +145,12 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         status: stitchingTailorCanMeasure ? "OFFERED_TO_STITCHING_TAILOR" : "POOL",
         scheduledAt: resolveScheduledAt(preferredSlot),
         preferredMeasurementSlot: preferredSlot,
-        visitPayout: Number(stitchingTailor?.measurementPartner?.visitPayout ?? DEFAULT_VISIT_PAYOUT),
+        visitPayout: calculatedPayout.visitPayout,
+        measurementDistanceMeters: calculatedPayout.measurementDistanceMeters,
         customerName: customer?.name ?? "Customer",
         customerPhone: customer?.phone ?? "",
         pickupAddress: request.pickupAddress,
+        pickupLocation: request.pickupLocation,
         garmentSummary: itemSummary(request)
       }
     },
@@ -122,6 +171,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         customerName: customer?.name ?? "Customer",
         garmentSummary: itemSummary(request),
         visitPayout: String(Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)),
+        measurementDistanceMeters: String(Number(visit.measurementDistanceMeters ?? 0)),
         screen: "measurementVisits"
       },
       channelId: "darji-incoming-orders-v4",
@@ -170,12 +220,13 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
     "measurementPartner.isEnabled": true,
     tailorRoles: "MEASUREMENT_PARTNER",
     _id: { $nin: visit.declinedTailorIds ?? [] }
-  }).select("userId");
-  const userIds = partnerTailors.map((tailor) => tailor.userId).filter((id): id is string => typeof id === "string" && id.length > 0);
-  if (userIds.length) {
-    await sendPushToUsers(userIds, {
+  }).select("userId verification verificationDraft shopName");
+  await Promise.all(partnerTailors.map(async (tailor) => {
+    if (!tailor.userId) return;
+    const payout = await measurementVisitPayoutForTailor(visit, tailor.toJSON() as Record<string, unknown>);
+    await sendPushToUsers([tailor.userId], {
       title: "Measurement visit available",
-      body: `${visit.customerName ?? "Customer"} needs measurements at home. Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
+      body: `${visit.customerName ?? "Customer"} needs measurements at home. Payout Rs ${payout.visitPayout.toFixed(0)}.`,
       data: {
         type: "MEASUREMENT_VISIT_POOL",
         visitId: visit.id,
@@ -185,7 +236,8 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
         pickupAddress: visit.pickupAddress ?? "",
         customerName: visit.customerName ?? "Customer",
         garmentSummary: visit.garmentSummary ?? "Home measurement",
-        visitPayout: String(Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)),
+        visitPayout: String(payout.visitPayout.toFixed(0)),
+        measurementDistanceMeters: String(payout.measurementDistanceMeters),
         screen: "measurementVisits"
       },
       channelId: "darji-incoming-orders-v4",
@@ -193,8 +245,8 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
       sound: "requests.mp3",
       targetApps: ["tailor"]
     });
-  }
-  emitToTailors("measurement:visit_pool", { visit: visit.toJSON() });
+    emitToTailor(tailor.id, "measurement:visit_pool", { visit: withMeasurementPayout(visit, payout) });
+  }));
   emitToAdmins("measurement:visit_pool", { visit: visit.toJSON() });
   return visit;
 }
@@ -202,9 +254,13 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
 export async function assignMeasurementVisit(visitId: string, tailorId: string, actorId?: string) {
   const tailor = await TailorModel.findOne({
     $or: [{ _id: tailorId }, { userId: tailorId }, { darjiTailorId: tailorId }]
-  }).select("userId verificationStatus darjiTailorId");
+  }).select("userId verificationStatus darjiTailorId verification verificationDraft shopName");
   if (!tailor) throw new Error("Tailor profile not found");
   const canonicalTailorId = tailor.id;
+  const existingVisit = await MeasurementVisitModel.findById(visitId);
+  const calculatedPayout = existingVisit
+    ? await measurementVisitPayoutForTailor(existingVisit, tailor.toJSON() as Record<string, unknown>)
+    : { visitPayout: DEFAULT_VISIT_PAYOUT, measurementDistanceMeters: 0 };
   const visit = await MeasurementVisitModel.findOneAndUpdate(
     { _id: visitId, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL", "ACCEPTED", "IN_PROGRESS"] } },
     {
@@ -212,7 +268,9 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
         assignedTailorId: canonicalTailorId,
         offeredTailorId: canonicalTailorId,
         status: "ACCEPTED",
-        acceptedAt: new Date()
+        acceptedAt: new Date(),
+        visitPayout: calculatedPayout.visitPayout,
+        measurementDistanceMeters: calculatedPayout.measurementDistanceMeters
       }
     },
     { returnDocument: "after" }

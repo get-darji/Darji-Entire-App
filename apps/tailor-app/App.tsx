@@ -331,6 +331,11 @@ type MeResponse = {
 };
 type DialogAction = { label: string; onPress?: () => void; variant?: "primary" | "secondary" };
 type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[]; variant?: "requestSuccess" };
+type UpdateGateState = {
+  status: "idle" | "downloading" | "ready" | "error";
+  message?: string;
+  totalBytes?: number;
+};
 type CancellationAlert = { id: string; title: string; message: string };
 type VerificationMediaDraft = { uri: string; name: string; uploadedUrl?: string };
 type TailorReuploadField = "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto" | "shopPhotos";
@@ -392,6 +397,122 @@ const tailorAppIcon = require("./darji transparent.png");
 const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
 const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
 const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
+
+function updateGateProgress(status: UpdateGateState["status"], downloadProgress?: number) {
+  if (status === "ready") return 1;
+  if (status === "error") return 1;
+  if (status === "downloading") return Math.min(0.94, Math.max(0.08, Number(downloadProgress ?? 0.08)));
+  return 0;
+}
+
+function formatUpdateMb(bytes?: number | null) {
+  if (!Number.isFinite(Number(bytes)) || Number(bytes) <= 0) return "Calculating";
+  return `${(Number(bytes) / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function updateManifestAssetUrls(manifest: unknown) {
+  const data = manifest as { launchAsset?: { url?: unknown }; assets?: Array<{ url?: unknown }> } | null | undefined;
+  const urls = [
+    typeof data?.launchAsset?.url === "string" ? data.launchAsset.url : undefined,
+    ...(Array.isArray(data?.assets) ? data.assets.map((asset) => typeof asset?.url === "string" ? asset.url : undefined) : [])
+  ].filter((url): url is string => Boolean(url));
+  return Array.from(new Set(urls));
+}
+
+async function fetchUpdateContentBytes(manifest: unknown) {
+  const urls = updateManifestAssetUrls(manifest);
+  if (!urls.length) return undefined;
+  let total = 0;
+  let foundSize = false;
+  await Promise.all(urls.map(async (url) => {
+    try {
+      const response = await fetch(url, { method: "HEAD" });
+      const contentLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(contentLength) && contentLength > 0) {
+        total += contentLength;
+        foundSize = true;
+      }
+    } catch {
+      // Some update asset hosts do not allow HEAD; progress still works without byte totals.
+    }
+  }));
+  return foundSize ? total : undefined;
+}
+
+function UpdateGateScreen({
+  appName,
+  state,
+  downloadProgress,
+  restarting,
+  onRestart,
+  onRetry
+}: {
+  appName: string;
+  state: UpdateGateState & { status: "downloading" | "ready" | "error" };
+  downloadProgress?: number;
+  restarting: boolean;
+  onRestart: () => void;
+  onRetry: () => void;
+}) {
+  const progress = updateGateProgress(state.status, downloadProgress);
+  const percent = Math.round(progress * 100);
+  const isReady = state.status === "ready";
+  const isError = state.status === "error";
+  const remainingBytes = state.totalBytes ? Math.max(0, state.totalBytes * (1 - progress)) : undefined;
+  const title = isReady ? "Update ready" : isError ? "Update paused" : "Updating Darji";
+  const copy = isReady
+    ? "The latest update is installed. Restart the app to continue."
+    : isError
+      ? state.message ?? "We could not download the update. Please retry to continue."
+      : "Please keep the app open while we install the latest fixes.";
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#f7faff" }}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f7faff" />
+      <View style={{ flex: 1, justifyContent: "center", padding: 22 }}>
+        <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "#dde4ee", backgroundColor: "#ffffff", padding: 22 }}>
+          <View style={{ width: 54, height: 54, borderRadius: 8, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
+            <Ionicons name={isReady ? "checkmark-circle-outline" : isError ? "alert-circle-outline" : "cloud-download-outline"} size={28} color={isError ? "#b91c1c" : BRAND_ORANGE} />
+          </View>
+          <Text style={{ color: BRAND_DEEP, fontSize: 24, lineHeight: 30, fontWeight: "900" }}>{title}</Text>
+          <Text style={{ color: MUTED, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8 }}>{copy}</Text>
+          <View style={{ height: 10, borderRadius: 5, backgroundColor: "#e8eef6", overflow: "hidden", marginTop: 22 }}>
+            <View style={{ width: `${percent}%`, height: "100%", backgroundColor: isError ? "#ef4444" : BRAND_ORANGE }} />
+          </View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
+            <Text style={{ color: BRAND_DEEP, fontSize: 12, fontWeight: "900" }}>{percent}%</Text>
+            <Text style={{ color: MUTED, fontSize: 12, fontWeight: "800" }}>{appName}</Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
+              <Text style={{ color: MUTED, fontSize: 10, fontWeight: "900" }}>UPDATE SIZE</Text>
+              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{formatUpdateMb(state.totalBytes)}</Text>
+            </View>
+            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
+              <Text style={{ color: MUTED, fontSize: 10, fontWeight: "900" }}>LEFT</Text>
+              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{isReady ? "0 MB" : formatUpdateMb(remainingBytes)}</Text>
+            </View>
+          </View>
+          {isReady || isError ? (
+            <Pressable
+              style={{ minHeight: 52, borderRadius: 8, backgroundColor: isError ? BRAND_DEEP : BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8, opacity: restarting ? 0.7 : 1 }}
+              disabled={restarting}
+              onPress={isReady ? onRestart : onRetry}
+            >
+              {restarting ? <ActivityIndicator color={isError ? "#ffffff" : "#111111"} /> : <Ionicons name={isReady ? "refresh-outline" : "reload-outline"} size={18} color={isError ? "#ffffff" : "#111111"} />}
+              <Text style={{ color: isError ? "#ffffff" : "#111111", fontSize: 14, fontWeight: "900" }}>{isReady ? "Restart app" : "Retry update"}</Text>
+            </Pressable>
+          ) : (
+            <View style={{ minHeight: 52, borderRadius: 8, backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8 }}>
+              <ActivityIndicator color={BRAND_ORANGE} />
+              <Text style={{ color: BRAND_DEEP, fontSize: 14, fontWeight: "900" }}>Downloading update</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
 const TAILOR_ONBOARDING_STORAGE_PREFIX = "darji.tailorOnboarding.v1";
 const VERIFICATION_TOTAL_STEPS = 5;
 const VERIFICATION_FORM_STEPS = 4;
@@ -6090,6 +6211,7 @@ function TailorVerifiedWelcome({ me, onContinue, onRefresh }: { me: MeResponse; 
 export default function App() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
+  const sessionHydrated = useAppStore((state) => state.hasHydrated);
   const signOut = useAppStore((state) => state.signOut);
   const sessionNotice = useAppStore((state) => state.sessionNotice);
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
@@ -6130,7 +6252,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
+  const updatesState = Updates.useUpdates();
+  const [updateGate, setUpdateGate] = useState<UpdateGateState>({ status: "idle" });
+  const [updateRestarting, setUpdateRestarting] = useState(false);
   const updatePromptShownRef = useRef(false);
+  const updateCheckInFlightRef = useRef(false);
   const [newRequestPopup, setNewRequestPopup] = useState<TailoringRequest>();
   const [measurementVisitPopup, setMeasurementVisitPopup] = useState<MeasurementVisit>();
   const [measurementPopupSaving, setMeasurementPopupSaving] = useState(false);
@@ -6171,33 +6297,23 @@ export default function App() {
 
   useEffect(() => {
     async function checkForAppUpdate() {
-      if (updatePromptShownRef.current || !Updates.isEnabled) return;
+      if (updatePromptShownRef.current || updateCheckInFlightRef.current || !Updates.isEnabled) return;
+      updateCheckInFlightRef.current = true;
       try {
         const result = await Updates.checkForUpdateAsync();
-        if (!result.isAvailable || updatePromptShownRef.current) return;
+        if ((!result.isAvailable && !result.isRollBackToEmbedded) || updatePromptShownRef.current) return;
         updatePromptShownRef.current = true;
-        setDialog({
-          title: "Update available",
-          message: "A newer Darji Tailor update is ready with the latest fixes and improvements.",
-          icon: "cloud-download-outline",
-          actions: [
-            { label: "Later", variant: "secondary" },
-            {
-              label: "Update now",
-              variant: "primary",
-              onPress: async () => {
-                try {
-                  await Updates.fetchUpdateAsync();
-                  await Updates.reloadAsync();
-                } catch {
-                  setDialog({ title: "Update failed", message: "Could not install the update right now. Please try again later.", icon: "alert-circle-outline" });
-                }
-              }
-            }
-          ]
-        });
-      } catch {
+        const totalBytes = result.isAvailable ? await fetchUpdateContentBytes(result.manifest) : undefined;
+        setUpdateGate({ status: "downloading", totalBytes });
+        await Updates.fetchUpdateAsync();
+        setUpdateGate({ status: "ready", totalBytes });
+      } catch (error) {
+        if (updatePromptShownRef.current) {
+          setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
+        }
         // Updates are disabled in Expo Go/dev builds.
+      } finally {
+        updateCheckInFlightRef.current = false;
       }
     }
     void checkForAppUpdate();
@@ -6206,6 +6322,29 @@ export default function App() {
     });
     return () => subscription.remove();
   }, []);
+
+  const restartForUpdate = useCallback(async () => {
+    setUpdateRestarting(true);
+    try {
+      await Updates.reloadAsync();
+    } catch (error) {
+      setUpdateRestarting(false);
+      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not restart the app." });
+    }
+  }, []);
+
+  const retryAppUpdate = useCallback(async () => {
+    updatePromptShownRef.current = true;
+    const totalBytes = await fetchUpdateContentBytes(updatesState.availableUpdate?.manifest);
+    setUpdateGate({ status: "downloading", totalBytes });
+    setUpdateRestarting(false);
+    try {
+      await Updates.fetchUpdateAsync();
+      setUpdateGate({ status: "ready", totalBytes });
+    } catch (error) {
+      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
+    }
+  }, [updatesState.availableUpdate?.manifest]);
 
   useEffect(() => {
     notificationAuthTokenRef.current = token;
@@ -6572,7 +6711,7 @@ export default function App() {
         body: JSON.stringify({
           stitchingTailor: stitchingEnabled,
           measurementPartner: value,
-          visitPayout: me?.tailorProfile?.measurementPartner?.visitPayout ?? 75
+          visitPayout: me?.tailorProfile?.measurementPartner?.visitPayout ?? 30
         })
       }, token);
       setMeasurementPartnerEnabled(Boolean(updated.measurementPartner?.isEnabled ?? value));
@@ -6792,6 +6931,27 @@ export default function App() {
       clearTimeout(stopFlashTimer);
     };
   }, [newRequestPopup?.id, soundAlertsEnabled]);
+
+  if (!sessionHydrated) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <LoadingOverlay visible />
+      </SafeAreaView>
+    );
+  }
+
+  if (updateGate.status !== "idle") {
+    return (
+      <UpdateGateScreen
+        appName="Darji Tailor"
+        downloadProgress={updatesState.downloadProgress}
+        restarting={updateRestarting || updatesState.isRestarting}
+        state={updateGate as UpdateGateState & { status: "downloading" | "ready" | "error" }}
+        onRestart={() => void restartForUpdate()}
+        onRetry={() => void retryAppUpdate()}
+      />
+    );
+  }
 
   if (platform.status.maintenanceMode) {
     return (
