@@ -54,6 +54,14 @@ export function measurementVisitPayout(distanceMeters?: number | null) {
   return Math.round(MEASUREMENT_VISIT_BASE_PAYOUT + km * MEASUREMENT_VISIT_PER_KM);
 }
 
+function measurementDistanceLabel(distanceMeters?: number | null) {
+  const meters = Number(distanceMeters ?? 0);
+  if (!Number.isFinite(meters) || meters <= 0) return "";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  const km = meters / 1000;
+  return `${km >= 10 ? km.toFixed(0) : km.toFixed(1)} km`;
+}
+
 export async function measurementVisitPayoutForTailor(
   visit: { pickupAddress?: string | null; pickupLocation?: unknown },
   tailor: Record<string, unknown> | null | undefined
@@ -158,9 +166,10 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
   );
 
   if (stitchingTailor?.userId && stitchingTailorCanMeasure) {
+    const distanceLabel = measurementDistanceLabel(visit.measurementDistanceMeters);
     await sendPushToUsers([stitchingTailor.userId], {
       title: "Measurement visit requested",
-      body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${preferredSlot || "slot specified"}). Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
+      body: `${customer?.name ?? "Customer"} needs an at-home measurement visit (${preferredSlot || "slot specified"}).${distanceLabel ? ` ${distanceLabel} away.` : ""} Payout Rs ${Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)}.`,
       data: {
         type: "MEASUREMENT_VISIT_OFFERED",
         visitId: visit.id,
@@ -224,9 +233,10 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
   await Promise.all(partnerTailors.map(async (tailor) => {
     if (!tailor.userId) return;
     const payout = await measurementVisitPayoutForTailor(visit, tailor.toJSON() as Record<string, unknown>);
+    const distanceLabel = measurementDistanceLabel(payout.measurementDistanceMeters);
     await sendPushToUsers([tailor.userId], {
       title: "Measurement visit available",
-      body: `${visit.customerName ?? "Customer"} needs measurements at home. Payout Rs ${payout.visitPayout.toFixed(0)}.`,
+      body: `${visit.customerName ?? "Customer"} needs measurements at home.${distanceLabel ? ` ${distanceLabel} away.` : ""} Payout Rs ${payout.visitPayout.toFixed(0)}.`,
       data: {
         type: "MEASUREMENT_VISIT_POOL",
         visitId: visit.id,
@@ -281,9 +291,10 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
   // socket update. Sending the assignment push back to that same user creates
   // a second incoming-style alert. Keep the push only for admin/system assignment.
   if (tailor.userId && actorId !== tailor.userId) {
+    const distanceLabel = measurementDistanceLabel(visit.measurementDistanceMeters);
     await sendPushToUsers([tailor.userId], {
       title: "Measurement visit assigned",
-      body: `${visit.customerName ?? "Customer"} visit is assigned to you for ${visit.preferredMeasurementSlot || "the selected time slot"}.`,
+      body: `${visit.customerName ?? "Customer"} visit is assigned to you for ${visit.preferredMeasurementSlot || "the selected time slot"}.${distanceLabel ? ` Distance: ${distanceLabel}.` : ""}`,
       data: {
         // Keep assignment confirmations on the normal notification path in
         // older APKs whose native fallback treats MEASUREMENT_VISIT as urgent.
@@ -292,6 +303,11 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
         requestId: visit.requestId,
         preferredMeasurementSlot: visit.preferredMeasurementSlot ?? "",
         slot: visit.preferredMeasurementSlot ?? "",
+        pickupAddress: visit.pickupAddress ?? "",
+        customerName: visit.customerName ?? "Customer",
+        garmentSummary: visit.garmentSummary ?? "Home measurement",
+        visitPayout: String(Number(visit.visitPayout ?? DEFAULT_VISIT_PAYOUT).toFixed(0)),
+        measurementDistanceMeters: String(Number(visit.measurementDistanceMeters ?? 0)),
         screen: "measurementVisits"
       },
       channelId: "tailor-pickup-updates-v2",

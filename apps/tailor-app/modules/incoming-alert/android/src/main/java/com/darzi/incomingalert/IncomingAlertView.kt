@@ -249,6 +249,7 @@ internal class IncomingAlertView(
     val rows = mutableListOf<Pair<String, String>>()
     if (IncomingAlertManager.isMeasurementVisit(payload)) {
       addIfPresent(rows, "Slot", first("preferredMeasurementSlot", "slot"))
+      addIfPresent(rows, "Distance", distanceLabel(first("measurementDistanceMeters", "distanceMeters", "distance")))
       addIfPresent(rows, "Address", first("pickupAddress", "pickup", "pickupArea"))
       addIfPresent(rows, "Payout", payoutLabel(first("visitPayout", "expectedEarnings", "payout", "earnings")))
       addIfPresent(rows, "Customer", first("customerName", "customer"))
@@ -289,6 +290,15 @@ internal class IncomingAlertView(
   private fun payoutLabel(value: String): String {
     if (value.isBlank()) return ""
     return if (value.startsWith("Rs", ignoreCase = true) || value.startsWith("₹")) value else "Rs $value"
+  }
+
+  private fun distanceLabel(value: String): String {
+    if (value.isBlank()) return ""
+    val meters = value.toDoubleOrNull() ?: return value
+    if (meters <= 0.0) return ""
+    if (meters < 1000.0) return "${meters.toInt()} m"
+    val km = meters / 1000.0
+    return if (km >= 10.0) "${km.toInt()} km" else String.format(Locale.US, "%.1f km", km)
   }
 
   private fun first(vararg keys: String): String {

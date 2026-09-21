@@ -307,9 +307,11 @@ type MeasurementVisit = {
   submittedAt?: string;
   cancelledAt?: string;
   visitPayout?: number;
+  measurementDistanceMeters?: number;
   customerName?: string;
   customerPhone?: string;
   pickupAddress?: string;
+  pickupLocation?: { lat?: number; lng?: number; latitude?: number; longitude?: number; coordinates?: [number, number] };
   garmentSummary?: string;
   submission?: {
     measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
@@ -637,6 +639,14 @@ function quoteEtaLabel(quote: { estimatedDays?: number; estimatedHours?: number 
 
 function money(value: number | string | undefined) {
   return `Rs ${Number(value ?? 0).toFixed(0)}`;
+}
+
+function formatDistanceMeters(value?: number | string | null) {
+  const meters = Number(value ?? 0);
+  if (!Number.isFinite(meters) || meters <= 0) return "Distance not available";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  const km = meters / 1000;
+  return `${km >= 10 ? km.toFixed(0) : km.toFixed(1)} km`;
 }
 
 function dayGreeting() {
@@ -1020,6 +1030,14 @@ function measurementVisitSlotLabel(visit: MeasurementVisit) {
   return visit.preferredMeasurementSlot?.trim() || "Time slot unavailable";
 }
 
+function measurementVisitDestination(visit: MeasurementVisit) {
+  const location = visit.pickupLocation;
+  const lat = Number(location?.lat ?? location?.latitude ?? (Array.isArray(location?.coordinates) ? location.coordinates[1] : undefined));
+  const lng = Number(location?.lng ?? location?.longitude ?? (Array.isArray(location?.coordinates) ? location.coordinates[0] : undefined));
+  if (Number.isFinite(lat) && Number.isFinite(lng)) return `${lat},${lng}`;
+  return visit.pickupAddress?.trim() || "";
+}
+
 function isActionableMeasurementVisit(visit: MeasurementVisit) {
   return visit.status === "OFFERED_TO_STITCHING_TAILOR" || visit.status === "POOL";
 }
@@ -1114,9 +1132,11 @@ function MeasurementVisitCard({
   const canSubmit = isActiveMeasurementVisit(visit);
   const isOwnCustomer = isOwnCustomerMeasurementVisit(visit, tailorId);
   const address = visit.pickupAddress ?? "Address not available";
+  const distanceLabel = formatDistanceMeters(visit.measurementDistanceMeters);
+  const routeDestination = measurementVisitDestination(visit);
 
   async function openMeasurementRoute() {
-    if (!visit.pickupAddress) return;
+    if (!routeDestination) return;
     try {
       let permission = await Location.getForegroundPermissionsAsync();
       if (!permission.granted && permission.canAskAgain) permission = await Location.requestForegroundPermissionsAsync();
@@ -1129,7 +1149,7 @@ function MeasurementVisitCard({
       }
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const origin = `${position.coords.latitude},${position.coords.longitude}`;
-      await Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(visit.pickupAddress)}&travelmode=driving`);
+      await Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(routeDestination)}&travelmode=driving`);
     } catch {
       Alert.alert("Route unavailable", "Could not fetch your current phone location. Check device location services and try again.");
     }
@@ -1174,12 +1194,20 @@ function MeasurementVisitCard({
           <View style={styles.measureVisitInfoText}>
             <Text style={styles.measureVisitLabel}>Location</Text>
             <Text style={styles.measureVisitValue} numberOfLines={3}>{address}</Text>
-            {visit.pickupAddress ? (
+          </View>
+        </View>
+        <View style={styles.measureVisitInfoBlock}>
+          <Ionicons name="navigate-outline" size={16} color={BRAND_ORANGE} />
+          <View style={styles.measureVisitInfoText}>
+            <Text style={styles.measureVisitLabel}>Distance</Text>
+            <Text style={styles.measureVisitValue}>{distanceLabel}</Text>
+            {routeDestination ? (
               <Text
+                accessibilityRole="link"
                 style={styles.measureVisitMapLink}
                 onPress={() => void openMeasurementRoute()}
               >
-                View route on map
+                View on Map
               </Text>
             ) : null}
           </View>
@@ -6101,6 +6129,13 @@ function MeasurementVisitPopup({
             <View style={styles.cardMain}>
               <Text style={styles.measureVisitLabel}>Measurement payout</Text>
               <Text style={styles.measurementPopupInfoText}>Rs {Number(visit.visitPayout ?? 0).toFixed(0)}</Text>
+            </View>
+          </View>
+          <View style={styles.measurementPopupInfo}>
+            <Ionicons name="navigate-outline" size={18} color="#0891b2" />
+            <View style={styles.cardMain}>
+              <Text style={styles.measureVisitLabel}>Distance</Text>
+              <Text style={styles.measurementPopupInfoText}>{formatDistanceMeters(visit.measurementDistanceMeters)}</Text>
             </View>
           </View>
           <View style={styles.measurementPopupInfo}>
