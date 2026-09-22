@@ -512,7 +512,7 @@ export function AdminPortal() {
   const [orderTailorFilter, setOrderTailorFilter] = useState("");
   const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState("");
   const [orderDateFilter, setOrderDateFilter] = useState("");
-  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery" | "earnings" | "payouts">("ledger");
+  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery" | "measurement" | "earnings" | "payouts">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
@@ -672,6 +672,11 @@ export function AdminPortal() {
   const deliveryPayoutsQuery = useQuery({
     queryKey: ["admin", "wallet-payouts", "delivery", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getWalletPayouts("DELIVERY_PARTNER", payoutPeriodParams),
+    enabled: needsSection("dashboard", "payments")
+  });
+  const measurementPayoutsQuery = useQuery({
+    queryKey: ["admin", "wallet-payouts", "measurement", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
+    queryFn: () => getWalletPayouts("TAILOR", { ...payoutPeriodParams, payoutKind: "MEASUREMENT" }),
     enabled: needsSection("dashboard", "payments")
   });
   const walletDetailQuery = useQuery({
@@ -2225,12 +2230,15 @@ export function AdminPortal() {
   });
   const tailorPayoutRows = tailorPayoutsQuery.data ?? [];
   const deliveryPayoutRows = deliveryPayoutsQuery.data ?? [];
+  const measurementPayoutRows = measurementPayoutsQuery.data ?? [];
   const combinedPayoutRows = [...tailorPayoutRows, ...deliveryPayoutRows];
   const drilldownPayoutRows = dashboardDrilldown?.target === "payments" && (dashboardDrilldown.key === "partner_cost" || dashboardDrilldown.key === "pending_payouts")
     ? combinedPayoutRows.filter((row) => drilldownIdSet.has(row.userId))
     : combinedPayoutRows;
   const activePayoutRows = paymentsSubTab === "delivery"
     ? deliveryPayoutRows
+    : paymentsSubTab === "measurement"
+      ? measurementPayoutRows
     : paymentsSubTab === "tailors"
       ? tailorPayoutRows
       : drilldownPayoutRows;
@@ -2927,6 +2935,7 @@ export function AdminPortal() {
                 { id: "ledger", label: "Ledger" },
                 { id: "tailors", label: "Tailors" },
                 { id: "delivery", label: "Delivery Partners" },
+                { id: "measurement", label: "Measurement Visit Payouts" },
                 { id: "earnings", label: "Partner Earnings" },
                 { id: "payouts", label: "All Payouts" }
               ].map((tab) => (
@@ -2965,7 +2974,7 @@ export function AdminPortal() {
             ) : (
               <PayoutWorkspace
                 rows={activePayoutRows}
-                loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading}
+                loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading || measurementPayoutsQuery.isLoading}
                 payingUserId={walletPayoutMutation.isPending ? payoutTarget?.userId : undefined}
                 onDetails={setWalletDetailTarget}
                 onPay={(row) => {

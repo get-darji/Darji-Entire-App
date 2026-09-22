@@ -32,7 +32,7 @@ import {
   nextTwoBatchSlotsAfter
 } from "../services/hybrid-delivery.service.js";
 import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorShopPoint, geocodeAddress, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
-import { getPlatformFee, getSmallOrderFee, HOME_MEASUREMENT_FEE } from "@darzi/shared";
+import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darzi/shared";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -2372,7 +2372,6 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   ).trim();
   const preferredMeasurementSlot = input.preferredMeasurementSlot ?? storedMeasurementSlot;
   const hasHomeMeasurement = Boolean(request.homeMeasurementBooked || request.items?.some((item) => item.homeMeasurementBooked));
-  const expectedHomeMeasurementFee = hasHomeMeasurement ? HOME_MEASUREMENT_FEE : 0;
   if (hasHomeMeasurement && !preferredMeasurementSlot) {
     throw new AppError(400, "Select a measurement visit time slot before confirming this order");
   }
@@ -2409,6 +2408,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     lockedDelivery = customerDeliveryCharge(currentDeliveryMode, customerToTailorDistanceMeters);
   }
   const expectedDeliveryFee = lockedDelivery.deliveryFee;
+  const expectedHomeMeasurementFee = hasHomeMeasurement ? measurementVisitFee(lockedDelivery.oneWayDistanceMeters) : 0;
   const enforceClientCheckoutTotals = env.ENFORCE_CLIENT_CHECKOUT_TOTALS;
 
   if (enforceClientCheckoutTotals && Math.abs(input.deliveryFee - expectedDeliveryFee) > 1) {

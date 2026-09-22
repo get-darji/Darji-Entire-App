@@ -967,7 +967,13 @@ const staticText = {
   "(cm)": "(????)",
   "- verification profile photo": "- ??????? ???????? ????",
   "has been accepted. You can review the request details and prepare for the next step.": "??????? ?? ??? ??? ?? ?????? ????? ??? ???? ??? ?? ???? ??? ?? ?????? ?? ???? ????",
-  "means a lot to us": "????? ??? ???? ????? ???? ??"
+  "means a lot to us": "????? ??? ???? ????? ???? ??",
+  "Add measurement visit": "\u092e\u093e\u092a \u0935\u093f\u091c\u093f\u091f \u091c\u094b\u0921\u093c\u0947\u0902",
+  "Calculated in order summary": "\u0911\u0930\u094d\u0921\u0930 \u0938\u093e\u0930\u093e\u0902\u0936 \u092e\u0947\u0902 \u0917\u0923\u0928\u093e \u0939\u094b\u0917\u0940",
+  "A tailor will visit your address and take measurements before stitching. The final visit fee is calculated by distance and shown in your order summary.": "\u0926\u0930\u094d\u091c\u0940 \u0938\u093f\u0932\u093e\u0908 \u0938\u0947 \u092a\u0939\u0932\u0947 \u0906\u092a\u0915\u0947 \u092a\u0924\u0947 \u092a\u0930 \u0906\u0915\u0930 \u0928\u093e\u092a \u0932\u0947\u0917\u093e\u0964 \u0905\u0902\u0924\u093f\u092e \u0935\u093f\u091c\u093f\u091f \u0936\u0941\u0932\u094d\u0915 \u0926\u0942\u0930\u0940 \u0915\u0947 \u0939\u093f\u0938\u093e\u092c \u0938\u0947 \u091c\u0941\u0921\u093c\u0947\u0917\u093e \u0914\u0930 \u0911\u0930\u094d\u0921\u0930 \u0938\u093e\u0930\u093e\u0902\u0936 \u092e\u0947\u0902 \u0926\u093f\u0916\u0947\u0917\u093e\u0964",
+  "Measurement Visit Payouts": "\u092e\u093e\u092a \u0935\u093f\u091c\u093f\u091f \u092a\u0947\u0906\u0909\u091f",
+  "Measurement visit payout": "\u092e\u093e\u092a \u0935\u093f\u091c\u093f\u091f \u092a\u0947\u0906\u0909\u091f",
+  "Ready for Delivery": "\u0921\u093f\u0932\u0940\u0935\u0930\u0940 \u0915\u0947 \u0932\u093f\u090f \u0924\u0948\u092f\u093e\u0930"
 } as const;
 
 export function translateStaticText(language: AppLanguage, value: string) {
@@ -980,8 +986,14 @@ export function translateStaticText(language: AppLanguage, value: string) {
   return `${leading}${translated}${trailing}`;
 }
 
+function isCorruptedHindi(value: string) {
+  const questionMarks = (value.match(/\?/g) ?? []).length;
+  return questionMarks >= 3 || value.includes("\uFFFD");
+}
+
 function translateStaticCore(language: AppLanguage, value: string): string {
   const direct = staticText[value as keyof typeof staticText] ?? localizeKnownEnglish(language, value);
+  if (isCorruptedHindi(direct)) return value;
   if (direct !== value) return direct;
 
   const countMatch = value.match(/^(\d+)\s+(.+)$/);

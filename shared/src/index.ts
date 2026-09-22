@@ -204,6 +204,13 @@ export function getSmallOrderFee(orderValue: number) {
 }
 
 export const HOME_MEASUREMENT_FEE = 30;
+export const MEASUREMENT_VISIT_BASE_PAYOUT = 30;
+export const MEASUREMENT_VISIT_PER_KM = 10;
+
+export function measurementVisitFee(distanceMeters?: number | null) {
+  const km = Math.max(0, Number(distanceMeters) || 0) / 1000;
+  return Math.round(MEASUREMENT_VISIT_BASE_PAYOUT + km * MEASUREMENT_VISIT_PER_KM);
+}
 
 export function calculateCouponDiscount(
   coupon: { discountType?: unknown; discountValue?: unknown; maxDiscount?: unknown },

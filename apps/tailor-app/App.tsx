@@ -738,6 +738,12 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
   let status = "QUOTE_ACCEPTED";
   if (request.status === "CANCELLED" || request.orderStatus === "cancelled") {
     status = "CANCELLED";
+  } else if (request.orderStatus === "completed") {
+    status = "DELIVERED";
+  } else if (request.orderStatus === "out_for_delivery") {
+    status = "ON_THE_WAY";
+  } else if (request.orderStatus === "ready_for_delivery") {
+    status = "READY";
   } else if (request.workStatus === "READY") {
     status = "READY";
   } else if (request.workStatus === "WORKING") {
@@ -3408,7 +3414,7 @@ function OrderDetailsScreen({
   const selectedDetailItem = detailItems[activeDetailItemIndex];
   const primaryDetailItem = selectedDetailItem ?? detailItems[0];
   const requestCode = acceptedRequest ? `REQ-${acceptedRequest.id.slice(0, 8).toUpperCase()}` : order.orderNumber;
-  const displayStatus = acceptedRequest?.workStatus ?? order.status;
+  const displayStatus = order.status === "QUOTE_ACCEPTED" ? acceptedRequest?.workStatus ?? order.status : order.status;
   const pickupDate = order.pickupScheduledAt
     ? new Date(order.pickupScheduledAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })
     : "Not scheduled";

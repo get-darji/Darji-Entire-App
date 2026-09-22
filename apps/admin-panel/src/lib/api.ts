@@ -333,7 +333,7 @@ export async function getPayments() {
   return unwrap<Payment[]>(api.get("/payments"));
 }
 
-export async function getWalletPayouts(userType: "TAILOR" | "DELIVERY_PARTNER", period?: { weekStart?: string; weekEnd?: string }) {
+export async function getWalletPayouts(userType: "TAILOR" | "DELIVERY_PARTNER", period?: { weekStart?: string; weekEnd?: string; payoutKind?: "TAILOR" | "DELIVERY" | "MEASUREMENT" }) {
   return unwrap<WalletPayoutRow[]>(api.get("/admin/wallet-payouts", { params: { userType, ...period } }));
 }
 

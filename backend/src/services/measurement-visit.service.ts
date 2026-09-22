@@ -5,10 +5,10 @@ import { sendPushToUsers } from "./push.service.js";
 import { emitToAdmins, emitToCustomer, emitToTailor } from "./socket.service.js";
 import { upsertOperationalAlert, resolveOperationalAlert } from "./operational-alert.service.js";
 import { extractTailorShopPoint, geocodeAddress, pointFrom, roadDistanceMeters } from "./delivery-pricing.service.js";
+import { measurementVisitFee } from "@darzi/shared";
+import { creditOrderEarning } from "./wallet.service.js";
 
 const DEFAULT_VISIT_PAYOUT = 30;
-const MEASUREMENT_VISIT_BASE_PAYOUT = 30;
-const MEASUREMENT_VISIT_PER_KM = 10;
 
 function hasHomeMeasurement(request: any) {
   if (request.homeMeasurementBooked) return true;
@@ -50,8 +50,7 @@ function tailorShopAddress(tailor: Record<string, unknown> | null | undefined) {
 }
 
 export function measurementVisitPayout(distanceMeters?: number | null) {
-  const km = Math.max(0, Number(distanceMeters) || 0) / 1000;
-  return Math.round(MEASUREMENT_VISIT_BASE_PAYOUT + km * MEASUREMENT_VISIT_PER_KM);
+  return measurementVisitFee(distanceMeters);
 }
 
 function measurementDistanceLabel(distanceMeters?: number | null) {
@@ -383,6 +382,18 @@ export async function submitMeasurementVisit(visitId: string, tailorId: string, 
       request.markModified("items");
     }
     await request.save();
+  }
+  const measurementTailor = await TailorModel.findById(updated.assignedTailorId).select("userId");
+  const visitPayout = Number(updated.visitPayout ?? 0);
+  if (measurementTailor?.userId && visitPayout > 0) {
+    await creditOrderEarning({
+      userId: measurementTailor.userId,
+      userType: "TAILOR",
+      orderId: updated.id,
+      amount: visitPayout,
+      remarks: `Measurement visit payout for ${String(updated.requestId ?? updated.id).slice(0, 8).toUpperCase()}`,
+      createdBy: "system"
+    });
   }
   const stitchingTailor = await TailorModel.findById(updated.stitchingTailorId).select("userId");
   if (stitchingTailor?.userId) {

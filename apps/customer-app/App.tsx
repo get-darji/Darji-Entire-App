@@ -111,6 +111,7 @@ import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
+import { measurementVisitFee } from "../../shared/src";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
   GENDER_FIT_OPTIONS,
@@ -801,7 +802,7 @@ function getSmallOrderFee(orderValue: number) {
   if (orderValue < 99) return 19;
   return 0;
 }
-const HOME_MEASUREMENT_FEE = 30;
+const HOME_MEASUREMENT_FEE = measurementVisitFee(0);
 
 configureForegroundNotificationHandler();
 
@@ -1796,8 +1797,12 @@ function deliveryFeeForUrgency(urgency?: string) {
   return urgencyOptions.find((option) => option.label === urgency)?.deliveryFee ?? 0;
 }
 
-function homeMeasurementFeeForDraft(draft: RequestDraft) {
-  return clothingItemsForDraft(draft).some((item) => item.homeMeasurementBooked) || draft.homeMeasurementBooked ? HOME_MEASUREMENT_FEE : 0;
+function hasHomeMeasurementForDraft(draft: RequestDraft) {
+  return clothingItemsForDraft(draft).some((item) => item.homeMeasurementBooked) || draft.homeMeasurementBooked;
+}
+
+function homeMeasurementFeeForDraft(draft: RequestDraft, distanceMeters?: number | null) {
+  return hasHomeMeasurementForDraft(draft) ? measurementVisitFee(distanceMeters) : 0;
 }
 
 function checkoutItemCount(draft: RequestDraft) {
@@ -5553,10 +5558,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
               <Ionicons name="home-outline" size={28} color={BRAND_ORANGE} />
             </View>
             <Text style={styles.homeMeasurementModalTitle}>Book at-home measurement</Text>
-            <Text style={styles.homeMeasurementModalCopy}>A tailor will visit your address and take measurements before stitching. This placeholder visit fee will be added to your order total.</Text>
+            <Text style={styles.homeMeasurementModalCopy}>A tailor will visit your address and take measurements before stitching. The final visit fee is calculated by distance and shown in your order summary.</Text>
             <View style={styles.homeMeasurementFeeBox}>
               <Text style={styles.summaryLabel}>Measurement visit fee</Text>
-              <Text style={styles.summaryStrong}>Rs{HOME_MEASUREMENT_FEE}</Text>
+              <Text style={styles.summaryStrong}>Calculated in order summary</Text>
             </View>
             <View style={styles.homeMeasurementModalActions}>
               <Pressable
@@ -5569,7 +5574,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 <Text style={styles.secondaryWideButtonText}>Remove</Text>
               </Pressable>
               <RequestFlowCta
-                label={`Add Rs${HOME_MEASUREMENT_FEE}`}
+                label="Add measurement visit"
                 onPress={() => {
                   setDraft({ ...draft, homeMeasurementBooked: true });
                   setShowHomeMeasurementModal(false);
@@ -6714,7 +6719,7 @@ function ConfirmOrderScreen({
 
   const orderItems = clothingItemsForDraft(draft);
   const deliveryFee = quote.deliveryFee ?? getCustomerDeliveryFee(draft.urgency);
-  const homeMeasurementFee = homeMeasurementFeeForDraft(draft);
+  const homeMeasurementFee = homeMeasurementFeeForDraft(draft, quote.deliveryDistanceMeters);
   const itemCount = checkoutItemCount(draft);
   const tailoringTotal = quote.price;
 
@@ -6817,7 +6822,7 @@ function ConfirmOrderScreen({
             />
             <SummaryRow label="Platform fee" value={`Rs${platformFee}`} tone="positive" />
             {smallOrderFee > 0 ? <SummaryRow label="Small order fee" value={`Rs${smallOrderFee}`} tone="positive" /> : null}
-            {homeMeasurementFee ? <SummaryRow label="Tailor measurement visit" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
+            {homeMeasurementFee ? <SummaryRow label="Measurement visit fee" value={`Rs${homeMeasurementFee}`} tone="positive" /> : null}
             {discount > 0 ? <SummaryRow label={`Coupon ${appliedCoupon?.code}`} value={`-Rs${discount}`} tone="negative" /> : null}
             <View style={styles.summaryDivider} />
             <SummaryRow label="Total" value={`Rs${total}`} strong />
@@ -12076,7 +12081,7 @@ export default function App() {
     const deliveryFee = checkout?.deliveryFee ?? deliveryFeeForUrgency(orderDraft.urgency);
     const platformFee = checkout?.platformFee ?? getPlatformFee(selectedQuote.price);
     const smallOrderFee = checkout?.smallOrderFee ?? getSmallOrderFee(selectedQuote.price);
-    const homeMeasurementFee = checkout?.homeMeasurementFee ?? homeMeasurementFeeForDraft(orderDraft);
+    const homeMeasurementFee = checkout?.homeMeasurementFee ?? homeMeasurementFeeForDraft(orderDraft, selectedQuote.deliveryDistanceMeters);
     const totalAmount = checkout?.totalAmount ?? totalForQuote(selectedQuote, orderDraft);
 
     try {

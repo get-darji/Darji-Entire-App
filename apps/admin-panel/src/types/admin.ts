@@ -529,6 +529,7 @@ export type WalletPayoutRow = {
   userId: string;
   profileId: string;
   userType: "TAILOR" | "DELIVERY_PARTNER";
+  payoutKind?: "TAILOR" | "DELIVERY" | "MEASUREMENT";
   name: string;
   phone: string;
   walletBalance: number;

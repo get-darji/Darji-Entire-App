@@ -1298,12 +1298,13 @@ export async function transactionsController(req: Request, res: Response) {
 
 export async function adminWalletPayoutsController(req: Request, res: Response) {
   const userType = req.query.userType === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
+  const payoutKind = req.query.payoutKind === "MEASUREMENT" ? "MEASUREMENT" : userType === "DELIVERY_PARTNER" ? "DELIVERY" : "TAILOR";
   const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
   const weekStartValue = typeof req.query.weekStart === "string" ? new Date(req.query.weekStart) : startOfWeek();
   const weekEndValue = typeof req.query.weekEnd === "string" ? new Date(req.query.weekEnd) : endOfWeek(weekStartValue);
 
   const profiles = userType === "TAILOR"
-    ? await TailorModel.find().sort({ shopName: 1 })
+    ? await TailorModel.find(payoutKind === "MEASUREMENT" ? { "measurementPartner.isEnabled": true } : {}).sort({ shopName: 1 })
     : await DeliveryPartnerModel.find().sort({ createdAt: -1 });
 
   const rows = await Promise.all(profiles.map(async (profile: any) => {
@@ -1316,6 +1317,9 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
     const currentWeekEarnings = transactions.reduce((sum: number, transaction: any) => {
       const createdAt = new Date(transaction.createdAt ?? 0);
       if (transaction.transactionType !== "CREDIT" || transaction.category !== "ORDER_EARNING") return sum;
+      const isMeasurement = /measurement visit payout/i.test(String(transaction.remarks ?? ""));
+      if (payoutKind === "MEASUREMENT" && !isMeasurement) return sum;
+      if (payoutKind === "TAILOR" && isMeasurement) return sum;
       return createdAt >= weekStartValue && createdAt < weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
     }, 0);
     const payoutsInPeriod = transactions.reduce((sum: number, transaction: any) => {
@@ -1327,6 +1331,7 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
       userId: profile.userId,
       profileId: profile.id,
       userType,
+      payoutKind,
       name: user?.name ?? profile.shopName ?? "Unnamed",
       phone: user?.phone ?? "",
       walletBalance: Number(wallet?.balance ?? 0),
