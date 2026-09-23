@@ -8,19 +8,9 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./app-icon.png",
-      "backgroundColor": "#ffffff",
-      "resizeMode": "contain"
-    },
     "android": {
       "package": "com.darzi.customer",
       "softwareKeyboardLayoutMode": "resize",
-      "splash": {
-        "image": "./app-icon.png",
-        "backgroundColor": "#ffffff",
-        "resizeMode": "contain"
-      },
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
