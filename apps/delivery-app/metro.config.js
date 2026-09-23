@@ -1,6 +1,7 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 const path = require("path");
+require("../../scripts/patch-onedrive-dirents.cjs")(__dirname);
 
 const projectRoot = __dirname;
 const sharedRoot = path.resolve(projectRoot, "../../shared");
@@ -24,6 +25,18 @@ config.resolver.extraNodeModules = new Proxy(
     },
   },
 );
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const isSharedRelativeJavaScriptImport =
+    moduleName.startsWith(".") &&
+    moduleName.endsWith(".js") &&
+    context.originModulePath.startsWith(`${sharedRoot}${path.sep}`);
+
+  if (isSharedRelativeJavaScriptImport) {
+    return context.resolveRequest(context, moduleName.slice(0, -3), platform);
+  }
+
+  return context.resolveRequest(context, moduleName, platform);
+};
 config.server = {
   ...config.server,
   unstable_serverRoot: projectRoot,

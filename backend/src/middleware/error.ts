@@ -5,7 +5,8 @@ import { ZodError } from "zod";
 export class AppError extends Error {
   constructor(
     public statusCode: number,
-    message: string
+    message: string,
+    public retryAfterSeconds?: number
   ) {
     super(message);
   }
@@ -27,6 +28,7 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
   }
 
   if (error instanceof AppError) {
+    if (error.retryAfterSeconds) res.setHeader("Retry-After", String(error.retryAfterSeconds));
     return res.status(error.statusCode).json({ message: error.message });
   }
 

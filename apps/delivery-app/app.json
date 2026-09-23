@@ -8,18 +8,8 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./app-icon.png",
-      "backgroundColor": "#ffffff",
-      "resizeMode": "contain"
-    },
     "android": {
       "package": "com.darzi.delivery",
-      "splash": {
-        "image": "./app-icon.png",
-        "backgroundColor": "#ffffff",
-        "resizeMode": "contain"
-      },
       "softwareKeyboardLayoutMode": "resize",
       "allowBackup": false,
       "googleServicesFile": "./google-services.json",
@@ -86,8 +76,9 @@
           ]
         }
       ],
-      "@darzi/incoming-alert/app.plugin.js",
-      "expo-audio"
+      "./modules/incoming-alert/app.plugin.js",
+      "expo-audio",
+      "expo-font"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

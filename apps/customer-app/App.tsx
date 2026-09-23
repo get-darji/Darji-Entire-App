@@ -1975,7 +1975,10 @@ function OtpField({ value, onChange }: { value?: string; onChange: (value: strin
   return (
     <TextInput
       style={styles.otpField}
+      autoFocus
       keyboardType="number-pad"
+      autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
+      textContentType="oneTimeCode"
       maxLength={6}
       placeholder="Enter 6 digit OTP"
       placeholderTextColor="#8fa0b8"
@@ -2141,6 +2144,8 @@ function TrustItem({ icon, image, label, helper }: { icon: keyof typeof Ionicons
 
 function AuthScreen() {
   const [otpRequested, setOtpRequested] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [isRequestingOtp, setIsRequestingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [dialog, setDialog] = useState<AppDialogState | undefined>();
@@ -2151,11 +2156,19 @@ function AuthScreen() {
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "CUSTOMER" } });
 
-  async function requestOtp(values: RequestOtpForm) {
+  useEffect(() => {
+    if (!otpRequested) return undefined;
+    const timer = setInterval(() => setResendSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [otpRequested]);
+
+  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
     try {
       setIsRequestingOtp(true);
-      const result = await api<{ otp?: string }>("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
-      verifyForm.reset({ phone: values.phone, role: "CUSTOMER", otp: result.otp ?? "123456" });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      verifyForm.reset({ phone: values.phone, role: "CUSTOMER", otp: "" });
+      setOtpMode(mode);
+      setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
       setDialog(dialogFromNativeAlert(localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), error instanceof Error ? error.message : localize(language, "Check backend connection", "इंटरनेट कनेक्शन जाँचें")));
@@ -2205,12 +2218,20 @@ function AuthScreen() {
             {!otpRequested ? (
               <>
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label={t(language, "sendOtp")} loading={isRequestingOtp} onPress={requestForm.handleSubmit(requestOtp, () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
+                <AuthButton label={t(language, "sendOtp")} loading={isRequestingOtp} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
+                {__DEV__ ? (
+                  <Pressable style={styles.editPhoneButton} disabled={isRequestingOtp} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"))}>
+                    <Text style={styles.orangeSmall}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
+                  </Pressable>
+                ) : null}
               </>
             ) : (
               <>
                 <Controller control={verifyForm.control} name="otp" render={({ field }) => <OtpField value={field.value} onChange={field.onChange} />} />
                 <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => setDialog(dialogFromNativeAlert(t(language, "otpRequired"))))} />
+                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || isRequestingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+                  <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में OTP दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "2Factor OTP दोबारा मंगाएँ (टेस्ट SMS)") : localize(language, "Resend OTP", "OTP दोबारा भेजें")}</Text>
+                </Pressable>
                 <Pressable style={styles.editPhoneButton} onPress={() => setOtpRequested(false)}>
                   <Text style={styles.orangeSmall}>{t(language, "changeNumber")}</Text>
                 </Pressable>

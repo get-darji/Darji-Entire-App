@@ -165,8 +165,8 @@ router.post(
   rateLimit({ keyPrefix: "marketing-signups", windowMs: 60 * 60 * 1000, max: 20 }),
   createMarketingSignupController
 );
-router.post("/auth/request-otp", requestOtpController);
-router.post("/auth/verify-otp", verifyOtpController);
+router.post("/auth/request-otp", rateLimit({ keyPrefix: "auth-otp-request", windowMs: 10 * 60 * 1000, max: 10 }), requestOtpController);
+router.post("/auth/verify-otp", rateLimit({ keyPrefix: "auth-otp-verify", windowMs: 10 * 60 * 1000, max: 20 }), verifyOtpController);
 router.post("/auth/refresh", refreshController);
 router.post("/auth/logout", requireAuth, logoutController);
 router.get("/auth/me", requireAuth, meController);

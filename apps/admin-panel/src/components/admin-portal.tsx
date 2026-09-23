@@ -1420,7 +1420,7 @@ export function AdminPortal() {
         onRequestOtp={async (phone) => {
           try {
             const result = await requestOtpMutation.mutateAsync(phone);
-            return result.otp ?? "123456";
+            return result.otp;
           } catch {
             return undefined;
           }

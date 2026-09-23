@@ -836,6 +836,8 @@ function TailorPrimaryCta({ label, loading = false, disabled = false, onPress }:
 
 function AuthScreen() {
   const [otpRequested, setOtpRequested] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
@@ -845,11 +847,19 @@ function AuthScreen() {
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR" } });
   const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "TAILOR" } });
 
-  async function requestOtp(values: RequestOtpForm) {
+  useEffect(() => {
+    if (!otpRequested) return undefined;
+    const timer = setInterval(() => setResendSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [otpRequested]);
+
+  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
     try {
       setIsRequesting(true);
-      const result = await api<{ otp?: string }>("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
-      verifyForm.reset({ phone: values.phone, role: "TAILOR", otp: result.otp ?? "123456" });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      verifyForm.reset({ phone: values.phone, role: "TAILOR", otp: "" });
+      setOtpMode(mode);
+      setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
       setDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Check backend connection.", "इंटरनेट कनेक्शन जाँचें।"), icon: "alert-circle-outline" });
@@ -895,7 +905,12 @@ function AuthScreen() {
           <>
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
             <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder={localize(language, "Enter tailor mobile number", "दर्जी का मोबाइल नंबर दर्ज करें")} />} />
-            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} onPress={requestForm.handleSubmit(requestOtp, () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+            {__DEV__ ? (
+              <Pressable style={styles.textButton} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"))}>
+                <Text style={styles.textButtonText}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
+              </Pressable>
+            ) : null}
           </>
         ) : (
           <>
@@ -904,10 +919,13 @@ function AuthScreen() {
               control={verifyForm.control}
               name="otp"
               render={({ field }) => (
-                <TextInput style={styles.input} value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" maxLength={6} />
+                <TextInput style={styles.input} autoFocus value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType="oneTimeCode" maxLength={6} />
               )}
             />
             <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" }))} />
+            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+              <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में OTP दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "2Factor OTP दोबारा मंगाएँ (टेस्ट SMS)") : localize(language, "Resend OTP", "OTP दोबारा भेजें")}</Text>
+            </Pressable>
             <Pressable style={styles.textButton} onPress={() => setOtpRequested(false)}>
               <Text style={styles.textButtonText}>{t(language, "changeNumber")}</Text>
             </Pressable>
@@ -7301,6 +7319,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   textButton: { alignItems: "center", marginTop: 18 },
   textButtonText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
+  textButtonDisabled: { color: "#89909b" },
   topDisclaimer: { minHeight: 54, marginHorizontal: 18, marginTop: 8, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
   topDisclaimerText: { flex: 1, minWidth: 0 },
   topDisclaimerTitle: { color: "#991b1b", fontSize: 13, fontWeight: "900" },
@@ -7833,7 +7852,7 @@ const styles = StyleSheet.create({
   previewPrice: { width: 72, color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textAlign: "right", paddingHorizontal: 8 },
   docGrid: { flexDirection: "row", gap: 10, marginTop: 12 },
   verificationDocBox: { flex: 1, minHeight: 148, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 10, marginTop: 12, overflow: "hidden" },
-  verificationDocImage: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  verificationDocImage: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
   verificationDocText: { color: BRAND_ORANGE, backgroundColor: "rgba(255,255,255,0.88)", overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5, fontSize: 11, fontWeight: "900", textAlign: "center" },
   verificationDocActions: { width: "100%", flexDirection: "row", gap: 6, marginTop: 9 },
   verificationDocAction: { flex: 1, minHeight: 32, borderRadius: 10, borderWidth: 1, borderColor: "#efbd65", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 4 },
@@ -7874,7 +7893,7 @@ const styles = StyleSheet.create({
   tutorialSlideCard: { minHeight: 330, borderRadius: 22, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", padding: 20, marginTop: 14 },
   tutorialIllustration: { width: 104, height: 104, borderRadius: 28, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#efcf92", alignItems: "center", justifyContent: "center" },
   tutorialVideoCard: { minHeight: 208, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", overflow: "hidden", alignItems: "center", justifyContent: "center", marginTop: 14 },
-  tutorialThumbnail: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  tutorialThumbnail: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
   tutorialPlayButton: { width: 62, height: 62, borderRadius: 31, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.18, shadowRadius: 14, elevation: 4 },
   tutorialProgressPanel: { minHeight: 74, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 13, marginTop: 14 },
   tutorialControls: { flexDirection: "row", gap: 8, marginTop: 12 },

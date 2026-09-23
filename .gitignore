@@ -15,7 +15,7 @@ coverage
 /apps/delivery-app/android/
 /apps/delivery-app/ios/
 generated
-apps/tailor-app/modules/incoming-alert/android/build/
-apps/tailor-app/modules/incoming-alert/android/.gradle/
-apps/delivery-app/modules/incoming-alert/android/build/
-apps/delivery-app/modules/incoming-alert/android/.gradle/
+!apps/tailor-app/modules/incoming-alert/android/
+!apps/tailor-app/modules/incoming-alert/android/**
+!apps/delivery-app/modules/incoming-alert/android/
+!apps/delivery-app/modules/incoming-alert/android/**

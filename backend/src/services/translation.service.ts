@@ -58,6 +58,48 @@ async function translateWithGoogle(text: string, sourceLanguage: SupportedLangua
   return translatedText;
 }
 
+async function translateWithBhashini(text: string, sourceLanguage: SupportedLanguage, targetLanguage: SupportedLanguage) {
+  if (!env.BHASHINI_INFERENCE_API_KEY) throw new Error("Bhashini Translation is not configured");
+
+  const response = await fetch("https://dhruva-api.bhashini.gov.in/services/inference/pipeline", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: env.BHASHINI_INFERENCE_API_KEY
+    },
+    body: JSON.stringify({
+      pipelineTasks: [{
+        taskType: "translation",
+        config: {
+          serviceId: env.BHASHINI_TRANSLATION_SERVICE_ID,
+          language: { sourceLanguage, targetLanguage }
+        }
+      }],
+      inputData: { input: [{ source: text }] }
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`Bhashini Translation failed: HTTP ${response.status}`);
+  const body = await response.json() as {
+    pipelineResponse?: Array<{ output?: Array<{ target?: string }> }>;
+  };
+  const translatedText = body.pipelineResponse?.[0]?.output?.[0]?.target;
+  if (!translatedText) throw new Error("Bhashini Translation returned no translated text");
+  return translatedText;
+}
+
+async function translateWithConfiguredProvider(text: string, sourceLanguage: SupportedLanguage, targetLanguage: SupportedLanguage) {
+  if (env.BHASHINI_INFERENCE_API_KEY) {
+    try {
+      return await translateWithBhashini(text, sourceLanguage, targetLanguage);
+    } catch (error) {
+      console.error("Bhashini translation failed", error);
+      if (!env.GOOGLE_TRANSLATE_API_KEY) throw error;
+    }
+  }
+  return translateWithGoogle(text, sourceLanguage, targetLanguage);
+}
+
 export async function translateDynamicText(input: TranslateInput): Promise<TranslateResult> {
   const normalizedText = normalizeTranslationText(input.text);
   const targetLanguage = input.targetLanguage;
@@ -83,7 +125,7 @@ export async function translateDynamicText(input: TranslateInput): Promise<Trans
     return { translatedText: cached.translatedText, cached: true, sourceLanguage, targetLanguage };
   }
 
-  const translatedText = await translateWithGoogle(normalizedText, sourceLanguage, targetLanguage);
+  const translatedText = await translateWithConfiguredProvider(normalizedText, sourceLanguage, targetLanguage);
   await TranslationCacheModel.create({
     translationKey,
     sourceLanguage,

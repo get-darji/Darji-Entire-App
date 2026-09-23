@@ -597,12 +597,21 @@ const otpRequestSchema = new Schema(
     userId: String,
     otpHash: { type: String, required: true },
     expiresAt: { type: Date, required: true },
+    provider: { type: String, enum: ["twofactor", "dev"], default: "dev", index: true },
+    fallback: { type: Boolean, default: false },
     consumedAt: Date,
     attempts: { type: Number, default: 0 }
   },
   baseOptions
 );
 otpRequestSchema.index({ phone: 1, createdAt: -1 });
+otpRequestSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+const otpCooldownSchema = new Schema({
+  _id: { type: String, required: true },
+  nextAllowedAt: { type: Date, required: true },
+  reservationId: { type: String, required: true }
+});
 
 const supportMessageSchema = new Schema(
   {
@@ -1059,6 +1068,7 @@ export const WalletTransactionModel = mongoose.model("WalletTransaction", wallet
 export const PaymentHistoryModel = mongoose.model("PaymentHistory", paymentHistorySchema);
 export const TransactionModel = mongoose.model("Transaction", transactionSchema);
 export const OtpRequestModel = mongoose.model("OtpRequest", otpRequestSchema);
+export const OtpCooldownModel = mongoose.model("OtpCooldown", otpCooldownSchema);
 export const SupportTicketModel = mongoose.model("SupportTicket", supportTicketSchema);
 export const BugReportModel = mongoose.model("BugReport", bugReportSchema);
 export const AccountChangeRequestModel = mongoose.model("AccountChangeRequest", accountChangeRequestSchema);

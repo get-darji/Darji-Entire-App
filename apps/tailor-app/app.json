@@ -8,19 +8,9 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./app-icon.png",
-      "backgroundColor": "#ffffff",
-      "resizeMode": "contain"
-    },
     "android": {
       "package": "com.darzi.tailor",
       "softwareKeyboardLayoutMode": "resize",
-      "splash": {
-        "image": "./app-icon.png",
-        "backgroundColor": "#ffffff",
-        "resizeMode": "contain"
-      },
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
@@ -80,8 +70,9 @@
           ]
         }
       ],
-      "@darzi/incoming-alert/app.plugin.js",
-      "expo-audio"
+      "./modules/incoming-alert/app.plugin.js",
+      "expo-audio",
+      "expo-font"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

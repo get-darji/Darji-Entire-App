@@ -1343,8 +1343,9 @@ function AuthFeature({ icon, title, copy }: { icon: keyof typeof Ionicons.glyphM
 
 function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => void; showDialog: (dialog: DialogState) => void }) {
   const [step, setStep] = useState<AuthStep>("login");
-  const [timer, setTimer] = useState(30);
+  const [timer, setTimer] = useState(60);
   const [loading, setLoading] = useState(false);
+  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
@@ -1357,12 +1358,13 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
     return () => clearInterval(id);
   }, [step, timer]);
 
-  async function requestOtp(values: RequestOtpForm) {
+  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
     try {
       setLoading(true);
-      const result = await api<{ otp?: string }>("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
-      verifyForm.reset({ phone: values.phone, role: "DELIVERY_PARTNER", otp: result.otp ?? "123456" });
-      setTimer(30);
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      verifyForm.reset({ phone: values.phone, role: "DELIVERY_PARTNER", otp: "" });
+      setOtpMode(mode);
+      setTimer(60);
       setStep("otp");
     } catch (error) {
       showDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Could not send OTP.", "ओटीपी भेजा नहीं जा सका।"), icon: "alert-circle-outline" });
@@ -1434,7 +1436,12 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                   </View>
                 )}
               />
-              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={loading} onPress={requestForm.handleSubmit(requestOtp, () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={loading} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+              {__DEV__ ? (
+                <Pressable style={styles.textButton} disabled={loading} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"))}>
+                  <Text style={styles.linkText}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
+                </Pressable>
+              ) : null}
             </>
           ) : (
             <>
@@ -1445,7 +1452,10 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                 render={({ field }) => (
                   <TextInput
                     style={styles.otpInput}
+                    autoFocus
                     keyboardType="number-pad"
+                    autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
+                    textContentType="oneTimeCode"
                     maxLength={6}
                     onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))}
                     placeholder="000000"
@@ -1455,8 +1465,8 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                 )}
               />
               <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={loading} onPress={verifyForm.handleSubmit(verify, () => showDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "shield-checkmark-outline" }))} />
-              <Pressable style={styles.textButton} disabled={timer > 0} onPress={() => requestForm.handleSubmit(requestOtp)()}>
-                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : t(language, "sendOtp")}</Text>
+              <Pressable style={styles.textButton} disabled={timer > 0 || loading} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "2Factor OTP दोबारा मंगाएँ (टेस्ट SMS)") : t(language, "sendOtp")}</Text>
               </Pressable>
             </>
           )}

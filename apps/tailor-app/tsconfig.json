@@ -13,6 +13,13 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@darzi/incoming-alert": [
+        "modules/incoming-alert/src/index.ts"
+      ]
+    },
     "types": [
       "nativewind/types"
     ]

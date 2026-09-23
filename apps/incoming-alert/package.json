@@ -10,9 +10,9 @@
     "react-native": "*"
   },
   "devDependencies": {
-    "expo": "~55.0.28",
-    "expo-modules-core": "55.0.25",
-    "react": "19.2.0",
-    "react-native": "0.83.10"
+    "expo": "^57.0.0",
+    "expo-modules-core": "57.0.18",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
   }
 }

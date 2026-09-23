@@ -142,7 +142,7 @@ function dateValue(value?: Date | string | null) {
 export async function requestOtpController(req: Request, res: Response) {
   const input = requestOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  const result = await requestOtp(input.phone);
+  const result = await requestOtp(input.phone, input.mode);
   res.json({ data: result, message: "OTP sent" });
 }
 
