@@ -1457,7 +1457,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                     autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
                     textContentType="oneTimeCode"
                     maxLength={6}
-                    onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))}
+                    onChangeText={(text) => field.onChange(text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6))}
                     placeholder="000000"
                     placeholderTextColor="#9aa6b8"
                     value={field.value}

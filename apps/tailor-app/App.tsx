@@ -919,7 +919,7 @@ function AuthScreen() {
               control={verifyForm.control}
               name="otp"
               render={({ field }) => (
-                <TextInput style={styles.input} autoFocus value={field.value} onChangeText={(text) => field.onChange(text.replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType="oneTimeCode" maxLength={6} />
+                <TextInput style={styles.input} autoFocus value={field.value} onChangeText={(text) => field.onChange(text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType="oneTimeCode" maxLength={6} />
               )}
             />
             <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" }))} />

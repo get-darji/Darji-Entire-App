@@ -1,13 +1,8 @@
-import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAppStore } from "./store";
+import { apiUrl } from "./api-base";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
 import type { AppLanguage } from "../../../shared/src/localization";
-
-const apiUrl =
-  process.env.EXPO_PUBLIC_API_URL ??
-  (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "https://darji-entire-app-production.up.railway.app/api";
 
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
