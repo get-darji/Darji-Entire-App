@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { OtpCooldownModel, OtpRequestModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
@@ -15,16 +15,8 @@ type OtpRequestResult = {
   fallback: boolean;
 };
 
-function generateOtp() {
-  return String(randomInt(0, 1_000_000)).padStart(6, "0");
-}
-
 function canUseDevFallback() {
   return env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production";
-}
-
-function twoFactorPhone(phone: string) {
-  return `+91${phone.replace(/\D/g, "").slice(-10)}`;
 }
 
 function isTwoFactorSuccess(payload: unknown) {
@@ -34,7 +26,7 @@ function isTwoFactorSuccess(payload: unknown) {
   return ["sent", "success", "submitted", "queued"].includes(status);
 }
 
-async function sendTwoFactorOtp(phone: string, otp: string) {
+async function callTwoFactor(path: string) {
   if (!env.TWOFACTOR_API_KEY) {
     throw new Error("TWOFACTOR_API_KEY is not configured");
   }
@@ -42,18 +34,9 @@ async function sendTwoFactorOtp(phone: string, otp: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.TWOFACTOR_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${env.TWOFACTOR_API_BASE_URL.replace(/\/$/, "")}/API/V1/OTP/SEND`, {
+    const url = `${env.TWOFACTOR_API_BASE_URL.replace(/\/$/, "")}/API/V1/${encodeURIComponent(env.TWOFACTOR_API_KEY)}/SMS/${path}`;
+    const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": env.TWOFACTOR_API_KEY
-      },
-      body: JSON.stringify({
-        to: twoFactorPhone(phone),
-        channel: "SMS",
-        template_name: env.TWOFACTOR_TEMPLATE_NAME,
-        var1: otp
-      }),
       signal: controller.signal
     });
 
@@ -65,22 +48,33 @@ async function sendTwoFactorOtp(phone: string, otp: string) {
       payload = undefined;
     }
 
-    if (!response.ok || !isTwoFactorSuccess(payload)) {
-      const detail = payload && typeof payload === "object"
-        ? JSON.stringify(payload)
-        : responseText || `HTTP ${response.status}`;
-      throw new Error(`TwoFactor OTP send failed: ${detail}`);
+    if (!response.ok || !payload || typeof payload !== "object") {
+      const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : undefined;
+      const detail = record ? String(record.Details ?? record.details ?? record.Message ?? record.message ?? record.Status ?? record.status ?? "unknown response") : "non-JSON response";
+      const safeDetail = detail.replaceAll(env.TWOFACTOR_API_KEY, "[redacted]").replace(/\b\d{6,10}\b/g, "[redacted]");
+      throw new Error(`TwoFactor OTP API failed (HTTP ${response.status}): ${safeDetail.slice(0, 200)}`);
     }
+    return payload as Record<string, unknown>;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function createOtpRequest(phone: string, otp: string, provider: "twofactor" | "dev", fallback: boolean): Promise<OtpRequestResult> {
-  const otpHash = await bcrypt.hash(otp, 10);
+async function sendTwoFactorOtp(phone: string) {
+  const payload = await callTwoFactor(`${encodeURIComponent(phone)}/AUTOGEN/${encodeURIComponent(env.TWOFACTOR_TEMPLATE_NAME)}`);
+  if (!isTwoFactorSuccess(payload)) throw new Error(`TwoFactor OTP send failed: ${String(payload.Details ?? "unknown response").replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
+  const sessionId = payload.Details ?? payload.details;
+  if (typeof sessionId !== "string" || !/^[A-Za-z0-9-]{10,200}$/.test(sessionId)) {
+    throw new Error("TwoFactor OTP send did not return a valid session ID");
+  }
+  return sessionId;
+}
+
+async function createOtpRequest(phone: string, provider: "twofactor" | "dev", fallback: boolean, otp?: string, providerSessionId?: string): Promise<OtpRequestResult> {
+  const otpHash = otp ? await bcrypt.hash(otp, 10) : undefined;
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
-  await OtpRequestModel.create({ phone, otpHash, expiresAt, provider, fallback });
+  await OtpRequestModel.create({ phone, otpHash, providerSessionId, expiresAt, provider, fallback });
 
   return {
     expiresAt,
@@ -125,23 +119,22 @@ export async function requestOtp(phone: string, mode: "default" | "twofactor" = 
   const reservationId = await reserveOtpRequest(phone);
   if (useDevCode) {
     try {
-      return await createOtpRequest(phone, env.OTP_DEV_CODE, "dev", true);
+      return await createOtpRequest(phone, "dev", true, env.OTP_DEV_CODE);
     } catch (error) {
       await releaseOtpReservation(phone, reservationId);
       throw error;
     }
   }
 
-  const otp = generateOtp();
-
+  let providerSessionId: string;
   try {
-    await sendTwoFactorOtp(phone, otp);
+    providerSessionId = await sendTwoFactorOtp(phone);
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     await releaseOtpReservation(phone, reservationId);
     throw new AppError(502, "Could not send OTP. Please try again.");
   }
-  return createOtpRequest(phone, otp, "twofactor", false);
+  return createOtpRequest(phone, "twofactor", false, undefined, providerSessionId);
 }
 
 export async function verifyOtp(phone: string, otp: string) {
@@ -155,7 +148,23 @@ export async function verifyOtp(phone: string, otp: string) {
     throw new AppError(429, "Too many incorrect OTP attempts. Request a new code.");
   }
 
-  const matches = await bcrypt.compare(otp, request.otpHash);
+  let matches = false;
+  if (request.provider === "twofactor") {
+    if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");
+    try {
+      const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
+      const detail = String(payload.Details ?? payload.details ?? "").trim();
+      if (!isTwoFactorSuccess(payload) && !/otp.*(mismatch|not matched|invalid)|invalid.*otp/i.test(detail)) {
+        throw new Error(`TwoFactor OTP verify failed: ${detail.replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
+      }
+      matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
+    }
+  } else if (request.otpHash) {
+    matches = await bcrypt.compare(otp, request.otpHash);
+  }
   if (!matches) {
     await OtpRequestModel.findByIdAndUpdate(request.id, { $inc: { attempts: 1 } });
     throw new AppError(400, "Invalid OTP");

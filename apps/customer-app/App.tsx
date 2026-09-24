@@ -1980,7 +1980,7 @@ function OtpField({ value, onChange }: { value?: string; onChange: (value: strin
       autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
       textContentType="oneTimeCode"
       maxLength={6}
-      placeholder="Enter 6 digit OTP"
+      placeholder="Enter OTP"
       placeholderTextColor="#8fa0b8"
       value={value}
       onChangeText={(text) => onChange(normalizeDigits(text).slice(0, 6))}
@@ -2220,7 +2220,7 @@ function AuthScreen() {
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
                 <AuthButton label={t(language, "sendOtp")} loading={requestingMode === "default"} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
                 {__DEV__ ? (
-                  <Pressable style={({ pressed }) => [styles.twoFactorButton, pressed && styles.pressedButton, !!requestingMode && styles.buttonDisabled]} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"))}>
+                  <Pressable accessibilityRole="button" style={[styles.twoFactorButton, !!requestingMode && styles.buttonDisabled]} android_ripple={{ color: "#ffebc3" }} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))}>
                     {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color={BRAND_ORANGE} />}
                     <Text style={styles.twoFactorButtonText}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
                   </Pressable>
@@ -12571,7 +12571,7 @@ function createStyles(isDark = false) {
     elevation: 6
   },
   authButtonText: { color: "#050505", fontSize: 14, fontWeight: "900" },
-  twoFactorButton: { minHeight: 48, marginTop: 12, borderWidth: 1, borderColor: BRAND_ORANGE, borderRadius: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12, backgroundColor: "#fff9ef" },
+  twoFactorButton: { width: "100%", minHeight: 48, marginTop: 12, borderWidth: 1.5, borderColor: BRAND_ORANGE, borderRadius: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#fff9ef", overflow: "hidden" },
   twoFactorButtonText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "800", textAlign: "center", flexShrink: 1 },
   buttonDisabled: { opacity: 0.72 },
   pressedButton: { opacity: 0.86 },

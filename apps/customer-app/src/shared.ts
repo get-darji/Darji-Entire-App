@@ -15,7 +15,7 @@ export const requestOtpSchema = z.object({
 
 export const verifyOtpSchema = z.object({
   phone: phoneSchema,
-  otp: z.string().length(6),
+  otp: z.string().regex(/^\d{4,6}$/),
   role: z.enum(roles).default("CUSTOMER")
 });
 
