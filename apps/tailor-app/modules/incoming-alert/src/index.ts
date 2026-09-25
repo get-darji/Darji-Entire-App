@@ -31,6 +31,7 @@ export type IncomingAlertAction = {
 
 type NativeIncomingAlertModule = {
   configureAsync(): Promise<void>;
+  setLanguageAsync(language: "en" | "hi"): Promise<void>;
   consumePendingActionAsync(): Promise<string | null>;
   dismissAsync(requestKey?: string | null): Promise<void>;
   getPermissionStateAsync(): Promise<IncomingAlertPermissionState>;
@@ -49,6 +50,10 @@ export function isNativeIncomingAlertAvailable() {
 
 export async function configureIncomingAlert() {
   await nativeModule?.configureAsync();
+}
+
+export async function setIncomingAlertLanguage(language: "en" | "hi") {
+  await nativeModule?.setLanguageAsync(language);
 }
 
 export async function showIncomingAlert(data: IncomingAlertData) {

@@ -1,11 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useRef } from "react";
 import {
   ActivityIndicator,
   Animated,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,

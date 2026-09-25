@@ -10,7 +10,7 @@ import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -18,13 +18,13 @@ import {
   BackHandler,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView as RNScrollView,
   type ScrollViewProps,
   StatusBar,
@@ -176,7 +176,6 @@ type DeliveryNotification = {
 };
 type CancellationAlert = { id: string; title: string; message: string };
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
-type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaDraft = { uri: string; name: string };
 type IdentityType = "Aadhaar" | "PAN";
 
@@ -507,8 +506,6 @@ const SUCCESS = "#15803d";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const darziLogo = require("./darji transparent.png");
-const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
-const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 
 function updateGateProgress(status: UpdateGateState["status"], downloadProgress?: number) {
   if (status === "ready") return 1;
@@ -1126,7 +1123,8 @@ function PrimaryButton({
   onPress,
   variant = "primary",
   disabled = false,
-  loading = false
+  loading = false,
+  loadingLabel
 }: {
   label: string;
   icon?: keyof typeof Ionicons.glyphMap;
@@ -1134,6 +1132,7 @@ function PrimaryButton({
   variant?: "primary" | "secondary" | "danger";
   disabled?: boolean;
   loading?: boolean;
+  loadingLabel?: string;
 }) {
   return (
     <Pressable
@@ -1142,7 +1141,7 @@ function PrimaryButton({
       onPress={onPress}
     >
       {loading ? <ActivityIndicator color={variant === "primary" ? "#111111" : BRAND_ORANGE} /> : icon ? <Ionicons color={variant === "primary" ? "#111111" : variant === "danger" ? "#b91c1c" : BRAND_DEEP} name={icon} size={18} /> : null}
-      {!loading ? (
+      {!loading || loadingLabel ? (
         <Text
           maxFontSizeMultiplier={1}
           numberOfLines={1}
@@ -1150,7 +1149,7 @@ function PrimaryButton({
           minimumFontScale={0.8}
           style={[styles.buttonText, variant !== "primary" && styles.secondaryButtonText, variant === "danger" && styles.dangerButtonText]}
         >
-          {label}
+          {loading ? loadingLabel : label}
         </Text>
       ) : null}
     </Pressable>
@@ -1342,15 +1341,21 @@ function AuthFeature({ icon, title, copy }: { icon: keyof typeof Ionicons.glyphM
 }
 
 function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => void; showDialog: (dialog: DialogState) => void }) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<AuthStep>("login");
   const [timer, setTimer] = useState(60);
-  const [loading, setLoading] = useState(false);
+  const [requestingMode, setRequestingMode] = useState<"default" | "twofactor" | undefined>();
+  const [isVerifying, setIsVerifying] = useState(false);
   const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
+  const [otp, setOtp] = useState("");
+  const otpRef = useRef("");
+  const [verificationPhone, setVerificationPhone] = useState("");
+  const requestPendingRef = useRef(false);
+  const verifyPendingRef = useRef(false);
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
-  const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
 
   useEffect(() => {
     if (step !== "otp" || timer <= 0) return undefined;
@@ -1359,46 +1364,60 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
   }, [step, timer]);
 
   async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+    if (requestPendingRef.current) return;
+    requestPendingRef.current = true;
     try {
-      setLoading(true);
+      setRequestingMode(mode);
       await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
-      verifyForm.reset({ phone: values.phone, role: "DELIVERY_PARTNER", otp: "" });
+      otpRef.current = "";
+      setOtp("");
+      setVerificationPhone(values.phone);
       setOtpMode(mode);
       setTimer(60);
       setStep("otp");
     } catch (error) {
       showDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Could not send OTP.", "ओटीपी भेजा नहीं जा सका।"), icon: "alert-circle-outline" });
     } finally {
-      setLoading(false);
+      requestPendingRef.current = false;
+      setRequestingMode(undefined);
     }
   }
 
-  async function verify(values: VerifyOtpForm) {
+  async function verify() {
+    if (verifyPendingRef.current) return;
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "DELIVERY_PARTNER" });
+    if (!parsed.success) {
+      showDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "shield-checkmark-outline" });
+      return;
+    }
+    verifyPendingRef.current = true;
+    Keyboard.dismiss();
     try {
-      setLoading(true);
+      setIsVerifying(true);
       const session = await api<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string; name?: string } }>("/auth/verify-otp", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(parsed.data)
       });
       setSession(session.accessToken, session.user, session.refreshToken);
       onAuthenticated();
     } catch (error) {
       showDialog({ title: localize(language, "Login failed", "लॉगिन नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Could not verify login.", "ओटीपी सत्यापित नहीं हो सका।"), icon: "alert-circle-outline" });
     } finally {
-      setLoading(false);
+      verifyPendingRef.current = false;
+      setIsVerifying(false);
     }
   }
 
   return (
     <Screen>
-      <View style={styles.authLanguageCorner}>
+      <View style={[styles.authLanguageCorner, { top: insets.top + 12 }]}>
         <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
       </View>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.mainArea}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.mainArea}>
         <ScrollView
           contentContainerStyle={styles.authContent}
           keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.logoMark}>
@@ -1436,37 +1455,24 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                   </View>
                 )}
               />
-              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={loading} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+              <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={requestingMode === "default"} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
               {__DEV__ ? (
-                <Pressable style={styles.textButton} disabled={loading} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"))}>
-                  <Text style={styles.linkText}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
+                <Pressable style={[styles.authTwoFactorButton, !!requestingMode && styles.disabledButton]} disabled={!!requestingMode} accessibilityRole="button" accessibilityState={{ disabled: !!requestingMode }} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
+                  {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color={BRAND_ORANGE} />}
+                  <Text style={styles.authTwoFactorButtonText}>{requestingMode === "twofactor" ? localize(language, "Requesting test SMS...", "टेस्ट एसएमएस मंगाया जा रहा है...") : localize(language, "Request 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी मंगाएँ (टेस्ट एसएमएस)")}</Text>
                 </Pressable>
               ) : null}
             </>
           ) : (
             <>
               <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
-              <Controller
-                control={verifyForm.control}
-                name="otp"
-                render={({ field }) => (
-                  <TextInput
-                    style={styles.otpInput}
-                    autoFocus
-                    keyboardType="number-pad"
-                    autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
-                    textContentType="oneTimeCode"
-                    maxLength={6}
-                    onChangeText={(text) => field.onChange(text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6))}
-                    placeholder="000000"
-                    placeholderTextColor="#9aa6b8"
-                    value={field.value}
-                  />
-                )}
-              />
-              <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={loading} onPress={verifyForm.handleSubmit(verify, () => showDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "shield-checkmark-outline" }))} />
-              <Pressable style={styles.textButton} disabled={timer > 0 || loading} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
-                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "2Factor OTP दोबारा मंगाएँ (टेस्ट SMS)") : t(language, "sendOtp")}</Text>
+              <TextInput style={styles.otpInput} autoFocus editable={!isVerifying} keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder="000000" placeholderTextColor="#9aa6b8" value={otp} />
+              <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} disabled={isVerifying} onPress={() => { void verify(); }} />
+              <Pressable style={styles.textButton} disabled={timer > 0 || !!requestingMode || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+                <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी दोबारा मंगाएँ (टेस्ट एसएमएस)") : t(language, "sendOtp")}</Text>
+              </Pressable>
+              <Pressable style={styles.textButton} disabled={isVerifying} onPress={() => setStep("login")}>
+                <Text style={styles.linkText}>{t(language, "changeNumber")}</Text>
               </Pressable>
             </>
           )}
@@ -1515,7 +1521,7 @@ function ProfilePhotoNoticeModal({ visible, onCancel, onContinue }: { visible: b
           </View>
           <Text style={styles.profileNoticeTitle}>{localize(language, "Profile Photo Notice", "प्रोफाइल फोटो की सूचना")}</Text>
           <Text style={styles.profileNoticeCopy}>
-            {localize(language, "This photo helps verify your identity and will be used as your Darji profile photo. Make sure your face is clear and well lit.", "यह फोटो आपकी पहचान सत्यापित करने में मदद करती है और Darji प्रोफाइल फोटो के रूप में दिखेगी। चेहरा साफ और रोशनी में रखें।")}
+            {localize(language, "This photo helps verify your identity and will be used as your Darji profile photo. Make sure your face is clear and well lit.", "यह फोटो आपकी पहचान सत्यापित करने में मदद करती है और दर्जी प्रोफाइल फोटो के रूप में दिखेगी। चेहरा साफ और रोशनी में रखें।")}
           </Text>
           <View style={styles.profileNoticeActions}>
             <Pressable style={styles.profileNoticeCancel} onPress={onCancel}>
@@ -1684,8 +1690,8 @@ function OnboardingScreen({
       showDialog({
         title: source === "camera" ? localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है") : localize(language, "Gallery permission needed", "गैलरी अनुमति आवश्यक है"),
         message: source === "camera"
-          ? localize(language, "Allow camera access for secure verification. Your information is safe with Darji and is used only for verification.", "सुरक्षित सत्यापन के लिए कैमरा अनुमति दें। आपकी जानकारी Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
-          : localize(language, "Allow gallery access to select a verification document. Darji receives only the photo you choose, and your information stays safe.", "सत्यापन दस्तावेज़ चुनने के लिए गैलरी अनुमति दें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
+          ? localize(language, "Allow camera access for secure verification. Your information is safe with Darji and is used only for verification.", "सुरक्षित सत्यापन के लिए कैमरा अनुमति दें। आपकी जानकारी दर्जी के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
+          : localize(language, "Allow gallery access to select a verification document. Darji receives only the photo you choose, and your information stays safe.", "सत्यापन दस्तावेज़ चुनने के लिए गैलरी अनुमति दें। दर्जी को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
         icon: source === "camera" ? "camera-outline" : "images-outline"
       });
       return;
@@ -1714,7 +1720,7 @@ function OnboardingScreen({
       if (!permission.granted) {
         showDialog({
           title: localize(language, "Location permission needed", "स्थान की अनुमति आवश्यक है"),
-          message: localize(language, "Allow location access to fill your current address automatically. Your location is safe with Darji and is used only for verification and delivery work.", "वर्तमान पता अपने आप भरने के लिए स्थान की अनुमति दें। आपका स्थान Darji के पास सुरक्षित है और केवल सत्यापन व डिलीवरी कार्य के लिए उपयोग होता है।"),
+          message: localize(language, "Allow location access to fill your current address automatically. Your location is safe with Darji and is used only for verification and delivery work.", "वर्तमान पता अपने आप भरने के लिए स्थान की अनुमति दें। आपका स्थान दर्जी के पास सुरक्षित है और केवल सत्यापन व डिलीवरी कार्य के लिए उपयोग होता है।"),
           icon: "location-outline"
         });
         return;
@@ -1930,7 +1936,7 @@ function OnboardingScreen({
         ) : null}
         {!isLocked && (profile?.verificationStatus === "REJECTED" || profile?.verificationStatus === "REUPLOAD_REQUIRED") ? (
           <Text style={styles.noticeText}>
-            {localize(language, "Document reupload required.", "दस्तावेज़ दोबारा अपलोड करना आवश्यक है।")} {rejectionReason ?? localize(language, "Darji admin requested clearer documents. Please review your details and submit again.", "Darji एडमिन ने अधिक साफ दस्तावेज़ माँगे हैं। अपनी जानकारी जाँचकर दोबारा जमा करें।")}
+            {localize(language, "Document reupload required.", "दस्तावेज़ दोबारा अपलोड करना आवश्यक है।")} {rejectionReason ?? localize(language, "Darji admin requested clearer documents. Please review your details and submit again.", "दर्जी एडमिन ने अधिक साफ दस्तावेज़ माँगे हैं। अपनी जानकारी जाँचकर दोबारा जमा करें।")}
           </Text>
         ) : null}
         {!isLocked && currentStepError && step.key !== "review" ? <StepNotice icon="sparkles-outline" text={localize(language, "Complete this step to continue.", "आगे बढ़ने के लिए यह चरण पूरा करें।")} /> : null}
@@ -1939,10 +1945,10 @@ function OnboardingScreen({
         </View>
         <TrustBanner
           title={
-            step.key === "personal" ? localize(language, "Your information is safe with Darji.", "आपकी जानकारी Darji के साथ सुरक्षित है।") :
+            step.key === "personal" ? localize(language, "Your information is safe with Darji.", "आपकी जानकारी दर्जी के साथ सुरक्षित है।") :
             step.key === "identity" ? localize(language, "Why we ask for Aadhaar or PAN?", "हम आधार या पैन क्यों मांगते हैं?") :
             step.key === "license" ? localize(language, "Why we need your driving license?", "हमें आपके ड्राइविंग लाइसेंस की आवश्यकता क्यों है?") :
-            step.key === "vehicle" ? localize(language, "We collect these details to verify your vehicle and ensure safe deliveries on Darji.", "हम आपके वाहन को सत्यापित करने और Darji पर सुरक्षित डिलीवरी सुनिश्चित करने के लिए ये विवरण एकत्र करते हैं।") :
+            step.key === "vehicle" ? localize(language, "We collect these details to verify your vehicle and ensure safe deliveries on Darji.", "हम आपके वाहन को सत्यापित करने और दर्जी पर सुरक्षित डिलीवरी सुनिश्चित करने के लिए ये विवरण एकत्र करते हैं।") :
             step.key === "bank" ? localize(language, "Safe payouts, always!", "सुरक्षित भुगतान, हमेशा!") :
             step.key === "preferences" ? localize(language, "Your privacy, our priority!", "आपकी गोपनीयता, हमारी प्राथमिकता!") :
             step.key === "tutorial" ? localize(language, "We've got your back!", "हम आपके साथ हैं!") :
@@ -1951,14 +1957,14 @@ function OnboardingScreen({
           }
           copy={
             step.key === "personal" ? localize(language, "We keep it private and use it only for verification.", "हम इसे निजी रखते हैं और केवल सत्यापन के लिए उपयोग करते हैं।") :
-            step.key === "identity" ? localize(language, "It helps us verify your identity, prevent fraud and keep the Darji platform safe and trusted.", "यह हमें आपकी पहचान सत्यापित करने, धोखाधड़ी रोकने और Darji प्लेटफ़ॉर्म को सुरक्षित और विश्वसनीय रखने में मदद करता है।") :
+            step.key === "identity" ? localize(language, "It helps us verify your identity, prevent fraud and keep the Darji platform safe and trusted.", "यह हमें आपकी पहचान सत्यापित करने, धोखाधड़ी रोकने और दर्जी प्लेटफ़ॉर्म को सुरक्षित और विश्वसनीय रखने में मदद करता है।") :
             step.key === "license" ? localize(language, "We use it to verify that you are a valid driver and can help keep the platform safe.", "हम इसका उपयोग यह सत्यापित करने के लिए करते हैं कि आप एक वैध ड्राइवर हैं और प्लेटफ़ॉर्म को सुरक्षित रखने में मदद कर सकते हैं।") :
             step.key === "vehicle" ? localize(language, "All information is secure and used only for verification.", "सभी जानकारी सुरक्षित है और केवल सत्यापन के लिए उपयोग की जाती है।") :
             step.key === "bank" ? localize(language, "We use your bank details to send your earnings securely to your account. Your information is private and 100% secure.", "हम आपकी कमाई को आपके खाते में सुरक्षित रूप से भेजने के लिए आपके बैंक विवरण का उपयोग करते हैं। आपकी जानकारी निजी और 100% सुरक्षित है।") :
             step.key === "preferences" ? localize(language, "We keep your information safe and use it only to match you with the best delivery requests. You're in control, always.", "हम आपकी जानकारी सुरक्षित रखते हैं और इसका उपयोग केवल आपको सर्वोत्तम डिलीवरी अनुरोधों से मिलाने के लिए करते हैं। आप हमेशा नियंत्रण में हैं।") :
-            step.key === "tutorial" ? localize(language, "Your information stays safe with Darji. We use it only to help you deliver better.", "का विवरण Darji के साथ सुरक्षित रहता है। हम इसका उपयोग केवल आपको बेहतर डिलीवरी करने में मदद करने के लिए करते हैं।") :
+            step.key === "tutorial" ? localize(language, "Your information stays safe with Darji. We use it only to help you deliver better.", "का विवरण दर्जी के साथ सुरक्षित रहता है। हम इसका उपयोग केवल आपको बेहतर डिलीवरी करने में मदद करने के लिए करते हैं।") :
             step.key === "review" ? localize(language, "We've checked your details. Everything looks good. Submit for admin approval to start delivering.", "हमने आपके विवरण की जांच कर ली है। सब कुछ अच्छा लग रहा है। डिलीवरी शुरू करने के लिए एडमिन की मंजूरी के लिए जमा करें।") :
-            localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")
+            localize(language, "Your personal information and documents are safe with Darji and are used only for verification.", "आपकी निजी जानकारी और दस्तावेज़ दर्जी के पास सुरक्षित हैं और केवल सत्यापन के लिए उपयोग होते हैं।")
           }
         />
 
@@ -2108,7 +2114,7 @@ function OnboardingScreen({
             <ReviewStatusRow label={localize(language, "Bank details", "बैंक की जानकारी")} value={data.accountNumber ? localize(language, "Ready", "तैयार") : localize(language, "Missing", "अधूरा")} ready={Boolean(data.accountNumber)} />
             <View style={styles.reviewLockNotice}>
               <Ionicons name="lock-closed-outline" size={18} color={BRAND_ORANGE} />
-              <Text maxFontSizeMultiplier={1.05} style={styles.reviewLockText}>{localize(language, "After submission, the app stays locked until Darji admins verify this partner account.", "जमा करने के बाद, Darji एडमिन सत्यापन होने तक ऐप लॉक रहेगा।")}</Text>
+              <Text maxFontSizeMultiplier={1.05} style={styles.reviewLockText}>{localize(language, "After submission, the app stays locked until Darji admins verify this partner account.", "जमा करने के बाद, दर्जी एडमिन सत्यापन होने तक ऐप लॉक रहेगा।")}</Text>
             </View>
           </Card>
         ) : null}
@@ -3836,8 +3842,6 @@ function NotificationsScreen({ notifications, onOpen }: { notifications: Deliver
 
 function TabBar({ current, onChange }: { current: Tab; onChange: (tab: Tab) => void }) {
   const language = useAppStore((state) => state.language);
-  const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: t(language, "home"), icon: "home-outline" },
     { key: "orders", label: t(language, "queues"), icon: "cube-outline" },
@@ -3846,7 +3850,7 @@ function TabBar({ current, onChange }: { current: Tab; onChange: (tab: Tab) => v
     { key: "profile", label: t(language, "profile"), icon: "person-outline" }
   ];
   return (
-    <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
+    <View style={styles.tabs}>
       {tabs.map((tab) => {
         const active = current === tab.key || ((current === "earningDetails" || current === "transactions") && tab.key === "earnings");
         return (
@@ -4849,7 +4853,7 @@ function VerificationPendingScreen({
   );
 }
 
-export default function App() {
+function AppContent() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const sessionHydrated = useAppStore((state) => state.hasHydrated);
@@ -5046,6 +5050,7 @@ export default function App() {
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
+        language={language}
         status={platform.status}
         audienceMessage="Going online, receiving batches, and accepting deliveries are temporarily unavailable."
         refreshing={platform.refreshing}
@@ -5123,23 +5128,25 @@ export default function App() {
   }
   return (
     <>
-      <SafeAreaProvider>
-        <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} showDialog={setDialog} />
-      </SafeAreaProvider>
+      <MainApp me={me} onRefreshProfile={() => void refreshProfile()} onSessionExpired={handleSessionExpired} onSignOut={handleSignOut} showDialog={setDialog} />
       <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
       {incomingAlertPermissionGuide}
     </>
   );
 }
 
+export default function App() {
+  return <SafeAreaProvider><StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent /><AppContent /></SafeAreaProvider>;
+}
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: SCREEN_BG, paddingTop: STATUS_BAR_INSET + 10 },
+  safe: { flex: 1, backgroundColor: SCREEN_BG },
   mainArea: { flex: 1 },
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
   authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingBottom: 28, paddingTop: 88 },
-  authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
+  authLanguageCorner: { position: "absolute", right: 18, zIndex: 20 },
   logoMark: { width: 70, height: 70, borderRadius: 16, backgroundColor: SURFACE, borderWidth: 1, borderColor: "#eef2f7", alignItems: "center", justifyContent: "center", marginBottom: 20, shadowColor: "#0b2241", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
   authAppIcon: { width: 60, height: 60 },
   authTitle: {  color: BRAND_DEEP, fontSize: 30, lineHeight: 37, fontWeight: "900" },
@@ -5188,6 +5195,8 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: BRAND_DEEP },
   dangerButtonText: { color: "#b91c1c" },
   textButton: { alignItems: "center", marginTop: 16 },
+  authTwoFactorButton: { width: "100%", minHeight: 50, marginTop: 12, borderWidth: 1.5, borderColor: BRAND_ORANGE, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#fff9ef" },
+  authTwoFactorButtonText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "800", textAlign: "center", flexShrink: 1 },
   linkText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   mutedText: { color: MUTED },
   formLabel: {  color: MUTED, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginBottom: 8, marginTop: 8 },

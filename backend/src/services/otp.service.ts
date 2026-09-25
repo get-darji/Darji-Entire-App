@@ -127,14 +127,19 @@ export async function requestOtp(phone: string, mode: "default" | "twofactor" = 
   }
 
   let providerSessionId: string;
+  const providerStartedAt = Date.now();
   try {
     providerSessionId = await sendTwoFactorOtp(phone);
+    console.info(`[otp] 2Factor accepted send request in ${Date.now() - providerStartedAt}ms`);
   } catch (error) {
+    console.warn(`[otp] 2Factor send failed after ${Date.now() - providerStartedAt}ms`);
     console.error(error instanceof Error ? error.message : error);
     await releaseOtpReservation(phone, reservationId);
     throw new AppError(502, "Could not send OTP. Please try again.");
   }
-  return createOtpRequest(phone, "twofactor", false, undefined, providerSessionId);
+  const request = await createOtpRequest(phone, "twofactor", false, undefined, providerSessionId);
+  console.info(`[otp] 2Factor session stored in ${Date.now() - providerStartedAt}ms total`);
+  return request;
 }
 
 export async function verifyOtp(phone: string, otp: string) {

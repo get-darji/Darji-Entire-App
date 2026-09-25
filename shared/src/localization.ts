@@ -41,7 +41,7 @@ const translations = {
   },
   english: {
     en: "English",
-    hi: "\u0905\u0902\u0917\u094d\u0930\u0947\u091c\u093c\u0940"
+    hi: "English"
   },
   hindi: {
     en: "Hindi",
@@ -193,7 +193,7 @@ const translations = {
   },
   logoutConfirm: {
     en: "Are you sure you want to sign out of your Darji account?",
-    hi: "\u0915\u094d\u092f\u093e \u0906\u092a \u0935\u093e\u0915\u0908 \u0905\u092a\u0928\u0947 Darji \u0905\u0915\u093e\u0909\u0902\u091f \u0938\u0947 \u0938\u093e\u0907\u0928 \u0906\u0909\u091f \u0915\u0930\u0928\u093e \u091a\u093e\u0939\u0924\u0947 \u0939\u0948\u0902?"
+    hi: "\u0915\u094d\u092f\u093e \u0906\u092a \u0935\u093e\u0915\u0908 \u0905\u092a\u0928\u0947 दर्जी \u0905\u0915\u093e\u0909\u0902\u091f \u0938\u0947 \u0938\u093e\u0907\u0928 \u0906\u0909\u091f \u0915\u0930\u0928\u093e \u091a\u093e\u0939\u0924\u0947 \u0939\u0948\u0902?"
   },
   yesSignOut: {
     en: "Yes, Sign Out",
@@ -333,7 +333,7 @@ const translations = {
   },
   aboutDarji: {
     en: "About Darji",
-    hi: "Darji \u0915\u0947 \u092c\u093e\u0930\u0947 \u092e\u0947\u0902"
+    hi: "दर्जी \u0915\u0947 \u092c\u093e\u0930\u0947 \u092e\u0947\u0902"
   },
   privacyPolicy: {
     en: "Privacy Policy",
@@ -453,7 +453,7 @@ const translations = {
   },
   playDeliverySounds: {
     en: "Play the Darji delivery sounds.",
-    hi: "Darji \u0921\u093f\u0932\u093f\u0935\u0930\u0940 \u0938\u093e\u0909\u0902\u0921 \u091a\u0932\u093e\u090f\u0902\u0964"
+    hi: "दर्जी \u0921\u093f\u0932\u093f\u0935\u0930\u0940 \u0938\u093e\u0909\u0902\u0921 \u091a\u0932\u093e\u090f\u0902\u0964"
   },
   vibrateOnUrgentTasks: {
     en: "Vibrate on urgent tasks.",

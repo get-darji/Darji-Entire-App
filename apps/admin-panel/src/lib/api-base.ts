@@ -7,12 +7,10 @@ const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL === RETIRED_API_URL
   ? LIVE_API_URL
   : process.env.NEXT_PUBLIC_API_URL ?? LIVE_API_URL;
 
-const apiUrls = Array.from(new Set([
-  configuredApiUrl,
-  "http://localhost:4000/api",
-  "http://127.0.0.1:4000/api",
-  "http://192.168.1.2:4000/api"
-].map((url) => url.replace(/\/$/, ""))));
+const localDevApiUrl = process.env.NODE_ENV === "development" && typeof window !== "undefined"
+  ? `http://${window.location.hostname}:4000/api`
+  : undefined;
+const apiUrls = [localDevApiUrl ?? configuredApiUrl.replace(/\/$/, "")];
 
 let activeApiUrl = apiUrls[0];
 

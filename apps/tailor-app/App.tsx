@@ -14,7 +14,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { createContext, forwardRef, type ComponentProps, type Dispatch, type SetStateAction, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -22,13 +22,13 @@ import {
   AppState,
   BackHandler,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView as RNScrollView,
   type ScrollViewProps,
   StyleSheet,
@@ -99,6 +99,7 @@ import { registerIncomingRequestMessaging } from "./src/incoming-request/Firebas
 import { cancelIncomingRequestNotifications } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
+import { setIncomingAlertLanguage } from "@darzi/incoming-alert";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { TailorProfileScreen } from "./src/components/TailorProfileScreen";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";
@@ -175,7 +176,6 @@ export function getFallbackAvatar(name?: string, gender?: string) {
 type Screen = "dashboard" | "requests" | "requestDetails" | "quote" | "orders" | "orderDetails" | "measurementVisits" | "earnings" | "earningDetails" | "profile" | "transactions";
 type EarningDetailKey = "pending" | "week" | "month" | "jobs" | "average" | "payments";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
-type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type MediaItem = { url: string; resourceType: "image" | "video" | "audio"; originalName?: string; bytes?: number };
 type MediaViewerState = { items: MediaItem[]; index: number; title: string };
 type TailorQuote = { id: string; price: number; estimatedDays: number; estimatedHours?: number; message?: string; pickupIncluded?: boolean; status: "SUBMITTED" | "RESERVED" | "ACCEPTED" | "REJECTED" | "EXPIRED" };
@@ -232,6 +232,10 @@ type TailoringRequest = {
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
   orderStatus?: string;
   workStatus?: "ACCEPTED" | "WORKING" | "READY";
+  deliveryMilestones?: {
+    customerToTailor?: { taskStatus: string; etaWindowStart?: string; etaWindowEnd?: string; pickedUpAt?: string; deliveredAt?: string };
+    tailorToCustomer?: { taskStatus: string; pickedUpAt?: string; deliveredAt?: string };
+  };
   media: MediaItem[];
   voiceNotes?: MediaItem[];
   receivedMedia?: MediaItem[];
@@ -396,9 +400,6 @@ const BORDER = "#dde4ee";
 const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const tailorAppIcon = require("./darji transparent.png");
-const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
-const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
-const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 
 function updateGateProgress(status: UpdateGateState["status"], downloadProgress?: number) {
   if (status === "ready") return 1;
@@ -583,6 +584,7 @@ function stopMeasurementVisitAlert(visit?: { id?: string; requestId?: string }) 
 }
 
 function formatStatus(status: string) {
+  if (status === "DELIVERED" || status === "COMPLETED") return "Completed";
   if (status === "READY") return "Ready to Deliver";
   if (status === "AT_TAILOR" || status === "WORKING") return "Working";
   if (status === "QUOTE_ACCEPTED") return "Price Accepted";
@@ -738,7 +740,7 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
   let status = "QUOTE_ACCEPTED";
   if (request.status === "CANCELLED" || request.orderStatus === "cancelled") {
     status = "CANCELLED";
-  } else if (request.orderStatus === "completed") {
+  } else if (request.orderStatus === "completed" || request.deliveryMilestones?.tailorToCustomer?.taskStatus === "delivered") {
     status = "DELIVERED";
   } else if (request.orderStatus === "out_for_delivery") {
     status = "ON_THE_WAY";
@@ -779,7 +781,8 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
     source: "accepted_request",
     request,
     items,
-    createdAt: request.createdAt
+    createdAt: request.createdAt,
+    pickupScheduledAt: request.deliveryMilestones?.customerToTailor?.etaWindowStart
   };
 }
 
@@ -801,10 +804,11 @@ function PhoneField({ value, onChange, placeholder }: { value?: string; onChange
   );
 }
 
-function AuthButton({ label, loading, onPress }: { label: string; loading: boolean; onPress: () => void }) {
+function AuthButton({ label, loading, loadingLabel, disabled = false, onPress }: { label: string; loading: boolean; loadingLabel?: string; disabled?: boolean; onPress: () => void }) {
   return (
-    <Pressable style={styles.primaryButton} onPress={onPress} disabled={loading}>
-      {loading ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>{label}</Text>}
+    <Pressable style={[styles.primaryButton, (loading || disabled) && styles.disabledButton]} onPress={onPress} disabled={loading || disabled} accessibilityRole="button" accessibilityState={{ disabled: loading || disabled }}>
+      {loading ? <ActivityIndicator color="#111111" /> : null}
+      <Text style={styles.primaryButtonText}>{loading ? loadingLabel ?? label : label}</Text>
       {!loading ? <Ionicons name="chevron-forward" size={18} color="#111111" /> : null}
     </Pressable>
   );
@@ -835,17 +839,22 @@ function TailorPrimaryCta({ label, loading = false, disabled = false, onPress }:
 }
 
 function AuthScreen() {
+  const insets = useSafeAreaInsets();
   const [otpRequested, setOtpRequested] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
   const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
-  const [isRequesting, setIsRequesting] = useState(false);
+  const [otp, setOtp] = useState("");
+  const otpRef = useRef("");
+  const [verificationPhone, setVerificationPhone] = useState("");
+  const requestPendingRef = useRef(false);
+  const verifyPendingRef = useRef(false);
+  const [requestingMode, setRequestingMode] = useState<"default" | "twofactor" | undefined>();
   const [isVerifying, setIsVerifying] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR" } });
-  const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "TAILOR" } });
 
   useEffect(() => {
     if (!otpRequested) return undefined;
@@ -854,46 +863,60 @@ function AuthScreen() {
   }, [otpRequested]);
 
   async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+    if (requestPendingRef.current) return;
+    requestPendingRef.current = true;
     try {
-      setIsRequesting(true);
+      setRequestingMode(mode);
       await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
-      verifyForm.reset({ phone: values.phone, role: "TAILOR", otp: "" });
+      otpRef.current = "";
+      setOtp("");
+      setVerificationPhone(values.phone);
       setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
       setDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Check backend connection.", "इंटरनेट कनेक्शन जाँचें।"), icon: "alert-circle-outline" });
     } finally {
-      setIsRequesting(false);
+      requestPendingRef.current = false;
+      setRequestingMode(undefined);
     }
   }
 
-  async function verify(values: VerifyOtpForm) {
+  async function verify() {
+    if (verifyPendingRef.current) return;
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "TAILOR" });
+    if (!parsed.success) {
+      setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" });
+      return;
+    }
+    verifyPendingRef.current = true;
+    Keyboard.dismiss();
     try {
       setIsVerifying(true);
       const session = await api<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string; name?: string } }>("/auth/verify-otp", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(parsed.data)
       });
       setSession(session.accessToken, session.user, session.refreshToken);
     } catch (error) {
       setDialog({ title: localize(language, "Login failed", "लॉगिन नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Check OTP and try again.", "ओटीपी जाँचकर दोबारा कोशिश करें।"), icon: "alert-circle-outline" });
     } finally {
+      verifyPendingRef.current = false;
       setIsVerifying(false);
     }
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent={false} />
-      <View style={styles.authLanguageCorner}>
+      <StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent />
+      <View style={[styles.authLanguageCorner, { top: insets.top + 12 }]}>
         <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
       </View>
-      <KeyboardAvoidingView style={styles.screenHost} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={styles.screenHost} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           contentContainerStyle={styles.authContent}
           keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.authLogoWrap}>
@@ -905,28 +928,23 @@ function AuthScreen() {
           <>
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
             <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder={localize(language, "Enter tailor mobile number", "दर्जी का मोबाइल नंबर दर्ज करें")} />} />
-            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+            <AuthButton label={t(language, "sendOtp")} loading={requestingMode === "default"} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
             {__DEV__ ? (
-              <Pressable style={styles.textButton} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"))}>
-                <Text style={styles.textButtonText}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
+              <Pressable style={[styles.authTwoFactorButton, !!requestingMode && styles.disabledButton]} disabled={!!requestingMode} accessibilityRole="button" accessibilityState={{ disabled: !!requestingMode }} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
+                {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color={BRAND_ORANGE} />}
+                <Text style={styles.authTwoFactorButtonText}>{requestingMode === "twofactor" ? localize(language, "Requesting test SMS...", "टेस्ट एसएमएस मंगाया जा रहा है...") : localize(language, "Request 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी मंगाएँ (टेस्ट एसएमएस)")}</Text>
               </Pressable>
             ) : null}
           </>
         ) : (
           <>
             <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
-            <Controller
-              control={verifyForm.control}
-              name="otp"
-              render={({ field }) => (
-                <TextInput style={styles.input} autoFocus value={field.value} onChangeText={(text) => field.onChange(text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6))} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType="oneTimeCode" maxLength={6} />
-              )}
-            />
-            <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} onPress={verifyForm.handleSubmit(verify, () => setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" }))} />
-            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
-              <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में OTP दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "2Factor OTP दोबारा मंगाएँ (टेस्ट SMS)") : localize(language, "Resend OTP", "OTP दोबारा भेजें")}</Text>
+            <TextInput style={styles.input} autoFocus editable={!isVerifying} value={otp} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} />
+            <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
+            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+              <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी दोबारा मंगाएँ (टेस्ट एसएमएस)") : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>
             </Pressable>
-            <Pressable style={styles.textButton} onPress={() => setOtpRequested(false)}>
+            <Pressable style={styles.textButton} disabled={isVerifying} onPress={() => setOtpRequested(false)}>
               <Text style={styles.textButtonText}>{t(language, "changeNumber")}</Text>
             </Pressable>
           </>
@@ -1016,6 +1034,7 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   const isCancelled = order.status === "CANCELLED" || order.request?.status === "CANCELLED";
   const isHistory = ["DELIVERED", "COMPLETED"].includes(order.status);
   const isReady = order.status === "READY";
+  const pickupTask = order.request?.deliveryMilestones?.customerToTailor;
   const orderToneStyle = isCancelled ? styles.cancelledOrderCard : isHistory || isReady ? styles.completedOrderCard : styles.activeOrderCard;
   const iconToneStyle = isCancelled ? styles.cancelledOrderIcon : isHistory || isReady ? styles.completedOrderIcon : styles.activeOrderIcon;
   return (
@@ -1028,7 +1047,7 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
           <Text style={styles.tailorMiniOrderId} numberOfLines={1}>{code}</Text>
           <Text style={styles.tailorMiniOrderTitle} numberOfLines={1}>{firstItem(order)}</Text>
           <Text style={styles.tailorMiniOrderMeta} numberOfLines={1}>
-            {order.pickupScheduledAt ? `Pickup: ${new Date(order.pickupScheduledAt).toLocaleDateString("en-IN")}` : "Pickup not scheduled"}
+            {pickupTask?.taskStatus === "delivered" ? "Pickup completed" : order.pickupScheduledAt ? `Pickup: ${new Date(order.pickupScheduledAt).toLocaleDateString("en-IN")}` : "Pickup not scheduled"}
           </Text>
         </View>
         <View style={styles.tailorMiniOrderSide}>
@@ -1832,7 +1851,7 @@ function MeasurementSubmitScreen({
   const modalItems = activeVisitRequest ? measurementVisitRequestItems(activeVisitRequest) : [];
   const orderId = `REQ-${activeVisit.requestId.slice(0, 8).toUpperCase()}`;
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.measureSubmitScreenWrap}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.measureSubmitScreenWrap}>
       <ScrollView contentContainerStyle={styles.measureSubmitScreenContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Header title="Submit Measurements" subtitle={`Order ${orderId}`} onBack={onBack} />
 
@@ -3174,13 +3193,17 @@ function OrderDetailsScreen({
   const voiceStatusSubscriptionRef = useRef<{ remove: () => void } | undefined>(undefined);
   const voiceWaveProgress = useRef(new Animated.Value(0)).current;
   const acceptedRequest = order.request;
+  const pickupTask = acceptedRequest?.deliveryMilestones?.customerToTailor;
+  const deliveryTask = acceptedRequest?.deliveryMilestones?.tailorToCustomer;
+  const pickupCompleted = pickupTask?.taskStatus === "delivered" || Boolean(pickupTask?.deliveredAt);
+  const deliveryCompleted = order.status === "DELIVERED" || order.status === "COMPLETED" || deliveryTask?.taskStatus === "delivered";
   const requiredProofCount = acceptedRequest ? requestItemCount(acceptedRequest) : Math.max(1, order.items.length);
   const receivedProofCount = acceptedRequest?.receivedMedia?.length ?? 0;
   const stitchedProofCount = acceptedRequest?.stitchedMedia?.length ?? 0;
   const receivedProofComplete = receivedProofCount >= requiredProofCount;
   const stitchedProofComplete = stitchedProofCount >= requiredProofCount;
   const hasReceivedPackage = acceptedRequest
-    ? ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
+    ? pickupCompleted || ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
     : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "WORKING", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
 
   const stopVoicePlayback = useCallback(() => {
@@ -3433,9 +3456,10 @@ function OrderDetailsScreen({
   const primaryDetailItem = selectedDetailItem ?? detailItems[0];
   const requestCode = acceptedRequest ? `REQ-${acceptedRequest.id.slice(0, 8).toUpperCase()}` : order.orderNumber;
   const displayStatus = order.status === "QUOTE_ACCEPTED" ? acceptedRequest?.workStatus ?? order.status : order.status;
-  const pickupDate = order.pickupScheduledAt
-    ? new Date(order.pickupScheduledAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })
-    : "Not scheduled";
+  const pickupDateValue = pickupCompleted ? pickupTask?.deliveredAt : order.pickupScheduledAt;
+  const pickupDate = pickupDateValue
+    ? new Date(pickupDateValue).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })
+    : pickupCompleted ? "Completed" : "Not scheduled";
   const descriptionText = selectedDetailItem?.description || (activeDetailItemIndex === 0 ? acceptedRequest?.description : undefined) || order.instructions;
   const selectedVoiceNotes = selectedDetailItem?.voiceNotes ?? [];
   const clothMedia = selectedDetailItem?.clothMedia ?? [];
@@ -3454,7 +3478,7 @@ function OrderDetailsScreen({
     { label: "Pickup", icon: "file-tray-stacked-outline" as const, active: hasReceivedPackage },
     { label: "In Progress", icon: "cut-outline" as const, active: ["WORKING", "READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.workStatus === "WORKING" || acceptedRequest?.workStatus === "READY" },
     { label: "Ready", icon: "briefcase-outline" as const, active: ["READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.workStatus === "READY" },
-    { label: "Delivery", icon: "car-outline" as const, active: ["ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.orderStatus === "completed" }
+    { label: deliveryCompleted ? "Completed" : "Delivery", icon: "car-outline" as const, active: ["ON_THE_WAY", "DELIVERED"].includes(order.status) || deliveryCompleted || acceptedRequest?.orderStatus === "completed" }
   ];
 
   return (
@@ -3520,17 +3544,17 @@ function OrderDetailsScreen({
         </View>
       ) : null}
 
-      <View style={styles.confirmedPickupCard}>
-        <View style={styles.confirmedPickupIcon}>
-          <Ionicons name="time-outline" size={28} color={BRAND_ORANGE} />
+      <View style={[styles.confirmedPickupCard, pickupCompleted && styles.confirmedPickupCardDone]}>
+        <View style={[styles.confirmedPickupIcon, pickupCompleted && styles.confirmedPickupIconDone]}>
+          <Ionicons name={pickupCompleted ? "checkmark-circle-outline" : "time-outline"} size={28} color={pickupCompleted ? "#15803d" : BRAND_ORANGE} />
         </View>
         <View style={styles.confirmedPickupMain}>
           <Text style={styles.confirmedPickupLabel}>Pickup Window (To Tailor)</Text>
           <Text style={styles.confirmedPickupTime}>{pickupDate}</Text>
-          <Text style={styles.confirmedPickupCopy}>Rider will pick up the package from you.</Text>
+          <Text style={styles.confirmedPickupCopy}>{pickupCompleted ? "Package delivered to tailor." : "Rider will pick up the package from the customer."}</Text>
         </View>
-        <View style={styles.confirmedPickupBadge}>
-          <Text style={styles.confirmedPickupBadgeText}>{order.pickupScheduledAt ? "Upcoming" : "Pending"}</Text>
+        <View style={[styles.confirmedPickupBadge, pickupCompleted && styles.confirmedPickupBadgeDone]}>
+          <Text style={[styles.confirmedPickupBadgeText, pickupCompleted && styles.confirmedPickupBadgeTextDone]}>{pickupCompleted ? "Completed" : order.pickupScheduledAt ? "Upcoming" : "Pending"}</Text>
         </View>
       </View>
 
@@ -4502,7 +4526,7 @@ function TailorVerificationFlow({
       if (!permission.granted) {
         showDialog({
           title: localize(language, "Location permission needed", "स्थान की अनुमति आवश्यक है"),
-          message: localize(language, "Allow location access to fetch your current address. Your location is safe with Darji and is used only for verification.", "वर्तमान पता लेने के लिए स्थान की अनुमति दें। आपका स्थान Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होता है।"),
+          message: localize(language, "Allow location access to fetch your current address. Your location is safe with Darji and is used only for verification.", "वर्तमान पता लेने के लिए स्थान की अनुमति दें। आपका स्थान दर्जी के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होता है।"),
           icon: "location-outline"
         });
         return;
@@ -4572,7 +4596,7 @@ function TailorVerificationFlow({
       if (!permission.granted) {
         showDialog({
           title: localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है"),
-          message: localize(language, "Allow camera access for face verification. Your photo is safe with Darji and is used only for verification.", "चेहरे के सत्यापन के लिए कैमरा अनुमति दें। आपकी फोटो Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।"),
+          message: localize(language, "Allow camera access for face verification. Your photo is safe with Darji and is used only for verification.", "चेहरे के सत्यापन के लिए कैमरा अनुमति दें। आपकी फोटो दर्जी के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।"),
           icon: "camera-outline"
         });
         return;
@@ -4649,8 +4673,8 @@ function TailorVerificationFlow({
       showDialog({
         title: source === "camera" ? localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है") : localize(language, "Gallery permission needed", "गैलरी अनुमति आवश्यक है"),
         message: source === "camera"
-          ? localize(language, "Allow camera access for secure verification. Your information is safe with Darji and is used only for verification.", "सुरक्षित सत्यापन के लिए कैमरा अनुमति दें। आपकी जानकारी Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
-          : localize(language, "Allow gallery access to select a verification document. Darji receives only the photo you choose, and your information stays safe.", "सत्यापन दस्तावेज़ चुनने के लिए गैलरी अनुमति दें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
+          ? localize(language, "Allow camera access for secure verification. Your information is safe with Darji and is used only for verification.", "सुरक्षित सत्यापन के लिए कैमरा अनुमति दें। आपकी जानकारी दर्जी के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
+          : localize(language, "Allow gallery access to select a verification document. Darji receives only the photo you choose, and your information stays safe.", "सत्यापन दस्तावेज़ चुनने के लिए गैलरी अनुमति दें। दर्जी को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
         icon: source === "camera" ? "camera-outline" : "images-outline"
       });
       return;
@@ -4678,8 +4702,8 @@ function TailorVerificationFlow({
       showDialog({
         title: source === "camera" ? localize(language, "Camera permission needed", "कैमरा अनुमति आवश्यक है") : localize(language, "Gallery permission needed", "गैलरी अनुमति आवश्यक है"),
         message: source === "camera"
-          ? localize(language, "Allow camera access to photograph your shop. Your information is safe with Darji and is used only for verification.", "दुकान की फोटो लेने के लिए कैमरा अनुमति दें। आपकी जानकारी Darji के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
-          : localize(language, "Allow gallery access to select a shop photo. Darji receives only the photo you choose, and your information stays safe.", "दुकान की फोटो चुनने के लिए गैलरी अनुमति दें। Darji को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
+          ? localize(language, "Allow camera access to photograph your shop. Your information is safe with Darji and is used only for verification.", "दुकान की फोटो लेने के लिए कैमरा अनुमति दें। आपकी जानकारी दर्जी के पास सुरक्षित है और केवल सत्यापन के लिए उपयोग होती है।")
+          : localize(language, "Allow gallery access to select a shop photo. Darji receives only the photo you choose, and your information stays safe.", "दुकान की फोटो चुनने के लिए गैलरी अनुमति दें। दर्जी को केवल आपकी चुनी हुई फोटो मिलेगी और आपकी जानकारी सुरक्षित रहेगी।"),
         icon: source === "camera" ? "camera-outline" : "images-outline"
       });
       return;
@@ -4918,7 +4942,7 @@ function TailorVerificationFlow({
       };
       await api("/tailors/me/verification", { method: "POST", body: JSON.stringify(payload) }, token);
       await AsyncStorage.removeItem(storageKey).catch(() => undefined);
-      showDialog({ title: localize(language, "Verification submitted", "सत्यापन जमा हो गया"), message: localize(language, "Your details reached the Darji team for review.", "आपकी जानकारी समीक्षा के लिए Darji टीम तक पहुँच गई है।"), icon: "checkmark-circle-outline" });
+      showDialog({ title: localize(language, "Verification submitted", "सत्यापन जमा हो गया"), message: localize(language, "Your details reached the Darji team for review.", "आपकी जानकारी समीक्षा के लिए दर्जी टीम तक पहुँच गई है।"), icon: "checkmark-circle-outline" });
       onRefresh();
       setStep(VERIFICATION_STATUS_STEP);
     } catch (error) {
@@ -4977,10 +5001,10 @@ function TailorVerificationFlow({
         ? localize(language, "Verification not approved", "सत्यापन स्वीकृत नहीं हुआ")
         : localize(language, "Verification under review", "सत्यापन की समीक्षा जारी है");
     const statusCopy = needsReupload
-      ? localize(language, "Please upload only the documents requested by the Darji admin team.", "केवल Darji एडमिन द्वारा माँगे गए दस्तावेज़ अपलोड करें।")
+      ? localize(language, "Please upload only the documents requested by the Darji admin team.", "केवल दर्जी एडमिन द्वारा माँगे गए दस्तावेज़ अपलोड करें।")
       : isRejected
         ? localize(language, "Unfortunately, we cannot verify your profile right now. You can apply again after the waiting period with clearer, original documents.", "अभी आपकी प्रोफाइल सत्यापित नहीं हो सकी। प्रतीक्षा अवधि के बाद साफ और मूल दस्तावेज़ों के साथ दोबारा आवेदन करें।")
-        : localize(language, "Your application has been submitted. The Darji team is reviewing your details and you will be notified soon.", "आपका आवेदन जमा हो गया है। Darji टीम आपकी जानकारी की समीक्षा कर रही है और जल्द सूचना देगी।");
+        : localize(language, "Your application has been submitted. The Darji team is reviewing your details and you will be notified soon.", "आपका आवेदन जमा हो गया है। दर्जी टीम आपकी जानकारी की समीक्षा कर रही है और जल्द सूचना देगी।");
 
     async function refreshVerificationStatus() {
       if (refreshingStatus) return;
@@ -5003,7 +5027,7 @@ function TailorVerificationFlow({
     function chooseReplacementShopPhoto() {
       showDialog({
         title: localize(language, "Choose shop photo", "दुकान की फोटो चुनें"),
-        message: localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
+        message: localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी दर्जी के पास सुरक्षित है।"),
         icon: "camera-outline",
         actions: [
           { label: localize(language, "Camera", "कैमरा"), variant: "primary", onPress: () => showCameraPermissionIntro("shop", () => void pickShopPhoto("camera")) },
@@ -5019,7 +5043,7 @@ function TailorVerificationFlow({
       const setter = field === "aadhaarFront" ? setAadhaarFront : field === "aadhaarBack" ? setAadhaarBack : setPanPhoto;
       showDialog({
         title: localize(language, "Choose document photo", "दस्तावेज़ की फोटो चुनें"),
-        message: localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी Darji के पास सुरक्षित है।"),
+        message: localize(language, "Use the camera or select one photo from your gallery. Your information is safe with Darji.", "कैमरे से फोटो लें या गैलरी से एक फोटो चुनें। आपकी जानकारी दर्जी के पास सुरक्षित है।"),
         icon: "camera-outline",
         actions: [
           { label: localize(language, "Camera", "कैमरा"), variant: "primary", onPress: () => showCameraPermissionIntro("document", () => void pickDoc(setter, "ocr", "camera")) },
@@ -5035,7 +5059,7 @@ function TailorVerificationFlow({
           <Header title={statusTitle} subtitle={needsReupload ? localize(language, "Please upload the requested documents again.", "माँगे गए दस्तावेज़ दोबारा अपलोड करें।") : undefined} />
           <View style={styles.privacyTrustBanner}>
             <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
-            <Text style={styles.privacyTrustText}>{localize(language, "Your information and documents remain safe with Darji.", "आपकी जानकारी और दस्तावेज़ Darji के पास सुरक्षित हैं।")}</Text>
+            <Text style={styles.privacyTrustText}>{localize(language, "Your information and documents remain safe with Darji.", "आपकी जानकारी और दस्तावेज़ दर्जी के पास सुरक्षित हैं।")}</Text>
           </View>
           <View style={[styles.verificationHero, isRejected && styles.rejectedHero]}>
             <Ionicons name={needsReupload || isRejected ? "alert-circle-outline" : "hourglass-outline"} size={38} color={isRejected ? "#dc2626" : BRAND_ORANGE} />
@@ -5982,8 +6006,6 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
 
 function BottomTabs({ screen, setScreen, onOpenRequests }: { screen: Screen; setScreen: (screen: Screen) => void; onOpenRequests: () => void }) {
   const language = useAppStore((state) => state.language);
-  const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const tabs: Array<{ key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
     { key: "dashboard", label: t(language, "home"), icon: "home-outline" },
     { key: "requests", label: t(language, "requests"), icon: "albums-outline" },
@@ -5992,7 +6014,7 @@ function BottomTabs({ screen, setScreen, onOpenRequests }: { screen: Screen; set
     { key: "profile", label: t(language, "profile"), icon: "person-outline" }
   ];
   return (
-    <View style={[styles.tabs, { height: 74 + bottomInset, paddingBottom: 6 + bottomInset }]}>
+    <View style={styles.tabs}>
       {tabs.map((tab) => {
         const active = screen === tab.key
           || (screen === "requestDetails" && tab.key === "requests")
@@ -6267,7 +6289,7 @@ function TailorVerifiedWelcome({ me, onContinue, onRefresh }: { me: MeResponse; 
   );
 }
 
-export default function App() {
+function AppContent() {
   const token = useAppStore((state) => state.token);
   const sessionUser = useAppStore((state) => state.user);
   const sessionHydrated = useAppStore((state) => state.hasHydrated);
@@ -6276,6 +6298,7 @@ export default function App() {
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
   const language = useAppStore((state) => state.language);
   const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
+  useEffect(() => { void setIncomingAlertLanguage(language).catch(() => undefined); }, [language]);
   const platform = usePlatformStatus(getPlatformStatus, token);
   const [screen, setScreenState] = useState<Screen>("dashboard");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
@@ -7015,6 +7038,7 @@ export default function App() {
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
+        language={language}
         status={platform.status}
         audienceMessage="Going online, receiving requests, and submitting prices are temporarily unavailable."
         refreshing={platform.refreshing}
@@ -7131,7 +7155,6 @@ export default function App() {
   if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
 
   return (
-    <SafeAreaProvider>
     <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleTailorScreen() }}>
     <NotificationProvider
       app="tailor"
@@ -7273,18 +7296,21 @@ export default function App() {
       </SafeAreaView>
     </NotificationProvider>
     </PullToRefreshContext.Provider>
-    </SafeAreaProvider>
   );
 }
 
+export default function App() {
+  return <SafeAreaProvider><StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent /><AppContent /></SafeAreaProvider>;
+}
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: SCREEN_BG, paddingTop: STATUS_BAR_INSET },
+  safe: { flex: 1, backgroundColor: SCREEN_BG },
   screenHost: { flex: 1 },
   connectionBadge: { minHeight: 30, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 15, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 12, marginTop: 8, marginBottom: 2 },
   connectionDot: { width: 8, height: 8, borderRadius: 4 },
   connectionText: { fontSize: 11, fontWeight: "900" },
   authContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 26, paddingBottom: 28, paddingTop: 70 },
-  authLanguageCorner: { position: "absolute", right: 18, top: STATUS_BAR_INSET + 12, zIndex: 20 },
+  authLanguageCorner: { position: "absolute", right: 18, zIndex: 20 },
   authLogoWrap: { alignItems: "flex-start", justifyContent: "center", marginBottom: 14 },
   authLogo: { width: 92, height: 62 },
   logoMark: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 20 },
@@ -7318,6 +7344,8 @@ const styles = StyleSheet.create({
   secondaryButton: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 12 },
   secondaryButtonText: { color: BRAND_DEEP, fontSize: 15, fontWeight: "900" },
   textButton: { alignItems: "center", marginTop: 18 },
+  authTwoFactorButton: { width: "100%", minHeight: 54, marginTop: 12, borderWidth: 1.5, borderColor: BRAND_ORANGE, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#fff9ef" },
+  authTwoFactorButtonText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "800", textAlign: "center", flexShrink: 1 },
   textButtonText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900" },
   textButtonDisabled: { color: "#89909b" },
   topDisclaimer: { minHeight: 54, marginHorizontal: 18, marginTop: 8, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
@@ -7634,13 +7662,17 @@ const styles = StyleSheet.create({
   confirmedTimelineLabelActive: { color: BRAND_DEEP },
   confirmedTimelineLine: { position: "absolute", left: "72%", top: 21, width: "56%", height: 1, borderStyle: "dashed", borderWidth: 1, borderColor: "#d7dde7" },
   confirmedPickupCard: { minHeight: 112, borderRadius: 18, borderWidth: 1, borderColor: "#f4dca6", backgroundColor: "#fffaf0", padding: 16, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 14 },
+  confirmedPickupCardDone: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
   confirmedPickupIcon: { width: 58, height: 58, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  confirmedPickupIconDone: { backgroundColor: "#dcfce7" },
   confirmedPickupMain: { flex: 1, minWidth: 0 },
   confirmedPickupLabel: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "900" },
   confirmedPickupTime: { color: BRAND_DEEP, fontSize: 20, lineHeight: 26, fontWeight: "900", marginTop: 6 },
   confirmedPickupCopy: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "700", marginTop: 6 },
   confirmedPickupBadge: { borderRadius: 999, backgroundColor: "#fff4dc", paddingHorizontal: 12, paddingVertical: 9 },
+  confirmedPickupBadgeDone: { backgroundColor: "#dcfce7" },
   confirmedPickupBadgeText: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 15, fontWeight: "900" },
+  confirmedPickupBadgeTextDone: { color: "#15803d" },
   confirmedSectionCard: { borderRadius: 18, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, padding: 16, marginBottom: 16 },
   confirmedSectionLabel: { color: "#475569", fontSize: 12, lineHeight: 16, fontWeight: "900", marginBottom: 14 },
   confirmedVoiceList: { gap: 10, marginBottom: 14 },

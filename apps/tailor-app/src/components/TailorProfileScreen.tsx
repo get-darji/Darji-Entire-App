@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, StatusBar, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
 import { api, deleteTailorSample, savePreferredLanguage, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -82,9 +82,8 @@ const DANGER = "#dc2626";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
-const STATUS_BAR_INSET = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
-const SCREEN_TOP_PADDING = STATUS_BAR_INSET + 24;
-const CHAT_BOTTOM_INSET = Platform.OS === "android" ? 42 : 22;
+const SCREEN_TOP_PADDING = 18;
+const CHAT_BOTTOM_INSET = 16;
 
 type PullToRefreshState = {
   refreshing: boolean;
@@ -1686,7 +1685,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 4 : SCREEN_TOP_PADDING }}>
+    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 18 }}>
@@ -2128,7 +2127,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, backgroundColor: palette.bg }}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, backgroundColor: palette.bg }}>
       <ScrollView contentContainerStyle={[styles.content, styles.bugReportContent]} showsVerticalScrollIndicator={false}>
         <View style={styles.detailHeader}>
           <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
@@ -2429,7 +2428,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
         </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
           {/* Request Type Selector */}
           <View>
@@ -2768,7 +2767,7 @@ function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.bg },
     content: { padding: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 110 },
-    bugReportContent: { paddingTop: STATUS_BAR_INSET + 10, paddingBottom: 40 },
+    bugReportContent: { paddingTop: 10, paddingBottom: 40 },
     headerCard: { borderRadius: 20, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
     avatar: { width: 76, height: 76, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
     avatarImage: { width: "100%", height: "100%", borderRadius: 24 },

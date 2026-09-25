@@ -1,15 +1,18 @@
-import { ActivityIndicator, Pressable, SafeAreaView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type { PlatformStatus } from "./platform-status";
+import { translateStaticText } from "./static-translations";
+import type { AppLanguage } from "./localization";
 
-export function PlatformStatusLoadingScreen() {
+export function PlatformStatusLoadingScreen({ language = "en" }: { language?: AppLanguage }) {
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={styles.safe.backgroundColor} />
+      <StatusBar barStyle="dark-content" backgroundColor={styles.safe.backgroundColor} translucent />
       <View style={styles.centered}>
         <View style={styles.brandMark}><Text style={styles.brandLetter}>D</Text></View>
         <ActivityIndicator color="#f28c00" size="large" />
-        <Text style={styles.loadingTitle}>Checking Darji</Text>
-        <Text style={styles.loadingCopy}>Confirming the latest platform status.</Text>
+        <Text style={styles.loadingTitle}>{translateStaticText(language, "Checking Darji")}</Text>
+        <Text style={styles.loadingCopy}>{translateStaticText(language, "Confirming the latest platform status.")}</Text>
       </View>
     </SafeAreaView>
   );
@@ -18,12 +21,14 @@ export function PlatformStatusLoadingScreen() {
 export function PlatformMaintenanceScreen({
   status,
   audienceMessage,
+  language,
   refreshing,
   error,
   onRefresh
 }: {
   status: PlatformStatus;
   audienceMessage: string;
+  language: AppLanguage;
   refreshing: boolean;
   error?: string;
   onRefresh: () => void;
@@ -31,32 +36,32 @@ export function PlatformMaintenanceScreen({
   const showEta = status.showEstimatedCompletion && Boolean(status.estimatedCompletion);
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={styles.safe.backgroundColor} />
+      <StatusBar barStyle="dark-content" backgroundColor={styles.safe.backgroundColor} translucent />
       <View style={styles.page}>
         <View style={styles.illustration}>
           <View style={styles.brandMark}><Text style={styles.brandLetter}>D</Text></View>
           <View style={styles.toolLine} />
           <View style={styles.toolDot} />
         </View>
-        <View style={styles.modePill}><View style={styles.modeDot} /><Text style={styles.modeText}>MAINTENANCE MODE</Text></View>
-        <Text style={styles.title}>{status.title}</Text>
-        <Text style={styles.description}>{status.description}</Text>
+        <View style={styles.modePill}><View style={styles.modeDot} /><Text style={styles.modeText}>{translateStaticText(language, "MAINTENANCE MODE")}</Text></View>
+        <Text style={styles.title}>{translateStaticText(language, status.title)}</Text>
+        <Text style={styles.description}>{translateStaticText(language, status.description)}</Text>
         <View style={styles.noticeCard}>
-          <Text style={styles.noticeTitle}>Darji is currently under maintenance</Text>
-          <Text style={styles.noticeCopy}>{audienceMessage}</Text>
+          <Text style={styles.noticeTitle}>{translateStaticText(language, "Darji is currently under maintenance")}</Text>
+          <Text style={styles.noticeCopy}>{translateStaticText(language, audienceMessage)}</Text>
           {showEta ? (
             <View style={styles.etaRow}>
-              <Text style={styles.etaLabel}>Estimated completion</Text>
+              <Text style={styles.etaLabel}>{translateStaticText(language, "Estimated completion")}</Text>
               <Text style={styles.etaValue}>{status.estimatedCompletion}</Text>
             </View>
           ) : null}
         </View>
         <Pressable disabled={refreshing} onPress={onRefresh} style={({ pressed }) => [styles.refreshButton, pressed && styles.refreshButtonPressed, refreshing && styles.refreshButtonDisabled]}>
           {refreshing ? <ActivityIndicator color="#111827" /> : <Text style={styles.refreshIcon}>↻</Text>}
-          <Text style={styles.refreshText}>{refreshing ? "Checking status..." : "Refresh"}</Text>
+          <Text style={styles.refreshText}>{translateStaticText(language, refreshing ? "Checking status..." : "Refresh")}</Text>
         </Pressable>
-        {error ? <Text style={styles.errorText}>Could not reach Darji. Your last known maintenance status is still shown.</Text> : null}
-        <Text style={styles.footer}>Your account and data remain safe.</Text>
+        {error ? <Text style={styles.errorText}>{translateStaticText(language, "Could not reach Darji. Your last known maintenance status is still shown.")}</Text> : null}
+        <Text style={styles.footer}>{translateStaticText(language, "Your account and data remain safe.")}</Text>
       </View>
     </SafeAreaView>
   );

@@ -4,10 +4,13 @@ import { useAppStore } from "./store";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
 import type { AppLanguage } from "../../../shared/src/localization";
 
-const apiUrl =
-  process.env.EXPO_PUBLIC_API_URL ??
-  (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "https://darji-entire-app-production.up.railway.app/api";
+const productionApiUrl = "https://darji-entire-app-production.up.railway.app/api";
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL;
+const devHost = Constants.expoConfig?.hostUri?.split(":")[0];
+const devApiUrl = devHost ? `http://${devHost}:4000/api` : undefined;
+export const apiUrl = __DEV__ && devApiUrl && (!configuredApiUrl || configuredApiUrl === productionApiUrl)
+  ? devApiUrl
+  : configuredApiUrl || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || productionApiUrl;
 
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;

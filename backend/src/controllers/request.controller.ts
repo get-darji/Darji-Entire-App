@@ -573,7 +573,44 @@ async function verifiedDropDeliveryPartnerForRequest(requestId: string) {
   };
 }
 
-async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: string) {
+type DeliveryMilestone = {
+  taskStatus: string;
+  etaWindowStart?: Date;
+  etaWindowEnd?: Date;
+  pickedUpAt?: Date;
+  deliveredAt?: Date;
+};
+
+type DeliveryMilestones = {
+  customerToTailor?: DeliveryMilestone;
+  tailorToCustomer?: DeliveryMilestone;
+};
+
+async function deliveryMilestonesForRequests(requestIds: string[]) {
+  const milestones = new Map<string, DeliveryMilestones>();
+  if (!requestIds.length) return milestones;
+  const tasks = await DeliveryRequestModel.find({
+    orderId: { $in: requestIds },
+    type: { $in: ["customer_to_tailor", "tailor_to_customer"] }
+  }).select("orderId type taskStatus etaWindowStart etaWindowEnd pickedUpAt deliveredAt");
+  for (const task of tasks) {
+    const requestId = String(task.orderId);
+    const requestMilestones = milestones.get(requestId) ?? {};
+    const milestone = {
+      taskStatus: task.taskStatus,
+      etaWindowStart: task.etaWindowStart ?? undefined,
+      etaWindowEnd: task.etaWindowEnd ?? undefined,
+      pickedUpAt: task.pickedUpAt ?? undefined,
+      deliveredAt: task.deliveredAt ?? undefined
+    };
+    if (task.type === "customer_to_tailor") requestMilestones.customerToTailor = milestone;
+    if (task.type === "tailor_to_customer") requestMilestones.tailorToCustomer = milestone;
+    milestones.set(requestId, requestMilestones);
+  }
+  return milestones;
+}
+
+async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: string, deliveryMilestones?: DeliveryMilestones) {
   const request =
     typeof (requestInput as { toJSON?: unknown })?.toJSON === "function"
       ? (requestInput as { toJSON: () => Record<string, unknown> }).toJSON()
@@ -596,6 +633,7 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
 
   return {
     ...request,
+    ...(deliveryMilestones ? { deliveryMilestones } : {}),
     customer: customer?.toJSON(),
     ownQuote: ownQuote?.toJSON() ?? null,
     deliveryPartner,
@@ -2215,7 +2253,8 @@ export async function listTailoringRequestsController(req: Request, res: Respons
   }
 
   const requests = await TailoringRequestModel.find(where).sort({ createdAt: -1 }).limit(100);
-  res.json({ data: await Promise.all(requests.map((request) => hydrateTailoringRequest(request, req.user!.role === "TAILOR" ? req.user!.id : undefined))) });
+  const milestones = await deliveryMilestonesForRequests(requests.map((request) => request.id));
+  res.json({ data: await Promise.all(requests.map((request) => hydrateTailoringRequest(request, req.user!.role === "TAILOR" ? req.user!.id : undefined, milestones.get(request.id)))) });
 }
 
 export async function getTailoringRequestController(req: Request, res: Response) {
@@ -2237,7 +2276,8 @@ export async function getTailoringRequestController(req: Request, res: Response)
       : null;
     if (!ownQuote && !ownMeasurementVisit) throw new AppError(403, "Forbidden");
   }
-  res.json({ data: await hydrateTailoringRequest(request, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
+  const milestones = await deliveryMilestonesForRequests([request.id]);
+  res.json({ data: await hydrateTailoringRequest(request, req.user!.role === "TAILOR" ? req.user!.id : undefined, milestones.get(request.id)) });
 }
 
 export async function createTailorQuoteController(req: Request, res: Response) {

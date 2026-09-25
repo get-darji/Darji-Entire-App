@@ -63,7 +63,7 @@ export async function getPlatformStatus() {
 
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), path === "/auth/request-otp" ? 30000 : REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(`${apiUrl}${path}`, {
       ...options,
@@ -81,7 +81,11 @@ async function requestJson<T>(path: string, options: RequestInit, token?: string
     }
     return body.data as T;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") throw new Error("Backend connection timed out. Make sure the backend is running on this network.");
+    if (error instanceof Error && (error.name === "AbortError" || /fetch failed|request has been canceled|network request failed/i.test(error.message))) {
+      throw new Error(__DEV__ && apiUrl.startsWith("http://")
+        ? "Cannot reach the development backend. Start it on port 4000 and keep your phone on the same Wi-Fi."
+        : "Could not reach the server. Check your internet connection and try again.");
+    }
     throw error;
   } finally {
     clearTimeout(timeout);

@@ -9,6 +9,7 @@ const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
   PORT: z.coerce.number().default(4000),
   MONGODB_URI: z.string().optional(),
+  MONGODB_DB_NAME: z.string().trim().min(1).optional(),
   JWT_ACCESS_SECRET: z.string().min(16).default("dev-access-secret-change-me"),
   JWT_REFRESH_SECRET: z.string().min(16).default("dev-refresh-secret-change-me"),
   OTP_DEV_CODE: z.string().length(6).default("123456"),

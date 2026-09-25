@@ -38,6 +38,7 @@ internal object IncomingAlertManager {
   private const val CURRENT_PAYLOAD = "currentPayload"
   private const val CURRENT_KEY = "currentKey"
   private const val PENDING_ACTION = "pendingAction"
+  private const val LANGUAGE = "language"
   private const val LAST_DISMISSED_KEY = "lastDismissedKey"
   private const val LAST_DISMISSED_AT = "lastDismissedAt"
   private const val DEFAULT_DURATION_MS = 30_000L
@@ -46,6 +47,39 @@ internal object IncomingAlertManager {
   private val alertVibrationPattern = longArrayOf(0, 700, 180, 700, 240, 1100)
   private var mediaPlayer: MediaPlayer? = null
   private var activeAlertKey: String? = null
+
+  fun setLanguage(context: Context, language: String) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(LANGUAGE, if (language == "hi") "hi" else "en").apply()
+  }
+
+  fun isHindi(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(LANGUAGE, "en") == "hi"
+
+  fun localizedText(context: Context, text: String): String {
+    if (!isHindi(context)) return text
+    return when (text) {
+      "Incoming order" -> "नया ऑर्डर"
+      "Incoming Request" -> "नया अनुरोध"
+      "You have a new order" -> "आपको नया ऑर्डर मिला है"
+      "Measurement visit requested" -> "माप विजिट का अनुरोध"
+      "Measurement visit available" -> "माप विजिट उपलब्ध है"
+      "Measurement Visit Request" -> "माप विजिट का अनुरोध"
+      "A new order is waiting for your response." -> "नया ऑर्डर आपके जवाब का इंतज़ार कर रहा है।"
+      "At-home customer measurement visit" -> "ग्राहक के घर माप लेने की विजिट"
+      "Instant response needed" -> "तुरंत जवाब ज़रूरी है"
+      "Immediate response requested" -> "जल्दी जवाब दें"
+      "MEASUREMENT VISIT" -> "माप विजिट"
+      "TAILOR REQUEST" -> "दर्जी अनुरोध"
+      "DELIVERY REQUEST" -> "डिलीवरी अनुरोध"
+      "Accept" -> "स्वीकार करें"
+      "Deny", "Reject" -> "अस्वीकार करें"
+      "View details" -> "विवरण देखें"
+      "Send price" -> "कीमत भेजें"
+      "INSTANT" -> "तुरंत"
+      "SAME DAY" -> "उसी दिन"
+      "EXPRESS" -> "तेज़"
+      else -> text
+    }
+  }
 
   fun bundleToPayload(bundle: Bundle): JSONObject {
     val payload = JSONObject()
@@ -147,8 +181,8 @@ internal object IncomingAlertManager {
   fun createChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(NotificationManager::class.java)
-    val channel = NotificationChannel(CHANNEL_ID, "Incoming orders", NotificationManager.IMPORTANCE_HIGH).apply {
-      description = "Urgent, time-limited incoming order requests"
+    val channel = NotificationChannel(CHANNEL_ID, localizedText(context, "Incoming order"), NotificationManager.IMPORTANCE_HIGH).apply {
+      description = if (isHindi(context)) "तत्काल नए ऑर्डर अनुरोध" else "Urgent, time-limited incoming order requests"
       enableLights(true)
       lightColor = Color.rgb(246, 163, 19)
       enableVibration(false)
@@ -224,8 +258,8 @@ internal object IncomingAlertManager {
   fun buildNotification(context: Context, payload: JSONObject): Notification {
     val key = requestKey(payload)
     val id = notificationId(key)
-    val title = payload.optString("title").ifBlank { "Incoming order" }
-    val body = payload.optString("body").ifBlank { "A new order is waiting for your response." }
+    val title = localizedText(context, payload.optString("title").ifBlank { "Incoming order" })
+    val body = localizedText(context, payload.optString("body").ifBlank { "A new order is waiting for your response." })
     val payloadString = payload.toString()
     val activityIntent = Intent(context, IncomingAlertActivity::class.java).putExtra(EXTRA_PAYLOAD, payloadString)
     val activityPendingIntent = PendingIntent.getActivity(
@@ -235,7 +269,7 @@ internal object IncomingAlertManager {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
     val acceptAction = actionForAccept(payload)
-    val acceptLabel = labelForAccept(payload)
+    val acceptLabel = localizedText(context, labelForAccept(payload))
     val acceptIntent = actionPendingIntent(context, id, ACTION_ACCEPT, acceptAction, payloadString)
     val declineIntent = actionPendingIntent(context, id, ACTION_DECLINE, "DECLINE", payloadString)
     val viewIntent = actionPendingIntent(context, id, ACTION_VIEW, "VIEW_DETAILS", payloadString)
@@ -263,13 +297,13 @@ internal object IncomingAlertManager {
 
     if (isMeasurementVisit(payload)) {
       builder
-        .addAction(Notification.Action.Builder(iconId, "Deny", declineIntent).build())
+        .addAction(Notification.Action.Builder(iconId, localizedText(context, "Deny"), declineIntent).build())
         .addAction(Notification.Action.Builder(iconId, acceptLabel, acceptIntent).build())
     } else {
       builder
         .addAction(Notification.Action.Builder(iconId, acceptLabel, acceptIntent).build())
-        .addAction(Notification.Action.Builder(iconId, "View details", viewIntent).build())
-        .addAction(Notification.Action.Builder(iconId, "Reject", declineIntent).build())
+        .addAction(Notification.Action.Builder(iconId, localizedText(context, "View details"), viewIntent).build())
+        .addAction(Notification.Action.Builder(iconId, localizedText(context, "Reject"), declineIntent).build())
     }
 
     if (canUseFullScreenIntent(context)) {

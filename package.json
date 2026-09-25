@@ -22,6 +22,7 @@
     "db:seed": "npm --workspace backend run seed",
     "seed": "npm --workspace backend run seed",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "audit:hindi": "node scripts/audit-hindi-ui.cjs --check",
     "build": "npm run build --workspace=shared && npm run build --workspace=backend",
     "test:delivery-optimization": "npm --workspace backend run test:delivery-optimization --",
     "android:customer": "npm --workspace @darzi/customer-app run android",

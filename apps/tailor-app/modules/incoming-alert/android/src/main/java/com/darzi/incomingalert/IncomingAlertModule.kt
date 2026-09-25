@@ -22,6 +22,10 @@ class IncomingAlertModule : Module() {
       IncomingAlertManager.createChannel(context)
     }
 
+    AsyncFunction("setLanguageAsync") { language: String ->
+      IncomingAlertManager.setLanguage(context, language)
+    }
+
     AsyncFunction("showAsync") { payloadJson: String ->
       IncomingAlertManager.show(context, JSONObject(payloadJson))
     }

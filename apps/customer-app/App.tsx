@@ -12,7 +12,7 @@ import * as Sharing from "expo-sharing";
 import * as Updates from "expo-updates";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { requestOtpSchema, verifyOtpSchema } from "./src/shared";
 import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -26,13 +26,13 @@ import {
   type DimensionValue,
   Image,
   type ImageSourcePropType,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView as RNScrollView,
   type ScrollViewProps,
   StyleSheet,
@@ -190,7 +190,6 @@ type Screen =
   | "favoriteTailors";
 type RequestFlowScreen = "newRequest" | "clothIssue" | "measurements" | "orderSummary" | "quotes" | "confirmOrder";
 type RequestOtpForm = z.input<typeof requestOtpSchema>;
-type VerifyOtpForm = z.input<typeof verifyOtpSchema>;
 type Quote = { id: string; initials: string; name: string; rating: string; reviews: number; eta: string; price: number; deliveryFee?: number; deliveryDistanceMeters?: number; badge?: string; message?: string; specialty?: string; backendQuoteId?: string; backendRequestId?: string; tailorId?: string; tailorProfile?: TailorProfileSummary };
 type BackendTailorProfile = {
   id: string;
@@ -581,7 +580,6 @@ type RequestDraft = {
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
 const SCREEN_BG = "#f7faff";
-const MIN_ANDROID_BOTTOM_INSET = Platform.OS === "android" ? 28 : 0;
 const CARD_DARK = "#111111";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
@@ -1971,19 +1969,22 @@ function PhoneField({ value, onChange }: { value?: string; onChange: (value: str
   );
 }
 
-function OtpField({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
+function OtpField({ value, disabled, onChange }: { value: string; disabled?: boolean; onChange: (value: string) => void }) {
   return (
     <TextInput
       style={styles.otpField}
       autoFocus
+      editable={!disabled}
       keyboardType="number-pad"
       autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
-      textContentType="oneTimeCode"
-      maxLength={6}
+      textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined}
       placeholder="Enter OTP"
       placeholderTextColor="#8fa0b8"
       value={value}
-      onChangeText={(text) => onChange(normalizeDigits(text).slice(0, 6))}
+      onChangeText={(text) => {
+        const digits = normalizeDigits(text).slice(0, 6);
+        onChange(digits);
+      }}
     />
   );
 }
@@ -2025,11 +2026,14 @@ function formatDobDisplay(value?: string) {
   return year && month && day ? `${day} / ${month} / ${year}` : value;
 }
 
-function AuthButton({ label, loading, disabled, onPress }: { label: string; loading: boolean; disabled?: boolean; onPress: () => void }) {
+function AuthButton({ label, loading, loadingLabel, disabled, onPress }: { label: string; loading: boolean; loadingLabel?: string; disabled?: boolean; onPress: () => void }) {
   return (
     <Pressable disabled={loading || disabled} onPress={onPress} android_ripple={{ color: "#d88a05" }} style={[styles.authButton, (loading || disabled) && styles.buttonDisabled]}>
       {loading ? (
-        <ActivityIndicator color="#111827" />
+        <>
+          <ActivityIndicator color="#111827" />
+          <Text style={[styles.authButtonText, { marginLeft: 8 }]}>{loadingLabel ?? label}</Text>
+        </>
       ) : (
         <>
           <Text style={styles.authButtonText}>{label}</Text>
@@ -2143,9 +2147,14 @@ function TrustItem({ icon, image, label, helper }: { icon: keyof typeof Ionicons
 }
 
 function AuthScreen() {
+  const insets = useSafeAreaInsets();
   const [otpRequested, setOtpRequested] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
   const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
+  const [otp, setOtp] = useState("");
+  const otpRef = useRef("");
+  const [verificationPhone, setVerificationPhone] = useState("");
+  const verifyPendingRef = useRef(false);
   const [requestingMode, setRequestingMode] = useState<"default" | "twofactor" | undefined>();
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [dialog, setDialog] = useState<AppDialogState | undefined>();
@@ -2154,7 +2163,6 @@ function AuthScreen() {
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   useTranslatedAlerts(language);
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER" } });
-  const verifyForm = useForm<VerifyOtpForm>({ resolver: zodResolver(verifyOtpSchema), defaultValues: { role: "CUSTOMER" } });
 
   useEffect(() => {
     if (!otpRequested) return undefined;
@@ -2166,38 +2174,51 @@ function AuthScreen() {
     try {
       setRequestingMode(mode);
       await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
-      verifyForm.reset({ phone: values.phone, role: "CUSTOMER", otp: "" });
+      otpRef.current = "";
+      setOtp("");
+      setVerificationPhone(values.phone);
       setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
-      setDialog(dialogFromNativeAlert(localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), error instanceof Error ? error.message : localize(language, "Check backend connection", "इंटरनेट कनेक्शन जाँचें")));
+      const message = error instanceof Error ? error.message : localize(language, "Check backend connection", "इंटरनेट कनेक्शन जाँचें");
+      const connectionFailed = /cannot reach|could not reach|timed out/i.test(message);
+      setDialog(dialogFromNativeAlert(connectionFailed ? localize(language, "Connection problem", "कनेक्शन में समस्या") : localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message));
     } finally {
       setRequestingMode(undefined);
     }
   }
 
-  async function verify(values: VerifyOtpForm) {
+  async function verify() {
+    if (verifyPendingRef.current) return;
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "CUSTOMER" });
+    if (!parsed.success) {
+      setDialog(dialogFromNativeAlert(t(language, "enterOtp"), t(language, "otpRequired")));
+      return;
+    }
+    verifyPendingRef.current = true;
+    Keyboard.dismiss();
     try {
       setIsVerifyingOtp(true);
       const session = await api<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string } }>("/auth/verify-otp", {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify(parsed.data)
       });
       setSession(session.accessToken, session.user, session.refreshToken);
     } catch (error) {
       setDialog(dialogFromNativeAlert(localize(language, "Login failed", "लॉगिन नहीं हो सका"), error instanceof Error ? error.message : localize(language, "Check OTP and try again", "ओटीपी जाँचकर दोबारा कोशिश करें")));
     } finally {
+      verifyPendingRef.current = false;
       setIsVerifyingOtp(false);
     }
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.authLanguageCorner}>
+      <View style={[styles.authLanguageCorner, { top: insets.top + 12 }]}>
         <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
       </View>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           contentContainerStyle={styles.authLayout}
           keyboardDismissMode="interactive"
@@ -2222,18 +2243,18 @@ function AuthScreen() {
                 {__DEV__ ? (
                   <Pressable accessibilityRole="button" style={[styles.twoFactorButton, !!requestingMode && styles.buttonDisabled]} android_ripple={{ color: "#ffebc3" }} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))}>
                     {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color={BRAND_ORANGE} />}
-                    <Text style={styles.twoFactorButtonText}>{localize(language, "Request 2Factor OTP (test SMS)", "2Factor OTP मंगाएँ (टेस्ट SMS)")}</Text>
+                    <Text style={styles.twoFactorButtonText}>{localize(language, "Request 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी मंगाएँ (टेस्ट एसएमएस)")}</Text>
                   </Pressable>
                 ) : null}
               </>
             ) : (
               <>
-                <Controller control={verifyForm.control} name="otp" render={({ field }) => <OtpField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} onPress={verifyForm.handleSubmit(verify, () => setDialog(dialogFromNativeAlert(t(language, "otpRequired"))))} />
-                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
-                  <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में OTP दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "2Factor OTP दोबारा मंगाएँ (टेस्ट SMS)") : localize(language, "Resend OTP", "OTP दोबारा भेजें")}</Text>
+                <OtpField value={otp} disabled={isVerifyingOtp} onChange={(digits) => { otpRef.current = digits; setOtp(digits); }} />
+                <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
+                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+                  <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी दोबारा मंगाएँ (टेस्ट एसएमएस)") : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>
                 </Pressable>
-                <Pressable style={styles.editPhoneButton} onPress={() => setOtpRequested(false)}>
+                <Pressable style={styles.editPhoneButton} disabled={isVerifyingOtp} onPress={() => setOtpRequested(false)}>
                   <Text style={styles.orangeSmall}>{t(language, "changeNumber")}</Text>
                 </Pressable>
               </>
@@ -2248,16 +2269,6 @@ function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-      <Modal visible={isVerifyingOtp} transparent animationType="fade" onRequestClose={() => undefined}>
-        <View style={styles.dialogOverlay}>
-          <View style={styles.gettingReadyCard}>
-            <Image source={darjiLogo} style={styles.gettingReadyLogo} resizeMode="contain" />
-            <ActivityIndicator color={BRAND_ORANGE} size="large" />
-            <Text style={styles.gettingReadyTitle}>Getting things ready</Text>
-            <Text style={styles.gettingReadyCopy}>We are verifying your OTP and setting up your Darji home.</Text>
-          </View>
-        </View>
-      </Modal>
       <AppDialog dialog={dialog} onClose={() => setDialog(undefined)} />
     </SafeAreaView>
   );
@@ -2318,8 +2329,6 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
 
 function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen: Screen) => void }) {
   const language = useAppStore((state) => state.language);
-  const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, MIN_ANDROID_BOTTOM_INSET);
   const items: { key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: t(language, "home"), icon: "home-outline" },
     { key: "search", label: t(language, "search"), icon: "search-outline" },
@@ -2329,7 +2338,7 @@ function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen:
   ];
 
   return (
-    <View style={[styles.tabs, { height: 70 + bottomInset, paddingBottom: 7 + bottomInset }]}>
+    <View style={styles.tabs}>
       {items.map((item) => {
         const selected = active === item.key;
         const isCreate = item.key === "newRequest";
@@ -7969,7 +7978,7 @@ function AppLanguageScreen({
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.preferencePageContent}>
         <Header title={t(language, "appLanguage")} onBack={() => setScreen("profile")} />
-        <Text style={styles.preferenceIntro}>{localize(language, "Choose your preferred language for the Darji app.", "Darji ऐप के लिए अपनी पसंदीदा भाषा चुनें।")}</Text>
+        <Text style={styles.preferenceIntro}>{localize(language, "Choose your preferred language for the Darji app.", "दर्जी ऐप के लिए अपनी पसंदीदा भाषा चुनें।")}</Text>
         <View style={styles.languageOptionList}>
           {([
             { value: "en" as const, title: t(language, "english"), subtitle: localize(language, "Default", "डिफॉल्ट"), badge: "EN" },
@@ -8571,7 +8580,6 @@ function hasUnreadMessages(ticketOrBug: any): boolean {
 
 function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }: { setScreen: (screen: Screen) => void; isBugReport?: boolean; isDark?: boolean; orders: any[]; socket: any }) {
   const token = useAppStore((state) => state.token);
-  const insets = useSafeAreaInsets();
   const [view, setView] = useState<"center" | "chat" | "new_chat" | "bug">(isBugReport ? "bug" : "center");
   const [tickets, setTickets] = useState<any[]>([]);
   const [bugReports, setBugReports] = useState<any[]>([]);
@@ -8593,7 +8601,6 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   // Active chat
   const [activeTicket, setActiveTicket] = useState<any>(null);
   const [chatMessage, setChatMessage] = useState("");
-  const [chatInputFocused, setChatInputFocused] = useState(false);
   const [sending, setSending] = useState(false);
 
   const scrollViewRef = useRef<RNScrollView>(null);
@@ -9004,7 +9011,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: bg }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
             <Header title={t(useAppStore.getState().language, "supportCenter")} onBack={() => setScreen("profile")} />
@@ -9168,7 +9175,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
             <ScrollView
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={[styles.supportFormContent, { paddingBottom: Math.max(48, insets.bottom + 28) }]}
+              contentContainerStyle={styles.supportFormContent}
             >
               <Text style={styles.supportIntro}>We're here to help. Tell us what's going on.</Text>
               <View>
@@ -9437,7 +9444,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
             {/* Composer/Input bar */}
             {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && activeTicket.status !== "FIXED" ? (
-              <View style={[styles.chatComposerWrap, { paddingBottom: chatInputFocused ? Math.max(18, insets.bottom) : Math.max(8, insets.bottom) }]}>
+              <View style={styles.chatComposerWrap}>
                 {attachments.length > 0 && (
                   <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
                     {attachments.map((url, idx) => (
@@ -9467,10 +9474,8 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     value={chatMessage}
                     onChangeText={setChatMessage}
                     onFocus={() => {
-                      setChatInputFocused(true);
                       requestAnimationFrame(() => scrollViewRef.current?.scrollToEnd({ animated: true }));
                     }}
-                    onBlur={() => setChatInputFocused(false)}
                     placeholder="Type a message..."
                     placeholderTextColor={placeholderText}
                     multiline
@@ -9507,7 +9512,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
             <ScrollView
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={[styles.supportFormContent, { paddingBottom: Math.max(72, insets.bottom + 48) }]}
+              contentContainerStyle={styles.supportFormContent}
             >
               <Text style={styles.supportIntro}>Found something that's not working right? Let us know and we'll fix it.</Text>
               
@@ -9586,7 +9591,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               </View>
 
             </ScrollView>
-            <View style={[styles.bugSubmitFooter, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <View style={styles.bugSubmitFooter}>
               <TouchableOpacity
                 activeOpacity={0.82}
                 style={[styles.bugSubmitFixedButton, (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.bugSubmitFixedButtonDisabled]}
@@ -11005,7 +11010,7 @@ function TrackOrderScreenV2({
   );
 }
 
-export default function App() {
+function AppContent() {
   const token = useAppStore((state) => state.token);
   const user = useAppStore((state) => state.user);
   const sessionHydrated = useAppStore((state) => state.hasHydrated);
@@ -11641,7 +11646,6 @@ export default function App() {
     styles = createStyles(settings.darkMode);
 
     return (
-      <SafeAreaProvider>
       <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, refreshSignal, onRefresh: () => void refreshVisibleCustomerScreen() }}>
       <NotificationProvider
         app="customer"
@@ -11855,7 +11859,6 @@ export default function App() {
         </Modal>
       </NotificationProvider>
       </PullToRefreshContext.Provider>
-      </SafeAreaProvider>
     );
   }
 
@@ -12304,6 +12307,7 @@ export default function App() {
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
+        language={language}
         status={platform.status}
         audienceMessage="Creating orders, active-order access, and payments are temporarily unavailable."
         refreshing={platform.refreshing}
@@ -12481,6 +12485,10 @@ export default function App() {
   return withAppChrome(<SearchScreen setScreen={setScreen} onStartRequest={startRequest} />);
 }
 
+export default function App() {
+  return <SafeAreaProvider><StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent /><AppContent /></SafeAreaProvider>;
+}
+
 function createStyles(isDark = false) {
   const pageBg = isDark ? "#000000" : SCREEN_BG;
   const surface = isDark ? "#121212" : "#ffffff";
@@ -12496,10 +12504,10 @@ function createStyles(isDark = false) {
 
   return StyleSheet.create({
   flex: { flex: 1 },
-  safe: { flex: 1, backgroundColor: pageBg, paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0 },
+  safe: { flex: 1, backgroundColor: pageBg },
   center: { alignItems: "center" },
   authLayout: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 26, paddingBottom: 38, paddingTop: 92 },
-  authLanguageCorner: { position: "absolute", right: 18, top: (Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0) + 18, zIndex: 20 },
+  authLanguageCorner: { position: "absolute", right: 18, zIndex: 20 },
   loginAppIcon: {
     width: 86,
     height: 86,
@@ -13057,7 +13065,7 @@ function createStyles(isDark = false) {
   measurementGuideImage: { width: "100%", height: 360 },
   measurementGuideImageCompact: { height: 240 },
   measurementImageNote: { color: "#8a5600", fontSize: 11, fontWeight: "900", lineHeight: 16, textAlign: "center", marginTop: 6 },
-  imageZoomSafe: { flex: 1, backgroundColor: "#f7faff", paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0 },
+  imageZoomSafe: { flex: 1, backgroundColor: "#f7faff" },
   imageZoomHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: border, backgroundColor: surface },
   imageZoomTitle: { color: text, fontSize: 18, fontWeight: "900" },
   imageZoomHorizontalContent: { flexGrow: 1 },
@@ -13784,7 +13792,7 @@ function createStyles(isDark = false) {
   bugUploadButton: { width: "100%", minHeight: 56, borderRadius: 13, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: inputSurface, flexDirection: "row", gap: 8 },
   bugSubmitButton: { width: "100%", minHeight: 58, alignSelf: "stretch", backgroundColor: BRAND_ORANGE, borderRadius: 16, marginTop: 10, marginBottom: 8, borderWidth: 1, borderColor: "#e89608", shadowColor: "#c47a00", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 5 },
   bugSubmitButtonDisabled: { backgroundColor: "#ffe0a3", borderColor: "#f2c978", shadowOpacity: 0, elevation: 0, opacity: 0.75 },
-  bugSubmitFooter: { backgroundColor: pageBg, paddingTop: 10, paddingHorizontal: 2, borderTopWidth: 1, borderTopColor: border },
+  bugSubmitFooter: { backgroundColor: pageBg, paddingTop: 10, paddingBottom: 10, paddingHorizontal: 2, borderTopWidth: 1, borderTopColor: border },
   bugSubmitFixedButton: { width: "100%", minHeight: 58, borderRadius: 16, backgroundColor: BRAND_ORANGE, borderWidth: 1, borderColor: "#e89608", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, shadowColor: "#c47a00", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.22, shadowRadius: 12, elevation: 6 },
   bugSubmitFixedButtonDisabled: { backgroundColor: "#ffd88e", borderColor: "#efbd65", opacity: 0.72, shadowOpacity: 0, elevation: 0 },
   bugSubmitFixedText: { color: "#111111", fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center" },

@@ -12,23 +12,21 @@ const configuredApiUrl =
 const devHostApiUrl = Constants.expoConfig?.hostUri
   ? `http://${Constants.expoConfig.hostUri.split(":")[0]}:4000/api`
   : undefined;
-const apiUrls = Array.from(new Set([
-  PRODUCTION_API_URL,
-  configuredApiUrl,
-  devHostApiUrl,
-  "http://192.168.1.2:4000/api",
-  "http://localhost:4000/api",
-  "http://10.0.2.2:4000/api",
-  "http://127.0.0.1:4000/api"
-].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
-const accountCheckApiUrls = Array.from(new Set([
-  PRODUCTION_API_URL,
-  configuredApiUrl,
-  devHostApiUrl,
-  "http://192.168.1.2:4000/api",
-  "http://10.0.2.2:4000/api",
-  "http://127.0.0.1:4000/api"
-].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
+const localDevApiUrl = __DEV__ && devHostApiUrl && (!configuredApiUrl || configuredApiUrl === PRODUCTION_API_URL)
+  ? devHostApiUrl
+  : undefined;
+const apiUrls = localDevApiUrl
+  ? [localDevApiUrl]
+  : Array.from(new Set([
+      configuredApiUrl,
+      PRODUCTION_API_URL,
+      devHostApiUrl,
+      "http://192.168.1.2:4000/api",
+      "http://localhost:4000/api",
+      "http://10.0.2.2:4000/api",
+      "http://127.0.0.1:4000/api"
+    ].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
+const accountCheckApiUrls = apiUrls;
 let activeApiUrl = apiUrls[0];
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;
@@ -86,7 +84,7 @@ async function performAccessTokenRefresh() {
       method: "POST",
       body: JSON.stringify({ refreshToken }),
       timeoutMs: ACCOUNT_CHECK_TIMEOUT_MS
-    }), accountCheckApiUrls, PRODUCTION_API_URL);
+    }), accountCheckApiUrls, localDevApiUrl ? undefined : PRODUCTION_API_URL);
     useAppStore.getState().setAccessToken(data.accessToken);
     return data.accessToken;
   } catch (error) {
@@ -169,7 +167,7 @@ async function requestJson<T>(path: string, options: ApiRequestInit, token?: str
   return fetchWithApiFallback(
     (apiUrl) => requestJsonAt<T>(apiUrl, path, options, token),
     options.fallbackUrls,
-    options.fallbackUrls ? PRODUCTION_API_URL : undefined
+    options.fallbackUrls && !localDevApiUrl ? PRODUCTION_API_URL : undefined
   );
 }
 

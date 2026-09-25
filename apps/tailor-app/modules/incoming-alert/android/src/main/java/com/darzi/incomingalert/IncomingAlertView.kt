@@ -12,6 +12,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
+import java.util.Locale
 import kotlin.math.ceil
 
 internal class IncomingAlertView(
@@ -23,6 +24,7 @@ internal class IncomingAlertView(
   private val onTimeout: () -> Unit
 ) : FrameLayout(context) {
   private val handler = Handler(Looper.getMainLooper())
+  private val hindi = IncomingAlertManager.isHindi(context)
   private val timer = TextView(context)
   private val expiresAt = System.currentTimeMillis() + IncomingAlertManager.remainingMs(payload)
   private var timedOut = false
@@ -97,8 +99,8 @@ internal class IncomingAlertView(
 
     val headingColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     header.addView(headingColumn, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-    headingColumn.addView(label(payload.optString("title").ifBlank { if (isMeasurementVisit) "Measurement Visit Request" else "Incoming order" }, 22f, deep, Typeface.BOLD))
-    headingColumn.addView(label(if (isMeasurementVisit) "At-home customer measurement visit" else if (isInstant) "Instant response needed" else "Immediate response requested", 13f, muted, Typeface.BOLD).apply {
+    headingColumn.addView(label(IncomingAlertManager.localizedText(context, payload.optString("title").ifBlank { if (isMeasurementVisit) "Measurement Visit Request" else "Incoming order" }), 22f, deep, Typeface.BOLD))
+    headingColumn.addView(label(IncomingAlertManager.localizedText(context, if (isMeasurementVisit) "At-home customer measurement visit" else if (isInstant) "Instant response needed" else "Immediate response requested"), 13f, muted, Typeface.BOLD).apply {
       setPadding(0, dp(4), 0, 0)
     })
 
@@ -118,7 +120,7 @@ internal class IncomingAlertView(
       tailor -> "TAILOR REQUEST"
       else -> "DELIVERY REQUEST"
     }
-    card.addView(chip(chipLabel, accent).apply {
+    card.addView(chip(IncomingAlertManager.localizedText(context, chipLabel), accent).apply {
       setPadding(dp(12), dp(8), dp(12), dp(8))
     }, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
       topMargin = dp(18)
@@ -126,7 +128,7 @@ internal class IncomingAlertView(
     })
 
     val body = payload.optString("body").ifBlank { "A new order is waiting for your response." }
-    card.addView(label(body, 14f, Color.rgb(37, 42, 51), Typeface.NORMAL).apply {
+    card.addView(label(IncomingAlertManager.localizedText(context, body), 14f, Color.rgb(37, 42, 51), Typeface.NORMAL).apply {
       setPadding(0, dp(12), 0, dp(12))
       setLineSpacing(0f, 1.14f)
       maxLines = 3
@@ -146,7 +148,7 @@ internal class IncomingAlertView(
     }
 
     val requestId = IncomingAlertManager.requestKey(payload)
-    card.addView(label("Request #${requestId.take(8).uppercase()}", 12f, muted, Typeface.BOLD).apply {
+    card.addView(label("${if (hindi) "अनुरोध" else "Request"} #${requestId.take(8).uppercase()}", 12f, muted, Typeface.BOLD).apply {
       gravity = Gravity.START
       setPadding(0, 0, 0, dp(14))
     }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
@@ -157,16 +159,16 @@ internal class IncomingAlertView(
     }
     card.addView(buttons, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(58)))
     if (isMeasurementVisit) {
-      buttons.addView(button("Deny", Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(6) })
-      buttons.addView(button("Accept", accent, Color.WHITE, onAccept), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(6) })
+      buttons.addView(button(IncomingAlertManager.localizedText(context, "Deny"), Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(6) })
+      buttons.addView(button(IncomingAlertManager.localizedText(context, "Accept"), accent, Color.WHITE, onAccept), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(6) })
     } else {
-      buttons.addView(button("Reject", Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(5) })
-      buttons.addView(button("View details", Color.WHITE, deep, onViewDetails, Color.rgb(219, 226, 236)), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+      buttons.addView(button(IncomingAlertManager.localizedText(context, "Reject"), Color.rgb(37, 42, 51), Color.WHITE, onDecline), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = dp(5) })
+      buttons.addView(button(IncomingAlertManager.localizedText(context, "View details"), Color.WHITE, deep, onViewDetails, Color.rgb(219, 226, 236)), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
         leftMargin = dp(5)
         rightMargin = dp(5)
       })
       buttons.addView(
-        button(IncomingAlertManager.labelForAccept(payload), accent, Color.rgb(17, 17, 17), onAccept),
+        button(IncomingAlertManager.localizedText(context, IncomingAlertManager.labelForAccept(payload)), accent, Color.rgb(17, 17, 17), onAccept),
         LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { leftMargin = dp(5) }
       )
     }
@@ -215,7 +217,7 @@ internal class IncomingAlertView(
     gravity = Gravity.CENTER_VERTICAL
     setPadding(0, dp(8), 0, dp(8))
     if (!last) background = rounded(Color.TRANSPARENT, 0f, Color.rgb(238, 242, 247), 1)
-    addView(label(caption, 12f, Color.rgb(101, 116, 138), Typeface.BOLD), LinearLayout.LayoutParams(dp(92), LayoutParams.WRAP_CONTENT))
+    addView(label(localizedCaption(caption), 12f, Color.rgb(101, 116, 138), Typeface.BOLD), LinearLayout.LayoutParams(dp(92), LayoutParams.WRAP_CONTENT))
     val valueColor = when (caption) {
       "Slot" -> Color.rgb(220, 38, 38)
       "Type" -> accent
@@ -242,6 +244,23 @@ internal class IncomingAlertView(
       upper.contains("EXPRESS") -> "EXPRESS"
       upper.isNotBlank() -> upper
       else -> ""
+    }
+  }
+
+  private fun localizedCaption(caption: String): String {
+    if (!hindi) return caption
+    return when (caption) {
+      "Slot" -> "समय"
+      "Distance" -> "दूरी"
+      "Address" -> "पता"
+      "Payout", "Earnings" -> "कमाई"
+      "Customer" -> "ग्राहक"
+      "Cloth" -> "कपड़ा"
+      "Work" -> "काम"
+      "Pickup" -> "पिकअप"
+      "Drop" -> "ड्रॉप"
+      "Type" -> "प्रकार"
+      else -> caption
     }
   }
 
@@ -289,16 +308,19 @@ internal class IncomingAlertView(
 
   private fun payoutLabel(value: String): String {
     if (value.isBlank()) return ""
-    return if (value.startsWith("Rs", ignoreCase = true) || value.startsWith("₹")) value else "Rs $value"
+    if (value.startsWith("₹")) return value
+    if (value.startsWith("Rs", ignoreCase = true)) return if (hindi) "₹${value.drop(2).trim()}" else value
+    return "${if (hindi) "₹" else "Rs "}$value"
   }
 
   private fun distanceLabel(value: String): String {
     if (value.isBlank()) return ""
     val meters = value.toDoubleOrNull() ?: return value
     if (meters <= 0.0) return ""
-    if (meters < 1000.0) return "${meters.toInt()} m"
+    if (meters < 1000.0) return "${meters.toInt()} ${if (hindi) "मी" else "m"}"
     val km = meters / 1000.0
-    return if (km >= 10.0) "${km.toInt()} km" else String.format(Locale.US, "%.1f km", km)
+    val unit = if (hindi) "किमी" else "km"
+    return if (km >= 10.0) "${km.toInt()} $unit" else String.format(Locale.US, "%.1f %s", km, unit)
   }
 
   private fun first(vararg keys: String): String {

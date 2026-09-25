@@ -16,7 +16,7 @@ export function CompactLanguageToggle({
           <Pressable
             accessibilityRole="radio"
             accessibilityState={{ checked: selected }}
-            accessibilityLabel={option === "en" ? "Switch to English" : "हिंदी में बदलें"}
+            accessibilityLabel={language === "hi" ? (option === "en" ? "अंग्रेज़ी में बदलें" : "हिंदी में बदलें") : (option === "en" ? "Switch to English" : "Switch to Hindi")}
             key={option}
             onPress={() => onSelect(option)}
             style={[styles.option, selected && styles.optionSelected]}
