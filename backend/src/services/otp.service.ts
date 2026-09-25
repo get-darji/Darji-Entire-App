@@ -26,7 +26,7 @@ function isTwoFactorSuccess(payload: unknown) {
   return ["sent", "success", "submitted", "queued"].includes(status);
 }
 
-async function callTwoFactor(path: string) {
+async function callTwoFactor(path: string, method: "GET" | "POST" = "POST") {
   if (!env.TWOFACTOR_API_KEY) {
     throw new Error("TWOFACTOR_API_KEY is not configured");
   }
@@ -36,7 +36,7 @@ async function callTwoFactor(path: string) {
   try {
     const url = `${env.TWOFACTOR_API_BASE_URL.replace(/\/$/, "")}/API/V1/${encodeURIComponent(env.TWOFACTOR_API_KEY)}/SMS/${path}`;
     const response = await fetch(url, {
-      method: "POST",
+      method,
       signal: controller.signal
     });
 
@@ -61,7 +61,12 @@ async function callTwoFactor(path: string) {
 }
 
 async function sendTwoFactorOtp(phone: string) {
-  const payload = await callTwoFactor(`${encodeURIComponent(phone)}/AUTOGEN/${encodeURIComponent(env.TWOFACTOR_TEMPLATE_NAME)}`);
+  const templateName = env.TWOFACTOR_TEMPLATE_NAME.trim();
+  if (templateName !== "OTP1") {
+    throw new Error("2Factor SMS template must be OTP1; check TWOFACTOR_TEMPLATE_NAME");
+  }
+  console.info("[otp] Requesting 2Factor SMS with template OTP1");
+  const payload = await callTwoFactor(`${encodeURIComponent(phone)}/AUTOGEN/OTP1`, "GET");
   if (!isTwoFactorSuccess(payload)) throw new Error(`TwoFactor OTP send failed: ${String(payload.Details ?? "unknown response").replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
   const sessionId = payload.Details ?? payload.details;
   if (typeof sessionId !== "string" || !/^[A-Za-z0-9-]{10,200}$/.test(sessionId)) {

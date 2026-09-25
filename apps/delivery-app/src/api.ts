@@ -12,20 +12,15 @@ const configuredApiUrl =
 const devHostApiUrl = Constants.expoConfig?.hostUri
   ? `http://${Constants.expoConfig.hostUri.split(":")[0]}:4000/api`
   : undefined;
-const localDevApiUrl = __DEV__ && devHostApiUrl && (!configuredApiUrl || configuredApiUrl === PRODUCTION_API_URL)
-  ? devHostApiUrl
-  : undefined;
-const apiUrls = localDevApiUrl
-  ? [localDevApiUrl]
-  : Array.from(new Set([
-      configuredApiUrl,
-      PRODUCTION_API_URL,
-      devHostApiUrl,
-      "http://192.168.1.2:4000/api",
-      "http://localhost:4000/api",
-      "http://10.0.2.2:4000/api",
-      "http://127.0.0.1:4000/api"
-    ].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
+const apiUrls = Array.from(new Set([
+  configuredApiUrl,
+  PRODUCTION_API_URL,
+  devHostApiUrl,
+  "http://192.168.1.2:4000/api",
+  "http://localhost:4000/api",
+  "http://10.0.2.2:4000/api",
+  "http://127.0.0.1:4000/api"
+].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
 const accountCheckApiUrls = apiUrls;
 let activeApiUrl = apiUrls[0];
 type RefreshResponse = { accessToken: string; refreshToken: string };
@@ -84,7 +79,7 @@ async function performAccessTokenRefresh() {
       method: "POST",
       body: JSON.stringify({ refreshToken }),
       timeoutMs: ACCOUNT_CHECK_TIMEOUT_MS
-    }), accountCheckApiUrls, localDevApiUrl ? undefined : PRODUCTION_API_URL);
+    }), accountCheckApiUrls, configuredApiUrl);
     useAppStore.getState().setAccessToken(data.accessToken);
     return data.accessToken;
   } catch (error) {
@@ -155,7 +150,9 @@ async function requestJsonAt<T>(apiUrl: string, path: string, options: ApiReques
     }
     return body.data as T;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") throw timeoutError(timeoutMs);
+    if (error instanceof Error && (error.name === "AbortError" || (controller.signal.aborted && /fetch request has been canceled/i.test(error.message)))) {
+      throw timeoutError(timeoutMs);
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -164,10 +161,13 @@ async function requestJsonAt<T>(apiUrl: string, path: string, options: ApiReques
 }
 
 async function requestJson<T>(path: string, options: ApiRequestInit, token?: string) {
+  if (path === "/auth/request-otp" || path === "/auth/verify-otp") {
+    return requestJsonAt<T>(String(configuredApiUrl).replace(/\/$/, ""), path, options, token);
+  }
   return fetchWithApiFallback(
     (apiUrl) => requestJsonAt<T>(apiUrl, path, options, token),
     options.fallbackUrls,
-    options.fallbackUrls && !localDevApiUrl ? PRODUCTION_API_URL : undefined
+    options.fallbackUrls ? configuredApiUrl : undefined
   );
 }
 

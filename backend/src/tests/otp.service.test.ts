@@ -11,6 +11,7 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
     nodeEnv: env.NODE_ENV,
     enabled: env.TWOFACTOR_ENABLED,
     key: env.TWOFACTOR_API_KEY,
+    template: env.TWOFACTOR_TEMPLATE_NAME,
     fallback: env.OTP_DEV_FALLBACK_ENABLED,
     fetch: globalThis.fetch
   };
@@ -44,6 +45,7 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
     env.NODE_ENV = "development";
     env.TWOFACTOR_ENABLED = true;
     env.TWOFACTOR_API_KEY = "test-key";
+    env.TWOFACTOR_TEMPLATE_NAME = "OTP1";
     env.OTP_DEV_FALLBACK_ENABLED = true;
     model.create = async (doc) => { const record = { ...doc, id: String(saved.length + 1), attempts: 0 }; saved.push(record); return record; };
     model.findOne = (query) => ({ sort: async () => [...saved].reverse().find((record) => record.phone === query.phone && !record.consumedAt) });
@@ -70,8 +72,8 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
       const segments = new URL(String(input)).pathname.split("/");
       assert.deepEqual(segments.slice(1, 6), ["API", "V1", "test-key", "SMS", "9876543211"]);
       assert.equal(segments[6], "AUTOGEN");
-      assert.equal(segments[7], env.TWOFACTOR_TEMPLATE_NAME);
-      assert.equal(init?.method, "POST");
+      assert.equal(segments[7], "OTP1");
+      assert.equal(init?.method, "GET");
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
 
@@ -93,9 +95,16 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
     assert.equal(saved.at(-1)?.otpHash, undefined);
     assert.equal(saved.at(-1)?.providerSessionId, "5D6EBEE6-EC04-4776-846D-3600422BD9EF");
 
-    globalThis.fetch = async (input) => {
+    env.TWOFACTOR_TEMPLATE_NAME = "WRONG_TEMPLATE";
+    await assert.rejects(requestOtp("9876543214", "twofactor"), (error) => error instanceof AppError && error.statusCode === 502);
+    assert.equal(providerCalls, 1);
+    assert.equal(reservations.has("9876543214"), false);
+    env.TWOFACTOR_TEMPLATE_NAME = "OTP1";
+
+    globalThis.fetch = async (input, init) => {
       providerCalls += 1;
       assert.match(String(input), /\/SMS\/VERIFY\/5D6EBEE6-EC04-4776-846D-3600422BD9EF\/\d{4,6}$/);
+      assert.equal(init?.method, "POST");
       return new Response(JSON.stringify({ Status: "Error", Details: "OTP Mismatch" }), { status: 200 });
     };
     await assert.rejects(verifyOtp("9876543211", "000000"), (error) => error instanceof AppError && error.statusCode === 400);
@@ -133,6 +142,7 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
     env.NODE_ENV = original.nodeEnv;
     env.TWOFACTOR_ENABLED = original.enabled;
     env.TWOFACTOR_API_KEY = original.key;
+    env.TWOFACTOR_TEMPLATE_NAME = original.template;
     env.OTP_DEV_FALLBACK_ENABLED = original.fallback;
     globalThis.fetch = original.fetch;
     model.create = originalCreate;

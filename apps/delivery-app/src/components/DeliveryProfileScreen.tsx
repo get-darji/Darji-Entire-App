@@ -228,6 +228,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const styles = useMemo(() => createStyles(palette), [palette]);
   const verificationAvatarUrl = (profile?.verification as { identity?: { facePhotoUrl?: string } } | undefined)?.identity?.facePhotoUrl;
   const avatarLocked = Boolean(verificationAvatarUrl) || profile?.verificationStatus === "VERIFIED";
+  const displayPhone = me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available";
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
@@ -414,25 +415,50 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     <View style={styles.root}>
       <ScrollView style={styles.root} contentContainerStyle={[styles.content, { paddingTop: 10 }]} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
-        <View style={styles.avatar}>
-          <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)} style={styles.avatarImage} />
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="View delivery partner details"
-          style={styles.headerMain}
-          onPress={() => setShowIdentityDetails(true)}
-        >
-          <View style={styles.profileNameRow}>
-            <Text style={[styles.title, styles.profileNameText]} numberOfLines={1}>{name || "Darji Delivery"}</Text>
-            <Ionicons name="chevron-forward" size={18} color={BRAND_ORANGE} />
+        <View style={styles.profileHero}>
+          <View style={styles.avatar}>
+            <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)} style={styles.avatarImage} />
           </View>
-          <Text style={styles.profileTapHint}>Tap to view partner details</Text>
-          <Text style={styles.meta}>+91 {me?.phone ?? "XXXXXXXXXX"}{avatarLocked ? " - verification photo locked" : ""}</Text>
-          <Text style={styles.meta}>{email || "Email not added"}</Text>
-          {registeredAddress ? <Text style={styles.meta} numberOfLines={2}>Address: {registeredAddress}</Text> : null}
-          <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
-        </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View delivery partner details"
+            style={styles.headerMain}
+            onPress={() => setShowIdentityDetails(true)}
+          >
+            <View style={styles.profileNameRow}>
+              <Text style={[styles.title, styles.profileNameText]} numberOfLines={2}>{name || "Darji Delivery"}</Text>
+              <Ionicons name="chevron-forward" size={22} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.profileTapHint}>Tap to view partner details</Text>
+          </Pressable>
+        </View>
+        <View style={styles.profileInfoList}>
+          <Pressable accessibilityRole="button" accessibilityLabel="View phone details" style={styles.profileInfoRow} onPress={() => setShowIdentityDetails(true)}>
+            <View style={styles.profileInfoIcon}><Ionicons name="call-outline" size={20} color={BRAND_ORANGE} /></View>
+            <Text style={styles.profileInfoLabel}>Phone</Text>
+            <View style={styles.profileInfoValueWrap}>
+              <Text style={styles.profileInfoValue} numberOfLines={1}>{displayPhone}</Text>
+              {avatarLocked ? <Text style={styles.profileInfoNote}>Verification photo locked</Text> : null}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit email" style={styles.profileInfoRow} onPress={() => setEditing(true)}>
+            <View style={styles.profileInfoIcon}><Ionicons name="mail-outline" size={20} color={BRAND_ORANGE} /></View>
+            <Text style={styles.profileInfoLabel}>Email</Text>
+            <Text style={[styles.profileInfoValue, styles.profileInfoValueWrap]} numberOfLines={2}>{email || "Email not added"}</Text>
+            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="View registered address" style={styles.profileInfoRow} onPress={() => setShowIdentityDetails(true)}>
+            <View style={styles.profileInfoIcon}><Ionicons name="location-outline" size={20} color={BRAND_ORANGE} /></View>
+            <Text style={styles.profileInfoLabel}>Address</Text>
+            <Text style={[styles.profileInfoValue, styles.profileInfoValueWrap]} numberOfLines={2}>{registeredAddress || "Not added"}</Text>
+            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
+          </Pressable>
+          <View style={styles.profileCompletedBand}>
+            <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
+            <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
+          </View>
+        </View>
       </View>
 
       <Modal transparent visible={showIdentityDetails} animationType="fade" onRequestClose={() => setShowIdentityDetails(false)}>
@@ -2093,8 +2119,9 @@ function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.background },
     content: { paddingTop: SCREEN_TOP_PADDING, paddingHorizontal: 18, paddingBottom: 36 },
-    headerCard: { borderRadius: 24, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, marginBottom: 14, flexDirection: "row", gap: 14 },
-    avatar: { width: 78, height: 78, borderRadius: 26, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+    headerCard: { borderRadius: 22, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.accentBorder, padding: 14, marginBottom: 18 },
+    profileHero: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 16 },
+    avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
     avatarImage: { width: "100%", height: "100%" },
     avatarText: { color: "#111111", fontSize: 22, fontWeight: "900" },
     avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
@@ -2104,13 +2131,21 @@ function createStyles(palette: typeof lightPalette) {
     avatarOptionImage: { width: 64, height: 64, borderRadius: 20 },
     avatarOptionLabel: { color: palette.text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 8 },
     cameraBadge: { position: "absolute", right: 4, bottom: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
-    headerMain: { flex: 1, minWidth: 0 },
+    headerMain: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 92 },
     profileNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     profileNameText: { flexShrink: 1 },
-    profileTapHint: { color: BRAND_ORANGE, fontSize: 10, lineHeight: 14, fontWeight: "800", marginTop: 2 },
+    profileTapHint: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 3 },
+    profileInfoList: { gap: 0 },
+    profileInfoRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.card, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9, marginBottom: 2 },
+    profileInfoIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: palette.iconSurface, alignItems: "center", justifyContent: "center" },
+    profileInfoLabel: { width: 70, color: palette.subtext, fontSize: 12, fontWeight: "700" },
+    profileInfoValueWrap: { flex: 1, minWidth: 0 },
+    profileInfoValue: { color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "700" },
+    profileInfoNote: { color: palette.subtext, fontSize: 11, lineHeight: 16, marginTop: 2 },
+    profileCompletedBand: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: palette.accentSurface, borderRadius: 8, paddingHorizontal: 14, marginTop: 2 },
     title: { color: palette.text, fontSize: 24, fontWeight: "900" },
     meta: { color: palette.subtext, fontSize: 13, fontWeight: "700", marginTop: 4 },
-    completedText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", marginTop: 8 },
+    completedText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "800" },
     editButton: { alignSelf: "flex-start", minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, backgroundColor: palette.iconSurface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
     editButtonText: { color: palette.text, fontSize: 12, fontWeight: "900" },
     section: { borderRadius: 22, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.cardBorder, padding: 16 },
