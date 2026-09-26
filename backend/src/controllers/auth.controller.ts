@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { nonAdminLoginUpdate } from "../utils/admin-access.js";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { env } from "../env.js";
@@ -149,14 +150,14 @@ export async function requestOtpController(req: Request, res: Response) {
 export async function verifyOtpController(req: Request, res: Response) {
   const input = verifyOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  await verifyOtp(input.phone, input.otp);
+  await verifyOtp(input.phone, input.otp, input.role);
 
   const requestedAdmin = input.role === "ADMIN" || input.role === "SUPER_ADMIN";
   const user = requestedAdmin
     ? await UserModel.findOne({ phone: input.phone, role: { $in: ["ADMIN", "SUPER_ADMIN"] } })
     : await UserModel.findOneAndUpdate(
         { phone: input.phone },
-        { $set: { role: input.role }, $setOnInsert: { phone: input.phone } },
+        nonAdminLoginUpdate(input.phone, input.role),
         { upsert: true, returnDocument: "after" }
       );
   if (!user) throw new AppError(403, "This phone number is not allowed to access the admin portal");

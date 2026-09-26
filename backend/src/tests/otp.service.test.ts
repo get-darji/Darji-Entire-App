@@ -3,16 +3,19 @@ import { test } from "node:test";
 import { verifyOtpSchema } from "@darzi/shared";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { OtpCooldownModel, OtpRequestModel } from "../models.js";
+import { OtpCooldownModel, OtpRequestModel, UserModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 
-test("development OTP uses no SMS; explicit 2Factor mode never silently falls back", async () => {
+test("all OTP modes send SMS and enforce cooldown without silent fallback", async () => {
   const original = {
     nodeEnv: env.NODE_ENV,
     enabled: env.TWOFACTOR_ENABLED,
     key: env.TWOFACTOR_API_KEY,
     template: env.TWOFACTOR_TEMPLATE_NAME,
     fallback: env.OTP_DEV_FALLBACK_ENABLED,
+    phones: env.OTP_TEST_CUSTOMER_PHONES,
+    expiry: env.OTP_TEST_EXPIRES_AT,
+    userFindOne: UserModel.findOne,
     fetch: globalThis.fetch
   };
   const model = OtpRequestModel as unknown as {
@@ -77,23 +80,15 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
 
-    const local = await requestOtp("9876543210");
-    assert.equal(local.provider, "dev");
-    assert.equal(local.otp, env.OTP_DEV_CODE);
-    assert.equal(providerCalls, 0);
-    assert.equal(saved.at(-1)?.provider, "dev");
-    await assert.rejects(requestOtp("9876543210"), (error) => error instanceof AppError && error.statusCode === 429 && !!error.retryAfterSeconds);
-    assert.equal(providerCalls, 0);
-    await verifyOtp("9876543210", env.OTP_DEV_CODE);
-    assert.equal(providerCalls, 0);
-
-    const live = await requestOtp("9876543211", "twofactor");
+    const live = await requestOtp("9876543211");
     assert.equal(live.provider, "twofactor");
     assert.equal(live.otp, undefined);
     assert.equal(providerCalls, 1);
     assert.equal(saved.at(-1)?.provider, "twofactor");
     assert.equal(saved.at(-1)?.otpHash, undefined);
     assert.equal(saved.at(-1)?.providerSessionId, "5D6EBEE6-EC04-4776-846D-3600422BD9EF");
+    await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429 && !!error.retryAfterSeconds);
+    assert.equal(providerCalls, 1);
 
     env.TWOFACTOR_TEMPLATE_NAME = "WRONG_TEMPLATE";
     await assert.rejects(requestOtp("9876543214", "twofactor"), (error) => error instanceof AppError && error.statusCode === 502);
@@ -123,27 +118,46 @@ test("development OTP uses no SMS; explicit 2Factor mode never silently falls ba
       return new Response(JSON.stringify({ status: "failed" }), { status: 500 });
     };
     await assert.rejects(requestOtp("9876543212", "twofactor"), (error) => error instanceof AppError && error.statusCode === 502);
-    assert.equal(saved.length, 2);
+    assert.equal(saved.length, 1);
     assert.equal(reservations.has("9876543212"), false);
 
     env.NODE_ENV = "production";
-    await assert.rejects(requestOtp("9876543213", "twofactor"), (error) => error instanceof AppError && error.statusCode === 400);
     assert.equal(providerCalls, 4);
 
     globalThis.fetch = async () => {
       providerCalls += 1;
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
-    const production = await requestOtp("9876543213");
+    const production = await requestOtp("9876543213", "twofactor");
     assert.equal(production.provider, "twofactor");
     assert.equal(production.otp, undefined);
     assert.equal(providerCalls, 5);
+    env.OTP_TEST_CUSTOMER_PHONES = "9876543213";
+    env.OTP_TEST_EXPIRES_AT = new Date(Date.now() + 60000).toISOString();
+    globalThis.fetch = async () => {
+      providerCalls += 1;
+      return new Response(JSON.stringify({ Status: "Error", Details: "OTP Mismatch" }));
+    };
+    await assert.rejects(verifyOtp("9876543213", env.OTP_DEV_CODE, "ADMIN"));
+    UserModel.findOne = (() => Promise.resolve({ role: "SUPER_ADMIN" })) as unknown as typeof UserModel.findOne;
+    await assert.rejects(verifyOtp("9876543213", env.OTP_DEV_CODE, "CUSTOMER"));
+    env.OTP_TEST_EXPIRES_AT = "2000-01-01T00:00:00Z";
+    await assert.rejects(verifyOtp("9876543213", env.OTP_DEV_CODE, "CUSTOMER"));
+    env.OTP_TEST_EXPIRES_AT = new Date(Date.now() + 60000).toISOString();
+    UserModel.findOne = (() => Promise.resolve({ role: "CUSTOMER" })) as unknown as typeof UserModel.findOne;
+    const beforeTestVerification = providerCalls;
+    await verifyOtp("9876543213", env.OTP_DEV_CODE, "CUSTOMER");
+    assert.equal(providerCalls, beforeTestVerification);
+    assert.ok(saved.at(-1)?.consumedAt);
   } finally {
     env.NODE_ENV = original.nodeEnv;
     env.TWOFACTOR_ENABLED = original.enabled;
     env.TWOFACTOR_API_KEY = original.key;
     env.TWOFACTOR_TEMPLATE_NAME = original.template;
     env.OTP_DEV_FALLBACK_ENABLED = original.fallback;
+    env.OTP_TEST_CUSTOMER_PHONES = original.phones;
+    env.OTP_TEST_EXPIRES_AT = original.expiry;
+    UserModel.findOne = original.userFindOne;
     globalThis.fetch = original.fetch;
     model.create = originalCreate;
     model.findOne = originalFindOne;

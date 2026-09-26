@@ -43,6 +43,7 @@ function addKnown(filePath, variableName, keyName) {
 }
 
 addKnown(path.join(root, "shared/src/static-translations.ts"), "staticText", "name");
+addKnown(path.join(root, "shared/src/customer-hindi.ts"), "customerHindi", "name");
 addKnown(path.join(root, "shared/src/localization.ts"), "translations", "en");
 const generatedPath = path.join(root, "shared/src/generated-hindi-ui.json");
 if (fs.existsSync(generatedPath)) {

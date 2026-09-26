@@ -119,7 +119,18 @@ function dynamicTranslationCacheKey(text: string, targetLanguage: AppLanguage, s
   return `darji:translation:${sourceLanguage}:${targetLanguage}:${context}:${text.replace(/\s+/g, " ").trim()}`;
 }
 
-export async function translateDynamicText(input: { text: string; targetLanguage: AppLanguage; sourceLanguage?: AppLanguage | "auto"; context?: string }, token?: string) {
+const pendingTranslations = new Map<string, Promise<DynamicTranslation>>();
+
+export async function translateDynamicText(input: { text: string; targetLanguage: AppLanguage; sourceLanguage?: AppLanguage | "auto"; context?: string }, token?: string): Promise<DynamicTranslation> {
+  const key = dynamicTranslationCacheKey(input.text, input.targetLanguage, input.sourceLanguage ?? "auto", input.context ?? "general");
+  const pending = pendingTranslations.get(key);
+  if (pending) return pending;
+  const request = translateDynamicTextUncached(input, token);
+  pendingTranslations.set(key, request);
+  try { return await request; } finally { pendingTranslations.delete(key); }
+}
+
+async function translateDynamicTextUncached(input: { text: string; targetLanguage: AppLanguage; sourceLanguage?: AppLanguage | "auto"; context?: string }, token?: string) {
   const sourceLanguage = input.sourceLanguage ?? "auto";
   const context = input.context ?? "general";
   const normalizedText = input.text.replace(/\s+/g, " ").trim();

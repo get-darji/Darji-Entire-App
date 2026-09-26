@@ -58,8 +58,9 @@ async function translateWithGoogle(text: string, sourceLanguage: SupportedLangua
   return translatedText;
 }
 
-async function translateWithBhashini(text: string, sourceLanguage: SupportedLanguage, targetLanguage: SupportedLanguage) {
+async function translateWithBhashini(text: string, sourceLanguage: SupportedLanguage, targetLanguage: SupportedLanguage, name = false) {
   if (!env.BHASHINI_INFERENCE_API_KEY) throw new Error("Bhashini Translation is not configured");
+  if (name && !env.BHASHINI_TRANSLITERATION_SERVICE_ID) throw new Error("Bhashini name transliteration is not configured");
 
   const response = await fetch("https://dhruva-api.bhashini.gov.in/services/inference/pipeline", {
     method: "POST",
@@ -69,9 +70,10 @@ async function translateWithBhashini(text: string, sourceLanguage: SupportedLang
     },
     body: JSON.stringify({
       pipelineTasks: [{
-        taskType: "translation",
+        taskType: name ? "transliteration" : "translation",
         config: {
-          serviceId: env.BHASHINI_TRANSLATION_SERVICE_ID,
+          serviceId: name ? env.BHASHINI_TRANSLITERATION_SERVICE_ID : env.BHASHINI_TRANSLATION_SERVICE_ID,
+          ...(name ? { isSentence: true, numSuggestions: 1 } : {}),
           language: { sourceLanguage, targetLanguage }
         }
       }],
@@ -81,11 +83,11 @@ async function translateWithBhashini(text: string, sourceLanguage: SupportedLang
   });
   if (!response.ok) throw new Error(`Bhashini Translation failed: HTTP ${response.status}`);
   const body = await response.json() as {
-    pipelineResponse?: Array<{ output?: Array<{ target?: string }> }>;
+    pipelineResponse?: Array<{ output?: Array<{ target?: string | string[] }> }>;
   };
   const translatedText = body.pipelineResponse?.[0]?.output?.[0]?.target;
   if (!translatedText) throw new Error("Bhashini Translation returned no translated text");
-  return translatedText;
+  return Array.isArray(translatedText) ? translatedText[0] : translatedText;
 }
 
 async function translateWithConfiguredProvider(text: string, sourceLanguage: SupportedLanguage, targetLanguage: SupportedLanguage) {
@@ -100,7 +102,18 @@ async function translateWithConfiguredProvider(text: string, sourceLanguage: Sup
   return translateWithGoogle(text, sourceLanguage, targetLanguage);
 }
 
+const pendingTranslations = new Map<string, Promise<TranslateResult>>();
+
 export async function translateDynamicText(input: TranslateInput): Promise<TranslateResult> {
+  const key = JSON.stringify([normalizeTranslationText(input.text), input.sourceLanguage ?? "auto", input.targetLanguage, input.context ?? "general"]);
+  const pending = pendingTranslations.get(key);
+  if (pending) return pending;
+  const request = translateDynamicTextUncached(input);
+  pendingTranslations.set(key, request);
+  try { return await request; } finally { pendingTranslations.delete(key); }
+}
+
+async function translateDynamicTextUncached(input: TranslateInput): Promise<TranslateResult> {
   const normalizedText = normalizeTranslationText(input.text);
   const targetLanguage = input.targetLanguage;
   if (!supportedLanguages.has(targetLanguage)) throw new Error("Unsupported target language");
@@ -125,8 +138,10 @@ export async function translateDynamicText(input: TranslateInput): Promise<Trans
     return { translatedText: cached.translatedText, cached: true, sourceLanguage, targetLanguage };
   }
 
-  const translatedText = await translateWithConfiguredProvider(normalizedText, sourceLanguage, targetLanguage);
-  await TranslationCacheModel.create({
+  const translatedText = context === "profile-name-transliteration-v1"
+    ? await translateWithBhashini(normalizedText, sourceLanguage, targetLanguage, true)
+    : await translateWithConfiguredProvider(normalizedText, sourceLanguage, targetLanguage);
+  await TranslationCacheModel.updateOne({ translationKey }, { $setOnInsert: {
     translationKey,
     sourceLanguage,
     targetLanguage,
@@ -136,7 +151,7 @@ export async function translateDynamicText(input: TranslateInput): Promise<Trans
     context,
     usageCount: 1,
     lastUsedAt: new Date()
-  });
+  } }, { upsert: true });
 
   return { translatedText, cached: false, sourceLanguage, targetLanguage };
 }

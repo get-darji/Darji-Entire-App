@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
-import { OtpCooldownModel, OtpRequestModel } from "../models.js";
+import { OtpCooldownModel, OtpRequestModel, UserModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 
@@ -14,10 +14,6 @@ type OtpRequestResult = {
   provider: "twofactor" | "dev";
   fallback: boolean;
 };
-
-function canUseDevFallback() {
-  return env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production";
-}
 
 function isTwoFactorSuccess(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
@@ -112,24 +108,11 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
 }
 
 export async function requestOtp(phone: string, mode: "default" | "twofactor" = "default") {
-  if (mode === "twofactor" && env.NODE_ENV === "production") {
-    throw new AppError(400, "The test OTP option is unavailable in production");
-  }
-
-  const useDevCode = mode === "default" && canUseDevFallback();
-  if (!useDevCode && (!env.TWOFACTOR_ENABLED || !env.TWOFACTOR_API_KEY)) {
+  if (!env.TWOFACTOR_ENABLED || !env.TWOFACTOR_API_KEY) {
     throw new AppError(503, "2Factor OTP is not configured");
   }
 
   const reservationId = await reserveOtpRequest(phone);
-  if (useDevCode) {
-    try {
-      return await createOtpRequest(phone, "dev", true, env.OTP_DEV_CODE);
-    } catch (error) {
-      await releaseOtpReservation(phone, reservationId);
-      throw error;
-    }
-  }
 
   let providerSessionId: string;
   const providerStartedAt = Date.now();
@@ -147,7 +130,7 @@ export async function requestOtp(phone: string, mode: "default" | "twofactor" = 
   return request;
 }
 
-export async function verifyOtp(phone: string, otp: string) {
+export async function verifyOtp(phone: string, otp: string, role?: string) {
   const request = await OtpRequestModel.findOne({ phone, consumedAt: { $exists: false }, expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 });
 
   if (!request) {
@@ -159,7 +142,14 @@ export async function verifyOtp(phone: string, otp: string) {
   }
 
   let matches = false;
-  if (request.provider === "twofactor") {
+  const testExpiry = Date.parse(env.OTP_TEST_EXPIRES_AT);
+  const testPhones = env.OTP_TEST_CUSTOMER_PHONES.split(",").map((value) => value.trim());
+  if (role === "CUSTOMER" && request.provider === "twofactor" && otp === env.OTP_DEV_CODE &&
+      env.OTP_DEV_FALLBACK_ENABLED && testExpiry > Date.now() && testPhones.includes(phone)) {
+    const account = await UserModel.findOne({ phone });
+    matches = !account || !["ADMIN", "SUPER_ADMIN"].includes(account.role);
+  }
+  if (!matches && request.provider === "twofactor") {
     if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");
     try {
       const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
@@ -172,7 +162,7 @@ export async function verifyOtp(phone: string, otp: string) {
       console.error(error instanceof Error ? error.message : error);
       throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
     }
-  } else if (request.otpHash) {
+  } else if (!matches && request.otpHash && env.NODE_ENV !== "production") {
     matches = await bcrypt.compare(otp, request.otpHash);
   }
   if (!matches) {

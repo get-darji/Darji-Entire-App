@@ -44,7 +44,7 @@ import {
   TouchableOpacity
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, savePreferredLanguage, uploadMedia, type UploadedMedia } from "./src/api";
+import { api, getPlatformStatus, refreshAccessToken, savePreferredLanguage, translateDynamicText, uploadMedia, type UploadedMedia } from "./src/api";
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 // Calls GET /api/location/reverse-geocode which uses Google Geocoding API server-side
@@ -2150,7 +2150,7 @@ function AuthScreen() {
   const insets = useSafeAreaInsets();
   const [otpRequested, setOtpRequested] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
-  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
+  const requestPendingRef = useRef(false);
   const [otp, setOtp] = useState("");
   const otpRef = useRef("");
   const [verificationPhone, setVerificationPhone] = useState("");
@@ -2171,13 +2171,14 @@ function AuthScreen() {
   }, [otpRequested]);
 
   async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+    if (requestPendingRef.current) return;
+    requestPendingRef.current = true;
     try {
       setRequestingMode(mode);
       await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
-      setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
@@ -2185,6 +2186,7 @@ function AuthScreen() {
       const connectionFailed = /cannot reach|could not reach|timed out/i.test(message);
       setDialog(dialogFromNativeAlert(connectionFailed ? localize(language, "Connection problem", "कनेक्शन में समस्या") : localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message));
     } finally {
+      requestPendingRef.current = false;
       setRequestingMode(undefined);
     }
   }
@@ -2240,19 +2242,13 @@ function AuthScreen() {
               <>
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
                 <AuthButton label={t(language, "sendOtp")} loading={requestingMode === "default"} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
-                {__DEV__ ? (
-                  <Pressable accessibilityRole="button" style={[styles.twoFactorButton, !!requestingMode && styles.buttonDisabled]} android_ripple={{ color: "#ffebc3" }} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))}>
-                    {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color={BRAND_ORANGE} />}
-                    <Text style={styles.twoFactorButtonText}>{localize(language, "Request 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी मंगाएँ (टेस्ट एसएमएस)")}</Text>
-                  </Pressable>
-                ) : null}
               </>
             ) : (
               <>
                 <OtpField value={otp} disabled={isVerifyingOtp} onChange={(digits) => { otpRef.current = digits; setOtp(digits); }} />
                 <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
-                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
-                  <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी दोबारा मंगाएँ (टेस्ट एसएमएस)") : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>
+                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
+                  {requestingMode ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
                 </Pressable>
                 <Pressable style={styles.editPhoneButton} disabled={isVerifyingOtp} onPress={() => setOtpRequested(false)}>
                   <Text style={styles.orangeSmall}>{t(language, "changeNumber")}</Text>
@@ -2328,6 +2324,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
 }
 
 function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen: Screen) => void }) {
+  const insets = useSafeAreaInsets();
   const language = useAppStore((state) => state.language);
   const items: { key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: t(language, "home"), icon: "home-outline" },
@@ -2338,7 +2335,7 @@ function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen:
   ];
 
   return (
-    <View style={styles.tabs}>
+    <View style={[styles.tabs, active === "profile" && { height: 70 + insets.bottom, paddingBottom: 7 + insets.bottom }]}>
       {items.map((item) => {
         const selected = active === item.key;
         const isCreate = item.key === "newRequest";
@@ -7657,9 +7654,19 @@ function ProfileScreen({
   const { user, signOut, favoriteTailorIds = [] } = useAppStore();
   const profileStyles = createStyles(settings.darkMode);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const token = useAppStore((state) => state.token);
+  const [localizedName, setLocalizedName] = useState<{ original: string; value: string }>();
+  useEffect(() => {
+    if (language !== "hi" || !profile.name || !token) return;
+    let active = true;
+    void translateDynamicText({ text: profile.name, targetLanguage: "hi", context: "profile-name-transliteration-v1" }, token)
+      .then((result) => { if (active) setLocalizedName({ original: profile.name, value: result.translatedText }); })
+      .catch(() => { /* Keep the original name if transliteration is unavailable. */ });
+    return () => { active = false; };
+  }, [language, profile.name, token]);
 
   return (
-    <SafeAreaView style={profileStyles.safe}>
+    <SafeAreaView edges={["top", "left", "right"]} style={profileStyles.safe}>
       <ScrollView
         contentContainerStyle={profileStyles.pageContent}
         contentOffset={{ x: 0, y: initialScrollOffset }}
@@ -7670,7 +7677,7 @@ function ProfileScreen({
         <View style={profileStyles.profileHero}>
           <Image source={profile.avatarUri ? { uri: profile.avatarUri } : getDefaultAvatarSource(profile)} style={profileStyles.profileAvatarImage} />
           <View style={profileStyles.profileInfo}>
-            <Text style={profileStyles.profileName}>{profile.name}</Text>
+            <RNText style={profileStyles.profileName}>{language === "hi" && localizedName?.original === profile.name ? localizedName.value : profile.name}</RNText>
             <Text style={profileStyles.profilePhone}>+91 {user?.phone ?? profile.phone}</Text>
           </View>
         </View>

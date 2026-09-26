@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import { PROTECTED_ADMIN_PHONE, adminInviteRole } from "../utils/admin-access.js";
 import {
   CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
   addressSchema,
@@ -451,6 +452,7 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
 async function deleteAccountByUserId(userId: string) {
   const user = await UserModel.findById(userId).select("role phone");
   if (!user) throw new AppError(404, "User not found");
+  if (user.phone === PROTECTED_ADMIN_PHONE) throw new AppError(403, "Owner admin access cannot be removed");
   if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
     throw new AppError(403, "Admin accounts cannot be deleted here");
   }
@@ -1042,8 +1044,9 @@ export async function moderateUserController(req: Request, res: Response) {
     throw new AppError(400, "You cannot moderate your own admin account");
   }
 
-  const existingUser = await UserModel.findById(userId).select("role");
+  const existingUser = await UserModel.findById(userId).select("role phone");
   if (!existingUser) throw new AppError(404, "User not found");
+  if (existingUser.phone === PROTECTED_ADMIN_PHONE) throw new AppError(403, "Owner admin access cannot be suspended or banned");
   if (existingUser.role === "ADMIN" || existingUser.role === "SUPER_ADMIN") {
     throw new AppError(403, "Admin accounts cannot be moderated here");
   }
@@ -1075,7 +1078,7 @@ export async function deleteAdminAccountController(req: Request, res: Response) 
     throw new AppError(400, "You cannot delete your own admin account");
   }
   const target = await UserModel.findById(userId).select("phone role");
-  if (target?.phone === "9971416471") {
+  if (target?.phone === PROTECTED_ADMIN_PHONE) {
     throw new AppError(400, "Owner admin access cannot be removed");
   }
 
@@ -1114,7 +1117,7 @@ export async function inviteAdminController(req: Request, res: Response) {
   
   let user = await UserModel.findOne({ phone });
   if (user) {
-    user.role = "ADMIN";
+    user.role = adminInviteRole(phone, user.role);
     user.accountStatus = "ACTIVE";
     user.suspendedUntil = undefined;
     user.moderationReason = undefined;
@@ -1122,7 +1125,7 @@ export async function inviteAdminController(req: Request, res: Response) {
   } else {
     user = await UserModel.create({
       phone,
-      role: "ADMIN"
+      role: adminInviteRole(phone)
     });
   }
   
