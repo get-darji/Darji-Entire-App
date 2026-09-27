@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { api, deleteTailorSample, savePreferredLanguage, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -84,6 +85,7 @@ const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
 const SCREEN_TOP_PADDING = 18;
 const CHAT_BOTTOM_INSET = 16;
+const FORM_KEYBOARD_BEHAVIOR = Platform.OS === "ios" ? "padding" : "height";
 
 type PullToRefreshState = {
   refreshing: boolean;
@@ -114,6 +116,8 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScr
           onRefresh={pullToRefresh.onRefresh}
         />
       ) : refreshControl}
+      keyboardDismissMode={props.keyboardDismissMode ?? "on-drag"}
+      keyboardShouldPersistTaps={props.keyboardShouldPersistTaps ?? "handled"}
       {...props}
     >
       {children}
@@ -305,6 +309,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     ].filter(Boolean).join(", ") : "") ||
     ""
   );
+  const displayPhone = me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available";
 
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
@@ -554,34 +559,55 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     <View style={styles.root}>
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.headerCard}>
-        <View style={styles.avatar}>
-          <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)} style={styles.avatarImage} />
-          {avatarLocked ? (
-            <View style={styles.avatarLockBadge}>
-              <Ionicons name="lock-closed" size={10} color={palette.surface} />
+        <View style={styles.profileHero}>
+          <View style={styles.avatar}>
+            <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)} style={styles.avatarImage} />
+            {avatarLocked ? (
+              <View style={styles.avatarLockBadge}>
+                <Ionicons name="lock-closed" size={10} color={palette.surface} />
+              </View>
+            ) : null}
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View tailor profile details"
+            style={styles.headerMain}
+            onPress={() => setShowIdentityDetails(true)}
+          >
+            <View style={styles.profileNameRow}>
+              <Text style={[styles.title, styles.profileNameText]} numberOfLines={1}>{name || shopName || "Darji Tailor"}</Text>
+              <Ionicons name="chevron-forward" size={22} color={BRAND_ORANGE} />
             </View>
-          ) : null}
+            <Text style={styles.profileTapHint}>Tap to view partner details</Text>
+          </Pressable>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="View tailor profile details"
-          style={styles.headerMain}
-          onPress={() => setShowIdentityDetails(true)}
-        >
-          <View style={styles.profileNameRow}>
-            <Text style={[styles.title, styles.profileNameText]} numberOfLines={1}>{shopName}</Text>
-            <Ionicons name="chevron-forward" size={18} color={BRAND_ORANGE} />
+        <View style={styles.profileInfoList}>
+          <Pressable accessibilityRole="button" accessibilityLabel="View phone details" style={styles.profileInfoRow} onPress={() => setShowIdentityDetails(true)}>
+            <View style={styles.profileInfoIcon}><Ionicons name="call-outline" size={20} color={BRAND_ORANGE} /></View>
+            <Text style={styles.profileInfoLabel}>Phone</Text>
+            <View style={styles.profileInfoValueWrap}>
+              <Text style={styles.profileInfoValue} numberOfLines={1}>{displayPhone}</Text>
+              {avatarLocked ? <Text style={styles.profileInfoNote}>Verification photo locked</Text> : null}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit email" style={styles.profileInfoRow} onPress={() => setEditing(true)}>
+            <View style={styles.profileInfoIcon}><Ionicons name="mail-outline" size={20} color={BRAND_ORANGE} /></View>
+            <Text style={styles.profileInfoLabel}>Email</Text>
+            <Text style={[styles.profileInfoValue, styles.profileInfoValueWrap]} numberOfLines={2}>{email.trim() || serverEmail || "Email not added"}</Text>
+            <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="View shop address" style={styles.profileInfoRow} onPress={() => setShowIdentityDetails(true)}>
+            <View style={styles.profileInfoIcon}><Ionicons name="location-outline" size={20} color={BRAND_ORANGE} /></View>
+            <Text style={styles.profileInfoLabel}>Address</Text>
+            <Text style={[styles.profileInfoValue, styles.profileInfoValueWrap]} numberOfLines={2}>{resolvedShopAddress || "Shop address not added"}</Text>
+            <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+          </Pressable>
+          <View style={styles.profileCompletedBand}>
+            <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
+            <Text style={styles.completedText}>{completedOrders} completed jobs</Text>
           </View>
-          <Text style={styles.profileTapHint}>Tap to view partner details</Text>
-          <ProfileMetaRow icon={avatarLocked ? "shield-checkmark-outline" : "person-outline"} text={avatarLocked ? `${name || "Tailor Partner"} - Verification photo locked` : name || "Tailor Partner"} color={avatarLocked ? "#2563eb" : MUTED} styles={styles} />
-          <ProfileMetaRow icon="location-outline" text={resolvedShopAddress || "Shop address not added"} styles={styles} />
-          <ProfileMetaRow icon="call-outline" text={`+91 ${me?.phone ?? "XXXXXXXXXX"}`} styles={styles} />
-          <ProfileMetaRow icon="mail-outline" text={email.trim() || serverEmail || "Email not added"} muted={!(email.trim() || serverEmail)} styles={styles} />
-          <View style={styles.completedPill}>
-            <Ionicons name="checkmark-circle-outline" size={14} color={SUCCESS} />
-            <Text style={styles.completedText}>{completedOrders} completed orders</Text>
-          </View>
-        </Pressable>
+        </View>
       </View>
 
       <Modal transparent visible={showIdentityDetails} animationType="fade" onRequestClose={() => setShowIdentityDetails(false)}>
@@ -668,7 +694,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Modal visible={showSampleWork} onRequestClose={() => setShowSampleWork(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.bg }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setShowSampleWork(false)}>
@@ -739,11 +765,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               )}
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.bg }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setEditing(false)}>
@@ -763,11 +789,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </Pressable>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={showShopDetails} onRequestClose={() => setShowShopDetails(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.bg }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setShowShopDetails(false)}>
@@ -820,11 +846,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </Pressable>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={showBankDetails} onRequestClose={() => setShowBankDetails(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.bg }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setShowBankDetails(false)}>
@@ -871,7 +897,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </Pressable>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Section title={t(language, "performance")} icon="bar-chart-outline" styles={styles}>
@@ -1685,8 +1711,8 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
+      <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 18 }}>
             {/* Header */}
@@ -1700,7 +1726,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
               </View>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 110 }}>
               {/* Start New Conversation button */}
               <TouchableOpacity 
                 style={{ backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
@@ -1812,7 +1838,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
               </View>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 110 }}>
               <View>
                 <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Related Order (Optional)</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
@@ -2059,7 +2085,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
           </View>
         )}
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -2127,7 +2153,8 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, backgroundColor: palette.bg }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
+    <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1, backgroundColor: palette.bg }}>
       <ScrollView contentContainerStyle={[styles.content, styles.bugReportContent]} showsVerticalScrollIndicator={false}>
         <View style={styles.detailHeader}>
           <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
@@ -2198,12 +2225,13 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
   return (
-    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
       <View style={styles.supportHeader}>
         <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
           <Ionicons name="chevron-back" size={22} color={palette.text} />
@@ -2246,7 +2274,7 @@ function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDial
           onPress={() => setScreen("requests")}
         />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -2416,7 +2444,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.bg, paddingTop: SCREEN_TOP_PADDING }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
       {/* Header */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
         <Pressable style={styles.backButton} onPress={() => setScreen("support_center")}>
@@ -2428,8 +2456,8 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
         </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
+      <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 110 }}>
           {/* Request Type Selector */}
           <View>
             <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 8 }}>Select Field to Change</Text>
@@ -2612,7 +2640,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -2767,10 +2795,11 @@ function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.bg },
     content: { padding: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 110 },
-    bugReportContent: { paddingTop: 10, paddingBottom: 40 },
-    headerCard: { borderRadius: 20, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 16, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
-    avatar: { width: 76, height: 76, borderRadius: 24, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
-    avatarImage: { width: "100%", height: "100%", borderRadius: 24 },
+    bugReportContent: { paddingTop: 10, paddingBottom: 110 },
+    headerCard: { borderRadius: 22, backgroundColor: palette.surface, borderWidth: 1, borderColor: "#efcf92", padding: 14, marginBottom: 18, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
+    profileHero: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 16 },
+    avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+    avatarImage: { width: "100%", height: "100%", borderRadius: 46 },
     avatarLockBadge: { position: "absolute", right: -3, bottom: -3, width: 24, height: 24, borderRadius: 12, backgroundColor: "#7b8492", borderWidth: 3, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
     avatarText: { color: "#111111", fontSize: 21, fontWeight: "900" },
     avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
@@ -2780,16 +2809,24 @@ function createStyles(palette: typeof lightPalette) {
     avatarOptionImage: { width: 64, height: 64, borderRadius: 20 },
     avatarOptionLabel: { color: palette.text, fontSize: 11, fontWeight: "900", textAlign: "center", marginTop: 8 },
     cameraBadge: { position: "absolute", right: -3, bottom: -3, width: 28, height: 28, borderRadius: 14, backgroundColor: BRAND_ORANGE, borderWidth: 2, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
-    headerMain: { flex: 1, minWidth: 0 },
+    headerMain: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 92 },
     profileNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     profileNameText: { flexShrink: 1 },
-    profileTapHint: { color: BRAND_ORANGE, fontSize: 10, lineHeight: 14, fontWeight: "800", marginTop: 2, marginBottom: 2 },
+    profileTapHint: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 3 },
     title: { color: palette.text, fontSize: 20, fontWeight: "900" },
     meta: { color: palette.muted, fontSize: 12, fontWeight: "700", marginTop: 4 },
     profileMetaRow: { marginTop: 5, flexDirection: "row", alignItems: "center", gap: 7 },
     profileMetaText: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: "800", lineHeight: 16 },
+    profileInfoList: { gap: 0 },
+    profileInfoRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9, marginBottom: 2 },
+    profileInfoIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
+    profileInfoLabel: { width: 70, color: palette.muted, fontSize: 12, fontWeight: "700" },
+    profileInfoValueWrap: { flex: 1, minWidth: 0 },
+    profileInfoValue: { color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "700" },
+    profileInfoNote: { color: palette.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+    profileCompletedBand: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: palette.surfaceAlt, borderRadius: 8, paddingHorizontal: 14, marginTop: 2 },
     completedPill: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
-    completedText: { color: SUCCESS, fontSize: 12, fontWeight: "900" },
+    completedText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "800" },
     editButton: { minHeight: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, justifyContent: "center", paddingHorizontal: 13 },
     editButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
     section: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 10, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
@@ -2888,7 +2925,7 @@ function createStyles(palette: typeof lightPalette) {
     choiceText: { color: palette.muted, fontSize: 12, fontWeight: "900" },
     choiceTextSelected: { color: BRAND_ORANGE },
     supportHeader: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 18, marginBottom: 22 },
-    supportContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 34 },
+    supportContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 110 },
     supportCard: { minHeight: 116, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     supportCardIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
     supportCardBody: { flex: 1, minWidth: 0 },

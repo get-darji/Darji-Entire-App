@@ -607,6 +607,10 @@ const CARD_DARK = "#111111";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
+const CUSTOMER_TAB_BAR_HEIGHT = 66;
+const CUSTOMER_TAB_BOTTOM_INSET = 12;
+const CUSTOMER_TAB_CONTENT_BOTTOM_PADDING = 104;
+const FORM_KEYBOARD_BEHAVIOR = Platform.OS === "ios" ? "padding" : "height";
 const customerAppIcon = require("./app-icon.png");
 const darjiLogo = require("./darji transparent.png");
 const measurementsImage = require("./measurements.png");
@@ -2355,6 +2359,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
 
 function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen: Screen) => void }) {
   const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === "ios" ? insets.bottom : CUSTOMER_TAB_BOTTOM_INSET;
   const language = useAppStore((state) => state.language);
   const items: { key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: t(language, "home"), icon: "home-outline" },
@@ -2365,7 +2370,7 @@ function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen:
   ];
 
   return (
-    <View style={[styles.tabs, active === "profile" && { height: 70 + insets.bottom, paddingBottom: 7 + insets.bottom }]}>
+    <View style={[styles.tabs, { height: CUSTOMER_TAB_BAR_HEIGHT + bottomInset, paddingBottom: bottomInset }]}>
       {items.map((item) => {
         const selected = active === item.key;
         const isCreate = item.key === "newRequest";
@@ -2374,7 +2379,14 @@ function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen:
             <View style={isCreate ? styles.createTabButton : undefined}>
               <Ionicons name={item.icon} size={isCreate ? 23 : 20} color={isCreate ? "#111111" : selected ? BRAND_ORANGE : "#151b27"} />
             </View>
-            <Text style={[styles.tabText, isCreate && styles.createTabText, selected && styles.activeTabText]}>{item.label}</Text>
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit={isCreate}
+              minimumFontScale={0.82}
+              style={[styles.tabText, isCreate && styles.createTabText, selected && styles.activeTabText]}
+            >
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -7725,9 +7737,9 @@ function ProfileScreen({
   }, [language, profile.name, token]);
 
   return (
-    <SafeAreaView edges={["top", "left", "right"]} style={profileStyles.safe}>
+    <SafeAreaView style={profileStyles.safe}>
       <ScrollView
-        contentContainerStyle={profileStyles.pageContent}
+        contentContainerStyle={profileStyles.profilePageContent}
         contentOffset={{ x: 0, y: initialScrollOffset }}
         onScroll={(event) => onScrollOffsetChange(event.nativeEvent.contentOffset.y)}
         scrollEventThrottle={32}
@@ -7839,6 +7851,7 @@ function ProfileScreen({
           </Pressable>
         </Pressable>
       </Modal>
+      <BottomTabs active="profile" setScreen={setScreen} />
     </SafeAreaView>
   );
 }
@@ -9076,12 +9089,12 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: bg }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: bg }}>
+      <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
         {view === "center" && (
-          <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 10 }}>
+          <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 18 }}>
             <Header title={t(useAppStore.getState().language, "supportCenter")} onBack={() => setScreen("profile")} />
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 110 }}>
               
               {/* Start New Conversation button */}
               <TouchableOpacity 
@@ -12573,8 +12586,6 @@ function AppContent() {
         <Modal visible={screen === "aboutDarji"} onRequestClose={goBack} animationType="slide">
           <AboutDarjiScreen setScreen={setScreen} isDark={settings.darkMode} />
         </Modal>
-        
-        <BottomTabs active="profile" setScreen={setScreen} />
       </>
     );
   }
@@ -12710,8 +12721,8 @@ function createStyles(isDark = false) {
   dialogDestructiveButton: { backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1" },
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
-  pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 88 },
-  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 88 },
+  pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
+  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
   mutedSmall: { color: subtle, fontSize: 12 },
@@ -12870,13 +12881,13 @@ function createStyles(isDark = false) {
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
   workflowItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
-  tabs: { height: 70, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 7, paddingHorizontal: 4 },
+  tabs: { height: CUSTOMER_TAB_BAR_HEIGHT, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 0, paddingHorizontal: 4 },
   tabItem: { alignItems: "center", justifyContent: "center", flex: 1 },
-  tabText: { marginTop: 3, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700", lineHeight: 13 },
+  tabText: { marginTop: 2, minHeight: 18, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700", lineHeight: 16, textAlign: "center", includeFontPadding: true },
   activeTabText: { color: BRAND_ORANGE },
-  createTabItem: { marginTop: -17 },
+  createTabItem: { marginTop: -12 },
   createTabButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.22, shadowRadius: 9, elevation: 5 },
-  createTabText: { marginTop: 2, fontSize: 9 },
+  createTabText: { width: 88, minHeight: 18, marginTop: 2, fontSize: 9, lineHeight: 13 },
   header: { height: 52, flexDirection: "row", alignItems: "center", marginBottom: 14 },
   headerTitle: { flex: 1, minWidth: 0, color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
   headerSpacer: { width: 40 },
@@ -13023,7 +13034,7 @@ function createStyles(isDark = false) {
   requestRequirementBanner: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: "#fde3b0", backgroundColor: isDark ? "#2a1d0a" : "#fff8e8", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 9, marginTop: 14 },
   requestRequirementText: { flex: 1, minWidth: 0, color: "#8a5600", fontSize: 11, fontWeight: "800", lineHeight: 17 },
   primaryWideButton: { height: 54, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 24 },
-  primaryWideButtonText: { color: "#111111", fontSize: 16, fontWeight: "900" },
+  primaryWideButtonText: { color: "#111111", fontSize: 16, lineHeight: 22, fontWeight: "900", includeFontPadding: true },
   buttonPressed: { backgroundColor: "#d98a06", transform: [{ scale: 0.99 }] },
   requestFlowCtaSlot: { width: "100%", marginTop: 18, marginBottom: 24 },
   requestFlowCtaSurface: { position: "relative", alignSelf: "center", width: "94%", maxWidth: 400, minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: "#d88a05", backgroundColor: "#f6a609", alignItems: "center", justifyContent: "center", paddingHorizontal: 52, paddingVertical: 15, overflow: "hidden" },
@@ -13546,14 +13557,14 @@ function createStyles(isDark = false) {
   orderCardV2: { borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, padding: 12, marginBottom: 12 },
   orderSectionBlock: { marginBottom: 16 },
   ordersHero: { paddingTop: 2, marginBottom: 14 },
-  ordersHeroTitle: { color: text, fontSize: 28, fontWeight: "900", lineHeight: 34 },
-  ordersHeroCopy: { color: muted, fontSize: 13, fontWeight: "800", lineHeight: 19, marginTop: 5 },
+  ordersHeroTitle: { color: text, fontSize: 28, fontWeight: "900", lineHeight: 40, includeFontPadding: true },
+  ordersHeroCopy: { color: muted, fontSize: 13, fontWeight: "800", lineHeight: 22, marginTop: 3, includeFontPadding: true },
   orderTabRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
-  orderTabButton: { flex: 1, height: 68, borderRadius: 14, borderWidth: 1.3, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 5 },
+  orderTabButton: { flex: 1, height: 74, borderRadius: 14, borderWidth: 1.3, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 5, paddingVertical: 6 },
   orderTabButtonActive: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
-  orderTabText: { color: muted, fontSize: 11, fontWeight: "900", textAlign: "center", width: "100%" },
+  orderTabText: { color: muted, fontSize: 11, lineHeight: 17, fontWeight: "900", textAlign: "center", width: "100%", minHeight: 20, includeFontPadding: true },
   orderTabTextActive: { color: BRAND_ORANGE },
-  orderTabCount: { color: subtle, fontSize: 10, fontWeight: "900" },
+  orderTabCount: { color: subtle, fontSize: 10, lineHeight: 14, fontWeight: "900", includeFontPadding: true },
   orderBatchLayout: { position: "relative", flexDirection: "row", alignItems: "center", gap: 10, paddingRight: 92 },
   orderBatchIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   orderBatchMain: { flex: 1, minWidth: 0, paddingRight: 4 },
@@ -13578,7 +13589,7 @@ function createStyles(isDark = false) {
   orderPickupText: { flex: 1, minWidth: 0, color: muted, fontSize: 13, fontWeight: "900" },
   orderPrice: { color: BRAND_ORANGE, fontSize: 17, fontWeight: "900" },
   emptyState: { minHeight: 360, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
-  emptyTitle: { color: text, fontSize: 20, fontWeight: "900", marginTop: 12, marginBottom: 6 },
+  emptyTitle: { color: text, fontSize: 20, lineHeight: 28, fontWeight: "900", marginTop: 12, marginBottom: 4, includeFontPadding: true },
   mutedCenter: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, textAlign: "center" },
   favoriteEmptyCard: { minHeight: 360, borderRadius: 28, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 28, marginTop: 28 },
   favoriteEmptyIcon: { width: 86, height: 86, borderRadius: 28, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 4 },
@@ -13599,6 +13610,7 @@ function createStyles(isDark = false) {
   searchResultIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   searchResultBody: { flex: 1, marginLeft: 14 },
   profileHero: { borderRadius: 22, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", padding: 18, flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  profilePageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
   profileAvatar: { width: 62, height: 62, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   profileAvatarImage: { width: 62, height: 62, borderRadius: 22, backgroundColor: iconBg },
   profileAvatarText: { color: "#111111", fontSize: 18, fontWeight: "900" },
@@ -13851,7 +13863,7 @@ function createStyles(isDark = false) {
   helpContactCard: { minHeight: 62, borderRadius: 9, backgroundColor: "#fff7ea", flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginTop: 4, marginBottom: 12 },
   helpContactButton: { minHeight: 30, borderRadius: 9, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   supportPage: { flex: 1, paddingHorizontal: 20, paddingTop: 18 },
-  supportFormContent: { gap: 18, paddingTop: 4, paddingBottom: 48 },
+  supportFormContent: { gap: 18, paddingTop: 4, paddingBottom: 110 },
   supportIntro: { color: muted, fontSize: 14, fontWeight: "800", lineHeight: 21, marginBottom: 2 },
   supportLabel: { color: text, fontSize: 15, fontWeight: "900", marginBottom: 7 },
   supportFieldHint: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 17, marginTop: -3, marginBottom: 8 },
@@ -13918,11 +13930,11 @@ function createStyles(isDark = false) {
   faqIcon: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   faqQuestion: { flex: 1, minWidth: 0, color: text, fontSize: 11, fontWeight: "900", lineHeight: 16 },
   faqAnswer: { color: muted, fontSize: 10, fontWeight: "800", lineHeight: 15, marginTop: 8, paddingLeft: 31 },
-  searchPageContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 88 },
+  searchPageContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
   searchHeroHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
   profileRowTextNoMargin: { flex: 1, minWidth: 0 },
-  searchHeroTitle: { color: text, fontSize: 29, fontWeight: "900", lineHeight: 34 },
-  searchHeroSubtitle: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 19, marginTop: 4, maxWidth: 280 },
+  searchHeroTitle: { color: text, fontSize: 29, fontWeight: "900", lineHeight: 41, includeFontPadding: true },
+  searchHeroSubtitle: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 22, marginTop: 2, maxWidth: 280, includeFontPadding: true },
   searchNotificationButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", marginLeft: 12 },
   searchControlRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 18 },
   filterButton: { height: 46, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 14 },
@@ -13932,19 +13944,19 @@ function createStyles(isDark = false) {
   searchFilterChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   searchFilterChip: { minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 13 },
   searchFilterChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
-  searchFilterChipText: { color: muted, fontSize: 12, fontWeight: "900" },
+  searchFilterChipText: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "900", includeFontPadding: true },
   searchFilterChipTextActive: { color: text },
   searchSegment: { height: 52, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 4, marginBottom: 18 },
   searchSegmentOption: { flex: 1, height: "100%", borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
   searchSegmentActive: { backgroundColor: surface, borderWidth: 1, borderColor: "#eef2f7", shadowColor: "#0b2241", shadowOpacity: 0.06, shadowRadius: 8, elevation: 1 },
-  searchSegmentText: { color: muted, fontSize: 13, fontWeight: "800" },
+  searchSegmentText: { color: muted, fontSize: 13, lineHeight: 19, fontWeight: "800", includeFontPadding: true },
   searchSegmentTextActive: { color: BRAND_ORANGE },
-  searchSectionTitle: { color: text, fontSize: 17, fontWeight: "900", lineHeight: 22 },
+  searchSectionTitle: { color: text, fontSize: 17, fontWeight: "900", lineHeight: 26, includeFontPadding: true },
   searchCategoryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 18 },
   searchCategoryCard: { width: "48%", minHeight: 132, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 10, marginBottom: 12 },
   searchCategoryImage: { width: 60, height: 60, borderRadius: 30, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 9 },
-  searchCategoryTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18, textAlign: "center" },
-  searchCategorySubtitle: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 15, textAlign: "center", marginTop: 4 },
+  searchCategoryTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 21, textAlign: "center", includeFontPadding: true },
+  searchCategorySubtitle: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 18, textAlign: "center", marginTop: 2, includeFontPadding: true },
   searchTailorRow: { gap: 12, paddingBottom: 18 },
   searchTailorCard: { width: 224, minHeight: 188, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 13 },
   searchTailorHeader: { flexDirection: "row", alignItems: "center", gap: 10 },

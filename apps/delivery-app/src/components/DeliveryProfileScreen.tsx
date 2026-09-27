@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps, type ReactNode } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, StyleSheet, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { api, savePreferredLanguage, uploadDeliveryVerificationDocs } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -81,7 +82,8 @@ const DANGER = "#dc2626";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
-const SCREEN_TOP_PADDING = 10;
+const SCREEN_TOP_PADDING = 18;
+const FORM_KEYBOARD_BEHAVIOR = Platform.OS === "ios" ? "padding" : "height";
 
 type PullToRefreshState = {
   refreshing: boolean;
@@ -112,6 +114,8 @@ const ScrollView = forwardRef<RNScrollView, ScrollViewProps>(function ProfileScr
           onRefresh={pullToRefresh.onRefresh}
         />
       ) : refreshControl}
+      keyboardDismissMode={props.keyboardDismissMode ?? "on-drag"}
+      keyboardShouldPersistTaps={props.keyboardShouldPersistTaps ?? "handled"}
       {...props}
     >
       {children}
@@ -545,7 +549,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Section>
 
       <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.background }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.background }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setEditing(false)}>
@@ -564,11 +568,11 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               </Pressable>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={showVehicleDetails} onRequestClose={() => setShowVehicleDetails(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.background }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.background }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setShowVehicleDetails(false)}>
@@ -621,11 +625,11 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               </Pressable>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={showBankDetails} onRequestClose={() => setShowBankDetails(false)} animationType="slide">
-        <View style={{ flex: 1, backgroundColor: palette.background }}>
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.background }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}>
               <Pressable style={styles.backButton} onPress={() => setShowBankDetails(false)}>
@@ -672,7 +676,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               </Pressable>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Section title={t(language, "performance")} icon="bar-chart-outline" styles={styles}>
@@ -957,12 +961,17 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
 
 function SupportDetailScreen({ screen, styles, palette, onBack, setSupportScreen }: { screen: Exclude<SupportScreen, "support_center" | "requests" | "bug">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; setSupportScreen?: (screen: SupportScreen | undefined) => void }) {
   if (screen === "help") {
-    return <HelpCenterFAQScreen styles={styles} palette={palette} onBack={onBack} onContactSupport={() => setSupportScreen?.("chat")} />;
+    return (
+      <SafeAreaView edges={["top", "left", "right"]} style={[styles.root, styles.safePage]}>
+        <HelpCenterFAQScreen styles={styles} palette={palette} onBack={onBack} onContactSupport={() => setSupportScreen?.("chat")} />
+      </SafeAreaView>
+    );
   }
 
   const detail = supportDetails[screen];
   return (
-    <ScrollView style={styles.root} contentContainerStyle={[styles.content, { paddingTop: 10 }]} showsVerticalScrollIndicator={false}>
+    <SafeAreaView edges={["top", "left", "right"]} style={[styles.root, styles.safePage]}>
+    <ScrollView style={styles.root} contentContainerStyle={[styles.content, { paddingTop: SCREEN_TOP_PADDING }]} showsVerticalScrollIndicator={false}>
       <View style={styles.detailHeader}>
         <Pressable style={styles.backButton} onPress={onBack}>
           <Ionicons name="chevron-back" size={22} color={palette.text} />
@@ -988,6 +997,7 @@ function SupportDetailScreen({ screen, styles, palette, onBack, setSupportScreen
         ) : null}
       </View>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -1315,8 +1325,8 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: 10 }}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={[{ flex: 1, backgroundColor: palette.background }, styles.safePage]}>
+      <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
         {view === "center" && (
           <View style={{ flex: 1, paddingHorizontal: 18 }}>
             {/* Header */}
@@ -1333,7 +1343,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
 
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 110 }}>
               {/* Start New Conversation button */}
               <TouchableOpacity 
                 style={{ backgroundColor: BRAND_ORANGE, height: 54, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 }}
@@ -1448,7 +1458,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
 
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 24 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingBottom: 110 }}>
               <View>
                 <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Related Order (Optional)</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
@@ -1707,14 +1717,14 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
           </View>
         )}
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 
 function DeliverySupportCenterScreen({ setScreen, palette, styles, token }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string }) {
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={[{ flex: 1, backgroundColor: palette.background }, styles.safePage]}>
       {/* Header */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
         <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
@@ -1726,7 +1736,7 @@ function DeliverySupportCenterScreen({ setScreen, palette, styles, token }: { se
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 110 }}>
         {/* Chat Support Option */}
         <Pressable 
           style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
@@ -1772,7 +1782,7 @@ function DeliverySupportCenterScreen({ setScreen, palette, styles, token }: { se
           <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
         </Pressable>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1791,16 +1801,24 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  async function pickDocumentImage() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
+  async function pickDocumentImage(source: "camera" | "gallery") {
+    const permission = source === "camera"
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Camera permission needed", "Allow camera access to take a live document photo.");
+      Alert.alert("Permission needed", source === "camera" ? "Allow camera access to take a live document photo." : "Allow gallery access to choose a document photo.");
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8
-    });
+    const result = source === "camera"
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: false,
+          quality: 0.8
+        });
     if (result.canceled || !result.assets.length) return;
     try {
       setUploading(true);
@@ -1886,7 +1904,7 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={[{ flex: 1, backgroundColor: palette.background }, styles.safePage]}>
       {/* Header */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
         <Pressable style={styles.backButton} onPress={() => setScreen("support_center")}>
@@ -1898,8 +1916,8 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
         </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 24 }}>
+      <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 110 }}>
           {/* Request Type Selector */}
           <View>
             <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 8 }}>Select Field to Update</Text>
@@ -2046,7 +2064,7 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
               <Pressable
                 style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.card }}
-                onPress={pickDocumentImage}
+                onPress={() => pickDocumentImage("camera")}
                 disabled={uploading}
               >
                 {uploading ? (
@@ -2054,7 +2072,21 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
                 ) : (
                   <>
                     <Ionicons name="camera-outline" size={20} color={BRAND_ORANGE} />
-                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Add Doc</Text>
+                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Camera</Text>
+                  </>
+                )}
+              </Pressable>
+              <Pressable
+                style={{ width: 80, height: 80, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", backgroundColor: palette.card }}
+                onPress={() => pickDocumentImage("gallery")}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <ActivityIndicator color={BRAND_ORANGE} />
+                ) : (
+                  <>
+                    <Ionicons name="images-outline" size={20} color={BRAND_ORANGE} />
+                    <Text style={{ color: BRAND_ORANGE, fontSize: 10, fontWeight: "800", marginTop: 4 }}>Gallery</Text>
                   </>
                 )}
               </Pressable>
@@ -2081,7 +2113,7 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -2118,7 +2150,8 @@ const darkPalette = {
 function createStyles(palette: typeof lightPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.background },
-    content: { paddingTop: SCREEN_TOP_PADDING, paddingHorizontal: 18, paddingBottom: 36 },
+    safePage: { paddingTop: SCREEN_TOP_PADDING },
+    content: { paddingTop: SCREEN_TOP_PADDING, paddingHorizontal: 18, paddingBottom: 110 },
     headerCard: { borderRadius: 22, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.accentBorder, padding: 14, marginBottom: 18 },
     profileHero: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 16 },
     avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
@@ -2431,7 +2464,7 @@ function DeliveryReportBugScreen({
 
   const bugStyles = {
     supportPage: { flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING },
-    supportFormContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 24 },
+    supportFormContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 110 },
     supportIntro: { color: palette.subtext, fontSize: 13, fontWeight: "600", lineHeight: 20 },
     supportLabel: { color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 6 },
     supportFieldHint: { color: palette.subtext, fontSize: 12, fontWeight: "600", marginBottom: 8 },
@@ -2450,7 +2483,7 @@ function DeliveryReportBugScreen({
   } as const;
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background, paddingTop: SCREEN_TOP_PADDING }}>
+    <SafeAreaView edges={["top", "left", "right"]} style={[{ flex: 1, backgroundColor: palette.background }, styles.safePage]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
         <Pressable style={styles.backButton} onPress={() => setScreen(undefined)}>
           <Ionicons name="chevron-back" size={22} color={palette.text} />
@@ -2461,6 +2494,7 @@ function DeliveryReportBugScreen({
         </View>
       </View>
 
+      <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={bugStyles.supportFormContent}>
         <Text style={bugStyles.supportIntro}>Found something that's not working right? Let us know and we'll fix it.</Text>
         
@@ -2554,6 +2588,7 @@ function DeliveryReportBugScreen({
           )}
         </Pressable>
       </ScrollView>
-    </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
