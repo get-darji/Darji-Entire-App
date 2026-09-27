@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BrandLogo } from "@/src/components/brand-logo";
 import { customerApi, errorMessage } from "@/src/lib/api";
+import { openLocalBooking } from "@/src/lib/local-booking";
 
 type ModalProps = {
   open: boolean;
@@ -243,7 +244,7 @@ export function MarketingHeader({ active }: { active?: "home" | "about" | "blogs
             ))}
           </nav>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setLaunchOpen(true)} className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[#ff7000] px-4 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500] sm:px-5">Book Pickup</button>
+            <button type="button" onClick={() => { if (!openLocalBooking()) setLaunchOpen(true); }} className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl bg-[#ff7000] px-4 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#e56500] sm:px-5">Book Pickup</button>
             <button type="button" onClick={() => setMenuOpen((open) => !open)} className="focus-ring grid h-11 w-11 place-items-center border border-black/10 bg-white text-[#101010] lg:hidden" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen}>
               {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>

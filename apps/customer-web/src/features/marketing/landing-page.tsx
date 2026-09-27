@@ -1,4 +1,5 @@
 "use client";
+import { openLocalBooking } from "@/src/lib/local-booking";
 import { motion, AnimatePresence } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -164,7 +165,7 @@ function IntroReveal() {
       <div id="curtain2" />
       <div id="loader">
         <div className="logo"><img src="/darji-loader-transparent.png" alt="Darji" className="loader-logo-image loader-logo-black" /></div>
-        <p className="loader-tagline">stitching you web experience </p>
+        <p className="loader-tagline">Stitching your web experience</p>
         <div className="bar"><div className="fill" /></div>
         <div id="percent">0%</div>
       </div>
@@ -257,6 +258,7 @@ export function LandingPage() {
   const [supportOpen, setSupportOpen] = useState(false);
   const heroRef = useRef<HTMLElement>(null);
   const openLaunchSoon = (target: "booking" | StoreTarget = "booking") => {
+    if (target === "booking" && openLocalBooking()) return;
     setLaunchSoonTarget(target);
     setLaunchSoonOpen(true);
   };
@@ -531,7 +533,7 @@ export function LandingPage() {
           <div className="shell text-center">
             <SectionEyebrow>What Our Customers Say</SectionEyebrow>
             <h2 className="mx-auto max-w-4xl text-[1.75rem] font-extrabold leading-tight text-[var(--color-text-primary)] sm:text-5xl">
-              Loved by thousands,<br />stitched with <span className="text-[var(--color-primary)]">trust.</span>
+              Loved by hundreds,<br />stitched with <span className="text-[var(--color-primary)]">trust.</span>
             </h2>
             <div className="flex items-center justify-center gap-4 mt-5">
               <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-[#eee4dc]" />

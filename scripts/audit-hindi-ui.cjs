@@ -8,6 +8,8 @@ const occurrences = new Map();
 const mixedHindi = [];
 const mixedDirect = [];
 const corrupted = [];
+// Language-switch labels and valid identifier examples must remain recognizable.
+const intentionalLatin = new Set(["EN", "English", "ABCDE1234F", "username@bank..."]);
 
 function parse(filePath) {
   const source = fs.readFileSync(filePath, "utf8");
@@ -44,6 +46,7 @@ function addKnown(filePath, variableName, keyName) {
 
 addKnown(path.join(root, "shared/src/static-translations.ts"), "staticText", "name");
 addKnown(path.join(root, "shared/src/customer-hindi.ts"), "customerHindi", "name");
+addKnown(path.join(root, "shared/src/reviewed-hindi-ui.ts"), "reviewedHindiUi", "name");
 addKnown(path.join(root, "shared/src/localization.ts"), "translations", "en");
 const generatedPath = path.join(root, "shared/src/generated-hindi-ui.json");
 if (fs.existsSync(generatedPath)) {
@@ -56,12 +59,13 @@ if (fs.existsSync(generatedPath)) {
 function filesUnder(folder) {
   return fs.readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
     const target = path.join(folder, entry.name);
-    return entry.isDirectory() ? filesUnder(target) : /\.tsx?$/.test(entry.name) ? [target] : [];
+    return entry.isDirectory() ? (["node_modules", "android", "ios", "dist", ".expo", ".git"].includes(entry.name) ? [] : filesUnder(target)) : /\.tsx?$/.test(entry.name) ? [target] : [];
   });
 }
 
 function record(value, file, node) {
   const text = value.replace(/\s+/g, " ").trim();
+  if (intentionalLatin.has(text)) return;
   if (!/[A-Za-z]/.test(text) || known.has(text) || /^(https?:|data:|[a-z0-9-]+-outline$|#[a-f0-9]{3,8}$|\S+@\S+\.\S+$)/i.test(text)) return;
   const location = `${path.relative(root, file.fileName)}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`;
   const existing = occurrences.get(text) ?? [];
@@ -69,15 +73,30 @@ function record(value, file, node) {
   occurrences.set(text, existing);
 }
 
-const visibleAttributes = new Set(["placeholder", "title", "label", "helper", "subtitle", "copy", "message", "buttonText"]);
-const visibleProperties = new Set(["title", "label", "helper", "subtitle", "copy", "message", "placeholder", "text"]);
+const visibleAttributes = new Set(["placeholder", "title", "label", "helper", "subtitle", "copy", "message", "buttonText", "accessibilityLabel", "loadingLabel"]);
+const visibleProperties = new Set(["title", "label", "helper", "subtitle", "copy", "message", "placeholder", "text", "question", "answer", "description", "refund", "charges", "reason"]);
+function visibleExpression(node, file) {
+  if (!node) return;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) record(node.text, file, node);
+  else if (ts.isConditionalExpression(node)) {
+    visibleExpression(node.whenTrue, file);
+    visibleExpression(node.whenFalse, file);
+  } else if (ts.isParenthesizedExpression(node)) visibleExpression(node.expression, file);
+  else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.PlusToken].includes(node.operatorToken.kind)) {
+    visibleExpression(node.left, file);
+    visibleExpression(node.right, file);
+  }
+}
 for (const app of ["customer-app", "tailor-app", "delivery-app"]) {
-  for (const filePath of filesUnder(path.join(root, "apps", app)).filter((filePath) => filePath.endsWith(".tsx"))) {
+  for (const filePath of filesUnder(path.join(root, "apps", app))) {
     const file = parse(filePath);
     walk(file, (node) => {
       if (ts.isJsxText(node) && ts.isJsxElement(node.parent) && /^(Text|RNText)$/.test(node.parent.openingElement.tagName.getText(file))) record(node.getText(file), file, node);
       if (ts.isJsxAttribute(node) && visibleAttributes.has(node.name.text) && node.initializer && ts.isStringLiteral(node.initializer)) record(node.initializer.text, file, node);
+      if (ts.isJsxAttribute(node) && visibleAttributes.has(node.name.text) && node.initializer && ts.isJsxExpression(node.initializer)) visibleExpression(node.initializer.expression, file);
+      if (ts.isJsxExpression(node) && ts.isJsxElement(node.parent) && /^(Text|RNText)$/.test(node.parent.openingElement.tagName.getText(file))) visibleExpression(node.expression, file);
       if (ts.isPropertyAssignment(node) && visibleProperties.has(node.name.getText(file)) && ts.isStringLiteral(node.initializer)) record(node.initializer.text, file, node);
+      if (ts.isPropertyAssignment(node) && node.name.getText(file) === "details" && ts.isArrayLiteralExpression(node.initializer)) node.initializer.elements.forEach((item) => visibleExpression(item, file));
       if (ts.isCallExpression(node) && node.expression.getText(file) === "localize" && node.arguments.length >= 3) {
         const hindi = node.arguments[2];
         const text = ts.isStringLiteral(hindi) || ts.isNoSubstitutionTemplateLiteral(hindi)
@@ -86,6 +105,7 @@ for (const app of ["customer-app", "tailor-app", "delivery-app"]) {
             ? [hindi.head.text, ...hindi.templateSpans.map((span) => span.literal.text)].join(" ")
             : "";
         if (/[A-Za-z]/.test(text)) mixedDirect.push([text, `${path.relative(root, filePath)}:${file.getLineAndCharacterOfPosition(hindi.getStart(file)).line + 1}`]);
+        if (/\?{3,}|\uFFFD/.test(text)) corrupted.push(`${path.relative(root, filePath)}:${file.getLineAndCharacterOfPosition(hindi.getStart(file)).line + 1}`);
       }
     });
   }

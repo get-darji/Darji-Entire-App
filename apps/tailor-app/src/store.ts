@@ -2,6 +2,7 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AppLanguage } from "../../../shared/src/localization";
+import { restoreLanguagePreference } from "../../../shared/src/language-preference";
 
 type User = { id: string; phone: string; name?: string; role: string; preferredLanguage?: AppLanguage; tailorProfile?: { id: string; earnings: string; isAvailable: boolean } };
 
@@ -27,9 +28,9 @@ export const useAppStore = create<Store>()(persist((set) => ({
   language: "en",
   hasSelectedLanguage: false,
   hasHydrated: false,
-  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, sessionNotice: undefined })),
+  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, sessionNotice: undefined })),
   setAccessToken: (token) => set({ token }),
-  setUser: (user) => set((state) => ({ user, language: user.preferredLanguage ?? state.language })),
+  setUser: (user) => set({ user }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
   setHasHydrated: (hasHydrated) => set({ hasHydrated }),
   signOut: () => set({ token: undefined, refreshToken: undefined, user: undefined }),
@@ -38,6 +39,7 @@ export const useAppStore = create<Store>()(persist((set) => ({
 }), {
   name: "darzi-tailor-session",
   storage: createJSONStorage(() => AsyncStorage),
+  merge: (persisted, current) => ({ ...current, ...(persisted as Partial<Store>), ...restoreLanguagePreference(persisted) }),
   partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage }),
   onRehydrateStorage: () => (state) => {
     state?.setHasHydrated(true);

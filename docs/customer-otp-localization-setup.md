@@ -14,6 +14,10 @@ TWOFACTOR_TEMPLATE_NAME=OTP1
 ```
 
 Every request now calls GET `/API/V1/<key>/SMS/<phone>/AUTOGEN/OTP1`.
+The SMS route pins `OTP1` in code. `TWOFACTOR_TEMPLATE_NAME` is retained for
+legacy deployments but cannot override or block this route in the updated backend.
+For a backend still running the older code, set that Railway variable to exactly
+`OTP1` (uppercase, no literal quotes) and redeploy to clear the template guard error.
 The old `twofactor` mode remains accepted for older clients. Both modes send SMS.
 Cooldown: 60 seconds. Expiry: 10 minutes. Maximum incorrect attempts: 5.
 Provider failures do not silently create a development OTP session.

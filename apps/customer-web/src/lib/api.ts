@@ -3,6 +3,7 @@
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
 import type { CustomerWebsiteSlider } from "../../../../shared/src/customer-website-slider";
 import { useAuthStore } from "@/src/store/auth-store";
+import type { CustomerTailor, NotificationPreferences, CustomerStory, MeasurementVisit, DeliverySlot } from "./types";
 import type { Address, CheckoutResponse, Coupon, HandoffOtp, NotificationRow, TailoringRequest, TailorQuote, UploadedMedia, WalletSummary } from "./types";
 
 const RETIRED_API_URL = "https://backend-production-5a7e4.up.railway.app/api";
@@ -74,6 +75,14 @@ async function request<T>(config: AxiosRequestConfig, retry = true): Promise<T> 
 }
 
 export const customerApi = {
+  tailors: () => request<CustomerTailor[]>({ method: "GET", url: "/tailors" }),
+  stories: () => request<CustomerStory[]>({ method: "GET", url: "/reviews/featured" }),
+  review: (data: { orderId: string; kind: "app" | "tailor" | "delivery"; rating: number; comment: string }) => request({ method: "POST", url: "/reviews", data }),
+  notificationPreferences: (data: NotificationPreferences) => request<NotificationPreferences>({ method: "PATCH", url: "/notifications/preferences", data }),
+  measurementVisit: (id: string) => request<MeasurementVisit | null>({ method: "GET", url: `/tailoring-requests/${id}/measurement-visit/otp` }),
+  deliverySlots: (id: string) => request<DeliverySlot[]>({ method: "GET", url: `/delivery-requests/${id}/reschedule-options` }),
+  rescheduleDelivery: (id: string, data: Pick<DeliverySlot, "deliveryRound" | "roundAt">) => request({ method: "PATCH", url: `/delivery-requests/${id}/reschedule`, data }),
+  recoverCheckout: (id: string) => request<{ status: "paid" | "pending" | "failed"; request?: TailoringRequest; message?: string }>({ method: "GET", url: `/tailoring-requests/${id}/checkout/status` }),
   getCustomerWebsiteSlider: () => request<CustomerWebsiteSlider>({ method: "GET", url: "/settings/customer-website-slider" }),
   createMarketingSignup: (data: { source: "launch_notify"; clientId: string } | { source: "footer_newsletter"; email: string }) =>
     request<{ id: string; source: string; email?: string; createdAt?: string }>({ method: "POST", url: "/marketing-signups", data }),
@@ -97,10 +106,10 @@ export const customerApi = {
     if (typeof window !== "undefined") window.localStorage.setItem(cacheKey, JSON.stringify(result));
     return result;
   },
-  uploadMedia: async (files: File[]) => {
+  uploadMedia: async (files: File[], signal?: AbortSignal) => {
     const form = new FormData();
     files.forEach((file) => form.append("media", file));
-    return request<UploadedMedia[]>({ method: "POST", url: "/tailoring-requests/media", data: form, headers: { "Content-Type": "multipart/form-data" } });
+    return request<UploadedMedia[]>({ method: "POST", url: "/tailoring-requests/media", data: form, signal, headers: { "Content-Type": "multipart/form-data" } });
   },
   createTailoringRequest: (data: unknown) => request<TailoringRequest>({ method: "POST", url: "/tailoring-requests", data }),
   tailoringRequests: () => request<TailoringRequest[]>({ method: "GET", url: "/tailoring-requests" }),

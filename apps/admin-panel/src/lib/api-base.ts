@@ -7,10 +7,7 @@ const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL === RETIRED_API_URL
   ? LIVE_API_URL
   : process.env.NEXT_PUBLIC_API_URL ?? LIVE_API_URL;
 
-const localDevApiUrl = process.env.NODE_ENV === "development" && typeof window !== "undefined"
-  ? `http://${window.location.hostname}:4000/api`
-  : undefined;
-const apiUrls = [localDevApiUrl ?? configuredApiUrl.replace(/\/$/, "")];
+const apiUrls = [configuredApiUrl.replace(/\/$/, "")];
 
 let activeApiUrl = apiUrls[0];
 

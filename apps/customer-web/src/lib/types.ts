@@ -1,7 +1,7 @@
 export type UploadedMedia = {
   url: string;
   publicId: string;
-  resourceType: "image" | "video";
+  resourceType: "image" | "video" | "audio";
   bytes: number;
   format?: string;
   originalName?: string;
@@ -116,6 +116,8 @@ export type Address = {
   state?: string;
   pincode?: string;
   landmark?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   isDefault?: boolean;
 };
 
@@ -131,6 +133,7 @@ export type NotificationRow = {
   message?: string;
   read?: boolean;
   createdAt?: string;
+  data?: { orderId?: string; requestId?: string; screen?: string };
 };
 
 export type HandoffOtp = {
@@ -151,7 +154,16 @@ export type HandoffOtp = {
   etaWindowEnd?: string;
   routePosition?: number;
   routeTotal?: number;
+  batchId?: string;
+  batchStatus?: string;
+  batchLockAt?: string;
 };
+
+export type CustomerTailor = NonNullable<TailorQuote["tailor"]> & { ratingCount?: number; isAvailable?: boolean; verificationStatus?: string };
+export type NotificationPreferences = Partial<Record<"notifications" | "orderUpdates" | "offersPromotions" | "pickupReminders" | "deliveryUpdates" | "quietHours" | "receivingNotifications", boolean>>;
+export type CustomerStory = { id: string; name: string; location?: string; rating: number; review: string; createdAt?: string };
+export type MeasurementVisit = { id?: string; status: string; otp?: string; preferredMeasurementSlot?: string };
+export type DeliverySlot = { label: string; deliveryRound: string; roundAt: string };
 
 export type CheckoutResponse =
   | { mode: "cod"; request: TailoringRequest }

@@ -38,6 +38,7 @@ import type {
 } from "@/src/types/admin";
 
 let adminRefreshPromise: Promise<string | undefined> | undefined;
+const isCookieAuthRequest = (url?: string) => /^\/auth\/(request-otp|verify-otp|refresh|logout)$/.test(url ?? "");
 
 export const api = axios.create({
   baseURL: getActiveApiUrl(),
@@ -48,7 +49,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  config.baseURL = getActiveApiUrl();
+  config.baseURL = isCookieAuthRequest(config.url) ? "/api" : getActiveApiUrl();
   const token = useAdminStore.getState().token;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -57,14 +58,15 @@ api.interceptors.request.use((config) => {
 });
 
 async function refreshAdminAccessToken() {
+  const previousToken = useAdminStore.getState().token;
   const refreshToken = useAdminStore.getState().refreshToken;
   let apiUrl: string | undefined = getActiveApiUrl();
   let lastError: unknown;
   while (apiUrl) {
     try {
-      const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken?: string }>>(`${apiUrl}/auth/refresh`, refreshToken ? { refreshToken } : {}, { withCredentials: true });
-      markApiUrlReachable(apiUrl);
+      const response = await axios.post<ApiEnvelope<{ accessToken: string; refreshToken?: string }>>("/api/auth/refresh", refreshToken ? { refreshToken } : {}, { withCredentials: true, timeout: 30000 });
       const session = response.data.data;
+      if (useAdminStore.getState().token !== previousToken) return useAdminStore.getState().token ?? undefined;
       useAdminStore.getState().setSession(session);
       return session.accessToken;
     } catch (error) {
@@ -78,7 +80,10 @@ async function refreshAdminAccessToken() {
 }
 
 export async function restoreAdminSession() {
-  return refreshAdminAccessToken();
+  adminRefreshPromise ??= refreshAdminAccessToken().finally(() => {
+    adminRefreshPromise = undefined;
+  });
+  return adminRefreshPromise;
 }
 
 export async function logoutAdminSession() {
@@ -91,12 +96,13 @@ export async function logoutAdminSession() {
 
 api.interceptors.response.use(
   (response) => {
-    if (response.config.baseURL) markApiUrlReachable(response.config.baseURL);
+    if (response.config.baseURL && !isCookieAuthRequest(response.config.url)) markApiUrlReachable(response.config.baseURL);
     return response;
   },
   async (error) => {
     const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean; _apiFallbackBaseUrl?: string }) | undefined;
     const status = error?.response?.status as number | undefined;
+    if (isCookieAuthRequest(originalRequest?.url)) return Promise.reject(error);
     if (originalRequest && shouldTryApiFallback(status)) {
       const fallbackUrl = nextApiUrlAfter(originalRequest._apiFallbackBaseUrl ?? originalRequest.baseURL ?? getActiveApiUrl());
       if (fallbackUrl) {
@@ -111,16 +117,19 @@ api.interceptors.response.use(
       if (!/signed in on another device/i.test(message) && originalRequest && !originalRequest._retry) {
         originalRequest._retry = true;
         try {
-          adminRefreshPromise ??= refreshAdminAccessToken().finally(() => {
-            adminRefreshPromise = undefined;
-          });
-          const nextToken = await adminRefreshPromise;
+          const currentToken = useAdminStore.getState().token;
+          const usedToken = originalRequest.headers?.Authorization;
+          const nextToken = currentToken && usedToken !== `Bearer ${currentToken}`
+            ? currentToken
+            : await restoreAdminSession();
           if (nextToken) {
             originalRequest.headers = { ...originalRequest.headers, Authorization: `Bearer ${nextToken}` };
             return api(originalRequest);
           }
-        } catch {
-          // Fall through to session invalidation below.
+        } catch (refreshError) {
+          const refreshStatus = axios.isAxiosError(refreshError) ? refreshError.response?.status : undefined;
+          // Network outages and server errors do not revoke a valid session.
+          if (refreshStatus !== 401 && refreshStatus !== 403) return Promise.reject(refreshError);
         }
       }
       if (/signed in on another device/i.test(message)) useAdminStore.getState().invalidateSession(message);

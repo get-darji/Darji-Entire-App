@@ -6,11 +6,8 @@ import type { AppLanguage } from "../../../shared/src/localization";
 
 const productionApiUrl = "https://darji-entire-app-production.up.railway.app/api";
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL;
-const devHost = Constants.expoConfig?.hostUri?.split(":")[0];
-const devApiUrl = devHost ? `http://${devHost}:4000/api` : undefined;
-export const apiUrl = __DEV__ && devApiUrl && (!configuredApiUrl || configuredApiUrl === productionApiUrl)
-  ? devApiUrl
-  : configuredApiUrl || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || productionApiUrl;
+// Metro's host is not an API server. Local backend use must be configured explicitly.
+export const apiUrl = configuredApiUrl?.trim() || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || productionApiUrl;
 
 type RefreshResponse = { accessToken: string; refreshToken: string };
 let refreshPromise: Promise<string | undefined> | undefined;

@@ -17,6 +17,8 @@ export function Button({
   return (
     <button
       {...props}
+      disabled={props.disabled || loading}
+      aria-busy={loading || undefined}
       className={`focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-6 text-sm font-bold transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] disabled:opacity-50 ${variants[variant]} ${className}`}
     >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

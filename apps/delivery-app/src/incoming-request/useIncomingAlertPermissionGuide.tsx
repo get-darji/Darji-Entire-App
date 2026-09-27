@@ -6,7 +6,15 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "../notifications/expoNotifications";
 import { useEffect, useRef, useState } from "react";
-import { Animated, AppState, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, AppState, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
+import type { ComponentProps } from "react";
+import { useAppStore } from "../store";
+import { translateStaticChildren } from "../../../../shared/src/static-translations";
+
+function Text({ children, ...props }: ComponentProps<typeof RNText>) {
+  const language = useAppStore((state) => state.language);
+  return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
 
 type PermissionIssue = "notifications" | "overlay" | "fullscreen" | null;
 
@@ -104,9 +112,9 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
           <Text style={styles.title}>{isNotifications ? "Allow request notifications" : isOverlay ? "Allow order popups" : "Allow locked-screen alerts"}</Text>
           <Text style={styles.copy}>
             {isNotifications
-              ? `${appName} needs notification permission so urgent requests can ring, vibrate, and launch the incoming request popup.`
+              ? "Allow notifications so urgent requests can ring, vibrate, and show a popup."
               : isOverlay
-              ? `${appName} uses Display over other apps only while a live request is waiting, so Accept, Reject, and View details can appear over the home screen or another app.`
+              ? "Allow display over other apps to accept, reject, or view a waiting request from any screen."
               : "Android 14 can limit full-screen alerts. This setting improves locked-screen request visibility while the overlay handles normal app and home-screen popups."}
           </Text>
           {isOverlay ? (
@@ -157,8 +165,8 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
                 {isOverlay
                   ? "Tap the three-dot menu and choose Allow restricted settings. If that option is absent, continue to the next step."
                   : isNotifications
-                    ? `Approve notifications for ${appName}. If Android does not show a popup, app notification settings will open.`
-                    : `Allow full-screen alerts for ${appName}.`}
+                    ? "Approve app notifications. If no popup appears, notification settings will open."
+                    : "Allow full-screen alerts for this app."}
               </Text>
             </View>
             {isOverlay ? (

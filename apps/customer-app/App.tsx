@@ -780,6 +780,7 @@ const avatarOptions: Array<{ key: AvatarPreset; label: string }> = [
 const MAX_MEDIA_FILES = 6;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const MIN_VOICE_NOTE_BYTES = 1024;
 const REQUEST_DESCRIPTION_MIN = 10;
 const QUOTE_WAIT_SECONDS = 90;
 const CUSTOMER_DATA_STORAGE_KEY = "darji.customerDataByPhone.v2";
@@ -1073,6 +1074,12 @@ const howItWorksSteps = [
 const workflowIconBackgrounds = ["#fff7e5", "#effaf1", "#f5efff", "#edf5ff", "#fff1d6"] as const;
 
 const MAX_VOICE_NOTES_PER_ITEM = 3;
+const VOICE_RECORDING_OPTIONS = {
+  ...RecordingPresets.HIGH_QUALITY,
+  android: { ...RecordingPresets.HIGH_QUALITY.android, audioSource: "mic" as const },
+  directory: "document" as const,
+  isMeteringEnabled: true
+};
 
 const urgencyOptions = [
   { label: "Normal", helper: "Up to 7 days", icon: "calendar-outline", deliveryFee: 30 },
@@ -2220,7 +2227,7 @@ function AuthScreen() {
       <View style={[styles.authLanguageCorner, { top: insets.top + 12 }]}>
         <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
       </View>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView
           contentContainerStyle={styles.authLayout}
           keyboardDismissMode="interactive"
@@ -3261,7 +3268,7 @@ function NewRequestScreen({
   const recordingActiveRef = useRef(false);
   const playbackMonitorRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const playingVoiceUriRef = useRef<string | undefined>(undefined);
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
@@ -3341,6 +3348,22 @@ function NewRequestScreen({
     await new Promise((resolve) => setTimeout(resolve, 120));
     const statusAfterStop = audioRecorder.getStatus();
     return audioRecorder.uri ?? statusAfterStop.url ?? uriBeforeStop;
+  }
+
+  function getLocalVoiceNoteSize(uri: string): Promise<number | undefined> {
+    return new Promise((resolve) => {
+      const request = new XMLHttpRequest();
+      request.open("GET", uri);
+      request.responseType = "blob";
+      request.onload = () => {
+        const response = request.response as Blob | undefined;
+        resolve(typeof response?.size === "number" ? response.size : undefined);
+      };
+      request.onerror = () => resolve(undefined);
+      request.ontimeout = () => resolve(undefined);
+      request.timeout = 4000;
+      request.send();
+    });
   }
 
   useEffect(() => {
@@ -3510,8 +3533,14 @@ function NewRequestScreen({
           return;
         }
         if (uri) {
+          const bytes = await getLocalVoiceNoteSize(uri);
+          if (typeof bytes === "number" && bytes < MIN_VOICE_NOTE_BYTES) {
+            Alert.alert("Voice note empty", "We could not hear anything in that recording. Please record again and speak after the timer starts.");
+            await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
+            return;
+          }
           const currentVoiceNotes = draft.voiceNotes ?? [];
-          const voiceNote: LocalMedia = { uri, type: "audio", name: `voice-note-${Date.now()}.m4a` };
+          const voiceNote: LocalMedia = { uri, type: "audio", name: `voice-note-${Date.now()}.m4a`, size: bytes };
           setDraft({
             ...draft,
             voiceNotes: [...currentVoiceNotes, voiceNote].slice(0, MAX_VOICE_NOTES_PER_ITEM),
@@ -12163,6 +12192,12 @@ function AppContent() {
         });
       }
     } catch (error) {
+      if (
+        /already confirmed/i.test(error instanceof Error ? error.message : "") &&
+        (await openConfirmedCheckoutIfPresent(selectedQuote.backendRequestId, selectedQuote, orderDraft))
+      ) {
+        return;
+      }
       setDialog({
         title: "Checkout failed",
         message: error instanceof Error ? error.message : "Could not start checkout.",
@@ -12179,6 +12214,39 @@ function AppContent() {
     setRequestProgressScreen("confirmOrder");
     setScreen("confirmOrder");
     void refreshCustomerOrders();
+  }
+
+  async function openConfirmedCheckoutIfPresent(
+    requestId: string,
+    quote: Quote,
+    draftState: RequestDraft,
+    dialogCopy?: { title: string; message: string }
+  ) {
+    if (!token) return false;
+    try {
+      const request = await api<BackendTailoringRequest>(`/tailoring-requests/${requestId}`, {}, token);
+      if (request.status !== "TAILOR_SELECTED" && request.paymentStatus !== "PAID") return false;
+      paymentMessageHandledRef.current = true;
+      paymentExternalOpenRef.current = false;
+      const existing = orders.find((order) => order.backendOrderId === request.id || order.id === request.id);
+      const nextOrder = orderFromBackendRequest(request, existing ? { ...existing, tailor: quote, draft: draftState } : undefined);
+      if (!nextOrder) return false;
+      setCustomerOrders((current) => [nextOrder, ...current.filter((order) => order.id !== nextOrder.id && order.backendOrderId !== nextOrder.backendOrderId)]);
+      setActiveOrder(nextOrder);
+      setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
+      setSelectedQuote(undefined);
+      setPaymentSheet(undefined);
+      setScreen("orderDetails");
+      setDialog({
+        title: dialogCopy?.title ?? "Order already confirmed",
+        message: dialogCopy?.message ?? `Order REQ-${request.id.slice(0, 8).toUpperCase()} is already confirmed. Opening the order details now.`,
+        actions: [{ label: "View Order" }]
+      });
+      void refreshCustomerOrders();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async function recoverPaymentSheet(options: { closeWhenPending?: boolean } = {}) {
@@ -12244,6 +12312,7 @@ function AppContent() {
       return;
     }
     if (payload.type === "cancel") {
+      if (await openConfirmedCheckoutIfPresent(paymentSheet.requestId, paymentSheet.quote, paymentSheet.draft)) return;
       paymentMessageHandledRef.current = true;
       paymentExternalOpenRef.current = false;
       setPaymentSheet(undefined);
@@ -12256,6 +12325,14 @@ function AppContent() {
       return;
     }
     if (payload.type === "failure") {
+      if (
+        await openConfirmedCheckoutIfPresent(paymentSheet.requestId, paymentSheet.quote, paymentSheet.draft, {
+          title: "Order confirmed",
+          message: `Order REQ-${paymentSheet.requestId.slice(0, 8).toUpperCase()} is confirmed. Razorpay sent a stale failure event after confirmation, so we are opening the order details.`
+        })
+      ) {
+        return;
+      }
       paymentMessageHandledRef.current = true;
       paymentExternalOpenRef.current = false;
       setPaymentSheet(undefined);
@@ -12299,6 +12376,7 @@ function AppContent() {
       }
     } catch (error) {
       paymentExternalOpenRef.current = false;
+      if (await openConfirmedCheckoutIfPresent(paymentSheet.requestId, paymentSheet.quote, paymentSheet.draft)) return;
       restorePaymentCheckout(paymentSheet);
       setDialog({
         title: "Payment verification failed",

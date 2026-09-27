@@ -14,6 +14,7 @@ export type CustomerUser = {
   avatarUri?: string;
   avatarPreset?: string;
   wallet?: { balance?: number };
+  notificationPreferences?: { customer?: import("../lib/types").NotificationPreferences };
 };
 
 type AuthState = {

@@ -57,10 +57,8 @@ async function callTwoFactor(path: string, method: "GET" | "POST" = "POST") {
 }
 
 async function sendTwoFactorOtp(phone: string) {
-  const templateName = env.TWOFACTOR_TEMPLATE_NAME.trim();
-  if (templateName !== "OTP1") {
-    throw new Error("2Factor SMS template must be OTP1; check TWOFACTOR_TEMPLATE_NAME");
-  }
+  // The provider requires OTP1 for this SMS route; legacy environment values
+  // must not block requests or select a different delivery template.
   console.info("[otp] Requesting 2Factor SMS with template OTP1");
   const payload = await callTwoFactor(`${encodeURIComponent(phone)}/AUTOGEN/OTP1`, "GET");
   if (!isTwoFactorSuccess(payload)) throw new Error(`TwoFactor OTP send failed: ${String(payload.Details ?? "unknown response").replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);

@@ -110,6 +110,7 @@ import { useAppStore } from "./src/store";
 import { localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { useLayoutEffect } from "react";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
@@ -134,21 +135,36 @@ function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>
   return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
 }
 
-function useTranslatedAlerts(language: AppLanguage) {
-  useEffect(() => {
+function NativeAlertHost() {
+  const [queue, setQueue] = useState<Array<{ dialog: DialogState; cancelable: boolean; onDismiss?: () => void }>>([]);
+  useLayoutEffect(() => {
     const originalAlert = Alert.alert;
-    Alert.alert = ((title, message, buttons, options) => originalAlert(
-      typeof title === "string" ? translateStaticText(language, title) : title,
-      typeof message === "string" ? translateStaticText(language, message) : message,
-      Array.isArray(buttons)
-        ? buttons.map((button) => button && typeof button.text === "string" ? { ...button, text: translateStaticText(language, button.text) } : button)
-        : buttons,
-      options
-    )) as typeof Alert.alert;
-    return () => {
-      Alert.alert = originalAlert;
+    const present: typeof Alert.alert = (title, message, buttons, options) => {
+      const actions = buttons?.length ? buttons : [{ text: "OK" }];
+      setQueue((current) => [...current, {
+        cancelable: options?.cancelable === true,
+        onDismiss: options?.onDismiss,
+        dialog: {
+          title, message: message ?? "",
+          icon: "information-circle-outline",
+          actions: actions.map((button) => ({
+            label: button.text ?? "OK",
+            variant: button.style === "cancel" ? "secondary" : "primary",
+            onPress: button.onPress
+          }))
+        }
+      }]);
     };
-  }, [language]);
+    Alert.alert = present;
+    return () => { if (Alert.alert === present) Alert.alert = originalAlert; };
+  }, []);
+  const current = queue[0];
+  const close = () => setQueue((items) => items.slice(1));
+  return <DesignedDialog dialog={current?.dialog} onClose={close} onDismiss={() => {
+    if (!current?.cancelable) return;
+    close();
+    current.onDismiss?.();
+  }} />;
 }
 
 function normalizedAvatarGender(gender?: string) {
@@ -842,13 +858,12 @@ function AuthScreen() {
   const insets = useSafeAreaInsets();
   const [otpRequested, setOtpRequested] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
-  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [otp, setOtp] = useState("");
   const otpRef = useRef("");
   const [verificationPhone, setVerificationPhone] = useState("");
   const requestPendingRef = useRef(false);
   const verifyPendingRef = useRef(false);
-  const [requestingMode, setRequestingMode] = useState<"default" | "twofactor" | undefined>();
+  const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
   const setSession = useAppStore((state) => state.setSession);
@@ -862,28 +877,27 @@ function AuthScreen() {
     return () => clearInterval(timer);
   }, [otpRequested]);
 
-  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+  async function requestOtp(values: RequestOtpForm) {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
-      setRequestingMode(mode);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      setIsRequesting(true);
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
-      setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
       setDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Check backend connection.", "इंटरनेट कनेक्शन जाँचें।"), icon: "alert-circle-outline" });
     } finally {
       requestPendingRef.current = false;
-      setRequestingMode(undefined);
+      setIsRequesting(false);
     }
   }
 
   async function verify() {
-    if (verifyPendingRef.current) return;
+    if (verifyPendingRef.current || requestPendingRef.current) return;
     const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "TAILOR" });
     if (!parsed.success) {
       setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" });
@@ -912,7 +926,7 @@ function AuthScreen() {
       <View style={[styles.authLanguageCorner, { top: insets.top + 12 }]}>
         <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />
       </View>
-      <KeyboardAvoidingView style={styles.screenHost} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={styles.screenHost} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView
           contentContainerStyle={styles.authContent}
           keyboardDismissMode="interactive"
@@ -928,23 +942,17 @@ function AuthScreen() {
           <>
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
             <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder={localize(language, "Enter tailor mobile number", "दर्जी का मोबाइल नंबर दर्ज करें")} />} />
-            <AuthButton label={t(language, "sendOtp")} loading={requestingMode === "default"} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
-            {__DEV__ ? (
-              <Pressable style={[styles.authTwoFactorButton, !!requestingMode && styles.disabledButton]} disabled={!!requestingMode} accessibilityRole="button" accessibilityState={{ disabled: !!requestingMode }} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
-                {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Ionicons name="chatbubble-ellipses-outline" size={18} color={BRAND_ORANGE} />}
-                <Text style={styles.authTwoFactorButtonText}>{requestingMode === "twofactor" ? localize(language, "Requesting test SMS...", "टेस्ट एसएमएस मंगाया जा रहा है...") : localize(language, "Request 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी मंगाएँ (टेस्ट एसएमएस)")}</Text>
-              </Pressable>
-            ) : null}
+            <AuthButton label={t(language, "sendOtp")} loading={isRequesting} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
           </>
         ) : (
           <>
             <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
             <TextInput style={styles.input} autoFocus editable={!isVerifying} value={otp} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} />
             <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
-            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
-              <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : otpMode === "twofactor" ? localize(language, "Resend 2Factor OTP (test SMS)", "टूफैक्टर ओटीपी दोबारा मंगाएँ (टेस्ट एसएमएस)") : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>
+            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
+              {isRequesting ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
             </Pressable>
-            <Pressable style={styles.textButton} disabled={isVerifying} onPress={() => setOtpRequested(false)}>
+            <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => setOtpRequested(false)}>
               <Text style={styles.textButtonText}>{t(language, "changeNumber")}</Text>
             </Pressable>
           </>
@@ -956,7 +964,7 @@ function AuthScreen() {
   );
 }
 
-function Header({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack?: () => void }) {
+function Header({ title, subtitle, onBack, right }: { title: string; subtitle?: string; onBack?: () => void; right?: React.ReactNode }) {
   return (
     <View style={styles.header}>
       {onBack ? (
@@ -968,6 +976,7 @@ function Header({ title, subtitle, onBack }: { title: string; subtitle?: string;
         <Text style={styles.headerTitle}>{title}</Text>
         {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
       </View>
+      {right ? <View style={{ marginLeft: 8, flexShrink: 0 }}>{right}</View> : null}
     </View>
   );
 }
@@ -4320,6 +4329,8 @@ function TailorVerificationFlow({
   const isLocked = status === "PENDING" || status === "VERIFIED";
   const { signOut } = useAppStore();
   const language = useAppStore((state) => state.language);
+  const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
+  const languageToggle = <CompactLanguageToggle language={language} onSelect={setLanguagePreference} />;
   const [step, setStep] = useState(status === "PENDING" || status === "REJECTED" || status === "REUPLOAD_REQUIRED" ? VERIFICATION_STATUS_STEP : 1);
   const [saving, setSaving] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
@@ -4970,7 +4981,7 @@ function TailorVerificationFlow({
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.pageContent}>
-          <Header title={content[0]} onBack={() => setInfoPage(undefined)} />
+          <Header title={content[0]} onBack={() => setInfoPage(undefined)} right={languageToggle} />
           <View style={styles.whiteCard}>
             {content.slice(1).map((line) => (
               <Text key={line} style={styles.tutorialText}>{line}</Text>
@@ -5056,7 +5067,7 @@ function TailorVerificationFlow({
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.pageContent}>
-          <Header title={statusTitle} subtitle={needsReupload ? localize(language, "Please upload the requested documents again.", "माँगे गए दस्तावेज़ दोबारा अपलोड करें।") : undefined} />
+          <Header title={statusTitle} subtitle={needsReupload ? localize(language, "Please upload the requested documents again.", "माँगे गए दस्तावेज़ दोबारा अपलोड करें।") : undefined} right={languageToggle} />
           <View style={styles.privacyTrustBanner}>
             <Ionicons name="shield-checkmark-outline" size={18} color={SUCCESS} />
             <Text style={styles.privacyTrustText}>{localize(language, "Your information and documents remain safe with Darji.", "आपकी जानकारी और दस्तावेज़ दर्जी के पास सुरक्षित हैं।")}</Text>
@@ -5144,9 +5155,11 @@ function TailorVerificationFlow({
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScrollView contentContainerStyle={styles.pageContent} keyboardDismissMode="on-drag">
         <Header
           title={localize(language, "Tailor Verification", "दर्जी सत्यापन")}
+          right={languageToggle}
           subtitle={localize(language, `Step ${Math.min(step, VERIFICATION_TOTAL_STEPS)} of ${VERIFICATION_TOTAL_STEPS}`, `चरण ${Math.min(step, VERIFICATION_TOTAL_STEPS)} / ${VERIFICATION_TOTAL_STEPS}`)}
           onBack={() => handleVerificationBack("header")}
         />
@@ -5412,6 +5425,7 @@ function TailorVerificationFlow({
             {faceModeOpen ? (
               <Modal visible animationType="slide" onRequestClose={() => setFaceModeOpen(false)}>
                 <SafeAreaView style={styles.cameraSafe}>
+                  <View style={{ alignSelf: "flex-end", padding: 12 }}>{languageToggle}</View>
                   <CameraView ref={faceCameraRef} style={styles.faceCamera} facing="front" mirror>
                     <View style={styles.cameraOverlay}>
                       <View style={[styles.cameraFaceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" ? styles.cameraFaceCircleReady : styles.cameraFaceCircleWaiting]} />
@@ -5531,6 +5545,7 @@ function TailorVerificationFlow({
           </Text>
         </Pressable>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -6033,15 +6048,16 @@ function BottomTabs({ screen, setScreen, onOpenRequests }: { screen: Screen; set
   );
 }
 
-function DesignedDialog({ dialog, onClose }: { dialog?: DialogState; onClose: () => void }) {
+function DesignedDialog({ dialog, onClose, onDismiss }: { dialog?: DialogState; onClose: () => void; onDismiss?: () => void }) {
   if (!dialog) return null;
   const actions = dialog.actions?.length ? dialog.actions : [{ label: "OK", variant: "primary" as const }];
   const requestSuccess = dialog.variant === "requestSuccess";
 
   return (
-    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+    <Modal transparent visible animationType="fade" onRequestClose={onDismiss ?? onClose}>
       <View style={styles.popupBackdrop}>
-        <View style={[styles.popupCard, requestSuccess && styles.popupCardSuccess]}>
+        <View style={[styles.popupCard, { maxHeight: "85%" }, requestSuccess && styles.popupCardSuccess]}>
+          <ScrollView style={{ alignSelf: "stretch", flexGrow: 0 }} contentContainerStyle={{ alignItems: "center" }} keyboardShouldPersistTaps="handled">
           <View style={[styles.popupIcon, requestSuccess && styles.popupIconSuccess]}>
             <Ionicons name={dialog.icon ?? "information-circle-outline"} size={requestSuccess ? 40 : 28} color={requestSuccess ? "#16a34a" : BRAND_ORANGE} />
             {requestSuccess ? (
@@ -6066,6 +6082,7 @@ function DesignedDialog({ dialog, onClose }: { dialog?: DialogState; onClose: ()
               </Pressable>
             ))}
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -6305,7 +6322,6 @@ function AppContent() {
   const [me, setMe] = useState<MeResponse>();
   const [verifiedWelcomeDismissed, setVerifiedWelcomeDismissed] = useState(false);
 
-  useTranslatedAlerts(language);
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -6627,6 +6643,14 @@ function AppContent() {
           }
         };
       });
+
+      if (profile.tailorProfile?.verificationStatus !== "VERIFIED") {
+        setRequests([]);
+        setOrders([]);
+        setMeasurementVisits([]);
+        setWallet(emptyPartnerWallet());
+        return;
+      }
 
       const [openRequestsResult, selectedRequestsResult, cancelledRequestsResult, ordersResult, visitsResult, walletResult] = await Promise.allSettled([
         api<TailoringRequest[]>("/tailoring-requests", {}, token),
@@ -7300,7 +7324,7 @@ function AppContent() {
 }
 
 export default function App() {
-  return <SafeAreaProvider><StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent /><AppContent /></SafeAreaProvider>;
+  return <SafeAreaProvider><StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent /><NativeAlertHost /><AppContent /></SafeAreaProvider>;
 }
 
 const styles = StyleSheet.create({
@@ -7998,9 +8022,9 @@ const styles = StyleSheet.create({
   popupIconSmall: { width: 48, height: 48, borderRadius: 18, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
   popupCloseButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#eef2f7", alignItems: "center", justifyContent: "center" },
   popupEyebrow: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.5, marginTop: 14 },
-  popupTitle: { color: BRAND_DEEP, fontSize: 23, lineHeight: 29, fontWeight: "900", textAlign: "center", marginTop: 8 },
+  popupTitle: { color: BRAND_DEEP, fontSize: 23, lineHeight: 36, includeFontPadding: true, paddingVertical: 4, width: "100%", flexShrink: 1, fontWeight: "900", textAlign: "center", marginTop: 8 },
   popupTitleSuccess: { fontSize: 20, lineHeight: 25, marginTop: 2 },
-  popupCopy: { color: MUTED, fontSize: 14, lineHeight: 22, fontWeight: "700", textAlign: "center", marginTop: 8 },
+  popupCopy: { color: MUTED, fontSize: 14, lineHeight: 26, includeFontPadding: true, paddingVertical: 4, width: "100%", flexShrink: 1, fontWeight: "700", textAlign: "center", marginTop: 8 },
   popupCopySuccess: { fontSize: 13, lineHeight: 20, marginTop: 8 },
   popupActions: { width: "100%", gap: 10, marginTop: 20 },
   popupActionButton: { minHeight: 52, borderRadius: 16, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", paddingHorizontal: 14 },

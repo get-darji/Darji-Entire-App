@@ -9,9 +9,17 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
+  Text as RNText,
   View
 } from "react-native";
+import type { ComponentProps } from "react";
+import { useAppStore } from "../store";
+import { translateStaticChildren } from "../../../../shared/src/static-translations";
+
+function Text({ children, ...props }: ComponentProps<typeof RNText>) {
+  const language = useAppStore((state) => state.language);
+  return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
 import { useIncomingRequest } from "./useIncomingRequest";
 import type { IncomingRequestPayload } from "./types";
 import { cancelIncomingRequestNotifications } from "./NotificationService";

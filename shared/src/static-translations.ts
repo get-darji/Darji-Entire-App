@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { localizeKnownEnglish, type AppLanguage } from "./localization";
 import generatedHindiUi from "./generated-hindi-ui.json";
 import { customerHindi } from "./customer-hindi";
+import { reviewedHindiUi } from "./reviewed-hindi-ui";
 
 const staticText = {
   "Done": "हो गया",
@@ -1025,7 +1026,7 @@ function isCorruptedHindi(value: string) {
 }
 
 function translateStaticCore(language: AppLanguage, value: string): string {
-  const direct = customerHindi[value] ?? staticText[value as keyof typeof staticText] ?? generatedHindiUi[value as keyof typeof generatedHindiUi] ?? localizeKnownEnglish(language, value);
+  const direct = reviewedHindiUi[value] ?? customerHindi[value] ?? staticText[value as keyof typeof staticText] ?? generatedHindiUi[value as keyof typeof generatedHindiUi] ?? localizeKnownEnglish(language, value);
   if (isCorruptedHindi(direct)) return value;
   if (direct !== value) return direct;
 

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { AppLanguage } from "../../../shared/src/localization";
+import { restoreLanguagePreference } from "../../../shared/src/language-preference";
 import type { ServiceItem } from "./shared";
 
 type User = { id: string; phone: string; name?: string; role: string; email?: string; gender?: string; dateOfBirth?: string; avatarUri?: string; avatarUrl?: string; avatarPreset?: string; preferredLanguage?: AppLanguage };
@@ -36,8 +37,8 @@ export const useAppStore = create<Store>()(persist((set) => ({
   hasSelectedLanguage: false,
   hasHydrated: false,
   favoriteTailorIds: [],
-  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, language: user.preferredLanguage ?? state.language, sessionNotice: undefined })),
-  setUser: (user) => set((state) => ({ user, language: user.preferredLanguage ?? state.language })),
+  setSession: (token, user, refreshToken) => set((state) => ({ token, user, refreshToken, sessionNotice: undefined })),
+  setUser: (user) => set({ user }),
   setAccessToken: (token) => set({ token }),
   setLanguagePreference: (language) => set({ language, hasSelectedLanguage: true }),
   setHasHydrated: (hasHydrated) => set({ hasHydrated }),
@@ -64,6 +65,7 @@ export const useAppStore = create<Store>()(persist((set) => ({
 }), {
   name: "darzi-customer-session",
   storage: createJSONStorage(() => AsyncStorage),
+  merge: (persisted, current) => ({ ...current, ...(persisted as Partial<Store>), ...restoreLanguagePreference(persisted) }),
   partialize: (state) => ({
     token: state.token,
     refreshToken: state.refreshToken,
