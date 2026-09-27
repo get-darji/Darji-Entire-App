@@ -259,7 +259,9 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       eligibleUsers.flatMap((user) => {
         const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string }> };
         const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app)).map((item) => item.token!);
-        const legacyToken = json.fcmToken && (!shouldFilterByApp || matchingFcmTokens.length === 0) ? [json.fcmToken] : [];
+        // Legacy tokens have no app identity. Never use them for an app-scoped push,
+        // otherwise a tailor alert can surface in the customer app on a shared device.
+        const legacyToken = json.fcmToken && !shouldFilterByApp ? [json.fcmToken] : [];
         return [...legacyToken, ...matchingFcmTokens];
       })
     )

@@ -12212,15 +12212,17 @@ function AppContent() {
         });
       }
     } catch (error) {
-      if (
-        /already confirmed/i.test(error instanceof Error ? error.message : "") &&
-        (await openConfirmedCheckoutIfPresent(selectedQuote.backendRequestId, selectedQuote, orderDraft))
-      ) {
+      const checkoutError = error instanceof Error ? error.message : "Could not start checkout.";
+      const confirmationMayHaveCommitted = /already confirmed|could not reach|cannot reach|timed out|timeout|network request failed/i.test(checkoutError);
+      if (confirmationMayHaveCommitted && await openConfirmedCheckoutIfPresent(selectedQuote.backendRequestId, selectedQuote, orderDraft, {
+        title: "Order confirmed",
+        message: `Order REQ-${selectedQuote.backendRequestId.slice(0, 8).toUpperCase()} was confirmed even though the checkout response was interrupted. Opening the order details now.`
+      })) {
         return;
       }
       setDialog({
         title: "Checkout failed",
-        message: error instanceof Error ? error.message : "Could not start checkout.",
+        message: checkoutError,
         actions: [{ label: "OK" }]
       });
     } finally {

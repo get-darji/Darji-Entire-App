@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { env } from "../env.js";
 import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
   analyticsController,
@@ -157,7 +158,15 @@ import {
 
 export const router = Router();
 
-router.get("/health", (_req, res) => res.json({ data: { ok: true, service: "darzi-backend", push: pushRuntimeStatus() } }));
+router.get("/health", (_req, res) => res.json({
+  data: {
+    ok: true,
+    service: "darzi-backend",
+    checkoutBuild: "async-confirmation-v2",
+    paymentMode: !env.RAZORPAY_KEY_ID ? "unconfigured" : env.RAZORPAY_KEY_ID.startsWith("rzp_test_") ? "test" : "live",
+    push: pushRuntimeStatus()
+  }
+}));
 router.get("/platform-status", platformStatusController);
 router.get("/settings/customer-website-slider", customerWebsiteSliderController);
 router.post(

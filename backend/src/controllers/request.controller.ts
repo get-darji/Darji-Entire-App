@@ -952,64 +952,67 @@ async function finalizeTailoringRequestConfirmation(
   emitToTailors("tailoring:request_closed", { requestId: request.id, acceptedTailorId: quote.tailorId });
   const hydratedRequest = await hydrateTailoringRequest(updatedRequest);
   const acceptedTailor = await hydrateTailorQuote(await TailorQuoteModel.findById(quote.id));
-  let deliveryRequest = null;
+  emitToTailor(quote.tailorId, "tailoring:quote_accepted", {
+    requestId: request.id,
+    quoteId: quote.id,
+    request: hydratedRequest
+  });
+  emitToCustomer(request.customerId, "customer:order_status_updated", {
+    requestId: request.id,
+    status: "TAILOR_ACCEPTED",
+    request: hydratedRequest
+  });
 
-  try {
-    emitToTailor(quote.tailorId, "tailoring:quote_accepted", {
-      requestId: request.id,
-      quoteId: quote.id,
-      request: hydratedRequest
-    });
-    emitToCustomer(request.customerId, "customer:order_status_updated", {
-      requestId: request.id,
-      status: "TAILOR_ACCEPTED",
-      request: hydratedRequest
-    });
-
-    const acceptedTailorProfile = await TailorModel.findById(quote.tailorId).select("userId");
-    if (acceptedTailorProfile?.userId) {
-      await sendOrderConfirmedNotification({
-        userId: acceptedTailorProfile.userId,
-        title: "Price accepted",
-        body: `The customer confirmed your price for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
-        data: {
-          type: "ORDER_CONFIRMED",
-          requestId: request.id,
-          orderId: request.id,
-          quoteId: quote.id,
-          screen: "requestDetails"
-        }
-      });
-    }
-    await sendPushToUsers([request.customerId], {
-      title: paymentStatus === "PAID" ? "Payment received" : "Order confirmed",
-      body: `Your order has been confirmed with ${(acceptedTailor as { tailor?: { shopName?: string } } | null)?.tailor?.shopName ?? "Darji Tailor"}.`,
-      data: {
-        type: paymentStatus === "PAID" ? "PAYMENT_SUCCESS" : "TAILOR_ACCEPTED",
+  // The order is committed at this point. Push delivery, visit creation, and
+  // delivery-task setup must not hold the checkout response past the app's timeout.
+  void (async () => {
+    try {
+      const acceptedTailorProfile = await TailorModel.findById(quote.tailorId).select("userId");
+      await Promise.all([
+        acceptedTailorProfile?.userId
+          ? sendOrderConfirmedNotification({
+              userId: acceptedTailorProfile.userId,
+              title: "Price accepted",
+              body: `The customer confirmed your price for ${requestItemCount(request) === 1 ? request.clothType : `${requestItemCount(request)} clothing items`}.`,
+              data: {
+                type: "ORDER_CONFIRMED",
+                requestId: request.id,
+                orderId: request.id,
+                quoteId: quote.id,
+                screen: "requestDetails"
+              }
+            })
+          : Promise.resolve(),
+        sendPushToUsers([request.customerId], {
+          title: paymentStatus === "PAID" ? "Payment received" : "Order confirmed",
+          body: `Your order has been confirmed with ${(acceptedTailor as { tailor?: { shopName?: string } } | null)?.tailor?.shopName ?? "Darji Tailor"}.`,
+          data: {
+            type: paymentStatus === "PAID" ? "PAYMENT_SUCCESS" : "TAILOR_ACCEPTED",
+            requestId: request.id,
+            quoteId: quote.id,
+            screen: "trackOrder"
+          },
+          channelId: "customer-orders-v2",
+          categoryId: "DARJI_ORDER",
+          sound: "ding.mp3",
+          actions: ["View Order"]
+        }),
+        createMeasurementVisitForConfirmedRequest(request.id, quote.id),
+        createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId)
+      ]);
+    } catch (error) {
+      console.error("[checkout] post-confirmation side effects failed", {
         requestId: request.id,
         quoteId: quote.id,
-        screen: "trackOrder"
-      },
-      channelId: "customer-orders-v2",
-      categoryId: "DARJI_ORDER",
-      sound: "ding.mp3",
-      actions: ["View Order"]
-    });
-
-    await createMeasurementVisitForConfirmedRequest(request.id, quote.id);
-    deliveryRequest = await createDeliveryRequestForTailoringRequest(request.id, "customer_to_tailor", quote.tailorId);
-  } catch (error) {
-    console.error("[checkout] post-confirmation side effects failed", {
-      requestId: request.id,
-      quoteId: quote.id,
-      error
-    });
-  }
+        error
+      });
+    }
+  })();
 
   return {
     request: hydratedRequest,
     quote: acceptedTailor,
-    deliveryRequest
+    deliveryRequest: null
   };
 }
 
@@ -2205,7 +2208,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
   emitTailoringEvent({ type: "REQUEST_CREATED", requestId: request.id });
   const verifiedTailors = await TailorModel.find({ verificationStatus: "VERIFIED", isAvailable: true }).select("userId");
   for (const tailor of verifiedTailors) emitToTailor(tailor.id, "tailoring:request_created", request.toJSON());
-  await Promise.all(
+  void Promise.all(
     verifiedTailors.map((tailor) => sendNewRequestNotification({
       userId: tailor.userId,
       title: "New customer order",
@@ -2225,7 +2228,9 @@ export async function createTailoringRequestController(req: Request, res: Respon
       },
       sound: "requests.mp3"
     }))
-  );
+  ).catch((error) => {
+    console.error("[request] new-order notifications failed", { requestId: request.id, error });
+  });
   res.status(201).json({ data: request });
 }
 
