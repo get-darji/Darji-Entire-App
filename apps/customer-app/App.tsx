@@ -2,7 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer } from "expo-audio";
+import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer, type AudioStatus } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -129,6 +129,28 @@ function Text({ children, ...props }: ComponentProps<typeof RNText>) {
 function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
   const language = useAppStore((state) => state.language);
   return <RNTextInput {...props} placeholder={typeof placeholder === "string" ? translateStaticText(language, placeholder) : placeholder} />;
+}
+
+async function waitForVoicePlayer(player: AudioPlayer) {
+  if (player.isLoaded) return;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let subscription: { remove: () => void } | undefined;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      subscription?.remove();
+      if (error) reject(error);
+      else resolve();
+    };
+    subscription = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+      if (status.error) finish(new Error(status.error));
+      else if (status.isLoaded) finish();
+    });
+    timeout = setTimeout(() => finish(new Error("Voice note took too long to load. Check your connection and try again.")), 10000);
+  });
 }
 
 function useTranslatedAlerts(language: AppLanguage) {
@@ -426,7 +448,8 @@ type BackendTailoringRequest = {
   deliveryPartner?: DeliveryPartnerContact | null;
 };
 type CheckoutStartResponse = {
-  mode: "cod" | "online";
+  mode: "cod" | "online" | "test" | "confirmed";
+  testMode?: boolean;
   request?: BackendTailoringRequest;
   quote?: BackendRequestQuote | null;
   deliveryRequest?: { id: string } | null;
@@ -3603,12 +3626,19 @@ function NewRequestScreen({
         return;
       }
       stopVoicePlayback();
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false,
+        interruptionMode: "doNotMix"
+      });
       playingVoiceUriRef.current = uri;
       setPlayingVoiceUri(uri);
       const player = createAudioPlayer({ uri });
       player.volume = 1;
       voicePlayerRef.current = player;
+      await waitForVoicePlayer(player);
       await player.seekTo(0).catch(() => undefined);
       player.play();
       playbackMonitorRef.current = setInterval(() => {
@@ -11298,18 +11328,6 @@ function AppContent() {
     return () => subscription.remove();
   }, [goBack]);
 
-  useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data && data.type === "bug") {
-        setScreen("reportBug");
-      } else {
-        setScreen("contactSupport");
-      }
-    });
-    return () => subscription.remove();
-  }, []);
-
   function openRequestResume(order: CustomerOrder) {
     setActiveOrder(order);
     setDraft(order.draft);
@@ -12166,14 +12184,16 @@ function AppContent() {
         token
       );
 
-      if (response.mode === "cod" && response.request) {
+      if (["cod", "test", "confirmed"].includes(response.mode) && response.request) {
         storeConfirmedOrder(response.request, selectedQuote, orderDraft);
         setDraft(makeEmptyDraft(defaultAddress?.address ?? "", defaultAddress?.lat != null && defaultAddress.lng != null ? { lat: defaultAddress.lat, lng: defaultAddress.lng } : undefined));
         setSelectedQuote(undefined);
         setScreen("orderDetails");
         setDialog({
           title: "Order confirmed",
-          message: `Order REQ-${response.request.id.slice(0, 8).toUpperCase()} is confirmed with COD.`,
+          message: response.mode === "test"
+            ? `Test payment approved. Order REQ-${response.request.id.slice(0, 8).toUpperCase()} is confirmed without charging a real payment method.`
+            : `Order REQ-${response.request.id.slice(0, 8).toUpperCase()} is confirmed${response.mode === "cod" ? " with COD" : ""}.`,
           actions: [{ label: "View Order" }]
         });
         return;

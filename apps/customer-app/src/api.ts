@@ -168,7 +168,7 @@ function sendMediaUpload(files: { uri: string; type: "image" | "video" | "audio"
     form.append("media", {
       uri: file.uri,
       name: file.name,
-      type: file.type === "image" ? "image/jpeg" : file.type === "audio" ? "audio/m4a" : "video/mp4"
+      type: file.type === "image" ? "image/jpeg" : file.type === "audio" ? "audio/mp4" : "video/mp4"
     } as unknown as File);
   });
 

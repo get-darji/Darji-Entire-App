@@ -208,8 +208,13 @@ export const HOME_MEASUREMENT_FEE = 30;
 export const MEASUREMENT_VISIT_BASE_PAYOUT = 30;
 export const MEASUREMENT_VISIT_PER_KM = 10;
 
+export function measurementVisitChargeableDistanceMeters(distanceMeters?: number | null) {
+  const oneWayDistanceMeters = Math.max(0, Number(distanceMeters) || 0);
+  return oneWayDistanceMeters * 2;
+}
+
 export function measurementVisitFee(distanceMeters?: number | null) {
-  const km = Math.max(0, Number(distanceMeters) || 0) / 1000;
+  const km = measurementVisitChargeableDistanceMeters(distanceMeters) / 1000;
   return Math.round(MEASUREMENT_VISIT_BASE_PAYOUT + km * MEASUREMENT_VISIT_PER_KM);
 }
 

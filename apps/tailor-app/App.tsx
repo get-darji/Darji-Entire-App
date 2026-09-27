@@ -2,7 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, type AudioPlayer, type AudioStatus } from "expo-audio";
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from "expo-audio";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -128,6 +128,28 @@ import {
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
   return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
+}
+
+async function waitForVoicePlayer(player: AudioPlayer) {
+  if (player.isLoaded) return;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let subscription: { remove: () => void } | undefined;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      subscription?.remove();
+      if (error) reject(error);
+      else resolve();
+    };
+    subscription = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+      if (status.error) finish(new Error(status.error));
+      else if (status.isLoaded) finish();
+    });
+    timeout = setTimeout(() => finish(new Error("Voice note took too long to load. Check your connection and try again.")), 10000);
+  });
 }
 
 function TextInput({ placeholder, ...props }: ComponentProps<typeof RNTextInput>) {
@@ -2188,6 +2210,13 @@ function RequestDetailsScreen({
         return;
       }
       stopVoicePlayback();
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false,
+        interruptionMode: "doNotMix"
+      });
       const player = createAudioPlayer({ uri: voice.url }, { updateInterval: 100 });
       voicePlayerRef.current = player;
       voiceWaveProgress.setValue(0);
@@ -2205,6 +2234,7 @@ function RequestDetailsScreen({
           setVoicePlaybackPaused(true);
         }
       });
+      await waitForVoicePlayer(player);
       player.play();
     } catch (error) {
       stopVoicePlayback();
@@ -7269,8 +7299,16 @@ function AppContent() {
           return;
         }
         const order = destination.entityId ? orders.find((item) => item.id === destination.entityId || item.request?.id === destination.entityId) : undefined;
-        if (order) setActiveOrder(order);
-        setScreen(order ? "orderDetails" : "orders");
+        if (order) {
+          setActiveOrder(order);
+          setScreen("orderDetails");
+          return;
+        }
+        if (destination.entityId) {
+          void openWalletOrder(destination.entityId);
+          return;
+        }
+        setScreen("orders");
       }}
     >
       <SafeAreaView style={styles.safe}>

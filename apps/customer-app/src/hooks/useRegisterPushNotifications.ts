@@ -33,6 +33,17 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     }
 
     let cancelled = false;
+    let registeredTokens: { expoPushToken?: string; fcmToken?: string; registrationKey: string; storageKey: string } | undefined;
+    async function unregisterTokens(tokens: typeof registeredTokens) {
+      if (!tokens || (!tokens.expoPushToken && !tokens.fcmToken)) return;
+      await api("/notifications/device-token", {
+        method: "DELETE",
+        body: JSON.stringify({ expoPushToken: tokens.expoPushToken, fcmToken: tokens.fcmToken })
+      }, authToken).catch(() => undefined);
+      completedRegistrations.delete(tokens.registrationKey);
+      await AsyncStorage.removeItem(tokens.storageKey).catch(() => undefined);
+    }
+
     async function saveTokens(nativeToken?: Notifications.DevicePushToken) {
       let expoPushToken: string | undefined;
       try {
@@ -53,7 +64,8 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
       if (!expoPushToken && !fcmToken) throw new Error("No push token could be generated");
       const registrationKey = `${app}:${userId ?? "unknown"}:${expoPushToken ?? ""}:${fcmToken ? String(fcmToken.data) : ""}`;
       const storageKey = `darji.push-registration.v2.${app}.${userId ?? "unknown"}`;
-      if (completedRegistrations.has(registrationKey)) return;
+      registeredTokens = { expoPushToken, fcmToken: fcmToken ? String(fcmToken.data) : undefined, registrationKey, storageKey };
+      if ((await AsyncStorage.getItem(storageKey)) === registrationKey || completedRegistrations.has(registrationKey)) return;
       const existingRegistration = pendingRegistrations.get(registrationKey);
       if (existingRegistration) {
         await existingRegistration;
@@ -78,6 +90,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
         await registration;
         completedRegistrations.add(registrationKey);
         await AsyncStorage.setItem(storageKey, registrationKey);
+        if (cancelled) await unregisterTokens(registeredTokens);
       } finally {
         pendingRegistrations.delete(registrationKey);
       }
@@ -108,6 +121,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
     void register();
     return () => {
       cancelled = true;
+      void unregisterTokens(registeredTokens);
     };
   }, [app, authToken, userId]);
 

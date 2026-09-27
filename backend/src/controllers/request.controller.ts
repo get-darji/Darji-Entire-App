@@ -1017,12 +1017,26 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
   const request = await TailoringRequestModel.findById(requestId);
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (request.status === "CANCELLED") return request;
-  if (["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(String(request.orderStatus ?? ""))) {
+
+  const deliveryTasks = await DeliveryRequestModel.find({ orderId: request.id });
+  const customerToTailorTask = deliveryTasks.find((task) => task.type === "customer_to_tailor");
+  const reachedTailor = Boolean(
+    customerToTailorTask?.dropOtpVerifiedAt ||
+    customerToTailorTask?.deliveredAt ||
+    customerToTailorTask?.taskStatus === "delivered" ||
+    ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(String(request.orderStatus ?? ""))
+  );
+  if (reachedTailor) {
     throw new AppError(409, "This order can no longer be cancelled after tailor handover");
   }
 
-  const pickedUp = ["pickup_started", "picked_up_from_customer"].includes(String(request.orderStatus ?? ""));
-  const cancellationFee = pickedUp ? Number(request.deliveryFee ?? 0) + 50 : 0;
+  const pickedUp = Boolean(
+    customerToTailorTask?.pickupOtpVerifiedAt ||
+    customerToTailorTask?.pickedUpAt ||
+    customerToTailorTask?.taskStatus === "picked_up" ||
+    ["pickup_started", "picked_up_from_customer"].includes(String(request.orderStatus ?? ""))
+  );
+  const cancellationFee = pickedUp ? Number(request.deliveryFee ?? 0) : 0;
 
   const updated = await TailoringRequestModel.findByIdAndUpdate(
     request.id,
@@ -1049,7 +1063,7 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
   if (cancelledVisit) {
     await resolveOperationalAlert(`MEASUREMENT_VISIT_UNASSIGNED:${cancelledVisit.id}`);
   }
-  const tasks = await DeliveryRequestModel.find({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } });
+  const tasks = deliveryTasks.filter((task) => ["pending", "accepted", "picked_up"].includes(String(task.taskStatus)));
   await DeliveryRequestModel.updateMany({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } }, { taskStatus: "cancelled" });
 
   emitToCustomer(request.customerId, "customer:order_status_updated", { requestId: request.id, status: "CANCELLED" });
@@ -2403,7 +2417,23 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
   if (request.status === "CANCELLED") throw new AppError(409, "Cancelled requests cannot be confirmed");
-  if (request.status === "TAILOR_SELECTED") throw new AppError(409, "This request is already confirmed");
+  if (request.status === "TAILOR_SELECTED") {
+    if (String(request.selectedQuoteId ?? "") !== input.quoteId) {
+      throw new AppError(409, "This request is already confirmed with another tailor");
+    }
+    const [confirmedRequest, confirmedQuote] = await Promise.all([
+      hydrateTailoringRequest(request),
+      hydrateTailorQuote(await TailorQuoteModel.findById(request.selectedQuoteId))
+    ]);
+    res.json({
+      data: {
+        mode: request.paymentMethod === "COD" ? "cod" : "confirmed",
+        request: confirmedRequest,
+        quote: confirmedQuote
+      }
+    });
+    return;
+  }
 
   const storedMeasurementSlot = String(
     request.preferredMeasurementSlot ??
@@ -2521,6 +2551,37 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
       discountAmount,
       totalAmount: payableAmount
     })) } });
+    return;
+  }
+
+  if (env.RAZORPAY_KEY_ID?.startsWith("rzp_test_")) {
+    await PaymentModel.create({
+      orderId: request.id,
+      method: input.paymentMethod,
+      amount: payableAmount,
+      status: "PAID",
+      paidAt: new Date(),
+      providerRef: `test_auto_${request.id}`
+    });
+    res.json({
+      data: {
+        mode: "test",
+        testMode: true,
+        ...(await finalizeTailoringRequestConfirmation(request.id, quote.id, input.paymentMethod, "PAID", {
+          deliveryFee: expectedDeliveryFee,
+          deliveryMode: currentDeliveryMode,
+          customerToTailorDistanceMeters: lockedDelivery.oneWayDistanceMeters,
+          totalChargeableDistanceMeters: lockedDelivery.totalChargeableDistanceMeters,
+          platformFee: expectedPlatformFee,
+          smallOrderFee: expectedSmallOrderFee,
+          homeMeasurementFee: expectedHomeMeasurementFee,
+          additionalItems: input.additionalItems,
+          couponCode,
+          discountAmount,
+          totalAmount: payableAmount
+        }))
+      }
+    });
     return;
   }
 

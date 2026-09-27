@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUpDown,
   Bell,
+  BookOpen,
   CalendarCheck,
   Camera,
   Check,
@@ -35,6 +36,7 @@ import {
   Plus,
   PackageCheck,
   Ruler,
+  Search,
   RefreshCw,
   Send,
   Shirt,
@@ -62,7 +64,7 @@ import { CustomerExtraScreen, extraScreens, LanguageSwitcher, OrderActions, Deli
 import { uiText, useCustomerPreferences } from "./customer-preferences";
 import { CustomerDialogProvider, useCustomerDialog } from "./customer-dialog";
 import { isFinishedOrder, orderStatusLabel, measurementSlots } from "./order-state";
-import { measurementVisitFee } from "@darzi/shared";
+import { measurementVisitChargeableDistanceMeters, measurementVisitFee } from "@darzi/shared";
 import { GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../../shared/src/cloth-details";
 import { VoiceNotes } from "./voice-notes";
 
@@ -1487,15 +1489,27 @@ function ClothIssueStep({
             <ChipGroup label={uiText("Urgency")} options={urgencyOptions} value={draft.urgency} onChange={(value) => setDraft((current) => ({ ...current, urgency: value }))} />
 
             {draft.workType === "New Stitching" && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm font-semibold flex flex-col gap-2">
-                <p>{uiText("⚠️ If the cloth material provided is less than the required amount, the order will be cancelled and the full delivery fee is charged.")}</p>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
+                <div className="flex items-start gap-3">
+                  <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                  <div>
+                    <p className="font-black">{uiText("Important: Provide Enough Cloth")}</p>
+                    <p className="mt-1 font-semibold leading-6">{uiText("Please provide enough fabric for the selected garment, size, sleeves, length, and design. Insufficient cloth can affect the fit or require design changes.")}</p>
+                  </div>
+                </div>
+                <ul className="mt-4 grid gap-2 border-t border-amber-200 pt-4 font-semibold sm:grid-cols-3">
+                  <li>{uiText("Not enough cloth can affect the final fit and look.")}</li>
+                  <li>{uiText("Some designs, sleeves, and lengths need extra fabric.")}</li>
+                  <li>{uiText("The right amount helps avoid delays and rework.")}</li>
+                </ul>
                 <button
                   type="button"
                   onClick={() => setShowSizingModal(true)}
-                  className="text-[var(--darji-orange)] hover:underline text-left font-bold text-xs"
+                  className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 text-left text-xs font-black text-[var(--darji-orange)] hover:bg-amber-100"
                 >
-                  {uiText("View Cloth Requirement Guide")}
+                  <Ruler className="h-4 w-4" /> {uiText("View Cloth Requirement Guide")}
                 </button>
+                <p className="mt-3 text-xs font-bold text-amber-800">{uiText("By continuing, you confirm that you will provide sufficient cloth for this order.")}</p>
               </div>
             )}
 
@@ -1675,21 +1689,25 @@ function ChipGroup({ label, options, value, onChange }: { label: string; options
   return (
     <div className="text-left">
       <p className="mb-3 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--darji-muted)]">{uiText(label)}</p>
-      <div className="flex flex-wrap gap-2.5">
+      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
         {options.map((option) => {
           const active = value === option;
           return (
             <button 
               key={option} 
               type="button"
+              aria-pressed={active}
               onClick={() => onChange(option)} 
-              className={`rounded-full border px-4 py-2 text-xs font-black transition-all duration-200 ${
+              className={`flex min-h-12 items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm font-black transition-colors duration-200 ${
                 active 
-                  ? "border-[var(--darji-orange)] bg-[#fff7e8] text-[var(--darji-orange)] shadow-[0_2px_8px_rgba(255,112,0,0.12)] scale-105" 
-                  : "border-[#e6edf5] bg-white text-slate-500 hover:border-[#ffd5ad] hover:text-[var(--darji-ink)] hover:bg-[#fffcf7]/50"
+                  ? "border-[var(--darji-orange)] bg-[#fff7e8] text-[var(--darji-ink)]"
+                  : "border-[#dfe6ee] bg-white text-slate-600 hover:border-[#ffc47e] hover:bg-[#fffcf7]"
               }`}
             >
-              {uiText(option)}
+              <span className="min-w-0 break-words">{uiText(option)}</span>
+              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${active ? "border-[var(--darji-orange)] bg-[var(--darji-orange)] text-white" : "border-slate-300"}`}>
+                {active ? <Check className="h-3 w-3" /> : null}
+              </span>
             </button>
           );
         })}
@@ -1901,6 +1919,41 @@ function DeliverySummaryLine({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function MeasurementSummaryLine({ fee, distanceMeters }: { fee: number; distanceMeters?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const oneWayMeters = Math.max(0, Number(distanceMeters) || 0);
+  const roundTripMeters = measurementVisitChargeableDistanceMeters(oneWayMeters);
+  const oneWayKm = (oneWayMeters / 1000).toFixed(1);
+  const roundTripKm = (roundTripMeters / 1000).toFixed(1);
+  const distanceCharge = Math.max(0, fee - 30);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[#e2e8f0] bg-[#f8fafc]">
+      <button type="button" className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm font-bold" onClick={() => setExpanded((current) => !current)}>
+        <span className="flex items-center gap-2 text-[var(--darji-muted)]">
+          {uiText("Home measurement")}
+          <span className="rounded-md border border-[#fed7aa] bg-[#fff4dc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[var(--darji-orange)]">{uiText("Round trip")}</span>
+          <ChevronDown className={`h-3.5 w-3.5 text-[var(--darji-orange)] transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </span>
+        <span className="text-[var(--darji-ink)]">{formatMoney(fee)}</span>
+      </button>
+      {expanded ? (
+        <div className="space-y-3 border-t border-[#e2e8f0] bg-white p-4 text-xs">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <SummaryLine label={uiText("Tailor to home")} value={`${oneWayKm} ${uiText("km")}`} />
+            <SummaryLine label={uiText("Return journey")} value={`${oneWayKm} ${uiText("km")}`} />
+            <SummaryLine label={uiText("Chargeable distance")} value={`${roundTripKm} ${uiText("km")}`} strong />
+          </div>
+          <p className="font-semibold leading-5 text-[var(--darji-muted)]">
+            {uiText("The visiting tailor travels from the shop to your home and returns to the shop. Fee: base Rs30 + Rs10 per round-trip kilometre.")}
+          </p>
+          <p className="font-black text-[var(--darji-orange)]">{formatMoney(30)}{distanceCharge ? ` + ${formatMoney(distanceCharge)}` : ""} = {formatMoney(fee)}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2652,6 +2705,7 @@ function OrderCard({ request, openOrder, compact }: { request: TailoringRequest;
           <div className="mt-2 text-[10px] font-bold text-[var(--darji-muted)] leading-tight space-y-0.5">
             <p>{uiText("Pickup:")} {formatOrderDate(request.createdAt)}</p>
             <p>{uiText("ETA:")} {estimatedDeliveryDate(request)}</p>
+             {request.deliveryFee != null ? <p>{uiText("Delivery:")} {formatMoney(request.deliveryFee)}</p> : null}
           </div>
         </div>
         <button 
@@ -2705,6 +2759,7 @@ function OrderTableRow({ request, openOrder }: { request: TailoringRequest; open
 
         <div className="flex items-center justify-between gap-4 border-[#edf1f5] lg:block lg:border-l lg:pl-6">
           <p className="text-xl font-black">{amount != null ? formatMoney(amount) : uiText("Quote")}</p>
+          {request.deliveryFee != null ? <p className="mt-1 text-xs font-bold text-[var(--darji-muted)]">{uiText("Delivery:")} {formatMoney(request.deliveryFee)}</p> : null}
           <button onClick={openOrder} className="mt-0 inline-flex items-center gap-2 text-sm font-black text-[var(--darji-orange)] lg:mt-3">
             {uiText("View Details")} <ChevronRight className="h-4 w-4" />
           </button>
@@ -2717,6 +2772,15 @@ function OrderTableRow({ request, openOrder }: { request: TailoringRequest; open
 function OrderDetailsScreen({ request, coupons, setScreen, onOrderPlaced }: { request: TailoringRequest; coupons: Coupon[]; setScreen: (screen: CustomerScreen) => void; onOrderPlaced: (request: TailoringRequest) => void }) {
   const queryClient = useQueryClient();
   const items = request.items?.length ? request.items : [{ description: request.description, gender: request.gender, clothType: request.clothType, workType: request.workType, media: request.media }] as TailoringRequestItem[];
+  const quoteAmount = Number(request.quoteAmount ?? request.selectedQuote?.price ?? 0);
+  const deliveryFee = Number(request.deliveryFee ?? request.selectedQuote?.deliveryEstimate?.deliveryFee ?? 0);
+  const deliveryDistance = Number(request.customerToTailorDistanceMeters ?? request.selectedQuote?.deliveryEstimate?.oneWayDistanceMeters ?? 0);
+  const platformFee = Number(request.platformFee ?? 0);
+  const smallOrderFee = Number(request.smallOrderFee ?? 0);
+  const measurementFee = Number(request.homeMeasurementFee ?? 0);
+  const discount = Number(request.discountAmount ?? 0);
+  const tailor = request.selectedQuote?.tailor;
+  const tailorAddress = tailor?.verification?.shop?.shopAddress || tailor?.verification?.shop?.shopAddressLine || tailor?.verification?.shop?.shopArea;
   return (
     <div className="grid gap-6">
       <button onClick={() => setScreen("orders")} className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-[var(--darji-muted)] shadow-sm">
@@ -2740,6 +2804,25 @@ function OrderDetailsScreen({ request, coupons, setScreen, onOrderPlaced }: { re
       <CustomerHandoffOtpCard orderId={request.id} status={statusLabel(request)} />
       <div className="flex flex-wrap gap-3"><Button onClick={() => setScreen("trackOrder")}>{uiText("Track Order")}</Button><Button onClick={() => setScreen("support")}>{uiText("Contact Support")}</Button>{isCompletedOrder(request) ? <Button onClick={() => setScreen("rateApp")}>{uiText("Rate your experience")}</Button> : null}</div>
       <OrderActions order={request} refresh={() => { void queryClient.invalidateQueries({ queryKey: ["customer", "requests"] }); }} />
+
+      {request.status !== "QUOTE_REQUESTED" ? (
+        <section className="premium-card rounded-[2rem] p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff4dc] text-[var(--darji-orange)]"><Banknote className="h-5 w-5" /></div>
+            <div><h2 className="text-lg font-black">{uiText("Price details")}</h2><p className="text-sm font-semibold text-[var(--darji-muted)]">{uiText("Your saved order charges and travel calculation")}</p></div>
+          </div>
+          <div className="mt-5 grid gap-3">
+            {quoteAmount > 0 ? <SummaryLine label={uiText("Tailor quote")} value={formatMoney(quoteAmount)} /> : null}
+            {deliveryFee > 0 ? <DeliverySummaryLine deliveryFee={deliveryFee} urgency={request.urgency} distanceMeters={deliveryDistance} customerAddress={request.pickupAddress} tailorAddress={tailorAddress} tailorName={tailor?.shopName} /> : null}
+            {measurementFee > 0 ? <MeasurementSummaryLine fee={measurementFee} distanceMeters={deliveryDistance} /> : null}
+            {platformFee > 0 ? <SummaryLine label={uiText("Platform fee")} value={formatMoney(platformFee)} /> : null}
+            {smallOrderFee > 0 ? <SummaryLine label={uiText("Small order fee")} value={formatMoney(smallOrderFee)} /> : null}
+            {discount > 0 ? <SummaryLine label={uiText("Discount")} value={`- ${formatMoney(discount)}`} /> : null}
+            {request.cancellationFee ? <SummaryLine label={uiText("Cancellation fee")} value={formatMoney(request.cancellationFee)} /> : null}
+            {request.totalAmount != null ? <SummaryLine label={uiText("Total paid / payable")} value={formatMoney(request.totalAmount)} strong /> : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-2">
         {items.map((item, index) => (
@@ -4214,7 +4297,12 @@ function CustomerDashboardContent() {
     <main lang={language} className="min-h-screen bg-[#f6f8fb] pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
       <AppHeader screen={screen} setScreen={setAppScreen} signOut={() => { void handleSignOut(); }} syncing={syncing} />
       <div className="shell py-7">
-        {screen === "home" ? <div className="mb-5 flex flex-wrap gap-3">{[["search", "Find Tailors"], ["services", "Services"], ["measurementGuide", "Measurement guide"], ["fabricCare", "Fabric & Care Tips"]].map(([target, label]) => <button className="rounded-lg border bg-white px-4 py-3 font-bold" key={target} onClick={() => setAppScreen(target as CustomerScreen)}>{uiText(label)}</button>)}</div> : null}
+        {screen === "home" ? <nav aria-label={uiText("Customer services")} className="mb-5 grid grid-cols-2 gap-2 rounded-2xl border border-[#e6edf5] bg-white p-2 lg:grid-cols-4">{([
+          ["search", "Find Tailors", Search],
+          ["services", "Services", Scissors],
+          ["measurementGuide", "Measurement guide", Ruler],
+          ["fabricCare", "Fabric & Care Tips", BookOpen]
+        ] as const).map(([target, label, Icon]) => <button className="flex min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 text-left text-sm font-black text-[var(--darji-ink)] transition hover:border-amber-200 hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-500" key={target} onClick={() => setAppScreen(target)}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#fff4dc] text-[var(--darji-orange)]"><Icon className="h-4 w-4" /></span><span className="leading-5">{uiText(label)}</span></button>)}</nav> : null}
         {extraScreens.includes(screen as ExtraScreen) ? <CustomerExtraScreen screen={screen as ExtraScreen} go={(target) => setAppScreen(target as CustomerScreen)} orders={requestRows} coupons={couponRows} selectedOrder={selectedOrder} openOrder={openOrder} /> : null}
         {sharedError ? <p className="mb-5 rounded-2xl bg-[#fff1f2] px-4 py-3 text-sm font-bold text-[#b91c1c]">{errorMessage(sharedError)}</p> : null}
         {screen === "home" ? <HomeScreen requests={requestRows} wallet={wallet.data} draft={draft} setScreen={setAppScreen} openOrder={openOrder} /> : null}

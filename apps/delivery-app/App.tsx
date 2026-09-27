@@ -4603,7 +4603,7 @@ function MainApp({
       return;
     }
 
-    if (destination.actionIdentifier === "VIEW_DETAILS" && taskId && token && !request) {
+    if (taskId && token && !request) {
       void api<DeliveryTaskPayload>(`/delivery-requests/${taskId}`, {}, token)
         .then((payload) => {
           const loadedRequest = normalizeDeliveryTask(payload);

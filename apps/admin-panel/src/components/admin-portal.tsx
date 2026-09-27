@@ -3943,16 +3943,6 @@ function PortalFrame({
               </button>
             </div>
 
-            <div className="rounded-[22px] border border-[var(--panel-border)] bg-[var(--panel-strong)] px-4 py-3">
-              <div className="flex items-center gap-3">
-                <AvatarBadge me={profileMe} size="md" />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[var(--foreground)]">{displayName}</p>
-                  <p className="truncate text-xs text-[var(--muted)]">{me?.phone ?? "admin@darzi.in"}</p>
-                </div>
-                <ChevronDown size={16} className="ml-auto text-[var(--muted)]" />
-              </div>
-            </div>
           </div>
         </aside>
 
@@ -5019,11 +5009,11 @@ function OrdersManagementView({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <OrderSummaryCard icon={Package} label="Total Orders" value={authoritativeTotal} note="100% of selected period" tone="amber" onClick={() => onSummaryChange("")} />
-        <OrderSummaryCard icon={RotateCcw} label="Pending" value={counts.pending} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" onClick={() => onSummaryChange("__PENDING__")} />
-        <OrderSummaryCard icon={Hourglass} label="In Progress" value={counts.progress} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" onClick={() => onSummaryChange("__ACTIVE__")} />
-        <OrderSummaryCard icon={CheckCircle2} label="Completed" value={counts.completed} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" onClick={() => onSummaryChange("__COMPLETED__")} />
-        <OrderSummaryCard icon={X} label="Cancelled" value={counts.cancelled} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" onClick={() => onSummaryChange("__CANCELLED__")} />
+        <OrderSummaryCard icon={Package} label="Total Orders" value={authoritativeTotal} note="100% of selected period" tone="amber" selected={!orderFilter} onClick={() => onSummaryChange("")} />
+        <OrderSummaryCard icon={RotateCcw} label="Pending" value={counts.pending} note={`${((counts.pending / total) * 100).toFixed(1)}% pending`} tone="sky" selected={orderFilter === "__PENDING__"} onClick={() => onSummaryChange("__PENDING__")} />
+        <OrderSummaryCard icon={Hourglass} label="In Progress" value={counts.progress} note={`${((counts.progress / total) * 100).toFixed(1)}% active`} tone="violet" selected={orderFilter === "__ACTIVE__"} onClick={() => onSummaryChange("__ACTIVE__")} />
+        <OrderSummaryCard icon={CheckCircle2} label="Completed" value={counts.completed} note={`${((counts.completed / total) * 100).toFixed(1)}% completed`} tone="emerald" selected={orderFilter === "__COMPLETED__"} onClick={() => onSummaryChange("__COMPLETED__")} />
+        <OrderSummaryCard icon={X} label="Cancelled" value={counts.cancelled} note={`${((counts.cancelled / total) * 100).toFixed(1)}% cancelled`} tone="rose" selected={orderFilter === "__CANCELLED__"} onClick={() => onSummaryChange("__CANCELLED__")} />
       </div>
 
       <Panel className="overflow-hidden p-0">
@@ -5062,9 +5052,9 @@ function OrderSearchInput({ onChange, value }: { onChange: (value: string) => vo
   return <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} /><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-11 pr-4 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]" onChange={(event) => onChange(event.target.value)} placeholder="Order ID, customer or phone" value={value} /></div>;
 }
 
-function OrderSummaryCard({ icon: Icon, label, note, onClick, tone, value }: { icon: ComponentType<{ size?: number }>; label: string; note: string; onClick: () => void; tone: "amber" | "sky" | "violet" | "emerald" | "rose"; value: number }) {
+function OrderSummaryCard({ icon: Icon, label, note, onClick, selected, tone, value }: { icon: ComponentType<{ size?: number }>; label: string; note: string; onClick: () => void; selected: boolean; tone: "amber" | "sky" | "violet" | "emerald" | "rose"; value: number }) {
   const tones = { amber: "bg-orange-50 text-orange-500", sky: "bg-blue-50 text-blue-600", violet: "bg-violet-50 text-violet-600", emerald: "bg-emerald-50 text-emerald-600", rose: "bg-rose-50 text-rose-600" };
-  return <button aria-label={`Show ${label.toLowerCase()}`} className="rounded-2xl text-left outline-none transition hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2" onClick={onClick} type="button"><Panel className="h-full rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel></button>;
+  return <button aria-label={`Show ${label.toLowerCase()}`} aria-pressed={selected} className={cn("rounded-2xl border-2 text-left outline-none transition hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2", selected ? "border-[var(--accent)] shadow-[0_8px_22px_rgba(255,145,0,0.16)]" : "border-transparent")} onClick={onClick} type="button"><Panel className="h-full rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel></button>;
 }
 
 function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string }) {

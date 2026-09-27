@@ -86,8 +86,12 @@ export type TailoringRequest = {
   paymentStatus?: "PENDING" | "PAID" | "FAILED" | "REFUNDED";
   quoteAmount?: number;
   deliveryFee?: number;
+  customerToTailorDistanceMeters?: number;
+  totalChargeableDistanceMeters?: number;
   platformFee?: number;
   homeMeasurementFee?: number;
+  smallOrderFee?: number;
+  cancellationFee?: number;
   couponCode?: string;
   discountAmount?: number;
   totalAmount?: number;
@@ -167,6 +171,7 @@ export type DeliverySlot = { label: string; deliveryRound: string; roundAt: stri
 
 export type CheckoutResponse =
   | { mode: "cod"; request: TailoringRequest }
+  | { mode: "test" | "confirmed"; request: TailoringRequest; testMode?: boolean }
   | {
       mode: "online";
       request: TailoringRequest;

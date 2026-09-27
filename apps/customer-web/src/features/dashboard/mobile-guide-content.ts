@@ -13,8 +13,8 @@ export const cancellationPolicySections = [
     status: "Pickup started or clothes collected from customer",
     cancellation: "Allowed",
     refund: "Order refund after deducting charges",
-    charges: "Delivery charge + cancellation fee",
-    reason: "Once the rider has picked up the package, transport and handling charges apply even if tailoring has not started."
+    charges: "Cancellation fee equals the delivery charge",
+    reason: "Once the rider has picked up the package, the cancellation fee is exactly the delivery charge shown on the order. There is no extra cancellation surcharge."
   },
   {
     title: "After Tailor Handover",
