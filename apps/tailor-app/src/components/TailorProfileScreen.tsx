@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, deleteTailorSample, savePreferredLanguage, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
 import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/localization";
@@ -84,6 +84,7 @@ const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
 const SCREEN_TOP_PADDING = 18;
+const SCREEN_HEADER_SAFE_GAP = 18;
 const CHAT_BOTTOM_INSET = 16;
 const FORM_KEYBOARD_BEHAVIOR = Platform.OS === "ios" ? "padding" : "height";
 
@@ -222,6 +223,7 @@ function getDeviceOsLabel() {
 export function TailorProfileScreen({ me, token, orders, refresh, showDialog, onSessionExpired, onOpenTransactions, onOpenOrders, socket, initialSupportScreen, clearInitialSupportScreen }: Props) {
   const { signOut } = useAppStore();
   const language = useAppStore((state) => state.language);
+  const insets = useSafeAreaInsets();
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const profile = me?.tailorProfile;
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -270,7 +272,9 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   });
 
   const palette = general.darkMode ? darkPalette : lightPalette;
-  const styles = useMemo(() => createStyles(palette), [palette]);
+  const safeTopPadding = Math.max(insets.top + SCREEN_HEADER_SAFE_GAP, SCREEN_TOP_PADDING + SCREEN_HEADER_SAFE_GAP);
+  const safeBottomPadding = Math.max(insets.bottom + 18, CHAT_BOTTOM_INSET);
+  const styles = useMemo(() => createStyles(palette, safeTopPadding, safeBottomPadding), [palette, safeTopPadding, safeBottomPadding]);
   const verificationAvatarUrl = profile?.verification?.idVerification?.facePhotoUrl;
   const serverEmail = me?.email?.trim() || profile?.verification?.personal?.email?.trim() || "";
   const avatarLocked = Boolean(verificationAvatarUrl) || profile?.verificationStatus === "VERIFIED";
@@ -1293,7 +1297,9 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, open
 }
 
 function TailorFaqScreen({ styles, palette, onBack, openSupportCenter, selectedFaqIndex, setSelectedFaqIndex }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; openSupportCenter: () => void; selectedFaqIndex?: number; setSelectedFaqIndex: (index?: number) => void }) {
-  const selectedFaq = selectedFaqIndex == null ? undefined : tailorFaqs[selectedFaqIndex];
+  const language = useAppStore((state) => state.language);
+  const faqs = language === "hi" ? tailorFaqsHi : tailorFaqs;
+  const selectedFaq = selectedFaqIndex == null ? undefined : faqs[selectedFaqIndex];
 
   if (selectedFaq) {
     return (
@@ -1346,7 +1352,7 @@ function TailorFaqScreen({ styles, palette, onBack, openSupportCenter, selectedF
             <Text style={styles.rowCopy}>Here are answers to the most common questions.</Text>
           </View>
         </View>
-        {tailorFaqs.map((faq, index) => (
+        {faqs.map((faq, index) => (
           <Pressable key={faq.title} style={[styles.faqRow, index === 0 ? styles.faqFirstRow : null]} onPress={() => setSelectedFaqIndex(index)}>
             <View style={styles.faqIcon}><Ionicons name={faq.icon} size={17} color={BRAND_ORANGE} /></View>
             <View style={styles.rowMain}>
@@ -1827,7 +1833,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
         )}
 
         {view === "new_chat" && (
-          <View style={{ flex: 1, paddingHorizontal: 18 }}>
+          <View style={styles.chatNewConversationPage}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 }}>
               <Pressable style={styles.backButton} onPress={() => setView("center")}>
                 <Ionicons name="chevron-back" size={22} color={palette.text} />
@@ -2204,7 +2210,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
           <InfoRow icon="phone-portrait-outline" title="Your device" value={deviceOsLabel} styles={styles} noBorder />
           <InfoRow icon="information-circle-outline" title="App version" value="0.1.0 (Dev Build)" styles={styles} />
         </View>
-        <View style={[styles.bugSubmitButton, submitting && styles.bugSubmitButtonDisabled]}>
+        <View style={[styles.bugSubmitButton, styles.safeFooterGap, submitting && styles.bugSubmitButtonDisabled]}>
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel="Submit bug report"
@@ -2446,7 +2452,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
       {/* Header */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, marginBottom: 14 }}>
+      <View style={styles.accountRequestHeader}>
         <Pressable style={styles.backButton} onPress={() => setScreen("support_center")}>
           <Ionicons name="chevron-back" size={22} color={palette.text} />
         </Pressable>
@@ -2457,7 +2463,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
       </View>
 
       <KeyboardAvoidingView behavior={FORM_KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingBottom: 110 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.accountRequestContent}>
           {/* Request Type Selector */}
           <View>
             <Text style={{ color: palette.text, fontSize: 13, fontWeight: "900", marginBottom: 8 }}>Select Field to Change</Text>
@@ -2644,7 +2650,9 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   );
 }
 
-const tailorFaqs: Array<{ title: string; preview: string; answer: string; icon: IconName; points: string[]; supportAction?: boolean }> = [
+type TailorFaq = { title: string; preview: string; answer: string; icon: IconName; points: string[]; supportAction?: boolean };
+
+const tailorFaqs: TailorFaq[] = [
   {
     title: "How do I receive new orders?",
     preview: "New customer requests will appear in the Requests tab.",
@@ -2686,6 +2694,52 @@ const tailorFaqs: Array<{ title: string; preview: string; answer: string; icon: 
     answer: "Use Support Center when you need help with orders, account changes, payouts, bugs, or general app questions.",
     icon: "headset-outline",
     points: ["Use Chat Support for app or order help.", "Use Report a Bug when something is not working.", "Use Shop & Account Requests for profile, bank, and shop changes."],
+    supportAction: true
+  }
+];
+
+const tailorFaqsHi: TailorFaq[] = [
+  {
+    title: "मुझे नए ऑर्डर कैसे मिलते हैं?",
+    preview: "नए ग्राहक अनुरोध Requests टैब में दिखाई देंगे।",
+    answer: "जब कोई ग्राहक आपके सेवा क्षेत्र में सिलाई, अल्टरेशन या टेलरिंग काम मांगता है, तो उसका अनुरोध Requests टैब में दिखाई देता है।",
+    icon: "clipboard-outline",
+    points: ["रिक्वेस्ट नोटिफिकेशन चालू होने पर आपको ऐप में अलर्ट मिलेगा।", "कपड़े का प्रकार, अर्जेंसी, पिकअप डिटेल और ग्राहक के नोट देखने के लिए अनुरोध खोलें।", "कीमत तभी भेजें जब आप काम समय पर पूरा कर सकते हों।"]
+  },
+  {
+    title: "ऑर्डर Orders में कब जाता है?",
+    preview: "ग्राहक आपकी कीमत स्वीकार करता है, तब ऑर्डर Orders टैब में जाता है।",
+    answer: "अनुरोध तभी असाइन किया गया ऑर्डर बनता है जब ग्राहक आपकी कीमत स्वीकार कर लेता है। इसके बाद वह Requests से Orders में चला जाता है।",
+    icon: "chatbox-ellipses-outline",
+    points: ["स्वीकार किए गए ऑर्डर पहले Accepted टैब में दिखाई देते हैं।", "Ready to Deliver तभी इस्तेमाल करें जब सिलाई पूरी हो और जरूरी फोटो अपलोड हो जाएं।", "पुराने और रद्द काम History और Cancelled में देखे जा सकते हैं।"]
+  },
+  {
+    title: "मैं काम को Ready कब मार्क कर सकता हूँ?",
+    preview: "सिलाई पूरी होने और प्रूफ फोटो अपलोड होने के बाद ही काम Ready करें।",
+    answer: "जब कपड़ा पूरा, चेक, पैक और पिकअप या डिलीवरी के लिए तैयार हो, तब ऑर्डर को Ready मार्क करें।",
+    icon: "shirt-outline",
+    points: ["स्टेटस बदलने से पहले साफ प्रूफ फोटो अपलोड करें।", "अधूरा या आधा काम Ready मार्क न करें।", "स्टेटस बदलने के बाद डिलीवरी पार्टनर और ग्राहक को सूचना मिल सकती है।"]
+  },
+  {
+    title: "मुझे भुगतान कैसे और कब मिलता है?",
+    preview: "ग्राहक ऑर्डर पूरा होने की पुष्टि करता है, तब भुगतान आपके वॉलेट में जाता है।",
+    answer: "आपकी कमाई Earnings स्क्रीन में दर्ज होती है। योग्य पूरे हुए काम की राशि वॉलेट में जुड़ती है और Darji के भुगतान नियमों के अनुसार मिलती है।",
+    icon: "wallet-outline",
+    points: ["Pending amount का मतलब पूरे या रिव्यू हुए काम से अपेक्षित पैसा है।", "Last payment आपका सबसे हाल का payout status दिखाता है।", "भुगतान समस्या के लिए ऑर्डर या ट्रांजैक्शन डिटेल के साथ Support Center खोलें।"]
+  },
+  {
+    title: "क्या मैं अपनी दुकान की जानकारी बदल सकता हूँ?",
+    preview: "हाँ, आप Shop Details सेक्शन से बदलाव का अनुरोध भेज सकते हैं।",
+    answer: "वेरिफाइड दुकान की जानकारी सुरक्षित रहती है, इसलिए बदलाव तुरंत लागू होने के बजाय समीक्षा के लिए भेजे जाते हैं।",
+    icon: "create-outline",
+    points: ["Profile खोलें, फिर Shop Details पर जाएं।", "क्या बदलना है लिखें, जैसे पता, कैटेगरी, क्षमता या दुकान का नाम।", "Darji support अनुरोध की समीक्षा करके मंजूर जानकारी अपडेट करेगा।"]
+  },
+  {
+    title: "मदद के लिए मैं किससे संपर्क कर सकता हूँ?",
+    preview: "आप Support Center के जरिए कभी भी हमसे संपर्क कर सकते हैं।",
+    answer: "ऑर्डर, खाते में बदलाव, भुगतान, बग या ऐप से जुड़े सामान्य सवालों के लिए Support Center इस्तेमाल करें।",
+    icon: "headset-outline",
+    points: ["ऐप या ऑर्डर मदद के लिए Chat Support इस्तेमाल करें।", "कुछ काम नहीं कर रहा हो तो Report a Bug इस्तेमाल करें।", "प्रोफाइल, बैंक और दुकान बदलाव के लिए Shop & Account Requests इस्तेमाल करें।"],
     supportAction: true
   }
 ];
@@ -2791,11 +2845,11 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
 const lightPalette = { bg: SCREEN_BG, surface: SURFACE, surfaceAlt: "#fff9ee", text: BRAND_DEEP, muted: MUTED, border: BORDER, glass: "#ffffff", glassBorder: "#e2e8f0", glassSurface: "#f8fafc", glassDivider: "#e2e8f0" };
 const darkPalette = { bg: "#050c18", surface: "#0a1322", surfaceAlt: "#0d1b30", text: "#ffffff", muted: "#a8bad2", border: "#182a44", glass: "#0a1322", glassBorder: "#1e293b", glassSurface: "#0f172a", glassDivider: "#1e293b" };
 
-function createStyles(palette: typeof lightPalette) {
+function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_PADDING, safeBottomPadding = CHAT_BOTTOM_INSET) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: palette.bg },
-    content: { padding: 18, paddingTop: SCREEN_TOP_PADDING, paddingBottom: 110 },
-    bugReportContent: { paddingTop: 10, paddingBottom: 110 },
+    content: { padding: 18, paddingTop: safeTopPadding, paddingBottom: safeBottomPadding + 94 },
+    bugReportContent: { paddingTop: safeTopPadding, paddingBottom: safeBottomPadding + 94 },
     headerCard: { borderRadius: 22, backgroundColor: palette.surface, borderWidth: 1, borderColor: "#efcf92", padding: 14, marginBottom: 18, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
     profileHero: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 16 },
     avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
@@ -2874,6 +2928,7 @@ function createStyles(palette: typeof lightPalette) {
     primaryButton: { minHeight: 50, borderRadius: 12, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 14 },
     primaryButtonText: { color: "#111111", fontSize: 14, fontWeight: "900" },
     bugSubmitButton: { width: "100%", height: 54, marginTop: 18, borderRadius: 14, overflow: "hidden", backgroundColor: BRAND_ORANGE },
+    safeFooterGap: { marginBottom: safeBottomPadding },
     bugSubmitButtonDisabled: { opacity: 0.72 },
     bugSubmitButtonTouchTarget: { width: "100%", height: "100%", paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center" },
     bugSubmitButtonText: { marginLeft: 9, color: "#111111", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
@@ -2924,8 +2979,8 @@ function createStyles(palette: typeof lightPalette) {
     choicePillSelected: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
     choiceText: { color: palette.muted, fontSize: 12, fontWeight: "900" },
     choiceTextSelected: { color: BRAND_ORANGE },
-    supportHeader: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 18, marginBottom: 22 },
-    supportContent: { gap: 16, paddingHorizontal: 18, paddingBottom: 110 },
+    supportHeader: { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 18, paddingTop: safeTopPadding, marginBottom: 22 },
+    supportContent: { gap: 16, paddingHorizontal: 18, paddingBottom: safeBottomPadding + 94 },
     supportCard: { minHeight: 116, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 18, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     supportCardIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
     supportCardBody: { flex: 1, minWidth: 0 },
@@ -2933,8 +2988,9 @@ function createStyles(palette: typeof lightPalette) {
     supportCardCopy: { color: palette.muted, fontSize: 13, fontWeight: "700", lineHeight: 19, marginTop: 3 },
     supportBadge: { alignSelf: "flex-start", minHeight: 26, borderRadius: 8, backgroundColor: "#fff7e8", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, marginTop: 14 },
     supportBadgeText: { color: palette.muted, fontSize: 10, fontWeight: "900" },
+    chatNewConversationPage: { flex: 1, paddingHorizontal: 18, paddingTop: safeTopPadding },
     chatScreen: { flex: 1 },
-    chatHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: palette.border, paddingHorizontal: 18, paddingBottom: 14, marginBottom: 2 },
+    chatHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: palette.border, paddingHorizontal: 18, paddingTop: safeTopPadding, paddingBottom: 14, marginBottom: 2 },
     chatTitle: { color: palette.text, fontSize: 17, lineHeight: 22, fontWeight: "900" },
     chatSubtitle: { color: palette.muted, fontSize: 12, fontWeight: "700", marginTop: 3 },
     chatCloseButton: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 12, minHeight: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
@@ -2944,14 +3000,14 @@ function createStyles(palette: typeof lightPalette) {
     chatNotice: { alignSelf: "stretch", borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: "#eef2f7", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 12, marginTop: 6 },
     chatNoticeIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
     chatNoticeText: { flex: 1, color: palette.muted, fontSize: 12, lineHeight: 17, fontWeight: "800" },
-    chatComposerWrap: { borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.bg, paddingHorizontal: 14, paddingTop: 10, paddingBottom: CHAT_BOTTOM_INSET },
+    chatComposerWrap: { borderTopWidth: 1, borderTopColor: palette.border, backgroundColor: palette.bg, paddingHorizontal: 14, paddingTop: 10, paddingBottom: safeBottomPadding },
     chatAttachmentPreviewRow: { flexDirection: "row", gap: 8, paddingBottom: 10 },
     chatComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
     chatMediaButton: { width: 46, minHeight: 48, borderRadius: 14, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", paddingVertical: 5 },
     chatMediaText: { color: palette.muted, fontSize: 9, fontWeight: "900", marginTop: 3 },
     chatInput: { flex: 1, minHeight: 48, maxHeight: 104, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 24, paddingHorizontal: 16, paddingTop: 13, paddingBottom: 10, color: palette.text, fontSize: 13, fontWeight: "700" },
     chatSendButton: { width: 50, height: 50, borderRadius: 25, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
-    chatClosedWrap: { borderTopWidth: 1, borderTopColor: palette.border, paddingHorizontal: 18, paddingTop: 14, paddingBottom: CHAT_BOTTOM_INSET, gap: 10 },
+    chatClosedWrap: { borderTopWidth: 1, borderTopColor: palette.border, paddingHorizontal: 18, paddingTop: 14, paddingBottom: safeBottomPadding, gap: 10 },
     bugTextArea: { minHeight: 120, textAlignVertical: "top", paddingTop: 13, paddingBottom: 28, backgroundColor: palette.surface, borderColor: "#dfe6ef" },
     bugCounter: { position: "absolute", right: 12, bottom: 10, color: palette.muted, fontSize: 10, fontWeight: "800" },
     bugUploadBox: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: palette.surface },
@@ -2961,6 +3017,8 @@ function createStyles(palette: typeof lightPalette) {
     bugScreenshotReplace: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: palette.surface },
     bugScreenshotReplaceText: { color: BRAND_ORANGE, fontSize: 12, lineHeight: 16, fontWeight: "900" },
     bugDeviceCard: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 6, marginTop: 14, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+    accountRequestHeader: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, paddingTop: safeTopPadding, marginBottom: 14 },
+    accountRequestContent: { gap: 16, paddingHorizontal: 18, paddingBottom: safeBottomPadding + 94 },
     identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.65)", justifyContent: "center", alignItems: "center", padding: 22 },
     identityCardShell: { width: "100%", maxWidth: 370, borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
     identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 18 },

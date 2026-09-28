@@ -608,8 +608,8 @@ const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
 const CUSTOMER_TAB_BAR_HEIGHT = 66;
-const CUSTOMER_TAB_BOTTOM_INSET = 12;
-const CUSTOMER_TAB_CONTENT_BOTTOM_PADDING = 104;
+const CUSTOMER_TAB_BOTTOM_INSET = 38;
+const CUSTOMER_TAB_CONTENT_BOTTOM_PADDING = 132;
 const FORM_KEYBOARD_BEHAVIOR = Platform.OS === "ios" ? "padding" : "height";
 const customerAppIcon = require("./app-icon.png");
 const darjiLogo = require("./darji transparent.png");
@@ -8683,6 +8683,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   const [sending, setSending] = useState(false);
 
   const scrollViewRef = useRef<RNScrollView>(null);
+  const insets = useSafeAreaInsets();
 
   const bg = isDark ? "#000000" : "#f7faff";
   const cardBg = isDark ? "#121212" : "#ffffff";
@@ -9523,7 +9524,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
             {/* Composer/Input bar */}
             {activeTicket.status !== "CLOSED" && activeTicket.status !== "RESOLVED" && activeTicket.status !== "FIXED" ? (
-              <View style={styles.chatComposerWrap}>
+              <View style={[styles.chatComposerWrap, { paddingBottom: Math.max(insets.bottom + 10, 18) }]}>
                 {attachments.length > 0 && (
                   <View style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
                     {attachments.map((url, idx) => (
@@ -9670,7 +9671,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               </View>
 
             </ScrollView>
-            <View style={styles.bugSubmitFooter}>
+            <View style={[styles.bugSubmitFooter, { paddingBottom: Math.max(insets.bottom + 10, 18) }]}>
               <TouchableOpacity
                 activeOpacity={0.82}
                 style={[styles.bugSubmitFixedButton, (bugTitle.trim().length < 3 || bugDescription.trim().length < 10 || sending) && styles.bugSubmitFixedButtonDisabled]}
@@ -12881,11 +12882,11 @@ function createStyles(isDark = false) {
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
   workflowItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
-  tabs: { height: CUSTOMER_TAB_BAR_HEIGHT, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 0, paddingHorizontal: 4 },
+  tabs: { position: "absolute", left: 0, right: 0, bottom: 0, height: CUSTOMER_TAB_BAR_HEIGHT, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 0, paddingHorizontal: 4, zIndex: 20, elevation: 20 },
   tabItem: { alignItems: "center", justifyContent: "center", flex: 1 },
   tabText: { marginTop: 2, minHeight: 18, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700", lineHeight: 16, textAlign: "center", includeFontPadding: true },
   activeTabText: { color: BRAND_ORANGE },
-  createTabItem: { marginTop: -12 },
+  createTabItem: { marginTop: -10 },
   createTabButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.22, shadowRadius: 9, elevation: 5 },
   createTabText: { width: 88, minHeight: 18, marginTop: 2, fontSize: 9, lineHeight: 13 },
   header: { height: 52, flexDirection: "row", alignItems: "center", marginBottom: 14 },

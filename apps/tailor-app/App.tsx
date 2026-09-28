@@ -6710,12 +6710,9 @@ function AppContent() {
       const walletData = walletResult.status === "fulfilled" ? walletResult.value : emptyPartnerWallet();
 
       if (showLoader && workspaceFailures.length) {
-        const firstFailure = workspaceFailures[0];
         setDialog({
-          title: "Partially synced",
-          message: firstFailure.status === "rejected" && firstFailure.reason instanceof Error
-            ? firstFailure.reason.message
-            : "Some workspace data could not be loaded. Pull down to retry.",
+          title: "Could not refresh everything",
+          message: "Some latest data could not be loaded. Please check your internet connection and pull down to retry.",
           icon: "cloud-offline-outline"
         });
       }
@@ -6741,7 +6738,11 @@ function AppContent() {
         return;
       }
       if (showLoader) {
-        setDialog({ title: "Sync failed", message: error instanceof Error ? error.message : "Check backend connection.", icon: "cloud-offline-outline" });
+        setDialog({
+          title: "Sync failed",
+          message: "We could not refresh your workspace right now. Please check your internet connection and try again.",
+          icon: "cloud-offline-outline"
+        });
       }
     } finally {
       setLoading(false);
