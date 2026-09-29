@@ -105,6 +105,8 @@ import { useAppStore } from "./src/store";
 import { localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { BottomSnackbar } from "../../shared/src/bottom-snackbar";
+import { userFacingMessage } from "../../shared/src/user-facing-error";
 import { useLayoutEffect } from "react";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
@@ -176,6 +178,7 @@ type DialogState = {
   message: string;
   icon?: keyof typeof Ionicons.glyphMap;
   actions?: Array<{ label: string; variant?: "primary" | "secondary"; onPress?: () => void }>;
+  presentation?: "dialog" | "snackbar";
 };
 type UpdateGateState = {
   status: "idle" | "downloading" | "ready" | "error";
@@ -588,7 +591,7 @@ function UpdateGateScreen({
   const copy = isReady
     ? "The latest update is installed. Restart the app to continue."
     : isError
-      ? state.message ?? "We could not download the update. Please retry to continue."
+      ? userFacingMessage(state.message, "We could not download the update. Please retry to continue.")
       : "Please keep the app open while we install the latest fixes.";
 
   return (
@@ -1277,6 +1280,25 @@ function StatusRow({ label, value }: { label: string; value: string }) {
 function DesignedDialog({ dialog, onClose, onDismiss }: { dialog?: DialogState; onClose: () => void; onDismiss?: () => void }) {
   if (!dialog) return null;
   const actions = dialog.actions?.length ? dialog.actions : [{ label: "OK", variant: "primary" as const }];
+  const useSnackbar = dialog.presentation === "snackbar";
+  const message = userFacingMessage(dialog.message, "Something went wrong. Please try again.");
+
+  if (useSnackbar) {
+    const action = actions[0];
+    return (
+      <BottomSnackbar
+        visible={Boolean(dialog)}
+        title={dialog.title}
+        message={message}
+        actionLabel={action?.label ?? "OK"}
+        onAction={() => {
+          onClose();
+          action?.onPress?.();
+        }}
+        onDismiss={onDismiss ?? onClose}
+      />
+    );
+  }
 
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onDismiss ?? onClose}>
@@ -1287,7 +1309,7 @@ function DesignedDialog({ dialog, onClose, onDismiss }: { dialog?: DialogState; 
             <Ionicons name={dialog.icon ?? "information-circle-outline"} size={28} color={BRAND_ORANGE} />
           </View>
           <Text style={styles.popupTitle}>{dialog.title}</Text>
-          <Text style={styles.popupCopy}>{dialog.message}</Text>
+          <Text style={styles.popupCopy}>{message}</Text>
           <View style={styles.popupActions}>
             {actions.map((action) => (
               <Pressable
@@ -1364,6 +1386,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
   const [timer, setTimer] = useState(60);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [otp, setOtp] = useState("");
   const otpRef = useRef("");
   const [verificationPhone, setVerificationPhone] = useState("");
@@ -1380,15 +1403,16 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
     return () => clearInterval(id);
   }, [step, timer]);
 
-  async function requestOtp(values: RequestOtpForm) {
+  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
       setIsRequesting(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
+      setOtpMode(mode);
       setTimer(60);
       setStep("otp");
     } catch (error) {
@@ -1472,13 +1496,18 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                 )}
               />
               <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={isRequesting} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+              {__DEV__ ? (
+                <Pressable style={styles.textButton} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
+                  <Text style={styles.linkText}>{localize(language, "Use real SMS OTP", "असली SMS ओटीपी भेजें")}</Text>
+                </Pressable>
+              ) : null}
             </>
           ) : (
             <>
               <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
               <TextInput style={styles.otpInput} autoFocus editable={!isVerifying} keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder="000000" placeholderTextColor="#9aa6b8" value={otp} />
               <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} disabled={isVerifying} onPress={() => { void verify(); }} />
-              <Pressable style={styles.textButton} disabled={timer > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
+              <Pressable style={styles.textButton} disabled={timer > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
                 {isRequesting ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
               </Pressable>
               <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => setStep("login")}>
@@ -1622,7 +1651,7 @@ function OnboardingScreen({
         })
         .catch((error) => {
           if (isSessionError(error)) return onSessionExpired();
-          setEmailAvailability({ state: "error", message: error instanceof Error ? error.message : "Could not verify email right now." });
+          setEmailAvailability({ state: "error", message: userFacingMessage(error, "Could not verify email right now.") });
         });
     }, 600);
     return () => clearTimeout(id);
@@ -5008,7 +5037,7 @@ function AppContent() {
         handleSessionExpired();
         return;
       }
-      setAccountCheckError(error instanceof Error ? error.message : "Could not reach Darji backend.");
+      setAccountCheckError(userFacingMessage(error, "We could not check your account right now. Please try again."));
       if (meRef.current && ["main", "pending", "onboarding"].includes(stageRef.current)) {
         return;
       }
@@ -5106,7 +5135,7 @@ function AppContent() {
           <View style={styles.centeredState}>
             <Ionicons color={BRAND_ORANGE} name="cloud-offline-outline" size={54} />
             <Text style={styles.centeredTitle}>Could not check account</Text>
-            <Text style={styles.centeredCopy}>{accountCheckError ?? "Darji backend is not reachable right now. Your saved login has not been changed."}</Text>
+            <Text style={styles.centeredCopy}>{accountCheckError ?? "We could not check your account right now. Your saved login has not been changed."}</Text>
             {sessionUser?.phone ? <Text style={styles.centeredCopy}>Saved account: +91 {sessionUser.phone}</Text> : null}
             <View style={styles.accountErrorActions}>
               <PrimaryButton icon="refresh-outline" label="Try again" onPress={() => { setStage("loading"); void refreshProfile(); }} />

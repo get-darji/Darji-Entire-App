@@ -110,6 +110,8 @@ import { useAppStore } from "./src/store";
 import { localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { BottomSnackbar } from "../../shared/src/bottom-snackbar";
+import { userFacingMessage } from "../../shared/src/user-facing-error";
 import { useLayoutEffect } from "react";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
@@ -374,7 +376,7 @@ type MeResponse = {
   tailorProfile?: TailorProfile;
 };
 type DialogAction = { label: string; onPress?: () => void; variant?: "primary" | "secondary" };
-type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[]; variant?: "requestSuccess" };
+type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[]; variant?: "requestSuccess"; presentation?: "dialog" | "snackbar" };
 type UpdateGateState = {
   status: "idle" | "downloading" | "ready" | "error";
   message?: string;
@@ -504,7 +506,7 @@ function UpdateGateScreen({
   const copy = isReady
     ? "The latest update is installed. Restart the app to continue."
     : isError
-      ? state.message ?? "We could not download the update. Please retry to continue."
+      ? userFacingMessage(state.message, "We could not download the update. Please retry to continue.")
       : "Please keep the app open while we install the latest fixes.";
 
   return (
@@ -887,6 +889,7 @@ function AuthScreen() {
   const verifyPendingRef = useRef(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [dialog, setDialog] = useState<DialogState>();
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
@@ -899,15 +902,16 @@ function AuthScreen() {
     return () => clearInterval(timer);
   }, [otpRequested]);
 
-  async function requestOtp(values: RequestOtpForm) {
+  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
       setIsRequesting(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
+      setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
@@ -965,13 +969,18 @@ function AuthScreen() {
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
             <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder={localize(language, "Enter tailor mobile number", "दर्जी का मोबाइल नंबर दर्ज करें")} />} />
             <AuthButton label={t(language, "sendOtp")} loading={isRequesting} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
+            {__DEV__ ? (
+              <Pressable style={styles.textButton} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
+                <Text style={styles.textButtonText}>{localize(language, "Use real SMS OTP", "असली SMS ओटीपी भेजें")}</Text>
+              </Pressable>
+            ) : null}
           </>
         ) : (
           <>
             <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
             <TextInput style={styles.input} autoFocus editable={!isVerifying} value={otp} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} />
             <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
-            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
+            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
               {isRequesting ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
             </Pressable>
             <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => setOtpRequested(false)}>
@@ -6082,6 +6091,25 @@ function DesignedDialog({ dialog, onClose, onDismiss }: { dialog?: DialogState; 
   if (!dialog) return null;
   const actions = dialog.actions?.length ? dialog.actions : [{ label: "OK", variant: "primary" as const }];
   const requestSuccess = dialog.variant === "requestSuccess";
+  const useSnackbar = dialog.presentation === "snackbar";
+  const message = userFacingMessage(dialog.message, "Something went wrong. Please try again.");
+
+  if (useSnackbar) {
+    const action = actions[0];
+    return (
+      <BottomSnackbar
+        visible={Boolean(dialog)}
+        title={dialog.title}
+        message={message}
+        actionLabel={action?.label ?? "OK"}
+        onAction={() => {
+          onClose();
+          action?.onPress?.();
+        }}
+        onDismiss={onDismiss ?? onClose}
+      />
+    );
+  }
 
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onDismiss ?? onClose}>
@@ -6097,7 +6125,7 @@ function DesignedDialog({ dialog, onClose, onDismiss }: { dialog?: DialogState; 
             ) : null}
           </View>
           <Text style={[styles.popupTitle, requestSuccess && styles.popupTitleSuccess]}>{dialog.title}</Text>
-          <Text style={[styles.popupCopy, requestSuccess && styles.popupCopySuccess]}>{dialog.message}</Text>
+          <Text style={[styles.popupCopy, requestSuccess && styles.popupCopySuccess]}>{message}</Text>
           <View style={styles.popupActions}>
             {actions.map((action) => (
               <Pressable
@@ -6538,7 +6566,7 @@ function AppContent() {
 
     knownRequestIdsRef.current.add(request.id);
     if (alertedRequestIdsRef.current.has(request.id)) return;
-    alertedRequestIdsRef.current.add(request.id);
+    setNewRequestPopup(request);
   }
 
   function handleSessionExpired() {

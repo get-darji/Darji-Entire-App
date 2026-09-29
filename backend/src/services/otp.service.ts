@@ -106,6 +106,12 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
 }
 
 export async function requestOtp(phone: string, mode: "default" | "twofactor" = "default") {
+  if (mode === "default" && env.NODE_ENV !== "production" && env.OTP_DEV_FALLBACK_ENABLED) {
+    await reserveOtpRequest(phone);
+    console.info("[otp] Development OTP request created");
+    return createOtpRequest(phone, "dev", true, env.OTP_DEV_CODE);
+  }
+
   if (!env.TWOFACTOR_ENABLED || !env.TWOFACTOR_API_KEY) {
     throw new AppError(503, "2Factor OTP is not configured");
   }
@@ -142,10 +148,13 @@ export async function verifyOtp(phone: string, otp: string, role?: string) {
   let matches = false;
   const testExpiry = Date.parse(env.OTP_TEST_EXPIRES_AT);
   const testPhones = env.OTP_TEST_CUSTOMER_PHONES.split(",").map((value) => value.trim());
-  if (role === "CUSTOMER" && request.provider === "twofactor" && otp === env.OTP_DEV_CODE &&
-      env.OTP_DEV_FALLBACK_ENABLED && testExpiry > Date.now() && testPhones.includes(phone)) {
+  const isMobileAppRole = role === "CUSTOMER" || role === "TAILOR" || role === "DELIVERY_PARTNER";
+  const devFallbackAllowedForEnvironment = env.NODE_ENV !== "production" || (testExpiry > Date.now() && testPhones.includes(phone));
+  if (isMobileAppRole && request.provider === "twofactor" && otp === env.OTP_DEV_CODE &&
+      env.OTP_DEV_FALLBACK_ENABLED && devFallbackAllowedForEnvironment) {
     const account = await UserModel.findOne({ phone });
     matches = !account || !["ADMIN", "SUPER_ADMIN"].includes(account.role);
+    if (matches) console.info(`[otp] Development fallback accepted for ${role}`);
   }
   if (!matches && request.provider === "twofactor") {
     if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");

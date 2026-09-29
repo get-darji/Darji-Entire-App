@@ -1,5 +1,13 @@
 // Human-reviewed UI copy shared by the three mobile apps. Never translate user data here.
 export const reviewedHindiUi: Record<string, string> = {
+  "Choose Delivery Timing": "डिलीवरी का समय चुनें",
+  "This timing applies to every clothing item in this order.": "यह समय इस ऑर्डर के हर कपड़े पर लागू होगा।",
+  "We are having trouble connecting right now. Check your internet connection and try again.": "अभी कनेक्ट करने में परेशानी हो रही है। अपना इंटरनेट कनेक्शन जाँचें और दोबारा कोशिश करें।",
+  "This is taking longer than expected. Check your internet connection and try again.": "इसमें उम्मीद से अधिक समय लग रहा है। अपना इंटरनेट कनेक्शन जाँचें और दोबारा कोशिश करें।",
+  "We are having some trouble right now. Please try again in a moment.": "अभी कुछ परेशानी हो रही है। कृपया थोड़ी देर बाद दोबारा कोशिश करें।",
+  "Something went wrong. Please try again.": "कुछ गलत हो गया। कृपया दोबारा कोशिश करें।",
+  "We could not check your account right now. Please try again.": "अभी आपका खाता जाँचा नहीं जा सका। कृपया दोबारा कोशिश करें।",
+  "We could not check your account right now. Your saved login has not been changed.": "अभी आपका खाता जाँचा नहीं जा सका। आपका सेव किया हुआ लॉगिन बदला नहीं गया है।",
   "Partially synced": "कुछ जानकारी अपडेट नहीं हुई",
   "Complete admin verification first": "पहले एडमिन से अपने खाते का सत्यापन पूरा कराएँ।",
   "Quote": "कीमत का प्रस्ताव",

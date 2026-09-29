@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { isRunningInExpoGo } from "expo";
@@ -25,9 +25,13 @@ function easProjectId() {
 
 export function useRegisterPushNotifications({ authToken, app, userId }: Options) {
   const [status, setStatus] = useState<RegistrationState>("idle");
+  const authTokenRef = useRef(authToken);
+  authTokenRef.current = authToken;
+  const isAuthenticated = Boolean(authToken);
 
   useEffect(() => {
-    if (!authToken || Platform.OS === "web" || (Platform.OS === "android" && isRunningInExpoGo())) {
+    const registrationAuthToken = authTokenRef.current;
+    if (!isAuthenticated || !registrationAuthToken || !userId || Platform.OS === "web" || (Platform.OS === "android" && isRunningInExpoGo())) {
       setStatus("idle");
       return;
     }
@@ -39,7 +43,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
       await api("/notifications/device-token", {
         method: "DELETE",
         body: JSON.stringify({ expoPushToken: tokens.expoPushToken, fcmToken: tokens.fcmToken })
-      }, authToken).catch(() => undefined);
+      }, registrationAuthToken).catch(() => undefined);
       completedRegistrations.delete(tokens.registrationKey);
       await AsyncStorage.removeItem(tokens.storageKey).catch(() => undefined);
     }
@@ -62,8 +66,8 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
         }
       }
       if (!expoPushToken && !fcmToken) throw new Error("No push token could be generated");
-      const registrationKey = `${app}:${userId ?? "unknown"}:${expoPushToken ?? ""}:${fcmToken ? String(fcmToken.data) : ""}`;
-      const storageKey = `darji.push-registration.v2.${app}.${userId ?? "unknown"}`;
+      const registrationKey = `${app}:${userId}:${expoPushToken ?? ""}:${fcmToken ? String(fcmToken.data) : ""}`;
+      const storageKey = `darji.push-registration.v3.${app}.${userId}`;
       registeredTokens = { expoPushToken, fcmToken: fcmToken ? String(fcmToken.data) : undefined, registrationKey, storageKey };
       if ((await AsyncStorage.getItem(storageKey)) === registrationKey || completedRegistrations.has(registrationKey)) return;
       const existingRegistration = pendingRegistrations.get(registrationKey);
@@ -83,7 +87,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
             app: Constants.expoConfig?.slug ?? app
           })
         },
-        authToken
+        registrationAuthToken
       );
       pendingRegistrations.set(registrationKey, registration);
       try {
@@ -123,7 +127,7 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
       cancelled = true;
       void unregisterTokens(registeredTokens);
     };
-  }, [app, authToken, userId]);
+  }, [app, isAuthenticated, userId]);
 
   return status;
 }

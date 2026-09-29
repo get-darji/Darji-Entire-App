@@ -109,6 +109,8 @@ import { useAppStore } from "./src/store";
 import { getLanguageLabel, localize, t, type AppLanguage } from "../../shared/src/localization";
 import { handleFlowBack } from "../../shared/src/flow-back-navigation";
 import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle";
+import { BottomSnackbar } from "../../shared/src/bottom-snackbar";
+import { userFacingMessage } from "../../shared/src/user-facing-error";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { measurementVisitFee } from "../../shared/src";
@@ -546,7 +548,7 @@ type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean; cancel?: boolean };
-type AppDialogState = { title: string; message: string; actions: DialogAction[] };
+type AppDialogState = { title: string; message: string; actions: DialogAction[]; presentation?: "dialog" | "snackbar" };
 type UpdateGateState = {
   status: "idle" | "downloading" | "ready" | "error";
   message?: string;
@@ -685,7 +687,7 @@ function UpdateGateScreen({
   const copy = isReady
     ? "The latest update is installed. Restart the app to continue."
     : isError
-      ? state.message ?? "We could not download the update. Please retry to continue."
+      ? userFacingMessage(state.message, "We could not download the update. Please retry to continue.")
       : "Please keep the app open while we install the latest fixes.";
 
   return (
@@ -2190,6 +2192,7 @@ function AuthScreen() {
   const [verificationPhone, setVerificationPhone] = useState("");
   const verifyPendingRef = useRef(false);
   const [requestingMode, setRequestingMode] = useState<"default" | "twofactor" | undefined>();
+  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [dialog, setDialog] = useState<AppDialogState | undefined>();
   const setSession = useAppStore((state) => state.setSession);
@@ -2213,6 +2216,7 @@ function AuthScreen() {
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
+      setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
@@ -2276,12 +2280,17 @@ function AuthScreen() {
               <>
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
                 <AuthButton label={t(language, "sendOtp")} loading={requestingMode === "default"} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
+                {__DEV__ ? (
+                  <Pressable style={styles.editPhoneButton} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))}>
+                    {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={styles.orangeSmall}>{localize(language, "Use real SMS OTP", "असली SMS ओटीपी भेजें")}</Text>}
+                  </Pressable>
+                ) : null}
               </>
             ) : (
               <>
                 <OtpField value={otp} disabled={isVerifyingOtp} onChange={(digits) => { otpRef.current = digits; setOtp(digits); }} />
                 <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
-                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
+                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
                   {requestingMode ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
                 </Pressable>
                 <Pressable style={styles.editPhoneButton} disabled={isVerifyingOtp} onPress={() => setOtpRequested(false)}>
@@ -3117,6 +3126,27 @@ function AppDialog({
   dialog?: AppDialogState;
   onClose: () => void;
 }) {
+  const actions = dialog?.actions ?? [];
+  const action = actions.length === 1 ? actions[0] : undefined;
+  const useSnackbar = dialog?.presentation === "snackbar";
+  const message = userFacingMessage(dialog?.message, "Something went wrong. Please try again.");
+
+  if (useSnackbar) {
+    return (
+      <BottomSnackbar
+        visible={Boolean(dialog)}
+        title={dialog?.title}
+        message={message}
+        actionLabel={action?.label ?? "OK"}
+        onAction={() => {
+          onClose();
+          action?.onPress?.();
+        }}
+        onDismiss={onClose}
+      />
+    );
+  }
+
   return (
     <Modal transparent visible={Boolean(dialog)} animationType="fade" onRequestClose={onClose}>
       <View style={styles.dialogOverlay}>
@@ -3125,7 +3155,7 @@ function AppDialog({
             <Ionicons name="alert-circle-outline" size={26} color={BRAND_ORANGE} />
           </View>
           <Text style={styles.dialogTitle}>{dialog?.title}</Text>
-          <Text style={styles.dialogMessage}>{dialog?.message}</Text>
+          <Text style={styles.dialogMessage}>{message}</Text>
           <View style={styles.dialogActions}>
             {(dialog?.actions ?? []).map((action) => (
               <Pressable
@@ -6096,6 +6126,7 @@ function OrderSummaryScreen({
   const token = useAppStore((state) => state.token);
   const signOut = useAppStore((state) => state.signOut);
   const [submitting, setSubmitting] = useState(false);
+  const [editingDeliveryTiming, setEditingDeliveryTiming] = useState(false);
   const items = clothingItemsForDraft(draft);
 
   function editItem(item: ClothingItemDraft) {
@@ -6204,7 +6235,22 @@ function OrderSummaryScreen({
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>ORDER CART</Text>
           <SummaryRow label="Clothing items" value={`${items.length}`} strong />
-          <SummaryRow label="Delivery Timing" value={draft.urgency ?? "Not selected"} />
+          <View style={styles.orderSummaryDeliveryRow}>
+            <View style={styles.orderSummaryDeliveryText}>
+              <Text style={styles.summaryLabel}>Delivery Timing</Text>
+              <Text style={styles.summaryValue}>{draft.urgency ?? "Not selected"}</Text>
+            </View>
+            <Pressable
+              style={styles.orderSummaryDeliveryEdit}
+              onPress={() => setEditingDeliveryTiming(true)}
+              disabled={submitting}
+              accessibilityRole="button"
+              accessibilityLabel="Edit delivery timing"
+            >
+              <Ionicons name="create-outline" size={15} color={BRAND_DEEP} />
+              <Text style={styles.orderSummaryDeliveryEditText}>Edit</Text>
+            </Pressable>
+          </View>
           <SummaryRow label="Pickup address" value={draft.pickup || "Not selected"} />
         </View>
 
@@ -6250,6 +6296,44 @@ function OrderSummaryScreen({
           loading={submitting}
         />
       </ScrollView>
+      <Modal visible={editingDeliveryTiming} transparent animationType="fade" onRequestClose={() => setEditingDeliveryTiming(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.homeMeasurementModal}>
+            <View style={styles.homeMeasurementModalIcon}>
+              <Ionicons name="time-outline" size={28} color={BRAND_ORANGE} />
+            </View>
+            <Text style={styles.homeMeasurementModalTitle}>Choose Delivery Timing</Text>
+            <Text style={styles.homeMeasurementModalCopy}>This timing applies to every clothing item in this order.</Text>
+            <View style={styles.orderSummaryDeliveryOptions}>
+              {urgencyOptions.map((option) => {
+                const selected = draft.urgency === option.label;
+                return (
+                  <Pressable
+                    key={option.label}
+                    style={[styles.orderSummaryDeliveryOption, selected && styles.orderSummaryDeliveryOptionSelected]}
+                    onPress={() => {
+                      setDraft({ ...draft, urgency: option.label });
+                      setEditingDeliveryTiming(false);
+                    }}
+                  >
+                    <View style={[styles.orderSummaryDeliveryOptionIcon, selected && styles.orderSummaryDeliveryOptionIconSelected]}>
+                      <Ionicons name={option.icon} size={20} color={selected ? "#ffffff" : BRAND_ORANGE} />
+                    </View>
+                    <View style={styles.orderSummaryDeliveryText}>
+                      <Text style={styles.addressTitle}>{option.label}</Text>
+                      <Text style={styles.mutedSmall}>{option.helper}</Text>
+                    </View>
+                    <Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={21} color={selected ? BRAND_ORANGE : "#98a4b6"} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable style={styles.dialogButton} onPress={() => setEditingDeliveryTiming(false)}>
+              <Text style={styles.dialogButtonText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -13518,6 +13602,15 @@ function createStyles(isDark = false) {
   orderSummaryActionText: { color: text, fontSize: 12, fontWeight: "900" },
   orderSummaryDeleteButton: { borderColor: "#ffd1d1", backgroundColor: "#fff1f1" },
   orderSummaryDeleteText: { color: "#c24141" },
+  orderSummaryDeliveryRow: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottomWidth: 1, borderBottomColor: border, paddingVertical: 10 },
+  orderSummaryDeliveryText: { flex: 1, minWidth: 0 },
+  orderSummaryDeliveryEdit: { minHeight: 36, borderRadius: 12, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12 },
+  orderSummaryDeliveryEditText: { color: BRAND_DEEP, fontSize: 12, fontWeight: "900" },
+  orderSummaryDeliveryOptions: { alignSelf: "stretch", gap: 10, marginTop: 16, marginBottom: 14 },
+  orderSummaryDeliveryOption: { minHeight: 64, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  orderSummaryDeliveryOptionSelected: { borderColor: BRAND_ORANGE, backgroundColor: surfaceAlt },
+  orderSummaryDeliveryOptionIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  orderSummaryDeliveryOptionIconSelected: { backgroundColor: BRAND_ORANGE },
   couponApplyRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   couponInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1.3, borderColor: "#d1d9e6", backgroundColor: surface, color: text, paddingHorizontal: 12, fontWeight: "900" },
   couponApplyButton: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fff7e8", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },

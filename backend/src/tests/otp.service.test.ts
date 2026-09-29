@@ -6,7 +6,7 @@ import { AppError } from "../middleware/error.js";
 import { OtpCooldownModel, OtpRequestModel, UserModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 
-test("all OTP modes send SMS and enforce cooldown without silent fallback", async () => {
+test("development OTP and real TwoFactor OTP coexist safely across mobile roles", async () => {
   const original = {
     nodeEnv: env.NODE_ENV,
     enabled: env.TWOFACTOR_ENABLED,
@@ -80,14 +80,14 @@ test("all OTP modes send SMS and enforce cooldown without silent fallback", asyn
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
 
-    const live = await requestOtp("9876543211");
+    const live = await requestOtp("9876543211", "twofactor");
     assert.equal(live.provider, "twofactor");
     assert.equal(live.otp, undefined);
     assert.equal(providerCalls, 1);
     assert.equal(saved.at(-1)?.provider, "twofactor");
     assert.equal(saved.at(-1)?.otpHash, undefined);
     assert.equal(saved.at(-1)?.providerSessionId, "5D6EBEE6-EC04-4776-846D-3600422BD9EF");
-    await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429 && !!error.retryAfterSeconds);
+    await assert.rejects(requestOtp("9876543211", "twofactor"), (error) => error instanceof AppError && error.statusCode === 429 && !!error.retryAfterSeconds);
     assert.equal(providerCalls, 1);
 
     globalThis.fetch = async (input, init) => {
@@ -109,23 +109,48 @@ test("all OTP modes send SMS and enforce cooldown without silent fallback", asyn
 
     globalThis.fetch = async () => {
       providerCalls += 1;
+      return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
+    };
+    UserModel.findOne = (() => Promise.resolve({ role: "CUSTOMER" })) as unknown as typeof UserModel.findOne;
+    for (const [phone, role] of [
+      ["9876543221", "CUSTOMER"],
+      ["9876543222", "TAILOR"],
+      ["9876543223", "DELIVERY_PARTNER"]
+    ] as const) {
+      await requestOtp(phone, "twofactor");
+      const beforeFallbackVerification: number = providerCalls;
+      await verifyOtp(phone, env.OTP_DEV_CODE, role);
+      assert.equal(providerCalls, beforeFallbackVerification);
+      assert.ok(saved.find((record) => record.phone === phone)?.consumedAt);
+    }
+
+    const beforeDevelopmentRequest = providerCalls;
+    const development = await requestOtp("9876543224");
+    assert.equal(development.provider, "dev");
+    assert.equal(development.otp, env.OTP_DEV_CODE);
+    assert.equal(providerCalls, beforeDevelopmentRequest);
+    await verifyOtp("9876543224", env.OTP_DEV_CODE, "TAILOR");
+    assert.ok(saved.find((record) => record.phone === "9876543224")?.consumedAt);
+
+    globalThis.fetch = async () => {
+      providerCalls += 1;
       return new Response(JSON.stringify({ status: "failed" }), { status: 500 });
     };
     await assert.rejects(requestOtp("9876543212", "twofactor"), (error) => error instanceof AppError && error.statusCode === 502);
-    assert.equal(saved.length, 1);
+    assert.equal(saved.length, 5);
     assert.equal(reservations.has("9876543212"), false);
 
     env.NODE_ENV = "production";
-    assert.equal(providerCalls, 4);
+    assert.equal(providerCalls, 7);
 
     globalThis.fetch = async () => {
       providerCalls += 1;
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
-    const production = await requestOtp("9876543213", "twofactor");
+    const production = await requestOtp("9876543213");
     assert.equal(production.provider, "twofactor");
     assert.equal(production.otp, undefined);
-    assert.equal(providerCalls, 5);
+    assert.equal(providerCalls, 8);
     env.OTP_TEST_CUSTOMER_PHONES = "9876543213";
     env.OTP_TEST_EXPIRES_AT = new Date(Date.now() + 60000).toISOString();
     globalThis.fetch = async () => {
