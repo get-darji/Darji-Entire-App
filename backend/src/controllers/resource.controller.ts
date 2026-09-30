@@ -65,6 +65,7 @@ import { getPlatformStatus, savePlatformStatus } from "../services/platform-stat
 import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
 import { checkServiceAvailability, getServiceAreaConfig, saveServiceAreaConfig } from "../services/service-area.service.js";
+import { geocodeAddress } from "../services/delivery-pricing.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -2132,6 +2133,18 @@ export async function serviceAvailabilityController(req: Request, res: Response)
   const availability = await checkServiceAvailability(input.latitude, input.longitude);
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data: availability });
+}
+
+const forwardGeocodeQuerySchema = z.object({
+  address: z.string().trim().min(3).max(500)
+});
+
+export async function forwardGeocodeController(req: Request, res: Response) {
+  const { address } = forwardGeocodeQuerySchema.parse(req.query);
+  const point = await geocodeAddress(address);
+  if (!point) throw new AppError(404, "We could not find that area. Add the city or state and try again.");
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.json({ data: { latitude: point.lat, longitude: point.lng, query: address } });
 }
 
 const serviceAreaInterestInputSchema = z.object({

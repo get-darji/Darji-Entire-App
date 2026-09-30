@@ -126,6 +126,7 @@ import {
   getPlatformStatus,
   getServiceAreaConfig,
   getServiceAreaInterests,
+  geocodeServiceArea,
   getWalletPayouts,
   getWalletDetail,
   createWalletPayout,
@@ -226,6 +227,10 @@ import type {
 } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
+const ServiceAreaMap = dynamic(() => import("./ServiceAreaMap"), {
+  ssr: false,
+  loading: () => <div className="grid h-[360px] place-items-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-500">Loading area map...</div>
+});
 
 type TrendRange = "daily" | "weekly" | "monthly";
 type DashboardPeriodPreset = "today" | "yesterday" | "this_week" | "last_week" | "last_7_days" | "last_30_days" | "this_month" | "previous_month" | "custom" | "lifetime";
@@ -6341,9 +6346,45 @@ function ServiceAreaSettingsCard({
   onChange: (value: ServiceAreaConfig) => void;
   onSave: (value: ServiceAreaConfig) => void;
 }) {
+  const [selectedAreaIndex, setSelectedAreaIndex] = useState(0);
+  const [areaSearch, setAreaSearch] = useState("");
+  const [searchingArea, setSearchingArea] = useState(false);
+  const [unlocatedAreaIds, setUnlocatedAreaIds] = useState<Set<string>>(() => new Set());
   const updateArea = (index: number, patch: Partial<ServiceAreaConfig["areas"][number]>) => {
     onChange({ ...draft, areas: draft.areas.map((area, areaIndex) => areaIndex === index ? { ...area, ...patch } : area) });
   };
+  const selectedArea = draft.areas[selectedAreaIndex];
+
+  async function searchAndSelectArea() {
+    const query = areaSearch.trim();
+    if (query.length < 3) {
+      toast.error("Enter an area with its city or state");
+      return;
+    }
+    setSearchingArea(true);
+    try {
+      const result = await geocodeServiceArea(query);
+      if (selectedArea) {
+        updateArea(selectedAreaIndex, { name: query, latitude: result.latitude, longitude: result.longitude });
+        setUnlocatedAreaIds((current) => {
+          const next = new Set(current);
+          next.delete(selectedArea.id);
+          return next;
+        });
+      } else {
+        onChange({
+          ...draft,
+          areas: [...draft.areas, { id: `area-${Date.now()}`, name: query, latitude: result.latitude, longitude: result.longitude, radiusKm: 5, enabled: true }]
+        });
+        setSelectedAreaIndex(draft.areas.length);
+      }
+      toast.success("Area located. Confirm the centre and radius on the map.");
+    } catch (error) {
+      toast.error(extractError(error));
+    } finally {
+      setSearchingArea(false);
+    }
+  }
   return (
     <Panel>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -6369,33 +6410,70 @@ function ServiceAreaSettingsCard({
           <input className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2" value={draft.unavailableMessage} onChange={(event) => onChange({ ...draft, unavailableMessage: event.target.value })} />
         </label>
       </div>
+      <div className="mt-5 rounded-2xl border border-[var(--panel-border)] bg-black/[0.02] p-4 dark:bg-white/[0.03]">
+        <h4 className="font-semibold">Find and select an area</h4>
+        <p className="mt-1 text-sm text-[var(--muted)]">Search by locality and city, then fine-tune the centre by clicking OpenStreetMap. Coordinates are saved internally.</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            className="min-h-11 flex-1 rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3"
+            placeholder="Example: Dwarka, New Delhi"
+            value={areaSearch}
+            onChange={(event) => setAreaSearch(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchAndSelectArea(); } }}
+          />
+          <ActionButton disabled={searchingArea} onClick={() => void searchAndSelectArea()}>
+            {searchingArea ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Locate area
+          </ActionButton>
+        </div>
+      </div>
+      <div className="mt-4">
+        <ServiceAreaMap
+          areas={draft.areas}
+          selectedIndex={selectedAreaIndex}
+          onSelectPoint={(latitude, longitude) => {
+            if (!draft.areas[selectedAreaIndex]) {
+              toast.error("Search for or add an area first");
+              return;
+            }
+            updateArea(selectedAreaIndex, { latitude, longitude });
+            setUnlocatedAreaIds((current) => {
+              const next = new Set(current);
+              next.delete(draft.areas[selectedAreaIndex].id);
+              return next;
+            });
+          }}
+        />
+      </div>
       <div className="mt-5 space-y-3">
         {draft.areas.map((area, index) => (
-          <div key={area.id} className="grid gap-3 rounded-2xl border border-[var(--panel-border)] p-4 md:grid-cols-6">
-            <label className="text-xs font-semibold md:col-span-2">Area name
+          <div key={area.id} className={cn("grid gap-3 rounded-2xl border p-4 md:grid-cols-6", index === selectedAreaIndex ? "border-amber-400 bg-amber-50/60 dark:bg-amber-950/10" : "border-[var(--panel-border)]")}>
+            <label className="text-xs font-semibold md:col-span-3">Area name
               <input className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.name} onChange={(event) => updateArea(index, { name: event.target.value })} />
-            </label>
-            <label className="text-xs font-semibold">Latitude
-              <input type="number" step="any" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.latitude} onChange={(event) => updateArea(index, { latitude: Number(event.target.value) })} />
-            </label>
-            <label className="text-xs font-semibold">Longitude
-              <input type="number" step="any" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.longitude} onChange={(event) => updateArea(index, { longitude: Number(event.target.value) })} />
             </label>
             <label className="text-xs font-semibold">Radius (km)
               <input type="number" min="0.1" step="0.1" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.radiusKm} onChange={(event) => updateArea(index, { radiusKm: Number(event.target.value) })} />
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 md:col-span-2">
+              <button type="button" className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-semibold text-amber-900" onClick={() => setSelectedAreaIndex(index)}>{index === selectedAreaIndex ? "Selected" : "Edit on map"}</button>
               <button type="button" className={cn("min-h-10 flex-1 rounded-xl px-2 text-xs font-semibold", area.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700")} onClick={() => updateArea(index, { enabled: !area.enabled })}>{area.enabled ? "Active" : "Paused"}</button>
-              <button type="button" aria-label={`Remove ${area.name}`} className="grid min-h-10 w-10 place-items-center rounded-xl bg-rose-100 text-rose-700" onClick={() => onChange({ ...draft, areas: draft.areas.filter((_, areaIndex) => areaIndex !== index) })}><Trash2 size={16} /></button>
+              <button type="button" aria-label={`Remove ${area.name}`} className="grid min-h-10 w-10 place-items-center rounded-xl bg-rose-100 text-rose-700" onClick={() => { onChange({ ...draft, areas: draft.areas.filter((_, areaIndex) => areaIndex !== index) }); setUnlocatedAreaIds((current) => { const next = new Set(current); next.delete(area.id); return next; }); setSelectedAreaIndex(0); }}><Trash2 size={16} /></button>
             </div>
+            <details className="text-xs text-[var(--muted)] md:col-span-6">
+              <summary className="cursor-pointer font-semibold">Advanced coordinates</summary>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <input aria-label="Latitude" type="number" step="any" className="rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2" value={area.latitude} onChange={(event) => updateArea(index, { latitude: Number(event.target.value) })} />
+                <input aria-label="Longitude" type="number" step="any" className="rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2" value={area.longitude} onChange={(event) => updateArea(index, { longitude: Number(event.target.value) })} />
+              </div>
+            </details>
           </div>
         ))}
       </div>
       <div className="mt-4 flex flex-wrap justify-between gap-3">
-        <ActionButton variant="secondary" onClick={() => onChange({ ...draft, areas: [...draft.areas, { id: `area-${Date.now()}`, name: "New launch area", latitude: 0, longitude: 0, radiusKm: 5, enabled: true }] })}><Plus className="h-4 w-4" />Add area</ActionButton>
-        <ActionButton disabled={pending || (draft.enabled && !draft.areas.some((area) => area.enabled))} onClick={() => onSave(draft)}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save service areas</ActionButton>
+        <ActionButton variant="secondary" onClick={() => { const index = draft.areas.length; const id = `area-${Date.now()}`; onChange({ ...draft, areas: [...draft.areas, { id, name: "New launch area", latitude: 28.6139, longitude: 77.209, radiusKm: 5, enabled: true }] }); setUnlocatedAreaIds((current) => new Set(current).add(id)); setSelectedAreaIndex(index); }}><Plus className="h-4 w-4" />Add area</ActionButton>
+        <ActionButton disabled={pending || unlocatedAreaIds.size > 0 || (draft.enabled && !draft.areas.some((area) => area.enabled))} onClick={() => onSave(draft)}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save service areas</ActionButton>
       </div>
       {draft.enabled && !draft.areas.some((area) => area.enabled) ? <p className="mt-3 text-sm font-semibold text-rose-700">Add and activate at least one area before enabling filtering.</p> : null}
+      {unlocatedAreaIds.size > 0 ? <p className="mt-3 text-sm font-semibold text-amber-700">Locate every new area by searching or clicking its centre on the map before saving.</p> : null}
       <div className="mt-6 border-t border-[var(--panel-border)] pt-5">
         <div className="flex items-center justify-between gap-3">
           <div>

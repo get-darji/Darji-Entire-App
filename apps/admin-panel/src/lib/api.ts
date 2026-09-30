@@ -424,6 +424,10 @@ export async function getServiceAreaInterests() {
   return unwrap<{ items: ServiceAreaInterest[]; total: number }>(api.get("/admin/service-area-interests"));
 }
 
+export async function geocodeServiceArea(address: string) {
+  return unwrap<{ latitude: number; longitude: number; query: string }>(api.get("/location/geocode", { params: { address } }));
+}
+
 export async function updateTailoringWorkStatus(requestId: string, status: "WORKING" | "READY") {
   return unwrap<TailoringRequest>(api.patch(`/tailoring-requests/${requestId}/work-status`, { status }));
 }

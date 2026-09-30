@@ -101,6 +101,7 @@ import {
   reverseGeocodeController,
   updateRiderLocationController,
   serviceAvailabilityController,
+  forwardGeocodeController,
   createServiceAreaInterestController,
   listServiceAreaInterestsController,
   serviceAreaConfigController,
@@ -174,6 +175,7 @@ router.get("/health", (_req, res) => res.json({
 }));
 router.get("/platform-status", platformStatusController);
 router.get("/service-availability", serviceAvailabilityController);
+router.get("/location/geocode", requireAuth, forwardGeocodeController);
 router.get("/settings/customer-website-slider", customerWebsiteSliderController);
 router.post(
   "/marketing-signups",
