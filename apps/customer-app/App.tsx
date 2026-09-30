@@ -9,7 +9,6 @@ import * as Location from "expo-location";
 import * as Notifications from "./src/notifications/expoNotifications";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as Updates from "expo-updates";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebView } from "react-native-webview";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -549,11 +548,6 @@ type AppReviewDraft = { id: string; rating: number; review: string; createdAt: s
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean; cancel?: boolean };
 type AppDialogState = { title: string; message: string; actions: DialogAction[]; presentation?: "dialog" | "snackbar" };
-type UpdateGateState = {
-  status: "idle" | "downloading" | "ready" | "error";
-  message?: string;
-  totalBytes?: number;
-};
 type RequestPreset = Partial<Pick<RequestDraft, "gender" | "clothType" | "serviceCategory" | "workType" | "selectedWorkItems" | "otherWorkDescription">>;
 type RazorpayFailurePayload = {
   code?: string;
@@ -614,6 +608,7 @@ const CUSTOMER_TAB_BOTTOM_INSET = 38;
 const CUSTOMER_TAB_CONTENT_BOTTOM_PADDING = 132;
 const FORM_KEYBOARD_BEHAVIOR = Platform.OS === "ios" ? "padding" : "height";
 const customerAppIcon = require("./app-icon.png");
+const CUSTOMER_APP_VERSION = require("./app.json").expo.version as string;
 const darjiLogo = require("./darji transparent.png");
 const measurementsImage = require("./measurements.png");
 const ironingImage = require("./assets/icons/ironing.png");
@@ -622,121 +617,6 @@ const expertCraftsmanshipImage = require("./assets/icons/expert craftsmanship.pn
 const qualityCheckedImage = require("./assets/icons/quality checked.png");
 const alterationImage = require("./assets/icons/alteration.png");
 
-function updateGateProgress(status: UpdateGateState["status"], downloadProgress?: number) {
-  if (status === "ready") return 1;
-  if (status === "error") return 1;
-  if (status === "downloading") return Math.min(0.94, Math.max(0.08, Number(downloadProgress ?? 0.08)));
-  return 0;
-}
-
-function formatUpdateMb(bytes?: number | null) {
-  if (!Number.isFinite(Number(bytes)) || Number(bytes) <= 0) return "Calculating";
-  return `${(Number(bytes) / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function updateManifestAssetUrls(manifest: unknown) {
-  const data = manifest as { launchAsset?: { url?: unknown }; assets?: Array<{ url?: unknown }> } | null | undefined;
-  const urls = [
-    typeof data?.launchAsset?.url === "string" ? data.launchAsset.url : undefined,
-    ...(Array.isArray(data?.assets) ? data.assets.map((asset) => typeof asset?.url === "string" ? asset.url : undefined) : [])
-  ].filter((url): url is string => Boolean(url));
-  return Array.from(new Set(urls));
-}
-
-async function fetchUpdateContentBytes(manifest: unknown) {
-  const urls = updateManifestAssetUrls(manifest);
-  if (!urls.length) return undefined;
-  let total = 0;
-  let foundSize = false;
-  await Promise.all(urls.map(async (url) => {
-    try {
-      const response = await fetch(url, { method: "HEAD" });
-      const contentLength = Number(response.headers.get("content-length"));
-      if (Number.isFinite(contentLength) && contentLength > 0) {
-        total += contentLength;
-        foundSize = true;
-      }
-    } catch {
-      // Some update asset hosts do not allow HEAD; progress still works without byte totals.
-    }
-  }));
-  return foundSize ? total : undefined;
-}
-
-function UpdateGateScreen({
-  appName,
-  state,
-  downloadProgress,
-  restarting,
-  onRestart,
-  onRetry
-}: {
-  appName: string;
-  state: UpdateGateState & { status: "downloading" | "ready" | "error" };
-  downloadProgress?: number;
-  restarting: boolean;
-  onRestart: () => void;
-  onRetry: () => void;
-}) {
-  const progress = updateGateProgress(state.status, downloadProgress);
-  const percent = Math.round(progress * 100);
-  const isReady = state.status === "ready";
-  const isError = state.status === "error";
-  const remainingBytes = state.totalBytes ? Math.max(0, state.totalBytes * (1 - progress)) : undefined;
-  const title = isReady ? "Update ready" : isError ? "Update paused" : "Updating Darji";
-  const copy = isReady
-    ? "The latest update is installed. Restart the app to continue."
-    : isError
-      ? userFacingMessage(state.message, "We could not download the update. Please retry to continue.")
-      : "Please keep the app open while we install the latest fixes.";
-
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#f7faff" }}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f7faff" />
-      <View style={{ flex: 1, justifyContent: "center", padding: 22 }}>
-        <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "#dde4ee", backgroundColor: "#ffffff", padding: 22 }}>
-          <View style={{ width: 54, height: 54, borderRadius: 8, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
-            <Ionicons name={isReady ? "checkmark-circle-outline" : isError ? "alert-circle-outline" : "cloud-download-outline"} size={28} color={isError ? "#b91c1c" : BRAND_ORANGE} />
-          </View>
-          <Text style={{ color: BRAND_DEEP, fontSize: 24, lineHeight: 30, fontWeight: "900" }}>{title}</Text>
-          <Text style={{ color: "#65748a", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8 }}>{copy}</Text>
-          <View style={{ height: 10, borderRadius: 5, backgroundColor: "#e8eef6", overflow: "hidden", marginTop: 22 }}>
-            <View style={{ width: `${percent}%`, height: "100%", backgroundColor: isError ? "#ef4444" : BRAND_ORANGE }} />
-          </View>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
-            <Text style={{ color: BRAND_DEEP, fontSize: 12, fontWeight: "900" }}>{percent}%</Text>
-            <Text style={{ color: "#65748a", fontSize: 12, fontWeight: "800" }}>{appName}</Text>
-          </View>
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
-            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
-              <Text style={{ color: "#65748a", fontSize: 10, fontWeight: "900" }}>UPDATE SIZE</Text>
-              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{formatUpdateMb(state.totalBytes)}</Text>
-            </View>
-            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
-              <Text style={{ color: "#65748a", fontSize: 10, fontWeight: "900" }}>LEFT</Text>
-              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{isReady ? "0 MB" : formatUpdateMb(remainingBytes)}</Text>
-            </View>
-          </View>
-          {isReady || isError ? (
-            <Pressable
-              style={{ minHeight: 52, borderRadius: 8, backgroundColor: isError ? BRAND_DEEP : BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8, opacity: restarting ? 0.7 : 1 }}
-              disabled={restarting}
-              onPress={isReady ? onRestart : onRetry}
-            >
-              {restarting ? <ActivityIndicator color={isError ? "#ffffff" : "#111111"} /> : <Ionicons name={isReady ? "refresh-outline" : "reload-outline"} size={18} color={isError ? "#ffffff" : "#111111"} />}
-              <Text style={{ color: isError ? "#ffffff" : "#111111", fontSize: 14, fontWeight: "900" }}>{isReady ? "Restart app" : "Retry update"}</Text>
-            </Pressable>
-          ) : (
-            <View style={{ minHeight: 52, borderRadius: 8, backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8 }}>
-              <ActivityIndicator color={BRAND_ORANGE} />
-              <Text style={{ color: BRAND_DEEP, fontSize: 14, fontWeight: "900" }}>Downloading update</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </SafeAreaView>
-  );
-}
 const repairsImage = require("./assets/icons/repairs.png");
 const stitchingImage = require("./assets/icons/stitching.png");
 const avatarImages = {
@@ -759,6 +639,13 @@ type PullToRefreshState = {
   refreshing: boolean;
   refreshSignal: number;
   onRefresh?: () => void;
+};
+type ServiceAvailability = {
+  filteringEnabled: boolean;
+  serviceable: boolean;
+  matchedArea?: { id: string; name: string };
+  title?: string;
+  message?: string;
 };
 
 function openDarjiUrl(url: string) {
@@ -4967,7 +4854,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   );
   const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && hasOtherClothType && selectedService && hasWorkSelection);
   const savedItemCount = draft.items?.length ?? 0;
-  const showUrgencyPicker = savedItemCount === 0 || !draft.urgency;
+  const editingItemIndex = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) : -1;
+  const currentItemNumber = editingItemIndex >= 0 ? editingItemIndex + 1 : savedItemCount + 1;
+  const totalItemCount = Math.max(savedItemCount, currentItemNumber);
+  const showUrgencyPicker = savedItemCount === 0 || editingItemIndex === 0 || !draft.urgency;
 
   useEffect(() => {
     requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: 0, animated: false }));
@@ -5263,7 +5153,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       ) : (
         <ScrollView ref={scrollViewRef} contentContainerStyle={styles.pageContent}>
           <Header
-            title={stage === "measurements" ? "Measurements & Timing" : "Cloth Details"}
+            title={`${stage === "measurements" ? "Measurements & Timing" : "Cloth Details"} · Item ${currentItemNumber} of ${totalItemCount}`}
             onBack={() => setScreen(stage === "measurements" ? "clothIssue" : draft.editingItemId ? "orderSummary" : "newRequest")}
             right={<Text style={styles.stepBadge}>{stage === "measurements" ? "3/3" : "2/3"}</Text>}
           />
@@ -5271,7 +5161,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
         {savedItemCount > 0 ? (
           <View style={styles.infoBanner}>
             <Ionicons name="albums-outline" size={17} color={BRAND_ORANGE} />
-            <Text style={styles.infoBannerText}>{savedItemCount} {savedItemCount === 1 ? "Item" : "Items"} Added</Text>
+            <Text style={styles.infoBannerText}>{draft.editingItemId ? `Editing Item ${currentItemNumber} of ${totalItemCount}` : `${savedItemCount} ${savedItemCount === 1 ? "Item" : "Items"} Added · Creating Item ${currentItemNumber}`}</Text>
           </View>
         ) : null}
 
@@ -6154,6 +6044,45 @@ function OrderSummaryScreen({
     setDraft({ ...clearActiveClothingItem({ ...draft, items: nextItems }), items: nextItems });
   }
 
+  async function confirmServiceAvailability() {
+    if (!draft.pickupLocation) return true;
+    const availability = await api<ServiceAvailability>(
+      `/service-availability?latitude=${encodeURIComponent(draft.pickupLocation.lat)}&longitude=${encodeURIComponent(draft.pickupLocation.lng)}`,
+      {},
+      token
+    );
+    if (availability.serviceable) return true;
+    showDialog({
+      title: availability.title ?? "Darji is not in your area yet",
+      message: availability.message ?? "Request Darji here and we will let you know when service reaches your area.",
+      actions: [
+        { label: "Not Now", cancel: true },
+        {
+          label: "Request Darji Here",
+          onPress: () => {
+            void api("/service-area-interests", {
+              method: "POST",
+              body: JSON.stringify({
+                address: draft.pickup,
+                latitude: draft.pickupLocation?.lat,
+                longitude: draft.pickupLocation?.lng
+              })
+            }, token).then(() => showDialog({
+              title: "Request received",
+              message: "Thank you. We recorded your area and will let you know when Darji launches here.",
+              actions: [{ label: "Done" }]
+            })).catch((error) => showDialog({
+              title: "Could not save request",
+              message: error instanceof Error ? error.message : "Please try again.",
+              actions: [{ label: "OK" }]
+            }));
+          }
+        }
+      ]
+    });
+    return false;
+  }
+
   async function requestQuotes() {
     if (!token) return;
     if (items.length === 0) {
@@ -6178,6 +6107,7 @@ function OrderSummaryScreen({
 
     try {
       setSubmitting(true);
+      if (!await confirmServiceAvailability()) return;
       const itemPayloads = items.map(payloadForClothingItem);
       const primary = itemPayloads[0];
       const preferredMeasurementSlot = items.find((item) => item.homeMeasurementBooked && item.preferredMeasurementSlot)?.preferredMeasurementSlot ?? draft.preferredMeasurementSlot;
@@ -7890,7 +7820,7 @@ function ProfileScreen({
           <Text style={{ color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 }}>{t(language, "app")}</Text>
         </View>
         <View style={profileStyles.whiteCard}>
-          <ProfileRow icon="phone-portrait-outline" label={t(language, "appVersion")} value="0.1.0 (Development)" onPress={() => setScreen("appInfo")} styles={profileStyles} noBorder />
+          <ProfileRow icon="phone-portrait-outline" label={t(language, "appVersion")} value={CUSTOMER_APP_VERSION} onPress={() => setScreen("appInfo")} styles={profileStyles} noBorder />
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8, marginTop: 14, marginLeft: 4 }}>
@@ -9158,7 +9088,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
           description: bugDescription.trim(),
           screenshot: bugScreenshot,
           deviceInfo,
-          appVersion: "0.1.0"
+          appVersion: CUSTOMER_APP_VERSION
         })
       }, token);
       Alert.alert("Bug Reported", "Thank you! Our engineering team has received your bug report.");
@@ -9750,7 +9680,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                     <Ionicons name="information-circle-outline" size={14} color="#8fa0b8" />
                   </View>
                   <Text style={styles.bugInfoLabel}>App version</Text>
-                  <Text style={styles.bugInfoValue}>0.1.0 (Dev Build)</Text>
+                  <Text style={styles.bugInfoValue}>{CUSTOMER_APP_VERSION}</Text>
                 </View>
               </View>
 
@@ -9968,12 +9898,19 @@ function PolicyScreen({ title, setScreen }: { title: string; setScreen: (screen:
 function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "appInfo")} setScreen={setScreen}>
-      <View style={styles.whiteCard}>
-        <InfoRow label="App" value="Darji Customer" />
-        <InfoRow label="Version" value="0.1.0" />
-        <InfoRow label="Build" value="Development" />
-        <InfoRow label="API" value="Connected to deployed backend" />
+      <View style={[styles.whiteCard, { alignItems: "center", paddingVertical: 24 }]}>
+        <Image source={customerAppIcon} style={{ width: 74, height: 74, borderRadius: 18 }} resizeMode="contain" />
+        <Text style={[styles.profileName, { marginTop: 12 }]}>Darji</Text>
+        <Text style={styles.mutedCenter}>Doorstep tailoring, pickup, measurements, and delivery in one trusted app.</Text>
       </View>
+      <View style={styles.whiteCard}>
+        <InfoRow label="Installed version" value={CUSTOMER_APP_VERSION} />
+        <InfoRow label="Updates" value="Installed automatically when the app restarts" />
+      </View>
+      <Pressable style={styles.aboutInfoButton} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)}><Ionicons name="shield-checkmark-outline" size={18} color="#111111" /><Text style={styles.aboutInfoButtonText}>Privacy Policy</Text></Pressable>
+      <Pressable style={styles.aboutInfoButton} onPress={() => openDarjiUrl(DARJI_TERMS_URL)}><Ionicons name="document-text-outline" size={18} color="#111111" /><Text style={styles.aboutInfoButtonText}>Terms of Service</Text></Pressable>
+      <Pressable style={styles.aboutInfoButton} onPress={() => setScreen("helpCenter")}><Ionicons name="help-circle-outline" size={18} color="#111111" /><Text style={styles.aboutInfoButtonText}>Help & Support</Text></Pressable>
+      <Text style={[styles.mutedCenter, { marginTop: 16 }]}>Official Darji customer app</Text>
     </ProfileSubPage>
   );
 }
@@ -10402,8 +10339,8 @@ function LegacyOrderDetailsScreenV2({
 
     try {
       setSavingRating(kind);
-      if (token) {
-        await api(
+      if (!token) throw new Error("Please sign in again before submitting a rating.");
+      await api(
           "/reviews",
           {
             method: "POST",
@@ -10415,13 +10352,14 @@ function LegacyOrderDetailsScreenV2({
             })
           },
           token
-        ).catch(() => undefined);
-      }
+        );
       onUpdateOrder({
         ...order,
         ...(kind === "tailor" ? { tailorRatingSubmittedAt: new Date().toISOString() } : { deliveryRatingSubmittedAt: new Date().toISOString() })
       });
       Alert.alert("Rating submitted", `Thanks for rating the ${kind === "tailor" ? "tailor" : "delivery partner"}.`);
+    } catch (error) {
+      Alert.alert("Rating not submitted", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setSavingRating(undefined);
     }
@@ -10671,8 +10609,8 @@ function OrderDetailsScreenV2({
 
     try {
       setSavingRating(kind);
-      if (token) {
-        await api(
+      if (!token) throw new Error("Please sign in again before submitting a rating.");
+      await api(
           "/reviews",
           {
             method: "POST",
@@ -10684,13 +10622,14 @@ function OrderDetailsScreenV2({
             })
           },
           token
-        ).catch(() => undefined);
-      }
+        );
       onUpdateOrder({
         ...order,
         ...(kind === "tailor" ? { tailorRatingSubmittedAt: new Date().toISOString() } : { deliveryRatingSubmittedAt: new Date().toISOString() })
       });
       Alert.alert("Rating submitted", `Thanks for rating the ${kind === "tailor" ? "tailor" : "delivery partner"}.`);
+    } catch (error) {
+      Alert.alert("Rating not submitted", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setSavingRating(undefined);
     }
@@ -11206,15 +11145,10 @@ function AppContent() {
   const [isFetchingOrders, setIsFetchingOrders] = useState(true);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
-  const updatesState = Updates.useUpdates();
-  const [updateGate, setUpdateGate] = useState<UpdateGateState>({ status: "idle" });
-  const [updateRestarting, setUpdateRestarting] = useState(false);
   const paymentMessageHandledRef = useRef(false);
   const paymentRecoveryInFlightRef = useRef(false);
   const paymentExternalOpenRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
-  const updatePromptShownRef = useRef(false);
-  const updateCheckInFlightRef = useRef(false);
   const homeScrollOffsetRef = useRef(0);
   const profileScrollOffsetRef = useRef(0);
 
@@ -11232,57 +11166,6 @@ function AppContent() {
     if (!sessionNotice) return;
     Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
   }, [clearSessionNotice, sessionNotice]);
-
-  useEffect(() => {
-    async function checkForAppUpdate() {
-      if (updatePromptShownRef.current || updateCheckInFlightRef.current || !Updates.isEnabled) return;
-      updateCheckInFlightRef.current = true;
-      try {
-        const result = await Updates.checkForUpdateAsync();
-        if ((!result.isAvailable && !result.isRollBackToEmbedded) || updatePromptShownRef.current) return;
-        updatePromptShownRef.current = true;
-        const totalBytes = result.isAvailable ? await fetchUpdateContentBytes(result.manifest) : undefined;
-        setUpdateGate({ status: "downloading", totalBytes });
-        await Updates.fetchUpdateAsync();
-        setUpdateGate({ status: "ready", totalBytes });
-      } catch (error) {
-        if (updatePromptShownRef.current) {
-          setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
-        }
-        // Updates are disabled in Expo Go/dev builds; no prompt is needed there.
-      } finally {
-        updateCheckInFlightRef.current = false;
-      }
-    }
-    void checkForAppUpdate();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void checkForAppUpdate();
-    });
-    return () => subscription.remove();
-  }, []);
-
-  const restartForUpdate = useCallback(async () => {
-    setUpdateRestarting(true);
-    try {
-      await Updates.reloadAsync();
-    } catch (error) {
-      setUpdateRestarting(false);
-      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not restart the app." });
-    }
-  }, []);
-
-  const retryAppUpdate = useCallback(async () => {
-    updatePromptShownRef.current = true;
-    const totalBytes = await fetchUpdateContentBytes(updatesState.availableUpdate?.manifest);
-    setUpdateGate({ status: "downloading", totalBytes });
-    setUpdateRestarting(false);
-    try {
-      await Updates.fetchUpdateAsync();
-      setUpdateGate({ status: "ready", totalBytes });
-    } catch (error) {
-      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
-    }
-  }, [updatesState.availableUpdate?.manifest]);
 
   useEffect(() => {
     if (!paymentSheet || verifyingPayment) return;
@@ -12522,18 +12405,6 @@ function AppContent() {
     );
   }
   if (!sessionHydrated) return withAppChrome(<LocationFetchingScreen title="Checking account" message="Loading your saved Darji session." />);
-  if (updateGate.status !== "idle") {
-    return (
-      <UpdateGateScreen
-        appName="Darji"
-        downloadProgress={updatesState.downloadProgress}
-        restarting={updateRestarting || updatesState.isRestarting}
-        state={updateGate as UpdateGateState & { status: "downloading" | "ready" | "error" }}
-        onRestart={() => void restartForUpdate()}
-        onRetry={() => void retryAppUpdate()}
-      />
-    );
-  }
   if (!token) return <AuthScreen />;
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} setLanguagePreference={setLanguagePreference} />);

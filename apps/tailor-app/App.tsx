@@ -7,7 +7,6 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Notifications from "./src/notifications/expoNotifications";
-import * as Updates from "expo-updates";
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 import FaceDetection from "@react-native-ml-kit/face-detection";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -377,11 +376,6 @@ type MeResponse = {
 };
 type DialogAction = { label: string; onPress?: () => void; variant?: "primary" | "secondary" };
 type DialogState = { title: string; message: string; icon?: keyof typeof Ionicons.glyphMap; actions?: DialogAction[]; variant?: "requestSuccess"; presentation?: "dialog" | "snackbar" };
-type UpdateGateState = {
-  status: "idle" | "downloading" | "ready" | "error";
-  message?: string;
-  totalBytes?: number;
-};
 type CancellationAlert = { id: string; title: string; message: string };
 type VerificationMediaDraft = { uri: string; name: string; uploadedUrl?: string };
 type TailorReuploadField = "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto" | "shopPhotos";
@@ -441,121 +435,6 @@ const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const tailorAppIcon = require("./darji transparent.png");
 
-function updateGateProgress(status: UpdateGateState["status"], downloadProgress?: number) {
-  if (status === "ready") return 1;
-  if (status === "error") return 1;
-  if (status === "downloading") return Math.min(0.94, Math.max(0.08, Number(downloadProgress ?? 0.08)));
-  return 0;
-}
-
-function formatUpdateMb(bytes?: number | null) {
-  if (!Number.isFinite(Number(bytes)) || Number(bytes) <= 0) return "Calculating";
-  return `${(Number(bytes) / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function updateManifestAssetUrls(manifest: unknown) {
-  const data = manifest as { launchAsset?: { url?: unknown }; assets?: Array<{ url?: unknown }> } | null | undefined;
-  const urls = [
-    typeof data?.launchAsset?.url === "string" ? data.launchAsset.url : undefined,
-    ...(Array.isArray(data?.assets) ? data.assets.map((asset) => typeof asset?.url === "string" ? asset.url : undefined) : [])
-  ].filter((url): url is string => Boolean(url));
-  return Array.from(new Set(urls));
-}
-
-async function fetchUpdateContentBytes(manifest: unknown) {
-  const urls = updateManifestAssetUrls(manifest);
-  if (!urls.length) return undefined;
-  let total = 0;
-  let foundSize = false;
-  await Promise.all(urls.map(async (url) => {
-    try {
-      const response = await fetch(url, { method: "HEAD" });
-      const contentLength = Number(response.headers.get("content-length"));
-      if (Number.isFinite(contentLength) && contentLength > 0) {
-        total += contentLength;
-        foundSize = true;
-      }
-    } catch {
-      // Some update asset hosts do not allow HEAD; progress still works without byte totals.
-    }
-  }));
-  return foundSize ? total : undefined;
-}
-
-function UpdateGateScreen({
-  appName,
-  state,
-  downloadProgress,
-  restarting,
-  onRestart,
-  onRetry
-}: {
-  appName: string;
-  state: UpdateGateState & { status: "downloading" | "ready" | "error" };
-  downloadProgress?: number;
-  restarting: boolean;
-  onRestart: () => void;
-  onRetry: () => void;
-}) {
-  const progress = updateGateProgress(state.status, downloadProgress);
-  const percent = Math.round(progress * 100);
-  const isReady = state.status === "ready";
-  const isError = state.status === "error";
-  const remainingBytes = state.totalBytes ? Math.max(0, state.totalBytes * (1 - progress)) : undefined;
-  const title = isReady ? "Update ready" : isError ? "Update paused" : "Updating Darji";
-  const copy = isReady
-    ? "The latest update is installed. Restart the app to continue."
-    : isError
-      ? userFacingMessage(state.message, "We could not download the update. Please retry to continue.")
-      : "Please keep the app open while we install the latest fixes.";
-
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#f7faff" }}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f7faff" />
-      <View style={{ flex: 1, justifyContent: "center", padding: 22 }}>
-        <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "#dde4ee", backgroundColor: "#ffffff", padding: 22 }}>
-          <View style={{ width: 54, height: 54, borderRadius: 8, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
-            <Ionicons name={isReady ? "checkmark-circle-outline" : isError ? "alert-circle-outline" : "cloud-download-outline"} size={28} color={isError ? "#b91c1c" : BRAND_ORANGE} />
-          </View>
-          <Text style={{ color: BRAND_DEEP, fontSize: 24, lineHeight: 30, fontWeight: "900" }}>{title}</Text>
-          <Text style={{ color: MUTED, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 8 }}>{copy}</Text>
-          <View style={{ height: 10, borderRadius: 5, backgroundColor: "#e8eef6", overflow: "hidden", marginTop: 22 }}>
-            <View style={{ width: `${percent}%`, height: "100%", backgroundColor: isError ? "#ef4444" : BRAND_ORANGE }} />
-          </View>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 8 }}>
-            <Text style={{ color: BRAND_DEEP, fontSize: 12, fontWeight: "900" }}>{percent}%</Text>
-            <Text style={{ color: MUTED, fontSize: 12, fontWeight: "800" }}>{appName}</Text>
-          </View>
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
-            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
-              <Text style={{ color: MUTED, fontSize: 10, fontWeight: "900" }}>UPDATE SIZE</Text>
-              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{formatUpdateMb(state.totalBytes)}</Text>
-            </View>
-            <View style={{ flex: 1, borderRadius: 8, backgroundColor: "#fbfdff", borderWidth: 1, borderColor: "#e4e9f1", padding: 12 }}>
-              <Text style={{ color: MUTED, fontSize: 10, fontWeight: "900" }}>LEFT</Text>
-              <Text style={{ color: BRAND_DEEP, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{isReady ? "0 MB" : formatUpdateMb(remainingBytes)}</Text>
-            </View>
-          </View>
-          {isReady || isError ? (
-            <Pressable
-              style={{ minHeight: 52, borderRadius: 8, backgroundColor: isError ? BRAND_DEEP : BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8, opacity: restarting ? 0.7 : 1 }}
-              disabled={restarting}
-              onPress={isReady ? onRestart : onRetry}
-            >
-              {restarting ? <ActivityIndicator color={isError ? "#ffffff" : "#111111"} /> : <Ionicons name={isReady ? "refresh-outline" : "reload-outline"} size={18} color={isError ? "#ffffff" : "#111111"} />}
-              <Text style={{ color: isError ? "#ffffff" : "#111111", fontSize: 14, fontWeight: "900" }}>{isReady ? "Restart app" : "Retry update"}</Text>
-            </Pressable>
-          ) : (
-            <View style={{ minHeight: 52, borderRadius: 8, backgroundColor: "#fffaf0", alignItems: "center", justifyContent: "center", marginTop: 20, flexDirection: "row", gap: 8 }}>
-              <ActivityIndicator color={BRAND_ORANGE} />
-              <Text style={{ color: BRAND_DEEP, fontSize: 14, fontWeight: "900" }}>Downloading update</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </SafeAreaView>
-  );
-}
 const TAILOR_ONBOARDING_STORAGE_PREFIX = "darji.tailorOnboarding.v1";
 const VERIFICATION_TOTAL_STEPS = 5;
 const VERIFICATION_FORM_STEPS = 4;
@@ -1356,6 +1235,21 @@ function MeasurementVisitCard({
   );
 }
 
+function RequestCardsSkeleton({ count = 2 }: { count?: number }) {
+  return (
+    <View accessibilityLabel="Loading requests">
+      {Array.from({ length: count }, (_, index) => (
+        <View key={`request-skeleton-${index}`} style={[styles.requestCard, { opacity: 0.72 }]}>
+          <View style={{ height: 13, width: "38%", borderRadius: 7, backgroundColor: "#e2e8f0" }} />
+          <View style={{ height: 18, width: "70%", borderRadius: 9, backgroundColor: "#dbe3ed", marginTop: 14 }} />
+          <View style={{ height: 12, width: "92%", borderRadius: 6, backgroundColor: "#edf1f5", marginTop: 12 }} />
+          <View style={{ height: 12, width: "58%", borderRadius: 6, backgroundColor: "#edf1f5", marginTop: 8 }} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function DashboardScreen({
   me,
   online,
@@ -1371,7 +1265,8 @@ function DashboardScreen({
   onOpenMeasurementRequests,
   setScreen,
   setActiveRequest,
-  setActiveOrder
+  setActiveOrder,
+  requestsLoading
 }: {
   me?: MeResponse;
   online: boolean;
@@ -1388,6 +1283,7 @@ function DashboardScreen({
   setScreen: (screen: Screen) => void;
   setActiveRequest: (request: TailoringRequest) => void;
   setActiveOrder: (order: Order) => void;
+  requestsLoading: boolean;
 }) {
   const openRequests = requests.filter((request) => request.status === "QUOTE_REQUESTED");
   const newMeasurementVisits = measurementVisits.filter(isActionableMeasurementVisit);
@@ -1515,7 +1411,7 @@ function DashboardScreen({
           <Text style={styles.linkText}>See all <Ionicons name="chevron-forward" size={11} color={BRAND_ORANGE} /></Text>
         </Pressable>
       </View>
-      {openRequests.slice(0, 2).map((request) => (
+      {requestsLoading ? <RequestCardsSkeleton /> : openRequests.slice(0, 2).map((request) => (
         <RequestCard
           key={request.id}
           request={request}
@@ -1525,7 +1421,7 @@ function DashboardScreen({
           }}
         />
       ))}
-      {openRequests.length === 0 ? <EmptyState icon="mail-outline" title="No new requests" copy="New customer tailoring requests will appear here." /> : null}
+      {!requestsLoading && openRequests.length === 0 ? <EmptyState icon="mail-outline" title="No new requests" copy="New customer tailoring requests will appear here." /> : null}
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Assigned Orders</Text>
@@ -1561,7 +1457,8 @@ function RequestsScreen({
   setScreen,
   setActiveRequest,
   showDialog,
-  onRefresh
+  onRefresh,
+  requestsLoading
 }: {
   requests: TailoringRequest[];
   measurementVisits: MeasurementVisit[];
@@ -1576,6 +1473,7 @@ function RequestsScreen({
   setActiveRequest: (request: TailoringRequest) => void;
   showDialog: (dialog: DialogState) => void;
   onRefresh: () => void | Promise<void>;
+  requestsLoading: boolean;
 }) {
   const [tab, setTab] = useState<"stitching" | "measurement">(initialTab ?? "stitching");
   const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted" | "history">(initialMeasurementVisitTab ?? "incoming");
@@ -1782,8 +1680,9 @@ function RequestsScreen({
               <Text style={[styles.filterChipText, filter === "QUOTED" && styles.filterChipTextActive]}>Sent Requests</Text>
             </Pressable>
           </View>
-          {filteredRequests.length === 0 ? <RequestsEmptyState sent={isSent} /> : null}
-          {filteredRequests.map((request) => (
+          {requestsLoading ? <RequestCardsSkeleton count={3} /> : null}
+          {!requestsLoading && filteredRequests.length === 0 ? <RequestsEmptyState sent={isSent} /> : null}
+          {!requestsLoading ? filteredRequests.map((request) => (
             <RequestCard
               key={request.id}
               request={request}
@@ -1792,7 +1691,7 @@ function RequestsScreen({
                 setScreen("requestDetails");
               }}
             />
-          ))}
+          )) : null}
         </>
       ) : (
         <>
@@ -6406,13 +6305,9 @@ function AppContent() {
   const [activeRequest, setActiveRequest] = useState<TailoringRequest>();
   const [activeOrder, setActiveOrder] = useState<Order>();
   const [loading, setLoading] = useState(false);
+  const [requestsLoading, setRequestsLoading] = useState(true);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [dialog, setDialog] = useState<DialogState>();
-  const updatesState = Updates.useUpdates();
-  const [updateGate, setUpdateGate] = useState<UpdateGateState>({ status: "idle" });
-  const [updateRestarting, setUpdateRestarting] = useState(false);
-  const updatePromptShownRef = useRef(false);
-  const updateCheckInFlightRef = useRef(false);
   const [newRequestPopup, setNewRequestPopup] = useState<TailoringRequest>();
   const [measurementVisitPopup, setMeasurementVisitPopup] = useState<MeasurementVisit>();
   const [measurementPopupSaving, setMeasurementPopupSaving] = useState(false);
@@ -6450,57 +6345,6 @@ function AppContent() {
   useEffect(() => {
     if (!changingOnline) setTailorOnline(Boolean(me?.tailorProfile?.isAvailable));
   }, [changingOnline, me?.tailorProfile?.isAvailable]);
-
-  useEffect(() => {
-    async function checkForAppUpdate() {
-      if (updatePromptShownRef.current || updateCheckInFlightRef.current || !Updates.isEnabled) return;
-      updateCheckInFlightRef.current = true;
-      try {
-        const result = await Updates.checkForUpdateAsync();
-        if ((!result.isAvailable && !result.isRollBackToEmbedded) || updatePromptShownRef.current) return;
-        updatePromptShownRef.current = true;
-        const totalBytes = result.isAvailable ? await fetchUpdateContentBytes(result.manifest) : undefined;
-        setUpdateGate({ status: "downloading", totalBytes });
-        await Updates.fetchUpdateAsync();
-        setUpdateGate({ status: "ready", totalBytes });
-      } catch (error) {
-        if (updatePromptShownRef.current) {
-          setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
-        }
-        // Updates are disabled in Expo Go/dev builds.
-      } finally {
-        updateCheckInFlightRef.current = false;
-      }
-    }
-    void checkForAppUpdate();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void checkForAppUpdate();
-    });
-    return () => subscription.remove();
-  }, []);
-
-  const restartForUpdate = useCallback(async () => {
-    setUpdateRestarting(true);
-    try {
-      await Updates.reloadAsync();
-    } catch (error) {
-      setUpdateRestarting(false);
-      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not restart the app." });
-    }
-  }, []);
-
-  const retryAppUpdate = useCallback(async () => {
-    updatePromptShownRef.current = true;
-    const totalBytes = await fetchUpdateContentBytes(updatesState.availableUpdate?.manifest);
-    setUpdateGate({ status: "downloading", totalBytes });
-    setUpdateRestarting(false);
-    try {
-      await Updates.fetchUpdateAsync();
-      setUpdateGate({ status: "ready", totalBytes });
-    } catch (error) {
-      setUpdateGate({ status: "error", message: error instanceof Error ? error.message : "Could not install the update right now." });
-    }
-  }, [updatesState.availableUpdate?.manifest]);
 
   useEffect(() => {
     notificationAuthTokenRef.current = token;
@@ -6558,6 +6402,7 @@ function AppContent() {
     setNewRequestPopup(undefined);
     setMeasurementVisitPopup(undefined);
     setAcceptedQuoteRequest(undefined);
+    setRequestsLoading(true);
   }
 
   function showNewRequestPopup(request: TailoringRequest) {
@@ -6760,6 +6605,7 @@ function AppContent() {
       setActiveRequest((current) => requestData.find((request) => request.id === current?.id) ?? current);
       setActiveOrder((current) => workspaceOrders.find((order) => order.id === current?.id) ?? current);
       processWorkspaceEvents(requestData);
+      setRequestsLoading(false);
     } catch (error) {
       if (isSessionError(error)) {
         handleSessionExpired();
@@ -6775,6 +6621,7 @@ function AppContent() {
     } finally {
       setLoading(false);
       setLoadingWallet(false);
+      setRequestsLoading(false);
     }
   }
 
@@ -7105,19 +6952,6 @@ function AppContent() {
     );
   }
 
-  if (updateGate.status !== "idle") {
-    return (
-      <UpdateGateScreen
-        appName="Darji Tailor"
-        downloadProgress={updatesState.downloadProgress}
-        restarting={updateRestarting || updatesState.isRestarting}
-        state={updateGate as UpdateGateState & { status: "downloading" | "ready" | "error" }}
-        onRestart={() => void restartForUpdate()}
-        onRetry={() => void retryAppUpdate()}
-      />
-    );
-  }
-
   if (platform.status.maintenanceMode) {
     return (
       <PlatformMaintenanceScreen
@@ -7178,8 +7012,8 @@ function AppContent() {
   }
 
   let body;
-  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
-  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} initialMeasurementVisitTab={measurementVisitInitialTab} onTabChange={setRequestsInitialTab} onMeasurementVisitTabChange={setMeasurementVisitInitialTab} onVisitUpdated={(visit) => setMeasurementVisits((current) => upsertMeasurementVisit(current, visit))} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} />;
+  if (screen === "dashboard") body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} requestsLoading={requestsLoading} />;
+  if (screen === "requests") body = <RequestsScreen requests={requests} measurementVisits={measurementVisits} initialTab={requestsInitialTab} initialMeasurementVisitTab={measurementVisitInitialTab} onTabChange={setRequestsInitialTab} onMeasurementVisitTabChange={setMeasurementVisitInitialTab} onVisitUpdated={(visit) => setMeasurementVisits((current) => upsertMeasurementVisit(current, visit))} tailorId={me.tailorProfile?.id} token={token} setScreen={setScreen} setActiveRequest={setActiveRequest} showDialog={setDialog} onRefresh={() => refreshWorkspace()} requestsLoading={requestsLoading} />;
   const declineActiveRequest = (request: TailoringRequest) => {
     setDialog({
       title: "Decline request?",
@@ -7235,7 +7069,7 @@ function AppContent() {
       />
     );
   }
-  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} />;
+  if (!body) body = <DashboardScreen me={me} online={tailorOnline} changingOnline={changingOnline} onToggleOnline={toggleTailorOnline} requests={requests} orders={orders} wallet={wallet} measurementVisits={measurementVisits} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onOpenMeasurementRequests={openMeasurementRequestsTab} setScreen={setScreen} setActiveRequest={setActiveRequest} setActiveOrder={setActiveOrder} requestsLoading={requestsLoading} />;
 
   return (
     <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleTailorScreen() }}>
@@ -7307,6 +7141,7 @@ function AppContent() {
             return;
           }
           if (destination.entityId && token) {
+            setLoading(true);
             void api<TailoringRequest>(`/tailoring-requests/${destination.entityId}`, {}, token)
               .then((loadedRequest) => {
                 setActiveRequest(loadedRequest);
@@ -7321,7 +7156,8 @@ function AppContent() {
                 });
                 void refreshWorkspace();
                 setScreen("requests");
-              });
+              })
+              .finally(() => setLoading(false));
             return;
           }
           setScreen("requests");

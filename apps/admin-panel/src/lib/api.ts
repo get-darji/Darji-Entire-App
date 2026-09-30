@@ -4,6 +4,7 @@ import axios, { type AxiosRequestConfig } from "axios";
 import { useAdminStore } from "@/src/store/admin-store";
 import { getActiveApiUrl, markApiUrlReachable, nextApiUrlAfter, shouldTryApiFallback } from "@/src/lib/api-base";
 import type { PlatformStatus } from "../../../../shared/src/platform-status";
+import type { ServiceAreaConfig } from "../../../../shared/src/service-area";
 import type {
   AdminUser,
   AnalyticsSummary,
@@ -399,6 +400,28 @@ export async function assignOrder(payload: { orderId: string; tailorId?: string;
 export async function updateOrderStatus(payload: { orderId: string; status: string }) {
   const { orderId, ...body } = payload;
   return unwrap<Order>(api.patch(`/orders/${orderId}/status`, body));
+}
+
+export async function getServiceAreaConfig() {
+  return unwrap<ServiceAreaConfig>(api.get("/admin/service-areas"));
+}
+
+export async function updateServiceAreaConfig(payload: ServiceAreaConfig) {
+  return unwrap<ServiceAreaConfig>(api.put("/admin/service-areas", payload));
+}
+
+export type ServiceAreaInterest = {
+  id: string;
+  userId: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  status: "requested" | "notified";
+  createdAt: string;
+};
+
+export async function getServiceAreaInterests() {
+  return unwrap<{ items: ServiceAreaInterest[]; total: number }>(api.get("/admin/service-area-interests"));
 }
 
 export async function updateTailoringWorkStatus(requestId: string, status: "WORKING" | "READY") {

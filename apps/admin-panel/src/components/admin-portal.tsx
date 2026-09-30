@@ -10,6 +10,7 @@ import {
   type CustomerWebsiteSlider
 } from "../../../../shared/src/customer-website-slider";
 import { defaultPlatformStatus, type PlatformStatus } from "../../../../shared/src/platform-status";
+import { defaultServiceAreaConfig, type ServiceAreaConfig } from "../../../../shared/src/service-area";
 import { allowedOrderStatusTransitions, orderStatuses } from "../../../../shared/src/order-statuses";
 import {
   useMutation,
@@ -123,6 +124,8 @@ import {
   getOrders,
   getPayments,
   getPlatformStatus,
+  getServiceAreaConfig,
+  getServiceAreaInterests,
   getWalletPayouts,
   getWalletDetail,
   createWalletPayout,
@@ -145,6 +148,7 @@ import {
   updateOrderStatus,
   updateTailoringWorkStatus,
   updatePlatformStatus,
+  updateServiceAreaConfig,
   updateSetting,
   verifyOtp,
   replyToSupportTicket,
@@ -570,6 +574,7 @@ export function AdminPortal() {
   const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
   const [batchSettingsDraft, setBatchSettingsDraft] = useState<DeliveryBatchSettingsDraft>({ lockMinutes: 45, maxOrdersPerBatch: 10 });
   const [platformStatusDraft, setPlatformStatusDraft] = useState<PlatformStatus>(defaultPlatformStatus);
+  const [serviceAreaDraft, setServiceAreaDraft] = useState<ServiceAreaConfig>(defaultServiceAreaConfig);
   const [tailorTutorialDraft, setTailorTutorialDraft] = useState<TailorTutorialMediaDraft>(() => defaultTailorTutorialMediaDraft());
   const [uploadingTutorialMedia, setUploadingTutorialMedia] = useState<"video" | "thumbnail" | "image" | null>(null);
   const [websiteSliderDraft, setWebsiteSliderDraft] = useState<CustomerWebsiteSlider>(() => defaultCustomerWebsiteSlider());
@@ -731,6 +736,16 @@ export function AdminPortal() {
     queryFn: getAdminReviews,
     enabled: needsSection("reviews", "analytics")
   });
+  const serviceAreaQuery = useQuery({
+    queryKey: ["admin", "service-areas"],
+    queryFn: getServiceAreaConfig,
+    enabled: needsSection("settings", "platform")
+  });
+  const serviceAreaInterestsQuery = useQuery({
+    queryKey: ["admin", "service-area-interests"],
+    queryFn: getServiceAreaInterests,
+    enabled: needsSection("settings", "platform")
+  });
   const orderMetadataQuery = useQuery({
     queryKey: ["admin", "order-metadata"],
     queryFn: getAdminOrderMetadata,
@@ -827,6 +842,10 @@ export function AdminPortal() {
   useEffect(() => {
     if (platformStatusQuery.data) setPlatformStatusDraft(platformStatusQuery.data);
   }, [platformStatusQuery.data]);
+
+  useEffect(() => {
+    if (serviceAreaQuery.data) setServiceAreaDraft(serviceAreaQuery.data);
+  }, [serviceAreaQuery.data]);
 
   useEffect(() => {
     if (!orderMetadataQuery.data) return;
@@ -1126,6 +1145,17 @@ export function AdminPortal() {
         queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] })
       ]);
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const serviceAreaMutation = useMutation({
+    mutationFn: updateServiceAreaConfig,
+    onSuccess: async (config) => {
+      setServiceAreaDraft(config);
+      toast.success(config.enabled ? "Service-area filtering enabled" : "Service-area filtering disabled");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "service-areas"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -3148,6 +3178,13 @@ export function AdminPortal() {
               title="Platform settings"
               description="Editable operational settings already persisted through the backend settings endpoints."
             />
+            <ServiceAreaSettingsCard
+              draft={serviceAreaDraft}
+              interests={serviceAreaInterestsQuery.data}
+              pending={serviceAreaMutation.isPending}
+              onChange={setServiceAreaDraft}
+              onSave={(value) => serviceAreaMutation.mutate(value)}
+            />
             <TailorTutorialMediaCard
               draft={tailorTutorialDraft}
               onChange={setTailorTutorialDraft}
@@ -3189,43 +3226,20 @@ export function AdminPortal() {
               onResetEverything={() => resetEverythingMutation.mutate()}
             />
             <div className="grid gap-4 xl:grid-cols-2">
-              {settings.filter((setting) => !["delivery_batch_settings", "delivery_fare_settings", "platform_status", "tailor_tutorial_media", CUSTOMER_WEBSITE_SLIDER_SETTING_KEY].includes(setting.key)).map((setting) => (
+              {settings.filter((setting) => !["delivery_batch_settings", "delivery_fare_settings", "platform_status", "service_area_config", "enable_area_filtering", "tailor_tutorial_media", CUSTOMER_WEBSITE_SLIDER_SETTING_KEY].includes(setting.key)).map((setting) => (
                 <Panel key={setting.id}>
                   <div className="mb-4 flex items-center justify-between gap-4">
                     <div>
                       <h3 className="text-lg font-semibold">{setting.key}</h3>
                       <p className="text-sm text-[var(--muted)]">Last updated {formatDate(setting.updatedAt, true)}</p>
                     </div>
-                    <Badge tone="slate">
-                      {setting.key === "enable_area_filtering" 
-                        ? "Boolean" 
-                        : (typeof setting.value === "string" ? "Text" : "JSON")}
-                    </Badge>
+                    <Badge tone="slate">{typeof setting.value === "string" ? "Text" : "JSON"}</Badge>
                   </div>
-                  {setting.key === "enable_area_filtering" ? (
-                    <div className="mt-2 rounded-2xl border border-[var(--panel-border)] bg-black/5 p-4 dark:bg-white/5">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-[var(--foreground)]">Enable Logistics Area Filtering</p>
-                          <p className="text-xs text-[var(--muted)]">If disabled, delivery partners can see and accept orders from any area.</p>
-                        </div>
-                        <select
-                          className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-1.5 text-sm outline-none text-[var(--foreground)]"
-                          value={settingsDrafts[setting.key] === "true" ? "true" : "false"}
-                          onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
-                        >
-                          <option value="false">Disabled (All Areas)</option>
-                          <option value="true">Enabled (Restricted by Area)</option>
-                        </select>
-                      </div>
-                    </div>
-                  ) : (
-                    <textarea
-                      className="h-48 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 font-mono text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
-                      value={settingsDrafts[setting.key] ?? ""}
-                      onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
-                    />
-                  )}
+                  <textarea
+                    className="h-48 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 font-mono text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
+                    value={settingsDrafts[setting.key] ?? ""}
+                    onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
+                  />
                   <div className="mt-4 flex justify-end">
                     <ActionButton
                       onClick={() => {
@@ -6310,6 +6324,96 @@ function PendingRetryOrdersPanel({
       ) : (
         <div className="rounded-2xl border border-dashed border-[var(--panel-border)] p-5 text-sm text-[var(--muted)]">No retry orders need attention.</div>
       )}
+    </Panel>
+  );
+}
+
+function ServiceAreaSettingsCard({
+  draft,
+  interests,
+  pending,
+  onChange,
+  onSave
+}: {
+  draft: ServiceAreaConfig;
+  interests?: Awaited<ReturnType<typeof getServiceAreaInterests>>;
+  pending: boolean;
+  onChange: (value: ServiceAreaConfig) => void;
+  onSave: (value: ServiceAreaConfig) => void;
+}) {
+  const updateArea = (index: number, patch: Partial<ServiceAreaConfig["areas"][number]>) => {
+    onChange({ ...draft, areas: draft.areas.map((area, areaIndex) => areaIndex === index ? { ...area, ...patch } : area) });
+  };
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">Customer service areas</h3>
+          <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">One master control for launch-area availability. When disabled, customers can request service everywhere. When enabled, the pickup coordinates must fall inside an active area below.</p>
+        </div>
+        <button
+          type="button"
+          aria-pressed={draft.enabled}
+          onClick={() => onChange({ ...draft, enabled: !draft.enabled })}
+          className={cn("inline-flex min-h-11 items-center gap-2 rounded-2xl px-4 font-semibold text-white", draft.enabled ? "bg-emerald-600" : "bg-slate-600")}
+        >
+          {draft.enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
+          {draft.enabled ? "Filtering enabled" : "Filtering disabled"}
+        </button>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <label className="text-sm font-medium">Outside-area title
+          <input className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2" value={draft.unavailableTitle} onChange={(event) => onChange({ ...draft, unavailableTitle: event.target.value })} />
+        </label>
+        <label className="text-sm font-medium">Outside-area message
+          <input className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2" value={draft.unavailableMessage} onChange={(event) => onChange({ ...draft, unavailableMessage: event.target.value })} />
+        </label>
+      </div>
+      <div className="mt-5 space-y-3">
+        {draft.areas.map((area, index) => (
+          <div key={area.id} className="grid gap-3 rounded-2xl border border-[var(--panel-border)] p-4 md:grid-cols-6">
+            <label className="text-xs font-semibold md:col-span-2">Area name
+              <input className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.name} onChange={(event) => updateArea(index, { name: event.target.value })} />
+            </label>
+            <label className="text-xs font-semibold">Latitude
+              <input type="number" step="any" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.latitude} onChange={(event) => updateArea(index, { latitude: Number(event.target.value) })} />
+            </label>
+            <label className="text-xs font-semibold">Longitude
+              <input type="number" step="any" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.longitude} onChange={(event) => updateArea(index, { longitude: Number(event.target.value) })} />
+            </label>
+            <label className="text-xs font-semibold">Radius (km)
+              <input type="number" min="0.1" step="0.1" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.radiusKm} onChange={(event) => updateArea(index, { radiusKm: Number(event.target.value) })} />
+            </label>
+            <div className="flex items-end gap-2">
+              <button type="button" className={cn("min-h-10 flex-1 rounded-xl px-2 text-xs font-semibold", area.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700")} onClick={() => updateArea(index, { enabled: !area.enabled })}>{area.enabled ? "Active" : "Paused"}</button>
+              <button type="button" aria-label={`Remove ${area.name}`} className="grid min-h-10 w-10 place-items-center rounded-xl bg-rose-100 text-rose-700" onClick={() => onChange({ ...draft, areas: draft.areas.filter((_, areaIndex) => areaIndex !== index) })}><Trash2 size={16} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap justify-between gap-3">
+        <ActionButton variant="secondary" onClick={() => onChange({ ...draft, areas: [...draft.areas, { id: `area-${Date.now()}`, name: "New launch area", latitude: 0, longitude: 0, radiusKm: 5, enabled: true }] })}><Plus className="h-4 w-4" />Add area</ActionButton>
+        <ActionButton disabled={pending || (draft.enabled && !draft.areas.some((area) => area.enabled))} onClick={() => onSave(draft)}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save service areas</ActionButton>
+      </div>
+      {draft.enabled && !draft.areas.some((area) => area.enabled) ? <p className="mt-3 text-sm font-semibold text-rose-700">Add and activate at least one area before enabling filtering.</p> : null}
+      <div className="mt-6 border-t border-[var(--panel-border)] pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="font-semibold">Customer launch requests</h4>
+            <p className="text-sm text-[var(--muted)]">Latest out-of-area customers who tapped Request Darji Here.</p>
+          </div>
+          <Badge tone="slate">{interests?.total ?? 0} total</Badge>
+        </div>
+        <div className="mt-3 space-y-2">
+          {interests?.items.slice(0, 5).map((interest) => (
+            <div key={interest.id} className="rounded-xl bg-black/5 px-3 py-2 text-sm dark:bg-white/5">
+              <p className="font-medium">{interest.address}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">{interest.latitude.toFixed(4)}, {interest.longitude.toFixed(4)} · {formatDate(interest.createdAt, true)}</p>
+            </div>
+          ))}
+          {interests && interests.items.length === 0 ? <p className="text-sm text-[var(--muted)]">No launch requests yet.</p> : null}
+        </div>
+      </div>
     </Panel>
   );
 }

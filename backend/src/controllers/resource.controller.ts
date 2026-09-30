@@ -46,7 +46,8 @@ import {
   AdminOrderMetadataModel,
   MeasurementVisitModel,
   NotificationCampaignModel,
-  MarketingSignupModel
+  MarketingSignupModel,
+  ServiceAreaInterestModel
 } from "../models.js";
 import multer from "multer";
 import { z } from "zod";
@@ -63,6 +64,7 @@ import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletU
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
 import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
+import { checkServiceAvailability, getServiceAreaConfig, saveServiceAreaConfig } from "../services/service-area.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -1432,6 +1434,19 @@ export async function createReviewController(req: Request, res: Response) {
   const kind = req.body.kind === "delivery" ? "delivery" : req.body.kind === "app" ? "app" : "tailor";
   const orderId = String(req.body.orderId);
   if (!orderId || orderId === "undefined" || orderId === "null") throw new AppError(400, "orderId is required");
+  if (kind === "app") {
+    const existingAppReview = await ReviewModel.findOne({ userId: req.user!.id, kind: "app" });
+    if (existingAppReview) throw new AppError(409, "App review already submitted");
+    const appReview = await ReviewModel.create({
+      userId: req.user!.id,
+      orderId: "darji-app",
+      kind: "app",
+      rating,
+      comment: req.body.comment
+    });
+    res.status(201).json({ data: appReview });
+    return;
+  }
   const [ownedOrder, ownedRequest] = await Promise.all([
     OrderModel.findOne({ _id: orderId, customerId: req.user!.id }).select("status").lean(),
     TailoringRequestModel.findOne({ _id: orderId, customerId: req.user!.id }).select("status orderStatus").lean()
@@ -2105,6 +2120,71 @@ export async function updateSettingController(req: Request, res: Response) {
     : req.body.value;
   const setting = await SettingModel.findOneAndUpdate({ key }, { key, value }, { upsert: true, returnDocument: "after" });
   res.json({ data: setting });
+}
+
+const serviceAvailabilityQuerySchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180)
+});
+
+export async function serviceAvailabilityController(req: Request, res: Response) {
+  const input = serviceAvailabilityQuerySchema.parse(req.query);
+  const availability = await checkServiceAvailability(input.latitude, input.longitude);
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: availability });
+}
+
+const serviceAreaInterestInputSchema = z.object({
+  address: z.string().trim().min(8).max(500),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180)
+});
+
+export async function createServiceAreaInterestController(req: Request, res: Response) {
+  const input = serviceAreaInterestInputSchema.parse(req.body);
+  const roundedLatitude = Number(input.latitude.toFixed(4));
+  const roundedLongitude = Number(input.longitude.toFixed(4));
+  const interest = await ServiceAreaInterestModel.findOneAndUpdate(
+    { userId: req.user!.id, latitude: roundedLatitude, longitude: roundedLongitude },
+    {
+      userId: req.user!.id,
+      address: input.address,
+      latitude: roundedLatitude,
+      longitude: roundedLongitude,
+      status: "requested"
+    },
+    { upsert: true, returnDocument: "after" }
+  );
+  res.status(201).json({ data: interest });
+}
+
+export async function listServiceAreaInterestsController(_req: Request, res: Response) {
+  const [items, total] = await Promise.all([
+    ServiceAreaInterestModel.find({}).sort({ createdAt: -1 }).limit(100).lean(),
+    ServiceAreaInterestModel.countDocuments({})
+  ]);
+  res.json({
+    data: {
+      items: items.map((item) => ({
+        id: String(item._id),
+        userId: item.userId,
+        address: item.address,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        status: item.status,
+        createdAt: item.createdAt
+      })),
+      total
+    }
+  });
+}
+
+export async function serviceAreaConfigController(_req: Request, res: Response) {
+  res.json({ data: await getServiceAreaConfig() });
+}
+
+export async function updateServiceAreaConfigController(req: Request, res: Response) {
+  res.json({ data: await saveServiceAreaConfig(req.body) });
 }
 
 type ResetTarget = {

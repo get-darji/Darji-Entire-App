@@ -99,7 +99,12 @@ import {
   deleteTailorSampleController,
   walletController,
   reverseGeocodeController,
-  updateRiderLocationController
+  updateRiderLocationController,
+  serviceAvailabilityController,
+  createServiceAreaInterestController,
+  listServiceAreaInterestsController,
+  serviceAreaConfigController,
+  updateServiceAreaConfigController
 } from "../controllers/resource.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
@@ -168,6 +173,7 @@ router.get("/health", (_req, res) => res.json({
   }
 }));
 router.get("/platform-status", platformStatusController);
+router.get("/service-availability", serviceAvailabilityController);
 router.get("/settings/customer-website-slider", customerWebsiteSliderController);
 router.post(
   "/marketing-signups",
@@ -180,6 +186,7 @@ router.post("/auth/refresh", refreshController);
 router.post("/auth/logout", requireAuth, logoutController);
 router.get("/auth/me", requireAuth, meController);
 router.patch("/auth/me", requireAuth, updateMeController);
+router.post("/service-area-interests", requireAuth, rateLimit({ keyPrefix: "service-area-interest", windowMs: 60 * 60 * 1000, max: 10 }), createServiceAreaInterestController);
 router.post(
   "/translation/translate",
   requireAuth,
@@ -304,6 +311,9 @@ router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_AD
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
 router.delete("/admin/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.put("/admin/platform-status", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updatePlatformStatusController);
+router.get("/admin/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), serviceAreaConfigController);
+router.put("/admin/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateServiceAreaConfigController);
+router.get("/admin/service-area-interests", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listServiceAreaInterestsController);
 router.get("/settings/delivery-fares", requireAuth, getDeliveryFareSettingsController);
 router.put("/settings/delivery-fares", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateDeliveryFareSettingsController);
 router.post("/admin/media", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), uploadAdminMedia, uploadAdminMediaController);

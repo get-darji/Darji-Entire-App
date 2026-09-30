@@ -230,5 +230,6 @@ export function calculateCouponDiscount(
 
 export * from "./localization.js";
 export * from "./platform-status.js";
+export * from "./service-area.js";
 export * from "./flow-back-navigation.js";
 export * from "./customer-website-slider.js";

@@ -135,13 +135,21 @@ export async function seedDatabase() {
   );
 
   await SettingModel.findOneAndUpdate(
-    { key: "enable_area_filtering" },
+    { key: "service_area_config" },
     {
-      key: "enable_area_filtering",
-      value: false
+      $setOnInsert: {
+        key: "service_area_config",
+        value: {
+          enabled: false,
+          unavailableTitle: "Darji is not in your area yet",
+          unavailableMessage: "We are launching area by area. Request Darji here and we will let you know when service reaches you.",
+          areas: []
+        }
+      }
     },
     { upsert: true }
   );
+  await SettingModel.deleteOne({ key: "enable_area_filtering" });
 
   await SettingModel.findOneAndUpdate(
     { key: "delivery_batch_settings" },

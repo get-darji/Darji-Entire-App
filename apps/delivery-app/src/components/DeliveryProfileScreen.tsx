@@ -9,6 +9,8 @@ import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/lo
 import { CompactLanguageToggle } from "../../../../shared/src/compact-language-toggle";
 import { translateStaticChildren, translateStaticText } from "../../../../shared/src/static-translations";
 
+const DELIVERY_APP_VERSION = require("../../app.json").expo.version as string;
+
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
   return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
@@ -706,13 +708,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
-        <View style={[styles.row, { borderTopWidth: 0 }]}>
-          <View style={styles.smallIcon}><Ionicons name="phone-portrait-outline" size={16} color={BRAND_ORANGE} /></View>
-          <View style={styles.rowMain}>
-            <Text style={styles.rowTitle}>{t(language, "appVersion")}</Text>
-            <Text style={styles.rowCopy}>0.1.0 (Development)</Text>
-          </View>
-        </View>
+        <InfoRow icon="phone-portrait-outline" title={t(language, "appVersion")} value={`${DELIVERY_APP_VERSION} · Updates install automatically`} styles={styles} onPress={() => setSupportScreen("version")} noBorder />
       </Section>
 
       <Section title={t(language, "accountSettings")} icon="settings-outline" styles={styles}>
@@ -939,10 +935,10 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
   },
   version: {
     title: "App Version",
-    subtitle: "Installed build details",
+    subtitle: "Darji Delivery Partner app",
     icon: "phone-portrait-outline",
-    copy: "Darji Delivery version 0.1.0",
-    points: ["Expo React Native build", "Socket.IO live requests enabled", "FCM push notifications configured"]
+    copy: `Installed version ${DELIVERY_APP_VERSION}`,
+    points: ["Official Darji Delivery Partner app.", "Manage assigned pickups, routes, OTP handoffs, and earnings.", "App improvements install automatically when the app restarts."]
   },
   about: {
     title: "About Darji",
@@ -2447,7 +2443,7 @@ function DeliveryReportBugScreen({
           description: bugDescription.trim(),
           screenshot: bugScreenshot,
           deviceInfo,
-          appVersion: "0.1.0"
+          appVersion: DELIVERY_APP_VERSION
         })
       }, token);
       Alert.alert("Bug Reported", "Thank you! Our engineering team has received your bug report.");
@@ -2568,7 +2564,7 @@ function DeliveryReportBugScreen({
               <Ionicons name="information-circle-outline" size={14} color="#8fa0b8" />
             </View>
             <Text style={bugStyles.bugInfoLabel}>App version</Text>
-            <Text style={bugStyles.bugInfoValue}>0.1.0 (Dev Build)</Text>
+            <Text style={bugStyles.bugInfoValue}>{DELIVERY_APP_VERSION}</Text>
           </View>
         </View>
 

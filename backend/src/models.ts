@@ -971,6 +971,19 @@ marketingSignupSchema.index(
   { source: 1, email: 1 },
   { unique: true, partialFilterExpression: { email: { $type: "string" } } }
 );
+
+const serviceAreaInterestSchema = new Schema(
+  {
+    _id: stringId,
+    userId: { type: String, required: true, index: true },
+    address: { type: String, required: true, trim: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    status: { type: String, enum: ["requested", "notified"], default: "requested", index: true }
+  },
+  baseOptions
+);
+serviceAreaInterestSchema.index({ userId: 1, latitude: 1, longitude: 1 }, { unique: true });
 marketingSignupSchema.index(
   { source: 1, clientId: 1 },
   { unique: true, partialFilterExpression: { clientId: { $type: "string" } } }
@@ -1079,6 +1092,7 @@ export const DeliveryRequestModel = mongoose.model("DeliveryTask", deliveryReque
 export const DeliveryBatchModel = mongoose.model("DeliveryBatch", deliveryBatchSchema, "delivery_batches");
 export const SettingModel = mongoose.model("Setting", settingSchema);
 export const MarketingSignupModel = mongoose.model("MarketingSignup", marketingSignupSchema, "marketing_signups");
+export const ServiceAreaInterestModel = mongoose.model("ServiceAreaInterest", serviceAreaInterestSchema, "service_area_interests");
 export const AdminOrderMetadataModel = mongoose.model("AdminOrderMetadata", adminOrderMetadataSchema, "admin_order_metadata");
 export const AdminAuditLogModel = mongoose.model("AdminAuditLog", adminAuditLogSchema, "admin_audit_logs");
 export const NotificationCampaignModel = mongoose.model("NotificationCampaign", notificationCampaignSchema, "notification_campaigns");

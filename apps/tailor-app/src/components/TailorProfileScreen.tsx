@@ -9,6 +9,8 @@ import { getLanguageLabel, t, type AppLanguage } from "../../../../shared/src/lo
 import { CompactLanguageToggle } from "../../../../shared/src/compact-language-toggle";
 import { translateStaticChildren, translateStaticText } from "../../../../shared/src/static-translations";
 
+const TAILOR_APP_VERSION = require("../../app.json").expo.version as string;
+
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
   return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
@@ -932,13 +934,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
-        <View style={[styles.row, { borderTopWidth: 0 }]}>
-          <View style={styles.smallIcon}><Ionicons name="phone-portrait-outline" size={16} color={BRAND_ORANGE} /></View>
-          <View style={styles.rowMain}>
-            <Text style={styles.rowTitle}>{t(language, "appVersion")}</Text>
-            <Text style={styles.rowCopy}>0.1.0 (Development)</Text>
-          </View>
-        </View>
+        <InfoRow icon="phone-portrait-outline" title={t(language, "appVersion")} value={`${TAILOR_APP_VERSION} · Updates install automatically`} styles={styles} onPress={() => setSupportScreen("version")} noBorder />
       </Section>
 
       <Section title={t(language, "accountSettings")} icon="settings-outline" styles={styles}>
@@ -2146,7 +2142,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
           description: description.trim(),
           screenshot: screenshotUrl,
           deviceInfo: deviceOsLabel,
-          appVersion: "0.1.0 (Dev Build)"
+          appVersion: TAILOR_APP_VERSION
         })
       }, token);
       showDialog({ title: "Bug report submitted", message: "Thanks. Our team will review the issue and fix it as soon as possible.", icon: "checkmark-circle-outline" });
@@ -2208,7 +2204,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
         </View>
         <View style={styles.bugDeviceCard}>
           <InfoRow icon="phone-portrait-outline" title="Your device" value={deviceOsLabel} styles={styles} noBorder />
-          <InfoRow icon="information-circle-outline" title="App version" value="0.1.0 (Dev Build)" styles={styles} />
+          <InfoRow icon="information-circle-outline" title="App version" value={TAILOR_APP_VERSION} styles={styles} />
         </View>
         <View style={[styles.bugSubmitButton, styles.safeFooterGap, submitting && styles.bugSubmitButtonDisabled]}>
           <TouchableOpacity
@@ -2824,8 +2820,8 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     title: "App Version",
     subtitle: "Darji Tailor App",
     icon: "information-circle-outline",
-    copy: "Version 0.1.0",
-    points: ["Development build for local testing.", "Restart Metro after native or dependency changes.", "Keep backend running while testing customer and tailor flows."]
+    copy: `Installed version ${TAILOR_APP_VERSION}`,
+    points: ["Official Darji Tailor Partner app.", "Manage customer requests, prices, stitching progress, and payouts.", "App improvements install automatically when the app restarts."]
   },
   about: {
     title: "About Darji",

@@ -33,6 +33,7 @@ import {
 } from "../services/hybrid-delivery.service.js";
 import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorShopPoint, geocodeAddress, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
 import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darzi/shared";
+import { checkServiceAvailability, getServiceAreaConfig } from "../services/service-area.service.js";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -1156,21 +1157,12 @@ export async function listDeliveryRequestsController(req: Request, res: Response
   const where: Record<string, unknown> = {};
 
   if (req.user!.role === "DELIVERY_PARTNER" && partner) {
-    const areaFilteringSetting = await SettingModel.findOne({ key: "enable_area_filtering" });
-    const enableAreaFiltering = areaFilteringSetting?.value === true;
-
     where.retryStatus = { $ne: "ACTION_REQUIRED" };
     where.$or = [
-      enableAreaFiltering
-        ? {
-            taskStatus: "pending",
-            assignedArea: { $in: [partner.assignedArea, "unassigned"] },
-            $or: [{ serviceLevel: "INSTANT" }, { notificationSentAt: { $exists: true } }]
-          }
-        : {
-            taskStatus: "pending",
-            $or: [{ serviceLevel: "INSTANT" }, { notificationSentAt: { $exists: true } }]
-          },
+      {
+        taskStatus: "pending",
+        $or: [{ serviceLevel: "INSTANT" }, { notificationSentAt: { $exists: true } }]
+      },
       { assignedDeliveryPartnerId: partner._id }
     ];
   } else if (status === "pending" || status === "OPEN") {
@@ -2164,6 +2156,16 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
 
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
+  const serviceAreaConfig = await getServiceAreaConfig();
+  if (serviceAreaConfig.enabled) {
+    if (!input.pickupLocation) {
+      throw new AppError(400, "Select a pickup address with a map location so we can confirm service availability");
+    }
+    const availability = await checkServiceAvailability(input.pickupLocation.lat, input.pickupLocation.lng);
+    if (!availability.serviceable) {
+      throw new AppError(409, availability.message ?? "Darji is not available at this pickup address yet");
+    }
+  }
   const items = input.items?.length ? input.items : [{
     description: input.description,
     gender: input.gender,
