@@ -121,6 +121,7 @@ import {
   getServiceCategory,
   type GenderFitType
 } from "./src/config/clothDetails";
+import { ClothDetailsSelectionView } from "./src/features/cloth-details/ClothDetailsSelectionView";
 
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
@@ -5282,162 +5283,30 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
 
         {stage === "work" ? (
           <>
-        <Text style={styles.formLabel}>1. Gender / Fit Type</Text>
-        <View style={styles.twoCol}>
-          {GENDER_FIT_OPTIONS.map((option) => (
-            <OptionButton
-              key={option.value}
-              icon={option.icon}
-              label={option.label}
-              selected={draft.gender === option.value}
-              onPress={() => selectGender(option.value)}
+            <ClothDetailsSelectionView
+              gender={draft.gender}
+              clothType={draft.clothType}
+              otherClothType={draft.otherClothType}
+              serviceCategory={draft.serviceCategory}
+              selectedWorkItems={selectedWorkItems}
+              otherWorkDescription={draft.otherWorkDescription}
+              garmentSearch={garmentSearch}
+              filteredGarments={filteredGarments}
+              selectedService={selectedService}
+              onSelectGender={selectGender}
+              onSelectClothType={selectClothType}
+              onChangeOtherClothType={(otherClothType) => setDraft({ ...draft, otherClothType })}
+              onSelectServiceCategory={selectServiceCategory}
+              onToggleWorkItem={toggleWorkItem}
+              onChangeOtherWorkDescription={(otherWorkDescription) => setDraft({ ...draft, otherWorkDescription })}
+              onGarmentSearchChange={setGarmentSearch}
             />
-          ))}
-        </View>
 
-        {draft.gender ? (
-          <>
-            <Text style={styles.formLabel}>2. Select Garment</Text>
-            <View style={styles.garmentSearchBox}>
-              <Ionicons name="search-outline" size={17} color="#6a788d" />
-              <TextInput
-                style={styles.garmentSearchInput}
-                value={garmentSearch}
-                onChangeText={setGarmentSearch}
-                placeholder="Search garment..."
-                placeholderTextColor="#98a4b6"
-              />
-              {garmentSearch ? (
-                <Pressable onPress={() => setGarmentSearch("")}>
-                  <Ionicons name="close-circle" size={17} color="#98a4b6" />
-                </Pressable>
-              ) : null}
-            </View>
-            <View style={styles.twoCol}>
-              {filteredGarments.map((garment) => (
-                <OptionButton
-                  key={garment}
-                  icon={garment === "Other" ? "ellipsis-horizontal" : "shirt-outline"}
-                  label={garment}
-                  selected={draft.clothType === garment}
-                  onPress={() => selectClothType(garment)}
-                />
-              ))}
-            </View>
-            {draft.clothType === "Other" ? (
-              <View style={{ marginTop: 8, marginBottom: 4 }}>
-                <Text style={styles.formLabel}>Specify garment type</Text>
-                <TextInput
-                  style={styles.otherClothInput}
-                  value={draft.otherClothType ?? ""}
-                  onChangeText={(otherClothType) => setDraft({ ...draft, otherClothType })}
-                  placeholder="e.g. Tablecloth, Cushion Cover, Apron..."
-                  placeholderTextColor="#98a4b6"
-                />
-              </View>
-            ) : null}
-            {!filteredGarments.length ? (
-              <View style={styles.infoBanner}>
-                <Ionicons name="search-outline" size={17} color={BRAND_ORANGE} />
-                <Text style={styles.infoBannerText}>No garments match “{garmentSearch.trim()}”.</Text>
-              </View>
-            ) : null}
-            <View style={styles.clothTipBanner}>
-              <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
-              <View style={styles.clothTipTextBlock}>
-                <Text style={styles.clothTipTitle}>Can't find your garment?</Text>
-                <Text style={styles.clothTipCopy}>Search to find more options.</Text>
-              </View>
-            </View>
-          </>
-        ) : (
-          <View style={styles.nextStepsPanel}>
-            <Text style={styles.nextStepsEyebrow}>Next steps</Text>
-            <PendingRequestStep number={2} title="Select Garment" helper="Choose gender / fit type first to unlock garment options." />
-            <PendingRequestStep number={3} title="Select Service Category" helper="Choose a garment first to continue." />
-            <PendingRequestStep number={4} title="Select Work" helper="Choose a service category to see work options." />
-          </View>
-        )}
-
-        {draft.gender && draft.clothType ? (
-          <>
-            <Text style={styles.formLabel}>3. Select Service Category</Text>
-            <View style={styles.serviceCategoryList}>
-              {SERVICE_CATEGORIES.map((category) => {
-                const selected = selectedService?.id === category.id;
-                return (
-                  <Pressable
-                    key={category.id}
-                    style={[styles.serviceCategoryCard, selected && styles.serviceCategoryCardSelected]}
-                    onPress={() => selectServiceCategory(category.label)}
-                  >
-                    <View style={styles.serviceCategoryIcon}>
-                      <Ionicons name={category.icon} size={19} color={selected ? BRAND_ORANGE : "#7d8491"} />
-                    </View>
-                    <View style={styles.serviceCategoryText}>
-                      <Text style={[styles.serviceCategoryTitle, selected && styles.selectedOptionText]}>{category.label}</Text>
-                      <Text style={styles.serviceCategorySubtitle}>{category.subtitle}</Text>
-                    </View>
-                    {selected ? (
-                      <View style={styles.serviceCategoryCheck}>
-                        <Ionicons name="checkmark" size={13} color="#ffffff" />
-                      </View>
-                    ) : (
-                      <Ionicons name="chevron-forward" size={17} color="#7d8491" />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </>
-        ) : draft.gender ? (
-          <PendingRequestStep number={3} title="Select Service Category" helper="Choose a garment first to continue." />
-        ) : null}
-
-        {draft.gender && draft.clothType && selectedService ? (
-          <>
-            <Text style={styles.formLabel}>4. Select Work</Text>
-            <Text style={styles.workSelectionHelper}>You can select multiple</Text>
-            {selectedService.label === "Other" ? (
-              <TextInput
-                multiline
-                style={styles.otherWorkInput}
-                value={draft.otherWorkDescription ?? ""}
-                onChangeText={(otherWorkDescription) => setDraft({ ...draft, otherWorkDescription })}
-                placeholder="Describe the work needed..."
-                placeholderTextColor="#98a4b6"
-              />
-            ) : (
-              <View style={styles.workSelectionList}>
-                {selectedService.workItems.map((workItem) => {
-                  const selected = selectedWorkItems.includes(workItem);
-                  return (
-                    <Pressable
-                      key={workItem}
-                      style={[styles.workSelectionChip, selected && styles.workSelectionChipSelected]}
-                      onPress={() => toggleWorkItem(workItem)}
-                    >
-                      <Ionicons name={selected ? "checkbox" : "square-outline"} size={19} color={selected ? BRAND_ORANGE : "#98a4b6"} />
-                      <Text style={[styles.workSelectionText, selected && styles.selectedOptionText]}>{workItem}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-            <View style={styles.clothTipBanner}>
-              <Ionicons name="bulb-outline" size={22} color={BRAND_ORANGE} />
-              <Text style={styles.clothTipCopy}>You can select multiple works in this category.</Text>
-            </View>
-          </>
-        ) : draft.gender && draft.clothType ? (
-          <PendingRequestStep number={4} title="Select Work" helper="Choose a service category to see work options." />
-        ) : null}
-
-        <RequestFlowCta
-          label="Continue to Measurements"
-          onPress={() => setScreen("measurements")}
-          disabled={!canContinueToMeasurements}
-        />
+            <RequestFlowCta
+              label="Continue to Measurements"
+              onPress={() => setScreen("measurements")}
+              disabled={!canContinueToMeasurements}
+            />
           </>
         ) : null}
 
@@ -12354,7 +12223,6 @@ function AppContent() {
           const selectedSavedAddress = saved.find((item) => item.isDefault);
           return {
             ...data,
-            hasCapturedCurrentAddress: true,
             addresses: [
               { ...currentAddress, isDefault: !selectedSavedAddress },
               ...saved.map((item) => ({ ...item, isDefault: selectedSavedAddress ? item.id === selectedSavedAddress.id : false }))
@@ -12383,10 +12251,12 @@ function AppContent() {
           location: { lat: latitude, lng: longitude },
           availability
         });
+        updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
       } catch {
         if (!cancelled) {
           hasResolvedStartupLocationRef.current = true;
           setServiceAreaScreen({ status: "available" });
+          updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
         }
       }
     }
