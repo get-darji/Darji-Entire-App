@@ -647,6 +647,12 @@ type ServiceAvailability = {
   title?: string;
   message?: string;
 };
+type ServiceAreaScreenState = {
+  status: "idle" | "locating" | "checking" | "available" | "unavailable";
+  address?: string;
+  location?: { lat: number; lng: number };
+  availability?: ServiceAvailability;
+};
 
 function openDarjiUrl(url: string) {
   Linking.openURL(url).catch(() => undefined);
@@ -2580,7 +2586,7 @@ function HomeScreen({
             <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
           </View>
           <View style={styles.profileRowText}>
-            <Text style={styles.addressTitle}>{defaultAddress ? "Current Location" : "Pickup address"}</Text>
+            <Text style={styles.addressTitle}>{defaultAddress?.label ?? "Pickup address"}</Text>
             <Text style={styles.mutedSmall} numberOfLines={1}>{defaultAddress?.address ?? "Add or select your pickup address"}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#6b7890" />
@@ -3217,6 +3223,7 @@ function NewRequestScreen({
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
   const [pickupAvailability, setPickupAvailability] = useState<ServiceAvailability>();
   const [availabilityError, setAvailabilityError] = useState<string>();
+  const [requestingArea, setRequestingArea] = useState(false);
   const [playingVoiceUri, setPlayingVoiceUri] = useState<string | undefined>();
   const [recordingActive, setRecordingActive] = useState(false);
   const [recordingPaused, setRecordingPaused] = useState(false);
@@ -3227,7 +3234,6 @@ function NewRequestScreen({
   const playingVoiceUriRef = useRef<string | undefined>(undefined);
   const availabilityRequestRef = useRef(0);
   const lastAvailabilityKeyRef = useRef<string | undefined>(undefined);
-  const lastUnavailableNoticeRef = useRef<string | undefined>(undefined);
   const audioRecorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const audioRecorderState = useAudioRecorderState(audioRecorder, 200);
   const token = useAppStore((state) => state.token);
@@ -3380,6 +3386,7 @@ function NewRequestScreen({
   }
 
   function requestDarjiHere(address: string, location: { lat: number; lng: number }) {
+    setRequestingArea(true);
     void api("/service-area-interests", {
       method: "POST",
       body: JSON.stringify({ address, latitude: location.lat, longitude: location.lng })
@@ -3391,7 +3398,7 @@ function NewRequestScreen({
       title: "Could not save request",
       message: error instanceof Error ? error.message : "Please try again.",
       actions: [{ label: "OK" }]
-    }));
+    })).finally(() => setRequestingArea(false));
   }
 
   async function checkPickupService(address: string, providedLocation?: { lat: number; lng: number }) {
@@ -3419,17 +3426,6 @@ function NewRequestScreen({
       lastAvailabilityKeyRef.current = locationKey;
       setPickupAvailability(availability);
       setDraft((current) => ({ ...current, pickup: address, pickupLocation: location }));
-      if (!availability.serviceable && lastUnavailableNoticeRef.current !== locationKey) {
-        lastUnavailableNoticeRef.current = locationKey;
-        showDialog({
-          title: availability.title ?? "Darji is not in your area yet",
-          message: availability.message ?? "Request Darji here and we will let you know when service reaches your area.",
-          actions: [
-            { label: "Choose Another Address", cancel: true },
-            { label: "Request Darji Here", onPress: () => requestDarjiHere(address, location) }
-          ]
-        });
-      }
     } catch (error) {
       if (requestId !== availabilityRequestRef.current) return;
       setPickupAvailability(undefined);
@@ -3705,6 +3701,18 @@ function NewRequestScreen({
     } finally {
       setLocating(false);
     }
+  }
+
+  if (pickupAvailability && !pickupAvailability.serviceable && draft.pickupLocation) {
+    return (
+      <ServiceUnavailableScreen
+        state={{ status: "unavailable", address: draft.pickup, location: draft.pickupLocation, availability: pickupAvailability }}
+        requesting={requestingArea}
+        onRequestService={() => requestDarjiHere(draft.pickup, draft.pickupLocation!)}
+        onChangeAddress={() => setScreen("savedAddresses")}
+        onRetryLocation={() => void checkPickupService(draft.pickup, draft.pickupLocation)}
+      />
+    );
   }
 
   return (
@@ -5833,6 +5841,56 @@ function formatRequestSentLabel(createdAt?: string) {
 function quoteResponseLabel(count: number) {
   if (count === 0) return "0 tailors responding";
   return `${count} ${count === 1 ? "tailor" : "tailors"} responded`;
+}
+
+function ServiceUnavailableScreen({
+  state,
+  requesting,
+  onRequestService,
+  onChangeAddress,
+  onRetryLocation
+}: {
+  state: ServiceAreaScreenState;
+  requesting: boolean;
+  onRequestService: () => void;
+  onChangeAddress: () => void;
+  onRetryLocation: () => void;
+}) {
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: "#fffaf2" }]}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 22 }}>
+        <View style={{ overflow: "hidden", borderRadius: 30, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#f2dfbd", padding: 24 }}>
+          <View style={{ position: "absolute", width: 210, height: 210, borderRadius: 105, backgroundColor: "#fff1cf", right: -90, top: -90 }} />
+          <View style={{ width: 72, height: 72, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "#fff0cc", borderWidth: 1, borderColor: "#f8cf75" }}>
+            <Ionicons name="location-outline" size={36} color="#c66b00" />
+          </View>
+          <Text style={{ color: BRAND_DEEP, fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 22 }}>{state.availability?.title ?? "Darji is not here yet"}</Text>
+          <Text style={{ color: "#617087", fontSize: 15, lineHeight: 23, marginTop: 10 }}>{state.availability?.message ?? "We are launching area by area. Choose another pickup address or request Darji here."}</Text>
+          <View style={{ marginTop: 22, borderRadius: 18, borderWidth: 1, borderColor: "#e5eaf1", backgroundColor: "#f8fafc", padding: 15, flexDirection: "row", gap: 12, alignItems: "center" }}>
+            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="navigate-outline" size={20} color={BRAND_ORANGE} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#6b7890", fontSize: 11, fontWeight: "900", letterSpacing: 0.7 }}>CHECKED ADDRESS</Text>
+              <Text style={{ color: BRAND_DEEP, fontSize: 14, lineHeight: 20, fontWeight: "800", marginTop: 3 }} numberOfLines={3}>{state.address ?? "Current location"}</Text>
+            </View>
+          </View>
+          <Pressable style={[styles.primaryWideButton, { marginTop: 22 }]} onPress={onChangeAddress}>
+            <Ionicons name="swap-horizontal-outline" size={19} color="#111111" />
+            <Text style={styles.primaryWideButtonText}>Change Pickup Address</Text>
+          </Pressable>
+          <Pressable style={[styles.secondaryWideButton, { marginTop: 10 }]} onPress={onRequestService} disabled={requesting}>
+            {requesting ? <ActivityIndicator size="small" color={BRAND_DEEP} /> : <Ionicons name="megaphone-outline" size={18} color={BRAND_DEEP} />}
+            <Text style={styles.secondaryWideButtonText}>{requesting ? "Sending Request..." : "Request Darji Here"}</Text>
+          </Pressable>
+          <Pressable style={{ minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 8 }} onPress={onRetryLocation}>
+            <Text style={{ color: "#6b7890", fontSize: 13, fontWeight: "800" }}>Check current location again</Text>
+          </Pressable>
+        </View>
+        <Text style={{ color: "#8290a3", textAlign: "center", fontSize: 12, lineHeight: 18, marginTop: 18 }}>Choose a serviceable pickup address to continue using Darji in this area.</Text>
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
 
 function quoteDistanceLabel(distanceMeters?: number) {
@@ -8334,12 +8392,16 @@ function SettingRow({
 function SavedAddressesScreen({
   addresses,
   setAddresses,
-  setScreen
+  setScreen,
+  onSelectAddress
 }: {
   addresses: SavedAddress[];
   setAddresses: (addresses: SavedAddress[]) => void;
   setScreen: (screen: Screen) => void;
+  onSelectAddress: (address: SavedAddress, addressList?: SavedAddress[]) => Promise<void>;
 }) {
+  const [selectingId, setSelectingId] = useState<string>();
+
   function deleteAddress(addressId: string) {
     if (addresses.length <= 1) {
       Alert.alert("Address required", "Keep at least one pickup address saved.");
@@ -8348,6 +8410,16 @@ function SavedAddressesScreen({
     const next = addresses.filter((item) => item.id !== addressId);
     if (!next.some((item) => item.isDefault)) next[0] = { ...next[0], isDefault: true };
     setAddresses(next);
+    if (addresses.find((item) => item.id === addressId)?.isDefault && next[0]) void onSelectAddress(next[0], next);
+  }
+
+  async function selectAddress(item: SavedAddress) {
+    setSelectingId(item.id);
+    try {
+      await onSelectAddress(item);
+    } finally {
+      setSelectingId(undefined);
+    }
   }
 
   return (
@@ -8364,12 +8436,18 @@ function SavedAddressesScreen({
                 <Text style={styles.infoCopy}>{item.address}</Text>
               </View>
             </View>
-            {item.isDefault ? <Text style={styles.statusPill}>Default</Text> : null}
+            {item.isDefault ? <Text style={styles.statusPill}>Selected</Text> : null}
           </View>
-          <Pressable style={styles.deleteAddressButton} onPress={() => deleteAddress(item.id)}>
-            <Ionicons name="trash-outline" size={16} color="#c24141" />
-            <Text style={styles.deleteAddressText}>Delete address</Text>
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+            <Pressable style={[styles.secondaryWideButton, { flex: 1, marginTop: 0 }]} onPress={() => void selectAddress(item)} disabled={Boolean(selectingId)}>
+              {selectingId === item.id ? <ActivityIndicator size="small" color={BRAND_DEEP} /> : <Ionicons name={item.isDefault ? "checkmark-circle" : "navigate-outline"} size={16} color={BRAND_DEEP} />}
+              <Text style={styles.secondaryWideButtonText}>{item.isDefault ? "Use This Address" : "Select Address"}</Text>
+            </Pressable>
+            <Pressable style={[styles.deleteAddressButton, { marginTop: 0 }]} onPress={() => deleteAddress(item.id)}>
+              <Ionicons name="trash-outline" size={16} color="#c24141" />
+              <Text style={styles.deleteAddressText}>Delete</Text>
+            </Pressable>
+          </View>
         </View>
       ))}
       <RequestFlowCta label="Add New Address" onPress={() => setScreen("addAddress")} />
@@ -8396,7 +8474,6 @@ function AddAddressScreen({
   const [addressAvailability, setAddressAvailability] = useState<ServiceAvailability>();
   const [availabilityError, setAvailabilityError] = useState<string>();
   const availabilityRequestRef = useRef(0);
-  const lastUnavailableNoticeRef = useRef<string | undefined>(undefined);
   const token = useAppStore((state) => state.token);
   const formattedAddress = displayAddressFields(addressFields);
   const missingFields = missingAddressFields(addressFields);
@@ -8407,36 +8484,6 @@ function AddAddressScreen({
     setLocation({});
     setAddressAvailability(undefined);
     setAvailabilityError(undefined);
-  }
-
-  function showUnavailableAddress(availability: ServiceAvailability, address: string, point: { lat: number; lng: number }) {
-    const key = `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`;
-    if (lastUnavailableNoticeRef.current === key) return;
-    lastUnavailableNoticeRef.current = key;
-    showDialog({
-      title: availability.title ?? "Darji is not in your area yet",
-      message: availability.message ?? "We are not serving this address yet. Request Darji here and we will let you know when we arrive.",
-      actions: [
-        { label: "Keep Address", cancel: true },
-        {
-          label: "Request Darji Here",
-          onPress: () => {
-            void api("/service-area-interests", {
-              method: "POST",
-              body: JSON.stringify({ address, latitude: point.lat, longitude: point.lng })
-            }, token).then(() => showDialog({
-              title: "Request received",
-              message: "Thank you. We recorded your request for Darji service at this address.",
-              actions: [{ label: "Done" }]
-            })).catch((error) => showDialog({
-              title: "Could not save request",
-              message: error instanceof Error ? error.message : "Please try again.",
-              actions: [{ label: "OK" }]
-            }));
-          }
-        }
-      ]
-    });
   }
 
   async function checkAddressAvailability(address: string, knownLocation?: { lat: number; lng: number }) {
@@ -8458,7 +8505,6 @@ function AddAddressScreen({
       if (requestId !== availabilityRequestRef.current) return undefined;
       setLocation(point);
       setAddressAvailability(availability);
-      if (!availability.serviceable) showUnavailableAddress(availability, address, point);
       return { point, availability };
     } catch (error) {
       if (requestId !== availabilityRequestRef.current) return undefined;
@@ -11359,11 +11405,14 @@ function AppContent() {
   const [isFetchingOrders, setIsFetchingOrders] = useState(true);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const [serviceAreaScreen, setServiceAreaScreen] = useState<ServiceAreaScreenState>({ status: "idle" });
+  const [serviceAreaRequesting, setServiceAreaRequesting] = useState(false);
+  const [locationRefreshSignal, setLocationRefreshSignal] = useState(0);
   const paymentMessageHandledRef = useRef(false);
   const paymentRecoveryInFlightRef = useRef(false);
   const paymentExternalOpenRef = useRef(false);
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
-  const currentServiceAreaNoticeRef = useRef<string | undefined>(undefined);
+  const hasResolvedStartupLocationRef = useRef(false);
   const homeScrollOffsetRef = useRef(0);
   const profileScrollOffsetRef = useRef(0);
 
@@ -12260,8 +12309,16 @@ function AppContent() {
 
     async function captureCurrentAddress() {
       try {
+        if (!hasResolvedStartupLocationRef.current) setServiceAreaScreen({ status: "locating" });
         const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) return;
+        if (!permission.granted) {
+          if (!cancelled) {
+            hasResolvedStartupLocationRef.current = true;
+            setServiceAreaScreen({ status: "available" });
+            updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
+          }
+          return;
+        }
 
         const current = await Promise.race([
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
@@ -12277,72 +12334,133 @@ function AppContent() {
 
         if (cancelled) return;
 
+        setServiceAreaScreen({
+          status: "checking",
+          address: resolvedAddress,
+          location: { lat: current.coords.latitude, lng: current.coords.longitude }
+        });
+
         const currentAddress: SavedAddress = {
           id: "current-location",
           label: "Current Location",
           address: resolvedAddress,
-          isDefault: true,
+          isDefault: false,
           lat: current.coords.latitude,
           lng: current.coords.longitude
         };
 
-        updateCustomerData((data) => ({
-          ...data,
-          hasCapturedCurrentAddress: true,
-          addresses: [currentAddress, ...data.addresses.filter((item) => item.id !== "current-location").map((item) => ({ ...item, isDefault: false }))]
-        }));
+        updateCustomerData((data) => {
+          const saved = data.addresses.filter((item) => item.id !== "current-location");
+          const selectedSavedAddress = saved.find((item) => item.isDefault);
+          return {
+            ...data,
+            hasCapturedCurrentAddress: true,
+            addresses: [
+              { ...currentAddress, isDefault: !selectedSavedAddress },
+              ...saved.map((item) => ({ ...item, isDefault: selectedSavedAddress ? item.id === selectedSavedAddress.id : false }))
+            ]
+          };
+        });
         setDraft((currentDraft) => (hasRequestDraftData(currentDraft) ? currentDraft : {
           ...currentDraft,
-          pickup: resolvedAddress,
-          pickupLocation: { lat: current.coords.latitude, lng: current.coords.longitude }
+          pickup: defaultAddress?.address ?? resolvedAddress,
+          pickupLocation: defaultAddress?.lat != null && defaultAddress.lng != null
+            ? { lat: defaultAddress.lat, lng: defaultAddress.lng }
+            : { lat: current.coords.latitude, lng: current.coords.longitude }
         }));
         const latitude = current.coords.latitude;
         const longitude = current.coords.longitude;
-        const noticeKey = `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
-        void api<ServiceAvailability>(
+        const availability = await api<ServiceAvailability>(
           `/service-availability?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}`,
           {},
           token
-        ).then((availability) => {
-          if (cancelled || availability.serviceable) {
-            if (availability.serviceable) currentServiceAreaNoticeRef.current = undefined;
-            return;
-          }
-          if (currentServiceAreaNoticeRef.current === noticeKey) return;
-          currentServiceAreaNoticeRef.current = noticeKey;
-          setDialog({
-            title: availability.title ?? "Darji is not in your area yet",
-            message: availability.message ?? "We are not serving your current area yet. You can request Darji here.",
-            actions: [
-              { label: "Not Now", cancel: true },
-              {
-                label: "Request Darji Here",
-                onPress: () => {
-                  void api("/service-area-interests", {
-                    method: "POST",
-                    body: JSON.stringify({ address: resolvedAddress, latitude, longitude })
-                  }, token).then(() => setDialog({
-                    title: "Request received",
-                    message: "Thank you. We recorded your area and will let you know when Darji launches here.",
-                    actions: [{ label: "Done" }]
-                  })).catch((error) => setDialog({
-                    title: "Could not save request",
-                    message: error instanceof Error ? error.message : "Please try again.",
-                    actions: [{ label: "OK" }]
-                  }));
-                }
-              }
-            ]
-          });
-        }).catch(() => undefined);
-      } catch { /* Keep the previous genuine location and retry next time the app opens. */ }
+        );
+        if (cancelled) return;
+        hasResolvedStartupLocationRef.current = true;
+        setServiceAreaScreen({
+          status: availability.serviceable ? "available" : "unavailable",
+          address: resolvedAddress,
+          location: { lat: latitude, lng: longitude },
+          availability
+        });
+      } catch {
+        if (!cancelled) {
+          hasResolvedStartupLocationRef.current = true;
+          setServiceAreaScreen({ status: "available" });
+        }
+      }
     }
 
     captureCurrentAddress();
     return () => {
       cancelled = true;
     };
-  }, [token, customerPhone, customerData.hasCapturedCurrentAddress]);
+  }, [token, customerPhone, customerData.hasCapturedCurrentAddress, locationRefreshSignal]);
+
+  async function selectCustomerAddress(address: SavedAddress, addressList = addresses) {
+    if (!token) return;
+    try {
+      setServiceAreaScreen({
+        status: "checking",
+        address: address.address,
+        location: address.lat != null && address.lng != null ? { lat: address.lat, lng: address.lng } : undefined
+      });
+      let location = address.lat != null && address.lng != null ? { lat: address.lat, lng: address.lng } : undefined;
+      if (!location) {
+        const resolved = await api<{ latitude: number; longitude: number }>(`/location/geocode?address=${encodeURIComponent(address.address)}`, {}, token);
+        location = { lat: resolved.latitude, lng: resolved.longitude };
+      }
+      const availability = await api<ServiceAvailability>(
+        `/service-availability?latitude=${encodeURIComponent(location.lat)}&longitude=${encodeURIComponent(location.lng)}`,
+        {},
+        token
+      );
+      const selected = { ...address, lat: location.lat, lng: location.lng, isDefault: true };
+      setCustomerAddresses(addressList.map((item) => item.id === address.id ? selected : { ...item, isDefault: false }));
+      setDraft((current) => ({ ...current, pickup: selected.address, pickupLocation: location }));
+      setServiceAreaScreen({
+        status: availability.serviceable ? "available" : "unavailable",
+        address: selected.address,
+        location,
+        availability
+      });
+      setScreen("home");
+    } catch (error) {
+      setServiceAreaScreen({ status: "available" });
+      setDialog({
+        title: "Address not selected",
+        message: error instanceof Error ? error.message : "We could not verify this address. Please try again.",
+        actions: [{ label: "OK" }]
+      });
+    }
+  }
+
+  function requestServiceForCurrentArea() {
+    if (!token || !serviceAreaScreen.address || !serviceAreaScreen.location) return;
+    setServiceAreaRequesting(true);
+    void api("/service-area-interests", {
+      method: "POST",
+      body: JSON.stringify({
+        address: serviceAreaScreen.address,
+        latitude: serviceAreaScreen.location.lat,
+        longitude: serviceAreaScreen.location.lng
+      })
+    }, token).then(() => setDialog({
+      title: "Request received",
+      message: "Thank you. We recorded your area and will let you know when Darji launches here.",
+      actions: [{ label: "Done" }]
+    })).catch((error) => setDialog({
+      title: "Could not save request",
+      message: error instanceof Error ? error.message : "Please try again.",
+      actions: [{ label: "OK" }]
+    })).finally(() => setServiceAreaRequesting(false));
+  }
+
+  function retryCurrentLocation() {
+    setServiceAreaScreen({ status: "locating" });
+    updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
+    setLocationRefreshSignal((current) => current + 1);
+  }
 
   function storeConfirmedOrder(request: BackendTailoringRequest, quoteOverride?: Quote, draftOverride?: RequestDraft) {
     const existing = orders.find((order) => order.backendOrderId === request.id || order.id === request.id);
@@ -12662,6 +12780,21 @@ function AppContent() {
   if (!token) return <AuthScreen />;
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} setLanguagePreference={setLanguagePreference} />);
+  const choosingServiceAddress = screen === "savedAddresses" || screen === "addAddress";
+  if (!choosingServiceAddress && (serviceAreaScreen.status === "idle" || serviceAreaScreen.status === "locating" || serviceAreaScreen.status === "checking")) {
+    return withAppChrome(<LocationFetchingScreen title="Finding service near you" message="Checking your current location and Darji availability." />);
+  }
+  if (!choosingServiceAddress && serviceAreaScreen.status === "unavailable") {
+    return withAppChrome(
+      <ServiceUnavailableScreen
+        state={serviceAreaScreen}
+        requesting={serviceAreaRequesting}
+        onRequestService={requestServiceForCurrentArea}
+        onChangeAddress={() => setScreen("savedAddresses")}
+        onRetryLocation={retryCurrentLocation}
+      />
+    );
+  }
 
   if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} onStartRequest={startRequest} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} initialScrollOffset={homeScrollOffsetRef.current} onScrollOffsetChange={(offset) => { homeScrollOffsetRef.current = offset; }} />);
   if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} onStartRequest={startRequest} />);
@@ -12731,7 +12864,7 @@ function AppContent() {
         </Modal>
         
         <Modal visible={screen === "savedAddresses"} onRequestClose={goBack} animationType="slide">
-          <SavedAddressesScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />
+          <SavedAddressesScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} onSelectAddress={selectCustomerAddress} />
         </Modal>
         
         <Modal visible={screen === "addAddress"} onRequestClose={goBack} animationType="slide">
