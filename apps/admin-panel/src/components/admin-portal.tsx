@@ -6365,7 +6365,7 @@ function ServiceAreaSettingsCard({
     try {
       const result = await geocodeServiceArea(query);
       if (selectedArea) {
-        updateArea(selectedAreaIndex, { name: query, latitude: result.latitude, longitude: result.longitude });
+        updateArea(selectedAreaIndex, { name: query, latitude: result.latitude, longitude: result.longitude, shape: "circle", polygon: [] });
         setUnlocatedAreaIds((current) => {
           const next = new Set(current);
           next.delete(selectedArea.id);
@@ -6374,7 +6374,7 @@ function ServiceAreaSettingsCard({
       } else {
         onChange({
           ...draft,
-          areas: [...draft.areas, { id: `area-${Date.now()}`, name: query, latitude: result.latitude, longitude: result.longitude, radiusKm: 5, enabled: true }]
+          areas: [...draft.areas, { id: `area-${Date.now()}`, name: query, latitude: result.latitude, longitude: result.longitude, radiusKm: 5, shape: "circle", polygon: [], enabled: true }]
         });
         setSelectedAreaIndex(draft.areas.length);
       }
@@ -6385,6 +6385,7 @@ function ServiceAreaSettingsCard({
       setSearchingArea(false);
     }
   }
+  const hasIncompletePolygon = draft.areas.some((area) => area.enabled && area.shape === "polygon" && area.polygon.length < 3);
   return (
     <Panel>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -6428,27 +6429,61 @@ function ServiceAreaSettingsCard({
       </div>
       <div className="mt-4">
         {selectedArea ? (
-          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
-            <span className="mr-auto font-semibold">Editing: {selectedArea.name}</span>
-            <span className="text-xs font-semibold">Quick radius:</span>
-            {[2, 5, 10, 15, 25].map((radius) => (
-              <button key={radius} type="button" className={cn("rounded-lg px-2.5 py-1 text-xs font-bold", selectedArea.radiusKm === radius ? "bg-amber-500 text-black" : "bg-white text-slate-700 shadow-sm")} onClick={() => updateArea(selectedAreaIndex, { radiusKm: radius })}>{radius} km</button>
-            ))}
+          <div className="mb-3 space-y-3 rounded-xl bg-amber-50 px-3 py-3 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-auto font-semibold">Editing: {selectedArea.name}</span>
+              <button type="button" className={cn("rounded-lg px-3 py-1.5 text-xs font-bold", selectedArea.shape === "circle" ? "bg-amber-500 text-black" : "bg-white text-slate-700 shadow-sm")} onClick={() => updateArea(selectedAreaIndex, { shape: "circle", polygon: [] })}>Circle</button>
+              <button type="button" className={cn("rounded-lg px-3 py-1.5 text-xs font-bold", selectedArea.shape === "polygon" ? "bg-amber-500 text-black" : "bg-white text-slate-700 shadow-sm")} onClick={() => updateArea(selectedAreaIndex, { shape: "polygon", polygon: [] })}>Custom boundary</button>
+            </div>
+            {selectedArea.shape === "circle" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-auto text-xs">Drag the centre dot. The coverage circle moves with it.</span>
+                <span className="text-xs font-semibold">Quick radius:</span>
+                {[2, 5, 10, 15, 25].map((radius) => (
+                  <button key={radius} type="button" className={cn("rounded-lg px-2.5 py-1 text-xs font-bold", selectedArea.radiusKm === radius ? "bg-amber-500 text-black" : "bg-white text-slate-700 shadow-sm")} onClick={() => updateArea(selectedAreaIndex, { radiusKm: radius })}>{radius} km</button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-auto text-xs">Click around the boundary to connect dots. Minimum 3, maximum 60. Drag a dot to refine it.</span>
+                <Badge tone="slate">{selectedArea.polygon.length} dots</Badge>
+                <button type="button" disabled={!selectedArea.polygon.length} className="rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-slate-700 shadow-sm disabled:opacity-50" onClick={() => updateArea(selectedAreaIndex, { polygon: selectedArea.polygon.slice(0, -1) })}>Undo dot</button>
+                <button type="button" disabled={!selectedArea.polygon.length} className="rounded-lg bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800 disabled:opacity-50" onClick={() => updateArea(selectedAreaIndex, { polygon: [] })}>Clear boundary</button>
+              </div>
+            )}
           </div>
         ) : null}
         <ServiceAreaMap
           areas={draft.areas}
           selectedIndex={selectedAreaIndex}
           onSelectArea={setSelectedAreaIndex}
+          onDragPoint={(areaIndex, pointIndex, latitude, longitude) => {
+            const area = draft.areas[areaIndex];
+            if (!area) return;
+            if (pointIndex == null) {
+              updateArea(areaIndex, { latitude, longitude });
+              return;
+            }
+            updateArea(areaIndex, { polygon: area.polygon.map((point, index) => index === pointIndex ? { latitude, longitude } : point) });
+          }}
           onSelectPoint={(latitude, longitude) => {
             if (!draft.areas[selectedAreaIndex]) {
               const id = `area-${Date.now()}`;
-              onChange({ ...draft, areas: [...draft.areas, { id, name: `Map area ${draft.areas.length + 1}`, latitude, longitude, radiusKm: 5, enabled: true }] });
+              onChange({ ...draft, areas: [...draft.areas, { id, name: `Map area ${draft.areas.length + 1}`, latitude, longitude, radiusKm: 5, shape: "circle", polygon: [], enabled: true }] });
               setSelectedAreaIndex(draft.areas.length);
               toast.success("Area added. Rename it or search for the exact locality.");
               return;
             }
-            updateArea(selectedAreaIndex, { latitude, longitude });
+            const area = draft.areas[selectedAreaIndex];
+            if (area.shape === "polygon") {
+              if (area.polygon.length >= 60) {
+                toast.error("A custom boundary can contain up to 60 dots");
+                return;
+              }
+              updateArea(selectedAreaIndex, { polygon: [...area.polygon, { latitude, longitude }] });
+            } else {
+              updateArea(selectedAreaIndex, { latitude, longitude });
+            }
             setUnlocatedAreaIds((current) => {
               const next = new Set(current);
               next.delete(draft.areas[selectedAreaIndex].id);
@@ -6463,9 +6498,11 @@ function ServiceAreaSettingsCard({
             <label className="text-xs font-semibold md:col-span-3">Area name
               <input className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.name} onChange={(event) => updateArea(index, { name: event.target.value })} />
             </label>
-            <label className="text-xs font-semibold">Radius (km)
-              <input type="number" min="0.1" step="0.1" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.radiusKm} onChange={(event) => updateArea(index, { radiusKm: Number(event.target.value) })} />
-            </label>
+            {area.shape === "circle" ? (
+              <label className="text-xs font-semibold">Radius (km)
+                <input type="number" min="0.1" step="0.1" className="mt-1 w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel-strong)] px-3 py-2 text-sm" value={area.radiusKm} onChange={(event) => updateArea(index, { radiusKm: Number(event.target.value) })} />
+              </label>
+            ) : <div className="flex items-end text-xs font-semibold">{area.polygon.length} boundary dots</div>}
             <div className="flex items-end gap-2 md:col-span-2">
               <button type="button" className="min-h-10 rounded-xl bg-amber-100 px-3 text-xs font-semibold text-amber-900" onClick={() => setSelectedAreaIndex(index)}>{index === selectedAreaIndex ? "Selected" : "Edit on map"}</button>
               <button type="button" className={cn("min-h-10 flex-1 rounded-xl px-2 text-xs font-semibold", area.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700")} onClick={() => updateArea(index, { enabled: !area.enabled })}>{area.enabled ? "Active" : "Paused"}</button>
@@ -6482,11 +6519,12 @@ function ServiceAreaSettingsCard({
         ))}
       </div>
       <div className="mt-4 flex flex-wrap justify-between gap-3">
-        <ActionButton variant="secondary" onClick={() => { const index = draft.areas.length; const id = `area-${Date.now()}`; onChange({ ...draft, areas: [...draft.areas, { id, name: "New launch area", latitude: 28.6139, longitude: 77.209, radiusKm: 5, enabled: true }] }); setUnlocatedAreaIds((current) => new Set(current).add(id)); setSelectedAreaIndex(index); }}><Plus className="h-4 w-4" />Add area</ActionButton>
-        <ActionButton disabled={pending || unlocatedAreaIds.size > 0 || (draft.enabled && !draft.areas.some((area) => area.enabled))} onClick={() => onSave(draft)}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save service areas</ActionButton>
+        <ActionButton variant="secondary" onClick={() => { const index = draft.areas.length; const id = `area-${Date.now()}`; onChange({ ...draft, areas: [...draft.areas, { id, name: "New launch area", latitude: 28.6139, longitude: 77.209, radiusKm: 5, shape: "circle", polygon: [], enabled: true }] }); setUnlocatedAreaIds((current) => new Set(current).add(id)); setSelectedAreaIndex(index); }}><Plus className="h-4 w-4" />Add area</ActionButton>
+        <ActionButton disabled={pending || unlocatedAreaIds.size > 0 || hasIncompletePolygon || (draft.enabled && !draft.areas.some((area) => area.enabled))} onClick={() => onSave(draft)}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save service areas</ActionButton>
       </div>
       {draft.enabled && !draft.areas.some((area) => area.enabled) ? <p className="mt-3 text-sm font-semibold text-rose-700">Add and activate at least one area before enabling filtering.</p> : null}
       {unlocatedAreaIds.size > 0 ? <p className="mt-3 text-sm font-semibold text-amber-700">Locate every new area by searching or clicking its centre on the map before saving.</p> : null}
+      {hasIncompletePolygon ? <p className="mt-3 text-sm font-semibold text-amber-700">Each active custom boundary needs at least three connected dots before saving.</p> : null}
       <div className="mt-6 border-t border-[var(--panel-border)] pt-5">
         <div className="flex items-center justify-between gap-3">
           <div>

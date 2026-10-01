@@ -29,6 +29,35 @@ function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: n
   return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+function pointInPolygon(point: { latitude: number; longitude: number }, polygon: Array<{ latitude: number; longitude: number }>) {
+  let inside = false;
+  const x = point.longitude;
+  const y = point.latitude;
+  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
+    const currentPoint = polygon[index];
+    const previousPoint = polygon[previous];
+    const dx = currentPoint.longitude - previousPoint.longitude;
+    const dy = currentPoint.latitude - previousPoint.latitude;
+    const cross = (x - previousPoint.longitude) * dy - (y - previousPoint.latitude) * dx;
+    const onSegment = Math.abs(cross) < 1e-10
+      && x >= Math.min(previousPoint.longitude, currentPoint.longitude)
+      && x <= Math.max(previousPoint.longitude, currentPoint.longitude)
+      && y >= Math.min(previousPoint.latitude, currentPoint.latitude)
+      && y <= Math.max(previousPoint.latitude, currentPoint.latitude);
+    if (onSegment) return true;
+    const intersects = (currentPoint.latitude > y) !== (previousPoint.latitude > y)
+      && x < ((previousPoint.longitude - currentPoint.longitude) * (y - currentPoint.latitude))
+        / (previousPoint.latitude - currentPoint.latitude) + currentPoint.longitude;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+export function serviceAreaContainsPoint(area: ServiceAreaZone, point: { latitude: number; longitude: number }) {
+  if (area.shape === "polygon") return area.polygon.length >= 3 && pointInPolygon(point, area.polygon);
+  return distanceKm(point, { latitude: area.latitude, longitude: area.longitude }) <= area.radiusKm;
+}
+
 export async function getServiceAreaConfig(): Promise<ServiceAreaConfig> {
   if (cachedConfig && cachedConfig.expiresAt > Date.now()) return cachedConfig.value;
   const setting = await SettingModel.findOne({ key: SERVICE_AREA_SETTING_KEY }).select("value").lean();
@@ -53,10 +82,7 @@ export async function saveServiceAreaConfig(value: unknown): Promise<ServiceArea
 export async function checkServiceAvailability(latitude: number, longitude: number): Promise<ServiceAvailability> {
   const config = await getServiceAreaConfig();
   if (!config.enabled) return { filteringEnabled: false, serviceable: true };
-  const matched = config.areas.find((area) => area.enabled && distanceKm(
-    { latitude, longitude },
-    { latitude: area.latitude, longitude: area.longitude }
-  ) <= area.radiusKm);
+  const matched = config.areas.find((area) => area.enabled && serviceAreaContainsPoint(area, { latitude, longitude }));
   if (matched) {
     return {
       filteringEnabled: true,
