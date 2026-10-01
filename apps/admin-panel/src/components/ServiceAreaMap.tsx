@@ -16,20 +16,27 @@ type MapArea = {
 export default function ServiceAreaMap({
   areas,
   selectedIndex,
-  onSelectPoint
+  onSelectPoint,
+  onSelectArea
 }: {
   areas: MapArea[];
   selectedIndex: number;
   onSelectPoint: (latitude: number, longitude: number) => void;
+  onSelectArea: (index: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layersRef = useRef<L.LayerGroup | null>(null);
   const onSelectPointRef = useRef(onSelectPoint);
+  const onSelectAreaRef = useRef(onSelectArea);
 
   useEffect(() => {
     onSelectPointRef.current = onSelectPoint;
   }, [onSelectPoint]);
+
+  useEffect(() => {
+    onSelectAreaRef.current = onSelectArea;
+  }, [onSelectArea]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -64,14 +71,18 @@ export default function ServiceAreaMap({
       const color = area.enabled ? (selected ? "#f59e0b" : "#16a34a") : "#94a3b8";
       const center: L.LatLngExpression = [area.latitude, area.longitude];
       bounds.push(center);
-      L.circle(center, {
+      const circle = L.circle(center, {
         radius: Math.max(100, area.radiusKm * 1000),
         color,
         fillColor: color,
         fillOpacity: selected ? 0.2 : 0.1,
         weight: selected ? 3 : 2,
         dashArray: area.enabled ? undefined : "6 6"
-      }).bindTooltip(`${area.name} · ${area.radiusKm} km`).addTo(layers);
+      }).bindTooltip(`${area.name} · ${area.radiusKm} km`, { permanent: selected, direction: "top" }).addTo(layers);
+      circle.on("click", (event) => {
+        L.DomEvent.stopPropagation(event);
+        onSelectAreaRef.current(index);
+      });
       L.circleMarker(center, {
         radius: selected ? 7 : 5,
         color: "#ffffff",

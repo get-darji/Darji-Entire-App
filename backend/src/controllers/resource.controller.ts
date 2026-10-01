@@ -2157,10 +2157,13 @@ export async function createServiceAreaInterestController(req: Request, res: Res
   const input = serviceAreaInterestInputSchema.parse(req.body);
   const roundedLatitude = Number(input.latitude.toFixed(4));
   const roundedLongitude = Number(input.longitude.toFixed(4));
+  const customer = await UserModel.findById(req.user!.id).select("name phone").lean();
   const interest = await ServiceAreaInterestModel.findOneAndUpdate(
     { userId: req.user!.id, latitude: roundedLatitude, longitude: roundedLongitude },
     {
       userId: req.user!.id,
+      customerName: customer?.name,
+      customerPhone: customer?.phone,
       address: input.address,
       latitude: roundedLatitude,
       longitude: roundedLongitude,
@@ -2172,22 +2175,26 @@ export async function createServiceAreaInterestController(req: Request, res: Res
 }
 
 export async function listServiceAreaInterestsController(_req: Request, res: Response) {
-  const [items, total] = await Promise.all([
+  const [items, total, customerIds] = await Promise.all([
     ServiceAreaInterestModel.find({}).sort({ createdAt: -1 }).limit(100).lean(),
-    ServiceAreaInterestModel.countDocuments({})
+    ServiceAreaInterestModel.countDocuments({}),
+    ServiceAreaInterestModel.distinct("userId")
   ]);
   res.json({
     data: {
       items: items.map((item) => ({
         id: String(item._id),
         userId: item.userId,
+        customerName: item.customerName,
+        customerPhone: item.customerPhone,
         address: item.address,
         latitude: item.latitude,
         longitude: item.longitude,
         status: item.status,
         createdAt: item.createdAt
       })),
-      total
+      total,
+      uniqueCustomers: customerIds.length
     }
   });
 }

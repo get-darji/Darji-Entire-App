@@ -413,6 +413,8 @@ export async function updateServiceAreaConfig(payload: ServiceAreaConfig) {
 export type ServiceAreaInterest = {
   id: string;
   userId: string;
+  customerName?: string;
+  customerPhone?: string;
   address: string;
   latitude: number;
   longitude: number;
@@ -421,7 +423,7 @@ export type ServiceAreaInterest = {
 };
 
 export async function getServiceAreaInterests() {
-  return unwrap<{ items: ServiceAreaInterest[]; total: number }>(api.get("/admin/service-area-interests"));
+  return unwrap<{ items: ServiceAreaInterest[]; total: number; uniqueCustomers: number }>(api.get("/admin/service-area-interests"));
 }
 
 export async function geocodeServiceArea(address: string) {

@@ -8380,22 +8380,111 @@ function SavedAddressesScreen({
 function AddAddressScreen({
   addresses,
   setAddresses,
-  setScreen
+  setScreen,
+  showDialog
 }: {
   addresses: SavedAddress[];
   setAddresses: (addresses: SavedAddress[]) => void;
   setScreen: (screen: Screen) => void;
+  showDialog: (dialog: AppDialogState) => void;
 }) {
   const [label, setLabel] = useState("Home");
   const [addressFields, setAddressFields] = useState<AddressFields>(() => emptyAddressFields());
   const [location, setLocation] = useState<{ lat?: number; lng?: number }>({});
   const [locating, setLocating] = useState(false);
+  const [availabilityChecking, setAvailabilityChecking] = useState(false);
+  const [addressAvailability, setAddressAvailability] = useState<ServiceAvailability>();
+  const [availabilityError, setAvailabilityError] = useState<string>();
+  const availabilityRequestRef = useRef(0);
+  const lastUnavailableNoticeRef = useRef<string | undefined>(undefined);
+  const token = useAppStore((state) => state.token);
   const formattedAddress = displayAddressFields(addressFields);
   const missingFields = missingAddressFields(addressFields);
 
   function updateAddressField(key: keyof AddressFields, value: string) {
+    availabilityRequestRef.current += 1;
     setAddressFields((current) => ({ ...current, [key]: value, sourceAddress: undefined }));
+    setLocation({});
+    setAddressAvailability(undefined);
+    setAvailabilityError(undefined);
   }
+
+  function showUnavailableAddress(availability: ServiceAvailability, address: string, point: { lat: number; lng: number }) {
+    const key = `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`;
+    if (lastUnavailableNoticeRef.current === key) return;
+    lastUnavailableNoticeRef.current = key;
+    showDialog({
+      title: availability.title ?? "Darji is not in your area yet",
+      message: availability.message ?? "We are not serving this address yet. Request Darji here and we will let you know when we arrive.",
+      actions: [
+        { label: "Keep Address", cancel: true },
+        {
+          label: "Request Darji Here",
+          onPress: () => {
+            void api("/service-area-interests", {
+              method: "POST",
+              body: JSON.stringify({ address, latitude: point.lat, longitude: point.lng })
+            }, token).then(() => showDialog({
+              title: "Request received",
+              message: "Thank you. We recorded your request for Darji service at this address.",
+              actions: [{ label: "Done" }]
+            })).catch((error) => showDialog({
+              title: "Could not save request",
+              message: error instanceof Error ? error.message : "Please try again.",
+              actions: [{ label: "OK" }]
+            }));
+          }
+        }
+      ]
+    });
+  }
+
+  async function checkAddressAvailability(address: string, knownLocation?: { lat: number; lng: number }) {
+    if (!token) throw new Error("Please sign in again to verify this address.");
+    const requestId = ++availabilityRequestRef.current;
+    setAvailabilityChecking(true);
+    setAvailabilityError(undefined);
+    try {
+      let point = knownLocation;
+      if (!point) {
+        const resolved = await api<{ latitude: number; longitude: number }>(`/location/geocode?address=${encodeURIComponent(address)}`, {}, token);
+        point = { lat: resolved.latitude, lng: resolved.longitude };
+      }
+      const availability = await api<ServiceAvailability>(
+        `/service-availability?latitude=${encodeURIComponent(point.lat)}&longitude=${encodeURIComponent(point.lng)}`,
+        {},
+        token
+      );
+      if (requestId !== availabilityRequestRef.current) return undefined;
+      setLocation(point);
+      setAddressAvailability(availability);
+      if (!availability.serviceable) showUnavailableAddress(availability, address, point);
+      return { point, availability };
+    } catch (error) {
+      if (requestId !== availabilityRequestRef.current) return undefined;
+      const message = error instanceof Error ? error.message : "We could not verify this address.";
+      setAddressAvailability(undefined);
+      setAvailabilityError(message);
+      return undefined;
+    } finally {
+      if (requestId === availabilityRequestRef.current) setAvailabilityChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    if (missingFields.length || formattedAddress.trim().length < 8) {
+      availabilityRequestRef.current += 1;
+      setAvailabilityChecking(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void checkAddressAvailability(
+        formattedAddress,
+        location.lat != null && location.lng != null ? { lat: location.lat, lng: location.lng } : undefined
+      );
+    }, location.lat != null && location.lng != null ? 50 : 800);
+    return () => clearTimeout(timer);
+  }, [formattedAddress, missingFields.length, location.lat, location.lng, token]);
 
   async function useCurrentLocation() {
     const permission = await Location.requestForegroundPermissionsAsync();
@@ -8408,7 +8497,9 @@ function AddAddressScreen({
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       try {
         const geo = await backendReverseGeocode(current.coords.latitude, current.coords.longitude);
-        setAddressFields(addressFieldsFromGeo(geo));
+        const fields = addressFieldsFromGeo(geo);
+        setAddressFields(fields);
+        void checkAddressAvailability(displayAddressFields(fields), { lat: current.coords.latitude, lng: current.coords.longitude });
       } catch {
         Alert.alert("Address not found", "Location was found, but address fields could not be filled. Please enter them manually.");
       }
@@ -8420,9 +8511,16 @@ function AddAddressScreen({
     }
   }
 
-  function saveAddress() {
+  async function saveAddress() {
     if (label.trim().length < 2 || missingFields.length) {
       Alert.alert("Address required", `Enter a label and fill ${missingFields.join(", ")}.`);
+      return;
+    }
+    const verified = addressAvailability && location.lat != null && location.lng != null
+      ? { point: { lat: location.lat, lng: location.lng }, availability: addressAvailability }
+      : await checkAddressAvailability(formattedAddress);
+    if (!verified) {
+      showDialog({ title: "Address not verified", message: availabilityError ?? "We could not locate this address. Check the details and try again.", actions: [{ label: "OK" }] });
       return;
     }
     const newAddress: SavedAddress = {
@@ -8431,8 +8529,8 @@ function AddAddressScreen({
       address: formattedAddress,
       fields: addressFields,
       isDefault: addresses.length === 0,
-      lat: location.lat,
-      lng: location.lng
+      lat: verified.point.lat,
+      lng: verified.point.lng
     };
     setAddresses([...addresses, newAddress]);
     setScreen("savedAddresses");
@@ -8482,9 +8580,18 @@ function AddAddressScreen({
           <Ionicons name="chevron-forward" size={18} color="#98a4b6" />
         </Pressable>
       </View>
-      <Pressable style={styles.preferenceSaveButton} onPress={saveAddress}>
-        <Ionicons name="save-outline" size={18} color="#111111" />
-        <Text style={styles.primaryWideButtonText}>Save Address</Text>
+      {availabilityChecking ? (
+        <View style={styles.infoBanner}><ActivityIndicator size="small" color={BRAND_ORANGE} /><Text style={styles.infoBannerText}>Checking service at this address...</Text></View>
+      ) : addressAvailability?.serviceable ? (
+        <View style={[styles.infoBanner, { backgroundColor: "#ecfdf3", borderColor: "#86efac" }]}><Ionicons name="checkmark-circle-outline" size={18} color="#15803d" /><Text style={[styles.infoBannerText, { color: "#166534" }]}>Darji service is available here.</Text></View>
+      ) : addressAvailability && !addressAvailability.serviceable ? (
+        <View style={[styles.infoBanner, { backgroundColor: "#fff1f2", borderColor: "#fda4af" }]}><Ionicons name="location-outline" size={18} color="#be123c" /><Text style={[styles.infoBannerText, { color: "#9f1239" }]}>Darji is not available at this address yet.</Text></View>
+      ) : availabilityError ? (
+        <Pressable style={[styles.infoBanner, { backgroundColor: "#fff7ed", borderColor: "#fdba74" }]} onPress={() => void checkAddressAvailability(formattedAddress)}><Ionicons name="refresh-outline" size={18} color="#c2410c" /><Text style={[styles.infoBannerText, { color: "#9a3412" }]}>{availabilityError} Tap to retry.</Text></Pressable>
+      ) : null}
+      <Pressable style={[styles.preferenceSaveButton, availabilityChecking && { opacity: 0.6 }]} onPress={() => void saveAddress()} disabled={availabilityChecking}>
+        {availabilityChecking ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="save-outline" size={18} color="#111111" />}
+        <Text style={styles.primaryWideButtonText}>{availabilityChecking ? "Checking Address" : "Save Address"}</Text>
       </Pressable>
     </ProfileSubPage>
   );
@@ -12628,7 +12735,7 @@ function AppContent() {
         </Modal>
         
         <Modal visible={screen === "addAddress"} onRequestClose={goBack} animationType="slide">
-          <AddAddressScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} />
+          <AddAddressScreen addresses={addresses} setAddresses={setCustomerAddresses} setScreen={setScreen} showDialog={setDialog} />
         </Modal>
         
         <Modal visible={screen === "walletPayments"} onRequestClose={goBack} animationType="slide">

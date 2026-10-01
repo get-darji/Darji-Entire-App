@@ -6427,12 +6427,25 @@ function ServiceAreaSettingsCard({
         </div>
       </div>
       <div className="mt-4">
+        {selectedArea ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+            <span className="mr-auto font-semibold">Editing: {selectedArea.name}</span>
+            <span className="text-xs font-semibold">Quick radius:</span>
+            {[2, 5, 10, 15, 25].map((radius) => (
+              <button key={radius} type="button" className={cn("rounded-lg px-2.5 py-1 text-xs font-bold", selectedArea.radiusKm === radius ? "bg-amber-500 text-black" : "bg-white text-slate-700 shadow-sm")} onClick={() => updateArea(selectedAreaIndex, { radiusKm: radius })}>{radius} km</button>
+            ))}
+          </div>
+        ) : null}
         <ServiceAreaMap
           areas={draft.areas}
           selectedIndex={selectedAreaIndex}
+          onSelectArea={setSelectedAreaIndex}
           onSelectPoint={(latitude, longitude) => {
             if (!draft.areas[selectedAreaIndex]) {
-              toast.error("Search for or add an area first");
+              const id = `area-${Date.now()}`;
+              onChange({ ...draft, areas: [...draft.areas, { id, name: `Map area ${draft.areas.length + 1}`, latitude, longitude, radiusKm: 5, enabled: true }] });
+              setSelectedAreaIndex(draft.areas.length);
+              toast.success("Area added. Rename it or search for the exact locality.");
               return;
             }
             updateArea(selectedAreaIndex, { latitude, longitude });
@@ -6480,12 +6493,13 @@ function ServiceAreaSettingsCard({
             <h4 className="font-semibold">Customer launch requests</h4>
             <p className="text-sm text-[var(--muted)]">Latest out-of-area customers who tapped Request Darji Here.</p>
           </div>
-          <Badge tone="slate">{interests?.total ?? 0} total</Badge>
+          <Badge tone="slate">{interests?.uniqueCustomers ?? 0} people · {interests?.total ?? 0} area requests</Badge>
         </div>
         <div className="mt-3 space-y-2">
           {interests?.items.slice(0, 5).map((interest) => (
             <div key={interest.id} className="rounded-xl bg-black/5 px-3 py-2 text-sm dark:bg-white/5">
               <p className="font-medium">{interest.address}</p>
+              <p className="mt-1 text-xs font-semibold text-[var(--foreground)]">{interest.customerName ?? "Customer"} · {interest.customerPhone ?? "Phone unavailable"}</p>
               <p className="mt-1 text-xs text-[var(--muted)]">{interest.latitude.toFixed(4)}, {interest.longitude.toFixed(4)} · {formatDate(interest.createdAt, true)}</p>
             </div>
           ))}
