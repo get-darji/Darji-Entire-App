@@ -1038,7 +1038,7 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
     customerToTailorTask?.pickupOtpVerifiedAt ||
     customerToTailorTask?.pickedUpAt ||
     customerToTailorTask?.taskStatus === "picked_up" ||
-    ["pickup_started", "picked_up_from_customer"].includes(String(request.orderStatus ?? ""))
+    String(request.orderStatus ?? "") === "picked_up_from_customer"
   );
   const cancellationFee = pickedUp ? Number(request.deliveryFee ?? 0) : 0;
 

@@ -25,6 +25,7 @@ type NormalizedOrder = {
   completedAt?: Date;
   category: OrderCategory;
   stage: string;
+  cancellationFee?: number;
 };
 
 function validDate(value: unknown, fallback: Date) {
@@ -139,10 +140,22 @@ function transactionDate(transaction: any) {
   return validDate(transaction.createdAt, new Date(0));
 }
 
-function financeSummary(payments: any[], earnings: any[], bounds: PeriodBounds) {
+function financeSummary(payments: any[], earnings: any[], orders: NormalizedOrder[], bounds: PeriodBounds) {
   const paid = collectedPayments(payments, bounds);
-  const paidOrderIds = new Set(paid.map((payment) => String(payment.orderId)));
-  const grossPaid = paid.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const paidByOrder = new Map<string, number>();
+  paid.forEach((payment) => {
+    const orderId = String(payment.orderId);
+    paidByOrder.set(orderId, (paidByOrder.get(orderId) ?? 0) + Number(payment.amount ?? 0));
+  });
+  let grossPaid = 0;
+  const paidOrderIds = new Set<string>();
+  paidByOrder.forEach((amount, orderId) => {
+    const order = orderById.get(orderId);
+    const recognizedAmount = order?.category === "cancelled" ? Math.min(amount, Number(order.cancellationFee ?? 0)) : amount;
+    if (recognizedAmount > 0) paidOrderIds.add(orderId);
+    grossPaid += recognizedAmount;
+  });
   const periodEarnings = earnings.filter((transaction) => inPeriod(transactionDate(transaction), bounds));
   const tailorCost = periodEarnings
     .filter((transaction) => transaction.userType === "TAILOR")
@@ -362,7 +375,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
   const [legacyOrders, tailoringRequests, payments, earnings, wallets, tailors, partners, deliveryRequests, deliveryBatches] = await Promise.all([
     OrderModel.find().select("_id customerId tailorId status createdAt timelineEvents").lean(),
-    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus createdAt timelineEvents").lean(),
+    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId amount status paidAt createdAt updatedAt").lean(),
     WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("userId userType orderId amount createdAt").lean(),
     WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("userId userType balance").lean(),
@@ -433,7 +446,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       createdAt: validDate(request.createdAt, new Date(0)),
       completedAt: completionByOrder.get(id),
       category: classifyTailoringRequest(request),
-      stage: tailoringStage(request, quoteCountMap.get(id) ?? 0)
+      stage: tailoringStage(request, quoteCountMap.get(id) ?? 0),
+      cancellationFee: Number(request.cancellationFee ?? 0)
     });
   });
   const normalizedOrders = [...normalizedMap.values()];
@@ -441,8 +455,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const currentOrders = orderCounts(normalizedOrders, current);
   const previousOrders = previous ? orderCounts(normalizedOrders, previous) : null;
   const currentPaidPayments = collectedPayments(payments, current);
-  const currentFinance = financeSummary(payments, earnings, current);
-  const previousFinance = previous ? financeSummary(payments, earnings, previous) : null;
+  const currentFinance = financeSummary(payments, earnings, normalizedOrders, current);
+  const previousFinance = previous ? financeSummary(payments, earnings, normalizedOrders, previous) : null;
   const { records: realizedRecords } = buildRealizedRecords(normalizedOrders, payments, earnings, deliveryRequests, deliveryBatches);
   const currentRealizedRecords = realizedRecords.filter((record) => inPeriod(record.completedAt, current));
   const previousRealizedRecords = previous ? realizedRecords.filter((record) => inPeriod(record.completedAt, previous)) : [];

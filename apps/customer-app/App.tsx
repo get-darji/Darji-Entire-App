@@ -3155,6 +3155,8 @@ function AppDialog({
   const action = actions.length === 1 ? actions[0] : undefined;
   const useSnackbar = dialog?.presentation === "snackbar";
   const message = userFacingMessage(dialog?.message, "Something went wrong. Please try again.");
+  const successDialog = /submitted|success|confirmed|complete|thank/i.test(`${dialog?.title ?? ""} ${message}`);
+  const ratingDialog = /rating|review/i.test(`${dialog?.title ?? ""} ${message}`);
 
   if (useSnackbar) {
     return (
@@ -3177,7 +3179,7 @@ function AppDialog({
       <View style={styles.dialogOverlay}>
         <View style={styles.dialogCard}>
           <View style={styles.dialogIcon}>
-            <Ionicons name="alert-circle-outline" size={26} color={BRAND_ORANGE} />
+            <Ionicons name={ratingDialog ? "star" : successDialog ? "checkmark-circle" : "alert-circle-outline"} size={26} color={ratingDialog ? BRAND_ORANGE : successDialog ? "#15803d" : BRAND_ORANGE} />
           </View>
           <Text style={styles.dialogTitle}>{dialog?.title}</Text>
           <Text style={styles.dialogMessage}>{message}</Text>
@@ -10349,6 +10351,7 @@ function invoiceHtml(order: CustomerOrder) {
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Tailor</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.tailor.name)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Pickup</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.pickupWindow)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Address</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">${escapeHtml(order.draft.pickup)}</td></tr>
+          <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Tailor quoted price</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.tailor?.price ?? 0}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Delivery</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.deliveryFee ?? deliveryFeeForUrgency(order.draft.urgency)}</td></tr>
           <tr><td style="padding:10px; border-bottom:1px solid #e5e7eb;">Platform fee</td><td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">Rs${order.platformFee ?? getPlatformFee(order.tailor?.price ?? 0)}</td></tr>
           ${

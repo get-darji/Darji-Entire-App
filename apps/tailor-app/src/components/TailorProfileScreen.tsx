@@ -257,7 +257,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [uploadingSamples, setUploadingSamples] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
-  const [name, setName] = useState(me?.name ?? "");
+  const registeredName = me?.name?.trim() || profile?.verification?.personal?.name?.trim() || "";
+  const [name, setName] = useState(registeredName);
   const [shopName, setShopName] = useState(profile?.shopName ?? "Darji Tailor");
   const [email, setEmail] = useState(me?.email ?? "");
   const [available, setAvailable] = useState(Boolean(profile?.isAvailable ?? true));
@@ -339,13 +340,13 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   }, [initialSupportScreen]);
 
   useEffect(() => {
-    setName(me?.name ?? "");
+    setName(registeredName);
     setShopName(profile?.shopName ?? "Darji Tailor");
     setEmail(serverEmail);
     setAvailable(Boolean(profile?.isAvailable ?? true));
     setNotifications((current) => ({ ...current, newOrderAlerts: settingsFromServer.notifications ?? true, sound: settingsFromServer.soundAlerts ?? true }));
     setGeneral((current) => ({ ...current, darkMode: settingsFromServer.darkMode ?? false }));
-  }, [me?.name, profile, serverEmail]);
+  }, [profile, registeredName, serverEmail]);
 
   async function updateAvailability(value: boolean) {
     setAvailable(value);

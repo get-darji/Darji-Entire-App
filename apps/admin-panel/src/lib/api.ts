@@ -237,7 +237,7 @@ export async function updateOperationalAlert(payload: { alertId: string; status:
   return unwrap<OperationalAlert>(api.patch(`/admin/operational-alerts/${alertId}`, body));
 }
 
-export async function sendAdminNotification(payload: { channel: "push"; target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string; sendMode: "now" | "schedule"; scheduledAt?: string | null }) {
+export async function sendAdminNotification(payload: { channel: "push"; target: "everyone" | "customers" | "tailors" | "delivery" | "customer"; targetUserId?: string; title: string; body: string; sendMode: "now" | "schedule"; scheduledAt?: string | null }) {
   return unwrap<{ ok: boolean; recipients: number; campaign: NotificationCampaign; delivery?: { deviceCount: number; successCount: number; failureCount: number } }>(api.post("/notifications/admin-send", payload));
 }
 

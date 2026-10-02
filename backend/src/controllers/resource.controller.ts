@@ -333,28 +333,6 @@ function assertCloudinaryConfigured() {
   }
 }
 
-function uploadAvatarBuffer(file: Express.Multer.File, folder = "darzi/tailor-profiles") {
-  if (!file.mimetype.startsWith("image/")) throw new AppError(400, "Only image uploads are allowed");
-  return new Promise<UploadApiResponse>((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder,
-        resource_type: "image",
-        use_filename: false,
-        unique_filename: true
-      },
-      (error, result) => {
-        if (error || !result) {
-          reject(error ?? new Error("Cloudinary upload failed"));
-          return;
-        }
-        resolve(result);
-      }
-    );
-    stream.end(file.buffer);
-  });
-}
-
 async function uploadTailorImageBuffer(file: Express.Multer.File, folder = "darzi/tailor-verification") {
   if (!file.mimetype.startsWith("image/")) throw new AppError(400, "Only image uploads are allowed");
   return new Promise<UploadApiResponse>((resolve, reject) => {
@@ -661,6 +639,7 @@ export async function updateTailorProfileController(req: Request, res: Response)
     TailorModel.findOneAndUpdate(
       { userId: req.user!.id },
       {
+        ...(input.name ? { displayName: input.name } : {}),
         ...(input.shopName ? { shopName: input.shopName } : {}),
         ...(input.specialization ? { specialization: input.specialization } : {}),
         ...(input.workingHours ? { workingHours: input.workingHours } : {}),
@@ -670,7 +649,7 @@ export async function updateTailorProfileController(req: Request, res: Response)
     )
   ]);
 
-  res.json({ data: { ...user?.toJSON(), tailorProfile: tailor } });
+  res.json({ data: { ...user?.toJSON(), ...(input.name ? { name: input.name } : {}), tailorProfile: tailor } });
 }
 
 export async function submitTailorVerificationController(req: Request, res: Response) {
@@ -699,6 +678,7 @@ export async function submitTailorVerificationController(req: Request, res: Resp
       { userId: req.user!.id },
       {
         $set: {
+          displayName: input.personal.name,
           shopName: input.shop.shopName,
           darjiTailorId: existingTailor?.darjiTailorId ?? createDarjiTailorId(),
           specialization,
@@ -739,17 +719,9 @@ export async function saveTailorVerificationDraftController(req: Request, res: R
 }
 
 export async function uploadTailorAvatarController(req: Request, res: Response) {
-  assertCloudinaryConfigured();
-  const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("verification verificationStatus");
-  const verifiedFacePhotoUrl = (tailor?.verification as { idVerification?: { facePhotoUrl?: string } } | undefined)?.idVerification?.facePhotoUrl;
-  if (verifiedFacePhotoUrl || tailor?.verificationStatus === "VERIFIED") {
-    throw new AppError(409, "Your verification selfie is your permanent profile photo");
-  }
-  const file = req.file;
-  if (!file) throw new AppError(400, "Attach a profile photo");
-  const result = await uploadAvatarBuffer(file);
-  const user = await UserModel.findByIdAndUpdate(req.user!.id, { avatarUrl: result.secure_url }, { returnDocument: "after" });
-  res.status(201).json({ data: { avatarUrl: result.secure_url, user } });
+  void req;
+  void res;
+  throw new AppError(403, "Tailor profile photos can only be changed by an admin");
 }
 
 export async function uploadTailorVerificationMediaController(req: Request, res: Response) {
@@ -1163,6 +1135,7 @@ export async function updateDeliveryProfileController(req: Request, res: Respons
     DeliveryPartnerModel.findOneAndUpdate(
       { userId: req.user!.id },
       {
+        ...(input.name ? { displayName: input.name } : {}),
         ...(input.workingHours ? { workingHours: input.workingHours } : {}),
         ...(input.deliveryType ? { deliveryType: input.deliveryType } : {}),
         ...(input.assignedArea ? { assignedArea: input.assignedArea } : {}),
@@ -1176,7 +1149,7 @@ export async function updateDeliveryProfileController(req: Request, res: Respons
     await assignPendingTasksToPartner(partner);
   }
 
-  res.json({ data: { ...user?.toJSON(), deliveryProfile: partner } });
+  res.json({ data: { ...user?.toJSON(), ...(input.name ? { name: input.name } : {}), deliveryProfile: partner } });
 }
 
 export async function checkDeliveryEmailAvailabilityController(req: Request, res: Response) {
@@ -1212,6 +1185,7 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
       });
 
     partner.vehicleNumber = input.vehicle.vehicleNumber;
+    partner.displayName = input.personal.fullName;
     partner.settings = {
       availability: input.preferences.availability,
       radius: input.preferences.radius,
@@ -1257,17 +1231,9 @@ export async function saveDeliveryVerificationDraftController(req: Request, res:
 }
 
 export async function uploadDeliveryAvatarController(req: Request, res: Response) {
-  assertCloudinaryConfigured();
-  const partner = await DeliveryPartnerModel.findOne({ userId: req.user!.id }).select("verification verificationStatus");
-  const verifiedFacePhotoUrl = (partner?.verification as { identity?: { facePhotoUrl?: string } } | undefined)?.identity?.facePhotoUrl;
-  if (verifiedFacePhotoUrl || partner?.verificationStatus === "VERIFIED") {
-    throw new AppError(409, "Your verification selfie is your permanent profile photo");
-  }
-  const file = req.file;
-  if (!file) throw new AppError(400, "Attach a profile photo");
-  const result = await uploadAvatarBuffer(file, "darzi/delivery-profiles");
-  const user = await UserModel.findByIdAndUpdate(req.user!.id, { avatarUrl: result.secure_url }, { returnDocument: "after" });
-  res.status(201).json({ data: { avatarUrl: result.secure_url, user } });
+  void req;
+  void res;
+  throw new AppError(403, "Delivery partner profile photos can only be changed by an admin");
 }
 
 export async function uploadDeliveryVerificationMediaController(req: Request, res: Response) {
@@ -1304,13 +1270,13 @@ export async function transactionsController(req: Request, res: Response) {
 
 export async function adminWalletPayoutsController(req: Request, res: Response) {
   const userType = req.query.userType === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
-  const payoutKind = req.query.payoutKind === "MEASUREMENT" ? "MEASUREMENT" : userType === "DELIVERY_PARTNER" ? "DELIVERY" : "TAILOR";
+  const payoutKind = userType === "DELIVERY_PARTNER" ? "DELIVERY" : "TAILOR";
   const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
   const weekStartValue = typeof req.query.weekStart === "string" ? new Date(req.query.weekStart) : startOfWeek();
   const weekEndValue = typeof req.query.weekEnd === "string" ? new Date(req.query.weekEnd) : endOfWeek(weekStartValue);
 
   const profiles = userType === "TAILOR"
-    ? await TailorModel.find(payoutKind === "MEASUREMENT" ? { "measurementPartner.isEnabled": true } : {}).sort({ shopName: 1 })
+    ? await TailorModel.find().sort({ shopName: 1 })
     : await DeliveryPartnerModel.find().sort({ createdAt: -1 });
 
   const rows = await Promise.all(profiles.map(async (profile: any) => {
@@ -1323,9 +1289,6 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
     const currentWeekEarnings = transactions.reduce((sum: number, transaction: any) => {
       const createdAt = new Date(transaction.createdAt ?? 0);
       if (transaction.transactionType !== "CREDIT" || transaction.category !== "ORDER_EARNING") return sum;
-      const isMeasurement = /measurement visit payout/i.test(String(transaction.remarks ?? ""));
-      if (payoutKind === "MEASUREMENT" && !isMeasurement) return sum;
-      if (payoutKind === "TAILOR" && isMeasurement) return sum;
       return createdAt >= weekStartValue && createdAt < weekEndValue ? sum + Number(transaction.amount ?? 0) : sum;
     }, 0);
     const payoutsInPeriod = transactions.reduce((sum: number, transaction: any) => {
@@ -1840,7 +1803,7 @@ export async function paymentsController(req: Request, res: Response) {
   const orderIds = [...new Set(payments.map((payment) => String(payment.orderId)))];
   const [orders, tailoringRequests, tasks, tailorTransactions] = await Promise.all([
     OrderModel.find({ _id: { $in: orderIds } }).select("orderNumber customerId status totalAmount").lean(),
-    TailoringRequestModel.find({ _id: { $in: orderIds } }).select("customerId orderStatus status totalAmount quoteAmount selectedQuoteId").lean(),
+    TailoringRequestModel.find({ _id: { $in: orderIds } }).select("customerId orderStatus status totalAmount quoteAmount selectedQuoteId cancellationFee").lean(),
     DeliveryRequestModel.find({ orderId: { $in: orderIds }, taskStatus: { $ne: "cancelled" } }).select("_id orderId batchId finalPayout").lean(),
     WalletTransactionModel.find({ orderId: { $in: orderIds }, userType: "TAILOR", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean()
   ]);
@@ -1901,6 +1864,8 @@ export async function paymentsController(req: Request, res: Response) {
     const actualDeliveryCost = deliveryCostFor(orderId);
     const realized = payment.status === "PAID" && completed && actualTailorCost != null && actualDeliveryCost != null;
     const customerPaid = Number(payment.amount ?? entity.totalAmount ?? 0);
+    const cancelled = String(order?.status ?? request?.orderStatus ?? request?.status ?? "").toLowerCase() === "cancelled";
+    const recognizedAmount = cancelled ? Math.min(customerPaid, Number(request?.cancellationFee ?? 0)) : customerPaid;
     const expectedTailorCost = order ? Number(order.totalAmount ?? payment.amount ?? 0) * 0.45 : Number(request.quoteAmount ?? quoteMap.get(String(request.selectedQuoteId)) ?? 0);
     const tailorQuote = actualTailorCost ?? expectedTailorCost;
     const deliveryEarnings = actualDeliveryCost ?? 0;
@@ -1908,6 +1873,7 @@ export async function paymentsController(req: Request, res: Response) {
       ...payment.toJSON(),
       source: order ? "ORDER" : "TAILORING_REQUEST",
       customerPaid,
+      recognizedAmount,
       tailorQuote,
       deliveryEarnings,
       netRevenue: realized ? Number((customerPaid - tailorQuote - deliveryEarnings - 8).toFixed(2)) : null,

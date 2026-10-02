@@ -19,11 +19,16 @@ const testNotificationSchema = z.object({
 
 const adminSendNotificationSchema = z.object({
   channel: z.literal("push").default("push"),
-  target: z.enum(["everyone", "customers", "tailors", "delivery"]),
+  target: z.enum(["everyone", "customers", "tailors", "delivery", "customer"]),
+  targetUserId: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).max(120),
   body: z.string().trim().min(1).max(500),
   sendMode: z.enum(["now", "schedule"]).optional(),
   scheduledAt: z.string().datetime().optional().nullable()
+}).superRefine((input, context) => {
+  if (input.target === "customer" && !input.targetUserId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["targetUserId"], message: "Choose a customer" });
+  }
 });
 
 const notificationPreferencesSchema = z.object({
@@ -59,22 +64,23 @@ export async function sendTestNotificationController(req: Request, res: Response
   res.json({ data: { ok: true } });
 }
 
-async function deliverCampaign(campaign: { target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string }) {
-  const roleQuery =
-    campaign.target === "customers" ? { role: "CUSTOMER" as const } :
-    campaign.target === "tailors" ? { role: "TAILOR" as const } :
-    campaign.target === "delivery" ? { role: "DELIVERY_PARTNER" as const } :
-    { role: { $in: ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER"] as const } };
+async function deliverCampaign(campaign: { target: "everyone" | "customers" | "tailors" | "delivery" | "customer"; targetUserId?: string; title: string; body: string }) {
+  const roleQuery: Record<string, unknown> =
+    campaign.target === "customer" ? { _id: campaign.targetUserId! } :
+    campaign.target === "customers" ? { $or: [{ role: "CUSTOMER" }, { "fcmTokens.app": "customer" }, { "expoPushTokens.app": "customer" }] } :
+    campaign.target === "tailors" ? { $or: [{ role: "TAILOR" }, { "fcmTokens.app": "tailor" }, { "expoPushTokens.app": "tailor" }] } :
+    campaign.target === "delivery" ? { $or: [{ role: "DELIVERY_PARTNER" }, { "fcmTokens.app": "delivery" }, { "expoPushTokens.app": "delivery" }] } :
+    { $or: [{ "fcmTokens.0": { $exists: true } }, { "expoPushTokens.0": { $exists: true } }] };
   const users = await UserModel.find(roleQuery).select("_id role");
   const userIds = users.map((user) => String(user._id));
-  const targetApps = campaign.target === "customers"
+  const targetApps = campaign.target === "customers" || campaign.target === "customer"
     ? ["customer"]
     : campaign.target === "tailors"
       ? ["tailor"]
       : campaign.target === "delivery"
         ? ["delivery"]
         : ["customer", "tailor", "delivery"];
-  const delivery = await sendPushToUsers(userIds, {
+  const appDeliveries = await Promise.all(targetApps.map((app) => sendPushToUsers(userIds, {
     title: campaign.title,
     body: campaign.body,
     data: {
@@ -82,10 +88,18 @@ async function deliverCampaign(campaign: { target: "everyone" | "customers" | "t
       target: campaign.target,
       screen: "notifications"
     },
-    channelId: campaign.target === "delivery" ? "delivery-updates-v2" : campaign.target === "tailors" ? "tailor-pickup-updates-v2" : "customer-orders-v2",
+    channelId: app === "delivery" ? "delivery-updates-v2" : app === "tailor" ? "tailor-pickup-updates-v2" : "customer-orders-v2",
     sound: "ding.mp3",
-    targetApps
-  });
+    targetApps: [app]
+  })));
+  const delivery = appDeliveries.reduce((total, item) => ({
+    requestedRecipientCount: total.requestedRecipientCount + item.requestedRecipientCount,
+    eligibleRecipientCount: total.eligibleRecipientCount + item.eligibleRecipientCount,
+    deviceCount: total.deviceCount + item.deviceCount,
+    successCount: total.successCount + item.successCount,
+    failureCount: total.failureCount + item.failureCount,
+    error: [total.error, item.error].filter(Boolean).join("; ") || undefined
+  }), { requestedRecipientCount: 0, eligibleRecipientCount: 0, deviceCount: 0, successCount: 0, failureCount: 0, error: undefined as string | undefined });
   return { audienceCount: userIds.length, delivery };
 }
 
@@ -124,6 +138,7 @@ export async function sendAdminNotificationController(req: Request, res: Respons
   const campaign = await NotificationCampaignModel.create({
     channel: input.channel,
     target: input.target,
+    targetUserId: input.targetUserId,
     title: input.title,
     body: input.body,
     scheduledAt: scheduledAt ?? new Date(),

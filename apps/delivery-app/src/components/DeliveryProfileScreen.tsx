@@ -192,6 +192,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const verificationPersonal = ((profile?.verification as { personal?: Record<string, unknown> } | undefined)?.personal ?? {}) as Record<string, unknown>;
   const draftPersonal = ((profile?.verificationDraft as { personal?: Record<string, unknown> } | undefined)?.personal ?? {}) as Record<string, unknown>;
   const registeredAddress = String(draftPersonal.address ?? verificationPersonal.address ?? (profile?.verificationDraft as { address?: string } | undefined)?.address ?? "").trim();
+  const registeredName = String(me?.name ?? verificationPersonal.fullName ?? verificationPersonal.name ?? "").trim();
   const verificationGender = String(
     ((profile?.verificationDraft as { personal?: { gender?: string }; gender?: string } | undefined)?.personal?.gender) ??
     ((profile?.verificationDraft as { gender?: string } | undefined)?.gender) ??
@@ -216,7 +217,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [showIdentityDetails, setShowIdentityDetails] = useState(false);
   const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
-  const [name, setName] = useState(me?.name ?? "");
+  const [name, setName] = useState(registeredName);
   const [email, setEmail] = useState(me?.email ?? "");
   const [vehicleNumber, setVehicleNumber] = useState(profile?.vehicleNumber ?? "");
   const [available, setAvailable] = useState(Boolean(profile?.isAvailable ?? false));
@@ -243,7 +244,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   }
 
   useEffect(() => {
-    setName(me?.name ?? "");
+    setName(registeredName);
     setEmail(me?.email ?? "");
     setVehicleNumber(profile?.vehicleNumber ?? "");
     setAvailable(Boolean(profile?.isAvailable ?? false));
@@ -256,7 +257,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       radius: settings.radius ?? "5 km",
       availability: settings.availability ?? "Full time"
     });
-  }, [me?.name, me?.email, profile?.isAvailable, profile?.vehicleNumber, settings]);
+  }, [registeredName, me?.email, profile?.isAvailable, profile?.vehicleNumber, settings]);
 
   useEffect(() => {
     if (initialSupportScreen === "support_center") {

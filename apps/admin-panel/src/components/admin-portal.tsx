@@ -521,7 +521,7 @@ export function AdminPortal() {
   const [orderTailorFilter, setOrderTailorFilter] = useState("");
   const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState("");
   const [orderDateFilter, setOrderDateFilter] = useState("");
-  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery" | "measurement" | "earnings" | "payouts">("ledger");
+  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery" | "earnings" | "payouts">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
@@ -682,11 +682,6 @@ export function AdminPortal() {
   const deliveryPayoutsQuery = useQuery({
     queryKey: ["admin", "wallet-payouts", "delivery", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getWalletPayouts("DELIVERY_PARTNER", payoutPeriodParams),
-    enabled: needsSection("dashboard", "payments")
-  });
-  const measurementPayoutsQuery = useQuery({
-    queryKey: ["admin", "wallet-payouts", "measurement", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
-    queryFn: () => getWalletPayouts("TAILOR", { ...payoutPeriodParams, payoutKind: "MEASUREMENT" }),
     enabled: needsSection("dashboard", "payments")
   });
   const walletDetailQuery = useQuery({
@@ -2265,15 +2260,12 @@ export function AdminPortal() {
   });
   const tailorPayoutRows = tailorPayoutsQuery.data ?? [];
   const deliveryPayoutRows = deliveryPayoutsQuery.data ?? [];
-  const measurementPayoutRows = measurementPayoutsQuery.data ?? [];
   const combinedPayoutRows = [...tailorPayoutRows, ...deliveryPayoutRows];
   const drilldownPayoutRows = dashboardDrilldown?.target === "payments" && (dashboardDrilldown.key === "partner_cost" || dashboardDrilldown.key === "pending_payouts")
     ? combinedPayoutRows.filter((row) => drilldownIdSet.has(row.userId))
     : combinedPayoutRows;
   const activePayoutRows = paymentsSubTab === "delivery"
     ? deliveryPayoutRows
-    : paymentsSubTab === "measurement"
-      ? measurementPayoutRows
     : paymentsSubTab === "tailors"
       ? tailorPayoutRows
       : drilldownPayoutRows;
@@ -2970,7 +2962,6 @@ export function AdminPortal() {
                 { id: "ledger", label: "Ledger" },
                 { id: "tailors", label: "Tailors" },
                 { id: "delivery", label: "Delivery Partners" },
-                { id: "measurement", label: "Measurement Visit Payouts" },
                 { id: "earnings", label: "Partner Earnings" },
                 { id: "payouts", label: "All Payouts" }
               ].map((tab) => (
@@ -3009,7 +3000,7 @@ export function AdminPortal() {
             ) : (
               <PayoutWorkspace
                 rows={activePayoutRows}
-                loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading || measurementPayoutsQuery.isLoading}
+                loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading}
                 payingUserId={walletPayoutMutation.isPending ? payoutTarget?.userId : undefined}
                 onDetails={setWalletDetailTarget}
                 onPay={(row) => {
@@ -4743,6 +4734,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
   tailors: TailorProfile[];
 }) {
   const [target, setTarget] = useState("everyone");
+  const [targetUserId, setTargetUserId] = useState("");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -4762,7 +4754,7 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
       toast.error(extractError(error));
     }
   });
-  const targetCount = target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
+  const targetCount = target === "customer" ? (targetUserId ? 1 : 0) : target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
   const scheduleIsValid = Boolean(scheduledAt && new Date(scheduledAt).getTime() > Date.now() + 5000);
 
   return (
@@ -4778,9 +4770,16 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
                 <option value="customers">Customers</option>
                 <option value="tailors">Tailors</option>
                 <option value="delivery">Delivery Partners</option>
+                <option value="customer">One Specific Customer</option>
               </select>
             </Field>
           </div>
+          {target === "customer" ? <div className="mt-4"><Field label="Customer">
+            <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)}>
+              <option value="">Choose a customer</option>
+              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name || "Customer"} - {customer.phone}</option>)}
+            </select>
+          </Field></div> : null}
           <div className="mt-4 space-y-3">
             <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Notification title" value={title} onChange={(event) => setTitle(event.target.value)} />
             <textarea className="min-h-32 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Message" value={message} onChange={(event) => setMessage(event.target.value)} />
@@ -4788,9 +4787,10 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
             </Field>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <ActionButton disabled={!title.trim() || !message.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate({
+              <ActionButton disabled={!title.trim() || !message.trim() || (target === "customer" && !targetUserId) || sendMutation.isPending} onClick={() => sendMutation.mutate({
                 channel: "push",
-                target: target as "everyone" | "customers" | "tailors" | "delivery",
+                target: target as "everyone" | "customers" | "tailors" | "delivery" | "customer",
+                targetUserId: target === "customer" ? targetUserId : undefined,
                 title: title.trim(),
                 body: message.trim(),
                 sendMode: "now",
@@ -4798,9 +4798,10 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
               })}>
                 {sendMutation.isPending && sendMutation.variables?.sendMode === "now" ? "Sending..." : "Send Now"}
               </ActionButton>
-              <ActionButton variant="secondary" disabled={!title.trim() || !message.trim() || !scheduleIsValid || sendMutation.isPending} onClick={() => sendMutation.mutate({
+              <ActionButton variant="secondary" disabled={!title.trim() || !message.trim() || (target === "customer" && !targetUserId) || !scheduleIsValid || sendMutation.isPending} onClick={() => sendMutation.mutate({
                 channel: "push",
-                target: target as "everyone" | "customers" | "tailors" | "delivery",
+                target: target as "everyone" | "customers" | "tailors" | "delivery" | "customer",
+                targetUserId: target === "customer" ? targetUserId : undefined,
                 title: title.trim(),
                 body: message.trim(),
                 sendMode: "schedule",
@@ -6109,7 +6110,10 @@ function WalletDetailDialog({
                     <div key={transaction.id} className="rounded-2xl border border-[var(--panel-border)] p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="font-semibold">{formatStatus(transaction.category)}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold">{formatStatus(transaction.category)}</p>
+                            {transaction.category === "ORDER_EARNING" ? <Badge tone={/measurement visit payout/i.test(transaction.remarks ?? "") ? "violet" : "sky"}>{/measurement visit payout/i.test(transaction.remarks ?? "") ? "Measurement visit" : "Stitching order"}</Badge> : null}
+                          </div>
                           <p className="text-xs text-[var(--muted)]">{transaction.remarks ?? transaction.orderId ?? "Wallet transaction"}</p>
                         </div>
                         <div className="text-right">
@@ -11174,13 +11178,24 @@ function getPaymentColumns({
     },
     {
       accessorKey: "status",
-      header: "Status",
+      header: "Payment status",
       cell: ({ row }) => <StatusBadge value={row.original.status} />
+    },
+    {
+      id: "orderStatus",
+      header: "Order status",
+      accessorFn: (row) => row.order?.status ?? "",
+      cell: ({ row }) => <StatusBadge value={row.original.order?.status ?? "Unknown"} />
     },
     {
       accessorKey: "amount",
       header: "Customer paid",
-      cell: ({ row }) => formatCurrency(row.original.amount)
+      cell: ({ row }) => (
+        <div>
+          <p>{formatCurrency(row.original.recognizedAmount ?? row.original.amount)}</p>
+          {row.original.recognizedAmount != null && row.original.recognizedAmount !== row.original.amount ? <p className="mt-1 text-xs text-[var(--muted)]">Original payment {formatCurrency(row.original.amount)}</p> : null}
+        </div>
+      )
     },
     {
       id: "partnerCost",

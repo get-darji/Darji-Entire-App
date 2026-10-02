@@ -81,7 +81,7 @@ export const WORK_SERVICE_ASSETS: Record<string, ImageSourcePropType> = {
 
   // Alteration & Fitting
   Tighten: require("../../../assets/cloth-details/order-v2/services/tighten.jpg"),
-  Loosen: require("../../../assets/cloth-details/services/loosen.webp"),
+  Loosen: require("../../../assets/cloth-details/order-v2/services/loosen.jpg"),
   "Waist Adjustment": require("../../../assets/cloth-details/order-v2/services/waist_adjustment.jpg"),
   "Sleeve Adjustment": require("../../../assets/cloth-details/order-v2/services/sleeve_adjustment.jpg"),
   "Shoulder Adjustment": require("../../../assets/cloth-details/order-v2/services/shoulder_adjustment.jpg"),

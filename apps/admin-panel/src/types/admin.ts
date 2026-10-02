@@ -60,6 +60,7 @@ export type Payment = {
   paidAt?: string;
   refundedAt?: string;
   customerPaid?: number;
+  recognizedAmount?: number;
   tailorQuote?: number;
   deliveryEarnings?: number;
   netRevenue?: number | null;
@@ -783,7 +784,8 @@ export type SystemHealth = {
 export type NotificationCampaign = {
   id: string;
   channel: "push";
-  target: "everyone" | "customers" | "tailors" | "delivery";
+  target: "everyone" | "customers" | "tailors" | "delivery" | "customer";
+  targetUserId?: string;
   title: string;
   body: string;
   status: "SCHEDULED" | "SENDING" | "SENT" | "FAILED";

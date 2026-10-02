@@ -331,7 +331,23 @@ export async function meController(req: Request, res: Response) {
     };
   }
 
-  res.json({ data: { ...user?.toJSON(), role: req.user!.role, wallet, tailorProfile: hydratedTailorProfile, deliveryProfile: hydratedDeliveryProfile } });
+  const userJson = user?.toJSON() as Record<string, any> | undefined;
+  if (userJson && req.user!.role === "CUSTOMER") {
+    const hasPartnerProfile = Boolean(tailorProfile || deliveryProfile);
+    userJson.name = userJson.customerName ?? (hasPartnerProfile ? undefined : userJson.name);
+    userJson.avatarUrl = userJson.customerAvatarUrl ?? (hasPartnerProfile ? undefined : userJson.avatarUrl);
+    userJson.avatarUri = userJson.customerAvatarUri ?? (hasPartnerProfile ? undefined : userJson.avatarUri);
+    userJson.avatarPreset = userJson.customerAvatarPreset ?? (hasPartnerProfile ? undefined : userJson.avatarPreset);
+  } else if (userJson && req.user!.role === "TAILOR" && hydratedTailorProfile) {
+    const verification = hydratedTailorProfile.verification as { personal?: { name?: string }; idVerification?: { facePhotoUrl?: string } } | undefined;
+    userJson.name = hydratedTailorProfile.displayName ?? verification?.personal?.name ?? userJson.name;
+    userJson.avatarUrl = verification?.idVerification?.facePhotoUrl ?? userJson.avatarUrl;
+  } else if (userJson && req.user!.role === "DELIVERY_PARTNER" && hydratedDeliveryProfile) {
+    const verification = hydratedDeliveryProfile.verification as { personal?: { fullName?: string; name?: string }; identity?: { facePhotoUrl?: string } } | undefined;
+    userJson.name = hydratedDeliveryProfile.displayName ?? verification?.personal?.fullName ?? verification?.personal?.name ?? userJson.name;
+    userJson.avatarUrl = verification?.identity?.facePhotoUrl ?? userJson.avatarUrl;
+  }
+  res.json({ data: { ...userJson, role: req.user!.role, wallet, tailorProfile: hydratedTailorProfile, deliveryProfile: hydratedDeliveryProfile } });
 }
 
 export async function updateMeController(req: Request, res: Response) {
@@ -345,16 +361,20 @@ export async function updateMeController(req: Request, res: Response) {
     preferredLanguage: z.enum(["en", "hi"]).optional()
   }).parse(req.body ?? {});
   const updateData: Record<string, any> = {};
-  if (name !== undefined) updateData.name = name;
+  if (name !== undefined) updateData[req.user!.role === "CUSTOMER" ? "customerName" : "name"] = name;
   if (email !== undefined) updateData.email = email;
   if (gender !== undefined) updateData.gender = gender;
   if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth;
-  if (avatarPreset !== undefined) updateData.avatarPreset = avatarPreset;
-  if (avatarUri !== undefined) updateData.avatarUri = avatarUri;
+  if ((avatarPreset !== undefined || avatarUri !== undefined) && ["TAILOR", "DELIVERY_PARTNER"].includes(req.user!.role)) {
+    throw new AppError(403, "Profile photos for tailor and delivery accounts can only be changed by an admin");
+  }
+  const avatarPrefix = req.user!.role === "CUSTOMER" ? "customerAvatar" : "avatar";
+  if (avatarPreset !== undefined) updateData[`${avatarPrefix}Preset`] = avatarPreset;
+  if (avatarUri !== undefined) updateData[`${avatarPrefix}Uri`] = avatarUri;
   if (preferredLanguage !== undefined) updateData.preferredLanguage = preferredLanguage;
 
   if (avatarUri) {
-    updateData.avatarUrl = avatarUri;
+    updateData[`${avatarPrefix}Url`] = avatarUri;
   }
 
   const user = await UserModel.findByIdAndUpdate(
@@ -365,5 +385,12 @@ export async function updateMeController(req: Request, res: Response) {
   if (!user) {
     throw new AppError(404, "User not found");
   }
-  res.json({ data: user });
+  const result = user.toJSON() as Record<string, any>;
+  if (req.user!.role === "CUSTOMER") {
+    result.name = result.customerName;
+    result.avatarUrl = result.customerAvatarUrl;
+    result.avatarUri = result.customerAvatarUri;
+    result.avatarPreset = result.customerAvatarPreset;
+  }
+  res.json({ data: result });
 }

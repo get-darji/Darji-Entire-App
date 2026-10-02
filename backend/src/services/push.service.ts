@@ -259,18 +259,19 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
   const targetApps = resolveTargetApps(payload);
   const shouldFilterByApp = targetApps.length > 0;
   const normalizedPayloadData = normalizeData(payload.data);
-  const targetsCustomer = !shouldFilterByApp || targetApps.includes("customer");
   const matchesTargetApp = (app?: string) => !shouldFilterByApp || targetApps.includes(normalizeAppName(app) ?? "");
 
   const users = await UserModel.find({ _id: { $in: userIds } }).select("fcmToken fcmTokens expoPushTokens notificationPreferences");
-  const eligibleUsers = targetsCustomer
-    ? users.filter((user) => customerPushAllowed((user.toJSON() as { notificationPreferences?: unknown }).notificationPreferences, payload, normalizedPayloadData))
-    : users;
+  const eligibleUsers = users;
+  const tokenAllowed = (app: string | undefined, preferences: unknown) => {
+    const normalizedApp = normalizeAppName(app);
+    return normalizedApp !== "customer" || customerPushAllowed(preferences, payload, normalizedPayloadData);
+  };
   const tokens = [
     ...new Set(
       eligibleUsers.flatMap((user) => {
-        const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string }> };
-        const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app)).map((item) => item.token!);
+        const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string }>; notificationPreferences?: unknown };
+        const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app) && tokenAllowed(item.app, json.notificationPreferences)).map((item) => item.token!);
         // Legacy tokens have no app identity. Never use them for an app-scoped push,
         // otherwise a tailor alert can surface in the customer app on a shared device.
         const legacyToken = json.fcmToken && !shouldFilterByApp ? [json.fcmToken] : [];
@@ -284,11 +285,18 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
         fcmToken?: string;
         fcmTokens?: Array<{ token?: string; app?: string }>;
         expoPushTokens?: Array<{ token?: string; platform?: string; app?: string }>;
+        notificationPreferences?: unknown;
       };
-      const matchingFcmCount = json.fcmTokens?.filter((item) => item.token && matchesTargetApp(item.app)).length ?? 0;
-      const hasUsableFcm = firebaseReady && Boolean(json.fcmToken || matchingFcmCount > 0);
       return (json.expoPushTokens ?? [])
-        .filter((item) => item.token && matchesTargetApp(item.app) && (item.platform !== "android" || !hasUsableFcm))
+        .filter((item) => {
+          if (!item.token || !matchesTargetApp(item.app) || !tokenAllowed(item.app, json.notificationPreferences)) return false;
+          const expoApp = normalizeAppName(item.app);
+          const hasUsableFcmForApp = firebaseReady && Boolean(
+            (!shouldFilterByApp && json.fcmToken) ||
+            (json.fcmTokens ?? []).some((fcm) => fcm.token && normalizeAppName(fcm.app) === expoApp && tokenAllowed(fcm.app, json.notificationPreferences))
+          );
+          return item.platform !== "android" || !hasUsableFcmForApp;
+        })
         .map((item) => item.token!);
     }))
   ];

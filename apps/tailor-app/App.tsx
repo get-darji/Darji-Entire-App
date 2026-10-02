@@ -3120,6 +3120,7 @@ function ConfirmedDetailTile({
 function OrderDetailsScreen({
   order,
   token,
+  measurementVisitSubmitted = false,
   onUpdated,
   setScreen,
   showDialog,
@@ -3127,6 +3128,7 @@ function OrderDetailsScreen({
 }: {
   order: Order;
   token?: string;
+  measurementVisitSubmitted?: boolean;
   onUpdated: () => void;
   setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void;
   showDialog: (dialog: DialogState) => void;
@@ -3424,6 +3426,7 @@ function OrderDetailsScreen({
   const pickupDate = pickupDateValue
     ? new Date(pickupDateValue).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })
     : pickupCompleted ? "Completed" : "Not scheduled";
+  const pickupWindowPast = !pickupCompleted && Boolean(order.pickupScheduledAt) && !Number.isNaN(new Date(order.pickupScheduledAt!).getTime()) && new Date(order.pickupScheduledAt!).getTime() < Date.now();
   const descriptionText = selectedDetailItem?.description || (activeDetailItemIndex === 0 ? acceptedRequest?.description : undefined) || order.instructions;
   const selectedVoiceNotes = selectedDetailItem?.voiceNotes ?? [];
   const clothMedia = selectedDetailItem?.clothMedia ?? [];
@@ -3510,15 +3513,15 @@ function OrderDetailsScreen({
 
       <View style={[styles.confirmedPickupCard, pickupCompleted && styles.confirmedPickupCardDone]}>
         <View style={[styles.confirmedPickupIcon, pickupCompleted && styles.confirmedPickupIconDone]}>
-          <Ionicons name={pickupCompleted ? "checkmark-circle-outline" : "time-outline"} size={28} color={pickupCompleted ? "#15803d" : BRAND_ORANGE} />
+          <Ionicons name={pickupCompleted ? "checkmark-circle-outline" : pickupWindowPast ? "alert-circle-outline" : "time-outline"} size={28} color={pickupCompleted ? "#15803d" : pickupWindowPast ? "#b91c1c" : BRAND_ORANGE} />
         </View>
         <View style={styles.confirmedPickupMain}>
           <Text style={styles.confirmedPickupLabel}>Pickup Window (To Tailor)</Text>
           <Text style={styles.confirmedPickupTime}>{pickupDate}</Text>
-          <Text style={styles.confirmedPickupCopy}>{pickupCompleted ? "Package delivered to tailor." : "Rider will pick up the package from the customer."}</Text>
+          <Text style={styles.confirmedPickupCopy}>{pickupCompleted ? "Package delivered to tailor." : pickupWindowPast ? "This pickup window has passed. Waiting for an updated rider schedule." : "Rider will pick up the package from the customer."}</Text>
         </View>
-        <View style={[styles.confirmedPickupBadge, pickupCompleted && styles.confirmedPickupBadgeDone]}>
-          <Text style={[styles.confirmedPickupBadgeText, pickupCompleted && styles.confirmedPickupBadgeTextDone]}>{pickupCompleted ? "Completed" : order.pickupScheduledAt ? "Upcoming" : "Pending"}</Text>
+        <View style={[styles.confirmedPickupBadge, pickupCompleted && styles.confirmedPickupBadgeDone, pickupWindowPast && { backgroundColor: "#fee2e2" }]}>
+          <Text style={[styles.confirmedPickupBadgeText, pickupCompleted && styles.confirmedPickupBadgeTextDone, pickupWindowPast && { color: "#b91c1c" }]}>{pickupCompleted ? "Completed" : pickupWindowPast ? "Needs update" : order.pickupScheduledAt ? "Upcoming" : "Pending"}</Text>
         </View>
       </View>
 
@@ -3847,10 +3850,24 @@ function OrderDetailsScreen({
             </View>
           ) : null}
         </>
+      ) : (measurementVisitSubmitted || hasSubmittedMeasurementInfo) && acceptedRequest ? (
+        <View style={styles.whiteCard}>
+          <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
+          <ProofBlock
+            title="Cloth photos from measurement visit"
+            copy={`Add one live cloth photo per item now. Stitching can start after rider handover: ${receivedProofCount}/${requiredProofCount}.`}
+            media={acceptedRequest.receivedMedia ?? []}
+            limitText={`${receivedProofCount}/${requiredProofCount} items`}
+            loadingCamera={uploadingProof?.stage === "RECEIVED"}
+            onCamera={() => uploadProof("RECEIVED")}
+            onOpen={setSelectedMedia}
+            onDelete={(item) => deleteProof("RECEIVED", item)}
+          />
+        </View>
       ) : (
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>WAITING FOR PACKAGE</Text>
-          <Text style={styles.helperText}>You can upload proof photos and update work status once the delivery partner hands over the package.</Text>
+          <Text style={styles.helperText}>Submit the visit measurements first. Then you can add live cloth photos before the delivery partner hands over the package.</Text>
         </View>
       )}
       <Modal transparent visible={Boolean(detailTextSheet)} animationType="fade" onRequestClose={() => setDetailTextSheet(undefined)}>
@@ -7064,7 +7081,7 @@ function AppContent() {
   if (screen === "quote" && activeRequest && activeRequest.status === "QUOTE_REQUESTED" && !activeRequest.ownQuote) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onDone={(quote) => { setActiveRequest({ ...activeRequest, ownQuote: quote }); setRequests((current) => current.map((item) => item.id === activeRequest.id ? { ...item, ownQuote: quote } : item)); void refreshWorkspace(); setScreen("requestDetails", { replace: true }); }} />;
   if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
-  if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
+  if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} measurementVisitSubmitted={measurementVisits.some((visit) => visit.requestId === activeOrder.request?.id && visit.status === "SUBMITTED")} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
   if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} initialVisits={measurementVisits} setScreen={setScreen} showDialog={setDialog} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onVisitsChanged={setMeasurementVisits} />;
   if (screen === "earnings") body = <EarningsScreen wallet={wallet} loadingWallet={loadingWallet} onViewAll={() => setScreen("transactions")} onOpenOrder={openWalletOrder} onOpenMetric={(metric) => { setEarningDetail(metric); setScreen("earningDetails"); }} showDialog={setDialog} />;
   if (screen === "earningDetails") body = <EarningDetailsScreen detail={earningDetail} wallet={wallet} onBack={goBack} onOpenOrder={openWalletOrder} showDialog={setDialog} />;
