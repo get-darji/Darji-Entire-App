@@ -920,14 +920,14 @@ const faqItems = [
 ] as const;
 
 const searchCategories = [
-  { title: "Men Ethnic", subtitle: "Kurta, Sherwani & more", icon: "shirt-outline" },
-  { title: "Men Formal", subtitle: "Shirts, Pants & Blazers", icon: "business-outline" },
-  { title: "Women Ethnic", subtitle: "Saree, Suit & Lehenga", icon: "woman-outline" },
-  { title: "Women Western", subtitle: "Dresses, Tops & more", icon: "sparkles-outline" },
-  { title: "Kids", subtitle: "Boys & Girls Wear", icon: "happy-outline" },
-  { title: "Uniforms", subtitle: "School & College Wear", icon: "school-outline" },
-  { title: "Home & More", subtitle: "Curtains, Cushion & more", icon: "home-outline" },
-  { title: "Alterations", subtitle: "Repairs & Alterations", icon: "construct-outline" }
+  { title: "Men Ethnic", subtitle: "Kurta, Sherwani & more", image: require("./assets/search-categories/men_ethnic.jpg") },
+  { title: "Men Formal", subtitle: "Shirts, Pants & Blazers", image: require("./assets/search-categories/men_formal.jpg") },
+  { title: "Women Ethnic", subtitle: "Saree, Suit & Lehenga", image: require("./assets/search-categories/women_ethnic.jpg") },
+  { title: "Women Western", subtitle: "Dresses, Tops & more", image: require("./assets/search-categories/women_western.jpg") },
+  { title: "Kids", subtitle: "Boys & Girls Wear", image: require("./assets/search-categories/kids.jpg") },
+  { title: "Uniforms", subtitle: "School & College Wear", image: require("./assets/search-categories/uniforms.jpg") },
+  { title: "Home & More", subtitle: "Curtains, Cushion & more", image: require("./assets/search-categories/home_more.jpg") },
+  { title: "Alterations", subtitle: "Repairs & Alterations", image: require("./assets/search-categories/alterations.jpg") }
 ] as const;
 
 const services = [
@@ -7602,9 +7602,7 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
             <View style={styles.searchCategoryGrid}>
               {(query ? categoryResults : searchCategories).map((category) => (
                 <Pressable key={category.title} style={styles.searchCategoryCard} onPress={() => onStartRequest(requestPresetForSearchCategory(category.title))}>
-                  <View style={styles.searchCategoryImage}>
-                    <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={31} color={BRAND_ORANGE} />
-                  </View>
+                  <Image source={category.image} style={styles.searchCategoryImage} resizeMode="cover" />
                   <Text style={styles.searchCategoryTitle}>{category.title}</Text>
                   <Text style={styles.searchCategorySubtitle}>{category.subtitle}</Text>
                 </Pressable>
@@ -14417,8 +14415,8 @@ function createStyles(isDark = false) {
   searchSegmentTextActive: { color: BRAND_ORANGE },
   searchSectionTitle: { color: text, fontSize: 17, fontWeight: "900", lineHeight: 26, includeFontPadding: true },
   searchCategoryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 18 },
-  searchCategoryCard: { width: "48%", minHeight: 132, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "center", justifyContent: "center", padding: 10, marginBottom: 12 },
-  searchCategoryImage: { width: 60, height: 60, borderRadius: 30, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 9 },
+  searchCategoryCard: { width: "48%", minHeight: 190, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "stretch", justifyContent: "flex-start", padding: 8, paddingBottom: 11, marginBottom: 12, overflow: "hidden" },
+  searchCategoryImage: { width: "100%", height: 112, borderRadius: 11, backgroundColor: iconBg, marginBottom: 9 },
   searchCategoryTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 21, textAlign: "center", includeFontPadding: true },
   searchCategorySubtitle: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 18, textAlign: "center", marginTop: 2, includeFontPadding: true },
   searchTailorRow: { gap: 12, paddingBottom: 18 },

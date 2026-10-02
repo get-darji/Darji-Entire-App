@@ -62,6 +62,7 @@ export type Payment = {
   customerPaid?: number;
   recognizedAmount?: number;
   tailorQuote?: number;
+  measurementVisitCost?: number;
   deliveryEarnings?: number;
   netRevenue?: number | null;
   packagingCost?: number;

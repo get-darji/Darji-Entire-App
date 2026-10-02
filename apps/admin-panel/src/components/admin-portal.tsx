@@ -326,6 +326,7 @@ type OrderDetailFocus = "overview" | "notes" | "invoice" | "media" | "timeline";
 type PaymentBreakdown = {
   customerPaid: number;
   tailorQuote: number;
+  measurementVisitCost: number;
   deliveryEarnings: number;
   packagingCost: number;
   netRevenue: number;
@@ -2602,7 +2603,7 @@ export function AdminPortal() {
             <Panel className="overflow-hidden p-0">
               <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">
                 <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.realizedGrossPaid} onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Gross Paid", target: "orders", periodScoped: true })} />
-                <FinanceBreakdownItem label="Tailor Cost" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Tailor Cost", target: "orders", periodScoped: true })} />
+                <FinanceBreakdownItem label="Tailor + Measurement Cost" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Tailor + Measurement Cost", target: "orders", periodScoped: true })} />
                 <FinanceBreakdownItem label="Delivery Payout" value={dashboardAnalytics.finance.realizedDeliveryCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Delivery Payout", target: "orders", periodScoped: true })} />
                 <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.realizedCompletedOrders})`} value={dashboardAnalytics.finance.realizedPackagingCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Packaging Cost", target: "orders", periodScoped: true })} />
                 <FinanceBreakdownItem emphasized label="Realized Net Revenue" value={dashboardAnalytics.finance.netRevenue} onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Net Revenue", target: "orders", periodScoped: true })} />
@@ -4853,7 +4854,7 @@ function AnalyticsModule({ categoryBreakdown, dashboardAnalytics, orders, paymen
     <div className="space-y-6">
       <SectionIntro title="Analytics" description="Reporting uses the same server-side order and realized-revenue definitions as the dashboard." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-analytics.csv", [{ realizedNetRevenue: dashboardAnalytics.finance.netRevenue, orders: dashboardAnalytics.orders.total, paid: paid.length, repeatCustomers }])}>Export CSV</ActionButton>} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <FinanceStatCard label="Realized Net Revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note="Paid − recorded partner costs − packaging" tone="emerald" />
+        <FinanceStatCard label="Realized Net Revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note="Paid − stitching − measurement visits − delivery − packaging" tone="emerald" />
         <FinanceStatCard label="Orders" value={dashboardAnalytics.orders.total.toLocaleString("en-IN")} note="Created in selected period" tone="sky" />
         <FinanceStatCard label="Repeat Customers" value={repeatCustomers.toLocaleString("en-IN")} note="More than one loaded order" tone="violet" />
         <FinanceStatCard label="Avg Review" value={avgRating} note={`${reviews.length} reviews`} tone="amber" />
@@ -4918,7 +4919,7 @@ function FinanceBreakdownItem({ emphasized = false, label, onClick, tone = "inco
   value: number;
 }) {
   const content = (
-    <div className={cn("bg-[var(--panel)] px-5 py-4", emphasized && "bg-[#fff6df]") } title={emphasized ? "Realized Net Revenue = completed-order Gross Paid − recorded Tailor Cost − finalized Delivery Payout − Packaging Cost" : undefined}>
+    <div className={cn("bg-[var(--panel)] px-5 py-4", emphasized && "bg-[#fff6df]") } title={emphasized ? "Realized Net Revenue = completed-order Gross Paid − stitching payout − measurement-visit payout − finalized Delivery Payout − Packaging Cost" : undefined}>
       <p className="text-xs font-semibold text-[var(--muted)]">{label}</p>
       <p className={cn("mt-1 text-xl font-semibold tabular-nums text-[var(--deep)]", tone === "cost" && "text-rose-700", emphasized && "text-2xl text-emerald-700")}>
         {tone === "cost" ? "−" : ""}{formatCurrency(value)}
@@ -11206,7 +11207,7 @@ function getPaymentColumns({
           <div>
             <p className="font-medium text-[var(--foreground)]">{breakdown.realized ? formatCurrency(breakdown.tailorQuote + breakdown.deliveryEarnings) : "Awaiting final costs"}</p>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              {breakdown.realized ? `Tailor ${formatCurrency(breakdown.tailorQuote)} + Delivery ${formatCurrency(breakdown.deliveryEarnings)}` : "Delivered order and finalized wallet records required"}
+              {breakdown.realized ? `Stitching ${formatCurrency(breakdown.tailorQuote - breakdown.measurementVisitCost)} + Measurement ${formatCurrency(breakdown.measurementVisitCost)} + Delivery ${formatCurrency(breakdown.deliveryEarnings)}` : "Delivered order and finalized wallet records required"}
             </p>
           </div>
         );
@@ -11834,6 +11835,7 @@ function buildFinanceSummary(payments: Payment[], tailoringRequests: TailoringRe
 function getPaymentBreakdown(payment: Payment, tailoringCosts: Map<string, number>, deliveryCosts: Map<string, number>): PaymentBreakdown {
   const customerPaid = Number(payment.customerPaid ?? payment.amount ?? 0);
   const tailorQuote = Number(payment.tailorQuote ?? tailoringCosts.get(payment.orderId) ?? 0);
+  const measurementVisitCost = Number(payment.measurementVisitCost ?? 0);
   const deliveryEarnings = Number(payment.deliveryEarnings ?? deliveryCosts.get(payment.orderId) ?? 0);
   const packagingCost = Number(payment.packagingCost ?? 0);
   const realized = payment.realized === true && typeof payment.netRevenue === "number";
@@ -11842,6 +11844,7 @@ function getPaymentBreakdown(payment: Payment, tailoringCosts: Map<string, numbe
   return {
     customerPaid,
     tailorQuote,
+    measurementVisitCost,
     deliveryEarnings,
     packagingCost,
     netRevenue,

@@ -2,6 +2,7 @@ import {
   DeliveryBatchModel,
   DeliveryPartnerModel,
   DeliveryRequestModel,
+  MeasurementVisitModel,
   OrderModel,
   PaymentModel,
   TailorModel,
@@ -255,16 +256,21 @@ function buildRealizedRecords(
   payments: any[],
   earnings: any[],
   deliveryRequests: any[],
-  deliveryBatches: any[]
+  deliveryBatches: any[],
+  measurementVisits: any[]
 ) {
   const paidByOrder = new Map<string, number>();
   payments.filter((payment) => String(payment.status).toUpperCase() === "PAID").forEach((payment) => {
     const orderId = String(payment.orderId);
     paidByOrder.set(orderId, (paidByOrder.get(orderId) ?? 0) + Number(payment.amount ?? 0));
   });
+  const requestIdByMeasurementVisitId = new Map(
+    measurementVisits.map((visit) => [String(visit._id), String(visit.requestId)])
+  );
   const tailorCostByOrder = new Map<string, number>();
   earnings.filter((transaction) => transaction.userType === "TAILOR").forEach((transaction) => {
-    const orderId = String(transaction.orderId ?? "");
+    const transactionOrderId = String(transaction.orderId ?? "");
+    const orderId = requestIdByMeasurementVisitId.get(transactionOrderId) ?? transactionOrderId;
     if (orderId) tailorCostByOrder.set(orderId, (tailorCostByOrder.get(orderId) ?? 0) + Number(transaction.amount ?? 0));
   });
   const deliveryCostByOrder = actualDeliveryCostByOrder(deliveryRequests, deliveryBatches, earnings);
@@ -373,7 +379,7 @@ function buildSeries(
 
 export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown, lifetime = false) {
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
-  const [legacyOrders, tailoringRequests, payments, earnings, wallets, tailors, partners, deliveryRequests, deliveryBatches] = await Promise.all([
+  const [legacyOrders, tailoringRequests, payments, earnings, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits] = await Promise.all([
     OrderModel.find().select("_id customerId tailorId status createdAt timelineEvents").lean(),
     TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId amount status paidAt createdAt updatedAt").lean(),
@@ -382,7 +388,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     TailorModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId shopName isAvailable verificationStatus rating createdAt").lean(),
     DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus rating createdAt").lean(),
     DeliveryRequestModel.find().select("_id orderId type batchId taskStatus finalPayout deliveredAt").lean(),
-    DeliveryBatchModel.find().select("batchId status finalPayout").lean()
+    DeliveryBatchModel.find().select("batchId status finalPayout").lean(),
+    MeasurementVisitModel.find().select("_id requestId").lean()
   ]);
 
   const completionByOrder = new Map<string, Date>();
@@ -457,7 +464,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const currentPaidPayments = collectedPayments(payments, current);
   const currentFinance = financeSummary(payments, earnings, normalizedOrders, current);
   const previousFinance = previous ? financeSummary(payments, earnings, normalizedOrders, previous) : null;
-  const { records: realizedRecords } = buildRealizedRecords(normalizedOrders, payments, earnings, deliveryRequests, deliveryBatches);
+  const { records: realizedRecords } = buildRealizedRecords(normalizedOrders, payments, earnings, deliveryRequests, deliveryBatches, measurementVisits);
   const currentRealizedRecords = realizedRecords.filter((record) => inPeriod(record.completedAt, current));
   const previousRealizedRecords = previous ? realizedRecords.filter((record) => inPeriod(record.completedAt, previous)) : [];
   const currentRealized = summarizeRealizedRecords(currentRealizedRecords);

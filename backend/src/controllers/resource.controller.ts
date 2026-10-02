@@ -1801,20 +1801,22 @@ export async function paymentsController(req: Request, res: Response) {
   const limit = Math.min(Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.floor(requestedLimit) : isAdmin ? 2000 : 500, 5000);
   const payments = await PaymentModel.find(authorizedOrderIds ? { orderId: { $in: authorizedOrderIds } } : {}).sort({ createdAt: -1 }).limit(limit);
   const orderIds = [...new Set(payments.map((payment) => String(payment.orderId)))];
-  const [orders, tailoringRequests, tasks, tailorTransactions] = await Promise.all([
+  const [orders, tailoringRequests, tasks, measurementVisits] = await Promise.all([
     OrderModel.find({ _id: { $in: orderIds } }).select("orderNumber customerId status totalAmount").lean(),
     TailoringRequestModel.find({ _id: { $in: orderIds } }).select("customerId orderStatus status totalAmount quoteAmount selectedQuoteId cancellationFee").lean(),
     DeliveryRequestModel.find({ orderId: { $in: orderIds }, taskStatus: { $ne: "cancelled" } }).select("_id orderId batchId finalPayout").lean(),
-    WalletTransactionModel.find({ orderId: { $in: orderIds }, userType: "TAILOR", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean()
+    MeasurementVisitModel.find({ requestId: { $in: orderIds } }).select("_id requestId").lean()
   ]);
   const batchIds = [...new Set(tasks.map((task: any) => String(task.batchId ?? "")).filter(Boolean))];
   const taskIds = tasks.map((task: any) => String(task._id));
   const quoteIds = tailoringRequests.map((request: any) => request.selectedQuoteId).filter(Boolean);
   const customerIds = [...new Set([...orders, ...tailoringRequests].map((item: any) => String(item.customerId)))];
-  const [batches, allBatchTasks, deliveryTransactions, quotes, customers] = await Promise.all([
+  const measurementVisitIds = measurementVisits.map((visit: any) => String(visit._id));
+  const [batches, allBatchTasks, deliveryTransactions, tailorTransactions, quotes, customers] = await Promise.all([
     batchIds.length ? DeliveryBatchModel.find({ batchId: { $in: batchIds } }).select("batchId finalPayout").lean() : [],
     batchIds.length ? DeliveryRequestModel.find({ batchId: { $in: batchIds }, taskStatus: { $ne: "cancelled" } }).select("batchId").lean() : [],
     WalletTransactionModel.find({ orderId: { $in: [...taskIds, ...batchIds] }, userType: "DELIVERY_PARTNER", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean(),
+    WalletTransactionModel.find({ orderId: { $in: [...orderIds, ...measurementVisitIds] }, userType: "TAILOR", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean(),
     quoteIds.length ? TailorQuoteModel.find({ _id: { $in: quoteIds } }).select("_id price").lean() : [],
     UserModel.find({ _id: { $in: customerIds } }).select("_id name phone").lean()
   ]);
@@ -1823,8 +1825,16 @@ export async function paymentsController(req: Request, res: Response) {
   const requestMap = new Map(tailoringRequests.map((request: any) => [String(request._id), request]));
   const customerMap = new Map(customers.map((customer: any) => [String(customer._id), customer]));
   const quoteMap = new Map(quotes.map((quote: any) => [String(quote._id), Number(quote.price ?? 0)]));
+  const requestIdByMeasurementVisitId = new Map(measurementVisits.map((visit: any) => [String(visit._id), String(visit.requestId)]));
   const tailorCostMap = new Map<string, number>();
-  tailorTransactions.forEach((transaction: any) => tailorCostMap.set(String(transaction.orderId), (tailorCostMap.get(String(transaction.orderId)) ?? 0) + Number(transaction.amount ?? 0)));
+  const measurementVisitCostMap = new Map<string, number>();
+  tailorTransactions.forEach((transaction: any) => {
+    const transactionOrderId = String(transaction.orderId);
+    const requestId = requestIdByMeasurementVisitId.get(transactionOrderId);
+    const costMap = requestId ? measurementVisitCostMap : tailorCostMap;
+    const orderId = requestId ?? transactionOrderId;
+    costMap.set(orderId, (costMap.get(orderId) ?? 0) + Number(transaction.amount ?? 0));
+  });
   const batchMap = new Map(batches.map((batch: any) => [String(batch.batchId), batch]));
   const activeBatchCounts = new Map<string, number>();
   allBatchTasks.forEach((task: any) => activeBatchCounts.set(String(task.batchId), (activeBatchCounts.get(String(task.batchId)) ?? 0) + 1));
@@ -1860,7 +1870,9 @@ export async function paymentsController(req: Request, res: Response) {
     const entity = order ?? request;
     const customer: any = customerMap.get(String(entity.customerId));
     const completed = order ? String(order.status) === "DELIVERED" : String(request.orderStatus).toLowerCase() === "completed";
-    const actualTailorCost = tailorCostMap.get(orderId);
+    const actualStitchingCost = tailorCostMap.get(orderId);
+    const measurementVisitCost = measurementVisitCostMap.get(orderId) ?? 0;
+    const actualTailorCost = actualStitchingCost == null ? undefined : actualStitchingCost + measurementVisitCost;
     const actualDeliveryCost = deliveryCostFor(orderId);
     const realized = payment.status === "PAID" && completed && actualTailorCost != null && actualDeliveryCost != null;
     const customerPaid = Number(payment.amount ?? entity.totalAmount ?? 0);
@@ -1875,6 +1887,7 @@ export async function paymentsController(req: Request, res: Response) {
       customerPaid,
       recognizedAmount,
       tailorQuote,
+      measurementVisitCost,
       deliveryEarnings,
       netRevenue: realized ? Number((customerPaid - tailorQuote - deliveryEarnings - 8).toFixed(2)) : null,
       packagingCost: realized ? 8 : 0,
