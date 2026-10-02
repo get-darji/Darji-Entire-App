@@ -1486,19 +1486,53 @@ const ADDRESS_FIELD_META: Array<{
   { key: "landmark", label: "Landmark", placeholder: "Near...", icon: "location-outline", wide: true }
 ];
 
+type AddressAvailabilityStatus = {
+  tone: "checking" | "success" | "warning" | "error";
+  text: string;
+  onPress?: () => void;
+};
+
 function StructuredAddressForm({
   fields,
   missingFields,
   formattedAddress,
   onChange,
+  availabilityStatus,
   styles
 }: {
   fields: AddressFields;
   missingFields: string[];
   formattedAddress: string;
   onChange: (key: keyof AddressFields, value: string) => void;
+  availabilityStatus?: AddressAvailabilityStatus;
   styles: ReturnType<typeof createStyles>;
 }) {
+  const availabilityColor = availabilityStatus?.tone === "success"
+    ? "#15803d"
+    : availabilityStatus?.tone === "error"
+      ? "#be123c"
+      : "#b45309";
+  const availabilityIcon = availabilityStatus?.tone === "success"
+    ? "checkmark-circle-outline"
+    : availabilityStatus?.tone === "error"
+      ? "location-outline"
+      : "alert-circle-outline";
+  const availabilityContent = availabilityStatus ? (
+    <>
+      {availabilityStatus.tone === "checking" ? (
+        <ActivityIndicator size="small" color={availabilityColor} />
+      ) : (
+        <Ionicons name={availabilityIcon} size={18} color={availabilityColor} />
+      )}
+      <Text style={[styles.addressReadyText, { color: availabilityColor }]}>{availabilityStatus.text}</Text>
+    </>
+  ) : (
+    <>
+      <Ionicons name="checkmark-circle-outline" size={18} color="#15803d" />
+      <Text style={styles.addressReadyText}>Address looks complete</Text>
+    </>
+  );
+
   return (
     <View style={styles.structuredAddressCard}>
       <View style={styles.addressRequiredBanner}>
@@ -1539,10 +1573,13 @@ function StructuredAddressForm({
           <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
           <Text style={styles.addressMissingText}>Missing: {missingFields.join(", ")}</Text>
         </View>
+      ) : availabilityStatus?.onPress ? (
+        <Pressable style={styles.addressReadyRow} onPress={availabilityStatus.onPress} accessibilityRole="button">
+          {availabilityContent}
+        </Pressable>
       ) : (
         <View style={styles.addressReadyRow}>
-          <Ionicons name="checkmark-circle-outline" size={18} color="#15803d" />
-          <Text style={styles.addressReadyText}>Address looks complete</Text>
+          {availabilityContent}
         </View>
       )}
       <View style={styles.addressPreviewBox}>
@@ -2274,7 +2311,15 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   );
 }
 
-function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen: Screen) => void }) {
+function BottomTabs({
+  active,
+  setScreen,
+  onActiveTabPress
+}: {
+  active: Screen;
+  setScreen: (screen: Screen) => void;
+  onActiveTabPress?: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const bottomInset = Platform.OS === "ios" ? insets.bottom : CUSTOMER_TAB_BOTTOM_INSET;
   const language = useAppStore((state) => state.language);
@@ -2292,7 +2337,17 @@ function BottomTabs({ active, setScreen }: { active: Screen; setScreen: (screen:
         const selected = active === item.key;
         const isCreate = item.key === "newRequest";
         return (
-          <Pressable key={item.key} style={[styles.tabItem, isCreate && styles.createTabItem]} onPress={() => setScreen(item.key)}>
+          <Pressable
+            key={item.key}
+            style={[styles.tabItem, isCreate && styles.createTabItem]}
+            onPress={() => {
+              if (selected && onActiveTabPress) {
+                onActiveTabPress();
+                return;
+              }
+              setScreen(item.key);
+            }}
+          >
             <View style={isCreate ? styles.createTabButton : undefined}>
               <Ionicons name={item.icon} size={isCreate ? 23 : 20} color={isCreate ? "#111111" : selected ? BRAND_ORANGE : "#151b27"} />
             </View>
@@ -2535,6 +2590,7 @@ function HomeScreen({
   initialScrollOffset: number;
   onScrollOffsetChange: (offset: number) => void;
 }) {
+  const scrollViewRef = useRef<RNScrollView>(null);
   const token = useAppStore((state) => state.token);
   const { refreshSignal } = useContext(PullToRefreshContext);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -2570,6 +2626,7 @@ function HomeScreen({
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={styles.homeContent}
         showsVerticalScrollIndicator={false}
         contentOffset={{ x: 0, y: initialScrollOffset }}
@@ -2940,7 +2997,14 @@ function HomeScreen({
           <Ionicons name="chevron-forward" size={18} color="#6b7890" />
         </Pressable>
       </ScrollView>
-      <BottomTabs active="home" setScreen={setScreen} />
+      <BottomTabs
+        active="home"
+        setScreen={setScreen}
+        onActiveTabPress={() => {
+          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+          onScrollOffsetChange(0);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -3011,86 +3075,42 @@ function LocationFetchingScreen({
   title = "Fetching your location",
   message = "We are setting your current address as the default pickup address for your orders.",
   serviceCheck = false,
-  phase = "locating",
-  address,
   errorMessage,
+  retrying = false,
   onRetry,
   onChangeAddress
 }: {
   title?: string;
   message?: string;
   serviceCheck?: boolean;
-  phase?: "locating" | "checking";
-  address?: string;
   errorMessage?: string;
+  retrying?: boolean;
   onRetry?: () => void;
   onChangeAddress?: () => void;
 }) {
   if (serviceCheck) {
-    const locationReady = phase === "checking" || Boolean(address);
     return (
       <SafeAreaView style={[styles.safe, styles.serviceCheckSafe]}>
-        <View style={styles.serviceCheckGlowTop} />
-        <View style={styles.serviceCheckGlowBottom} />
-        <ScrollView contentContainerStyle={styles.serviceCheckContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.serviceCheckBrandPill}>
-            <View style={styles.serviceCheckBrandDot} />
-            <Text style={styles.serviceCheckBrandText}>DARJI SERVICE CHECK</Text>
-          </View>
-          <View style={styles.serviceCheckCard}>
-            <View style={styles.serviceCheckIconRing}>
-              <View style={styles.serviceCheckIcon}>
-                <Ionicons name={errorMessage ? "cloud-offline-outline" : "navigate"} size={34} color={BRAND_ORANGE} />
-              </View>
-            </View>
-            <Text style={styles.serviceCheckTitle}>{errorMessage ? "We could not finish the check" : title}</Text>
-            <Text style={styles.serviceCheckMessage}>{errorMessage ?? message}</Text>
+        <View style={styles.serviceCheckSimpleContent}>
+          <Image source={darjiLogo} style={styles.serviceCheckLogo} resizeMode="contain" />
+          <Text style={styles.serviceCheckSimpleTitle}>{errorMessage ? "Location check failed" : "Fetching your location"}</Text>
+          <Text style={styles.serviceCheckSimpleMessage}>{errorMessage ?? "Checking if Darji is available near you."}</Text>
+          {!errorMessage ? <ActivityIndicator color={BRAND_ORANGE} size="large" style={styles.serviceCheckSpinner} /> : null}
 
-            {!errorMessage ? (
-              <View style={styles.serviceCheckProgressCard}>
-                <View style={styles.serviceCheckStepRow}>
-                  <View style={[styles.serviceCheckStepIcon, locationReady && styles.serviceCheckStepDone]}>
-                    {locationReady ? <Ionicons name="checkmark" size={16} color="#ffffff" /> : <ActivityIndicator size="small" color={BRAND_ORANGE} />}
-                  </View>
-                  <View style={styles.serviceCheckStepCopy}>
-                    <Text style={styles.serviceCheckStepTitle}>Finding your pickup location</Text>
-                    <Text style={styles.serviceCheckStepText}>{locationReady ? "Location found" : "Getting a reliable location fix"}</Text>
-                  </View>
-                </View>
-                <View style={styles.serviceCheckStepDivider} />
-                <View style={styles.serviceCheckStepRow}>
-                  <View style={[styles.serviceCheckStepIcon, phase === "checking" && styles.serviceCheckStepActive]}>
-                    {phase === "checking" ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="location-outline" size={17} color="#94a3b8" />}
-                  </View>
-                  <View style={styles.serviceCheckStepCopy}>
-                    <Text style={styles.serviceCheckStepTitle}>Checking Darji coverage</Text>
-                    <Text style={styles.serviceCheckStepText}>{phase === "checking" ? "Matching your location with active service areas" : "Starts as soon as your location is ready"}</Text>
-                  </View>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.serviceCheckErrorBanner}>
-                <Ionicons name="information-circle-outline" size={20} color="#b45309" />
-                <Text style={styles.serviceCheckErrorText}>Your service area has not been changed. Retry the check or choose another pickup address.</Text>
-              </View>
-            )}
-
-            {address ? (
-              <View style={styles.serviceCheckAddressCard}>
-                <View style={styles.serviceCheckAddressIcon}><Ionicons name="pin-outline" size={18} color={BRAND_ORANGE} /></View>
-                <View style={styles.serviceCheckAddressCopy}>
-                  <Text style={styles.serviceCheckAddressLabel}>LOCATION BEING CHECKED</Text>
-                  <Text style={styles.serviceCheckAddressText} numberOfLines={3}>{address}</Text>
-                </View>
-              </View>
-            ) : null}
-
-            {(onRetry || onChangeAddress) ? (
+          {errorMessage && (onRetry || onChangeAddress) ? (
               <View style={styles.serviceCheckActions}>
                 {onRetry ? (
-                  <Pressable style={styles.serviceCheckPrimaryButton} onPress={onRetry}>
-                    <Ionicons name="refresh-outline" size={19} color="#111111" />
-                    <Text style={styles.serviceCheckPrimaryText}>{errorMessage ? "Try Again" : "Restart Check"}</Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.serviceCheckPrimaryButton,
+                      pressed && styles.serviceCheckButtonPressed,
+                      retrying && styles.serviceCheckButtonDisabled
+                    ]}
+                    onPress={onRetry}
+                    disabled={retrying}
+                  >
+                    {retrying ? <ActivityIndicator size="small" color="#111111" /> : <Ionicons name="refresh-outline" size={19} color="#111111" />}
+                    <Text style={styles.serviceCheckPrimaryText}>{retrying ? "Trying Again..." : "Try Again"}</Text>
                   </Pressable>
                 ) : null}
                 {onChangeAddress ? (
@@ -3100,13 +3120,8 @@ function LocationFetchingScreen({
                   </Pressable>
                 ) : null}
               </View>
-            ) : null}
-          </View>
-          <View style={styles.serviceCheckPrivacyRow}>
-            <Ionicons name="shield-checkmark-outline" size={16} color="#64748b" />
-            <Text style={styles.serviceCheckPrivacyText}>Your location is used only to confirm pickup and delivery availability.</Text>
-          </View>
-        </ScrollView>
+          ) : null}
+        </View>
       </SafeAreaView>
     );
   }
@@ -3964,6 +3979,19 @@ function NewRequestScreen({
               missingFields={pickupAddressMissing}
               formattedAddress={pickupAddressText}
               onChange={updatePickupAddressField}
+              availabilityStatus={pickupAddressMissing.length ? undefined : availabilityChecking
+                ? { tone: "checking", text: "Checking service availability..." }
+                : pickupAvailability?.serviceable
+                  ? { tone: "success", text: "Darji service is available at this pickup address." }
+                  : pickupAvailability && !pickupAvailability.serviceable
+                    ? { tone: "error", text: "Darji is not available at this pickup address yet." }
+                    : availabilityError
+                      ? {
+                          tone: "warning",
+                          text: `${availabilityError} Tap to retry.`,
+                          onPress: () => void checkPickupService(pickupAddressText, draft.pickupLocation)
+                        }
+                      : undefined}
               styles={styles}
             />
             <View style={styles.addressActions}>
@@ -3976,27 +4004,6 @@ function NewRequestScreen({
                 <Ionicons name="chevron-forward" size={18} color="#98a4b6" />
               </Pressable>
             </View>
-            {availabilityChecking ? (
-              <View style={styles.infoBanner}>
-                <ActivityIndicator size="small" color={BRAND_ORANGE} />
-                <Text style={styles.infoBannerText}>Checking service availability...</Text>
-              </View>
-            ) : pickupAvailability?.serviceable ? (
-              <View style={[styles.infoBanner, { backgroundColor: "#ecfdf3", borderColor: "#86efac" }]}>
-                <Ionicons name="checkmark-circle-outline" size={18} color="#15803d" />
-                <Text style={[styles.infoBannerText, { color: "#166534" }]}>Darji service is available at this pickup address.</Text>
-              </View>
-            ) : pickupAvailability && !pickupAvailability.serviceable ? (
-              <View style={[styles.infoBanner, { backgroundColor: "#fff1f2", borderColor: "#fda4af" }]}>
-                <Ionicons name="location-outline" size={18} color="#be123c" />
-                <Text style={[styles.infoBannerText, { color: "#9f1239" }]}>Darji is not available at this pickup address yet.</Text>
-              </View>
-            ) : availabilityError ? (
-              <Pressable style={[styles.infoBanner, { backgroundColor: "#fff7ed", borderColor: "#fdba74" }]} onPress={() => void checkPickupService(pickupAddressText, draft.pickupLocation)}>
-                <Ionicons name="refresh-outline" size={18} color="#c2410c" />
-                <Text style={[styles.infoBannerText, { color: "#9a3412" }]}>{availabilityError} Tap to retry.</Text>
-              </Pressable>
-            ) : null}
             {addresses.length ? (
               <>
                 <Text style={styles.formLabel}>Use Saved Address</Text>
@@ -7496,6 +7503,7 @@ function TrackOrderScreen({ order, setScreen }: { order: CustomerOrder; setScree
 }
 
 function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Screen) => void; onStartRequest: (preset?: RequestPreset) => void }) {
+  const scrollViewRef = useRef<RNScrollView>(null);
   const token = useAppStore((state) => state.token);
   const favoriteTailorIds = useAppStore((state) => state.favoriteTailorIds ?? []);
   const toggleFavoriteTailor = useAppStore((state) => state.toggleFavoriteTailor);
@@ -7539,7 +7547,7 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.searchPageContent} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollViewRef} contentContainerStyle={styles.searchPageContent} showsVerticalScrollIndicator={false}>
         <View style={styles.searchHeroHeader}>
           <View style={styles.profileRowTextNoMargin}>
             <Text style={styles.searchHeroTitle}>Search</Text>
@@ -7660,7 +7668,7 @@ function SearchScreen({ setScreen, onStartRequest }: { setScreen: (screen: Scree
         </View>
       </ScrollView>
       <TailorProfileModal profile={selectedTailorProfile} onClose={() => setSelectedTailorProfile(undefined)} />
-      <BottomTabs active="search" setScreen={setScreen} />
+      <BottomTabs active="search" setScreen={setScreen} onActiveTabPress={() => scrollViewRef.current?.scrollTo({ y: 0, animated: true })} />
     </SafeAreaView>
   );
 }
@@ -7883,6 +7891,7 @@ function ProfileScreen({
   initialScrollOffset: number;
   onScrollOffsetChange: (offset: number) => void;
 }) {
+  const scrollViewRef = useRef<RNScrollView>(null);
   const { user, signOut, favoriteTailorIds = [] } = useAppStore();
   const profileStyles = createStyles(settings.darkMode);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -7900,6 +7909,7 @@ function ProfileScreen({
   return (
     <SafeAreaView style={profileStyles.safe}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={profileStyles.profilePageContent}
         contentOffset={{ x: 0, y: initialScrollOffset }}
         onScroll={(event) => onScrollOffsetChange(event.nativeEvent.contentOffset.y)}
@@ -8012,7 +8022,14 @@ function ProfileScreen({
           </Pressable>
         </Pressable>
       </Modal>
-      <BottomTabs active="profile" setScreen={setScreen} />
+      <BottomTabs
+        active="profile"
+        setScreen={setScreen}
+        onActiveTabPress={() => {
+          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+          onScrollOffsetChange(0);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -8421,9 +8438,21 @@ function SavedAddressesScreen({
             {item.isDefault ? <Text style={styles.statusPill}>Selected</Text> : null}
           </View>
           <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-            <Pressable style={[styles.secondaryWideButton, { flex: 1, marginTop: 0 }]} onPress={() => void selectAddress(item)} disabled={Boolean(selectingId)}>
-              {selectingId === item.id ? <ActivityIndicator size="small" color={BRAND_DEEP} /> : <Ionicons name={item.isDefault ? "checkmark-circle" : "navigate-outline"} size={16} color={BRAND_DEEP} />}
-              <Text style={styles.secondaryWideButtonText}>{item.isDefault ? "Use This Address" : "Select Address"}</Text>
+            <Pressable
+              style={[styles.secondaryWideButton, { flex: 1, marginTop: 0 }, item.isDefault && styles.selectedAddressButton]}
+              onPress={() => void selectAddress(item)}
+              disabled={item.isDefault || Boolean(selectingId)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: item.isDefault, disabled: item.isDefault || Boolean(selectingId) }}
+            >
+              {selectingId === item.id ? (
+                <ActivityIndicator size="small" color={BRAND_DEEP} />
+              ) : (
+                <Ionicons name={item.isDefault ? "checkmark-circle" : "navigate-outline"} size={16} color={item.isDefault ? "#15803d" : BRAND_DEEP} />
+              )}
+              <Text style={[styles.secondaryWideButtonText, item.isDefault && styles.selectedAddressButtonText]}>
+                {item.isDefault ? "Using This Address" : "Use This Address"}
+              </Text>
             </Pressable>
             <Pressable style={[styles.deleteAddressButton, { marginTop: 0 }]} onPress={() => deleteAddress(item.id)}>
               <Ionicons name="trash-outline" size={16} color="#c24141" />
@@ -10459,6 +10488,7 @@ function OrdersScreenV2({
   onOpenOrder: (order: CustomerOrder) => void;
   setScreen: (screen: Screen) => void;
 }) {
+  const scrollViewRef = useRef<RNScrollView>(null);
   const [activeTab, setActiveTab] = useState<"incomplete" | "active" | "history" | "cancelled">("incomplete");
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeOrders = orders.filter((order) => !["Pending", "Awaiting Payment", "Delivered", "Cancelled"].includes(order.status));
@@ -10516,7 +10546,7 @@ function OrdersScreenV2({
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+      <ScrollView ref={scrollViewRef} contentContainerStyle={styles.pageContent}>
         <View style={styles.ordersHero}>
           <Text style={styles.ordersHeroTitle}>My Orders</Text>
           <Text style={styles.ordersHeroCopy}>Track requests, accepted orders, history and cancellations.</Text>
@@ -10575,7 +10605,7 @@ function OrdersScreenV2({
           </>
         )}
       </ScrollView>
-      <BottomTabs active="orders" setScreen={setScreen} />
+      <BottomTabs active="orders" setScreen={setScreen} onActiveTabPress={() => scrollViewRef.current?.scrollTo({ y: 0, animated: true })} />
     </SafeAreaView>
   );
 }
@@ -11414,6 +11444,7 @@ function AppContent() {
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [serviceAreaScreen, setServiceAreaScreen] = useState<ServiceAreaScreenState>({ status: "idle" });
   const [serviceAreaRequesting, setServiceAreaRequesting] = useState(false);
+  const [serviceCheckRetrying, setServiceCheckRetrying] = useState(false);
   const [locationRefreshSignal, setLocationRefreshSignal] = useState(0);
   const paymentMessageHandledRef = useRef(false);
   const paymentRecoveryInFlightRef = useRef(false);
@@ -12302,17 +12333,18 @@ function AppContent() {
   }, [token]);
 
   useEffect(() => {
-    if (!token || !user?.id) return;
+    if (!token || !user?.id || !hasLoadedCustomerData) return;
     // Resolve serviceability once for this signed-in app launch. Returning from
     // the background (image picker, payment app, permission UI, etc.) must not
     // replace the customer's current screen with the global location loader.
     hasResolvedStartupLocationRef.current = false;
+    setServiceCheckRetrying(false);
     setServiceAreaScreen({ status: "idle" });
     updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
-  }, [user?.id]);
+  }, [hasLoadedCustomerData, user?.id]);
 
   useEffect(() => {
-    if (!token || customerData.hasCapturedCurrentAddress) return;
+    if (!token || !hasLoadedCustomerData || customerData.hasCapturedCurrentAddress) return;
     let cancelled = false;
 
     async function captureCurrentAddress() {
@@ -12324,6 +12356,7 @@ function AppContent() {
         if (!permission.granted) {
           if (!cancelled) {
             hasResolvedStartupLocationRef.current = true;
+            setServiceCheckRetrying(false);
             setServiceAreaScreen({ status: "available" });
             updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
           }
@@ -12397,6 +12430,7 @@ function AppContent() {
         }));
         if (cancelled) return;
         hasResolvedStartupLocationRef.current = true;
+        setServiceCheckRetrying(false);
         setServiceAreaScreen({
           status: availability.serviceable ? "available" : "unavailable",
           address: resolvedAddress,
@@ -12407,6 +12441,7 @@ function AppContent() {
       } catch (error) {
         if (!cancelled) {
           hasResolvedStartupLocationRef.current = true;
+          setServiceCheckRetrying(false);
           setServiceAreaScreen({
             status: "error",
             address: checkedAddress,
@@ -12422,7 +12457,7 @@ function AppContent() {
     return () => {
       cancelled = true;
     };
-  }, [token, customerPhone, customerData.hasCapturedCurrentAddress, locationRefreshSignal]);
+  }, [token, customerPhone, customerData.hasCapturedCurrentAddress, hasLoadedCustomerData, locationRefreshSignal]);
 
   async function selectCustomerAddress(address: SavedAddress, addressList = addresses) {
     if (!token) return;
@@ -12484,6 +12519,8 @@ function AppContent() {
   }
 
   function retryCurrentLocation() {
+    if (serviceCheckRetrying) return;
+    setServiceCheckRetrying(true);
     setServiceAreaScreen({ status: "locating" });
     updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
     setLocationRefreshSignal((current) => current + 1);
@@ -12811,11 +12848,8 @@ function AppContent() {
   if (!choosingServiceAddress && (serviceAreaScreen.status === "idle" || serviceAreaScreen.status === "locating" || serviceAreaScreen.status === "checking")) {
     return withAppChrome(
       <LocationFetchingScreen
-        title={serviceAreaScreen.status === "checking" ? "Checking service in your area" : "Finding service near you"}
-        message={serviceAreaScreen.status === "checking" ? "We found your location. Now we are checking it against Darji's active pickup areas." : "Finding your current pickup location before checking Darji availability."}
         serviceCheck
-        phase={serviceAreaScreen.status === "checking" ? "checking" : "locating"}
-        address={serviceAreaScreen.address}
+        retrying={serviceCheckRetrying}
         onRetry={retryCurrentLocation}
         onChangeAddress={() => setScreen("savedAddresses")}
       />
@@ -12824,12 +12858,9 @@ function AppContent() {
   if (!choosingServiceAddress && serviceAreaScreen.status === "error") {
     return withAppChrome(
       <LocationFetchingScreen
-        title="Service check needs attention"
-        message="We could not confirm availability for your location."
         serviceCheck
-        phase={serviceAreaScreen.location ? "checking" : "locating"}
-        address={serviceAreaScreen.address}
         errorMessage={serviceAreaScreen.error ?? "We could not confirm Darji availability. Check your connection and try again."}
+        retrying={serviceCheckRetrying}
         onRetry={retryCurrentLocation}
         onChangeAddress={() => setScreen("savedAddresses")}
       />
@@ -13105,41 +13136,19 @@ function createStyles(isDark = false) {
   onboardingTitle: { color: text, fontSize: 24, fontWeight: "900", marginTop: 34, marginBottom: 8 },
   locationLoadingContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 34 },
   locationLoadingIcon: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  serviceCheckSafe: { backgroundColor: "#f8fafc", overflow: "hidden" },
-  serviceCheckGlowTop: { position: "absolute", width: 300, height: 300, borderRadius: 150, backgroundColor: "#fff0cc", top: -190, right: -100, opacity: 0.9 },
-  serviceCheckGlowBottom: { position: "absolute", width: 240, height: 240, borderRadius: 120, backgroundColor: "#eaf2ff", bottom: -150, left: -110, opacity: 0.85 },
-  serviceCheckContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingTop: 30, paddingBottom: 34 },
-  serviceCheckBrandPill: { alignSelf: "center", minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 16, borderWidth: 1, borderColor: "#f5dca7", backgroundColor: "#fffaf0", paddingHorizontal: 13, marginBottom: 16 },
-  serviceCheckBrandDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_ORANGE },
-  serviceCheckBrandText: { color: "#9a5a05", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 },
-  serviceCheckCard: { width: "100%", maxWidth: 420, alignSelf: "center", overflow: "hidden", borderRadius: 30, borderWidth: 1, borderColor: "#e7edf5", backgroundColor: "#ffffff", paddingHorizontal: 22, paddingTop: 26, paddingBottom: 22, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.1, shadowRadius: 30, elevation: 7 },
-  serviceCheckIconRing: { width: 88, height: 88, alignSelf: "center", borderRadius: 30, borderWidth: 1, borderColor: "#f8d68e", backgroundColor: "#fff9ea", alignItems: "center", justifyContent: "center" },
-  serviceCheckIcon: { width: 64, height: 64, borderRadius: 22, backgroundColor: "#fff0c9", alignItems: "center", justifyContent: "center" },
-  serviceCheckTitle: { color: BRAND_DEEP, fontSize: 27, lineHeight: 33, fontWeight: "900", textAlign: "center", marginTop: 20 },
-  serviceCheckMessage: { color: "#64748b", fontSize: 14, lineHeight: 21, fontWeight: "600", textAlign: "center", marginTop: 9, paddingHorizontal: 4 },
-  serviceCheckProgressCard: { borderRadius: 20, borderWidth: 1, borderColor: "#e6ebf2", backgroundColor: "#f8fafc", paddingHorizontal: 15, paddingVertical: 13, marginTop: 22 },
-  serviceCheckStepRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 12 },
-  serviceCheckStepIcon: { width: 34, height: 34, borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
-  serviceCheckStepDone: { borderColor: "#22c55e", backgroundColor: "#22c55e" },
-  serviceCheckStepActive: { borderColor: "#f6cf82", backgroundColor: "#fff8e8" },
-  serviceCheckStepCopy: { flex: 1, minWidth: 0 },
-  serviceCheckStepTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
-  serviceCheckStepText: { color: "#718096", fontSize: 11, lineHeight: 16, fontWeight: "600", marginTop: 2 },
-  serviceCheckStepDivider: { height: 1, backgroundColor: "#e7ecf2", marginLeft: 46, marginVertical: 3 },
-  serviceCheckErrorBanner: { flexDirection: "row", alignItems: "flex-start", gap: 9, borderRadius: 17, borderWidth: 1, borderColor: "#f7d58b", backgroundColor: "#fff8e8", padding: 13, marginTop: 20 },
-  serviceCheckErrorText: { flex: 1, color: "#8a530a", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  serviceCheckAddressCard: { flexDirection: "row", alignItems: "center", gap: 11, borderRadius: 17, borderWidth: 1, borderColor: "#e4eaf1", backgroundColor: "#ffffff", padding: 13, marginTop: 14 },
-  serviceCheckAddressIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
-  serviceCheckAddressCopy: { flex: 1, minWidth: 0 },
-  serviceCheckAddressLabel: { color: "#8b98aa", fontSize: 9, lineHeight: 13, fontWeight: "900", letterSpacing: 0.65 },
-  serviceCheckAddressText: { color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 2 },
-  serviceCheckActions: { gap: 10, marginTop: 20 },
+  serviceCheckSafe: { backgroundColor: "#f8fafc" },
+  serviceCheckSimpleContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 36, paddingBottom: 28 },
+  serviceCheckLogo: { width: 148, height: 78, marginBottom: 26 },
+  serviceCheckSimpleTitle: { color: BRAND_DEEP, fontSize: 25, lineHeight: 31, fontWeight: "900", textAlign: "center" },
+  serviceCheckSimpleMessage: { maxWidth: 300, color: "#64748b", fontSize: 14, lineHeight: 21, fontWeight: "600", textAlign: "center", marginTop: 9 },
+  serviceCheckSpinner: { marginTop: 28 },
+  serviceCheckActions: { width: "100%", maxWidth: 320, gap: 10, marginTop: 24 },
   serviceCheckPrimaryButton: { minHeight: 51, borderRadius: 16, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  serviceCheckButtonPressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
+  serviceCheckButtonDisabled: { opacity: 0.72 },
   serviceCheckPrimaryText: { color: "#111111", fontSize: 14, fontWeight: "900" },
   serviceCheckSecondaryButton: { minHeight: 49, borderRadius: 16, borderWidth: 1, borderColor: "#dce3ec", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
   serviceCheckSecondaryText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900" },
-  serviceCheckPrivacyRow: { maxWidth: 360, alignSelf: "center", flexDirection: "row", alignItems: "flex-start", justifyContent: "center", gap: 7, marginTop: 17, paddingHorizontal: 10 },
-  serviceCheckPrivacyText: { flex: 1, color: "#718096", fontSize: 11, lineHeight: 16, fontWeight: "600", textAlign: "center" },
   dialogOverlay: { flex: 1, backgroundColor: "rgba(8, 17, 31, 0.52)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   dialogCard: { width: "100%", maxWidth: 360, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.16, shadowRadius: 28, elevation: 8 },
   dialogIcon: { width: 54, height: 54, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
@@ -14071,6 +14080,8 @@ function createStyles(isDark = false) {
   profileRowText: { flex: 1, minWidth: 0, marginLeft: 12 },
   secondaryWideButton: { height: 52, borderRadius: 15, backgroundColor: surface, borderWidth: 1, borderColor: border, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 6 },
   secondaryWideButtonText: { color: text, fontSize: 15, fontWeight: "900" },
+  selectedAddressButton: { borderColor: "#86efac", backgroundColor: "#ecfdf3" },
+  selectedAddressButtonText: { color: "#15803d" },
   signOutButton: { height: 52, borderRadius: 15, backgroundColor: "#fff1f1", borderWidth: 1, borderColor: "#ffd1d1", alignItems: "center", justifyContent: "center", marginTop: 12, marginBottom: 82 },
   signOutText: { color: "#c24141", fontSize: 15, fontWeight: "900" },
   deleteAccountButton: { height: 52, borderRadius: 15, backgroundColor: surface, borderWidth: 1, borderColor: "#ffd1d1", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 12, marginBottom: 82 },

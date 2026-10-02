@@ -8,66 +8,79 @@ export interface ExplanationInfo {
 }
 
 export const FIT_ASSETS: Record<string, ImageSourcePropType> = {
-  Men: require("../../../assets/cloth-details/fit/men.webp"),
-  Women: require("../../../assets/cloth-details/fit/women.webp"),
-  Kids: require("../../../assets/cloth-details/fit/kids.webp"),
-  "Unisex / Uniform / Other": require("../../../assets/cloth-details/fit/unisex.webp")
+  Men: require("../../../assets/cloth-details/order-v2/fit/men.jpg"),
+  Women: require("../../../assets/cloth-details/order-v2/fit/women.jpg"),
+  Kids: require("../../../assets/cloth-details/order-v2/fit/kids.jpg"),
+  "Unisex / Uniform / Other": require("../../../assets/cloth-details/order-v2/fit/unisex.jpg")
 };
 
 export const CATEGORY_ASSETS: Record<string, ImageSourcePropType> = {
-  "new-stitching": require("../../../assets/cloth-details/categories/new_stitching.webp"),
-  "New Stitching": require("../../../assets/cloth-details/categories/new_stitching.webp"),
-  "alteration-fitting": require("../../../assets/cloth-details/categories/alteration.webp"),
-  "Alteration & Fitting": require("../../../assets/cloth-details/categories/alteration.webp"),
-  "repair-mending": require("../../../assets/cloth-details/categories/repair.webp"),
-  "Repair & Mending": require("../../../assets/cloth-details/categories/repair.webp"),
-  "embroidery-custom": require("../../../assets/cloth-details/categories/embroidery.webp"),
-  "Embroidery & Custom Work": require("../../../assets/cloth-details/categories/embroidery.webp"),
-  "finishing-work": require("../../../assets/cloth-details/categories/finishing.webp"),
-  "Finishing Work": require("../../../assets/cloth-details/categories/finishing.webp"),
-  other: require("../../../assets/cloth-details/categories/other.webp"),
-  Other: require("../../../assets/cloth-details/categories/other.webp")
+  "new-stitching": require("../../../assets/cloth-details/order-v2/categories/new_stitching.jpg"),
+  "New Stitching": require("../../../assets/cloth-details/order-v2/categories/new_stitching.jpg"),
+  "alteration-fitting": require("../../../assets/cloth-details/order-v2/categories/alteration.jpg"),
+  "Alteration & Fitting": require("../../../assets/cloth-details/order-v2/categories/alteration.jpg"),
+  "repair-mending": require("../../../assets/cloth-details/order-v2/categories/repair.jpg"),
+  "Repair & Mending": require("../../../assets/cloth-details/order-v2/categories/repair.jpg"),
+  "embroidery-custom": require("../../../assets/cloth-details/order-v2/categories/embroidery.jpg"),
+  "Embroidery & Custom Work": require("../../../assets/cloth-details/order-v2/categories/embroidery.jpg"),
+  "finishing-work": require("../../../assets/cloth-details/order-v2/categories/finishing.jpg"),
+  "Finishing Work": require("../../../assets/cloth-details/order-v2/categories/finishing.jpg"),
+  other: require("../../../assets/cloth-details/order-v2/categories/other.jpg"),
+  Other: require("../../../assets/cloth-details/order-v2/categories/other.jpg")
 };
 
 export const GARMENT_ASSETS: Record<string, ImageSourcePropType> = {
-  Kurta: require("../../../assets/cloth-details/garments/kurta.webp"),
-  "Kurta Pajama": require("../../../assets/cloth-details/garments/kurta_pajama.webp"),
-  Shirt: require("../../../assets/cloth-details/garments/shirt.webp"),
-  Trousers: require("../../../assets/cloth-details/garments/trousers.webp"),
-  Suit: require("../../../assets/cloth-details/garments/suit.webp"),
-  Blazer: require("../../../assets/cloth-details/garments/blazer.webp"),
-  Waistcoat: require("../../../assets/cloth-details/garments/waistcoat.webp"),
-  Sherwani: require("../../../assets/cloth-details/garments/sherwani.webp"),
-  "Pathani Suit": require("../../../assets/cloth-details/garments/pathani_suit.webp"),
-  Blouse: require("../../../assets/cloth-details/garments/blouse.webp"),
-  Kurti: require("../../../assets/cloth-details/garments/kurti.webp"),
-  "Salwar Suit": require("../../../assets/cloth-details/garments/salwar_suit.webp"),
-  Dress: require("../../../assets/cloth-details/garments/dress.webp"),
-  Top: require("../../../assets/cloth-details/garments/top.webp"),
-  Skirt: require("../../../assets/cloth-details/garments/skirt.webp"),
-  Palazzo: require("../../../assets/cloth-details/garments/palazzo.webp"),
-  Lehenga: require("../../../assets/cloth-details/garments/lehenga.webp"),
-  Anarkali: require("../../../assets/cloth-details/garments/anarkali.webp"),
-  Frock: require("../../../assets/cloth-details/garments/frock.webp"),
-  Shorts: require("../../../assets/cloth-details/garments/shorts.webp"),
-  Pants: require("../../../assets/cloth-details/garments/pants.webp"),
-  "School Uniform": require("../../../assets/cloth-details/garments/school_uniform.webp"),
-  "Office Uniform": require("../../../assets/cloth-details/garments/office_uniform.webp"),
-  "Chef Uniform": require("../../../assets/cloth-details/garments/chef_uniform.webp"),
-  "Medical Uniform": require("../../../assets/cloth-details/garments/medical_uniform.webp"),
-  "College Uniform": require("../../../assets/cloth-details/garments/college_uniform.webp"),
-  "Custom Garment": require("../../../assets/cloth-details/garments/custom_garment.webp"),
-  Other: require("../../../assets/cloth-details/garments/other_garment.webp")
+  Kurta: require("../../../assets/cloth-details/order-v2/garments/kurta.jpg"),
+  "Kurta Pajama": require("../../../assets/cloth-details/order-v2/garments/kurta_pajama.jpg"),
+  Shirt: require("../../../assets/cloth-details/order-v2/garments/shirt.jpg"),
+  Trousers: require("../../../assets/cloth-details/order-v2/garments/trousers.jpg"),
+  Suit: require("../../../assets/cloth-details/order-v2/garments/suit.jpg"),
+  Blazer: require("../../../assets/cloth-details/order-v2/garments/blazer.jpg"),
+  Waistcoat: require("../../../assets/cloth-details/order-v2/garments/waistcoat.jpg"),
+  Sherwani: require("../../../assets/cloth-details/order-v2/garments/sherwani.jpg"),
+  "Pathani Suit": require("../../../assets/cloth-details/order-v2/garments/pathani_suit.jpg"),
+  Blouse: require("../../../assets/cloth-details/order-v2/garments/blouse.jpg"),
+  Kurti: require("../../../assets/cloth-details/order-v2/garments/kurti.jpg"),
+  "Salwar Suit": require("../../../assets/cloth-details/order-v2/garments/salwar_suit.jpg"),
+  Dress: require("../../../assets/cloth-details/order-v2/garments/dress.jpg"),
+  Top: require("../../../assets/cloth-details/order-v2/garments/top.jpg"),
+  Skirt: require("../../../assets/cloth-details/order-v2/garments/skirt.jpg"),
+  Palazzo: require("../../../assets/cloth-details/order-v2/garments/palazzo.jpg"),
+  Lehenga: require("../../../assets/cloth-details/order-v2/garments/lehenga.jpg"),
+  Anarkali: require("../../../assets/cloth-details/order-v2/garments/anarkali.jpg"),
+  Frock: require("../../../assets/cloth-details/order-v2/garments/kids_frock.jpg"),
+  Shorts: require("../../../assets/cloth-details/order-v2/garments/kids_shorts.jpg"),
+  Pants: require("../../../assets/cloth-details/order-v2/garments/kids_pants.jpg"),
+  "School Uniform": require("../../../assets/cloth-details/order-v2/garments/school_uniform.jpg"),
+  "Office Uniform": require("../../../assets/cloth-details/order-v2/garments/office_uniform.jpg"),
+  "Chef Uniform": require("../../../assets/cloth-details/order-v2/garments/chef_uniform.jpg"),
+  "Medical Uniform": require("../../../assets/cloth-details/order-v2/garments/medical_uniform.jpg"),
+  "College Uniform": require("../../../assets/cloth-details/order-v2/garments/college_uniform.jpg"),
+  "Custom Garment": require("../../../assets/cloth-details/order-v2/garments/custom_garment.jpg"),
+  Other: require("../../../assets/cloth-details/order-v2/garments/other_garment.jpg")
+};
+
+const KIDS_GARMENT_ASSETS: Record<string, ImageSourcePropType> = {
+  Frock: require("../../../assets/cloth-details/order-v2/garments/kids_frock.jpg"),
+  Dress: require("../../../assets/cloth-details/order-v2/garments/kids_dress.jpg"),
+  Kurta: require("../../../assets/cloth-details/order-v2/garments/kids_kurta.jpg"),
+  Shirt: require("../../../assets/cloth-details/order-v2/garments/kids_shirt.jpg"),
+  Shorts: require("../../../assets/cloth-details/order-v2/garments/kids_shorts.jpg"),
+  Pants: require("../../../assets/cloth-details/order-v2/garments/kids_pants.jpg"),
+  Lehenga: require("../../../assets/cloth-details/order-v2/garments/kids_lehenga.jpg"),
+  Suit: require("../../../assets/cloth-details/order-v2/garments/kids_suit.jpg"),
+  "School Uniform": require("../../../assets/cloth-details/order-v2/garments/kids_school_uniform.jpg"),
+  Other: require("../../../assets/cloth-details/order-v2/garments/kids_other.jpg")
 };
 
 export const WORK_SERVICE_ASSETS: Record<string, ImageSourcePropType> = {
   // New Stitching
-  "Stitch from Fabric": require("../../../assets/cloth-details/services/stitch_from_fabric.webp"),
-  "Copy Existing Garment": require("../../../assets/cloth-details/services/copy_garment.webp"),
-  "Stitch from Reference / Design": require("../../../assets/cloth-details/services/stitch_from_reference.webp"),
+  "Stitch from Fabric": require("../../../assets/cloth-details/order-v2/services/stitch_from_fabric.jpg"),
+  "Copy Existing Garment": require("../../../assets/cloth-details/order-v2/services/copy_garment.jpg"),
+  "Stitch from Reference / Design": require("../../../assets/cloth-details/order-v2/services/stitch_from_reference.jpg"),
 
   // Alteration & Fitting
-  Tighten: require("../../../assets/cloth-details/services/tighten.webp"),
+  Tighten: require("../../../assets/cloth-details/order-v2/services/tighten.jpg"),
   Loosen: require("../../../assets/cloth-details/services/loosen.webp"),
   "Waist Adjustment": require("../../../assets/cloth-details/services/waist_adjustment.webp"),
   "Sleeve Adjustment": require("../../../assets/cloth-details/services/sleeve_adjustment.webp"),
@@ -78,28 +91,28 @@ export const WORK_SERVICE_ASSETS: Record<string, ImageSourcePropType> = {
   "General Fitting": require("../../../assets/cloth-details/services/general_fitting.webp"),
 
   // Repair & Mending
-  "Torn Seam Repair": require("../../../assets/cloth-details/services/torn_seam_repair.webp"),
-  "Hole / Tear Repair": require("../../../assets/cloth-details/services/hole_repair.webp"),
-  "Zip Repair": require("../../../assets/cloth-details/services/zip_repair.webp"),
-  "Zip Replacement": require("../../../assets/cloth-details/services/zip_replacement.webp"),
-  "Button Replacement": require("../../../assets/cloth-details/services/button_replacement.webp"),
-  "Hook Replacement": require("../../../assets/cloth-details/services/hook_replacement.webp"),
-  "Elastic Replacement": require("../../../assets/cloth-details/services/elastic_replacement.webp"),
-  "Pocket Repair": require("../../../assets/cloth-details/services/pocket_repair.webp"),
+  "Torn Seam Repair": require("../../../assets/cloth-details/order-v2/services/torn_seam_repair.jpg"),
+  "Hole / Tear Repair": require("../../../assets/cloth-details/order-v2/services/hole_repair.jpg"),
+  "Zip Repair": require("../../../assets/cloth-details/order-v2/services/zip_repair.jpg"),
+  "Zip Replacement": require("../../../assets/cloth-details/order-v2/services/zip_replacement.jpg"),
+  "Button Replacement": require("../../../assets/cloth-details/order-v2/services/button_replacement.jpg"),
+  "Hook Replacement": require("../../../assets/cloth-details/order-v2/services/hook_replacement.jpg"),
+  "Elastic Replacement": require("../../../assets/cloth-details/order-v2/services/elastic_replacement.jpg"),
+  "Pocket Repair": require("../../../assets/cloth-details/order-v2/services/pocket_repair.jpg"),
 
   // Embroidery & Custom Work
-  Embroidery: require("../../../assets/cloth-details/services/embroidery_detail.webp"),
-  "Lace Work": require("../../../assets/cloth-details/services/lace_work.webp"),
+  Embroidery: require("../../../assets/cloth-details/order-v2/services/embroidery_detail.jpg"),
+  "Lace Work": require("../../../assets/cloth-details/order-v2/services/lace_work.jpg"),
   "Border Work": require("../../../assets/cloth-details/services/border_work.webp"),
   "Patch / Appliqué Work": require("../../../assets/cloth-details/services/patch_work.webp"),
   "Custom Design Modification": require("../../../assets/cloth-details/services/custom_modification.webp"),
 
   // Finishing Work
-  Hemming: require("../../../assets/cloth-details/services/hemming.webp"),
-  Pico: require("../../../assets/cloth-details/services/pico.webp"),
-  "Fall Stitching": require("../../../assets/cloth-details/services/fall_stitching.webp"),
-  "Lining Work": require("../../../assets/cloth-details/services/lining_work.webp"),
-  "Minor Finishing": require("../../../assets/cloth-details/services/minor_finishing.webp")
+  Hemming: require("../../../assets/cloth-details/order-v2/services/hemming.jpg"),
+  Pico: require("../../../assets/cloth-details/order-v2/services/pico.jpg"),
+  "Fall Stitching": require("../../../assets/cloth-details/order-v2/services/fall_stitching.jpg"),
+  "Lining Work": require("../../../assets/cloth-details/order-v2/services/lining_work.jpg"),
+  "Minor Finishing": require("../../../assets/cloth-details/order-v2/services/minor_finishing.jpg")
 };
 
 export const EXPLANATIONS: Record<string, ExplanationInfo> = {
@@ -472,13 +485,14 @@ export const EXPLANATIONS: Record<string, ExplanationInfo> = {
   }
 };
 
-export function getClothDetailsAsset(type: "fit" | "category" | "garment" | "service", name: string): ImageSourcePropType {
+export function getClothDetailsAsset(type: "fit" | "category" | "garment" | "service", name: string, gender?: string): ImageSourcePropType {
   switch (type) {
     case "fit":
       return FIT_ASSETS[name] ?? FIT_ASSETS["Unisex / Uniform / Other"];
     case "category":
       return CATEGORY_ASSETS[name] ?? CATEGORY_ASSETS["Other"];
     case "garment":
+      if (gender === "Kids" && KIDS_GARMENT_ASSETS[name]) return KIDS_GARMENT_ASSETS[name];
       return GARMENT_ASSETS[name] ?? GARMENT_ASSETS["Other"];
     case "service":
       return WORK_SERVICE_ASSETS[name] ?? WORK_SERVICE_ASSETS["Minor Finishing"];

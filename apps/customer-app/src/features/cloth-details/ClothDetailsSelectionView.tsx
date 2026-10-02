@@ -72,10 +72,11 @@ export function ClothDetailsSelectionView({
   const handleOpenExplanation = (
     key: string,
     type: "fit" | "category" | "garment" | "service",
-    fallbackTitle?: string
+    fallbackTitle?: string,
+    fitType?: string
   ) => {
     const data = getExplanationData(key, fallbackTitle);
-    const img = getClothDetailsAsset(type, key);
+    const img = getClothDetailsAsset(type, key, fitType);
     setActiveExplanation(data);
     setActiveImage(img);
     setModalVisible(true);
@@ -150,7 +151,7 @@ export function ClothDetailsSelectionView({
           <View style={styles.gridRow}>
             {filteredGarments.map((garment) => {
               const isSelected = clothType === garment;
-              const imageSource = getClothDetailsAsset("garment", garment);
+              const imageSource = getClothDetailsAsset("garment", garment, gender);
 
               return (
                 <VisualSelectionCard
@@ -162,7 +163,7 @@ export function ClothDetailsSelectionView({
                   onPress={() => onSelectClothType(garment)}
                   showExplanation={true}
                   onWatchExplanation={() =>
-                    handleOpenExplanation(garment, "garment", garment)
+                    handleOpenExplanation(garment, "garment", garment, gender)
                   }
                 />
               );
