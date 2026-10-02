@@ -1041,6 +1041,10 @@ const notificationCampaignSchema = new Schema(
     scheduledAt: { type: Date, index: true },
     sentAt: Date,
     recipientCount: { type: Number, default: 0 },
+    eligibleRecipientCount: { type: Number, default: 0 },
+    deviceCount: { type: Number, default: 0 },
+    deliveredCount: { type: Number, default: 0 },
+    failedCount: { type: Number, default: 0 },
     error: String,
     createdBy: { type: String, required: true, index: true }
   },

@@ -22,6 +22,7 @@ const adminSendNotificationSchema = z.object({
   target: z.enum(["everyone", "customers", "tailors", "delivery"]),
   title: z.string().trim().min(1).max(120),
   body: z.string().trim().min(1).max(500),
+  sendMode: z.enum(["now", "schedule"]).optional(),
   scheduledAt: z.string().datetime().optional().nullable()
 });
 
@@ -66,7 +67,14 @@ async function deliverCampaign(campaign: { target: "everyone" | "customers" | "t
     { role: { $in: ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER"] as const } };
   const users = await UserModel.find(roleQuery).select("_id role");
   const userIds = users.map((user) => String(user._id));
-  await sendPushToUsers(userIds, {
+  const targetApps = campaign.target === "customers"
+    ? ["customer"]
+    : campaign.target === "tailors"
+      ? ["tailor"]
+      : campaign.target === "delivery"
+        ? ["delivery"]
+        : ["customer", "tailor", "delivery"];
+  const delivery = await sendPushToUsers(userIds, {
     title: campaign.title,
     body: campaign.body,
     data: {
@@ -75,20 +83,28 @@ async function deliverCampaign(campaign: { target: "everyone" | "customers" | "t
       screen: "notifications"
     },
     channelId: campaign.target === "delivery" ? "delivery-updates-v2" : campaign.target === "tailors" ? "tailor-pickup-updates-v2" : "customer-orders-v2",
-    sound: "ding.mp3"
+    sound: "ding.mp3",
+    targetApps
   });
-  return userIds.length;
+  return { audienceCount: userIds.length, delivery };
 }
 
 async function completeCampaign(campaign: any) {
   try {
-    const recipientCount = await deliverCampaign(campaign);
+    const { audienceCount, delivery } = await deliverCampaign(campaign);
+    campaign.recipientCount = audienceCount;
+    campaign.eligibleRecipientCount = delivery.eligibleRecipientCount;
+    campaign.deviceCount = delivery.deviceCount;
+    campaign.deliveredCount = delivery.successCount;
+    campaign.failedCount = delivery.failureCount;
+    if (delivery.successCount < 1) {
+      throw new Error(delivery.error ?? `No push notifications were accepted for ${audienceCount} matching user${audienceCount === 1 ? "" : "s"}.`);
+    }
     campaign.status = "SENT";
     campaign.sentAt = new Date();
-    campaign.recipientCount = recipientCount;
-    campaign.error = undefined;
+    campaign.error = delivery.error ?? (delivery.failureCount > 0 ? `${delivery.failureCount} device deliver${delivery.failureCount === 1 ? "y" : "ies"} failed.` : undefined);
     await campaign.save();
-    return recipientCount;
+    return delivery;
   } catch (error) {
     campaign.status = "FAILED";
     campaign.error = error instanceof Error ? error.message.slice(0, 500) : "Notification provider failed";
@@ -99,8 +115,12 @@ async function completeCampaign(campaign: any) {
 
 export async function sendAdminNotificationController(req: Request, res: Response) {
   const input = adminSendNotificationSchema.parse(req.body ?? {});
-  const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
-  const scheduled = Boolean(scheduledAt && scheduledAt.getTime() > Date.now() + 5000);
+  const sendMode = input.sendMode ?? (input.scheduledAt ? "schedule" : "now");
+  const scheduledAt = sendMode === "schedule" && input.scheduledAt ? new Date(input.scheduledAt) : null;
+  if (sendMode === "schedule" && (!scheduledAt || scheduledAt.getTime() <= Date.now() + 5000)) {
+    throw new AppError(400, "Choose a schedule time at least a few seconds in the future.");
+  }
+  const scheduled = sendMode === "schedule";
   const campaign = await NotificationCampaignModel.create({
     channel: input.channel,
     target: input.target,
@@ -115,10 +135,11 @@ export async function sendAdminNotificationController(req: Request, res: Respons
     return;
   }
   try {
-    const recipients = await completeCampaign(campaign);
-    res.json({ data: { ok: true, recipients, campaign } });
-  } catch {
-    throw new AppError(502, "Push campaign could not be delivered. It is recorded as failed.");
+    const delivery = await completeCampaign(campaign);
+    res.json({ data: { ok: true, recipients: delivery.successCount, delivery, campaign } });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Notification provider failed";
+    throw new AppError(502, `Push campaign failed: ${reason}`);
   }
 }
 

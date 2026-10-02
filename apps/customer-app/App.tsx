@@ -61,9 +61,12 @@ async function backendReverseGeocode(lat: number, lng: number, accuracyMeters?: 
     return await api(`/location/reverse-geocode?lat=${lat}&lng=${lng}${accuracy}`, {});
   } catch (error) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7000);
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
-        headers: { "User-Agent": "Darji-Customer-App/1.0" }
-      });
+        headers: { "User-Agent": "Darji-Customer-App/1.0" },
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeout));
       if (response.ok) {
         const osmData = await response.json() as {
           display_name?: string;
@@ -649,11 +652,22 @@ type ServiceAvailability = {
   message?: string;
 };
 type ServiceAreaScreenState = {
-  status: "idle" | "locating" | "checking" | "available" | "unavailable";
+  status: "idle" | "locating" | "checking" | "available" | "unavailable" | "error";
   address?: string;
   location?: { lat: number; lng: number };
   availability?: ServiceAvailability;
+  error?: string;
 };
+
+function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timeout));
+}
 
 function openDarjiUrl(url: string) {
   Linking.openURL(url).catch(() => undefined);
@@ -2529,8 +2543,9 @@ function HomeScreen({
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
-  const localStories = storiesFromCustomerData(profile, orders, appReviews, defaultAddress);
-  const stories = featuredStories.length ? featuredStories : localStories;
+  // Customer testimonials are editorial content. A submitted review must be
+  // explicitly featured by an admin before it appears in this section.
+  const stories = featuredStories;
 
   const loadHomeExtras = useCallback(() => {
     if (!token) return;
@@ -2994,11 +3009,108 @@ function FeatureSoonScreen({ setScreen, onNotify }: { setScreen: (screen: Screen
 
 function LocationFetchingScreen({
   title = "Fetching your location",
-  message = "We are setting your current address as the default pickup address for your orders."
+  message = "We are setting your current address as the default pickup address for your orders.",
+  serviceCheck = false,
+  phase = "locating",
+  address,
+  errorMessage,
+  onRetry,
+  onChangeAddress
 }: {
   title?: string;
   message?: string;
+  serviceCheck?: boolean;
+  phase?: "locating" | "checking";
+  address?: string;
+  errorMessage?: string;
+  onRetry?: () => void;
+  onChangeAddress?: () => void;
 }) {
+  if (serviceCheck) {
+    const locationReady = phase === "checking" || Boolean(address);
+    return (
+      <SafeAreaView style={[styles.safe, styles.serviceCheckSafe]}>
+        <View style={styles.serviceCheckGlowTop} />
+        <View style={styles.serviceCheckGlowBottom} />
+        <ScrollView contentContainerStyle={styles.serviceCheckContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.serviceCheckBrandPill}>
+            <View style={styles.serviceCheckBrandDot} />
+            <Text style={styles.serviceCheckBrandText}>DARJI SERVICE CHECK</Text>
+          </View>
+          <View style={styles.serviceCheckCard}>
+            <View style={styles.serviceCheckIconRing}>
+              <View style={styles.serviceCheckIcon}>
+                <Ionicons name={errorMessage ? "cloud-offline-outline" : "navigate"} size={34} color={BRAND_ORANGE} />
+              </View>
+            </View>
+            <Text style={styles.serviceCheckTitle}>{errorMessage ? "We could not finish the check" : title}</Text>
+            <Text style={styles.serviceCheckMessage}>{errorMessage ?? message}</Text>
+
+            {!errorMessage ? (
+              <View style={styles.serviceCheckProgressCard}>
+                <View style={styles.serviceCheckStepRow}>
+                  <View style={[styles.serviceCheckStepIcon, locationReady && styles.serviceCheckStepDone]}>
+                    {locationReady ? <Ionicons name="checkmark" size={16} color="#ffffff" /> : <ActivityIndicator size="small" color={BRAND_ORANGE} />}
+                  </View>
+                  <View style={styles.serviceCheckStepCopy}>
+                    <Text style={styles.serviceCheckStepTitle}>Finding your pickup location</Text>
+                    <Text style={styles.serviceCheckStepText}>{locationReady ? "Location found" : "Getting a reliable location fix"}</Text>
+                  </View>
+                </View>
+                <View style={styles.serviceCheckStepDivider} />
+                <View style={styles.serviceCheckStepRow}>
+                  <View style={[styles.serviceCheckStepIcon, phase === "checking" && styles.serviceCheckStepActive]}>
+                    {phase === "checking" ? <ActivityIndicator size="small" color={BRAND_ORANGE} /> : <Ionicons name="location-outline" size={17} color="#94a3b8" />}
+                  </View>
+                  <View style={styles.serviceCheckStepCopy}>
+                    <Text style={styles.serviceCheckStepTitle}>Checking Darji coverage</Text>
+                    <Text style={styles.serviceCheckStepText}>{phase === "checking" ? "Matching your location with active service areas" : "Starts as soon as your location is ready"}</Text>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.serviceCheckErrorBanner}>
+                <Ionicons name="information-circle-outline" size={20} color="#b45309" />
+                <Text style={styles.serviceCheckErrorText}>Your service area has not been changed. Retry the check or choose another pickup address.</Text>
+              </View>
+            )}
+
+            {address ? (
+              <View style={styles.serviceCheckAddressCard}>
+                <View style={styles.serviceCheckAddressIcon}><Ionicons name="pin-outline" size={18} color={BRAND_ORANGE} /></View>
+                <View style={styles.serviceCheckAddressCopy}>
+                  <Text style={styles.serviceCheckAddressLabel}>LOCATION BEING CHECKED</Text>
+                  <Text style={styles.serviceCheckAddressText} numberOfLines={3}>{address}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {(onRetry || onChangeAddress) ? (
+              <View style={styles.serviceCheckActions}>
+                {onRetry ? (
+                  <Pressable style={styles.serviceCheckPrimaryButton} onPress={onRetry}>
+                    <Ionicons name="refresh-outline" size={19} color="#111111" />
+                    <Text style={styles.serviceCheckPrimaryText}>{errorMessage ? "Try Again" : "Restart Check"}</Text>
+                  </Pressable>
+                ) : null}
+                {onChangeAddress ? (
+                  <Pressable style={styles.serviceCheckSecondaryButton} onPress={onChangeAddress}>
+                    <Ionicons name="swap-horizontal-outline" size={19} color={BRAND_DEEP} />
+                    <Text style={styles.serviceCheckSecondaryText}>Choose Another Address</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.serviceCheckPrivacyRow}>
+            <Ionicons name="shield-checkmark-outline" size={16} color="#64748b" />
+            <Text style={styles.serviceCheckPrivacyText}>Your location is used only to confirm pickup and delivery availability.</Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.locationLoadingContent}>
@@ -6487,7 +6599,8 @@ function QuotesScreen({
     const bFav = (b.tailorId && favoriteTailorIds.includes(b.tailorId)) || (b.tailorProfile?.id && favoriteTailorIds.includes(b.tailorProfile.id));
     if (aFav && !bFav) return -1;
     if (!aFav && bFav) return 1;
-    return 0;
+    if (a.price !== b.price) return a.price - b.price;
+    return String(a.backendQuoteId ?? a.id).localeCompare(String(b.backendQuoteId ?? b.id));
   });
 
   async function confirmTailor(quote = selectedQuote) {
@@ -9841,10 +9954,35 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
   );
 }
 
-function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Screen) => void; stories: CustomerStory[] }) {
+function CustomerStoriesScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
+  const [stories, setStories] = useState<CustomerStory[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<CustomerStory[]>("/reviews/featured")
+      .then((items) => {
+        if (!cancelled) setStories(items);
+      })
+      .catch(() => {
+        if (!cancelled) setStories([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "customerStories")} setScreen={setScreen} backScreen="home">
-      {stories.length ? stories.map((story) => (
+      {loading ? (
+        <View style={styles.emptyState}>
+          <ActivityIndicator color={BRAND_ORANGE} />
+          <Text style={styles.helperText}>Loading customer stories...</Text>
+        </View>
+      ) : stories.length ? stories.map((story) => (
         <View key={story.id} style={styles.storyListCard}>
           <View style={styles.storyFooter}>
             <FallbackAvatar name={story.name} size={36} />
@@ -9863,7 +10001,7 @@ function CustomerStoriesScreen({ setScreen, stories }: { setScreen: (screen: Scr
         <View style={styles.emptyState}>
           <Ionicons name="star-outline" size={34} color={BRAND_ORANGE} />
           <Text style={styles.emptyTitle}>No reviews yet</Text>
-          <Text style={styles.helperText}>Customer stories will appear here after ratings are submitted.</Text>
+          <Text style={styles.helperText}>Customer stories selected by Darji will appear here.</Text>
         </View>
       )}
     </ProfileSubPage>
@@ -12164,19 +12302,22 @@ function AppContent() {
   }, [token]);
 
   useEffect(() => {
-    if (!token) return undefined;
+    if (!token || !user?.id) return;
+    // Resolve serviceability once for this signed-in app launch. Returning from
+    // the background (image picker, payment app, permission UI, etc.) must not
+    // replace the customer's current screen with the global location loader.
+    hasResolvedStartupLocationRef.current = false;
+    setServiceAreaScreen({ status: "idle" });
     updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: false }));
-    });
-    return () => subscription.remove();
-  }, [token]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!token || customerData.hasCapturedCurrentAddress) return;
     let cancelled = false;
 
     async function captureCurrentAddress() {
+      let checkedAddress: string | undefined;
+      let checkedLocation: { lat: number; lng: number } | undefined;
       try {
         if (!hasResolvedStartupLocationRef.current) setServiceAreaScreen({ status: "locating" });
         const permission = await Location.requestForegroundPermissionsAsync();
@@ -12189,33 +12330,51 @@ function AppContent() {
           return;
         }
 
-        const current = await Promise.race([
+        const current = await promiseWithTimeout(
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Location request timed out")), 12000))
-        ]);
-        let resolvedAddress: string;
-        try {
-          const geo = await backendReverseGeocode(current.coords.latitude, current.coords.longitude);
-          resolvedAddress = geo.formattedAddress;
-        } catch {
-          resolvedAddress = `Lat ${current.coords.latitude.toFixed(5)}, Lng ${current.coords.longitude.toFixed(5)}`;
-        }
+          10000,
+          "We could not get your current location in time."
+        );
+        const latitude = current.coords.latitude;
+        const longitude = current.coords.longitude;
+        checkedLocation = { lat: latitude, lng: longitude };
+        checkedAddress = `Near ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 
         if (cancelled) return;
 
         setServiceAreaScreen({
           status: "checking",
-          address: resolvedAddress,
-          location: { lat: current.coords.latitude, lng: current.coords.longitude }
+          address: checkedAddress,
+          location: checkedLocation
         });
+
+        const [geo, availability] = await Promise.all([
+          promiseWithTimeout(
+            backendReverseGeocode(latitude, longitude, current.coords.accuracy ?? undefined),
+            8000,
+            "Address lookup timed out"
+          ).catch(() => undefined),
+          promiseWithTimeout(
+            api<ServiceAvailability>(
+              `/service-availability?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}`,
+              {},
+              token
+            ),
+            10000,
+            "The Darji service-area check timed out."
+          )
+        ]);
+        const resolvedAddress = geo?.formattedAddress ?? checkedAddress;
+        checkedAddress = resolvedAddress;
+        if (cancelled) return;
 
         const currentAddress: SavedAddress = {
           id: "current-location",
           label: "Current Location",
           address: resolvedAddress,
           isDefault: false,
-          lat: current.coords.latitude,
-          lng: current.coords.longitude
+          lat: latitude,
+          lng: longitude
         };
 
         updateCustomerData((data) => {
@@ -12234,15 +12393,8 @@ function AppContent() {
           pickup: defaultAddress?.address ?? resolvedAddress,
           pickupLocation: defaultAddress?.lat != null && defaultAddress.lng != null
             ? { lat: defaultAddress.lat, lng: defaultAddress.lng }
-            : { lat: current.coords.latitude, lng: current.coords.longitude }
+            : { lat: latitude, lng: longitude }
         }));
-        const latitude = current.coords.latitude;
-        const longitude = current.coords.longitude;
-        const availability = await api<ServiceAvailability>(
-          `/service-availability?latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}`,
-          {},
-          token
-        );
         if (cancelled) return;
         hasResolvedStartupLocationRef.current = true;
         setServiceAreaScreen({
@@ -12252,10 +12404,15 @@ function AppContent() {
           availability
         });
         updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           hasResolvedStartupLocationRef.current = true;
-          setServiceAreaScreen({ status: "available" });
+          setServiceAreaScreen({
+            status: "error",
+            address: checkedAddress,
+            location: checkedLocation,
+            error: error instanceof Error ? error.message : "We could not confirm service availability."
+          });
           updateCustomerData((data) => ({ ...data, hasCapturedCurrentAddress: true }));
         }
       }
@@ -12652,7 +12809,31 @@ function AppContent() {
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} setLanguagePreference={setLanguagePreference} />);
   const choosingServiceAddress = screen === "savedAddresses" || screen === "addAddress";
   if (!choosingServiceAddress && (serviceAreaScreen.status === "idle" || serviceAreaScreen.status === "locating" || serviceAreaScreen.status === "checking")) {
-    return withAppChrome(<LocationFetchingScreen title="Finding service near you" message="Checking your current location and Darji availability." />);
+    return withAppChrome(
+      <LocationFetchingScreen
+        title={serviceAreaScreen.status === "checking" ? "Checking service in your area" : "Finding service near you"}
+        message={serviceAreaScreen.status === "checking" ? "We found your location. Now we are checking it against Darji's active pickup areas." : "Finding your current pickup location before checking Darji availability."}
+        serviceCheck
+        phase={serviceAreaScreen.status === "checking" ? "checking" : "locating"}
+        address={serviceAreaScreen.address}
+        onRetry={retryCurrentLocation}
+        onChangeAddress={() => setScreen("savedAddresses")}
+      />
+    );
+  }
+  if (!choosingServiceAddress && serviceAreaScreen.status === "error") {
+    return withAppChrome(
+      <LocationFetchingScreen
+        title="Service check needs attention"
+        message="We could not confirm availability for your location."
+        serviceCheck
+        phase={serviceAreaScreen.location ? "checking" : "locating"}
+        address={serviceAreaScreen.address}
+        errorMessage={serviceAreaScreen.error ?? "We could not confirm Darji availability. Check your connection and try again."}
+        onRetry={retryCurrentLocation}
+        onChangeAddress={() => setScreen("savedAddresses")}
+      />
+    );
   }
   if (!choosingServiceAddress && serviceAreaScreen.status === "unavailable") {
     return withAppChrome(
@@ -12781,7 +12962,7 @@ function AppContent() {
         </Modal>
 
         <Modal visible={screen === "customerStories"} onRequestClose={goBack} animationType="slide">
-          <CustomerStoriesScreen setScreen={setScreen} stories={storiesFromCustomerData(profile, orders, appReviews, defaultAddress)} />
+          <CustomerStoriesScreen setScreen={setScreen} />
         </Modal>
         
         <Modal visible={screen === "privacyPolicy"} onRequestClose={goBack} animationType="slide">
@@ -12924,6 +13105,41 @@ function createStyles(isDark = false) {
   onboardingTitle: { color: text, fontSize: 24, fontWeight: "900", marginTop: 34, marginBottom: 8 },
   locationLoadingContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 34 },
   locationLoadingIcon: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  serviceCheckSafe: { backgroundColor: "#f8fafc", overflow: "hidden" },
+  serviceCheckGlowTop: { position: "absolute", width: 300, height: 300, borderRadius: 150, backgroundColor: "#fff0cc", top: -190, right: -100, opacity: 0.9 },
+  serviceCheckGlowBottom: { position: "absolute", width: 240, height: 240, borderRadius: 120, backgroundColor: "#eaf2ff", bottom: -150, left: -110, opacity: 0.85 },
+  serviceCheckContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20, paddingTop: 30, paddingBottom: 34 },
+  serviceCheckBrandPill: { alignSelf: "center", minHeight: 32, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 16, borderWidth: 1, borderColor: "#f5dca7", backgroundColor: "#fffaf0", paddingHorizontal: 13, marginBottom: 16 },
+  serviceCheckBrandDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND_ORANGE },
+  serviceCheckBrandText: { color: "#9a5a05", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 },
+  serviceCheckCard: { width: "100%", maxWidth: 420, alignSelf: "center", overflow: "hidden", borderRadius: 30, borderWidth: 1, borderColor: "#e7edf5", backgroundColor: "#ffffff", paddingHorizontal: 22, paddingTop: 26, paddingBottom: 22, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.1, shadowRadius: 30, elevation: 7 },
+  serviceCheckIconRing: { width: 88, height: 88, alignSelf: "center", borderRadius: 30, borderWidth: 1, borderColor: "#f8d68e", backgroundColor: "#fff9ea", alignItems: "center", justifyContent: "center" },
+  serviceCheckIcon: { width: 64, height: 64, borderRadius: 22, backgroundColor: "#fff0c9", alignItems: "center", justifyContent: "center" },
+  serviceCheckTitle: { color: BRAND_DEEP, fontSize: 27, lineHeight: 33, fontWeight: "900", textAlign: "center", marginTop: 20 },
+  serviceCheckMessage: { color: "#64748b", fontSize: 14, lineHeight: 21, fontWeight: "600", textAlign: "center", marginTop: 9, paddingHorizontal: 4 },
+  serviceCheckProgressCard: { borderRadius: 20, borderWidth: 1, borderColor: "#e6ebf2", backgroundColor: "#f8fafc", paddingHorizontal: 15, paddingVertical: 13, marginTop: 22 },
+  serviceCheckStepRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 12 },
+  serviceCheckStepIcon: { width: 34, height: 34, borderRadius: 12, borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  serviceCheckStepDone: { borderColor: "#22c55e", backgroundColor: "#22c55e" },
+  serviceCheckStepActive: { borderColor: "#f6cf82", backgroundColor: "#fff8e8" },
+  serviceCheckStepCopy: { flex: 1, minWidth: 0 },
+  serviceCheckStepTitle: { color: BRAND_DEEP, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  serviceCheckStepText: { color: "#718096", fontSize: 11, lineHeight: 16, fontWeight: "600", marginTop: 2 },
+  serviceCheckStepDivider: { height: 1, backgroundColor: "#e7ecf2", marginLeft: 46, marginVertical: 3 },
+  serviceCheckErrorBanner: { flexDirection: "row", alignItems: "flex-start", gap: 9, borderRadius: 17, borderWidth: 1, borderColor: "#f7d58b", backgroundColor: "#fff8e8", padding: 13, marginTop: 20 },
+  serviceCheckErrorText: { flex: 1, color: "#8a530a", fontSize: 12, lineHeight: 18, fontWeight: "700" },
+  serviceCheckAddressCard: { flexDirection: "row", alignItems: "center", gap: 11, borderRadius: 17, borderWidth: 1, borderColor: "#e4eaf1", backgroundColor: "#ffffff", padding: 13, marginTop: 14 },
+  serviceCheckAddressIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" },
+  serviceCheckAddressCopy: { flex: 1, minWidth: 0 },
+  serviceCheckAddressLabel: { color: "#8b98aa", fontSize: 9, lineHeight: 13, fontWeight: "900", letterSpacing: 0.65 },
+  serviceCheckAddressText: { color: BRAND_DEEP, fontSize: 12, lineHeight: 17, fontWeight: "800", marginTop: 2 },
+  serviceCheckActions: { gap: 10, marginTop: 20 },
+  serviceCheckPrimaryButton: { minHeight: 51, borderRadius: 16, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  serviceCheckPrimaryText: { color: "#111111", fontSize: 14, fontWeight: "900" },
+  serviceCheckSecondaryButton: { minHeight: 49, borderRadius: 16, borderWidth: 1, borderColor: "#dce3ec", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  serviceCheckSecondaryText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900" },
+  serviceCheckPrivacyRow: { maxWidth: 360, alignSelf: "center", flexDirection: "row", alignItems: "flex-start", justifyContent: "center", gap: 7, marginTop: 17, paddingHorizontal: 10 },
+  serviceCheckPrivacyText: { flex: 1, color: "#718096", fontSize: 11, lineHeight: 16, fontWeight: "600", textAlign: "center" },
   dialogOverlay: { flex: 1, backgroundColor: "rgba(8, 17, 31, 0.52)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   dialogCard: { width: "100%", maxWidth: 360, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.16, shadowRadius: 28, elevation: 8 },
   dialogIcon: { width: 54, height: 54, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },

@@ -2946,7 +2946,20 @@ export async function addChangeRequestMessageController(req: Request, res: Respo
   res.json({ data: updatedRequest });
 }
 
-async function reviewOrderContext(orderId: string, kind: string) {
+function formatReviewAddress(address?: {
+  line1?: string | null;
+  line2?: string | null;
+  landmark?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+} | null) {
+  if (!address) return undefined;
+  const locality = [address.city, address.state, address.pincode].filter(Boolean).join(", ");
+  return [address.line1, address.line2, address.landmark, locality].filter(Boolean).join(", ") || undefined;
+}
+
+async function reviewOrderContext(orderId: string, kind: string, customerId: string) {
   const order = await OrderModel.findById(orderId).select("orderNumber addressId tailorId createdAt");
   const tailoringRequest = order ? null : await TailoringRequestModel.findById(orderId).select("selectedQuoteId pickupAddress createdAt");
   const selectedQuote = tailoringRequest?.selectedQuoteId ? await TailorQuoteModel.findById(tailoringRequest.selectedQuoteId).select("tailorId") : null;
@@ -2955,32 +2968,41 @@ async function reviewOrderContext(orderId: string, kind: string) {
     : null;
   const tailorId = order?.tailorId ?? selectedQuote?.tailorId;
   const partnerId = deliveryTask?.assignedDeliveryPartnerId;
-  const [address, tailor, partner] = await Promise.all([
-    order?.addressId ? AddressModel.findById(order.addressId).select("city state") : null,
-    tailorId ? TailorModel.findById(tailorId).select("shopName userId") : null,
-    partnerId ? DeliveryPartnerModel.findById(partnerId).select("userId vehicleNumber") : null
+  const [orderAddress, defaultAddress, tailor, partner] = await Promise.all([
+    order?.addressId ? AddressModel.findById(order.addressId).select("line1 line2 landmark city state pincode") : null,
+    !order?.addressId && !tailoringRequest?.pickupAddress
+      ? AddressModel.findOne({ userId: customerId }).sort({ isDefault: -1, updatedAt: -1 }).select("line1 line2 landmark city state pincode")
+      : null,
+    tailorId ? TailorModel.findById(tailorId).select("shopName userId darjiTailorId") : null,
+    partnerId ? DeliveryPartnerModel.findById(partnerId).select("userId vehicleNumber darjiPartnerId deliveryType assignedArea") : null
   ]);
   const [tailorUser, partnerUser] = await Promise.all([
     tailor?.userId ? UserModel.findById(tailor.userId).select("name phone avatarUrl") : null,
     partner?.userId ? UserModel.findById(partner.userId).select("name phone avatarUrl") : null
   ]);
-  const location = address?.city
-    ? `${address.city}, ${address.state || "Delhi"}`
-    : tailoringRequest?.pickupAddress
-      ? String(tailoringRequest.pickupAddress).split(",").slice(-2).map((part) => part.trim()).filter(Boolean).join(", ")
-      : "Darji customer";
+  const customerAddress = tailoringRequest?.pickupAddress
+    ? String(tailoringRequest.pickupAddress)
+    : formatReviewAddress(orderAddress ?? defaultAddress);
+  const location = customerAddress
+    ? customerAddress.split(",").slice(-3).map((part) => part.trim()).filter(Boolean).join(", ")
+    : "Darji customer";
 
   return {
     orderNumber: order?.orderNumber || orderId.slice(0, 8).toUpperCase(),
     location,
+    customerAddress,
     targetId: kind === "delivery" ? partnerId : kind === "tailor" ? tailorId : undefined,
+    targetDarjiId: kind === "delivery" ? partner?.darjiPartnerId : kind === "tailor" ? tailor?.darjiTailorId : undefined,
     targetName: kind === "delivery"
       ? partnerUser?.name || "Delivery partner"
       : kind === "tailor"
         ? tailor?.shopName || tailorUser?.name || "Tailor"
         : "Darji App",
     targetPhone: kind === "delivery" ? partnerUser?.phone : tailorUser?.phone,
-    targetAvatarUrl: kind === "delivery" ? partnerUser?.avatarUrl : tailorUser?.avatarUrl
+    targetAvatarUrl: kind === "delivery" ? partnerUser?.avatarUrl : tailorUser?.avatarUrl,
+    targetVehicleNumber: kind === "delivery" ? partner?.vehicleNumber : undefined,
+    targetRole: kind === "delivery" ? partner?.deliveryType : kind === "tailor" ? "STITCHING_TAILOR" : "DARJI_APP",
+    targetArea: kind === "delivery" ? partner?.assignedArea : undefined
   };
 }
 
@@ -2989,7 +3011,7 @@ export async function listAdminReviewsController(req: Request, res: Response) {
   const populated = await Promise.all(
     reviews.map(async (review) => {
       const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
-      const context = await reviewOrderContext(String(review.orderId), String(review.kind));
+      const context = await reviewOrderContext(String(review.orderId), String(review.kind), String(review.userId));
       return {
         id: review.id,
         userId: review.userId,
@@ -3002,10 +3024,15 @@ export async function listAdminReviewsController(req: Request, res: Response) {
         createdAt: review.createdAt,
         user: user ? { name: user.name, phone: user.phone, avatarUrl: user.avatarUrl } : null,
         orderNumber: context.orderNumber,
+        customerAddress: context.customerAddress,
         targetId: context.targetId,
+        targetDarjiId: context.targetDarjiId,
         targetName: context.targetName,
         targetPhone: context.targetPhone,
-        targetAvatarUrl: context.targetAvatarUrl
+        targetAvatarUrl: context.targetAvatarUrl,
+        targetVehicleNumber: context.targetVehicleNumber,
+        targetRole: context.targetRole,
+        targetArea: context.targetArea
       };
     })
   );
@@ -3077,7 +3104,7 @@ export async function listFeaturedReviewsController(req: Request, res: Response)
   const populated = await Promise.all(
     reviews.map(async (review) => {
       const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
-      const context = await reviewOrderContext(String(review.orderId), String(review.kind));
+      const context = await reviewOrderContext(String(review.orderId), String(review.kind), String(review.userId));
       return {
         id: review.id,
         name: user?.name || "Customer",

@@ -790,6 +790,10 @@ export type NotificationCampaign = {
   scheduledAt?: string;
   sentAt?: string;
   recipientCount: number;
+  eligibleRecipientCount?: number;
+  deviceCount?: number;
+  deliveredCount?: number;
+  failedCount?: number;
   error?: string;
   createdAt: string;
 };

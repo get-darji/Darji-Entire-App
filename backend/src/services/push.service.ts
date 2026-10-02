@@ -15,6 +15,15 @@ export type PushPayload = {
   targetApps?: string[];
 };
 
+export type PushDeliveryResult = {
+  requestedRecipientCount: number;
+  eligibleRecipientCount: number;
+  deviceCount: number;
+  successCount: number;
+  failureCount: number;
+  error?: string;
+};
+
 let firebaseReady = false;
 const pushBuild = "incoming-fullscreen-v5";
 
@@ -235,15 +244,18 @@ async function sendExpoPushNotifications(tokens: string[], payload: PushPayload,
     await UserModel.updateMany({}, { $pull: { expoPushTokens: { token: { $in: invalidTokens } } } });
   }
   const successCount = tickets.filter((ticket) => ticket.status === "ok").length;
-  return { successCount, failureCount: tickets.length - successCount };
+  return { successCount, failureCount: tokens.length - successCount };
 }
 
-export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
+export async function sendPushToUsers(userIds: string[], payload: PushPayload): Promise<PushDeliveryResult> {
   initFirebaseAdmin();
   if (!firebaseReady) {
     console.warn("[FCM] Firebase Admin is not configured; using Expo push fallback only");
   }
-  if (!userIds.length) return;
+  const requestedRecipientCount = new Set(userIds).size;
+  if (!requestedRecipientCount) {
+    return { requestedRecipientCount: 0, eligibleRecipientCount: 0, deviceCount: 0, successCount: 0, failureCount: 0 };
+  }
   const targetApps = resolveTargetApps(payload);
   const shouldFilterByApp = targetApps.length > 0;
   const normalizedPayloadData = normalizeData(payload.data);
@@ -283,10 +295,18 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
   if (!tokens.length && !expoTokens.length) {
     const appLabel = targetApps.length ? ` app=${targetApps.join(",")}` : "";
     console.warn(`[Push] No registered device tokens for ${userIds.length} recipient(s)${appLabel}`);
-    return;
+    return {
+      requestedRecipientCount,
+      eligibleRecipientCount: eligibleUsers.length,
+      deviceCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      error: `No registered device tokens${appLabel}`
+    };
   }
 
   try {
+    const providerErrors: string[] = [];
     const isIncomingRequest = payload.channelId === "darji-incoming-orders-v4" ||
       payload.channelId === "darji-incoming-orders-v3" ||
       payload.channelId === "darji-incoming-requests-v1" ||
@@ -306,6 +326,7 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
       brand: "Darji"
     };
     const tag = data.taskId || data.requestId || data.orderId || "darzi-order";
+    if (tokens.length && !firebaseReady) providerErrors.push("Firebase Admin is not configured");
     const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
       tokens,
       ...(!isIncomingRequest ? {
@@ -346,7 +367,12 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
           imageUrl: payload.imageUrl
         }
       }
-    }) : { responses: [], successCount: 0, failureCount: 0 };
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : "Firebase push provider failed";
+      providerErrors.push(message);
+      console.error("[FCM] Push delivery failed", error);
+      return { responses: [], successCount: 0, failureCount: tokens.length };
+    }) : { responses: [], successCount: 0, failureCount: tokens.length };
 
     const invalidTokens = result.responses.flatMap((response, index) => {
       const code = response.error?.code ?? "";
@@ -358,10 +384,31 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload) {
         UserModel.updateMany({ fcmToken: { $in: invalidTokens } }, { $unset: { fcmToken: "" } })
       ]);
     }
-    const expoResult = await sendExpoPushNotifications(expoTokens, payload, data);
+    const expoResult = await sendExpoPushNotifications(expoTokens, payload, data).catch((error) => {
+      const message = error instanceof Error ? error.message : "Expo push provider failed";
+      providerErrors.push(message);
+      console.error("[Expo] Push delivery failed", error);
+      return { successCount: 0, failureCount: expoTokens.length };
+    });
     console.log(`[Push] build=${pushBuild} app=${targetApps.join(",") || "all"} incoming=${isIncomingRequest} fcmTokens=${tokens.length} expoTokens=${expoTokens.length} fcmSent=${result.successCount} fcmFailed=${result.failureCount} expoSent=${expoResult.successCount} expoFailed=${expoResult.failureCount} title="${payload.title}"`);
+    return {
+      requestedRecipientCount,
+      eligibleRecipientCount: eligibleUsers.length,
+      deviceCount: tokens.length + expoTokens.length,
+      successCount: result.successCount + expoResult.successCount,
+      failureCount: result.failureCount + expoResult.failureCount,
+      error: providerErrors.length ? providerErrors.join("; ").slice(0, 500) : undefined
+    };
   } catch (error) {
     console.error("[FCM] Push delivery failed", error);
+    return {
+      requestedRecipientCount,
+      eligibleRecipientCount: eligibleUsers.length,
+      deviceCount: tokens.length + expoTokens.length,
+      successCount: 0,
+      failureCount: tokens.length + expoTokens.length,
+      error: error instanceof Error ? error.message : "Push provider failed"
+    };
   }
 }
 

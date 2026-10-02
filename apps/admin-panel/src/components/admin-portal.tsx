@@ -4542,6 +4542,10 @@ function ReviewsManagementPanel({
         review.user?.phone,
         review.targetName,
         review.targetPhone,
+        review.targetDarjiId,
+        review.targetVehicleNumber,
+        review.targetArea,
+        review.customerAddress,
         review.orderNumber,
         review.comment,
         review.kind
@@ -4629,6 +4633,7 @@ function ReviewsManagementPanel({
                       <div>
                         <p className="font-semibold text-[var(--foreground)]">{review.user?.name ?? "Customer"}</p>
                         <p className="text-xs text-[var(--muted)]">{review.user?.phone ?? "-"}</p>
+                        {review.customerAddress ? <p className="mt-1 max-w-64 text-xs leading-5 text-[var(--muted)]">{review.customerAddress}</p> : null}
                       </div>
                     </div>
                   </td>
@@ -4643,6 +4648,9 @@ function ReviewsManagementPanel({
                       <div>
                         <p className="font-semibold text-[var(--foreground)]">{review.targetName ?? (review.kind === "app" ? "Darji App" : "-")}</p>
                         <p className="text-xs text-[var(--muted)]">{review.targetPhone ?? "-"}</p>
+                        {review.targetDarjiId ? <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{review.targetDarjiId}</p> : null}
+                        {review.targetVehicleNumber ? <p className="text-xs text-[var(--muted)]">Vehicle {review.targetVehicleNumber}</p> : null}
+                        {review.targetArea ? <p className="text-xs text-[var(--muted)]">Area {review.targetArea}</p> : null}
                       </div>
                     </div>
                   </td>
@@ -4747,11 +4755,15 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
       onRefresh();
       toast.success(result.campaign.status === "SCHEDULED"
         ? "Push campaign scheduled"
-        : `Notification sent to ${result.recipients} user${result.recipients === 1 ? "" : "s"}`);
+        : `Notification accepted by ${result.recipients} device${result.recipients === 1 ? "" : "s"}`);
     },
-    onError: (error) => toast.error(extractError(error))
+    onError: (error) => {
+      onRefresh();
+      toast.error(extractError(error));
+    }
   });
   const targetCount = target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
+  const scheduleIsValid = Boolean(scheduledAt && new Date(scheduledAt).getTime() > Date.now() + 5000);
 
   return (
     <div className="space-y-6">
@@ -4775,15 +4787,28 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
             <Field label="Schedule time">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
             </Field>
-            <ActionButton disabled={!title.trim() || !message.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate({
-              channel: "push",
-              target: target as "everyone" | "customers" | "tailors" | "delivery",
-              title: title.trim(),
-              body: message.trim(),
-              scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null
-            })}>
-              {sendMutation.isPending ? "Saving campaign..." : scheduledAt ? "Schedule notification" : "Send notification"}
-            </ActionButton>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <ActionButton disabled={!title.trim() || !message.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate({
+                channel: "push",
+                target: target as "everyone" | "customers" | "tailors" | "delivery",
+                title: title.trim(),
+                body: message.trim(),
+                sendMode: "now",
+                scheduledAt: null
+              })}>
+                {sendMutation.isPending && sendMutation.variables?.sendMode === "now" ? "Sending..." : "Send Now"}
+              </ActionButton>
+              <ActionButton variant="secondary" disabled={!title.trim() || !message.trim() || !scheduleIsValid || sendMutation.isPending} onClick={() => sendMutation.mutate({
+                channel: "push",
+                target: target as "everyone" | "customers" | "tailors" | "delivery",
+                title: title.trim(),
+                body: message.trim(),
+                sendMode: "schedule",
+                scheduledAt: new Date(scheduledAt).toISOString()
+              })}>
+                {sendMutation.isPending && sendMutation.variables?.sendMode === "schedule" ? "Scheduling..." : "Schedule Notification"}
+              </ActionButton>
+            </div>
           </div>
         </Panel>
         <Panel>
@@ -4799,7 +4824,13 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
             {campaigns.map((item) => (
               <div key={item.id} className="rounded-2xl border border-[var(--panel-border)] p-3 text-sm">
                 <div className="flex items-start justify-between gap-3"><p className="font-semibold">{item.title}</p><StatusBadge value={item.status} /></div>
-                <p className="mt-1 text-xs text-[var(--muted)]">Push to {item.target} · {item.status === "SCHEDULED" ? `Scheduled ${formatDate(item.scheduledAt, true)}` : formatDate(item.sentAt ?? item.createdAt, true)} · {item.recipientCount ?? 0} recipients</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Push to {item.target} · {item.status === "SCHEDULED" ? `Scheduled ${formatDate(item.scheduledAt, true)}` : formatDate(item.sentAt ?? item.createdAt, true)} · {item.status === "SCHEDULED"
+                    ? "Waiting for scheduled delivery"
+                    : item.deliveredCount == null && item.deviceCount == null
+                      ? `${item.recipientCount ?? 0} recipients (legacy result)`
+                      : `${item.deliveredCount ?? 0}/${item.deviceCount ?? 0} device deliveries accepted · ${item.recipientCount ?? 0} matching users`}
+                </p>
                 {item.error ? <p className="mt-2 text-xs font-semibold text-rose-700">{item.error}</p> : null}
               </div>
             ))}

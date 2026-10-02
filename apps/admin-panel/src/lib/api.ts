@@ -237,8 +237,8 @@ export async function updateOperationalAlert(payload: { alertId: string; status:
   return unwrap<OperationalAlert>(api.patch(`/admin/operational-alerts/${alertId}`, body));
 }
 
-export async function sendAdminNotification(payload: { channel: "push"; target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string; scheduledAt?: string | null }) {
-  return unwrap<{ ok: boolean; recipients: number; campaign: NotificationCampaign }>(api.post("/notifications/admin-send", payload));
+export async function sendAdminNotification(payload: { channel: "push"; target: "everyone" | "customers" | "tailors" | "delivery"; title: string; body: string; sendMode: "now" | "schedule"; scheduledAt?: string | null }) {
+  return unwrap<{ ok: boolean; recipients: number; campaign: NotificationCampaign; delivery?: { deviceCount: number; successCount: number; failureCount: number } }>(api.post("/notifications/admin-send", payload));
 }
 
 export async function getAdminNotificationCampaigns() {
@@ -645,10 +645,15 @@ export type AdminReview = {
   isHidden: boolean;
   createdAt: string;
   orderNumber: string;
+  customerAddress?: string;
   targetId?: string;
+  targetDarjiId?: string;
   targetName?: string;
   targetPhone?: string;
   targetAvatarUrl?: string;
+  targetVehicleNumber?: string;
+  targetRole?: string;
+  targetArea?: string;
   user: {
     name?: string;
     phone: string;
