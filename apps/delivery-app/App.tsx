@@ -2284,7 +2284,7 @@ function OrderRequestModal({
   request?: DeliveryRequest;
   accepting: boolean;
   onAccept: () => void;
-  onViewDetails: () => void;
+  onViewDetails?: () => void;
   onClose: () => void;
 }) {
   const [countdown, setCountdown] = useState(30);
@@ -2350,7 +2350,7 @@ function OrderRequestModal({
           )}
           <Text style={[styles.paymentPill, paymentTone(request)]}>{paymentLabel(request)}</Text>
           <View style={styles.navRow}>
-            <View style={styles.flexOne}><PrimaryButton icon="eye-outline" label="View details" onPress={onViewDetails} variant="danger" /></View>
+            {onViewDetails ? <View style={styles.flexOne}><PrimaryButton icon="eye-outline" label="View details" onPress={onViewDetails} variant="danger" /></View> : null}
             <View style={styles.flexOne}><PrimaryButton icon="checkmark-outline" label="Accept" loading={accepting} onPress={onAccept} /></View>
           </View>
         </View>
@@ -4455,6 +4455,7 @@ function MainApp({
     try {
       await acceptDeliveryTask(popupRequest.id);
       dismissedRequestIdsRef.current.add(requestPresentationKey(popupRequest));
+      setPopupRequest(undefined);
     } catch (error) {
       showDialog({ title: "Accept failed", message: error instanceof Error ? error.message : "Could not accept request.", icon: "alert-circle-outline" });
       void loadRequests();
@@ -4527,6 +4528,29 @@ function MainApp({
   }, [requests, token]);
 
   const selectedBatch = useMemo(() => batches.find((b) => b.batchId === activeBatchId), [batches, activeBatchId]);
+
+  function openDeliveryGroup(batchId: string) {
+    const batch = batches.find((item) => item.batchId === batchId);
+    const directRequest = batch?.isInstant ? batch.requests[0] : undefined;
+    if (!directRequest) {
+      setActiveBatchId(batchId);
+      return;
+    }
+
+    setActiveBatchId(undefined);
+    if (directRequest.taskStatus === "pending") {
+      setPopupRequest(directRequest);
+      setRequestVisible(true);
+      return;
+    }
+
+    setActiveOrder(directRequest);
+    setActiveOrderScreen(
+      directRequest.taskStatus === "accepted" || directRequest.taskStatus === "picked_up"
+        ? "route"
+        : "summary"
+    );
+  }
 
   if (locationAccess !== "granted") {
     const permissionBlocked = locationAccess === "denied" && !locationCanAskAgain;
@@ -4619,6 +4643,13 @@ function MainApp({
     <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, onRefresh: () => void refreshVisibleDeliveryScreen() }}>
     <NotificationProvider app="delivery" onNavigate={handleNotificationNavigation}>
       <Screen>
+        <OrderRequestModal
+          accepting={accepting}
+          onAccept={() => void acceptPopupRequest()}
+          onClose={() => setRequestVisible(false)}
+          request={popupRequest}
+          visible={requestVisible}
+        />
         {cancellationAlert ? (
           <Pressable style={styles.topDisclaimer} onPress={() => openCancelledDelivery(cancellationAlert.id)}>
             <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
@@ -4634,7 +4665,7 @@ function MainApp({
           <HomeScreen
             activeBatch={activeBatch}
             completedJobs={completedJobs}
-            onOpenBatch={(batchId) => setActiveBatchId(batchId)}
+            onOpenBatch={openDeliveryGroup}
             onToggleOnline={toggleOnline}
             online={online}
             rating={deliveryRating}
@@ -4646,7 +4677,7 @@ function MainApp({
         {tab === "orders" ? <OrdersScreen
           accepting={accepting}
           batches={batches}
-          onOpenBatch={(batchId) => setActiveBatchId(batchId)}
+          onOpenBatch={openDeliveryGroup}
           onAcceptBatch={(batch) => {
             const task = batch.requests.find((request) => request.taskStatus === "pending") ?? batch.requests[0];
             if (!task) return;
