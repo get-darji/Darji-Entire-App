@@ -627,6 +627,7 @@ const homeAlterationImage = require("./assets/home-services/alteration.jpg");
 const homeRepairImage = require("./assets/home-services/repair.jpg");
 const homeEmbroideryImage = require("./assets/home-services/embroidery.jpg");
 const homeCustomStitchingImage = require("./assets/home-services/custom_stitching.jpg");
+const offersBenefitsImage = require("./assets/home-sections/offers_benefits.jpg");
 const avatarImages = {
   youngMale: require("./assets/icons/young male.png"),
   youngFemale: require("./assets/icons/young female.png"),
@@ -986,33 +987,38 @@ const fabricCareTips = [
 
 const howItWorksSteps = [
   {
-    icon: "camera-outline",
+    image: require("./assets/home-sections/how_share_request.jpg"),
     title: "Share Your Request",
     text: "Add photos, describe the work, and include measurements, samples, or voice notes so tailors understand the job clearly."
   },
   {
-    icon: "chatbubbles-outline",
+    image: require("./assets/home-sections/how_compare_quotes.jpg"),
     title: "Compare Live Quotes",
     text: "Verified nearby tailors review your request and send pricing, expected completion time, and any useful notes."
   },
   {
-    icon: "card-outline",
+    image: require("./assets/home-sections/how_confirm_securely.jpg"),
     title: "Confirm Securely",
     text: "Choose the tailor you prefer, review fees and pickup details, then pay online or select COD where available."
   },
   {
-    icon: "cube-outline",
+    image: require("./assets/home-sections/how_doorstep_pickup.jpg"),
     title: "Doorstep Pickup",
     text: "We pick up your clothes from your location and keep you updated at every step."
   },
   {
-    icon: "checkmark-done-outline",
+    image: require("./assets/home-sections/how_receive_rate.jpg"),
     title: "Receive & Rate",
     text: "Get your finished garment delivered home, then rate the tailor and delivery experience to help improve Darji."
   }
 ] as const;
 
-const workflowIconBackgrounds = ["#fff7e5", "#effaf1", "#f5efff", "#edf5ff", "#fff1d6"] as const;
+const whyChooseItems = [
+  { title: "Doorstep Service", copy: "Pickup and delivery", image: require("./assets/home-sections/why_doorstep.jpg") },
+  { title: "Trusted Tailors", copy: "Verified partners", image: require("./assets/home-sections/why_trusted_tailors.jpg") },
+  { title: "Best Prices", copy: "Compare pricing", image: require("./assets/home-sections/why_best_prices.jpg") },
+  { title: "Secure & Safe", copy: "Protected orders", image: require("./assets/home-sections/why_secure.jpg") }
+] as const;
 
 const MAX_VOICE_NOTES_PER_ITEM = 3;
 const VOICE_RECORDING_OPTIONS = {
@@ -2559,7 +2565,7 @@ function LegacyHomeScreen({
           <Text style={styles.cardLabel}>HOW DARJI WORKS</Text>
           {howItWorksSteps.map((step) => (
             <View key={step.title} style={styles.workflowItem}>
-              <Ionicons name={step.icon as keyof typeof Ionicons.glyphMap} size={18} color={BRAND_ORANGE} />
+              <Image source={step.image} style={styles.workflowImage} resizeMode="cover" />
               <View style={styles.profileRowText}>
                 <Text style={styles.workflowText}>{step.title}</Text>
                 <Text style={styles.mutedSmall}>{step.text}</Text>
@@ -2775,14 +2781,16 @@ function HomeScreen({
         <View style={styles.offerRow}>
           {activeCoupons.length ? activeCoupons.map((coupon) => (
             <Pressable key={coupon.code} style={styles.offerCard} onPress={() => setScreen("coupons")}>
-              <Ionicons name="ticket-outline" size={24} color={BRAND_ORANGE} />
-              <Text style={styles.offerTitle}>{couponDiscountLabel(coupon)}</Text>
-              <Text style={styles.offerCopy} numberOfLines={2}>{coupon.description || coupon.code}</Text>
-              <Text style={styles.offerCode}>Use code: {coupon.code}</Text>
+              <Image source={offersBenefitsImage} style={styles.offerImage} resizeMode="cover" />
+              <View style={styles.offerCardBody}>
+                <Text style={styles.offerTitle}>{couponDiscountLabel(coupon)}</Text>
+                <Text style={styles.offerCopy} numberOfLines={2}>{coupon.description || coupon.code}</Text>
+                <Text style={styles.offerCode}>Use code: {coupon.code}</Text>
+              </View>
             </Pressable>
           )) : (
             <Pressable style={styles.offerCardWide} onPress={() => setScreen("coupons")}>
-              <Ionicons name="ticket-outline" size={24} color={BRAND_ORANGE} />
+              <Image source={offersBenefitsImage} style={styles.offerWideImage} resizeMode="cover" />
               <View style={styles.profileRowText}>
                 <Text style={styles.offerTitle}>No active coupons yet</Text>
                 <Text style={styles.offerCopy}>Check the coupons section for new Darji offers.</Text>
@@ -2796,19 +2804,12 @@ function HomeScreen({
           <Text style={styles.listTitle}>Why Choose Darji?</Text>
         </View>
         <View style={styles.whyGrid}>
-          {[
-            ["bicycle-outline", "Doorstep Service", "Pickup and delivery"],
-            ["shield-checkmark-outline", "Trusted Tailors", "Verified partners"],
-            ["pricetag-outline", "Best Prices", "Compare Pricing"],
-            ["lock-closed-outline", "Secure & Safe", "Protected orders"]
-          ].map(([icon, title, copy]) => (
-            <View key={title} style={styles.whyCard}>
-              <View style={styles.whyIcon}>
-                <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={20} color={BRAND_ORANGE} />
-              </View>
-              <View style={styles.profileRowText}>
-                <Text style={styles.whyTitle}>{title}</Text>
-                <Text style={styles.whyCopy}>{copy}</Text>
+          {whyChooseItems.map((item) => (
+            <View key={item.title} style={styles.whyCard}>
+              <Image source={item.image} style={styles.whyImage} resizeMode="cover" />
+              <View style={styles.whyCardBody}>
+                <Text style={styles.whyTitle}>{item.title}</Text>
+                <Text style={styles.whyCopy}>{item.copy}</Text>
               </View>
             </View>
           ))}
@@ -2824,8 +2825,11 @@ function HomeScreen({
           {howItWorksSteps.map((step, index) => (
             <View key={step.title} style={styles.homeWorkflowStep}>
               <View style={styles.homeStepCard}>
-                <View style={[styles.stepIconBox, { backgroundColor: workflowIconBackgrounds[index] }]}>
-                  <Ionicons name={step.icon} size={22} color={BRAND_DEEP} />
+                <View style={styles.homeStepImageWrap}>
+                  <Image source={step.image} style={styles.homeStepImage} resizeMode="cover" />
+                  <View style={styles.homeStepNumber}>
+                    <Text style={styles.homeStepNumberText}>{index + 1}</Text>
+                  </View>
                 </View>
                 <View style={styles.homeStepCopyBlock}>
                   <Text maxFontSizeMultiplier={1.1} style={styles.stepTitle}>{step.title}</Text>
@@ -13241,15 +13245,19 @@ function createStyles(isDark = false) {
   pendingStepTitle: { color: text, fontSize: 15, fontWeight: "900", lineHeight: 20 },
   pendingStepHelper: { color: muted, fontSize: 12, fontWeight: "800", lineHeight: 18, marginTop: 3 },
   offerRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 22 },
-  offerCard: { flex: 1, minWidth: "30%", minHeight: 118, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, padding: 14 },
-  offerCardWide: { width: "100%", minHeight: 78, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
-  offerTitle: { color: text, fontSize: 14, fontWeight: "900", marginTop: 10 },
+  offerCard: { flex: 1, minWidth: "46%", minHeight: 202, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, overflow: "hidden" },
+  offerImage: { width: "100%", height: 108, backgroundColor: iconBg },
+  offerCardBody: { flex: 1, paddingHorizontal: 13, paddingTop: 10, paddingBottom: 12 },
+  offerCardWide: { width: "100%", minHeight: 102, borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 13, padding: 8, paddingRight: 14, overflow: "hidden" },
+  offerWideImage: { width: 86, height: 86, borderRadius: 14, backgroundColor: iconBg },
+  offerTitle: { color: text, fontSize: 14, fontWeight: "900" },
   offerCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 6 },
   offerCode: { color: "#8a5600", fontSize: 11, fontWeight: "900", marginTop: 8 },
   whyGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 22 },
-  whyCard: { width: "48%", minHeight: 116, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, alignItems: "flex-start", justifyContent: "center", padding: 12, marginBottom: 12 },
-  whyIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  whyTitle: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 17 },
+  whyCard: { width: "48%", minHeight: 184, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, overflow: "hidden", marginBottom: 12 },
+  whyImage: { width: "100%", height: 112, backgroundColor: iconBg },
+  whyCardBody: { flex: 1, justifyContent: "center", paddingHorizontal: 12, paddingVertical: 10 },
+  whyTitle: { color: text, fontSize: 14, fontWeight: "900", lineHeight: 18 },
   whyCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 16, marginTop: 4 },
   homeWorkflowHeader: { marginTop: 2, marginBottom: 14 },
   homeWorkflowHeadingCopy: { flex: 1, minWidth: 0 },
@@ -13257,11 +13265,14 @@ function createStyles(isDark = false) {
   homeWorkflowSubtitle: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 5, maxWidth: 310 },
   homeStepsList: { width: "100%", gap: 10, marginBottom: 12 },
   homeWorkflowStep: { width: "100%" },
-  homeStepCard: { width: "100%", minHeight: 90, borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 12, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.05, shadowRadius: 7, elevation: 1 },
-  stepIconBox: { width: 48, height: 48, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  homeStepCard: { width: "100%", minHeight: 112, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 13, padding: 10, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.05, shadowRadius: 7, elevation: 1 },
+  homeStepImageWrap: { width: 90, height: 90, borderRadius: 14, overflow: "hidden", backgroundColor: iconBg, flexShrink: 0 },
+  homeStepImage: { width: "100%", height: "100%" },
+  homeStepNumber: { position: "absolute", left: 7, top: 7, width: 26, height: 26, borderRadius: 13, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center" },
+  homeStepNumberText: { color: "#ffffff", fontSize: 11, fontWeight: "900" },
   homeStepCopyBlock: { flex: 1, minWidth: 0, alignSelf: "stretch", justifyContent: "center" },
-  stepTitle: { color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
-  stepCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 3 },
+  stepTitle: { color: text, fontSize: 14, lineHeight: 19, fontWeight: "900" },
+  stepCopy: { color: muted, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 4 },
   homeWorkflowTrust: { minHeight: 68, borderRadius: 14, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 22 },
   homeWorkflowTrustIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   homeWorkflowTrustTitle: { color: text, fontSize: 11, lineHeight: 16, fontWeight: "900" },
@@ -13317,7 +13328,8 @@ function createStyles(isDark = false) {
   launchPointRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: border },
   launchPointIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   howItWorksCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 16, marginBottom: 86 },
-  workflowItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 10 },
+  workflowItem: { minHeight: 70, flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 6 },
+  workflowImage: { width: 58, height: 58, borderRadius: 13, backgroundColor: iconBg },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
   tabs: { position: "absolute", left: 0, right: 0, bottom: 0, height: CUSTOMER_TAB_BAR_HEIGHT, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 0, paddingHorizontal: 4, zIndex: 20, elevation: 20 },
   tabItem: { alignItems: "center", justifyContent: "center", flex: 1 },

@@ -49,5 +49,8 @@
     "mongodb-memory-server@11.2.0": true,
     "protobufjs@7.6.4": true,
     "sharp@0.34.5": true
+  },
+  "dependencies": {
+    "expo-updates": "~57.0.24"
   }
 }
