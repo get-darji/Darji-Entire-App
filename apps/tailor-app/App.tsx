@@ -669,7 +669,11 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
     status = "READY";
   } else if (request.workStatus === "WORKING") {
     status = "WORKING";
-  } else if (request.orderStatus === "received_by_tailor") {
+  } else if (
+    request.orderStatus === "received_by_tailor"
+    || request.deliveryMilestones?.customerToTailor?.taskStatus === "delivered"
+    || Boolean(request.deliveryMilestones?.customerToTailor?.deliveredAt)
+  ) {
     status = "AT_TAILOR";
   }
   const items = requestItems(request).map((item) => ({
@@ -3152,6 +3156,19 @@ function OrderDetailsScreen({
   const hasReceivedPackage = acceptedRequest
     ? pickupCompleted || ["received_by_tailor", "ready_for_delivery", "out_for_delivery", "completed"].includes(acceptedRequest.orderStatus ?? "")
     : ["PACKAGE_HANDOVER_TO_TAILOR", "TAILOR_STARTED", "WORKING", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status);
+  const proofPhase = (
+    order.status === "CANCELLED"
+    || acceptedRequest?.status === "CANCELLED"
+    || acceptedRequest?.workStatus === "READY"
+    || ["READY", "TAILOR_COMPLETED", "STITCHING_COMPLETED", "ON_THE_WAY", "DELIVERED", "COMPLETED"].includes(order.status)
+  )
+    ? "READ_ONLY"
+    : (
+      acceptedRequest?.workStatus === "WORKING"
+      || ["WORKING", "TAILOR_STARTED", "CUTTING", "STITCHING_STARTED", "FINISHING"].includes(order.status)
+    )
+      ? "STITCHED"
+      : "RECEIVED";
 
   const stopVoicePlayback = useCallback(() => {
     try {
@@ -3743,8 +3760,8 @@ function OrderDetailsScreen({
             <View style={styles.whiteCard}>
               <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
               
-              {/* If AT_TAILOR, show ONLY Received Clothes ProofBlock + Submit button */}
-              {(order.status === "AT_TAILOR" || order.status === "PACKAGE_HANDOVER_TO_TAILOR") && (
+              {/* Before work starts, collect one received-clothes photo per item. */}
+              {proofPhase === "RECEIVED" && (
                 <>
                   <ProofBlock
                     title="Received clothes"
@@ -3774,8 +3791,8 @@ function OrderDetailsScreen({
                 </>
               )}
 
-              {/* If WORKING, show ONLY After Stitching ProofBlock + Ready button */}
-              {(order.status === "WORKING" || order.status === "TAILOR_STARTED") && (
+              {/* Once work starts, collect one completed-stitching photo per item. */}
+              {proofPhase === "STITCHED" && (
                 <>
                   <ProofBlock
                     title="After stitching"
@@ -3805,8 +3822,8 @@ function OrderDetailsScreen({
                 </>
               )}
 
-              {/* If READY or later, show read-only lists of both Received clothes & After stitching */}
-              {!(order.status === "AT_TAILOR" || order.status === "PACKAGE_HANDOVER_TO_TAILOR" || order.status === "WORKING" || order.status === "TAILOR_STARTED") && (
+              {/* Ready, completed, and cancelled orders keep both proof stages read-only. */}
+              {proofPhase === "READ_ONLY" && (
                 <>
                   <ProofBlock
                     title="Received clothes"

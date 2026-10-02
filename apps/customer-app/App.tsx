@@ -623,6 +623,10 @@ const alterationImage = require("./assets/icons/alteration.png");
 
 const repairsImage = require("./assets/icons/repairs.png");
 const stitchingImage = require("./assets/icons/stitching.png");
+const homeAlterationImage = require("./assets/home-services/alteration.jpg");
+const homeRepairImage = require("./assets/home-services/repair.jpg");
+const homeEmbroideryImage = require("./assets/home-services/embroidery.jpg");
+const homeCustomStitchingImage = require("./assets/home-services/custom_stitching.jpg");
 const avatarImages = {
   youngMale: require("./assets/icons/young male.png"),
   youngFemale: require("./assets/icons/young female.png"),
@@ -963,21 +967,21 @@ const homeMediaFeatures = [
 ];
 
 const fabricCareTips = [
-  { title: "Cotton Care", copy: "Wash inside-out in cold water and dry in shade to keep colors fresh.", icon: "shirt-outline" },
-  { title: "Silk & Delicates", copy: "Use gentle wash or dry clean. Never wring silk, chiffon, or georgette.", icon: "sparkles-outline" },
-  { title: "Denim Life", copy: "Wash jeans less often, turn them inside-out, and skip high heat drying.", icon: "water-outline" },
-  { title: "White Clothes", copy: "Separate whites, treat stains early, and avoid mixing with bright fabrics.", icon: "sunny-outline" },
-  { title: "Storage Tip", copy: "Hang structured garments and fold knits so shoulders do not stretch.", icon: "cube-outline" },
-  { title: "Linen Finish", copy: "Steam linen while slightly damp and store it on broad hangers to reduce deep creases.", icon: "leaf-outline" },
-  { title: "Wool Safety", copy: "Air wool garments between wears and use dry clean for coats, blazers, and heavy suits.", icon: "snow-outline" },
-  { title: "Embroidery Care", copy: "Turn embellished clothes inside-out and use a laundry bag before gentle washing.", icon: "color-palette-outline" },
-  { title: "Saree Storage", copy: "Refold silk sarees every few months so permanent crease marks do not form.", icon: "ribbon-outline" },
-  { title: "Stain First Aid", copy: "Blot stains from the outside in. Avoid rubbing because it pushes marks deeper.", icon: "medical-outline" },
-  { title: "Color Bleed Check", copy: "Test a hidden corner with a damp white cloth before washing bright fabrics.", icon: "eyedrop-outline" },
-  { title: "Zipper Care", copy: "Close zippers and hooks before washing to protect delicate fabric surfaces.", icon: "construct-outline" },
-  { title: "Knitwear Shape", copy: "Dry sweaters flat on a towel. Hanging wet knits can stretch the shoulders.", icon: "resize-outline" },
-  { title: "Blazer Care", copy: "Brush after use, air it out, and avoid frequent washing unless there is visible dirt.", icon: "business-outline" },
-  { title: "Ironing Heat", copy: "Start with low heat for synthetics, medium for cotton blends, and steam only when safe.", icon: "flame-outline" }
+  { title: "Cotton Care", copy: "Wash inside-out in cold water and dry in shade to keep colors fresh.", image: require("./assets/fabric-care/cotton.jpg") },
+  { title: "Silk & Delicates", copy: "Use gentle wash or dry clean. Never wring silk, chiffon, or georgette.", image: require("./assets/fabric-care/silk_delicates.jpg") },
+  { title: "Denim Life", copy: "Wash jeans less often, turn them inside-out, and skip high heat drying.", image: require("./assets/fabric-care/denim.jpg") },
+  { title: "White Clothes", copy: "Separate whites, treat stains early, and avoid mixing with bright fabrics.", image: require("./assets/fabric-care/white_clothes.jpg") },
+  { title: "Storage Tip", copy: "Hang structured garments and fold knits so shoulders do not stretch.", image: require("./assets/fabric-care/storage.jpg") },
+  { title: "Linen Finish", copy: "Steam linen while slightly damp and store it on broad hangers to reduce deep creases.", image: require("./assets/fabric-care/linen.jpg") },
+  { title: "Wool Safety", copy: "Air wool garments between wears and use dry clean for coats, blazers, and heavy suits.", image: require("./assets/fabric-care/wool.jpg") },
+  { title: "Embroidery Care", copy: "Turn embellished clothes inside-out and use a laundry bag before gentle washing.", image: require("./assets/fabric-care/embroidery.jpg") },
+  { title: "Saree Storage", copy: "Refold silk sarees every few months so permanent crease marks do not form.", image: require("./assets/fabric-care/saree.jpg") },
+  { title: "Stain First Aid", copy: "Blot stains from the outside in. Avoid rubbing because it pushes marks deeper.", image: require("./assets/fabric-care/stain.jpg") },
+  { title: "Color Bleed Check", copy: "Test a hidden corner with a damp white cloth before washing bright fabrics.", image: require("./assets/fabric-care/color_bleed.jpg") },
+  { title: "Zipper Care", copy: "Close zippers and hooks before washing to protect delicate fabric surfaces.", image: require("./assets/fabric-care/zipper.jpg") },
+  { title: "Knitwear Shape", copy: "Dry sweaters flat on a towel. Hanging wet knits can stretch the shoulders.", image: require("./assets/fabric-care/knitwear.jpg") },
+  { title: "Blazer Care", copy: "Brush after use, air it out, and avoid frequent washing unless there is visible dirt.", image: require("./assets/fabric-care/blazer.jpg") },
+  { title: "Ironing Heat", copy: "Start with low heat for synthetics, medium for cotton blends, and steam only when safe.", image: require("./assets/fabric-care/ironing.jpg") }
 ] as const;
 
 const howItWorksSteps = [
@@ -2618,10 +2622,10 @@ function HomeScreen({
   }, [loadHomeExtras, refreshSignal]);
 
   const needs = [
-    { title: "Alteration", text: "Fit and size changes", icon: "cut-outline" },
-    { title: "Repair", text: "Tear, hole, zipper and more", icon: "construct-outline" },
-    { title: "Embroidery", text: "Decorative and custom work", icon: "color-palette-outline" },
-    { title: "Custom Stitching", text: "Stitch from scratch", icon: "shirt-outline" }
+    { title: "Alteration", text: "Fit and size changes", image: homeAlterationImage },
+    { title: "Repair", text: "Tear, hole, zipper and more", image: homeRepairImage },
+    { title: "Embroidery", text: "Decorative and custom work", image: homeEmbroideryImage },
+    { title: "Custom Stitching", text: "Stitch from scratch", image: homeCustomStitchingImage }
   ] as const;
   return (
     <SafeAreaView style={styles.safe}>
@@ -2734,9 +2738,7 @@ function HomeScreen({
         <View style={styles.needList}>
           {needs.map((item) => (
             <Pressable key={item.title} style={styles.needCard} onPress={() => onStartRequest(requestPresetForService(item.title))}>
-              <View style={styles.needIcon}>
-                <Ionicons name={item.icon} size={22} color={BRAND_ORANGE} />
-              </View>
+              <Image source={item.image} style={styles.needImage} resizeMode="cover" />
               <View style={styles.profileRowText}>
                 <Text style={styles.addressTitle}>{item.title}</Text>
                 <Text style={styles.mutedSmall}>{item.text}</Text>
@@ -2755,9 +2757,7 @@ function HomeScreen({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.fabricTipRow}>
           {fabricCareTips.map((tip) => (
             <Pressable key={tip.title} style={styles.fabricTipCard} onPress={() => setScreen("fabricCare")}>
-              <View style={styles.fabricTipIcon}>
-                <Ionicons name={tip.icon} size={22} color={BRAND_ORANGE} />
-              </View>
+              <Image source={tip.image} style={styles.fabricTipImage} resizeMode="cover" />
               <View style={styles.fabricTipText}>
                 <Text style={styles.fabricTipTitle}>{tip.title}</Text>
                 <Text style={styles.fabricTipCopy}>{tip.copy}</Text>
@@ -5010,16 +5010,16 @@ function FabricCareScreen({ setScreen }: { setScreen: (screen: Screen) => void }
         <View style={styles.fabricCareGrid}>
           {fabricCareTips.map((tip, index) => (
             <View key={tip.title} style={styles.fabricCareCard}>
-              <View style={styles.fabricCareTopRow}>
+              <View style={styles.fabricCareImageWrap}>
+                <Image source={tip.image} style={styles.fabricCareImage} resizeMode="cover" />
                 <View style={styles.fabricCareNumber}>
                   <Text style={styles.fabricCareNumberText}>{index + 1}</Text>
                 </View>
-                <View style={styles.fabricCareIcon}>
-                  <Ionicons name={tip.icon as keyof typeof Ionicons.glyphMap} size={21} color={BRAND_ORANGE} />
-                </View>
               </View>
-              <Text style={styles.fabricCareTitle}>{tip.title}</Text>
-              <Text style={styles.fabricCareCopy}>{tip.copy}</Text>
+              <View style={styles.fabricCareBody}>
+                <Text style={styles.fabricCareTitle}>{tip.title}</Text>
+                <Text style={styles.fabricCareCopy}>{tip.copy}</Text>
+              </View>
             </View>
           ))}
         </View>
@@ -13211,25 +13211,25 @@ function createStyles(isDark = false) {
   launchBandImage: { width: 178, height: 178 },
   launchSparkIcon: { position: "absolute", right: 16, top: 14 },
   needList: { gap: 10, marginBottom: 22 },
-  needCard: { minHeight: 70, borderRadius: 16, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", padding: 12 },
-  needIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  needCard: { minHeight: 94, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 12, padding: 6, paddingRight: 12, overflow: "hidden" },
+  needImage: { width: 82, height: 82, borderRadius: 14, backgroundColor: iconBg },
   fabricTipRow: { gap: 12, paddingBottom: 18 },
-  fabricTipCard: { width: 244, minHeight: 132, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", padding: 14, gap: 14 },
-  fabricTipIcon: { width: 52, height: 52, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#d8efbd", alignItems: "center", justifyContent: "center" },
-  fabricTipImage: { width: 116, height: 92, borderRadius: 15, backgroundColor: iconBg },
+  fabricTipCard: { width: 292, minHeight: 136, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", padding: 10, gap: 13, overflow: "hidden" },
+  fabricTipImage: { width: 112, height: 112, borderRadius: 15, backgroundColor: surface },
   fabricTipText: { flex: 1, minWidth: 0 },
-  fabricTipTitle: { color: text, fontSize: 17, fontWeight: "900" },
-  fabricTipCopy: { color: muted, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 8 },
+  fabricTipTitle: { color: text, fontSize: 16, fontWeight: "900" },
+  fabricTipCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 7 },
   fabricCareHero: { minHeight: 94, borderRadius: 20, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: isDark ? "#101a12" : "#f4fde8", flexDirection: "row", alignItems: "center", gap: 12, padding: 16, marginBottom: 16 },
   fabricCareHeroIcon: { width: 56, height: 56, borderRadius: 18, borderWidth: 1, borderColor: "#d8efbd", backgroundColor: surface, alignItems: "center", justifyContent: "center" },
   fabricCareHeroTitle: { color: text, fontSize: 17, fontWeight: "900", lineHeight: 22 },
   fabricCareHeroCopy: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 4 },
   fabricCareGrid: { gap: 12 },
-  fabricCareCard: { minHeight: 126, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 15 },
-  fabricCareTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  fabricCareNumber: { minWidth: 32, height: 32, borderRadius: 16, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  fabricCareCard: { minHeight: 136, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 13, padding: 10, overflow: "hidden" },
+  fabricCareImageWrap: { width: 114, height: 114, borderRadius: 15, overflow: "hidden", backgroundColor: iconBg },
+  fabricCareImage: { width: "100%", height: "100%" },
+  fabricCareBody: { flex: 1, minWidth: 0, paddingRight: 4 },
+  fabricCareNumber: { position: "absolute", left: 8, top: 8, minWidth: 30, height: 30, borderRadius: 15, backgroundColor: BRAND_DEEP, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   fabricCareNumberText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
-  fabricCareIcon: { width: 38, height: 38, borderRadius: 14, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
   fabricCareTitle: { color: text, fontSize: 16, fontWeight: "900" },
   fabricCareCopy: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 7 },
   nextStepsPanel: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12, gap: 12, marginTop: 18, marginBottom: 16 },

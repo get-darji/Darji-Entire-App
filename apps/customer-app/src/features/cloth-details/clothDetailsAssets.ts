@@ -82,13 +82,13 @@ export const WORK_SERVICE_ASSETS: Record<string, ImageSourcePropType> = {
   // Alteration & Fitting
   Tighten: require("../../../assets/cloth-details/order-v2/services/tighten.jpg"),
   Loosen: require("../../../assets/cloth-details/services/loosen.webp"),
-  "Waist Adjustment": require("../../../assets/cloth-details/services/waist_adjustment.webp"),
-  "Sleeve Adjustment": require("../../../assets/cloth-details/services/sleeve_adjustment.webp"),
-  "Shoulder Adjustment": require("../../../assets/cloth-details/services/shoulder_adjustment.webp"),
-  "Neck Adjustment": require("../../../assets/cloth-details/services/neck_adjustment.webp"),
-  Shorten: require("../../../assets/cloth-details/services/shorten.webp"),
-  Lengthen: require("../../../assets/cloth-details/services/lengthen.webp"),
-  "General Fitting": require("../../../assets/cloth-details/services/general_fitting.webp"),
+  "Waist Adjustment": require("../../../assets/cloth-details/order-v2/services/waist_adjustment.jpg"),
+  "Sleeve Adjustment": require("../../../assets/cloth-details/order-v2/services/sleeve_adjustment.jpg"),
+  "Shoulder Adjustment": require("../../../assets/cloth-details/order-v2/services/shoulder_adjustment.jpg"),
+  "Neck Adjustment": require("../../../assets/cloth-details/order-v2/services/neck_adjustment.jpg"),
+  Shorten: require("../../../assets/cloth-details/order-v2/services/shorten.jpg"),
+  Lengthen: require("../../../assets/cloth-details/order-v2/services/lengthen.jpg"),
+  "General Fitting": require("../../../assets/cloth-details/order-v2/services/general_fitting.jpg"),
 
   // Repair & Mending
   "Torn Seam Repair": require("../../../assets/cloth-details/order-v2/services/torn_seam_repair.jpg"),
@@ -103,9 +103,9 @@ export const WORK_SERVICE_ASSETS: Record<string, ImageSourcePropType> = {
   // Embroidery & Custom Work
   Embroidery: require("../../../assets/cloth-details/order-v2/services/embroidery_detail.jpg"),
   "Lace Work": require("../../../assets/cloth-details/order-v2/services/lace_work.jpg"),
-  "Border Work": require("../../../assets/cloth-details/services/border_work.webp"),
-  "Patch / Appliqué Work": require("../../../assets/cloth-details/services/patch_work.webp"),
-  "Custom Design Modification": require("../../../assets/cloth-details/services/custom_modification.webp"),
+  "Border Work": require("../../../assets/cloth-details/order-v2/services/border_work.jpg"),
+  "Patch / Appliqué Work": require("../../../assets/cloth-details/order-v2/services/patch_work.jpg"),
+  "Custom Design Modification": require("../../../assets/cloth-details/order-v2/services/custom_modification.jpg"),
 
   // Finishing Work
   Hemming: require("../../../assets/cloth-details/order-v2/services/hemming.jpg"),
