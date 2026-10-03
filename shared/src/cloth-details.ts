@@ -7,6 +7,18 @@ export const GENDER_FIT_OPTIONS = [
 
 export type GenderFitType = (typeof GENDER_FIT_OPTIONS)[number]["value"];
 
+export const CUSTOM_REQUEST_GARMENTS = [
+  "Home & Décor",
+  "Devotional Clothing",
+  "Doll & Toy Clothing",
+  "Bags & Fabric Accessories",
+  "Personalized Fabric Items",
+  "Pet Clothing & Accessories",
+  "Costumes & Special Projects",
+  "Upcycling / Make Something From This",
+  "Other Custom Request"
+] as const;
+
 export const GARMENTS_BY_GENDER: Record<GenderFitType, readonly string[]> = {
   Men: [
     "Kurta",
@@ -51,6 +63,7 @@ export const GARMENTS_BY_GENDER: Record<GenderFitType, readonly string[]> = {
     "Medical Uniform",
     "College Uniform",
     "Custom Garment",
+    ...CUSTOM_REQUEST_GARMENTS,
     "Other"
   ]
 };
@@ -111,6 +124,18 @@ export const SERVICE_CATEGORIES = [
       "Border Work",
       "Patch / Appliqué Work",
       "Custom Design Modification"
+    ]
+  },
+  {
+    id: "custom-projects",
+    label: "Custom Projects",
+    subtitle: "Décor, accessories, costumes & more",
+    icon: "sparkles-outline",
+    workItems: [
+      "Made from Scratch",
+      "Personalize / Decorate",
+      "Upcycle / Repurpose",
+      "Other Custom Project"
     ]
   },
   {

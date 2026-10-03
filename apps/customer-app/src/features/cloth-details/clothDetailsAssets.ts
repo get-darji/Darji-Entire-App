@@ -23,6 +23,8 @@ export const CATEGORY_ASSETS: Record<string, ImageSourcePropType> = {
   "Repair & Mending": require("../../../assets/cloth-details/order-v2/categories/repair.jpg"),
   "embroidery-custom": require("../../../assets/cloth-details/order-v2/categories/embroidery.jpg"),
   "Embroidery & Custom Work": require("../../../assets/cloth-details/order-v2/categories/embroidery.jpg"),
+  "custom-projects": require("../../../assets/cloth-details/order-v2/categories/other.jpg"),
+  "Custom Projects": require("../../../assets/cloth-details/order-v2/categories/other.jpg"),
   "finishing-work": require("../../../assets/cloth-details/order-v2/categories/finishing.jpg"),
   "Finishing Work": require("../../../assets/cloth-details/order-v2/categories/finishing.jpg"),
   other: require("../../../assets/cloth-details/order-v2/categories/other.jpg"),
@@ -57,6 +59,15 @@ export const GARMENT_ASSETS: Record<string, ImageSourcePropType> = {
   "Medical Uniform": require("../../../assets/cloth-details/order-v2/garments/medical_uniform.jpg"),
   "College Uniform": require("../../../assets/cloth-details/order-v2/garments/college_uniform.jpg"),
   "Custom Garment": require("../../../assets/cloth-details/order-v2/garments/custom_garment.jpg"),
+  "Home & Décor": require("../../../assets/search-categories/home_more.jpg"),
+  "Devotional Clothing": require("../../../assets/search-categories/men_ethnic.jpg"),
+  "Doll & Toy Clothing": require("../../../assets/search-categories/kids.jpg"),
+  "Bags & Fabric Accessories": require("../../../assets/search-categories/uniforms.jpg"),
+  "Personalized Fabric Items": require("../../../assets/search-categories/alterations.jpg"),
+  "Pet Clothing & Accessories": require("../../../assets/home-services/custom_stitching.jpg"),
+  "Costumes & Special Projects": require("../../../assets/search-categories/women_ethnic.jpg"),
+  "Upcycling / Make Something From This": require("../../../assets/search-categories/women_western.jpg"),
+  "Other Custom Request": require("../../../assets/cloth-details/order-v2/garments/custom_garment.jpg"),
   Other: require("../../../assets/cloth-details/order-v2/garments/other_garment.jpg")
 };
 
@@ -106,6 +117,12 @@ export const WORK_SERVICE_ASSETS: Record<string, ImageSourcePropType> = {
   "Border Work": require("../../../assets/cloth-details/order-v2/services/border_work.jpg"),
   "Patch / Appliqué Work": require("../../../assets/cloth-details/order-v2/services/patch_work.jpg"),
   "Custom Design Modification": require("../../../assets/cloth-details/order-v2/services/custom_modification.jpg"),
+
+  // Custom Projects
+  "Made from Scratch": require("../../../assets/cloth-details/order-v2/services/stitch_from_reference.jpg"),
+  "Personalize / Decorate": require("../../../assets/cloth-details/order-v2/services/custom_modification.jpg"),
+  "Upcycle / Repurpose": require("../../../assets/cloth-details/order-v2/services/custom_modification.jpg"),
+  "Other Custom Project": require("../../../assets/cloth-details/order-v2/services/custom_modification.jpg"),
 
   // Finishing Work
   Hemming: require("../../../assets/cloth-details/order-v2/services/hemming.jpg"),
