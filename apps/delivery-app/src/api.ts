@@ -9,17 +9,9 @@ const configuredApiUrl =
   process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
   PRODUCTION_API_URL;
-const devHostApiUrl = Constants.expoConfig?.hostUri
-  ? `http://${Constants.expoConfig.hostUri.split(":")[0]}:4000/api`
-  : undefined;
 const apiUrls = Array.from(new Set([
   configuredApiUrl,
-  PRODUCTION_API_URL,
-  devHostApiUrl,
-  "http://192.168.1.2:4000/api",
-  "http://localhost:4000/api",
-  "http://10.0.2.2:4000/api",
-  "http://127.0.0.1:4000/api"
+  PRODUCTION_API_URL
 ].filter(Boolean).map((url) => String(url).replace(/\/$/, ""))));
 const accountCheckApiUrls = apiUrls;
 let activeApiUrl = apiUrls[0];
