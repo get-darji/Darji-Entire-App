@@ -2784,35 +2784,45 @@ function HomeScreen({
         </Pressable>
 
         <View style={styles.customRequestSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.listTitle}>More Things We Can Make</Text>
-          </View>
-          <Text style={styles.customRequestIntro}>From home décor to tiny outfits and one-of-a-kind fabric projects.</Text>
+          <Text style={styles.customRequestEyebrow} maxFontSizeMultiplier={1.15}>EXPLORE</Text>
+          <Text style={styles.customRequestHeading} maxFontSizeMultiplier={1.15}>More Things{"\n"}We Can Make</Text>
+          <Text style={styles.customRequestIntro} maxFontSizeMultiplier={1.15}>From home décor to tiny outfits and one-of-a-kind fabric projects.</Text>
           <View style={styles.customRequestGrid}>
             {customRequestCategories.map((item, index) => {
-              const isWideFinalCard = customRequestCategories.length % 2 === 1 && index === customRequestCategories.length - 1;
+              const isWideCard = index === 0 || index === 5 || index === customRequestCategories.length - 1;
+              const toneStyle = [
+                styles.customRequestTone0,
+                styles.customRequestTone1,
+                styles.customRequestTone2,
+                styles.customRequestTone3,
+                styles.customRequestTone4,
+                styles.customRequestTone5,
+                styles.customRequestTone6,
+                styles.customRequestTone7,
+                styles.customRequestTone8
+              ][index];
 
               return (
-                <View key={item.title} style={[styles.customRequestCard, isWideFinalCard && styles.customRequestCardWide]}>
-                  <View style={[styles.customRequestImageWrap, isWideFinalCard && styles.customRequestImageWrapWide]}>
+                <View key={item.title} style={[styles.customRequestCard, toneStyle, isWideCard && styles.customRequestCardWide]}>
+                  <View style={[styles.customRequestImageWrap, isWideCard && styles.customRequestImageWrapWide]}>
                     <View style={styles.customRequestImageGlow} />
                     <View style={styles.customRequestImageFrame}>
                       <Image source={item.image} style={styles.customRequestImage} resizeMode="contain" />
                     </View>
                   </View>
-                  <View style={[styles.customRequestCardBody, isWideFinalCard && styles.customRequestCardBodyWide]}>
-                    <Text style={styles.customRequestCardTitle} numberOfLines={isWideFinalCard ? 2 : 1}>{item.shortTitle}</Text>
-                    <Text style={styles.customRequestCardCopy} numberOfLines={isWideFinalCard ? 2 : 1}>{item.text}</Text>
+                  <View style={[styles.customRequestCardBody, isWideCard && styles.customRequestCardBodyWide]}>
+                    <Text style={styles.customRequestCardTitle} numberOfLines={2} maxFontSizeMultiplier={1.1}>{item.shortTitle}</Text>
+                    <Text style={styles.customRequestCardCopy} numberOfLines={3} maxFontSizeMultiplier={1.1}>{item.text}</Text>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Start a ${item.title} request`}
                       android_ripple={{ color: "rgba(255,255,255,0.18)" }}
-                      style={({ pressed }) => [styles.customRequestButton, pressed && styles.customRequestButtonPressed]}
+                      style={[styles.customRequestButtonHitbox, isWideCard && styles.customRequestButtonHitboxWide]}
                       onPress={() => onStartRequest(item.preset)}
                     >
-                      <Text style={styles.customRequestButtonText}>Start Request</Text>
-                      <View style={styles.customRequestButtonIcon}>
-                        <Ionicons name="arrow-forward" size={13} color="#111111" />
+                      <View style={[styles.customRequestButton, isWideCard && styles.customRequestButtonWide]}>
+                        <Text style={[styles.customRequestButtonText, isWideCard && styles.customRequestButtonTextWide]} numberOfLines={1} allowFontScaling={false}>Start{"\u00a0"}Request</Text>
+                        <Ionicons name="arrow-forward" size={isWideCard ? 13 : 15} color="#ffffff" />
                       </View>
                     </Pressable>
                   </View>
@@ -13316,24 +13326,37 @@ function createStyles(isDark = false) {
   featureButton: { marginTop: 18, height: 46, minWidth: 150, alignSelf: "flex-start", borderRadius: 23, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   featureButtonText: { color: "#111111", fontWeight: "900", fontSize: 15 },
   homeOrderPreview: { minHeight: 78, borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, marginBottom: 20 },
-  customRequestSection: { marginBottom: 22 },
-  customRequestIntro: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: -5, marginBottom: 16 },
-  customRequestGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12, marginHorizontal: -4 },
-  customRequestCard: { width: "49%", aspectRatio: 0.9, borderRadius: 6, borderWidth: 1, borderColor: isDark ? "#343b47" : "#d8dee7", backgroundColor: surface, overflow: "hidden", shadowColor: "#172033", shadowOffset: { width: 0, height: 3 }, shadowOpacity: isDark ? 0.22 : 0.1, shadowRadius: 6, elevation: 3 },
-  customRequestCardWide: { width: "100%", height: 172, minHeight: 172, flexDirection: "row", flexShrink: 0 },
-  customRequestImageWrap: { width: "100%", height: 76, flexShrink: 0, overflow: "hidden", backgroundColor: isDark ? "#171a20" : "#f6f8fb", padding: 6 },
-  customRequestImageWrapWide: { width: 148, height: 172, padding: 9, flexShrink: 0 },
-  customRequestImageGlow: { position: "absolute", width: 112, height: 112, borderRadius: 56, right: -24, top: -26, backgroundColor: isDark ? "#4a3213" : "#fff0d3", opacity: 0.76 },
-  customRequestImageFrame: { flex: 1, borderRadius: 4, backgroundColor: isDark ? "rgba(36,39,46,0.72)" : "rgba(255,255,255,0.72)", padding: 2, overflow: "hidden" },
+  customRequestSection: { marginBottom: 26, paddingTop: 4 },
+  customRequestEyebrow: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 2.8, marginBottom: 8 },
+  customRequestHeading: { color: text, fontSize: 31, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
+  customRequestIntro: { color: muted, fontSize: 13, lineHeight: 19, fontWeight: "600", maxWidth: 310, marginTop: 10, marginBottom: 20 },
+  customRequestGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12 },
+  customRequestCard: { width: "48.4%", height: 270, borderRadius: 8, borderWidth: 1.5, borderColor: "#111111", backgroundColor: "#ffffff", overflow: "hidden", shadowColor: "#111827", shadowOffset: { width: 0, height: 6 }, shadowOpacity: isDark ? 0.34 : 0.16, shadowRadius: 10, elevation: 6 },
+  customRequestCardWide: { width: "100%", height: 190, minHeight: 190, flexDirection: "row-reverse", flexShrink: 0 },
+  customRequestTone0: { backgroundColor: "#ffffff" },
+  customRequestTone1: { backgroundColor: "#ffffff" },
+  customRequestTone2: { backgroundColor: "#ffffff" },
+  customRequestTone3: { backgroundColor: "#ffffff" },
+  customRequestTone4: { backgroundColor: "#ffffff" },
+  customRequestTone5: { backgroundColor: "#ffffff" },
+  customRequestTone6: { backgroundColor: "#ffffff" },
+  customRequestTone7: { backgroundColor: "#ffffff" },
+  customRequestTone8: { backgroundColor: "#ffffff" },
+  customRequestImageWrap: { width: "100%", height: 126, flexShrink: 0, overflow: "hidden", paddingHorizontal: 8, paddingTop: 10 },
+  customRequestImageWrapWide: { width: "54%", height: 190, paddingHorizontal: 8, paddingVertical: 10, flexShrink: 0 },
+  customRequestImageGlow: { position: "absolute", width: 138, height: 118, borderRadius: 52, right: -12, top: 8, backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.58)" },
+  customRequestImageFrame: { flex: 1, borderRadius: 5, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#ffffff", padding: 2, overflow: "hidden" },
   customRequestImage: { width: "100%", height: "100%" },
-  customRequestCardBody: { flex: 1, minWidth: 0, paddingHorizontal: 9, paddingTop: 8, paddingBottom: 9 },
-  customRequestCardBodyWide: { paddingHorizontal: 14, paddingVertical: 14 },
-  customRequestCardTitle: { color: text, fontSize: 12, lineHeight: 15, fontWeight: "900" },
-  customRequestCardCopy: { color: muted, fontSize: 9, lineHeight: 12, fontWeight: "700", marginTop: 2, marginBottom: 6 },
-  customRequestButton: { width: "100%", height: 38, flexShrink: 0, borderRadius: 7, borderWidth: 1, borderColor: isDark ? "#f7a73b" : "#d97600", backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 11, paddingRight: 7, marginTop: "auto", overflow: "hidden", shadowColor: "#b85f00", shadowOffset: { width: 0, height: 3 }, shadowOpacity: isDark ? 0.3 : 0.24, shadowRadius: 4, elevation: 5 },
-  customRequestButtonPressed: { opacity: 0.92, transform: [{ translateY: 2 }, { scale: 0.97 }], shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, elevation: 1 },
-  customRequestButtonText: { color: "#111111", fontSize: 10.5, fontWeight: "900", letterSpacing: 0.1 },
-  customRequestButtonIcon: { width: 24, height: 24, borderRadius: 5, backgroundColor: "rgba(255,255,255,0.48)", alignItems: "center", justifyContent: "center" },
+  customRequestCardBody: { flex: 1, minWidth: 0, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12 },
+  customRequestCardBodyWide: { paddingLeft: 16, paddingRight: 10, paddingVertical: 16 },
+  customRequestCardTitle: { color: "#0b1f3a", fontSize: 16, lineHeight: 19, fontWeight: "900", letterSpacing: -0.25 },
+  customRequestCardCopy: { color: "#64748b", fontSize: 10.5, lineHeight: 14, fontWeight: "700", marginTop: 5, marginBottom: 8 },
+  customRequestButtonHitbox: { alignSelf: "stretch", width: "100%", height: 42, minWidth: 0, flexShrink: 0, borderRadius: 7, marginTop: "auto", overflow: "hidden", shadowColor: "#071426", shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.42 : 0.28, shadowRadius: 6, elevation: 6 },
+  customRequestButtonHitboxWide: { height: 38, borderRadius: 6 },
+  customRequestButton: { flex: 1, width: "100%", minWidth: 0, borderRadius: 7, borderWidth: 1, borderColor: isDark ? "#405473" : "#07162b", backgroundColor: "#0b1f3a", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 8 },
+  customRequestButtonWide: { borderRadius: 6, gap: 5, paddingHorizontal: 6 },
+  customRequestButtonText: { flexShrink: 0, color: "#ffffff", fontSize: 10.5, lineHeight: 14, fontWeight: "900", letterSpacing: 0 },
+  customRequestButtonTextWide: { fontSize: 9.5, lineHeight: 12 },
   homeIncompleteBlock: { marginBottom: 20 },
   incompleteRequestCard: { minHeight: 68, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 12, padding: 12, marginBottom: 10 },
   measureHomeCard: { minHeight: 88, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: 14, gap: 12, marginBottom: 20 },
