@@ -558,7 +558,6 @@ type CustomRequestCategory = {
   shortTitle: string;
   text: string;
   image: ImageSourcePropType;
-  icon: keyof typeof Ionicons.glyphMap;
   preset: RequestPreset;
 };
 type RazorpayFailurePayload = {
@@ -1818,72 +1817,63 @@ const customRequestCategories: CustomRequestCategory[] = [
     title: "Home & Décor",
     shortTitle: "Home & Décor",
     text: "Curtains, cushions, covers & more",
-    image: require("./assets/search-categories/home_more.jpg"),
-    icon: "home-outline",
+    image: require("./assets/custom-requests/home_decor.jpg"),
     preset: customRequestPreset("Home & Décor")
   },
   {
     title: "Devotional Clothing",
     shortTitle: "Devotional",
     text: "Deity outfits, chunri, aasans & covers",
-    image: require("./assets/search-categories/men_ethnic.jpg"),
-    icon: "sparkles-outline",
+    image: require("./assets/custom-requests/devotional_clothing.jpg"),
     preset: customRequestPreset("Devotional Clothing")
   },
   {
     title: "Doll & Toy Clothing",
     shortTitle: "Doll & Toy",
     text: "Miniature outfits and accessories",
-    image: require("./assets/search-categories/kids.jpg"),
-    icon: "happy-outline",
+    image: require("./assets/custom-requests/doll_toy_clothing.jpg"),
     preset: customRequestPreset("Doll & Toy Clothing")
   },
   {
     title: "Bags & Fabric Accessories",
     shortTitle: "Bags & Accessories",
     text: "Totes, potlis, pouches and sleeves",
-    image: require("./assets/search-categories/uniforms.jpg"),
-    icon: "bag-handle-outline",
+    image: require("./assets/custom-requests/bags_fabric_accessories.jpg"),
     preset: customRequestPreset("Bags & Fabric Accessories")
   },
   {
     title: "Personalized Fabric Items",
     shortTitle: "Personalized",
     text: "Patches, badges, labels & monograms",
-    image: require("./assets/search-categories/alterations.jpg"),
-    icon: "pricetag-outline",
+    image: require("./assets/custom-requests/personalized_fabric_items.jpg"),
     preset: customRequestPreset("Personalized Fabric Items", "Custom Projects", ["Personalize / Decorate"])
   },
   {
     title: "Pet Clothing & Accessories",
     shortTitle: "Pet Clothing",
     text: "Pet outfits, bandanas and bed covers",
-    image: require("./assets/home-services/custom_stitching.jpg"),
-    icon: "paw-outline",
+    image: require("./assets/custom-requests/pet_clothing_accessories.jpg"),
     preset: customRequestPreset("Pet Clothing & Accessories")
   },
   {
     title: "Costumes & Special Projects",
     shortTitle: "Costumes",
     text: "School, dance, event and stage looks",
-    image: require("./assets/search-categories/women_ethnic.jpg"),
-    icon: "color-wand-outline",
+    image: require("./assets/custom-requests/costumes_special_projects.jpg"),
     preset: customRequestPreset("Costumes & Special Projects")
   },
   {
     title: "Upcycling / Make Something From This",
     shortTitle: "Upcycling",
     text: "Turn old fabric into something new",
-    image: require("./assets/search-categories/women_western.jpg"),
-    icon: "sync-outline",
+    image: require("./assets/custom-requests/upcycling.jpg"),
     preset: customRequestPreset("Upcycling / Make Something From This", "Custom Projects", ["Upcycle / Repurpose"])
   },
   {
     title: "Other Custom Request",
     shortTitle: "Other Custom",
     text: "Share photos, dimensions and your idea",
-    image: require("./assets/cloth-details/order-v2/garments/custom_garment.jpg"),
-    icon: "add-circle-outline",
+    image: require("./assets/custom-requests/other_custom_request.jpg"),
     preset: customRequestPreset("Other Custom Request", "Custom Projects", ["Other Custom Project"])
   }
 ];
@@ -2794,45 +2784,30 @@ function HomeScreen({
         </Pressable>
 
         <View style={styles.customRequestSection}>
-          <View style={styles.customRequestHeader}>
-            <View style={styles.customRequestHeaderText}>
-              <Text style={styles.customRequestEyebrow}>MADE AROUND YOUR IDEA</Text>
-              <Text style={styles.customRequestHeading}>More Things We Can Make</Text>
-              <Text style={styles.customRequestIntro}>From home décor to tiny outfits and one-of-a-kind fabric projects.</Text>
-            </View>
-            <View style={styles.customRequestHeaderIcon}>
-              <Ionicons name="sparkles" size={20} color={BRAND_ORANGE} />
-            </View>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.listTitle}>More Things We Can Make</Text>
           </View>
+          <Text style={styles.customRequestIntro}>From home décor to tiny outfits and one-of-a-kind fabric projects.</Text>
           <View style={styles.customRequestGrid}>
-            {customRequestCategories.map((item, index) => (
-              <Pressable
-                key={item.title}
-                accessibilityRole="button"
-                accessibilityLabel={`Start a ${item.title} request`}
-                style={({ pressed }) => [
-                  styles.customRequestCard,
-                  index === customRequestCategories.length - 1 && styles.customRequestCardWide,
-                  pressed && styles.customRequestCardPressed
-                ]}
-                onPress={() => onStartRequest(item.preset)}
-              >
-                <View style={[styles.customRequestImageWrap, index === customRequestCategories.length - 1 && styles.customRequestImageWrapWide]}>
-                  <Image source={item.image} style={styles.customRequestImage} resizeMode="cover" />
-                  <View style={styles.customRequestImageShade} />
-                  <View style={styles.customRequestIconBadge}>
-                    <Ionicons name={item.icon} size={16} color="#ffffff" />
-                  </View>
+            {customRequestCategories.map((item) => (
+              <View key={item.title} style={styles.customRequestCard}>
+                <View style={styles.customRequestImageWrap}>
+                  <Image source={item.image} style={styles.customRequestImage} resizeMode="contain" />
                 </View>
                 <View style={styles.customRequestCardBody}>
                   <Text style={styles.customRequestCardTitle} numberOfLines={2}>{item.shortTitle}</Text>
-                  <Text style={styles.customRequestCardCopy} numberOfLines={2}>{item.text}</Text>
-                  <View style={styles.customRequestStartRow}>
-                    <Text style={styles.customRequestStartText}>Start request</Text>
-                    <Ionicons name="arrow-forward" size={13} color={BRAND_ORANGE} />
-                  </View>
+                  <Text style={styles.customRequestCardCopy} numberOfLines={3}>{item.text}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start a ${item.title} request`}
+                    style={({ pressed }) => [styles.customRequestButton, pressed && styles.customRequestButtonPressed]}
+                    onPress={() => onStartRequest(item.preset)}
+                  >
+                    <Text style={styles.customRequestButtonText}>Start Request</Text>
+                    <Ionicons name="arrow-forward" size={14} color="#111111" />
+                  </Pressable>
                 </View>
-              </Pressable>
+              </View>
             ))}
           </View>
         </View>
@@ -13331,27 +13306,18 @@ function createStyles(isDark = false) {
   featureButton: { marginTop: 18, height: 46, minWidth: 150, alignSelf: "flex-start", borderRadius: 23, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   featureButtonText: { color: "#111111", fontWeight: "900", fontSize: 15 },
   homeOrderPreview: { minHeight: 78, borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, marginBottom: 20 },
-  customRequestSection: { marginBottom: 22, borderRadius: 24, borderWidth: 1, borderColor: isDark ? "#3a2d1d" : "#f0d8aa", backgroundColor: isDark ? "#16130f" : "#fffaf0", padding: 14 },
-  customRequestHeader: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
-  customRequestHeaderText: { flex: 1, minWidth: 0 },
-  customRequestEyebrow: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
-  customRequestHeading: { color: text, fontSize: 19, lineHeight: 24, fontWeight: "900", marginTop: 5 },
-  customRequestIntro: { color: muted, fontSize: 11, lineHeight: 17, fontWeight: "700", marginTop: 5 },
-  customRequestHeaderIcon: { width: 40, height: 40, borderRadius: 14, borderWidth: 1, borderColor: isDark ? "#5a3d13" : "#f4d59a", backgroundColor: isDark ? "#281b0b" : "#fff2d7", alignItems: "center", justifyContent: "center" },
-  customRequestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  customRequestCard: { width: "48%", minHeight: 190, borderRadius: 17, borderWidth: 1, borderColor: border, backgroundColor: surface, overflow: "hidden" },
-  customRequestCardWide: { width: "100%", minHeight: 132, flexDirection: "row" },
-  customRequestCardPressed: { opacity: 0.84, transform: [{ scale: 0.985 }] },
-  customRequestImageWrap: { height: 88, overflow: "hidden", backgroundColor: iconBg },
-  customRequestImageWrapWide: { width: 118, height: "100%" },
+  customRequestSection: { marginBottom: 22 },
+  customRequestIntro: { color: muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: -5, marginBottom: 14 },
+  customRequestGrid: { flexDirection: "row", flexWrap: "wrap", columnGap: 10, rowGap: 12 },
+  customRequestCard: { width: "48%", minHeight: 322, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, overflow: "hidden" },
+  customRequestImageWrap: { width: "100%", aspectRatio: 1, overflow: "hidden", backgroundColor: "#ffffff", padding: 5 },
   customRequestImage: { width: "100%", height: "100%" },
-  customRequestImageShade: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(8, 17, 31, 0.12)" },
-  customRequestIconBadge: { position: "absolute", left: 8, bottom: 8, width: 30, height: 30, borderRadius: 10, backgroundColor: "rgba(8, 17, 31, 0.82)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.28)" },
-  customRequestCardBody: { flex: 1, minWidth: 0, padding: 10 },
-  customRequestCardTitle: { color: text, fontSize: 13, lineHeight: 17, fontWeight: "900" },
-  customRequestCardCopy: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 4 },
-  customRequestStartRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: "auto", paddingTop: 8 },
-  customRequestStartText: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900" },
+  customRequestCardBody: { flex: 1, minWidth: 0, padding: 11 },
+  customRequestCardTitle: { color: text, fontSize: 13, lineHeight: 17, fontWeight: "900", minHeight: 34 },
+  customRequestCardCopy: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 5, minHeight: 42 },
+  customRequestButton: { minHeight: 38, borderRadius: 12, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 8, marginTop: "auto" },
+  customRequestButtonPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
+  customRequestButtonText: { color: "#111111", fontSize: 11, fontWeight: "900" },
   homeIncompleteBlock: { marginBottom: 20 },
   incompleteRequestCard: { minHeight: 68, borderRadius: 16, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff1f2", flexDirection: "row", alignItems: "center", gap: 12, padding: 12, marginBottom: 10 },
   measureHomeCard: { minHeight: 88, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: 14, gap: 12, marginBottom: 20 },
