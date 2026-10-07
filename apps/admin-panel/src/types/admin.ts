@@ -433,7 +433,7 @@ export type AccountChangeRequest = {
   id: string;
   darjiId?: string;
   userId: string;
-  userRole?: "TAILOR" | "DELIVERY_PARTNER";
+  userRole?: "CUSTOMER" | "TAILOR" | "DELIVERY_PARTNER";
   type: "ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "Vehicle" | "RC" | "DrivingLicense" | "AccountDeletion";
   currentValues?: Record<string, any>;
   requestedValues: Record<string, any>;

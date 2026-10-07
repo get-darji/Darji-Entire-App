@@ -2248,6 +2248,7 @@ export function AdminPortal() {
 
   const filteredPayments = payments.filter((payment) => {
     const content = [
+      payment.orderId,
       payment.order?.orderNumber,
       payment.order?.customerName,
       payment.order?.customerPhone,
@@ -2257,7 +2258,8 @@ export function AdminPortal() {
       payment.source
     ].filter(Boolean).join(" ").toLowerCase();
     const matchesDrilldown = dashboardDrilldown?.target !== "payments" || dashboardDrilldown.key !== "payments_paid" || drilldownIdSet.has(payment.id);
-    return (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || payment.status === paymentFilter) && matchesDrilldown;
+    const orderCompleted = ["DELIVERED", "COMPLETED"].includes(String(payment.order?.status ?? "").toUpperCase());
+    return orderCompleted && (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || payment.status === paymentFilter) && matchesDrilldown;
   });
   const tailorPayoutRows = tailorPayoutsQuery.data ?? [];
   const deliveryPayoutRows = deliveryPayoutsQuery.data ?? [];
@@ -2314,10 +2316,11 @@ export function AdminPortal() {
     clearSupportSelection();
   };
 
+  const customerChangeRequests = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "CUSTOMER" || r.userRole === "CUSTOMER") : [];
   const customerOpenCount = tickets.filter(t => 
     (t.user?.role === "CUSTOMER" || t.subject?.includes("Customer") || (!t.user?.role && t.subject?.toLowerCase().includes("customer"))) && 
     (t.status === "OPEN" || t.status === "IN_PROGRESS" || t.status === "PENDING")
-  ).length;
+  ).length + customerChangeRequests.filter(r => r.status === "PENDING").length;
 
   const tailorTickets = tickets.filter(t => t.user?.role === "TAILOR" || t.subject?.includes("Tailor"));
   const tailorRequests = changeRequestsQuery.data ? changeRequestsQuery.data.filter(r => r.user?.role === "TAILOR" || r.userRole === "TAILOR") : [];
@@ -2340,7 +2343,10 @@ export function AdminPortal() {
 
   let rawSupportQueueItems: SupportQueueItem[] = [];
   if (supportSubTab === "customer") {
-    rawSupportQueueItems = customerTickets.map((entity) => ({ kind: "ticket", entity }));
+    rawSupportQueueItems = [
+      ...customerTickets.map((entity) => ({ kind: "ticket" as const, entity })),
+      ...customerChangeRequests.map((entity) => ({ kind: "request" as const, entity }))
+    ];
   } else if (supportSubTab === "tailor") {
     rawSupportQueueItems =
       tailorSupportStatus === "requests"
@@ -8215,8 +8221,8 @@ function getSupportQueueMeta(item: SupportQueueItem) {
   if (item.kind === "request") {
     const lastMessage = item.entity.messages?.[item.entity.messages.length - 1];
     return {
-      avatar: getInitials(item.entity.user?.name, item.entity.userRole === "TAILOR" ? "TA" : "DP"),
-      title: item.entity.user?.name ?? item.entity.user?.phone ?? "Partner",
+      avatar: getInitials(item.entity.user?.name, item.entity.userRole === "TAILOR" ? "TA" : item.entity.userRole === "DELIVERY_PARTNER" ? "DP" : "CU"),
+      title: item.entity.user?.name ?? item.entity.user?.phone ?? "Darji user",
       subtitle: `${item.entity.darjiId ?? "Darji ID pending"} | ${formatStatus(item.entity.type)}`,
       ticketLabel: item.entity.darjiId ?? "Darji ID pending",
       preview: lastMessage?.text ?? `${formatStatus(item.entity.type)} update request`,
@@ -10279,7 +10285,7 @@ function InspectChangeRequestDialog({
                 {request.type === "AccountDeletion" ? "Account Deletion Request" : "Account Update Request"}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-[var(--muted)]">
-                From {getUserDisplayName(request.user, "Partner")} ({request.user?.phone ?? "No phone"}) - Role: <strong>{request.user?.role}</strong>
+                From {getUserDisplayName(request.user, "Darji user")} ({request.user?.phone ?? "No phone"}) - Role: <strong>{request.user?.role ?? request.userRole}</strong>
               </Dialog.Description>
               <span className="mt-2 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-600">Request ID: {request.darjiId ?? "Darji ID pending"}</span>
             </div>
@@ -10362,7 +10368,7 @@ function InspectChangeRequestDialog({
                     </button>
                     <ActionButton
                       onClick={() => {
-                        if (request.type !== "AccountDeletion" || window.confirm("Permanently delete this partner account? This action cannot be undone.")) {
+                        if (request.type !== "AccountDeletion" || window.confirm("Permanently delete this Darji account? This action cannot be undone.")) {
                           onApprove(request.id);
                         }
                       }}
@@ -11157,7 +11163,8 @@ function getPaymentColumns({
       cell: ({ row }) => (
         <div>
           <p className="font-medium text-[var(--foreground)]">{row.original.order?.orderNumber ?? row.original.darjiId ?? row.original.orderId ?? "-"}</p>
-          <p className="mt-1 text-xs text-[var(--muted)]">{row.original.darjiId ?? "Darji ID pending"}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">Order ID: {row.original.orderId}</p>
+          {row.original.darjiId ? <p className="mt-1 text-xs text-[var(--muted)]">Payment ID: {row.original.darjiId}</p> : null}
         </div>
       )
     },
@@ -11245,9 +11252,7 @@ function getPaymentColumns({
           <ActionButton className="px-3 py-2" disabled={pending} onClick={() => onMarkPaid(row.original.id)}>
             Mark paid
           </ActionButton>
-        ) : (
-          <Badge tone="emerald">Settled</Badge>
-        )
+        ) : <StatusBadge value={row.original.status} />
     }
   ];
 }

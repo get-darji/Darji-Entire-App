@@ -250,6 +250,7 @@ type TailoringRequestItem = {
   voiceNotes?: MediaItem[];
   sampleProvided?: boolean;
   sampleMedia?: MediaItem[];
+  designMedia?: MediaItem[];
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
 };
@@ -277,6 +278,7 @@ type TailoringRequest = {
   };
   media: MediaItem[];
   voiceNotes?: MediaItem[];
+  designMedia?: MediaItem[];
   receivedMedia?: MediaItem[];
   stitchedMedia?: MediaItem[];
   items?: TailoringRequestItem[];
@@ -295,6 +297,7 @@ type OrderItem = {
   instructions?: string;
   media?: MediaItem[];
   sampleMedia?: MediaItem[];
+  designMedia?: MediaItem[];
   price?: number;
 };
 type Order = {
@@ -634,6 +637,7 @@ function requestItems(request: TailoringRequest): TailoringRequestItem[] {
       measurementNotes: request.measurementNotes,
       media: request.media ?? [],
       voiceNotes: request.voiceNotes ?? [],
+      designMedia: request.designMedia ?? [],
       homeMeasurementBooked: request.homeMeasurementBooked
     }
   ];
@@ -689,6 +693,7 @@ function orderFromAcceptedRequest(request: TailoringRequest): Order {
     media: item.media ?? [],
     voiceNotes: item.voiceNotes ?? [],
     sampleMedia: item.sampleMedia ?? [],
+    designMedia: item.designMedia ?? [],
     price: request.ownQuote?.price
   }));
   const extraItems = (request.additionalItems ?? []).map((item, index) => ({
@@ -3381,6 +3386,7 @@ function OrderDetailsScreen({
             ...(item.measurement?.imageUrl ? [{ url: item.measurement.imageUrl, resourceType: "image" as const, originalName: "Sample garment" }] : [])
           ].map((media) => [media.url, media])).values()
         );
+        const designMedia = item.designMedia ?? [];
         return {
           key: item.id ?? `${acceptedRequest.id}-accepted-item-${index}`,
           title: item.clothType || "Tailoring item",
@@ -3395,7 +3401,8 @@ function OrderDetailsScreen({
           visitMeasurementNotes: acceptedRequest.measurementNotes,
           voiceNotes,
           clothMedia,
-          sampleMedia
+          sampleMedia,
+          designMedia
         };
       })
     : order.items.map((item, index) => ({
@@ -3415,7 +3422,8 @@ function OrderDetailsScreen({
         sampleMedia: [
           ...(item.sampleMedia ?? []),
           ...(item.measurement?.imageUrl ? [{ url: item.measurement.imageUrl, resourceType: "image" as const, originalName: "Sample garment" }] : [])
-        ]
+        ],
+        designMedia: item.designMedia ?? []
       }));
   const activeDetailItemIndex = Math.min(selectedDetailItemIndex, Math.max(detailItems.length - 1, 0));
   const selectedDetailItem = detailItems[activeDetailItemIndex];
@@ -3431,22 +3439,27 @@ function OrderDetailsScreen({
   const selectedVoiceNotes = selectedDetailItem?.voiceNotes ?? [];
   const clothMedia = selectedDetailItem?.clothMedia ?? [];
   const sampleMedia = selectedDetailItem?.sampleMedia ?? [];
+  const designMedia = selectedDetailItem?.designMedia ?? [];
   const submittedMeasurementFields = selectedDetailItem?.measurementFields ?? {};
   const submittedMeasurementNote = selectedDetailItem?.measurementNotes?.trim();
   const submittedVisitNote = selectedDetailItem?.visitMeasurementNotes?.trim();
   const hasSubmittedMeasurementInfo = Object.entries(submittedMeasurementFields).length > 0 || Boolean(submittedMeasurementNote || submittedVisitNote);
-  const firstReferenceImage = [...clothMedia, ...sampleMedia].find((item) => item.resourceType === "image");
+  const firstReferenceImage = [...clothMedia, ...designMedia, ...sampleMedia].find((item) => item.resourceType === "image");
   const detailTextLines = (detailTextSheet?.value || "")
     .split(/\r?\n|,/)
     .map((line) => line.trim())
     .filter(Boolean);
+  const normalizedOrderStatus = String(order.status ?? "").toUpperCase();
+  const normalizedWorkStatus = String(acceptedRequest?.workStatus ?? "").toUpperCase();
+  const normalizedRequestOrderStatus = String(acceptedRequest?.orderStatus ?? "").toUpperCase();
   const timelineSteps = [
     { label: "Accepted", icon: "mail-open-outline" as const, active: true },
     { label: "Pickup", icon: "file-tray-stacked-outline" as const, active: hasReceivedPackage },
-    { label: "In Progress", icon: "cut-outline" as const, active: ["WORKING", "READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.workStatus === "WORKING" || acceptedRequest?.workStatus === "READY" },
-    { label: "Ready", icon: "briefcase-outline" as const, active: ["READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED"].includes(order.status) || acceptedRequest?.workStatus === "READY" },
-    { label: deliveryCompleted ? "Completed" : "Delivery", icon: "car-outline" as const, active: ["ON_THE_WAY", "DELIVERED"].includes(order.status) || deliveryCompleted || acceptedRequest?.orderStatus === "completed" }
+    { label: "In Progress", icon: "cut-outline" as const, active: ["WORKING", "READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED", "COMPLETED"].includes(normalizedOrderStatus) || ["WORKING", "READY"].includes(normalizedWorkStatus) },
+    { label: "Ready", icon: "briefcase-outline" as const, active: ["READY", "TAILOR_COMPLETED", "ON_THE_WAY", "DELIVERED", "COMPLETED"].includes(normalizedOrderStatus) || normalizedWorkStatus === "READY" },
+    { label: deliveryCompleted ? "Completed" : "Delivery", icon: "car-outline" as const, active: ["ON_THE_WAY", "DELIVERED", "COMPLETED"].includes(normalizedOrderStatus) || deliveryCompleted || normalizedRequestOrderStatus === "COMPLETED" }
   ];
+  const currentTimelineIndex = timelineSteps.reduce((lastActive, step, index) => step.active ? index : lastActive, 0);
 
   return (
     <ScrollView contentContainerStyle={styles.confirmedOrderContent} showsVerticalScrollIndicator={false}>
@@ -3489,7 +3502,7 @@ function OrderDetailsScreen({
             <View key={step.label} style={styles.confirmedTimelineItem}>
               <View style={[styles.confirmedTimelineIcon, step.active && styles.confirmedTimelineIconActive]}>
                 <Ionicons name={step.icon} size={19} color={step.active ? BRAND_ORANGE : "#94a3b8"} />
-                {step.active && index === 0 ? (
+                {step.active && index === currentTimelineIndex ? (
                   <View style={styles.confirmedTimelineCheck}>
                     <Ionicons name="checkmark" size={10} color="#ffffff" />
                   </View>
@@ -3705,7 +3718,7 @@ function OrderDetailsScreen({
         </>
       ) : null}
 
-      {clothMedia.length || sampleMedia.length ? (
+      {clothMedia.length || designMedia.length || sampleMedia.length ? (
         <View style={[styles.confirmedSectionCard, styles.confirmedMediaSectionCard]}>
           <Text style={[styles.confirmedSectionLabel, styles.confirmedMediaSectionLabel]}>CUSTOMER MEDIA</Text>
           {clothMedia.length ? (
@@ -3749,6 +3762,18 @@ function OrderDetailsScreen({
                         <Text style={styles.mediaTypeText}>{item.resourceType === "audio" ? "Audio" : "Video"}</Text>
                       </>
                     )}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+          {designMedia.length ? (
+            <View style={styles.confirmedMediaGroup}>
+              <Text style={styles.confirmedMediaGroupTitle}>Design / reference photos</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.confirmedMediaRow}>
+                {designMedia.map((item, index) => (
+                  <Pressable key={`${selectedDetailItem?.key}-design-${index}-${item.url}`} style={styles.confirmedMediaBox} onPress={() => setSelectedMedia({ items: designMedia, index, title: "Design / reference" })}>
+                    <Image source={{ uri: item.url }} style={styles.confirmedMediaImage} />
                   </Pressable>
                 ))}
               </ScrollView>

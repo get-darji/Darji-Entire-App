@@ -32,6 +32,7 @@ import {
   listBugReportsController,
   updateBugReportController,
   createAccountChangeRequestController,
+  createPublicAccountDeletionRequestController,
   listAccountChangeRequestsController,
   approveAccountChangeRequestController,
   rejectAccountChangeRequestController,
@@ -331,6 +332,11 @@ router.patch("/support/bug-reports/:id", requireAuth, requireRole("ADMIN"), upda
 router.post("/support/bug-reports/:id/messages", requireAuth, addBugReportMessageController);
 
 router.post("/support/change-requests", requireAuth, createAccountChangeRequestController);
+router.post(
+  "/account-deletion-requests",
+  rateLimit({ keyPrefix: "account-deletion-request", windowMs: 60 * 60 * 1000, max: 5 }),
+  createPublicAccountDeletionRequestController
+);
 router.get("/support/change-requests", requireAuth, listAccountChangeRequestsController);
 router.patch("/support/change-requests/:id/approve", requireAuth, requireRole("ADMIN"), approveAccountChangeRequestController);
 router.patch("/support/change-requests/:id/reject", requireAuth, requireRole("ADMIN"), rejectAccountChangeRequestController);

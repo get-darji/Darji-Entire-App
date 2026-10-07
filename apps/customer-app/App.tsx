@@ -320,6 +320,8 @@ type ClothingItemDraft = {
   sampleProvided?: boolean;
   sampleMedia?: LocalMedia;
   uploadedSampleMedia?: UploadedMedia;
+  designMedia?: LocalMedia;
+  uploadedDesignMedia?: UploadedMedia;
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
   media: LocalMedia[];
@@ -401,6 +403,7 @@ type BackendTailoringRequestItem = {
   voiceNotes?: UploadedMedia[];
   sampleProvided?: boolean;
   sampleMedia?: UploadedMedia[];
+  designMedia?: UploadedMedia[];
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
 };
@@ -422,6 +425,7 @@ type BackendTailoringRequest = {
   measurementNotes?: string;
   sampleProvided?: boolean;
   sampleMedia?: UploadedMedia[];
+  designMedia?: UploadedMedia[];
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
   status: "QUOTE_REQUESTED" | "PAYMENT_PENDING" | "TAILOR_SELECTED" | "CANCELLED";
@@ -593,6 +597,8 @@ type RequestDraft = {
   sampleProvided?: boolean;
   sampleMedia?: LocalMedia;
   uploadedSampleMedia?: UploadedMedia;
+  designMedia?: LocalMedia;
+  uploadedDesignMedia?: UploadedMedia;
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
   pickup: string;
@@ -609,6 +615,8 @@ type RequestDraft = {
 
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
+const COPY_EXISTING_GARMENT_WORK = "Copy Existing Garment";
+const STITCH_FROM_DESIGN_WORK = "Stitch from Reference / Design";
 const SCREEN_BG = "#f7faff";
 const CARD_DARK = "#111111";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
@@ -871,7 +879,7 @@ const helpTopics = [
       "Edit your name, gender, date of birth, and avatar from Profile.",
       "Saved addresses can be added, deleted, or selected during requests.",
       "Language and notification settings are separated under Preferences.",
-      "Account deletion permanently clears the local profile data from this device."
+      "Account deletion sends a permanent deletion request to Darji and signs you out."
     ]
   },
   {
@@ -1225,6 +1233,9 @@ function hasActiveItemDraftData(draft: RequestDraft) {
       draft.measurementNotes?.trim() ||
       draft.sampleProvided ||
       draft.sampleMedia ||
+      draft.uploadedSampleMedia ||
+      draft.designMedia ||
+      draft.uploadedDesignMedia ||
       draft.homeMeasurementBooked
   );
 }
@@ -1299,6 +1310,8 @@ function draftToClothingItem(draft: RequestDraft, itemId = draft.editingItemId ?
     sampleProvided: draft.sampleProvided,
     sampleMedia: draft.sampleMedia,
     uploadedSampleMedia: draft.uploadedSampleMedia,
+    designMedia: draft.designMedia,
+    uploadedDesignMedia: draft.uploadedDesignMedia,
     homeMeasurementBooked: draft.homeMeasurementBooked,
     preferredMeasurementSlot: draft.preferredMeasurementSlot,
     media: draft.media,
@@ -1333,6 +1346,8 @@ function loadClothingItemIntoDraft(draft: RequestDraft, item: ClothingItemDraft)
     sampleProvided: item.sampleProvided,
     sampleMedia: item.sampleMedia,
     uploadedSampleMedia: item.uploadedSampleMedia,
+    designMedia: item.designMedia,
+    uploadedDesignMedia: item.uploadedDesignMedia,
     homeMeasurementBooked: item.homeMeasurementBooked,
     preferredMeasurementSlot: item.preferredMeasurementSlot,
     media: item.media ?? [],
@@ -5219,6 +5234,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
   const hasWorkSelection = selectedService?.label === "Other"
     ? Boolean(draft.otherWorkDescription?.trim())
     : selectedWorkItems.length > 0;
+  const needsExistingGarmentPhoto = selectedWorkItems.includes(COPY_EXISTING_GARMENT_WORK);
+  const needsDesignPhoto = selectedWorkItems.includes(STITCH_FROM_DESIGN_WORK);
+  const hasExistingGarmentPhoto = Boolean(draft.sampleMedia || draft.uploadedSampleMedia);
+  const hasDesignPhoto = Boolean(draft.designMedia || draft.uploadedDesignMedia);
+  const hasRequiredReferencePhotos = (!needsExistingGarmentPhoto || hasExistingGarmentPhoto) && (!needsDesignPhoto || hasDesignPhoto);
   const hasTimeSlotSelection = !draft.homeMeasurementBooked || Boolean(draft.preferredMeasurementSlot);
   const canContinue = Boolean(
     draft.gender &&
@@ -5228,9 +5248,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     hasWorkSelection &&
     draft.urgency &&
     (showManualMeasurements || draft.sampleProvided || draft.homeMeasurementBooked) &&
+    hasRequiredReferencePhotos &&
     hasTimeSlotSelection
   );
-  const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && hasOtherClothType && selectedService && hasWorkSelection);
+  const canContinueToMeasurements = Boolean(draft.gender && draft.clothType && hasOtherClothType && selectedService && hasWorkSelection && hasRequiredReferencePhotos);
   const savedItemCount = draft.items?.length ?? 0;
   const editingItemIndex = draft.editingItemId ? (draft.items ?? []).findIndex((item) => item.id === draft.editingItemId) : -1;
   const currentItemNumber = editingItemIndex >= 0 ? editingItemIndex + 1 : savedItemCount + 1;
@@ -5258,6 +5279,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       workType: undefined,
       selectedWorkItems: [],
       otherWorkDescription: "",
+      sampleProvided: false,
+      sampleMedia: undefined,
+      uploadedSampleMedia: undefined,
+      designMedia: undefined,
+      uploadedDesignMedia: undefined,
       measurements: {},
       measurementNotes: ""
     });
@@ -5275,6 +5301,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       workType: undefined,
       selectedWorkItems: [],
       otherWorkDescription: "",
+      sampleProvided: false,
+      sampleMedia: undefined,
+      uploadedSampleMedia: undefined,
+      designMedia: undefined,
+      uploadedDesignMedia: undefined,
       measurements: {},
       measurementNotes: ""
     });
@@ -5292,6 +5323,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       workType: undefined,
       selectedWorkItems: [],
       otherWorkDescription: "",
+      sampleProvided: false,
+      sampleMedia: undefined,
+      uploadedSampleMedia: undefined,
+      designMedia: undefined,
+      uploadedDesignMedia: undefined,
       measurements: {},
       measurementNotes: ""
     });
@@ -5306,6 +5342,11 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       workType: serviceCategory,
       selectedWorkItems: [],
       otherWorkDescription: "",
+      sampleProvided: false,
+      sampleMedia: undefined,
+      uploadedSampleMedia: undefined,
+      designMedia: undefined,
+      uploadedDesignMedia: undefined,
       homeMeasurementBooked: requiresVisit ? true : draft.homeMeasurementBooked
     });
     setShowAllWorkOptions(true);
@@ -5326,7 +5367,12 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       serviceCategory: undefined,
       workType: undefined,
       selectedWorkItems: [],
-      otherWorkDescription: ""
+      otherWorkDescription: "",
+      sampleProvided: false,
+      sampleMedia: undefined,
+      uploadedSampleMedia: undefined,
+      designMedia: undefined,
+      uploadedDesignMedia: undefined
     });
   }
 
@@ -5334,7 +5380,15 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     const nextItems = selectedWorkItems.includes(workItem)
       ? selectedWorkItems.filter((item) => item !== workItem)
       : [...selectedWorkItems, workItem];
-    setDraft({ ...draft, selectedWorkItems: nextItems });
+    setDraft({
+      ...draft,
+      selectedWorkItems: nextItems,
+      sampleProvided: nextItems.includes(COPY_EXISTING_GARMENT_WORK) ? true : workItem === COPY_EXISTING_GARMENT_WORK ? false : draft.sampleProvided,
+      sampleMedia: workItem === COPY_EXISTING_GARMENT_WORK && !nextItems.includes(COPY_EXISTING_GARMENT_WORK) ? undefined : draft.sampleMedia,
+      uploadedSampleMedia: workItem === COPY_EXISTING_GARMENT_WORK && !nextItems.includes(COPY_EXISTING_GARMENT_WORK) ? undefined : draft.uploadedSampleMedia,
+      designMedia: workItem === STITCH_FROM_DESIGN_WORK && !nextItems.includes(STITCH_FROM_DESIGN_WORK) ? undefined : draft.designMedia,
+      uploadedDesignMedia: workItem === STITCH_FROM_DESIGN_WORK && !nextItems.includes(STITCH_FROM_DESIGN_WORK) ? undefined : draft.uploadedDesignMedia
+    });
     setShowAllWorkOptions(nextItems.length === 0);
   }
 
@@ -5372,6 +5426,26 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
     });
   }
 
+  async function pickDesignImage() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission needed", "Allow photo library access to upload the design or reference photo you want stitched.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (asset.fileSize && asset.fileSize > MAX_IMAGE_BYTES) {
+      Alert.alert("File too large", "Design photos must be 5 MB or smaller.");
+      return;
+    }
+    setDraft({
+      ...draft,
+      designMedia: { uri: asset.uri, type: "image", name: asset.fileName ?? `design-${Date.now()}.jpg`, size: asset.fileSize },
+      uploadedDesignMedia: undefined
+    });
+  }
+
   function toggleSampleProvided() {
     const next = !draft.sampleProvided;
     setDraft({
@@ -5404,9 +5478,12 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       return undefined;
     }
     try {
-      const uploadedSampleMedia = draft.sampleProvided && draft.sampleMedia && !draft.uploadedSampleMedia ? (await uploadMedia([draft.sampleMedia], token))[0] : draft.uploadedSampleMedia;
-      const item = draftToClothingItem({ ...draft, uploadedSampleMedia });
-      return { item, uploadedSampleMedia, items: upsertClothingItem(draft, item) };
+      const [uploadedSampleMedia, uploadedDesignMedia] = await Promise.all([
+        draft.sampleProvided && draft.sampleMedia && !draft.uploadedSampleMedia ? uploadMedia([draft.sampleMedia], token).then((media) => media[0]) : Promise.resolve(draft.uploadedSampleMedia),
+        draft.designMedia && !draft.uploadedDesignMedia ? uploadMedia([draft.designMedia], token).then((media) => media[0]) : Promise.resolve(draft.uploadedDesignMedia)
+      ]);
+      const item = draftToClothingItem({ ...draft, uploadedSampleMedia, uploadedDesignMedia });
+      return { item, uploadedSampleMedia, uploadedDesignMedia, items: upsertClothingItem(draft, item) };
     } catch (error) {
       Alert.alert("Item failed", error instanceof Error ? error.message : "Could not save this clothing item.");
       return undefined;
@@ -5418,7 +5495,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       setSavingAction("summary");
       const saved = await saveClothingItem();
       if (!saved) return;
-      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, items: saved.items }));
+      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, uploadedDesignMedia: saved.uploadedDesignMedia, items: saved.items }));
       setScreen("orderSummary");
     } finally {
       setSavingAction(undefined);
@@ -5430,7 +5507,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
       setSavingAction("another");
       const saved = await saveClothingItem();
       if (!saved) return;
-      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, items: saved.items }));
+      setDraft(clearActiveClothingItem({ ...draft, uploadedSampleMedia: saved.uploadedSampleMedia, uploadedDesignMedia: saved.uploadedDesignMedia, items: saved.items }));
       setScreen("newRequest");
     } finally {
       setSavingAction(undefined);
@@ -5564,6 +5641,52 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
               onGarmentSearchChange={setGarmentSearch}
             />
 
+            {needsExistingGarmentPhoto ? (
+              <View style={styles.whiteCard}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.profileRowText}>
+                    <Text style={styles.addressTitle}>Existing garment photo</Text>
+                    <Text style={styles.mutedSmall}>Required. Photograph the garment we should copy. Keep the physical garment ready for pickup.</Text>
+                  </View>
+                  <Text style={styles.requiredBadge}>Required</Text>
+                </View>
+                <Pressable style={styles.sampleUploadButton} onPress={pickSampleImage}>
+                  <Ionicons name={hasExistingGarmentPhoto ? "image" : "cloud-upload-outline"} size={17} color={BRAND_ORANGE} />
+                  <Text style={styles.sampleUploadText}>{hasExistingGarmentPhoto ? "Change Existing Garment Photo" : "Upload Existing Garment Photo"}</Text>
+                </Pressable>
+                {hasExistingGarmentPhoto ? (
+                  <View style={styles.samplePreviewRow}>
+                    <Image source={{ uri: draft.sampleMedia?.uri ?? draft.uploadedSampleMedia?.url ?? "" }} resizeMode="cover" style={styles.samplePreviewImage} />
+                    <View style={styles.samplePreviewText}><Text style={styles.addressTitle}>Existing garment ready</Text><Text style={styles.mutedSmall}>The delivery partner will be told to collect it.</Text></View>
+                    <Pressable style={styles.sampleRemoveButton} onPress={() => setDraft({ ...draft, sampleMedia: undefined, uploadedSampleMedia: undefined })}><Ionicons name="close" size={15} color="#ffffff" /></Pressable>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {needsDesignPhoto ? (
+              <View style={styles.whiteCard}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.profileRowText}>
+                    <Text style={styles.addressTitle}>Design / reference photo</Text>
+                    <Text style={styles.mutedSmall}>Required. Upload the design the tailor should follow. This does not add a garment to pickup.</Text>
+                  </View>
+                  <Text style={styles.requiredBadge}>Required</Text>
+                </View>
+                <Pressable style={styles.sampleUploadButton} onPress={pickDesignImage}>
+                  <Ionicons name={hasDesignPhoto ? "image" : "cloud-upload-outline"} size={17} color={BRAND_ORANGE} />
+                  <Text style={styles.sampleUploadText}>{hasDesignPhoto ? "Change Design Photo" : "Upload Design Photo"}</Text>
+                </Pressable>
+                {hasDesignPhoto ? (
+                  <View style={styles.samplePreviewRow}>
+                    <Image source={{ uri: draft.designMedia?.uri ?? draft.uploadedDesignMedia?.url ?? "" }} resizeMode="cover" style={styles.samplePreviewImage} />
+                    <View style={styles.samplePreviewText}><Text style={styles.addressTitle}>Design photo added</Text><Text style={styles.mutedSmall}>The tailor can review it with your work details.</Text></View>
+                    <Pressable style={styles.sampleRemoveButton} onPress={() => setDraft({ ...draft, designMedia: undefined, uploadedDesignMedia: undefined })}><Ionicons name="close" size={15} color="#ffffff" /></Pressable>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <RequestFlowCta
               label="Continue to Measurements"
               onPress={() => setScreen("measurements")}
@@ -5595,13 +5718,13 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 <Text style={styles.requiredBadge}>Required</Text>
               </View>
               <View style={styles.measurementMethodGrid}>
-                <Pressable style={[styles.measurementMethodCard, draft.sampleProvided && styles.measurementMethodCardSelected]} onPress={toggleSampleProvided}>
+                <Pressable style={[styles.measurementMethodCard, draft.sampleProvided && styles.measurementMethodCardSelected]} onPress={() => !needsExistingGarmentPhoto && toggleSampleProvided()}>
                   <Ionicons name={draft.sampleProvided ? "checkbox" : "square-outline"} size={23} color={draft.sampleProvided ? BRAND_ORANGE : "#7d8491"} style={styles.measurementMethodCheck} />
                   <View style={styles.measurementMethodIcon}>
                     <Ionicons name="shirt-outline" size={32} color={BRAND_ORANGE} />
                   </View>
-                  <Text style={styles.measurementMethodCardTitle}>I will send a sample with my clothes</Text>
-                  <Text style={styles.measurementMethodCopy}>Safer than typing measurements. We will stitch by matching your preferred fit.</Text>
+                  <Text style={styles.measurementMethodCardTitle}>{needsExistingGarmentPhoto ? "Existing garment will be collected" : "I will send a sample with my clothes"}</Text>
+                  <Text style={styles.measurementMethodCopy}>{needsExistingGarmentPhoto ? "Required for Copy Existing Garment. Keep the photographed garment ready for the delivery partner." : "Safer than typing measurements. We will stitch by matching your preferred fit."}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.measurementMethodCard, draft.homeMeasurementBooked && styles.measurementMethodCardSelected]}
@@ -5646,7 +5769,7 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
                 <>
                   <Pressable style={styles.sampleUploadButton} onPress={pickSampleImage}>
                     <Ionicons name={draft.sampleMedia || draft.uploadedSampleMedia ? "image" : "cloud-upload-outline"} size={17} color={BRAND_ORANGE} />
-                    <Text style={styles.sampleUploadText}>{draft.sampleMedia || draft.uploadedSampleMedia ? "Change Optional Sample Photo" : "Add Optional Sample Photo"}</Text>
+                    <Text style={styles.sampleUploadText}>{draft.sampleMedia || draft.uploadedSampleMedia ? (needsExistingGarmentPhoto ? "Change Existing Garment Photo" : "Change Optional Sample Photo") : (needsExistingGarmentPhoto ? "Upload Existing Garment Photo" : "Add Optional Sample Photo")}</Text>
                   </Pressable>
                   {draft.sampleMedia || draft.uploadedSampleMedia ? (
                     <View style={styles.samplePreviewRow}>
@@ -6144,6 +6267,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       measurementNotes: item.measurementNotes,
       sampleProvided: item.sampleProvided,
       uploadedSampleMedia: item.sampleMedia?.[0],
+      uploadedDesignMedia: item.designMedia?.[0],
       homeMeasurementBooked: item.homeMeasurementBooked,
       preferredMeasurementSlot: item.preferredMeasurementSlot ?? request.preferredMeasurementSlot,
       media: [],
@@ -6165,6 +6289,7 @@ function clothingItemsFromBackendRequest(request: BackendTailoringRequest, fallb
       measurementNotes: request.measurementNotes,
       sampleProvided: request.sampleProvided,
       uploadedSampleMedia: request.sampleMedia?.[0],
+      uploadedDesignMedia: request.designMedia?.[0],
       homeMeasurementBooked: request.homeMeasurementBooked,
       preferredMeasurementSlot: request.preferredMeasurementSlot,
       media: [],
@@ -6226,6 +6351,7 @@ function orderFromBackendRequest(request: BackendTailoringRequest, existingOrder
     measurementNotes: primaryItem?.measurementNotes,
     sampleProvided: primaryItem?.sampleProvided ?? request.sampleProvided,
     uploadedSampleMedia: primaryItem?.uploadedSampleMedia,
+    uploadedDesignMedia: primaryItem?.uploadedDesignMedia,
     homeMeasurementBooked: primaryItem?.homeMeasurementBooked,
     preferredMeasurementSlot: primaryItem?.preferredMeasurementSlot ?? request.preferredMeasurementSlot,
     media: primaryItem?.media ?? [],
@@ -6292,7 +6418,8 @@ function payloadForClothingItem(item: ClothingItemDraft) {
     sampleProvided: item.sampleProvided === true,
     media: item.uploadedMedia,
     voiceNotes: item.uploadedVoiceNotes ?? [],
-    sampleMedia: item.uploadedSampleMedia ? [item.uploadedSampleMedia] : []
+    sampleMedia: item.uploadedSampleMedia ? [item.uploadedSampleMedia] : [],
+    designMedia: item.uploadedDesignMedia ? [item.uploadedDesignMedia] : []
   };
 }
 
@@ -6435,6 +6562,7 @@ function OrderSummaryScreen({
         measurementNotes: items[0].measurementNotes,
         sampleProvided: items[0].sampleProvided,
         uploadedSampleMedia: items[0].uploadedSampleMedia,
+        uploadedDesignMedia: items[0].uploadedDesignMedia,
         homeMeasurementBooked: items[0].homeMeasurementBooked,
         media: items[0].media,
         uploadedMedia: items[0].uploadedMedia,
@@ -6592,9 +6720,21 @@ function QuotesScreen({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
   const [deleting, setDeleting] = useState(false);
+  const insets = useSafeAreaInsets();
+  const floatingContinueProgress = useRef(new Animated.Value(selectedQuote ? 1 : 0)).current;
   const noQuoteAlertSentRef = useRef(false);
   const waitExpiredDialogShownRef = useRef(false);
   const waitTimerStartedAtRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    Animated.spring(floatingContinueProgress, {
+      toValue: selectedQuote ? 1 : 0,
+      useNativeDriver: true,
+      damping: 17,
+      stiffness: 190,
+      mass: 0.8
+    }).start();
+  }, [floatingContinueProgress, selectedQuote]);
 
   function showDeliveryChargeInfo() {
     showDialog({
@@ -6810,7 +6950,7 @@ function QuotesScreen({
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
+      <ScrollView contentContainerStyle={[styles.pageContent, selectedQuote && { paddingBottom: 126 + insets.bottom }]}>
         <Header
           title="Tailor Quotes"
           onHome={() => setScreen("home")}
@@ -7011,15 +7151,6 @@ function QuotesScreen({
           </Pressable>
         ) : null}
 
-        {selectedQuote ? (
-          <RequestFlowCta
-            label="Continue"
-            onPress={() => void confirmTailor(selectedQuote)}
-            disabled={confirming}
-            loading={confirming}
-          />
-        ) : null}
-
         {draft.backendRequestId && onDeleteRequest ? (
           <Pressable style={[styles.cancelOrderButton, { marginTop: selectedQuote ? 8 : 12, marginBottom: 20 }]} onPress={requestDeleteRequest} disabled={deleting}>
             <Ionicons name="trash-outline" size={20} color="#c24141" />
@@ -7027,6 +7158,24 @@ function QuotesScreen({
           </Pressable>
         ) : null}
       </ScrollView>
+      {selectedQuote ? (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.quotesFloatingCta,
+            {
+              bottom: Math.max(12, insets.bottom + 8),
+              opacity: floatingContinueProgress,
+              transform: [
+                { translateY: floatingContinueProgress.interpolate({ inputRange: [0, 1], outputRange: [44, 0] }) },
+                { scale: floatingContinueProgress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) }
+              ]
+            }
+          ]}
+        >
+          <RequestFlowCta label="Continue" onPress={() => void confirmTailor(selectedQuote)} disabled={confirming} loading={confirming} />
+        </Animated.View>
+      ) : null}
       <Modal visible={detailsOpen} transparent animationType="fade" onRequestClose={() => setDetailsOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.requestDetailsModal}>
@@ -12062,7 +12211,28 @@ function AppContent() {
     }));
   }
 
-  function deleteCustomerAccount() {
+  async function deleteCustomerAccount() {
+    if (!token) {
+      setDialog(dialogFromNativeAlert("Sign in required", "Please sign in again before requesting account deletion."));
+      return;
+    }
+
+    try {
+      await api("/support/change-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "AccountDeletion",
+          requestedValues: { reason: "Customer requested account deletion from profile settings" }
+        })
+      }, token);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not submit the deletion request.";
+      if (!message.toLowerCase().includes("already pending")) {
+        setDialog(dialogFromNativeAlert("Request not sent", message));
+        return;
+      }
+    }
+
     setCustomerDataByPhone((current) => {
       const next = { ...current };
       delete next[customerPhone];
@@ -12077,7 +12247,7 @@ function AppContent() {
   function requestDeleteCustomerAccount() {
     setDialog({
       title: "Delete account?",
-      message: "This will remove your profile, saved addresses, order history, reviews, and Darji app data from this device. You will be signed out after deletion.",
+      message: "This sends a permanent account-deletion request to Darji, clears local app data from this device, and signs you out. The request cannot be undone after it is approved and completed.",
       actions: [
         { label: "Keep Account" },
         { label: "Delete Account", destructive: true, onPress: deleteCustomerAccount }
@@ -13928,6 +14098,7 @@ function createStyles(isDark = false) {
   quotesTrustCopy: { color: muted, fontSize: 10, fontWeight: "700", lineHeight: 14, textAlign: "center", marginTop: 4 },
   quoteActionRowButton: { minHeight: 78, borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 14, padding: 16, marginTop: 34, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 16, elevation: 2 },
   quoteActionTitle: { color: text, fontSize: 16, fontWeight: "900" },
+  quotesFloatingCta: { position: "absolute", left: 16, right: 16, zIndex: 30, borderRadius: 20, backgroundColor: isDark ? "rgba(15,23,42,0.96)" : "rgba(255,255,255,0.97)", paddingHorizontal: 6, paddingTop: 1, shadowColor: "#0b2241", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 18, elevation: 12 },
   requestExpireRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 18, marginBottom: 20 },
   requestDetailsModal: { width: "100%", maxWidth: 390, borderRadius: 20, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surface, padding: 18 },
   requestDetailItem: { borderRadius: 15, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12, marginVertical: 8 },

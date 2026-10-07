@@ -444,7 +444,9 @@ async function deleteAccountByUserId(userId: string) {
     DeliveryPartnerModel.deleteOne({ userId }),
     AddressModel.deleteMany({ userId }),
     NotificationModel.deleteMany({ userId }),
-    WalletModel.deleteOne({ userId }),
+    WalletModel.deleteMany({ userId }),
+    WalletTransactionModel.deleteMany({ userId }),
+    PaymentHistoryModel.deleteMany({ userId }),
     OtpRequestModel.deleteMany({ $or: [{ userId }, { phone: user.phone }] })
   ]);
 
@@ -1264,7 +1266,8 @@ export async function walletController(req: Request, res: Response) {
 }
 
 export async function transactionsController(req: Request, res: Response) {
-  const transactions = await WalletTransactionModel.find({ userId: req.user!.id }).sort({ createdAt: -1 });
+  const userType = req.user!.role === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
+  const transactions = await WalletTransactionModel.find({ userId: req.user!.id, userType }).sort({ createdAt: -1 });
   res.json({ data: transactions });
 }
 
@@ -1282,9 +1285,9 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
   const rows = await Promise.all(profiles.map(async (profile: any) => {
     const user = await UserModel.findById(profile.userId).select("name phone");
     const [wallet, transactions, lastPayment] = await Promise.all([
-      WalletModel.findOne({ userId: profile.userId }),
-      WalletTransactionModel.find({ userId: profile.userId }).sort({ createdAt: -1 }),
-      PaymentHistoryModel.findOne({ userId: profile.userId }).sort({ paidAt: -1, createdAt: -1 })
+      WalletModel.findOne({ userId: profile.userId, userType }),
+      WalletTransactionModel.find({ userId: profile.userId, userType }).sort({ createdAt: -1 }),
+      PaymentHistoryModel.findOne({ userId: profile.userId, userType }).sort({ paidAt: -1, createdAt: -1 })
     ]);
     const currentWeekEarnings = transactions.reduce((sum: number, transaction: any) => {
       const createdAt = new Date(transaction.createdAt ?? 0);
@@ -1322,7 +1325,7 @@ export async function adminWalletDetailController(req: Request, res: Response) {
   const userId = String(req.params.userId);
   const user = await UserModel.findById(userId).select("name phone role");
   if (!user) throw new AppError(404, "User not found");
-  const userType = user.role === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
+  const userType = req.query.userType === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : "TAILOR";
   res.json({ data: { user, ...(await walletSummary(userId, userType as WalletUserType)) } });
 }
 
@@ -2353,8 +2356,12 @@ export async function updateBugReportController(req: Request, res: Response) {
 
 export async function createAccountChangeRequestController(req: Request, res: Response) {
   const input = accountChangeRequestSchema.parse(req.body);
-  if (req.user!.role !== "TAILOR" && req.user!.role !== "DELIVERY_PARTNER") {
-    throw new AppError(403, "Account change requests are available only to tailor and delivery partners");
+  const supportedRoles = ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER"];
+  if (!supportedRoles.includes(req.user!.role)) {
+    throw new AppError(403, "Account change requests are not available for this account");
+  }
+  if (req.user!.role === "CUSTOMER" && input.type !== "AccountDeletion") {
+    throw new AppError(403, "Customers can use this endpoint only for account deletion requests");
   }
 
   // Parse type for visual neatness
@@ -2386,7 +2393,7 @@ export async function createAccountChangeRequestController(req: Request, res: Re
     senderId: req.user!.id,
     senderName,
     text: input.type === "AccountDeletion"
-      ? `Request: Delete partner account\n\nPartner: ${user?.name ?? "Partner"}\nPhone: ${user?.phone ?? "Unknown"}`
+      ? `Request: Delete Darji account\n\nAccount: ${user?.name ?? "Darji user"}\nPhone: ${user?.phone ?? "Unknown"}`
       : `Request: Change ${requestTypeNice}\n\nDetails: ${Object.entries(requestedValues || {}).map(([k, v]) => `\n- ${k}: ${v}`).join('')}`,
     attachments: input.documents || [],
     type: "text",
@@ -2397,7 +2404,7 @@ export async function createAccountChangeRequestController(req: Request, res: Re
     ...input,
     requestedValues,
     userId: req.user!.id,
-    userRole: req.user!.role as "TAILOR" | "DELIVERY_PARTNER",
+    userRole: req.user!.role as "CUSTOMER" | "TAILOR" | "DELIVERY_PARTNER",
     messages: [initialMessage]
   });
   res.status(201).json({ data: request });
@@ -2936,6 +2943,57 @@ function formatReviewAddress(address?: {
   if (!address) return undefined;
   const locality = [address.city, address.state, address.pincode].filter(Boolean).join(", ");
   return [address.line1, address.line2, address.landmark, locality].filter(Boolean).join(", ") || undefined;
+}
+
+const publicAccountDeletionRequestSchema = z.object({
+  phone: z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a valid 10 digit Indian mobile number"),
+  reason: z.string().trim().max(1000).optional().default("")
+});
+
+export async function createPublicAccountDeletionRequestController(req: Request, res: Response) {
+  const input = publicAccountDeletionRequestSchema.parse(req.body);
+  const user = await UserModel.findOne({ phone: input.phone }).select("_id name phone role");
+
+  // Always return the same acknowledgement so this public endpoint cannot be
+  // used to discover which phone numbers have Darji accounts.
+  if (user && user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
+    const userRole = (["CUSTOMER", "TAILOR", "DELIVERY_PARTNER"].includes(user.role) ? user.role : "CUSTOMER") as "CUSTOMER" | "TAILOR" | "DELIVERY_PARTNER";
+    const existingRequest = await AccountChangeRequestModel.findOne({
+      userId: user.id,
+      type: "AccountDeletion",
+      status: "PENDING"
+    });
+
+    if (!existingRequest) {
+      const reason = input.reason || "No additional reason provided.";
+      const request = await AccountChangeRequestModel.create({
+        userId: user.id,
+        userRole,
+        type: "AccountDeletion",
+        requestedValues: {
+          accountName: user.name ?? "",
+          accountPhone: user.phone,
+          reason,
+          requestSource: "Darji website",
+          requestedAt: new Date().toISOString()
+        },
+        messages: [{
+          sender: "client",
+          senderId: user.id,
+          senderName: user.name || "Darji user",
+          text: `Request: Delete Darji account\n\nPhone: ${user.phone}\nReason: ${reason}\nSource: Darji website`,
+          type: "text",
+          createdAt: new Date()
+        }]
+      });
+      emitToAdmins("support:change_request_updated", { request });
+    }
+  }
+
+  res.status(202).json({
+    data: { submitted: true },
+    message: "If the phone number is linked to a Darji account, the deletion request has been recorded for verification."
+  });
 }
 
 async function reviewOrderContext(orderId: string, kind: string, customerId: string) {

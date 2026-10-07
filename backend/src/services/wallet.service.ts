@@ -46,7 +46,7 @@ export function endOfWeek(date = new Date()) {
 
 export async function ensureWallet(userId: string, userType: WalletUserType) {
   return WalletModel.findOneAndUpdate(
-    { userId },
+    { userId, userType },
     { $setOnInsert: { userId, userType, balance: 0 } },
     { upsert: true, returnDocument: "after" }
   );
@@ -90,6 +90,7 @@ export async function createWalletTransaction(input: WalletTransactionInput) {
     if (error?.code === 11000 && input.orderId && input.category === "ORDER_EARNING" && input.transactionType === "CREDIT") {
       return WalletTransactionModel.findOne({
         userId: input.userId,
+        userType: input.userType,
         orderId: input.orderId,
         category: "ORDER_EARNING",
         transactionType: "CREDIT"
@@ -142,6 +143,7 @@ async function reconcileTailorOrderEarnings(userId: string) {
 
   const existingTransactions = await WalletTransactionModel.find({
     userId,
+    userType: "TAILOR",
     orderId: { $in: sourceIds },
     transactionType: "CREDIT",
     category: "ORDER_EARNING"
@@ -233,8 +235,8 @@ export async function walletSummary(userId: string, userType: WalletUserType) {
   const weekStart = startOfWeek();
   const weekEnd = endOfWeek(weekStart);
   const [transactions, payments] = await Promise.all([
-    WalletTransactionModel.find({ userId }).sort({ createdAt: -1 }).limit(200),
-    PaymentHistoryModel.find({ userId }).sort({ paidAt: -1, createdAt: -1 }).limit(100)
+    WalletTransactionModel.find({ userId, userType }).sort({ createdAt: -1 }).limit(200),
+    PaymentHistoryModel.find({ userId, userType }).sort({ paidAt: -1, createdAt: -1 }).limit(100)
   ]);
 
   const currentWeekEarnings = transactions.reduce((sum, transaction: any) => {

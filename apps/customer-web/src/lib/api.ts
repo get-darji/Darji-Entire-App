@@ -86,6 +86,8 @@ export const customerApi = {
   getCustomerWebsiteSlider: () => request<CustomerWebsiteSlider>({ method: "GET", url: "/settings/customer-website-slider" }),
   createMarketingSignup: (data: { source: "launch_notify"; clientId: string } | { source: "footer_newsletter"; email: string }) =>
     request<{ id: string; source: string; email?: string; createdAt?: string }>({ method: "POST", url: "/marketing-signups", data }),
+  requestAccountDeletion: (data: { phone: string; reason?: string }) =>
+    request<{ submitted: true }>({ method: "POST", url: "/account-deletion-requests", data }),
   requestOtp: (phone: string) => request<{ otp?: string }>({ method: "POST", url: "/auth/request-otp", data: { phone, role: "CUSTOMER" } }),
   verifyOtp: (phone: string, otp: string) => request<AuthSession>({ method: "POST", url: "/auth/verify-otp", data: { phone, otp, role: "CUSTOMER" } }),
   me: () => request<AuthSession["user"] & { wallet?: { balance?: number } }>({ method: "GET", url: "/auth/me" }),

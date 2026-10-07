@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { env } from "./env.js";
+import { migrateRoleScopedWallets } from "./migrations/role-scoped-wallets.js";
 
 let memoryServer: MongoMemoryServer | undefined;
 
@@ -9,6 +10,7 @@ export async function connectDatabase() {
 
   if (uri) {
     await mongoose.connect(uri, env.MONGODB_DB_NAME ? { dbName: env.MONGODB_DB_NAME } : undefined);
+    await migrateRoleScopedWallets();
     console.log(`MongoDB connected to ${mongoose.connection.name}`);
     if (mongoose.connection.name === "test") {
       console.warn("MongoDB is using the shared 'test' database. Set MONGODB_DB_NAME to an isolated Darji database after migrating existing data.");
@@ -22,6 +24,7 @@ export async function connectDatabase() {
 
   memoryServer = await MongoMemoryServer.create();
   await mongoose.connect(memoryServer.getUri());
+  await migrateRoleScopedWallets();
   console.log("MongoDB memory server connected. Data resets when backend stops.");
 }
 

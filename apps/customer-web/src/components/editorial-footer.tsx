@@ -32,6 +32,7 @@ const footerNavigation = {
     { label: "Help Center", href: "mailto:help.darji@gmail.com?subject=Darji%20Help%20Center" },
     { label: "Email Support", href: "mailto:help.darji@gmail.com?subject=Darji%20Support" },
     { label: "Privacy Policy", href: "/privacy" },
+    { label: "Delete Account", href: "/delete-account" },
     { label: "Terms of Service", href: "/terms" },
     { label: "Security Standards", href: "/security" },
     { label: "Sitemap", href: "/sitemap.xml" }

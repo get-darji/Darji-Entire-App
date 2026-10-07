@@ -165,7 +165,13 @@ export async function verifyOtpController(req: Request, res: Response) {
   await clearExpiredSuspension(user);
   assertUserCanAccess(user);
 
-  await WalletModel.updateOne({ userId: user.id }, { $setOnInsert: { userId: user.id, balance: 0 } }, { upsert: true });
+  if (role === "TAILOR" || role === "DELIVERY_PARTNER") {
+    await WalletModel.updateOne(
+      { userId: user.id, userType: role },
+      { $setOnInsert: { userId: user.id, userType: role, balance: 0 } },
+      { upsert: true }
+    );
+  }
   if (role === "TAILOR") {
     await TailorModel.updateOne(
       { userId: user.id },
@@ -247,9 +253,10 @@ export async function logoutController(req: Request, res: Response) {
 }
 
 export async function meController(req: Request, res: Response) {
+  const walletUserType = req.user!.role === "DELIVERY_PARTNER" ? "DELIVERY_PARTNER" : req.user!.role === "TAILOR" ? "TAILOR" : undefined;
   const [user, wallet] = await Promise.all([
     UserModel.findById(req.user!.id),
-    WalletModel.findOne({ userId: req.user!.id })
+    walletUserType ? WalletModel.findOne({ userId: req.user!.id, userType: walletUserType }) : Promise.resolve(null)
   ]);
   const [tailorProfile, deliveryProfile] = await Promise.all([
     resetAutoVerifiedTailorProfile(req.user!.id),

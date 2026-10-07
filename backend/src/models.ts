@@ -525,13 +525,14 @@ attachDarjiIdPlugin(reviewSchema, { field: "darjiId", prefix: "RVW" });
 const walletSchema = new Schema(
   {
     _id: stringId,
-    userId: { type: String, required: true, unique: true },
+    userId: { type: String, required: true, index: true },
     userType: { type: String, enum: ["TAILOR", "DELIVERY_PARTNER", "ADMIN"], default: "TAILOR", index: true },
     balance: { type: Number, default: 0 }
   },
   baseOptions
 );
 attachDarjiIdPlugin(walletSchema, { field: "darjiId", prefix: "WLT" });
+walletSchema.index({ userId: 1, userType: 1 }, { unique: true });
 
 
 const walletTransactionSchema = new Schema(
@@ -557,7 +558,7 @@ const walletTransactionSchema = new Schema(
 attachDarjiIdPlugin(walletTransactionSchema, { field: "darjiId", prefix: "WTX" });
 
 walletTransactionSchema.index(
-  { userId: 1, orderId: 1, category: 1, transactionType: 1 },
+  { userId: 1, userType: 1, orderId: 1, category: 1, transactionType: 1 },
   { unique: true, partialFilterExpression: { orderId: { $exists: true }, category: "ORDER_EARNING", transactionType: "CREDIT" } }
 );
 
@@ -686,7 +687,7 @@ const accountChangeRequestSchema = new Schema(
   {
     _id: stringId,
     userId: { type: String, required: true, index: true },
-    userRole: { type: String, enum: ["TAILOR", "DELIVERY_PARTNER"], required: true, index: true },
+    userRole: { type: String, enum: ["CUSTOMER", "TAILOR", "DELIVERY_PARTNER"], required: true, index: true },
     type: { type: String, required: true, index: true },
     requestedValues: { type: Schema.Types.Mixed, required: true },
     documents: [String],
@@ -730,6 +731,7 @@ const tailoringRequestItemSchema = new Schema(
     voiceNotes: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
+    designMedia: [requestMediaSchema],
     homeMeasurementBooked: { type: Boolean, default: false },
     preferredMeasurementSlot: String
   },
@@ -766,6 +768,7 @@ const tailoringRequestSchema = new Schema(
     voiceNotes: [requestMediaSchema],
     sampleProvided: { type: Boolean, default: false },
     sampleMedia: [requestMediaSchema],
+    designMedia: [requestMediaSchema],
     homeMeasurementBooked: { type: Boolean, default: false },
     items: { type: [tailoringRequestItemSchema], default: [] },
     receivedMedia: [requestMediaSchema],

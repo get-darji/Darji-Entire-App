@@ -262,7 +262,8 @@ const tailoringRequestItemInputSchema = z.object({
   sampleProvided: z.boolean().default(false),
   media: z.array(tailoringMediaSchema).max(MAX_FILES).default([]),
   voiceNotes: z.array(tailoringMediaSchema).max(3).default([]),
-  sampleMedia: z.array(tailoringMediaSchema).max(1).default([])
+  sampleMedia: z.array(tailoringMediaSchema).max(1).default([]),
+  designMedia: z.array(tailoringMediaSchema).max(1).default([])
 });
 
 const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
@@ -281,6 +282,15 @@ const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
       message: "Select a measurement visit time slot"
     });
   }
+  items.forEach((item, index) => {
+    const pathPrefix: Array<string | number> = input.items?.length ? ["items", index] : [];
+    if (item.selectedWorkItems.includes("Copy Existing Garment") && (!item.sampleProvided || item.sampleMedia.length === 0)) {
+      context.addIssue({ code: "custom", path: [...pathPrefix, "sampleMedia"], message: "Upload a photo of the existing garment to copy" });
+    }
+    if (item.selectedWorkItems.includes("Stitch from Reference / Design") && item.designMedia.length === 0) {
+      context.addIssue({ code: "custom", path: [...pathPrefix, "designMedia"], message: "Upload the design or reference photo to stitch" });
+    }
+  });
 });
 
 const createTailorQuoteSchema = z.object({
@@ -411,6 +421,7 @@ function tailoringItemsForRequest(request: any) {
       media: request.media ?? [],
       sampleProvided: request.sampleProvided,
       sampleMedia: request.sampleMedia ?? [],
+      designMedia: request.designMedia ?? [],
       voiceNotes: request.voiceNotes ?? [],
       homeMeasurementBooked: request.homeMeasurementBooked
     }
@@ -2181,7 +2192,8 @@ export async function createTailoringRequestController(req: Request, res: Respon
     sampleProvided: input.sampleProvided,
     media: input.media,
     voiceNotes: input.voiceNotes,
-    sampleMedia: input.sampleMedia
+    sampleMedia: input.sampleMedia,
+    designMedia: input.designMedia
   }];
   const primary = items[0];
   const request = await TailoringRequestModel.create({
@@ -2202,6 +2214,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
     media: primary.media,
     voiceNotes: primary.voiceNotes,
     sampleMedia: primary.sampleMedia,
+    designMedia: primary.designMedia,
     items,
     itemCount: items.length,
     customerId: req.user!.id

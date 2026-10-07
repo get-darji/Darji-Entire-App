@@ -3197,6 +3197,13 @@ function ActiveOrderScreenView({
   const routeOrigin = currentLocation ? `${currentLocation.latitude},${currentLocation.longitude}` : undefined;
   const customerPhoneLabel = order.customerPhone ? `+91 ${order.customerPhone}` : "Available after assignment";
   const tailorPhoneLabel = order.tailorPhone ? `+91 ${order.tailorPhone}` : "Available after assignment";
+  const isInstantOrder = order.serviceLevel === "INSTANT";
+  const summaryDistanceMeters = Number(order.batchPayableDistanceMeters ?? order.distanceMeters ?? 0);
+  const summaryDistanceLabel = summaryDistanceMeters > 0
+    ? formatKm(summaryDistanceMeters)
+    : order.estimatedDistanceKm && order.estimatedDistanceKm > 0
+      ? `${order.estimatedDistanceKm.toFixed(1)} km`
+      : "Calculating route";
 
   async function addProof(kind: "cloth" | "sample" | "delivery") {
     if (kind === "delivery" ? !dropOtpVerified : !pickupOtpVerified) {
@@ -3409,7 +3416,8 @@ function ActiveOrderScreenView({
             <StatusRow label="Clothes" value={`${order.clothType ?? "Clothes"} - ${order.workType ?? "Tailoring"}`} />
             <StatusRow label="Clothing items" value={`${requiredPhotoCount}`} />
             <StatusRow label="Payment" value={paymentLabel(order)} />
-            <StatusRow label="Deadline" value={deadlineLabel(order.deadlineAt)} />
+            <StatusRow label={order.batchId ? "Batch distance" : "Distance"} value={summaryDistanceLabel} />
+            {!isInstantOrder ? <StatusRow label="Deadline" value={deadlineLabel(order.deadlineAt)} /> : null}
             {order.etaWindowStart && order.etaWindowEnd ? <StatusRow label="ETA" value={`${deadlineLabel(order.etaWindowStart)} - ${deadlineLabel(order.etaWindowEnd)}`} /> : null}
             {order.routePosition && order.routeTotal ? <StatusRow label="Priority" value={`${order.routePosition} of ${order.routeTotal}`} /> : null}
             <View style={styles.navRow}>
@@ -3448,15 +3456,15 @@ function ActiveOrderScreenView({
               {clothProofs.map((proof) => <Image key={proof.uri} source={{ uri: proof.uri }} style={styles.proofImage} />)}
             </View>
             {!clothPhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label={`Upload Pickup Photos (${clothProofs.length}/${requiredPhotoCount})`} loading={uploadingPhotos} disabled={clothProofs.length < requiredPhotoCount} onPress={() => savePhotos("cloth")} /> : <ChecklistRow label={`Pickup photos uploaded (${clothPhotoCount}/${requiredPhotoCount})`} complete />}
-            {order.sampleMedia?.length && clothPhotosUploaded ? (
+            {sampleRequired && clothPhotosUploaded ? (
               <View style={styles.sampleBlock}>
-                <Text style={styles.cardTitle}>Sample photos required</Text>
-                <Text style={styles.cardMeta}>{order.sampleMedia.length} customer sample reference file(s) exist.</Text>
+                <Text style={styles.cardTitle}>Collect the existing reference garment</Text>
+                <Text style={styles.cardMeta}>The customer selected Copy Existing Garment. Collect that physical garment and photograph it before leaving.</Text>
                 <View style={styles.docActions}>
                   <Pressable style={styles.docButton} onPress={() => addProof("sample")}><Ionicons name="camera-outline" size={15} color={BRAND_ORANGE} /><Text style={styles.docButtonText}>Take live photo</Text></Pressable>
                 </View>
                 <View style={styles.mediaGrid}>{sampleProofs.map((proof) => <Image key={proof.uri} source={{ uri: proof.uri }} style={styles.proofImage} />)}</View>
-                {!samplePhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label="Complete Sample Photo Upload" loading={uploadingPhotos} disabled={!sampleProofs.length} onPress={() => savePhotos("sample")} /> : <ChecklistRow label="Sample photos uploaded" complete />}
+                {!samplePhotosUploaded ? <PrimaryButton icon="cloud-upload-outline" label="Confirm Reference Garment Collected" loading={uploadingPhotos} disabled={!sampleProofs.length} onPress={() => savePhotos("sample")} /> : <ChecklistRow label="Reference garment collected and photographed" complete />}
               </View>
             ) : null}
           </Card>
@@ -3490,7 +3498,7 @@ function ActiveOrderScreenView({
                 {order.type === "customer_to_tailor" ? (
                   <>
                     <ChecklistRow label={`Upload Pickup Photos (${clothPhotoCount}/${requiredPhotoCount})`} complete={clothPhotosUploaded} current={pickupOtpVerified && !clothPhotosUploaded} locked={!pickupOtpVerified} />
-                    {sampleRequired ? <ChecklistRow label="Upload Sample Photos" complete={samplePhotosUploaded} current={clothPhotosUploaded && !samplePhotosUploaded} locked={!clothPhotosUploaded} /> : null}
+                    {sampleRequired ? <ChecklistRow label="Collect & photograph existing garment" complete={samplePhotosUploaded} current={clothPhotosUploaded && !samplePhotosUploaded} locked={!clothPhotosUploaded} /> : null}
                   </>
                 ) : null}
                 <ChecklistRow label={order.type === "customer_to_tailor" ? "Mark Picked Up" : "Mark Collected From Tailor"} complete={false} current={pickupChecklistComplete} locked={!pickupChecklistComplete} />

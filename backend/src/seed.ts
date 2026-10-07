@@ -15,7 +15,13 @@ import {
 
 async function upsertUser(phone: string, data: { name: string; role: string }) {
   const user = await UserModel.findOneAndUpdate({ phone }, { $set: data, $setOnInsert: { phone } }, { upsert: true, returnDocument: "after" });
-  await WalletModel.updateOne({ userId: user.id }, { $setOnInsert: { userId: user.id, balance: 0 } }, { upsert: true });
+  if (data.role === "TAILOR" || data.role === "DELIVERY_PARTNER") {
+    await WalletModel.updateOne(
+      { userId: user.id, userType: data.role },
+      { $setOnInsert: { userId: user.id, userType: data.role, balance: 0 } },
+      { upsert: true }
+    );
+  }
   return user;
 }
 
