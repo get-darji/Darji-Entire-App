@@ -55,7 +55,10 @@ export function DeleteAccountPage() {
       await customerApi.requestAccountDeletion({ phone: normalizedPhone, reason: reason.trim() || undefined });
       setSubmitted(true);
     } catch (error) {
-      setFormError(errorMessage(error));
+      const message = errorMessage(error);
+      setFormError(/network error|failed to fetch/i.test(message)
+        ? "We could not connect to Darji right now. Please check your connection and try again shortly."
+        : message);
     } finally {
       setSubmitting(false);
     }

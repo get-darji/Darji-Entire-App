@@ -29,6 +29,10 @@ const trustedVercelOrigins = [
 // environment and do not grant access to arbitrary internet origins.
 ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"]
   .forEach((origin) => configuredOrigins.add(origin));
+// Keep the canonical Darji website origins available even when a Railway
+// environment variable is missing or has not yet been refreshed.
+["https://www.getdarji.in", "https://getdarji.in"]
+  .forEach((origin) => configuredOrigins.add(origin));
 
 app.use(helmet());
 app.use(cors({
