@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Notifications from "../notifications/expoNotifications";
 import { AppState } from "react-native";
-import { consumePendingIncomingAlertAction } from "@darzi/incoming-alert";
+import { consumePendingIncomingAlertAction } from "@darji/incoming-alert";
 import type { DarjiApp } from "../notifications/channels";
 import { resolveNotificationDestination, type NotificationData, type NotificationDestination } from "../utils/deepLinking";
 import { cancelIncomingRequestNotifications } from "../incoming-request/NotificationService";

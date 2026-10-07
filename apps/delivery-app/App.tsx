@@ -518,7 +518,7 @@ const MUTED = "#65748a";
 const SUCCESS = "#15803d";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
-const darziLogo = require("./darji transparent.png");
+const darjiLogo = require("./darji transparent.png");
 
 type PullToRefreshState = {
   refreshing: boolean;
@@ -1336,7 +1336,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.logoMark}>
-          <Image source={darziLogo} resizeMode="contain" style={styles.authAppIcon} />
+          <Image source={darjiLogo} resizeMode="contain" style={styles.authAppIcon} />
         </View>
         <Text style={styles.authTitle}>Darji Delivery</Text>
         <Text style={styles.authCopy}>{localize(language, "Accept nearby pickup and delivery jobs, reach on time and earn more.", "नजदीकी पिकअप और डिलीवरी काम लें, समय पर पहुंचें और अधिक कमाएं।")}</Text>

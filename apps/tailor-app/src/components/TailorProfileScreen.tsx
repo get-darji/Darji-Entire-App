@@ -2771,7 +2771,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     icon: "mail-outline",
     copy: "Send a detailed message to the Darji operations team.",
     points: ["Mention your registered mobile number.", "Add screenshots if needed.", "Expected reply time is 24-48 hours."],
-    action: { label: "Open Email", url: "mailto:support@darzi.local?subject=Tailor%20Support" }
+    action: { label: "Open Email", url: "mailto:support@darji.local?subject=Tailor%20Support" }
   },
   complaint: {
     title: "Raise Complaint",

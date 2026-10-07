@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import mongoose, { Schema, type InferSchemaType } from "mongoose";
-import { orderStatuses, paymentMethods, paymentStatuses, roles, supportStatuses } from "@darzi/shared";
+import { orderStatuses, paymentMethods, paymentStatuses, roles, supportStatuses } from "@darji/shared";
 import { attachDarjiIdPlugin, nextDarjiId, type DarjiIdPrefix } from "./utils/darji-id.js";
 
 export async function generateDarjiCustomerId() {

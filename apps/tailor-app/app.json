@@ -1,15 +1,15 @@
 {
   "expo": {
     "name": "Darji Tailor",
-    "slug": "darzi-tailor",
+    "slug": "darji-tailor",
     "owner": "aman-1206",
-    "scheme": "darzitailor",
+    "scheme": "darjitailor",
     "icon": "./app-icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "com.darzi.tailor",
+      "package": "com.darji.tailor",
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
       "permissions": [
@@ -32,7 +32,7 @@
     "extra": {
       "apiUrl": "https://darji-entire-app-production.up.railway.app/api",
       "eas": {
-        "projectId": "786e10da-ff11-4a9b-9116-c0bec2694f0a"
+        "projectId": "9a5d6573-85c8-40dc-b0c2-e79b75623331"
       }
     },
     "plugins": [
@@ -78,13 +78,13 @@
       "policy": "appVersion"
     },
     "ios": {
-      "bundleIdentifier": "com.darzi.tailor",
+      "bundleIdentifier": "com.darji.tailor",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "updates": {
-      "url": "https://u.expo.dev/786e10da-ff11-4a9b-9116-c0bec2694f0a"
+      "url": "https://u.expo.dev/9a5d6573-85c8-40dc-b0c2-e79b75623331"
     }
   }
 }

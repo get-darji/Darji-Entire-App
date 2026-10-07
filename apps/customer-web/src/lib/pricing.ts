@@ -1,5 +1,5 @@
 import type { Coupon } from "./types";
-import { calculateCouponDiscount } from "@darzi/shared";
+import { calculateCouponDiscount } from "@darji/shared";
 
 export const HOME_MEASUREMENT_FEE = 30;
 

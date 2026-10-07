@@ -5,7 +5,7 @@ import { api } from "./api";
 
 export async function registerPushToken(token: string, app: string) {
   if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("darzi-high-priority", {
+    await Notifications.setNotificationChannelAsync("darji-high-priority", {
       name: "Darji Tailor Alerts",
       description: "New requests, accepted quotes and delivery handoff alerts",
       importance: Notifications.AndroidImportance.MAX,
@@ -15,7 +15,7 @@ export async function registerPushToken(token: string, app: string) {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC
     });
   }
-  await Notifications.setNotificationCategoryAsync("DARZI_ORDER", [
+  await Notifications.setNotificationCategoryAsync("DARJI_ORDER", [
     { identifier: "VIEW_ORDER", buttonTitle: "View Order", options: { opensAppToForeground: true } }
   ]);
 

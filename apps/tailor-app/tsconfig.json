@@ -16,7 +16,7 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@darzi/incoming-alert": [
+      "@darji/incoming-alert": [
         "modules/incoming-alert/src/index.ts"
       ]
     },

@@ -4,7 +4,7 @@ import {
   normalizePlatformStatus,
   platformStatusSchema,
   type PlatformStatus
-} from "@darzi/shared";
+} from "@darji/shared";
 import { SettingModel } from "../models.js";
 
 export async function getPlatformStatus(): Promise<PlatformStatus> {

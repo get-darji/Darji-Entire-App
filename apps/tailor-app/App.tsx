@@ -98,7 +98,7 @@ import { registerIncomingRequestMessaging } from "./src/incoming-request/Firebas
 import { cancelIncomingRequestNotifications } from "./src/incoming-request/NotificationService";
 import type { IncomingRequestPayload } from "./src/incoming-request/types";
 import { useIncomingAlertPermissionGuide } from "./src/incoming-request/useIncomingAlertPermissionGuide";
-import { setIncomingAlertLanguage } from "@darzi/incoming-alert";
+import { setIncomingAlertLanguage } from "@darji/incoming-alert";
 import { NotificationProvider } from "./src/components/NotificationProvider";
 import { TailorProfileScreen } from "./src/components/TailorProfileScreen";
 import { useRegisterPushNotifications } from "./src/hooks/useRegisterPushNotifications";

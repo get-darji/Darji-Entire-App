@@ -1,6 +1,6 @@
 import { AppError } from "../middleware/error.js";
 import { CouponModel, CouponRedemptionModel } from "../models.js";
-import { calculateCouponDiscount } from "@darzi/shared";
+import { calculateCouponDiscount } from "@darji/shared";
 
 export async function validateCoupon(code: string, subtotal: number, customerId?: string) {
   const coupon = await CouponModel.findOne({ code: code.trim().toUpperCase() });

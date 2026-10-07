@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        cookie: request.headers.get("cookie")?.split(";").filter((part) => part.trim().startsWith("darzi_admin_refresh=")).join(";") ?? "",
+        cookie: request.headers.get("cookie")?.split(";").filter((part) => part.trim().startsWith("darji_admin_refresh=")).join(";") ?? "",
         authorization: request.headers.get("authorization") ?? ""
       },
       body: await request.text(),

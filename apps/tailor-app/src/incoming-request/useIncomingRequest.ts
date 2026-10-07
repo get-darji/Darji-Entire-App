@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Vibration } from "react-native";
-import { isNativeIncomingAlertAvailable } from "@darzi/incoming-alert";
+import { isNativeIncomingAlertAvailable } from "@darji/incoming-alert";
 import { startLoopingAppSound, stopAppSound } from "../services/soundService";
 
 const DEFAULT_SECONDS = 30;

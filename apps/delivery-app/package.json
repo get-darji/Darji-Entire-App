@@ -1,5 +1,5 @@
 {
-  "name": "@darzi/delivery-app",
+  "name": "@darji/delivery-app",
   "version": "0.1.0",
   "private": true,
   "main": "index.js",
@@ -48,7 +48,7 @@
     "doctor": {
       "reactNativeDirectoryCheck": {
         "exclude": [
-          "@darzi/incoming-alert",
+          "@darji/incoming-alert",
           "@react-native-ml-kit/face-detection",
           "@react-native-ml-kit/text-recognition"
         ]

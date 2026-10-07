@@ -46,7 +46,7 @@ const jobs = [
     customerPhone: "9000003103",
     pickupAddress: "Sector 12 Dwarka Metro Station, Dwarka, New Delhi, Delhi 110075",
     pickupLocation: { lat: 28.5921, lng: 77.0407 },
-    tailorName: "Classic Darzi House",
+    tailorName: "Classic Darji House",
     tailorPhone: "9000004103",
     dropAddress: "Shop 22, Jail Road Market, Hari Nagar, New Delhi, Delhi 110064",
     dropLocation: { lat: 28.6244, lng: 77.1073 },

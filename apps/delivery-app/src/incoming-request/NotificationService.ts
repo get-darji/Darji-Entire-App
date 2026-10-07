@@ -4,7 +4,7 @@ import {
   INCOMING_ALERT_CHANNEL_ID,
   showIncomingAlert,
   type IncomingAlertData
-} from "@darzi/incoming-alert";
+} from "@darji/incoming-alert";
 import { Platform } from "react-native";
 
 export const INCOMING_REQUEST_CHANNEL_ID = INCOMING_ALERT_CHANNEL_ID;

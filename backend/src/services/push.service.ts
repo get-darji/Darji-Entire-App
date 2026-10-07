@@ -327,13 +327,13 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
       subtitle: payload.subtitle ?? "",
       actions: (payload.actions ?? []).join(","),
       channelId: payload.channelId ?? "darji-alerts-v2",
-      categoryId: payload.categoryId ?? "DARZI_ORDER",
-      categoryIdentifier: payload.categoryId ?? "DARZI_ORDER",
+      categoryId: payload.categoryId ?? "DARJI_ORDER",
+      categoryIdentifier: payload.categoryId ?? "DARJI_ORDER",
       darjiIncomingRequest: String(isIncomingRequest),
       ...(isIncomingRequest ? { expiresAt: normalizedPayloadData.expiresAt || new Date(Date.now() + 30_000).toISOString() } : {}),
       brand: "Darji"
     };
-    const tag = data.taskId || data.requestId || data.orderId || "darzi-order";
+    const tag = data.taskId || data.requestId || data.orderId || "darji-order";
     if (tokens.length && !firebaseReady) providerErrors.push("Firebase Admin is not configured");
     const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
       tokens,

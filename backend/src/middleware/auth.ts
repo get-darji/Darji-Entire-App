@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { Role } from "@darzi/shared";
+import type { Role } from "@darji/shared";
 import { UserModel } from "../models.js";
 import { AppError } from "./error.js";
 import { verifyAccessToken } from "../utils/tokens.js";

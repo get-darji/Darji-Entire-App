@@ -5,7 +5,7 @@ import {
   serviceAreaConfigSchema,
   type ServiceAreaConfig,
   type ServiceAreaZone
-} from "@darzi/shared";
+} from "@darji/shared";
 import { SettingModel } from "../models.js";
 
 const SERVICE_AREA_CACHE_MS = 30_000;

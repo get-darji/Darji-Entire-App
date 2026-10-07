@@ -97,7 +97,7 @@ native module or Android remote push behavior.
 
 1. Sign into Tailor or Delivery and confirm notification and overlay access.
 2. Put the app in the background and open another app.
-3. Create the matching request in Darzi Customer.
+3. Create the matching request in Darji Customer.
 4. Confirm the overlay appears promptly, counts down, and Accept/Reject stops
    all sound immediately.
 5. Repeat from the home screen and with the screen locked.

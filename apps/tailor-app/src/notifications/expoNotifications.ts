@@ -41,7 +41,7 @@ async function getIosDevelopmentPushEnvironment() {
 }
 
 function installationId() {
-  return Constants.installationId ?? Constants.sessionId ?? `${Application.applicationId ?? "darzi"}-${Platform.OS}`;
+  return Constants.installationId ?? Constants.sessionId ?? `${Application.applicationId ?? "darji"}-${Platform.OS}`;
 }
 
 function getTypeOfToken(devicePushToken: DevicePushToken) {

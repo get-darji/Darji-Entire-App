@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { verifyOtpSchema } from "@darzi/shared";
+import { verifyOtpSchema } from "@darji/shared";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { OtpCooldownModel, OtpRequestModel, UserModel } from "../models.js";

@@ -1,4 +1,4 @@
-import { allowedOrderStatusTransitions, createOrderSchema, updateOrderStatusSchema, getPlatformFee, getSmallOrderFee } from "@darzi/shared";
+import { allowedOrderStatusTransitions, createOrderSchema, updateOrderStatusSchema, getPlatformFee, getSmallOrderFee } from "@darji/shared";
 import {
   AddressModel,
   DeliveryBatchModel,

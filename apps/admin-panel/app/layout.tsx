@@ -3,8 +3,8 @@ import { Providers } from "@/src/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Darzi Admin",
-  description: "Darzi operations admin panel"
+  title: "Darji Admin",
+  description: "Darji operations admin panel"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

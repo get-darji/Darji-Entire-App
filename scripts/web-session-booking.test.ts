@@ -14,15 +14,15 @@ test("admin proxy forwards refresh cookie without unrelated cookies", async () =
   globalThis.fetch = async (input, init) => {
     assert.match(String(input), /\/auth\/refresh$/);
     const headers = new Headers(init?.headers);
-    assert.equal(headers.get("cookie")?.trim(), "darzi_admin_refresh=test-refresh");
+    assert.equal(headers.get("cookie")?.trim(), "darji_admin_refresh=test-refresh");
     assert.equal(init?.cache, "no-store");
     return new Response(JSON.stringify({ data: { accessToken: "test-access" } }), {
-      headers: { "Set-Cookie": "darzi_admin_refresh=renewed; Path=/api/auth; HttpOnly; Secure; SameSite=None" }
+      headers: { "Set-Cookie": "darji_admin_refresh=renewed; Path=/api/auth; HttpOnly; Secure; SameSite=None" }
     });
   };
   try {
     const response = await POST(new NextRequest("https://admin.example/api/auth/refresh", {
-      method: "POST", headers: { origin: "https://admin.example", cookie: "unrelated=private; darzi_admin_refresh=test-refresh" }, body: "{}"
+      method: "POST", headers: { origin: "https://admin.example", cookie: "unrelated=private; darji_admin_refresh=test-refresh" }, body: "{}"
     }), { params: Promise.resolve({ action: "refresh" }) });
     assert.equal(response.status, 200);
     assert.match(response.headers.get("set-cookie") ?? "", /HttpOnly/);

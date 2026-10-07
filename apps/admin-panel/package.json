@@ -1,5 +1,5 @@
 {
-  "name": "@darzi/admin-panel",
+  "name": "@darji/admin-panel",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@darzi/shared": "0.1.0",
+    "@darji/shared": "0.1.0",
     "@radix-ui/react-dialog": "^1.1.17",
     "@radix-ui/react-dropdown-menu": "^2.1.18",
     "@radix-ui/react-scroll-area": "^1.2.12",

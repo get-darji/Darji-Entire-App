@@ -1,6 +1,6 @@
-# Darzi Ecosystem
+# Darji Ecosystem
 
-Monorepo for the Darzi customer app, tailor app, delivery partner app, admin panel, shared contracts, and backend API.
+Monorepo for the Darji customer app, tailor app, delivery partner app, admin panel, shared contracts, and backend API.
 
 ## Projects
 
@@ -42,9 +42,9 @@ Monorepo for the Darzi customer app, tailor app, delivery partner app, admin pan
 5. Start a mobile app:
 
    ```bash
-   npm --workspace @darzi/customer-app run start
-   npm --workspace @darzi/tailor-app run start
-   npm --workspace @darzi/delivery-app run start
+   npm --workspace @darji/customer-app run start
+   npm --workspace @darji/tailor-app run start
+   npm --workspace @darji/delivery-app run start
    ```
 
 ## Test Accounts
@@ -61,12 +61,12 @@ The seed script creates these phone numbers. In local development the OTP is `12
 Each Expo app has Android package IDs and EAS profiles configured.
 
 ```bash
-npm --workspace @darzi/customer-app run apk
-npm --workspace @darzi/customer-app run aab
-npm --workspace @darzi/tailor-app run apk
-npm --workspace @darzi/tailor-app run aab
-npm --workspace @darzi/delivery-app run apk
-npm --workspace @darzi/delivery-app run aab
+npm --workspace @darji/customer-app run apk
+npm --workspace @darji/customer-app run aab
+npm --workspace @darji/tailor-app run apk
+npm --workspace @darji/tailor-app run aab
+npm --workspace @darji/delivery-app run apk
+npm --workspace @darji/delivery-app run aab
 ```
 
 APK/AAB generation requires EAS authentication and a configured Android build environment. Local `expo run:android` requires Android Studio, SDK, and an emulator or device.
@@ -79,9 +79,9 @@ The current workspace passes:
 npm --workspace backend run typecheck
 npm run typecheck
 npm run build
-npm --workspace @darzi/customer-app exec -- expo config --type public
-npm --workspace @darzi/tailor-app exec -- expo config --type public
-npm --workspace @darzi/delivery-app exec -- expo config --type public
+npm --workspace @darji/customer-app exec -- expo config --type public
+npm --workspace @darji/tailor-app exec -- expo config --type public
+npm --workspace @darji/delivery-app exec -- expo config --type public
 ```
 
 The backend auto-seeds service catalog and test users on startup. For persistent data, use MongoDB Atlas and set `MONGODB_URI`.

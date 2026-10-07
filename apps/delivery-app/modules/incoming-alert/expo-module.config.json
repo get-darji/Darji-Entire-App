@@ -1,6 +1,6 @@
 {
   "platforms": ["android"],
   "android": {
-    "modules": ["com.darzi.incomingalert.IncomingAlertModule"]
+    "modules": ["com.darji.incomingalert.IncomingAlertModule"]
   }
 }

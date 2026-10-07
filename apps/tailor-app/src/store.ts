@@ -37,7 +37,7 @@ export const useAppStore = create<Store>()(persist((set) => ({
   invalidateSession: (sessionNotice) => set({ token: undefined, refreshToken: undefined, user: undefined, sessionNotice }),
   clearSessionNotice: () => set({ sessionNotice: undefined })
 }), {
-  name: "darzi-tailor-session",
+  name: "darji-tailor-session",
   storage: createJSONStorage(() => AsyncStorage),
   merge: (persisted, current) => ({ ...current, ...(persisted as Partial<Store>), ...restoreLanguagePreference(persisted) }),
   partialize: (state) => ({ token: state.token, refreshToken: state.refreshToken, user: state.user, language: state.language, hasSelectedLanguage: state.hasSelectedLanguage }),

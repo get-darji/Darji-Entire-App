@@ -2,7 +2,7 @@ import {
   getIncomingAlertPermissionState,
   openIncomingAlertFullScreenSettings,
   openIncomingAlertOverlaySettings
-} from "@darzi/incoming-alert";
+} from "@darji/incoming-alert";
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "../notifications/expoNotifications";
 import { useEffect, useRef, useState } from "react";

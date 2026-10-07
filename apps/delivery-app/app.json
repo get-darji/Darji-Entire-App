@@ -1,15 +1,15 @@
 {
   "expo": {
     "name": "Darji Delivery",
-    "slug": "darzi-delivery",
+    "slug": "darji-delivery",
     "owner": "aman-1206",
-    "scheme": "darzidelivery",
+    "scheme": "darjidelivery",
     "icon": "./app-icon.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
-      "package": "com.darzi.delivery",
+      "package": "com.darji.delivery",
       "softwareKeyboardLayoutMode": "resize",
       "allowBackup": false,
       "googleServicesFile": "./google-services.json",
@@ -28,13 +28,14 @@
         "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
     "extra": {
       "apiUrl": "https://darji-entire-app-production.up.railway.app/api",
       "eas": {
-        "projectId": "bf4d321e-74c1-4a09-abfa-d457fc813430"
+        "projectId": "8e90ba3d-8986-4ee9-b045-d0a71892dcb2"
       }
     },
     "plugins": [
@@ -84,13 +85,13 @@
       "policy": "appVersion"
     },
     "ios": {
-      "bundleIdentifier": "com.darzi.delivery",
+      "bundleIdentifier": "com.darji.delivery",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "updates": {
-      "url": "https://u.expo.dev/bf4d321e-74c1-4a09-abfa-d457fc813430"
+      "url": "https://u.expo.dev/8e90ba3d-8986-4ee9-b045-d0a71892dcb2"
     }
   }
 }

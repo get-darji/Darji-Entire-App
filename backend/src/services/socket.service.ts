@@ -1,10 +1,10 @@
 import type { Server as HttpServer } from "node:http";
 import { Server, type Socket } from "socket.io";
-import type { Role } from "@darzi/shared";
+import type { Role } from "@darji/shared";
 import { DeliveryPartnerModel, DeliveryRequestModel, TailorModel, UserModel, SupportTicketModel, BugReportModel, AccountChangeRequestModel } from "../models.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 import { getPlatformStatus } from "./platform-status.service.js";
-import type { PlatformStatus } from "@darzi/shared";
+import type { PlatformStatus } from "@darji/shared";
 
 type SocketUser = {
   id: string;

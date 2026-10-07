@@ -1,5 +1,5 @@
 {
-  "name": "darzi",
+  "name": "darji",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -17,17 +17,17 @@
   ],
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
-    "dev:admin": "npm --workspace @darzi/admin-panel run dev",
-    "dev:customer-web": "npm --workspace @darzi/customer-web run dev",
+    "dev:admin": "npm --workspace @darji/admin-panel run dev",
+    "dev:customer-web": "npm --workspace @darji/customer-web run dev",
     "db:seed": "npm --workspace backend run seed",
     "seed": "npm --workspace backend run seed",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "audit:hindi": "node scripts/audit-hindi-ui.cjs --check",
     "build": "npm run build --workspace=shared && npm run build --workspace=backend",
     "test:delivery-optimization": "npm --workspace backend run test:delivery-optimization --",
-    "android:customer": "npm --workspace @darzi/customer-app run android",
-    "android:tailor": "npm --workspace @darzi/tailor-app run android",
-    "android:delivery": "npm --workspace @darzi/delivery-app run android"
+    "android:customer": "npm --workspace @darji/customer-app run android",
+    "android:tailor": "npm --workspace @darji/tailor-app run android",
+    "android:delivery": "npm --workspace @darji/delivery-app run android"
   },
   "devDependencies": {
     "@expo/config-plugins": "~57.0.9",

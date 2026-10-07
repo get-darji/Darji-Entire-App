@@ -3,14 +3,14 @@ import { nonAdminLoginUpdate } from "../utils/admin-access.js";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { env } from "../env.js";
-import { requestOtpSchema, verifyOtpSchema } from "@darzi/shared";
+import { requestOtpSchema, verifyOtpSchema } from "@darji/shared";
 import { DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
 import { z } from "zod";
 
-const adminRefreshCookie = "darzi_admin_refresh";
+const adminRefreshCookie = "darji_admin_refresh";
 
 function setAdminRefreshCookie(res: Response, token: string) {
   const secure = env.NODE_ENV === "production";

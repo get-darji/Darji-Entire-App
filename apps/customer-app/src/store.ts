@@ -63,7 +63,7 @@ export const useAppStore = create<Store>()(persist((set) => ({
       return { favoriteTailorIds: nextIds };
     })
 }), {
-  name: "darzi-customer-session",
+  name: "darji-customer-session",
   storage: createJSONStorage(() => AsyncStorage),
   merge: (persisted, current) => ({ ...current, ...(persisted as Partial<Store>), ...restoreLanguagePreference(persisted) }),
   partialize: (state) => ({

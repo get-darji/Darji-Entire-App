@@ -12,7 +12,7 @@ import {
   supportTicketSchema,
   bugReportSchema,
   accountChangeRequestSchema
-} from "@darzi/shared";
+} from "@darji/shared";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import {
   AddressModel,
@@ -333,7 +333,7 @@ function assertCloudinaryConfigured() {
   }
 }
 
-async function uploadTailorImageBuffer(file: Express.Multer.File, folder = "darzi/tailor-verification") {
+async function uploadTailorImageBuffer(file: Express.Multer.File, folder = "darji/tailor-verification") {
   if (!file.mimetype.startsWith("image/")) throw new AppError(400, "Only image uploads are allowed");
   return new Promise<UploadApiResponse>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -355,7 +355,7 @@ async function uploadTailorImageBuffer(file: Express.Multer.File, folder = "darz
   });
 }
 
-async function uploadAdminMediaBuffer(file: Express.Multer.File, folder = "darzi/admin-media") {
+async function uploadAdminMediaBuffer(file: Express.Multer.File, folder = "darji/admin-media") {
   if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
     throw new AppError(400, "Only image or video uploads are allowed");
   }
@@ -759,7 +759,7 @@ export async function uploadTailorSamplesController(req: Request, res: Response)
 
   const uploaded = await Promise.all(
     files.slice(0, 5).map(async (file) => {
-      const result = await uploadTailorImageBuffer(file, "darzi/tailor-samples");
+      const result = await uploadTailorImageBuffer(file, "darji/tailor-samples");
       return {
         url: result.secure_url,
         publicId: result.public_id,
@@ -1244,7 +1244,7 @@ export async function uploadDeliveryVerificationMediaController(req: Request, re
 
   const uploaded = await Promise.all(
     files.map(async (file) => {
-      const result = await uploadTailorImageBuffer(file, "darzi/delivery-verification");
+      const result = await uploadTailorImageBuffer(file, "darji/delivery-verification");
       return {
         url: result.secure_url,
         publicId: result.public_id,

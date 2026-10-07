@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <application>
     <receiver
-      android:name="com.darzi.incomingalert.IncomingAlertFirebaseReceiver"
+      android:name="com.darji.incomingalert.IncomingAlertFirebaseReceiver"
       android:exported="true"
       android:permission="com.google.android.c2dm.permission.SEND">
       <intent-filter android:priority="999">
@@ -10,11 +10,11 @@
     </receiver>
 
     <receiver
-      android:name="com.darzi.incomingalert.IncomingAlertActionReceiver"
+      android:name="com.darji.incomingalert.IncomingAlertActionReceiver"
       android:exported="false" />
 
     <service
-      android:name="com.darzi.incomingalert.IncomingAlertMessagingService"
+      android:name="com.darji.incomingalert.IncomingAlertMessagingService"
       android:exported="false">
       <intent-filter>
         <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -30,7 +30,7 @@
       tools:node="remove" />
 
     <service
-      android:name="com.darzi.incomingalert.IncomingAlertOverlayService"
+      android:name="com.darji.incomingalert.IncomingAlertOverlayService"
       android:exported="false"
       android:foregroundServiceType="specialUse"
       android:stopWithTask="false">
@@ -40,7 +40,7 @@
     </service>
 
     <activity
-      android:name="com.darzi.incomingalert.IncomingAlertActivity"
+      android:name="com.darji.incomingalert.IncomingAlertActivity"
       android:excludeFromRecents="true"
       android:exported="false"
       android:launchMode="singleTop"

@@ -32,7 +32,7 @@ import {
   nextTwoBatchSlotsAfter
 } from "../services/hybrid-delivery.service.js";
 import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorShopPoint, geocodeAddress, instantDeliveryPayout, pointFrom, roadDistanceMeters } from "../services/delivery-pricing.service.js";
-import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darzi/shared";
+import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darji/shared";
 import { checkServiceAvailability, getServiceAreaConfig } from "../services/service-area.service.js";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
 
@@ -1978,7 +1978,7 @@ async function uploadBuffer(file: Express.Multer.File, resourceType: "image" | "
   return new Promise<UploadApiResponse>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        folder: "darzi/tailoring-requests",
+        folder: "darji/tailoring-requests",
         resource_type: resourceType === "audio" ? "video" : resourceType,
         use_filename: false,
         unique_filename: true
@@ -2594,7 +2594,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   const razorpayOrder = await createRazorpayOrder({
     amount: payableAmount,
-    receipt: `darzi-${request.id.slice(0, 12)}`,
+    receipt: `darji-${request.id.slice(0, 12)}`,
     notes: {
       requestId: request.id,
       quoteId: quote.id,

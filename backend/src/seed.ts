@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { serviceCatalog } from "@darzi/shared";
+import { serviceCatalog } from "@darji/shared";
 import { connectDatabase, disconnectDatabase } from "./db.js";
 import {
   AddressModel,
@@ -86,10 +86,10 @@ export async function seedDatabase() {
   );
 
   await CouponModel.findOneAndUpdate(
-    { code: "DARZI100" },
+    { code: "DARJI100" },
     {
       $setOnInsert: {
-        code: "DARZI100",
+        code: "DARJI100",
         description: "Rs 100 off on first order",
         discountType: "FLAT",
         discountValue: 100,

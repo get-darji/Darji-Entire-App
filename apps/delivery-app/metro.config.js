@@ -20,7 +20,7 @@ config.resolver.extraNodeModules = new Proxy(
   {},
   {
     get: (_, name) => {
-      if (name === "@darzi/incoming-alert") return incomingAlertRoot;
+      if (name === "@darji/incoming-alert") return incomingAlertRoot;
       return path.join(rootNodeModules, name);
     },
   },

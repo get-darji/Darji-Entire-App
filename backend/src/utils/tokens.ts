@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import type { Role } from "@darzi/shared";
+import type { Role } from "@darji/shared";
 import { env } from "../env.js";
 
 export type TokenPayload = {

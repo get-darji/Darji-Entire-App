@@ -64,7 +64,7 @@ import { CustomerExtraScreen, extraScreens, LanguageSwitcher, OrderActions, Deli
 import { uiText, useCustomerPreferences } from "./customer-preferences";
 import { CustomerDialogProvider, useCustomerDialog } from "./customer-dialog";
 import { isFinishedOrder, orderStatusLabel, measurementSlots } from "./order-state";
-import { measurementVisitChargeableDistanceMeters, measurementVisitFee } from "@darzi/shared";
+import { measurementVisitChargeableDistanceMeters, measurementVisitFee } from "@darji/shared";
 import { GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../../shared/src/cloth-details";
 import { VoiceNotes } from "./voice-notes";
 

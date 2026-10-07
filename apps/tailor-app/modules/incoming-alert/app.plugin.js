@@ -54,9 +54,9 @@ module.exports = function withIncomingAlert(config) {
     activity.$["android:excludeFromRecents"] = "false";
 
     if (application) {
-      ensureComponent(application, "receiver", "com.darzi.incomingalert.IncomingAlertFirebaseReceiver", {
+      ensureComponent(application, "receiver", "com.darji.incomingalert.IncomingAlertFirebaseReceiver", {
         $: {
-          "android:name": "com.darzi.incomingalert.IncomingAlertFirebaseReceiver",
+          "android:name": "com.darji.incomingalert.IncomingAlertFirebaseReceiver",
           "android:exported": "true",
           "android:permission": "com.google.android.c2dm.permission.SEND"
         },
@@ -65,15 +65,15 @@ module.exports = function withIncomingAlert(config) {
           action: [{ $: { "android:name": "com.google.android.c2dm.intent.RECEIVE" } }]
         }]
       });
-      ensureComponent(application, "receiver", "com.darzi.incomingalert.IncomingAlertActionReceiver", {
+      ensureComponent(application, "receiver", "com.darji.incomingalert.IncomingAlertActionReceiver", {
         $: {
-          "android:name": "com.darzi.incomingalert.IncomingAlertActionReceiver",
+          "android:name": "com.darji.incomingalert.IncomingAlertActionReceiver",
           "android:exported": "false"
         }
       });
-      ensureComponent(application, "service", "com.darzi.incomingalert.IncomingAlertMessagingService", {
+      ensureComponent(application, "service", "com.darji.incomingalert.IncomingAlertMessagingService", {
         $: {
-          "android:name": "com.darzi.incomingalert.IncomingAlertMessagingService",
+          "android:name": "com.darji.incomingalert.IncomingAlertMessagingService",
           "android:exported": "false"
         },
         "intent-filter": [{
@@ -82,9 +82,9 @@ module.exports = function withIncomingAlert(config) {
       });
       removeComponent(application, "service", "io.invertase.firebase.messaging.ReactNativeFirebaseMessagingService");
       removeComponent(application, "service", "expo.modules.notifications.service.ExpoFirebaseMessagingService");
-      ensureComponent(application, "service", "com.darzi.incomingalert.IncomingAlertOverlayService", {
+      ensureComponent(application, "service", "com.darji.incomingalert.IncomingAlertOverlayService", {
         $: {
-          "android:name": "com.darzi.incomingalert.IncomingAlertOverlayService",
+          "android:name": "com.darji.incomingalert.IncomingAlertOverlayService",
           "android:exported": "false",
           "android:foregroundServiceType": "specialUse",
           "android:stopWithTask": "false"
@@ -96,9 +96,9 @@ module.exports = function withIncomingAlert(config) {
           }
         }]
       });
-      ensureComponent(application, "activity", "com.darzi.incomingalert.IncomingAlertActivity", {
+      ensureComponent(application, "activity", "com.darji.incomingalert.IncomingAlertActivity", {
         $: {
-          "android:name": "com.darzi.incomingalert.IncomingAlertActivity",
+          "android:name": "com.darji.incomingalert.IncomingAlertActivity",
           "android:excludeFromRecents": "true",
           "android:exported": "false",
           "android:launchMode": "singleTop",

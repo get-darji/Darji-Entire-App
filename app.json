@@ -1,19 +1,25 @@
 {
   "expo": {
-    "extra": {
-      "eas": {
-        "projectId": "f00d9cfc-40a0-4db1-892b-449911f3f926"
-      }
-    },
+    "name": "Darji",
+    "slug": "darji",
+    "owner": "aman-1206",
+    "scheme": "darji",
     "android": {
-      "package": "com.aman1206.darzi",
+      "package": "com.darji.app",
       "runtimeVersion": {
         "policy": "appVersion"
       }
     },
     "updates": {
-      "url": "https://u.expo.dev/f00d9cfc-40a0-4db1-892b-449911f3f926"
+      "url": "https://u.expo.dev/76504eb1-3649-4bfe-afec-0ae2851cb5e8"
     },
-    "ios": {}
+    "ios": {
+      "bundleIdentifier": "com.darji.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "76504eb1-3649-4bfe-afec-0ae2851cb5e8"
+      }
+    }
   }
 }

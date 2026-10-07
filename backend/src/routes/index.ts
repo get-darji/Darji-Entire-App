@@ -167,7 +167,7 @@ export const router = Router();
 router.get("/health", (_req, res) => res.json({
   data: {
     ok: true,
-    service: "darzi-backend",
+    service: "darji-backend",
     checkoutBuild: "async-confirmation-v2",
     paymentMode: !env.RAZORPAY_KEY_ID ? "unconfigured" : env.RAZORPAY_KEY_ID.startsWith("rzp_test_") ? "test" : "live",
     push: pushRuntimeStatus()

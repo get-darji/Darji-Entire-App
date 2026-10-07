@@ -73,7 +73,7 @@ export const useAdminStore = create<AdminStore>()(
       setSupportSubTab: (supportSubTab) => set({ supportSubTab })
     }),
     {
-      name: "darzi-admin-store",
+      name: "darji-admin-store",
       storage: createJSONStorage(() => localStorage),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<AdminStore>;

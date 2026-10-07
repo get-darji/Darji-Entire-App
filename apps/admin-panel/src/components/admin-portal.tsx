@@ -440,7 +440,7 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
 ];
 
 const pieColors = ["#f6a313", "#0b2241", "#2a79ff", "#f97316", "#10b981"];
-const darziChartPalette = {
+const darjiChartPalette = {
   deep: "#0b2241",
   orange: "#f6a313",
   orangeSoft: "#ffd889",
@@ -1437,7 +1437,7 @@ export function AdminPortal() {
       <main className="flex min-h-screen items-center justify-center px-4">
         <div className="w-full max-w-md rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel)] p-8 text-center shadow-[var(--shadow)] backdrop-blur">
           <LoaderCircle className="mx-auto h-8 w-8 animate-spin text-[var(--accent)]" />
-          <p className="mt-4 text-sm text-[var(--muted)]">Loading Darzi Admin workspace...</p>
+          <p className="mt-4 text-sm text-[var(--muted)]">Loading Darji Admin workspace...</p>
         </div>
       </main>
     );
@@ -2565,7 +2565,7 @@ export function AdminPortal() {
               <div className="relative flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-start lg:justify-between lg:px-7">
                 <div>
                   <h2 className="text-[1.8rem] font-semibold tracking-[-0.03em] text-[var(--deep)] lg:text-[2.05rem]">
-                    Welcome back, {me.name ?? "Darzi Admin"}.
+                    Welcome back, {me.name ?? "Darji Admin"}.
                   </h2>
                   <p className="mt-1.5 text-sm text-[#6f614c]">Here&apos;s what&apos;s happening with Darji today.</p>
                 </div>
@@ -2640,7 +2640,7 @@ export function AdminPortal() {
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
                     <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
-                    <Bar dataKey="revenue" fill={darziChartPalette.orange} radius={[9, 9, 0, 0]} />
+                    <Bar dataKey="revenue" fill={darjiChartPalette.orange} radius={[9, 9, 0, 0]} />
                   </BarChart> : <AreaChart data={revenueSeries}>
                     <defs>
                       <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
@@ -2652,17 +2652,17 @@ export function AdminPortal() {
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
                     <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" tickFormatter={(value) => formatCurrency(Number(value ?? 0))} />
                     <Tooltip contentStyle={tooltipStyle()} formatter={(value) => formatCurrency(Number(value ?? 0))} />
-                    <Area dataKey="revenue" dot={{ fill: darziChartPalette.orange, r: 3, strokeWidth: 0 }} fill="url(#revenueFill)" stroke={darziChartPalette.orange} strokeWidth={3} type="monotone" />
+                    <Area dataKey="revenue" dot={{ fill: darjiChartPalette.orange, r: 3, strokeWidth: 0 }} fill="url(#revenueFill)" stroke={darjiChartPalette.orange} strokeWidth={3} type="monotone" />
                   </AreaChart>}
                 </ResponsiveContainer> : <CompactChartEmptyState message="No delivered orders with finalized costs in this period." />}
               </ChartCard>
 
               <ChartCard title="Orders Overview" description="Mutually exclusive order states from one normalized source." className="xl:col-span-6 p-5" action={<SelectPill label={dateRangeLabel} />}>
                 <div className="mb-3 flex flex-wrap gap-3 text-sm">
-                  <LegendDot color={darziChartPalette.success} label={`Completed ${completedOrders}`} />
-                  <LegendDot color={darziChartPalette.sky} label={`Active ${activeOrders}`} />
-                  <LegendDot color={darziChartPalette.rose} label={`Cancelled ${cancelledOrders}`} />
-                  <LegendDot color={darziChartPalette.orange} label={`Pending ${pendingOrders}`} />
+                  <LegendDot color={darjiChartPalette.success} label={`Completed ${completedOrders}`} />
+                  <LegendDot color={darjiChartPalette.sky} label={`Active ${activeOrders}`} />
+                  <LegendDot color={darjiChartPalette.rose} label={`Cancelled ${cancelledOrders}`} />
+                  <LegendDot color={darjiChartPalette.orange} label={`Pending ${pendingOrders}`} />
                 </div>
                 {hasOrderChartData ? <ResponsiveContainer width="100%" height={190}>
                   <BarChart data={orderSeries} barGap={8}>
@@ -2670,10 +2670,10 @@ export function AdminPortal() {
                     <XAxis axisLine={false} tickLine={false} dataKey="label" stroke="var(--muted)" />
                     <YAxis axisLine={false} tickLine={false} stroke="var(--muted)" />
                     <Tooltip contentStyle={tooltipStyle()} />
-                    <Bar dataKey="completed" fill={darziChartPalette.success} radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="active" fill={darziChartPalette.sky} radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="cancelled" fill={darziChartPalette.rose} radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="pending" fill={darziChartPalette.orange} radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="completed" fill={darjiChartPalette.success} radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="active" fill={darjiChartPalette.sky} radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="cancelled" fill={darjiChartPalette.rose} radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="pending" fill={darjiChartPalette.orange} radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer> : <CompactChartEmptyState message="No orders in this period." />}
               </ChartCard>
@@ -2786,7 +2786,7 @@ export function AdminPortal() {
             onCreate={() => setCreateOrderOpen(true)}
             onDateChange={setOrderDateFilter}
             onDeliveryPartnerChange={setDeliveryPartnerFilter}
-            onExport={() => downloadCsv("darzi-orders.csv", filteredOrders.map(orderToCsv))}
+            onExport={() => downloadCsv("darji-orders.csv", filteredOrders.map(orderToCsv))}
             onPaymentMethodChange={setPaymentFilter}
             onPaymentStatusChange={setOrderPaymentStatusFilter}
             onSearchChange={setOrderSearch}
@@ -2812,7 +2812,7 @@ export function AdminPortal() {
             <SectionIntro
               title="Tailoring request marketplace"
               description="Quote-based requests, work progress, and handoff readiness."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-tailoring-requests.csv", filteredTailoring.map(tailoringToCsv))}>Export CSV</ActionButton>}
+              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-tailoring-requests.csv", filteredTailoring.map(tailoringToCsv))}>Export CSV</ActionButton>}
             />
             <DataTable columns={tailoringColumns} data={filteredTailoring} emptyMessage="No tailoring requests available." />
           </div>
@@ -2823,7 +2823,7 @@ export function AdminPortal() {
             <SectionIntro
               title="Delivery operations"
               description="Pickup and drop tasks created from the tailoring workflow."
-              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-delivery-ops.csv", filteredDelivery.map(deliveryToCsv))}>Export CSV</ActionButton>}
+              action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-delivery-ops.csv", filteredDelivery.map(deliveryToCsv))}>Export CSV</ActionButton>}
             />
             <PendingRetryOrdersPanel
               rows={retryDeliveryRows}
@@ -2869,7 +2869,7 @@ export function AdminPortal() {
               description="Only tailors who submitted verification are included. Pending, reviewed, and re-upload records remain visible."
               action={
                 <div className="flex items-center justify-end gap-2">
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-tailors.csv", filteredTailors.map(tailorToCsv))}>Export CSV</ActionButton>
                 </div>
               }
             />
@@ -2904,7 +2904,7 @@ export function AdminPortal() {
               description="Only partners who submitted verification are included. The map and table use the same live five-second data refresh."
               action={
                 <div className="flex items-center justify-end gap-2">
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-delivery-partners.csv", filteredPartners.map(partnerToCsv))}>Export CSV</ActionButton>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-delivery-partners.csv", filteredPartners.map(partnerToCsv))}>Export CSV</ActionButton>
                 </div>
               }
             />
@@ -2925,7 +2925,7 @@ export function AdminPortal() {
               description="Every registered customer and every account with order activity appears here. Cross-role accounts remain managed in their dedicated section; deleted accounts are retained as archived order history."
               action={
                 <div className="flex items-center gap-2">
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-customers.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-customers.csv", filteredUsers.map(userToCsv))}>Export CSV</ActionButton>
                 </div>
               }
             />
@@ -2952,7 +2952,7 @@ export function AdminPortal() {
                       { label: "Refunded", value: "REFUNDED" }
                     ]}
                   />
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darzi-payments.csv", filteredPayments.map(paymentToCsv))}>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-payments.csv", filteredPayments.map(paymentToCsv))}>
                     Export CSV
                   </ActionButton>
                 </div>
@@ -4852,7 +4852,7 @@ function AnalyticsModule({ categoryBreakdown, dashboardAnalytics, orders, paymen
   const avgRating = reviews.length ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1) : "-";
   return (
     <div className="space-y-6">
-      <SectionIntro title="Analytics" description="Reporting uses the same server-side order and realized-revenue definitions as the dashboard." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darzi-analytics.csv", [{ realizedNetRevenue: dashboardAnalytics.finance.netRevenue, orders: dashboardAnalytics.orders.total, paid: paid.length, repeatCustomers }])}>Export CSV</ActionButton>} />
+      <SectionIntro title="Analytics" description="Reporting uses the same server-side order and realized-revenue definitions as the dashboard." action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-analytics.csv", [{ realizedNetRevenue: dashboardAnalytics.finance.netRevenue, orders: dashboardAnalytics.orders.total, paid: paid.length, repeatCustomers }])}>Export CSV</ActionButton>} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <FinanceStatCard label="Realized Net Revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note="Paid − stitching − measurement visits − delivery − packaging" tone="emerald" />
         <FinanceStatCard label="Orders" value={dashboardAnalytics.orders.total.toLocaleString("en-IN")} note="Created in selected period" tone="sky" />
@@ -5377,13 +5377,13 @@ function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const datasets = [
-    ["Orders", "darzi-orders.csv", orders.map(orderToCsv)],
-    ["Payments", "darzi-payments.csv", payments.map(paymentToCsv)],
-    ["Customers", "darzi-customers.csv", customers.map(userToCsv)],
-    ["Tailors", "darzi-tailors.csv", tailors.map(tailorToCsv)],
-    ["Delivery Partners", "darzi-delivery-partners.csv", deliveryPartners.map(partnerToCsv)],
-    ["Analytics", "darzi-analytics.csv", analyticsRows],
-    ["Support Tickets", "darzi-support.csv", supportTickets.map(ticketToCsv)]
+    ["Orders", "darji-orders.csv", orders.map(orderToCsv)],
+    ["Payments", "darji-payments.csv", payments.map(paymentToCsv)],
+    ["Customers", "darji-customers.csv", customers.map(userToCsv)],
+    ["Tailors", "darji-tailors.csv", tailors.map(tailorToCsv)],
+    ["Delivery Partners", "darji-delivery-partners.csv", deliveryPartners.map(partnerToCsv)],
+    ["Analytics", "darji-analytics.csv", analyticsRows],
+    ["Support Tickets", "darji-support.csv", supportTickets.map(ticketToCsv)]
   ] as const;
   const exports = datasets.map(([label, filename, rows]) => [label, filename, rows.filter((row) => exportRowMatches(row, { search, status, fromDate, toDate }))] as const);
   return (

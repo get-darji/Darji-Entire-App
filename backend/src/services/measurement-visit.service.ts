@@ -5,7 +5,7 @@ import { sendPushToUsers } from "./push.service.js";
 import { emitToAdmins, emitToCustomer, emitToTailor } from "./socket.service.js";
 import { upsertOperationalAlert, resolveOperationalAlert } from "./operational-alert.service.js";
 import { extractTailorShopPoint, geocodeAddress, pointFrom, roadDistanceMeters } from "./delivery-pricing.service.js";
-import { measurementVisitFee } from "@darzi/shared";
+import { measurementVisitFee } from "@darji/shared";
 import { creditOrderEarning } from "./wallet.service.js";
 
 const DEFAULT_VISIT_PAYOUT = 30;
