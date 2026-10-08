@@ -5946,10 +5946,10 @@ function ClothIssueScreen({ draft, setDraft, setScreen, stage = "work" }: { draf
               <Ionicons name="home-outline" size={28} color={BRAND_ORANGE} />
             </View>
             <Text style={styles.homeMeasurementModalTitle}>Book at-home measurement</Text>
-            <Text style={styles.homeMeasurementModalCopy}>A tailor will visit your address and take measurements before stitching. The final visit fee is calculated by distance and shown in your order summary.</Text>
+            <Text style={styles.homeMeasurementModalCopy}>A tailor will visit your address and take measurements before stitching. A flat Rs99 measurement visit fee will be added to this order.</Text>
             <View style={styles.homeMeasurementFeeBox}>
               <Text style={styles.summaryLabel}>Measurement visit fee</Text>
-              <Text style={styles.summaryStrong}>Calculated in order summary</Text>
+              <Text style={styles.summaryStrong}>Rs99</Text>
             </View>
             <View style={styles.homeMeasurementModalActions}>
               <Pressable

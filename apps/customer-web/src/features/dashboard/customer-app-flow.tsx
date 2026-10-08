@@ -64,7 +64,7 @@ import { CustomerExtraScreen, extraScreens, LanguageSwitcher, OrderActions, Deli
 import { uiText, useCustomerPreferences } from "./customer-preferences";
 import { CustomerDialogProvider, useCustomerDialog } from "./customer-dialog";
 import { isFinishedOrder, orderStatusLabel, measurementSlots } from "./order-state";
-import { measurementVisitChargeableDistanceMeters, measurementVisitFee } from "@darji/shared";
+import { measurementVisitFee } from "@darji/shared";
 import { GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../../shared/src/cloth-details";
 import { VoiceNotes } from "./voice-notes";
 
@@ -1524,7 +1524,7 @@ function ClothIssueStep({
               <ToggleTile
                 checked={draft.homeMeasurementBooked === true}
                 title={uiText("Home Measurement")}
-                copy={uiText("A tailor will visit your home to take measurements. The visit fee is shown with each quote.")}
+                copy={uiText("A tailor will visit your home to take measurements. A flat Rs99 fee is added once per order.")}
                 icon={Home}
                 onChange={(checked) => setDraft((current) => ({ ...current, homeMeasurementBooked: current.workType === "New Stitching" || checked }))}
               />
@@ -1923,37 +1923,14 @@ function DeliverySummaryLine({
   );
 }
 
-function MeasurementSummaryLine({ fee, distanceMeters }: { fee: number; distanceMeters?: number }) {
-  const [expanded, setExpanded] = useState(false);
-  const oneWayMeters = Math.max(0, Number(distanceMeters) || 0);
-  const roundTripMeters = measurementVisitChargeableDistanceMeters(oneWayMeters);
-  const oneWayKm = (oneWayMeters / 1000).toFixed(1);
-  const roundTripKm = (roundTripMeters / 1000).toFixed(1);
-  const distanceCharge = Math.max(0, fee - 30);
-
+function MeasurementSummaryLine({ fee }: { fee: number; distanceMeters?: number }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#e2e8f0] bg-[#f8fafc]">
-      <button type="button" className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm font-bold" onClick={() => setExpanded((current) => !current)}>
-        <span className="flex items-center gap-2 text-[var(--darji-muted)]">
-          {uiText("Home measurement")}
-          <span className="rounded-md border border-[#fed7aa] bg-[#fff4dc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[var(--darji-orange)]">{uiText("Round trip")}</span>
-          <ChevronDown className={`h-3.5 w-3.5 text-[var(--darji-orange)] transition-transform ${expanded ? "rotate-180" : ""}`} />
-        </span>
-        <span className="text-[var(--darji-ink)]">{formatMoney(fee)}</span>
-      </button>
-      {expanded ? (
-        <div className="space-y-3 border-t border-[#e2e8f0] bg-white p-4 text-xs">
-          <div className="grid gap-2 sm:grid-cols-3">
-            <SummaryLine label={uiText("Tailor to home")} value={`${oneWayKm} ${uiText("km")}`} />
-            <SummaryLine label={uiText("Return journey")} value={`${oneWayKm} ${uiText("km")}`} />
-            <SummaryLine label={uiText("Chargeable distance")} value={`${roundTripKm} ${uiText("km")}`} strong />
-          </div>
-          <p className="font-semibold leading-5 text-[var(--darji-muted)]">
-            {uiText("The visiting tailor travels from the shop to your home and returns to the shop. Fee: base Rs30 + Rs10 per round-trip kilometre.")}
-          </p>
-          <p className="font-black text-[var(--darji-orange)]">{formatMoney(30)}{distanceCharge ? ` + ${formatMoney(distanceCharge)}` : ""} = {formatMoney(fee)}</p>
-        </div>
-      ) : null}
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3 text-sm font-bold">
+      <span className="flex items-center gap-2 text-[var(--darji-muted)]">
+        {uiText("Home measurement")}
+        <span className="rounded-md border border-[#fed7aa] bg-[#fff4dc] px-1.5 py-0.5 text-[10px] font-black uppercase text-[var(--darji-orange)]">{uiText("Flat fee")}</span>
+      </span>
+      <span className="text-[var(--darji-ink)]">{formatMoney(fee)}</span>
     </div>
   );
 }

@@ -204,7 +204,7 @@ export function getSmallOrderFee(orderValue: number) {
   return 0;
 }
 
-export const HOME_MEASUREMENT_FEE = 30;
+export const HOME_MEASUREMENT_FEE = 99;
 export const MEASUREMENT_VISIT_BASE_PAYOUT = 30;
 export const MEASUREMENT_VISIT_PER_KM = 10;
 
@@ -213,7 +213,11 @@ export function measurementVisitChargeableDistanceMeters(distanceMeters?: number
   return oneWayDistanceMeters * 2;
 }
 
-export function measurementVisitFee(distanceMeters?: number | null) {
+export function measurementVisitFee(_distanceMeters?: number | null) {
+  return HOME_MEASUREMENT_FEE;
+}
+
+export function measurementVisitPayout(distanceMeters?: number | null) {
   const km = measurementVisitChargeableDistanceMeters(distanceMeters) / 1000;
   return Math.round(MEASUREMENT_VISIT_BASE_PAYOUT + km * MEASUREMENT_VISIT_PER_KM);
 }

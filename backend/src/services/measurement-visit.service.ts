@@ -5,7 +5,7 @@ import { sendPushToUsers } from "./push.service.js";
 import { emitToAdmins, emitToCustomer, emitToTailor } from "./socket.service.js";
 import { upsertOperationalAlert, resolveOperationalAlert } from "./operational-alert.service.js";
 import { extractTailorShopPoint, geocodeAddress, pointFrom, roadDistanceMeters } from "./delivery-pricing.service.js";
-import { measurementVisitFee } from "@darji/shared";
+import { measurementVisitPayout as calculateMeasurementVisitPayout } from "@darji/shared";
 import { creditOrderEarning } from "./wallet.service.js";
 
 const DEFAULT_VISIT_PAYOUT = 30;
@@ -50,7 +50,7 @@ function tailorShopAddress(tailor: Record<string, unknown> | null | undefined) {
 }
 
 export function measurementVisitPayout(distanceMeters?: number | null) {
-  return measurementVisitFee(distanceMeters);
+  return calculateMeasurementVisitPayout(distanceMeters);
 }
 
 function measurementDistanceLabel(distanceMeters?: number | null) {

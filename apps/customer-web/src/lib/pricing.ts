@@ -1,7 +1,7 @@
 import type { Coupon } from "./types";
 import { calculateCouponDiscount } from "@darji/shared";
 
-export const HOME_MEASUREMENT_FEE = 30;
+export const HOME_MEASUREMENT_FEE = 99;
 
 export function deliveryFeeForUrgency(urgency: string) {
   if (/instant/i.test(urgency)) return 50;
