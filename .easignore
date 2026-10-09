@@ -23,6 +23,11 @@ apps/customer-web
 backend
 darji-web
 
+# Large source-artwork folders are not runtime dependencies. Mobile-ready
+# copies live inside each app's assets directory.
+/icons
+/animation
+
 # Expo prebuild regenerates these application-native folders.
 apps/customer-app/android
 apps/customer-app/ios

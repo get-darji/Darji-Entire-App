@@ -25,8 +25,7 @@
         "android.permission.TURN_SCREEN_ON",
         "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "extra": {
@@ -71,7 +70,14 @@
         }
       ],
       "./modules/incoming-alert/app.plugin.js",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": true,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
       "expo-font"
     ],
     "runtimeVersion": {
