@@ -10,6 +10,7 @@ import { CompactLanguageToggle } from "../../../../shared/src/compact-language-t
 import { translateStaticChildren, translateStaticText } from "../../../../shared/src/static-translations";
 
 const DELIVERY_APP_VERSION = require("../../app.json").expo.version as string;
+const SUPPORT_PHONE_URL = "tel:+919625917902";
 
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
@@ -893,7 +894,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     subtitle: "Talk to Darji support",
     icon: "call-outline",
     copy: "Support hours: 9 AM to 9 PM. Use call support for blocked pickups, payment issues, or handoff disputes.",
-    action: { label: "Call +91 98765 00000", run: () => Linking.openURL("tel:+919876500000").catch(() => undefined) },
+    action: { label: "Call +91 96259 17902", run: () => Linking.openURL(SUPPORT_PHONE_URL).catch(() => undefined) },
     points: ["Blocked pickup", "Customer unreachable", "Tailor unreachable"]
   },
   email: {
@@ -1752,14 +1753,14 @@ function DeliverySupportCenterScreen({ setScreen, palette, styles, token }: { se
         {/* Call Support Option */}
         <Pressable 
           style={{ backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.cardBorder, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 }}
-          onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
+          onPress={() => Linking.openURL(SUPPORT_PHONE_URL).catch(() => undefined)}
         >
           <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center" }}>
             <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: palette.text, fontSize: 16, fontWeight: "800" }}>Call Support</Text>
-            <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Dial support line directly (+91 98765 00000)</Text>
+            <Text style={{ color: palette.subtext, fontSize: 12, fontWeight: "600", marginTop: 2 }}>Dial support line directly (+91 96259 17902)</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
         </Pressable>
@@ -2268,7 +2269,7 @@ function HelpCenterFAQScreen({ styles, palette, onBack, onContactSupport }: { st
     },
     {
       q: "What if I face an issue during delivery?",
-      a: "If you face any vehicle breakdown, customer dispute, or route blockage, call Call Support (+91 98765 00000) or open a support chat immediately for admin assistance."
+      a: "If you face any vehicle breakdown, customer dispute, or route blockage, call Call Support (+91 96259 17902) or open a support chat immediately for admin assistance."
     },
     {
       q: "How do I contact the customer?",

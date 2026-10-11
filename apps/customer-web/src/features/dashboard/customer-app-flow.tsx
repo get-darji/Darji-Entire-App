@@ -34,6 +34,7 @@ import {
   Banknote,
   Navigation,
   Plus,
+  Phone,
   PackageCheck,
   Ruler,
   Search,
@@ -71,6 +72,8 @@ import { VoiceNotes } from "./voice-notes";
 const DARJI_PRIVACY_URL = "https://www.getdarji.in/privacy";
 const DARJI_TERMS_URL = "https://www.getdarji.in/terms";
 const DARJI_ABOUT_URL = "https://www.getdarji.in/about";
+const SUPPORT_PHONE_DISPLAY = "+91 96259 17902";
+const SUPPORT_PHONE_URL = "tel:+919625917902";
 
 type CustomerScreen = ExtraScreen | "home" | "newRequest" | "clothIssue" | "summary" | "quotes" | "confirm" | "orders" | "orderDetails" | "profile" | "support" | "editProfile" | "savedAddresses" | "wallet" | "helpCenter" | "aboutDarji";
 type PaymentMethod = "ONLINE" | "UPI" | "COD";
@@ -2601,7 +2604,7 @@ function OrdersScreen({ requests, openOrder, setScreen }: { requests: TailoringR
           </div>
           <div className="flex gap-3">
             <Button variant="secondary" className="min-h-11">{uiText("Chat with us")}</Button>
-            <Button variant="secondary" className="min-h-11">{uiText("Call Support")}</Button>
+            <Button variant="secondary" className="min-h-11" onClick={() => { window.location.href = SUPPORT_PHONE_URL; }}>{uiText("Call Support")}</Button>
           </div>
         </div>
       </section>
@@ -4010,13 +4013,16 @@ function ProfileScreen({ wallet, coupons, notifications, addresses, setScreen, s
         <h1 className="text-2xl font-black text-[var(--darji-ink)]">{uiText("Support Center")}</h1>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-8">
+      <div className="grid gap-4 mb-8 sm:grid-cols-3">
         <button onClick={() => setView("new_chat")} className="h-14 rounded-2xl bg-[var(--darji-orange)] text-white font-bold text-base shadow-md flex items-center justify-center gap-2 hover:bg-[var(--darji-orange)]/90 transition">
           <MessageSquare className="h-5 w-5" /> {uiText("Start Conversation")}
         </button>
         <button onClick={() => setView("new_bug")} className="h-14 rounded-2xl border-2 border-red-500 text-red-500 font-bold text-base shadow-md flex items-center justify-center gap-2 hover:bg-red-50 transition">
           <Bug className="h-5 w-5" /> {uiText("Report a Bug")}
         </button>
+        <a href={SUPPORT_PHONE_URL} className="h-14 rounded-2xl border-2 border-[var(--darji-orange)] bg-white text-[var(--darji-orange)] font-bold text-sm shadow-md flex items-center justify-center gap-2 hover:bg-[#fff8f0] transition">
+          <Phone className="h-5 w-5" /> {uiText("Call Support")} · {SUPPORT_PHONE_DISPLAY}
+        </a>
       </div>
 
       <div className="grid gap-6">

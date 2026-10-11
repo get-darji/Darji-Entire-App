@@ -126,6 +126,9 @@ import {
 } from "./src/config/clothDetails";
 import { ClothDetailsSelectionView } from "./src/features/cloth-details/ClothDetailsSelectionView";
 
+const SUPPORT_PHONE_DISPLAY = "+91 96259 17902";
+const SUPPORT_PHONE_URL = "tel:+919625917902";
+
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
   return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
@@ -9680,6 +9683,18 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
               >
                 <Ionicons name="chatbubbles-outline" size={20} color="#111111" />
                 <Text style={{ color: "#111111", fontSize: 15, fontWeight: "900" }}>Start New Conversation</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{ backgroundColor: cardBg, minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }}
+                onPress={() => Linking.openURL(SUPPORT_PHONE_URL).catch(() => undefined)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="call-outline" size={20} color={BRAND_ORANGE} />
+                <View>
+                  <Text style={{ color: text, fontSize: 15, fontWeight: "900", textAlign: "center" }}>Call Support</Text>
+                  <Text style={{ color: mutedText, fontSize: 12, fontWeight: "700", textAlign: "center", marginTop: 2 }}>{SUPPORT_PHONE_DISPLAY}</Text>
+                </View>
               </TouchableOpacity>
 
 

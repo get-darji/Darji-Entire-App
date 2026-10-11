@@ -108,7 +108,7 @@ export async function seedDatabase() {
 
   await SettingModel.findOneAndUpdate(
     { key: "platform" },
-    { key: "platform", value: { supportPhone: "1800-000-000", pickupFee: 49, deliveryFee: 49, commissionPercent: 15 } },
+    { key: "platform", value: { supportPhone: "9625917902", pickupFee: 49, deliveryFee: 49, commissionPercent: 15 } },
     { upsert: true }
   );
   await SettingModel.findOneAndUpdate(

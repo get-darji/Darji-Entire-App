@@ -268,13 +268,13 @@ export function EditorialFooter() {
             {/* Direct Contact & Trust Badges */}
             <div className="mt-6 space-y-3 text-sm font-medium text-white/75">
               <a
-                href="tel:+919971416471"
+                href="tel:+919625917902"
                 className="flex items-center gap-3 transition hover:text-[#ff7000]"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/10 text-[#ff7000]">
                   <Phone className="h-4 w-4" />
                 </div>
-                <span>+91 9971416471</span>
+                <span>+91 96259 17902</span>
               </a>
 
               <div className="flex items-center gap-3">

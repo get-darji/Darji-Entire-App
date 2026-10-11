@@ -279,7 +279,7 @@ export function LandingPage() {
     "@id": "https://darji.in/#localbusiness",
     "name": "Darji Doorstep Tailoring",
     "image": "https://darji.in/og-image.png",
-    "telephone": "+919971416471",
+    "telephone": "+919625917902",
     "url": "https://darji.in",
     "priceRange": "$$",
     "areaServed": [

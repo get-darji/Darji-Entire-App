@@ -947,7 +947,7 @@ const staticText = {
   "Describe the changes you'd like to make...": "उन परिवर्तनों का वर्णन करें जो आप करना चाहते हैं ..........",
   "Description required": "विवरण की आवश्यकता है",
   "Detailed answer": "विस्तृत जवाब",
-  "Dial support line directly (+91 98765 00000)": "सहायता लाइन को सीधे डायल करें (+ 91 98765 00000)",
+  "Dial support line directly (+91 96259 17902)": "सहायता लाइन को सीधे डायल करें (+91 96259 17902)",
   "Do not send stretchable samples like rayon.": "रेयॉन जैसे स्ट्रेचेबल नमूने न भेजें।",
   "Enter full address...": "पूरा पता .......... दर्ज करें",
   "building, area, city, state and pincode.": "भवन, क्षेत्र, शहर, राज्य और पिनकोड।",

@@ -10,6 +10,8 @@ import { CompactLanguageToggle } from "../../../../shared/src/compact-language-t
 import { translateStaticChildren, translateStaticText } from "../../../../shared/src/static-translations";
 
 const TAILOR_APP_VERSION = require("../../app.json").expo.version as string;
+const SUPPORT_PHONE_DISPLAY = "+91 96259 17902";
+const SUPPORT_PHONE_URL = "tel:+919625917902";
 
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
@@ -2261,10 +2263,10 @@ function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDial
           title="Call Support"
           copy="Talk to our support team directly"
           badgeIcon="call-outline"
-          badgeText="+91 98765 00000"
+          badgeText={SUPPORT_PHONE_DISPLAY}
           badgeTone="green"
           styles={styles}
-          onPress={() => Linking.openURL("tel:+919876500000").catch(() => undefined)}
+          onPress={() => Linking.openURL(SUPPORT_PHONE_URL).catch(() => undefined)}
         />
         <SupportCenterCard
           icon="shield-checkmark-outline"
