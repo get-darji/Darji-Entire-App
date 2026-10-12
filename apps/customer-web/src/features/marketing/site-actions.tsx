@@ -15,6 +15,9 @@ type ModalProps = {
 
 type LaunchSoonTarget = "booking" | "play" | "apple";
 
+const WHATSAPP_SUPPORT_URL =
+  "https://wa.me/919625917902?text=Hi%20Darji!%20I%20have%20a%20question.%20Can%20you%20please%20help%20me%3F";
+
 const modalMotion = {
   initial: { opacity: 0, y: 22, scale: 0.98 },
   animate: { opacity: 1, y: 0, scale: 1 },
@@ -122,7 +125,7 @@ export function LaunchSoonModal({ open, onClose, target = "booking" }: ModalProp
                   {notifyState === "saving" ? "Saving…" : notifyState === "saved" ? "Interest recorded" : "Notify Me"}
                 </button>
                 <a
-                  href="https://wa.me/919625917902?text=Hi%20Darji%2C%20I%20would%20like%20help%20with%20your%20pickup%20service."
+                  href={WHATSAPP_SUPPORT_URL}
                   target="_blank"
                   rel="noreferrer"
                   className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-[#e6edf5] bg-white px-6 text-sm font-black text-[#08111f] transition hover:border-[#ffc89b] hover:bg-[#fff8f0]"
@@ -143,7 +146,7 @@ export function LaunchSoonModal({ open, onClose, target = "booking" }: ModalProp
 export function SupportModal({ open, onClose }: ModalProps) {
   const options = [
     { label: "Call support", value: "+91 96259 17902", href: "tel:+919625917902", icon: Phone },
-    { label: "WhatsApp", value: "Message Darji support", href: "https://wa.me/919625917902", icon: MessageCircle },
+    { label: "WhatsApp", value: "Message Darji support", href: WHATSAPP_SUPPORT_URL, icon: MessageCircle },
     { label: "Email", value: "help.darji@gmail.com", href: "mailto:help.darji@gmail.com", icon: Mail },
     { label: "Service areas", value: "Delhi & Gurugram", href: "https://maps.google.com/?q=Delhi%20Gurugram", icon: MapPin }
   ];
