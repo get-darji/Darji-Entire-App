@@ -52,7 +52,7 @@ export const blogArticles: BlogArticle[] = [
     date: "Sep 09, 2026",
     readTime: "6 min read",
     wordCount: 1120,
-    image: "/editorial/story-origin.jpg",
+    image: "/editorial/founder-me-and-mom.jpeg",
     category: "Darji Stories",
     featured: true,
     author: amanKumarSah,

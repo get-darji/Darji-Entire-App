@@ -354,8 +354,8 @@ export function AboutPage() {
               <div className="relative pt-4">
                 <div className="relative z-10 overflow-hidden rounded-3xl border border-[#e6edf5] bg-white p-3 shadow-xl">
                   <img
-                    src="/editorial/story-origin.jpg"
-                    alt="Artisan hands stitching fabric in warm ambient light"
+                    src="/editorial/about-mom-stitching.jpeg"
+                    alt="Aman's mother stitching a garment at home"
                     className="h-72 sm:h-96 w-full object-cover rounded-2xl"
                   />
                 </div>
