@@ -163,7 +163,7 @@ export function ArticleReadingView({ article, relatedArticles }: ArticleReadingV
           <img
             src={article.image}
             alt={`${article.title} hero photography`}
-            className="h-[360px] sm:h-[500px] w-full object-cover"
+            className="block h-auto w-full object-contain"
           />
         </div>
         <p className="mt-3 text-right text-xs text-[#8c9aa8] italic">

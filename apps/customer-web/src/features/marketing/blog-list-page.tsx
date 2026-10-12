@@ -94,11 +94,11 @@ export function BlogListPage() {
           >
             <div className="grid lg:grid-cols-[1.1fr_0.9fr] items-stretch">
               {/* Image Column */}
-              <div className="relative min-h-[360px] sm:min-h-[440px] overflow-hidden bg-[#08111f]">
+              <div className="relative flex items-center justify-center overflow-hidden bg-[#f1ece5] lg:min-h-[440px]">
                 <img
                   src={featuredArticle.image}
                   alt={featuredArticle.title}
-                  className="h-full w-full object-cover transition-transform duration-1000 ease-out group-hover:scale-105"
+                  className="block h-auto w-full object-contain"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#08111f]/80 via-transparent to-transparent lg:hidden" />
                 <div className="absolute top-6 left-6 rounded-md bg-black/75 backdrop-blur-md px-3.5 py-1 text-xs font-black uppercase tracking-[0.16em] text-white">
