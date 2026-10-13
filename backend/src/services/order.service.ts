@@ -12,7 +12,8 @@ import {
   ServiceModel,
   TailorModel,
   TailoringRequestModel,
-  UserModel
+  UserModel,
+  ensureDarjiCustomerId
 } from "../models.js";
 import { AppError } from "../middleware/error.js";
 import { notifyUser, orderStatusMessage } from "./notification.service.js";
@@ -30,6 +31,16 @@ function generateOrderNumber() {
 function json<T extends { toJSON?: () => unknown } | null | undefined>(doc: T) {
   if (!doc) return null;
   return typeof doc.toJSON === "function" ? doc.toJSON() : doc;
+}
+
+function customerJson(doc: { toJSON?: () => unknown } | Record<string, unknown> | null | undefined) {
+  const value = json(doc as { toJSON?: () => unknown } | null | undefined) as Record<string, unknown> | null;
+  if (!value) return null;
+  return {
+    ...value,
+    name: value.customerName || value.name,
+    avatarUrl: value.customerAvatarUri || value.customerAvatarUrl || value.avatarUri || value.avatarUrl
+  };
 }
 
 async function partnerWithUser(model: { findById: (id: string) => Promise<(JsonDoc & { userId: string }) | null> }, id?: string) {
@@ -114,7 +125,7 @@ export async function hydrateOrder(orderInput: unknown) {
   const orderId = String(order.id ?? order._id);
   const [address, customer, tailor, pickupPartner, deliveryPartner, payments, reviews] = await Promise.all([
     AddressModel.findById(order.addressId),
-    UserModel.findById(order.customerId).select("name phone role"),
+    UserModel.findById(order.customerId).select("name customerName phone email role darjiCustomerId avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
     partnerWithUser(TailorModel, order.tailorId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.pickupPartnerId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.deliveryPartnerId as string | undefined),
@@ -141,7 +152,7 @@ export async function hydrateOrder(orderInput: unknown) {
   return {
     ...order,
     address: json(address),
-    customer: json(customer),
+    customer: customerJson(customer),
     tailor,
     pickupPartner,
     deliveryPartner,
@@ -167,7 +178,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
 
   const [addresses, customers, tailors, partners, payments, reviews, services] = await Promise.all([
     AddressModel.find({ _id: { $in: ids("addressId") } }),
-    UserModel.find({ _id: { $in: ids("customerId") } }).select("name phone role"),
+    UserModel.find({ _id: { $in: ids("customerId") } }).select("name customerName phone email role darjiCustomerId avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
     TailorModel.find({ _id: { $in: ids("tailorId") } }),
     DeliveryPartnerModel.find({ _id: { $in: [...ids("pickupPartnerId"), ...ids("deliveryPartnerId")] } }),
     PaymentModel.find({ orderId: { $in: orderIds } }).sort({ createdAt: -1 }),
@@ -207,7 +218,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
     return {
       ...order,
       address: json(addressMap.get(String(order.addressId ?? ""))),
-      customer: json(customerMap.get(String(order.customerId ?? ""))),
+      customer: customerJson(customerMap.get(String(order.customerId ?? ""))),
       tailor: partnerJson(tailorMap.get(String(order.tailorId ?? ""))),
       pickupPartner: partnerJson(partnerMap.get(String(order.pickupPartnerId ?? ""))),
       deliveryPartner: partnerJson(partnerMap.get(String(order.deliveryPartnerId ?? ""))),
@@ -229,6 +240,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
 export const orderInclude = {};
 
 export async function createOrder(customerId: string, payload: unknown) {
+  await ensureDarjiCustomerId(customerId);
   const input = createOrderSchema.parse(payload);
   const address = await AddressModel.findOne({ _id: input.addressId, userId: customerId });
   if (!address) {

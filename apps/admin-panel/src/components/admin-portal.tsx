@@ -139,6 +139,9 @@ import {
   getTailoringRequests,
   getTailors,
   getUsers,
+  getCustomerProfile,
+  getOrderById,
+  getTailoringRequestById,
   inviteAdmin,
   markPaymentPaid,
   moderateUser,
@@ -223,7 +226,8 @@ import type {
   AdminActivityLog,
   SystemHealth,
   NotificationCampaign,
-  MarketingAudienceSummary
+  MarketingAudienceSummary,
+  CustomerProfileOrder
 } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
@@ -953,6 +957,7 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "partners"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "customer-profile"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "payments"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "wallet-payouts"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "wallet-detail"] }),
@@ -1573,66 +1578,7 @@ export function AdminPortal() {
   const { analytics, dashboardAnalytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
   const measurementVisits = measurementVisitsQuery.data ?? [];
   
-  const normalizedTailoringRequests: Order[] = tailoringRequests
-    .map((request) => {
-      const pickupPartner = partners.find((partner) => partner.id === request.pickupPartnerId || partner.id === request.assignedDeliveryBoyId) ?? null;
-      const deliveryPartner = partners.find((partner) => partner.id === request.deliveryPartnerId) ?? null;
-      const orderStatusMap: Record<string, string> = {
-        completed: "DELIVERED",
-        cancelled: "CANCELLED",
-        ready_for_delivery: "READY",
-        received_by_tailor: "AT_TAILOR",
-        picked_up_from_customer: "CLOTH_PICKED",
-        pickup_started: "PICKUP_ASSIGNED",
-        tailor_accepted: "PICKUP_ASSIGNED",
-        payment_pending: "ORDER_PLACED"
-      };
-      const mappedStatus = request.status === "CANCELLED"
-        ? "CANCELLED"
-        : request.orderStatus
-          ? (orderStatusMap[request.orderStatus] || request.orderStatus)
-          : request.status;
-      return {
-        id: request.id,
-        darjiId: request.darjiId,
-        orderNumber: formatCustomerRequestId(request.id),
-        customerId: request.customerId,
-        customer: request.customer,
-        tailorId: request.selectedQuote?.tailor?.id ?? request.assignedTailorId,
-        pickupPartnerId: request.pickupPartnerId ?? request.assignedDeliveryBoyId,
-        deliveryPartnerId: request.deliveryPartnerId,
-        tailor: request.selectedQuote?.tailor || request.ownQuote?.tailor || null,
-        pickupPartner,
-        deliveryPartner,
-        status: mappedStatus.toUpperCase(),
-        paymentMethod: request.paymentMethod || "UNKNOWN",
-        paymentStatus: request.paymentStatus || "PENDING",
-        subtotal: request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0,
-        deliveryFee: request.deliveryFee ?? 0,
-        deliveryMode: request.deliveryMode,
-        customerToTailorDistanceMeters: request.customerToTailorDistanceMeters,
-        totalChargeableDistanceMeters: request.totalChargeableDistanceMeters,
-        deliveryFeeLockedAt: request.deliveryFeeLockedAt,
-        platformFee: request.platformFee ?? 0,
-        smallOrderFee: request.smallOrderFee ?? 0,
-        homeMeasurementFee: request.homeMeasurementFee ?? 0,
-        couponCode: request.couponCode,
-        discount: request.discountAmount ?? 0,
-        totalAmount: request.totalAmount || request.quoteAmount || request.selectedQuote?.price || request.ownQuote?.price || 0,
-        createdAt: request.confirmedAt || request.createdAt,
-        request,
-        items: [{
-          serviceId: "tailoring",
-          quantity: 1,
-          service: {
-            id: "tailoring",
-            name: request.workType,
-            price: request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0,
-            category: { name: request.clothType }
-          }
-        }]
-      } as unknown as Order;
-    });
+  const normalizedTailoringRequests: Order[] = tailoringRequests.map((request) => normalizeTailoringRequestForAdmin(request, partners));
 
   const allOrders = [...orders, ...normalizedTailoringRequests];
   const dashboardPeriodBounds = getDashboardPeriodBounds(dashboardPeriod, dashboardFromMonth, dashboardToMonth);
@@ -2398,6 +2344,7 @@ export function AdminPortal() {
 
   const orderColumns = getOrderColumns({
     onAssign: openOrderAssignment,
+    onOpenCustomer: (order) => setUserDetail(users.find((candidate) => candidate.id === order.customerId) ?? ({ ...order.customer, id: order.customerId } as AdminUser)),
     onCallCustomer: (order) => {
       openOrderDetail(order, "overview");
       callCustomer(order);
@@ -2452,8 +2399,15 @@ export function AdminPortal() {
     pending: statusMutation.isPending,
     priorities: orderPriorities
   });
-  const tailoringColumns = getTailoringColumns({ onOpen: setTailoringDetail });
-  const deliveryColumns = getDeliveryColumns({ onOpen: setDeliveryDetail, partners });
+  const tailoringColumns = getTailoringColumns({
+    onOpen: setTailoringDetail,
+    onOpenCustomer: (request) => setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ ...request.customer, id: request.customerId } as AdminUser))
+  });
+  const deliveryColumns = getDeliveryColumns({
+    onOpen: setDeliveryDetail,
+    onOpenCustomer: (request) => setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ id: request.customerId, name: request.customerName, phone: request.customerPhone } as AdminUser)),
+    partners
+  });
   const tailorColumns = getTailorColumns({
     onOpen: setTailorDetail,
     onReview: (tailorId, status) => tailorReviewMutation.mutate({ tailorId, status }),
@@ -2499,6 +2453,11 @@ export function AdminPortal() {
   const paymentColumns = getPaymentColumns({
     breakdowns: financeSummary.byPaymentId,
     onMarkPaid: (paymentId) => paymentMutation.mutate({ paymentId }),
+    onOpenCustomer: (payment) => {
+      const customerId = payment.order?.customerId;
+      if (!customerId) return;
+      setUserDetail(users.find((candidate) => candidate.id === customerId) ?? ({ id: customerId, name: payment.order?.customerName, phone: payment.order?.customerPhone } as AdminUser));
+    },
     pending: paymentMutation.isPending
   });
   const couponColumns = getCouponColumns({
@@ -2852,6 +2811,7 @@ export function AdminPortal() {
             orders={allOrders}
             pendingTaskId={batchReassignMutation.isPending ? batchReassignMutation.variables?.taskId : undefined}
             onOpenOrder={(order) => setOrderDetail(order)}
+            onOpenCustomer={(request) => setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ id: request.customerId, name: request.customerName, phone: request.customerPhone } as AdminUser))}
             onReassign={(taskId, batchId) => batchReassignMutation.mutate({ taskId, batchId })}
             onNotifyBatch={(batchId) => notifyBatchMutation.mutate(batchId)}
           />
@@ -2861,6 +2821,7 @@ export function AdminPortal() {
           <MeasurementVisitsModule
             error={measurementVisitsQuery.isError ? extractError(measurementVisitsQuery.error) : undefined}
             onAssign={(visitId, tailorId) => measurementAssignMutation.mutate({ visitId, tailorId })}
+            onOpenCustomer={(visit) => setUserDetail(users.find((candidate) => candidate.id === visit.customerId) ?? ({ id: visit.customerId, name: visit.customerName, phone: visit.customerPhone } as AdminUser))}
             pendingVisitId={measurementAssignMutation.isPending ? measurementAssignMutation.variables?.visitId : undefined}
             tailors={tailors}
             visits={measurementVisits}
@@ -3318,6 +3279,12 @@ export function AdminPortal() {
         priority={orderDetail ? orderPriorities[orderDetail.id] ?? "Normal" : "Normal"}
         focusSection={orderDetailFocus}
         onPrintInvoice={() => orderDetail && printOrderInvoice(orderDetail)}
+        onOpenCustomer={() => {
+          if (!orderDetail) return;
+          const customer = users.find((candidate) => candidate.id === orderDetail.customerId) ?? ({ ...orderDetail.customer, id: orderDetail.customerId } as AdminUser);
+          setOrderDetail(null);
+          setUserDetail(customer);
+        }}
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
         }}
@@ -3363,6 +3330,18 @@ export function AdminPortal() {
       <UserDialog
         onActivate={() => userDetail && userModerationMutation.mutate({ userId: userDetail.id, action: "ACTIVE" })}
         onBan={() => userDetail && userModerationMutation.mutate({ userId: userDetail.id, action: "BANNED", reason: "Banned by admin" })}
+        onOpenOrder={async (profileOrder) => {
+          try {
+            const detail = profileOrder.source === "ORDER"
+              ? await getOrderById(profileOrder.id)
+              : normalizeTailoringRequestForAdmin(await getTailoringRequestById(profileOrder.id), partners);
+            setUserDetail(null);
+            setOrderDetailFocus("overview");
+            setOrderDetail(detail);
+          } catch (error) {
+            toast.error(extractError(error));
+          }
+        }}
         onSuspend={() =>
           userDetail &&
           userModerationMutation.mutate({
@@ -3418,6 +3397,10 @@ export function AdminPortal() {
         users={users}
         orders={orders}
         onOpenOrder={(order) => openOrderDetail(order, "overview")}
+        onOpenCustomer={(customer) => {
+          setTicketDetail(null);
+          setUserDetail(customer);
+        }}
       />
       <InspectBugReportDialog
         open={Boolean(activeBugReport)}
@@ -5587,6 +5570,7 @@ function DeliveryBatchManagement({
   focusBatch,
   batchCapacity,
   onOpenOrder,
+  onOpenCustomer,
   onNotifyBatch,
   onReassign,
   orders,
@@ -5599,6 +5583,7 @@ function DeliveryBatchManagement({
   focusBatch?: BatchFocusTarget | null;
   batchCapacity: number;
   onOpenOrder: (order: Order) => void;
+  onOpenCustomer: (request: DeliveryRequest) => void;
   onNotifyBatch: (batchId: string) => void;
   onReassign: (taskId: string, batchId: string) => void;
   orders: Order[];
@@ -5702,7 +5687,7 @@ function DeliveryBatchManagement({
         <input className="h-10 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3 text-sm outline-none focus:border-[var(--accent)] sm:max-w-xs" onChange={(event) => setSearch(event.target.value)} placeholder="Search batch, order or customer" value={search} />
       </div>
       {view === "instant" ? (
-        <InstantDeliveryOrders requests={instantOrders} orders={orders} partners={partners} onOpenOrder={onOpenOrder} />
+        <InstantDeliveryOrders requests={instantOrders} orders={orders} partners={partners} onOpenOrder={onOpenOrder} onOpenCustomer={onOpenCustomer} />
       ) : <>
       <div className="grid gap-4 md:grid-cols-5">
         <FinanceStatCard label="Visible batches" value={visibleBatches.length.toLocaleString("en-IN")} note={selectedDateLabel} tone="sky" />
@@ -5743,6 +5728,7 @@ function DeliveryBatchManagement({
           activeTargetBatches={activeTargetBatches}
           pendingTaskId={pendingTaskId}
           onOpenOrder={onOpenOrder}
+          onOpenCustomer={onOpenCustomer}
           onNotifyBatch={onNotifyBatch}
           onReassign={onReassign}
         />
@@ -5755,6 +5741,7 @@ function DeliveryBatchManagement({
           activeTargetBatches={activeTargetBatches}
           pendingTaskId={pendingTaskId}
           onOpenOrder={onOpenOrder}
+          onOpenCustomer={onOpenCustomer}
           onNotifyBatch={onNotifyBatch}
           onReassign={onReassign}
         />
@@ -5772,12 +5759,14 @@ function DeliveryBatchManagement({
 function MeasurementVisitsModule({
   error,
   onAssign,
+  onOpenCustomer,
   pendingVisitId,
   tailors,
   visits
 }: {
   error?: string;
   onAssign: (visitId: string, tailorId: string) => void;
+  onOpenCustomer: (visit: MeasurementVisit) => void;
   pendingVisitId?: string;
   tailors: TailorProfile[];
   visits: MeasurementVisit[];
@@ -5817,7 +5806,7 @@ function MeasurementVisitsModule({
         </Panel>
       ) : null}
       <Panel className="overflow-hidden p-0"><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-[var(--panel-border)] bg-[#fffaf0] text-xs uppercase tracking-[0.14em] text-[var(--muted)]"><tr><th className="px-4 py-3">Visit</th><th className="px-4 py-3">Customer details</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Measurement partner</th><th className="px-4 py-3">Partner payout</th><th className="px-4 py-3">Upload</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody>
-        {visibleVisits.map((visit) => { const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId); const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId); const measurementCount = Object.keys(visit.submission?.measurement?.fields ?? {}).length; return <tr className="border-b border-[var(--panel-border)] last:border-0 hover:bg-[#fffaf0]/50" key={visit.id}><td className="px-4 py-4"><p className="font-bold">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="text-xs text-[var(--muted)]">Request {visit.requestId}</p></td><td className="px-4 py-4"><p className="font-semibold">{cleanText(visit.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{visit.customerPhone ?? "Phone unavailable"}</p></td><td className="whitespace-nowrap px-4 py-4">{formatDate(visit.scheduledAt, true)}</td><td className="px-4 py-4"><p className="font-semibold">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? getTailorDisplayName(offeredTailor) : "Unassigned"}</p><p className="text-xs text-[var(--muted)]">{assignedTailor ? assignedTailor.darjiTailorId ?? "Partner ID pending" : offeredTailor ? "Offer awaiting acceptance" : "Needs assignment"}</p></td><td className="px-4 py-4"><p className="font-bold text-emerald-700">{formatCurrency(visit.visitPayout ?? 0)}</p><p className="text-xs text-[var(--muted)]">Paid to measurement partner</p></td><td className="px-4 py-4">{visit.submittedAt || visit.status === "SUBMITTED" ? <div><Badge tone="emerald">Uploaded</Badge><p className="mt-1 text-xs text-[var(--muted)]">{measurementCount} fields</p></div> : <Badge tone="amber">Pending upload</Badge>}</td><td className="px-4 py-4"><StatusBadge value={visit.status} /></td><td className="px-4 py-4"><ActionButton className="px-3 py-2" onClick={() => setSelectedVisit(visit)} variant="secondary"><Eye className="h-4 w-4" />View details</ActionButton></td></tr>; })}
+        {visibleVisits.map((visit) => { const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId); const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId); const measurementCount = Object.keys(visit.submission?.measurement?.fields ?? {}).length; return <tr className="border-b border-[var(--panel-border)] last:border-0 hover:bg-[#fffaf0]/50" key={visit.id}><td className="px-4 py-4"><p className="font-bold">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="text-xs text-[var(--muted)]">Request {visit.requestId}</p></td><td className="px-4 py-4"><button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(visit)} type="button"><p className="font-semibold">{cleanText(visit.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{visit.customerPhone ?? "Phone unavailable"}</p></button></td><td className="whitespace-nowrap px-4 py-4">{formatDate(visit.scheduledAt, true)}</td><td className="px-4 py-4"><p className="font-semibold">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? getTailorDisplayName(offeredTailor) : "Unassigned"}</p><p className="text-xs text-[var(--muted)]">{assignedTailor ? assignedTailor.darjiTailorId ?? "Partner ID pending" : offeredTailor ? "Offer awaiting acceptance" : "Needs assignment"}</p></td><td className="px-4 py-4"><p className="font-bold text-emerald-700">{formatCurrency(visit.visitPayout ?? 0)}</p><p className="text-xs text-[var(--muted)]">Paid to measurement partner</p></td><td className="px-4 py-4">{visit.submittedAt || visit.status === "SUBMITTED" ? <div><Badge tone="emerald">Uploaded</Badge><p className="mt-1 text-xs text-[var(--muted)]">{measurementCount} fields</p></div> : <Badge tone="amber">Pending upload</Badge>}</td><td className="px-4 py-4"><StatusBadge value={visit.status} /></td><td className="px-4 py-4"><ActionButton className="px-3 py-2" onClick={() => setSelectedVisit(visit)} variant="secondary"><Eye className="h-4 w-4" />View details</ActionButton></td></tr>; })}
         {!visibleVisits.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>{visits.length ? "No measurement visits match these filters." : "No home measurement visits have been created yet."}</td></tr> : null}
       </tbody></table></div></Panel>
       <MeasurementVisitDialog visit={selectedVisit} tailors={capableTailors} assignmentDrafts={assignmentDrafts} setAssignmentDrafts={setAssignmentDrafts} pendingVisitId={pendingVisitId} onAssign={onAssign} onClose={() => setSelectedVisit(null)} />
@@ -5843,7 +5832,7 @@ function MeasurementVisitDialog({ visit, tailors, assignmentDrafts, setAssignmen
 
 function DetailBox({ label, value, note }: { label: string; value: string; note?: string }) { return <div className="rounded-xl border border-[var(--panel-border)] bg-[#fffaf0] p-3"><p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p><p className="mt-1 font-bold text-[var(--deep)]">{value}</p>{note ? <p className="mt-1 text-xs text-[var(--muted)]">{note}</p> : null}</div>; }
 
-function InstantDeliveryOrders({ requests, orders, partners, onOpenOrder }: { requests: DeliveryRequest[]; orders: Order[]; partners: DeliveryPartnerProfile[]; onOpenOrder: (order: Order) => void }) {
+function InstantDeliveryOrders({ requests, orders, partners, onOpenOrder, onOpenCustomer }: { requests: DeliveryRequest[]; orders: Order[]; partners: DeliveryPartnerProfile[]; onOpenOrder: (order: Order) => void; onOpenCustomer: (request: DeliveryRequest) => void }) {
   return (
     <Panel className="overflow-hidden p-0">
       <div className="overflow-x-auto">
@@ -5858,7 +5847,7 @@ function InstantDeliveryOrders({ requests, orders, partners, onOpenOrder }: { re
             return <tr className="border-b border-[var(--panel-border)] last:border-0" key={request.id}>
               <td className="px-4 py-4"><button className="font-bold text-[#c68008] hover:underline" onClick={() => order && onOpenOrder(order)} type="button">{order ? getOrderDisplayNumber(order) : formatCustomerRequestId(request.orderId)}</button><p className="text-xs text-[var(--muted)]">{request.taskId}</p></td>
               <td className="px-4 py-4"><DeliveryRoleBadge role={request.type === "customer_to_tailor" ? "PICKUP" : "DROP"} /></td>
-              <td className="px-4 py-4"><p className="font-semibold">{cleanText(request.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{cleanText(request.tailorName) ?? "Tailor"}</p></td>
+              <td className="px-4 py-4"><button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(request)} type="button"><p className="font-semibold">{cleanText(request.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{request.customerPhone ?? "No phone"}</p></button><p className="mt-1 text-xs text-[var(--muted)]">Tailor: {cleanText(request.tailorName) ?? "Unassigned"}</p></td>
               <td className="max-w-[320px] px-4 py-4"><p className="truncate">{request.pickupAddress}</p><p className="mt-1 truncate text-[var(--muted)]">to {request.dropAddress}</p></td>
               <td className="px-4 py-4">
                 {partner ? (
@@ -5892,6 +5881,7 @@ function BatchSection({
   onNotifyBatch,
   pendingTaskId,
   onOpenOrder,
+  onOpenCustomer,
   onReassign
 }: {
   title: string;
@@ -5903,6 +5893,7 @@ function BatchSection({
   onNotifyBatch: (batchId: string) => void;
   pendingTaskId?: string;
   onOpenOrder: (order: Order) => void;
+  onOpenCustomer: (request: DeliveryRequest) => void;
   onReassign: (taskId: string, batchId: string) => void;
 }) {
   if (!batches.length) return null;
@@ -6019,10 +6010,7 @@ function BatchSection({
                             </button>
                             <p className="mt-1 text-xs text-[var(--muted)]">{task.taskId}</p>
                           </td>
-                          <td className="px-4 py-4">
-                            <p className="font-semibold">{cleanText(task.customerName) ?? cleanText(task.customerPhone) ?? "Customer"}</p>
-                            <p className="text-xs text-[var(--muted)]">{task.customerPhone ?? "No phone"}</p>
-                          </td>
+                          <td className="px-4 py-4"><button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(task)} type="button"><p className="font-semibold">{cleanText(task.customerName) ?? cleanText(task.customerPhone) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{task.customerPhone ?? "No phone"}</p></button></td>
                           <td className="px-4 py-4">
                             <p className="font-semibold">{cleanText(task.tailorName) ?? "Tailor"}</p>
                             <p className="text-xs text-[var(--muted)]">{task.tailorPhone ?? "No phone"}</p>
@@ -8058,6 +8046,51 @@ function getCustomerDisplayName(user?: BasicUser | AdminUser | null) {
   return getUserDisplayName(user, "Customer");
 }
 
+function normalizeTailoringRequestForAdmin(request: TailoringRequest, partners: DeliveryPartnerProfile[]): Order {
+  const pickupPartner = partners.find((partner) => partner.id === request.pickupPartnerId || partner.id === request.assignedDeliveryBoyId) ?? null;
+  const deliveryPartner = partners.find((partner) => partner.id === request.deliveryPartnerId) ?? null;
+  const orderStatusMap: Record<string, string> = {
+    completed: "DELIVERED", cancelled: "CANCELLED", ready_for_delivery: "READY",
+    received_by_tailor: "AT_TAILOR", picked_up_from_customer: "CLOTH_PICKED",
+    pickup_started: "PICKUP_ASSIGNED", tailor_accepted: "PICKUP_ASSIGNED", payment_pending: "ORDER_PLACED"
+  };
+  const mappedStatus = request.status === "CANCELLED"
+    ? "CANCELLED"
+    : request.orderStatus ? (orderStatusMap[request.orderStatus] || request.orderStatus) : request.status;
+  const price = request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0;
+  return {
+    id: request.id,
+    darjiId: request.darjiId,
+    orderNumber: formatCustomerRequestId(request.id),
+    customerId: request.customerId,
+    customer: request.customer,
+    tailorId: request.selectedQuote?.tailor?.id ?? request.assignedTailorId,
+    pickupPartnerId: request.pickupPartnerId ?? request.assignedDeliveryBoyId,
+    deliveryPartnerId: request.deliveryPartnerId,
+    tailor: request.selectedQuote?.tailor || request.ownQuote?.tailor || null,
+    pickupPartner,
+    deliveryPartner,
+    status: mappedStatus.toUpperCase(),
+    paymentMethod: request.paymentMethod || "UNKNOWN",
+    paymentStatus: request.paymentStatus || "PENDING",
+    subtotal: price,
+    deliveryFee: request.deliveryFee ?? 0,
+    deliveryMode: request.deliveryMode,
+    customerToTailorDistanceMeters: request.customerToTailorDistanceMeters,
+    totalChargeableDistanceMeters: request.totalChargeableDistanceMeters,
+    deliveryFeeLockedAt: request.deliveryFeeLockedAt,
+    platformFee: request.platformFee ?? 0,
+    smallOrderFee: request.smallOrderFee ?? 0,
+    homeMeasurementFee: request.homeMeasurementFee ?? 0,
+    couponCode: request.couponCode,
+    discount: request.discountAmount ?? 0,
+    totalAmount: request.totalAmount || price,
+    createdAt: request.confirmedAt || request.createdAt,
+    request,
+    items: [{ serviceId: "tailoring", quantity: 1, service: { id: "tailoring", name: request.workType, price, category: { name: request.clothType } } }]
+  } as Order;
+}
+
 function getTailorDisplayName(tailor?: TailorProfile | null) {
   return cleanText(tailor?.shopName) ?? cleanText(tailor?.user?.name) ?? cleanText(tailor?.user?.phone) ?? cleanText(tailor?.darjiTailorId) ?? "Tailor";
 }
@@ -8547,6 +8580,7 @@ function OrderDetailDialog({
   onPriorityChange,
   onStatusChange,
   onPrintInvoice,
+  onOpenCustomer,
   focusSection,
   open,
   order,
@@ -8561,6 +8595,7 @@ function OrderDetailDialog({
   onPriorityChange: (priority: AdminOrderPriority) => void;
   onStatusChange: (status: string) => void;
   onPrintInvoice: () => void;
+  onOpenCustomer: () => void;
   focusSection: OrderDetailFocus;
   open: boolean;
   order: Order | null;
@@ -8618,7 +8653,7 @@ function OrderDetailDialog({
                 </div>
                 <Dialog.Close asChild><button aria-label="Close order details" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#efd9b5] bg-white text-[var(--deep)] transition hover:bg-orange-50" type="button"><X size={18} /></button></Dialog.Close>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <OrderDrawerSummary icon={UserCircle2} label="Customer" value={getCustomerDisplayName(order.customer)} detail={order.customer?.phone ?? "No phone"} />
+                  <OrderDrawerSummary icon={UserCircle2} label="Customer" value={getCustomerDisplayName(order.customer)} detail={order.customer?.phone ?? "No phone"} onClick={onOpenCustomer} />
                   <OrderDrawerSummary icon={CalendarDays} label="Order Date & Time" value={formatDate(order.createdAt)} detail={order.createdAt ? new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"} />
                   <OrderDrawerSummary icon={CreditCard} label="Payment" value={formatStatus(order.paymentMethod)} detail={formatStatus(order.paymentStatus)} />
                   <OrderDrawerSummary icon={ReceiptIndianRupee} label="Order Total" value={formatCurrency(order.totalAmount)} detail="Customer total" />
@@ -8955,8 +8990,11 @@ function OrderDetailDialog({
   );
 }
 
-function OrderDrawerSummary({ detail, icon: Icon, label, value }: { detail: string; icon: ComponentType<{ size?: number }>; label: string; value: string }) {
-  return <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#f3e8d7] bg-white px-3 py-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-50 text-orange-500"><Icon size={16} /></span><div className="min-w-0"><p className="text-[10px] font-semibold text-[var(--muted)]">{label}</p><p className="mt-0.5 truncate text-sm font-bold text-[var(--deep)]">{value}</p><p className="truncate text-[11px] text-[var(--muted)]">{detail}</p></div></div>;
+function OrderDrawerSummary({ detail, icon: Icon, label, onClick, value }: { detail: string; icon: ComponentType<{ size?: number }>; label: string; onClick?: () => void; value: string }) {
+  const content = <><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-50 text-orange-500"><Icon size={16} /></span><div className="min-w-0"><p className="text-[10px] font-semibold text-[var(--muted)]">{label}</p><p className="mt-0.5 truncate text-sm font-bold text-[var(--deep)]">{value}</p><p className="truncate text-[11px] text-[var(--muted)]">{detail}</p></div></>;
+  return onClick
+    ? <button className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#f3e8d7] bg-white px-3 py-3 text-left transition hover:border-orange-300 hover:bg-orange-50" onClick={onClick} type="button">{content}</button>
+    : <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-[#f3e8d7] bg-white px-3 py-3">{content}</div>;
 }
 
 function buildOrderPricingDetails(order: Order) {
@@ -9658,6 +9696,7 @@ function ProfileDialog({
 function UserDialog({
   onActivate,
   onBan,
+  onOpenOrder,
   onSuspend,
   open,
   pending,
@@ -9666,75 +9705,102 @@ function UserDialog({
 }: {
   onActivate: () => void;
   onBan: () => void;
+  onOpenOrder: (order: CustomerProfileOrder) => void | Promise<void>;
   onSuspend: () => void;
   open: boolean;
   pending: boolean;
   setOpen: (open: boolean) => void;
   user: AdminUser | null;
 }) {
-  const displayName = user ? getCustomerDisplayName(user) : "Customer";
-  const avatarSeed = user?.name ?? user?.phone ?? displayName;
+  const [tab, setTab] = useState<"activity" | "orders" | "access">("activity");
+  const [orderSearch, setOrderSearch] = useState("");
+  const profileQuery = useQuery({
+    queryKey: ["admin", "customer-profile", user?.id],
+    queryFn: () => getCustomerProfile(user!.id),
+    enabled: open && Boolean(user?.id)
+  });
+  useEffect(() => {
+    if (!open) return;
+    setTab("activity");
+    setOrderSearch("");
+  }, [open, user?.id]);
+  const profile = profileQuery.data;
+  const customer = profile?.customer ?? user;
+  const displayName = customer ? getCustomerDisplayName(customer) : "Customer";
+  const avatarSeed = customer?.name ?? customer?.phone ?? displayName;
+  const visibleOrders = (profile?.orders ?? []).filter((order) => {
+    const needle = orderSearch.trim().toLowerCase();
+    return !needle || [order.publicId, order.orderNumber, order.title, order.status, order.paymentStatus].some((value) => String(value ?? "").toLowerCase().includes(needle));
+  });
+  const profileMetrics: Array<{ label: string; value: string | number; icon: ComponentType<{ className?: string }> }> = profile ? [
+    { label: "Lifetime orders", value: profile.stats.totalOrders, icon: PackageCheck },
+    { label: "Active", value: profile.stats.activeOrders, icon: Hourglass },
+    { label: "Completed", value: profile.stats.completedOrders, icon: CheckCircle2 },
+    { label: "Cancelled", value: profile.stats.cancelledOrders, icon: X },
+    { label: "Paid lifetime", value: formatCurrency(profile.stats.paidTotal), icon: ReceiptIndianRupee }
+  ] : [];
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,760px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+        <Dialog.Content className="fixed bottom-3 right-3 top-3 z-50 w-[min(96vw,980px)] overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[#fffdfa] shadow-[0_28px_80px_rgba(15,23,42,0.3)]">
           {user ? (
             <>
-              <Dialog.Title className="text-2xl font-semibold">{displayName}</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Customer profile, account state, and moderation controls.</Dialog.Description>
-              <div className="mt-5 overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[linear-gradient(135deg,#fff8e9,#fbfdff_62%,#eef6ff)]">
-                <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center">
-                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-3xl border border-white/80 bg-[#fff6e4] shadow-lg">
+              <div className="sticky top-0 z-20 border-b border-[#efe1ca] bg-[#fffdfa]/95 px-5 py-4 backdrop-blur-xl">
+                <Dialog.Close asChild><button aria-label="Close customer profile" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#efd9b5] bg-white transition hover:bg-orange-50" type="button"><X size={18} /></button></Dialog.Close>
+                <div className="flex flex-col gap-5 pr-12 md:flex-row md:items-center">
+                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-3xl border border-white bg-[#fff3df] shadow-lg">
                     <img
                       alt="Customer profile"
                       className="h-full w-full object-cover"
-                      src={user.avatarUrl || getDefaultAvatarUrl(avatarSeed)}
+                      src={customer?.avatarUrl || getDefaultAvatarUrl(avatarSeed)}
                     />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">{displayName}</h3>
+                      <Dialog.Title className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">{displayName}</Dialog.Title>
                       <Badge tone="slate">Customer</Badge>
-                      <StatusBadge value={user.accountStatus} />
+                      <StatusBadge value={customer?.accountStatus} />
                     </div>
-                    <p className="mt-1 text-sm font-medium text-[#6f614c]">{user.darjiCustomerId ?? "Customer ID pending"}</p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--muted)]">
-                      <span>{user.phone ?? "No phone"}</span>
-                      <span>{user.email ?? "Email not added"}</span>
-                      <span>Joined {formatDate(user.createdAt, true)}</span>
+                    <Dialog.Description className="mt-1 text-sm font-bold text-orange-600">{customer?.darjiCustomerId ?? "Assigning customer ID…"}</Dialog.Description>
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[var(--muted)]">
+                      <span className="inline-flex items-center gap-1.5"><Phone size={13} />{customer?.phone ?? "No phone"}</span>
+                      <span className="inline-flex items-center gap-1.5"><Mail size={13} />{customer?.email ?? "Email not added"}</span>
+                      <span className="inline-flex items-center gap-1.5"><CalendarDays size={13} />Joined {formatDate(customer?.createdAt, true)}</span>
                     </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {customer?.phone ? <a className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#efd9b5] bg-white px-4 text-sm font-semibold hover:bg-orange-50" href={`tel:${customer.phone}`}><PhoneCall size={15} />Call</a> : null}
+                    {customer?.email ? <a className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#efd9b5] bg-white px-4 text-sm font-semibold hover:bg-orange-50" href={`mailto:${customer.email}`}><Mail size={15} />Email</a> : null}
                   </div>
                 </div>
               </div>
-              <div className="mt-6 space-y-5">
-                {user.role === "ADMIN" ? (
-                  <Badge tone="slate">Admin account is protected from moderation.</Badge>
-                ) : (
-                  <div className="flex flex-wrap gap-3">
-                    <ActionButton disabled={pending} onClick={onActivate}>
-                      {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-                      Activate
-                    </ActionButton>
-                    <ActionButton disabled={pending} variant="secondary" onClick={onSuspend}>
-                      Suspend 7 days
-                    </ActionButton>
-                    <ActionButton disabled={pending} variant="danger" onClick={onBan}>
-                      Ban user
-                    </ActionButton>
-                  </div>
-                )}
-                <InspectGrid
-                  items={[
-                    { label: "Customer ID", value: user.darjiCustomerId ?? "-" },
-                    { label: "Phone", value: user.phone },
-                    { label: "Email", value: user.email ?? "-" },
-                    { label: "Account", value: <StatusBadge value={user.accountStatus} /> },
-                    { label: "Suspended until", value: formatDate(user.suspendedUntil, true) },
-                    { label: "Moderation note", value: user.moderationReason ?? "-" }
-                  ]}
-                />
+              <div className="space-y-5 p-5">
+                {profileQuery.isLoading ? <LoadingState label="Loading complete customer profile..." /> : null}
+                {profileQuery.isError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><p className="font-bold">Customer profile could not be loaded.</p><p className="mt-1">{extractError(profileQuery.error)}</p><button className="mt-3 font-semibold underline" onClick={() => profileQuery.refetch()} type="button">Retry</button></div> : null}
+                {profile ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                      {profileMetrics.map(({ label, value, icon: Icon }) => <Panel className="rounded-2xl p-4" key={label}><div className="flex items-center justify-between"><p className="text-xs font-semibold text-[var(--muted)]">{label}</p><Icon className="h-4 w-4 text-orange-500" /></div><p className="mt-3 text-xl font-bold text-[var(--deep)]">{String(value)}</p></Panel>)}
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto border-b border-[#efe1ca] pb-3">
+                      {(["activity", "orders", "access"] as const).map((item) => <button className={cn("rounded-xl px-4 py-2 text-sm font-semibold capitalize transition", tab === item ? "bg-[#f6a313] text-[#241706]" : "bg-white text-[var(--muted)] hover:bg-orange-50")} key={item} onClick={() => setTab(item)} type="button">{item === "orders" ? `Orders (${profile.stats.totalOrders})` : item}</button>)}
+                    </div>
+                    {tab === "activity" ? (
+                      <div className="grid gap-4 lg:grid-cols-[1.35fr_.65fr]">
+                        <Panel className="rounded-2xl p-5"><div className="flex items-center justify-between"><div><h3 className="font-bold text-[var(--deep)]">Recent activity</h3><p className="mt-1 text-xs text-[var(--muted)]">Real events reconstructed from saved customer records.</p></div><Badge tone="slate">Latest {profile.recentActivity.length}</Badge></div><div className="mt-4 divide-y divide-[#f1e5d3]">{profile.recentActivity.length ? profile.recentActivity.map((item) => <div className="flex gap-3 py-3" key={item.id}><span className={cn("mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full", item.tone === "danger" ? "bg-rose-500" : item.tone === "success" ? "bg-emerald-500" : "bg-orange-400")} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><p className="text-sm font-semibold">{item.title}</p><span className="text-[11px] text-[var(--muted)]">{formatDate(item.timestamp, true)}</span></div>{item.detail ? <p className="mt-1 text-xs text-[var(--muted)]">{item.detail}</p> : null}</div></div>) : <EmptyState message="No customer activity has been recorded yet." />}</div></Panel>
+                        <div className="space-y-4"><Panel className="rounded-2xl p-5"><h3 className="font-bold">Contact details</h3><InspectGrid items={[{ label: "Customer ID", value: profile.customer.darjiCustomerId ?? "-" }, { label: "Phone", value: profile.customer.phone }, { label: "Email", value: profile.customer.email ?? "Not added" }, { label: "Language", value: profile.access.preferredLanguage === "hi" ? "Hindi" : "English" }]} /></Panel><Panel className="rounded-2xl p-5"><div className="flex items-center justify-between"><h3 className="font-bold">Saved addresses</h3><Badge tone="slate">{profile.addresses.length}</Badge></div><div className="mt-3 space-y-2">{profile.addresses.length ? profile.addresses.slice(0, 4).map((address) => <div className="rounded-xl bg-[#fff8ed] p-3 text-xs" key={address.id}><p className="font-semibold">{address.name}{address.isDefault ? " · Default" : ""}</p><p className="mt-1 text-[var(--muted)]">{[address.line1, address.line2, address.landmark, address.city, address.state, address.pincode].filter(Boolean).join(", ")}</p></div>) : <p className="text-xs text-[var(--muted)]">No saved addresses.</p>}</div></Panel></div>
+                      </div>
+                    ) : null}
+                    {tab === "orders" ? (
+                      <Panel className="rounded-2xl p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-bold">Lifetime order history</h3><p className="mt-1 text-xs text-[var(--muted)]">Placed, completed, and cancelled orders from both Darji order systems.</p></div><input className="h-10 rounded-xl border border-[var(--panel-border)] bg-white px-3 text-sm outline-none focus:border-orange-400" onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search orders" value={orderSearch} /></div><div className="mt-4 space-y-2">{visibleOrders.length ? visibleOrders.map((order) => <button className="flex w-full flex-col gap-3 rounded-2xl border border-[#efe1ca] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md sm:flex-row sm:items-center sm:justify-between" key={`${order.source}-${order.id}`} onClick={() => onOpenOrder(order)} type="button"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-[var(--deep)]">{order.publicId}</p><Badge tone="slate">{order.source === "TAILORING_REQUEST" ? "Custom tailoring" : "Standard"}</Badge></div><p className="mt-1 text-sm text-[var(--muted)]">{order.title}</p><p className="mt-1 text-xs text-[var(--muted)]">{formatDate(order.placedAt, true)} · {order.itemCount} item{order.itemCount === 1 ? "" : "s"}</p></div><div className="flex items-center gap-3"><div className="text-right"><p className="font-bold">{formatCurrency(order.amount)}</p><p className="text-xs text-[var(--muted)]">{formatStatus(order.paymentStatus)}</p></div><StatusBadge value={order.status} /><ChevronRight size={18} className="text-orange-500" /></div></button>) : <EmptyState message={orderSearch ? "No lifetime orders match this search." : "This customer has not placed an order yet."} />}</div></Panel>
+                    ) : null}
+                    {tab === "access" ? (
+                      <div className="grid gap-4 lg:grid-cols-3"><Panel className="rounded-2xl p-5"><div className="flex items-center justify-between"><div><h3 className="font-bold">Account access</h3><p className="mt-1 text-xs text-[var(--muted)]">Live backend access and moderation state.</p></div><ShieldCheck className="text-orange-500" /></div><InspectGrid items={[{ label: "Account", value: <StatusBadge value={profile.access.accountStatus} /> }, { label: "Suspended until", value: formatDate(profile.access.suspendedUntil, true) }, { label: "Moderation note", value: profile.access.moderationReason ?? "-" }, { label: "Push registered", value: profile.access.hasPushRegistration ? "Yes" : "No" }, { label: "Registered apps", value: profile.access.registeredApps.length ? profile.access.registeredApps.join(", ") : "None" }]} /><div className="mt-4 flex flex-wrap gap-2">{user.role === "ADMIN" ? <Badge tone="slate">Admin account is protected from moderation.</Badge> : <><ActionButton disabled={pending} onClick={onActivate}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Activate</ActionButton><ActionButton disabled={pending} variant="secondary" onClick={onSuspend}>Suspend 7 days</ActionButton><ActionButton disabled={pending} variant="danger" onClick={onBan}>Ban user</ActionButton></>}</div></Panel><Panel className="rounded-2xl p-5"><div className="flex items-center justify-between"><div><h3 className="font-bold">Device permissions</h3><p className="mt-1 text-xs text-[var(--muted)]">Latest status reported by the customer app.</p></div><ShieldCheck className="text-orange-500" /></div><div className="mt-4 space-y-2">{profile.access.devicePermissions ? <>{Object.entries(profile.access.devicePermissions.permissions).map(([key, status]) => <div className="flex items-center justify-between rounded-xl bg-[#fff8ed] px-3 py-2.5" key={key}><span className="text-sm font-medium">{formatStatus(key)}</span><Badge tone={status === "granted" ? "emerald" : status === "denied" ? "rose" : "slate"}>{formatStatus(status)}</Badge></div>)}<p className="pt-2 text-[11px] text-[var(--muted)]">{formatStatus(profile.access.devicePermissions.platform)} · Reported {formatDate(profile.access.devicePermissions.reportedAt, true)}</p></> : <p className="text-sm text-[var(--muted)]">Not reported yet. The next updated customer-app session will sync it.</p>}</div></Panel><Panel className="rounded-2xl p-5"><div className="flex items-center justify-between"><div><h3 className="font-bold">Notification preferences</h3><p className="mt-1 text-xs text-[var(--muted)]">Choices saved by the customer.</p></div><Bell className="text-orange-500" /></div><div className="mt-4 space-y-2">{Object.entries(profile.access.notificationPreferences).length ? Object.entries(profile.access.notificationPreferences).map(([key, enabled]) => <div className="flex items-center justify-between rounded-xl bg-[#fff8ed] px-3 py-2.5" key={key}><span className="text-sm font-medium">{formatStatus(key)}</span><Badge tone={enabled ? "emerald" : "slate"}>{enabled ? "Allowed" : "Off"}</Badge></div>) : <p className="text-sm text-[var(--muted)]">No preferences have been reported.</p>}</div></Panel></div>
+                    ) : null}
+                  </>
+                ) : null}
               </div>
             </>
 ) : null}
@@ -9750,7 +9816,8 @@ function InspectTicketDialog({
   setOpen,
   users,
   orders,
-  onOpenOrder
+  onOpenOrder,
+  onOpenCustomer
 }: {
   open: boolean;
   ticket: SupportTicket | null;
@@ -9758,6 +9825,7 @@ function InspectTicketDialog({
   users: AdminUser[];
   orders: Order[];
   onOpenOrder: (order: Order) => void;
+  onOpenCustomer: (customer: AdminUser) => void;
 }) {
   const [reply, setReply] = useState("");
   const [status, setStatus] = useState("RESOLVED");
@@ -9974,6 +10042,10 @@ function InspectTicketDialog({
             {/* Right Column: Ticket Info & Actions */}
             <div className="md:col-span-5 space-y-4">
               {/* Customer Profile Card */}
+              <button className="block w-full rounded-2xl text-left transition hover:-translate-y-0.5 hover:shadow-md" onClick={() => {
+                const customer = users.find((candidate) => candidate.id === ticket.userId) ?? (ticket.user ? { ...ticket.user, id: ticket.userId } as AdminUser : null);
+                if (customer) onOpenCustomer(customer);
+              }} type="button">
               <Panel className="border border-[var(--panel-border)] bg-[var(--panel)] rounded-2xl p-4">
                 <h4 className="text-xs uppercase font-bold tracking-wider text-[var(--muted)] mb-3">
                   User Profile
@@ -9991,6 +10063,7 @@ function InspectTicketDialog({
                   </div>
                 </div>
               </Panel>
+              </button>
 
               {/* Linked Order Card */}
               {ticket.orderId || ticket.order ? (
@@ -10491,6 +10564,7 @@ function AssignOrderDialog({
 
 function getOrderColumns({
   onAssign,
+  onOpenCustomer,
   onOpen,
   onChatCustomer,
   onCallCustomer,
@@ -10506,6 +10580,7 @@ function getOrderColumns({
   priorities
 }: {
   onAssign: (order: Order) => void;
+  onOpenCustomer: (order: Order) => void;
   onOpen: (order: Order, focus?: OrderDetailFocus) => void;
   onChatCustomer: (order: Order) => void;
   onCallCustomer: (order: Order) => void;
@@ -10559,13 +10634,13 @@ function getOrderColumns({
       header: "Customer",
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
-        <div className="flex items-center gap-2.5">
+        <button className="flex items-center gap-2.5 rounded-xl p-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(row.original)} type="button">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#fff0dc] text-[10px] font-bold text-orange-600">{getInitials(row.original.customer?.name, "CU")}</span>
           <div className="space-y-0.5">
             <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getCustomerDisplayName(row.original.customer)}</p>
             <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
           </div>
-        </div>
+        </button>
       )
     },
     {
@@ -10710,9 +10785,11 @@ function getOrderColumns({
 }
 
 function getTailoringColumns({
-  onOpen
+  onOpen,
+  onOpenCustomer
 }: {
   onOpen: (request: TailoringRequest) => void;
+  onOpenCustomer: (request: TailoringRequest) => void;
 }): Array<ColumnDef<TailoringRequest>> {
   return [
     {
@@ -10731,12 +10808,12 @@ function getTailoringColumns({
       header: "Customer",
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
-        <span>
+        <button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(row.original)} type="button">
           {getCustomerDisplayName(row.original.customer)}{" "}
           {row.original.customer?.darjiCustomerId ? (
             <span className="text-xs font-semibold text-orange-500">({row.original.customer.darjiCustomerId})</span>
           ) : null}
-        </span>
+        </button>
       )
     },
     {
@@ -10776,9 +10853,11 @@ function getTailoringColumns({
 
 function getDeliveryColumns({
   onOpen,
+  onOpenCustomer,
   partners
 }: {
   onOpen: (request: DeliveryRequest) => void;
+  onOpenCustomer: (request: DeliveryRequest) => void;
   partners: DeliveryPartnerProfile[];
 }): Array<ColumnDef<DeliveryRequest>> {
   return [
@@ -10795,10 +10874,10 @@ function getDeliveryColumns({
       accessorKey: "customerName",
       header: "Customer",
       cell: ({ row }) => (
-        <div>
+        <button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(row.original)} type="button">
           <p className="font-medium">{cleanText(row.original.customerName) ?? cleanText(row.original.customerPhone) ?? "Customer"}</p>
           <p className="text-xs text-[var(--muted)]">{row.original.customerPhone ?? "No phone"}</p>
-        </div>
+        </button>
       )
     },
     {
@@ -11068,7 +11147,7 @@ function getUserColumns({
       header: "Customer",
       accessorFn: (row) => row.name ?? row.phone,
       cell: ({ row }) => (
-        <div>
+        <button className="rounded-xl px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpen(row.original)} type="button">
           <p className="font-medium">
             {getCustomerDisplayName(row.original)}{" "}
             {row.original.darjiCustomerId ? (
@@ -11076,13 +11155,13 @@ function getUserColumns({
             ) : null}
           </p>
           <p className="text-xs text-[var(--muted)]">{row.original.phone}</p>
-        </div>
+        </button>
       )
     },
     {
       accessorKey: "darjiCustomerId",
       header: "Customer ID",
-      cell: ({ row }) => row.original.darjiCustomerId ?? "-"
+      cell: ({ row }) => <button className="font-semibold text-orange-600 hover:underline" onClick={() => onOpen(row.original)} type="button">{row.original.darjiCustomerId ?? "Assigning…"}</button>
     },
     {
       accessorKey: "accountStatus",
@@ -11149,10 +11228,12 @@ function getUserColumns({
 function getPaymentColumns({
   breakdowns,
   onMarkPaid,
+  onOpenCustomer,
   pending
 }: {
   breakdowns: Map<string, PaymentBreakdown>;
   onMarkPaid: (paymentId: string) => void;
+  onOpenCustomer: (payment: Payment) => void;
   pending: boolean;
 }): Array<ColumnDef<Payment>> {
   return [
@@ -11173,10 +11254,10 @@ function getPaymentColumns({
       header: "Customer",
       accessorFn: (row) => row.order?.customerName ?? row.order?.customerPhone ?? "",
       cell: ({ row }) => (
-        <div>
+        <button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50 disabled:cursor-default" disabled={!row.original.order?.customerId} onClick={() => onOpenCustomer(row.original)} type="button">
           <p className="font-medium text-[var(--foreground)]">{cleanText(row.original.order?.customerName) ?? cleanText(row.original.order?.customerPhone) ?? "Customer"}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">{row.original.order?.customerPhone ?? row.original.order?.customerId ?? "-"}</p>
-        </div>
+        </button>
       )
     },
     {

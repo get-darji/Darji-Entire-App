@@ -60,6 +60,7 @@ import {
   listSupportTicketsController,
   listTailorsController,
   listUsersController,
+  getAdminCustomerProfileController,
   markPaymentPaidController,
   moderateUserController,
   deleteAdminAccountController,
@@ -354,6 +355,7 @@ router.get("/admin/order-metadata", requireAuth, requireRole("ADMIN", "SUPER_ADM
 router.patch("/admin/orders/:id/metadata", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminOrderMetadataController);
 router.get("/admin/system-health", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), systemHealthController);
 router.get("/users", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listUsersController);
+router.get("/admin/customers/:id/profile", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getAdminCustomerProfileController);
 router.post("/users/admin-invite", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), inviteAdminController);
 router.patch("/users/:id/moderation", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), moderateUserController);
 router.delete("/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);

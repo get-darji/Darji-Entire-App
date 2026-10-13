@@ -5,7 +5,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, MeasurementVisitModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound } from "../models.js";
+import { DeliveryBatchModel, DeliveryPartnerModel, DeliveryRequestModel, MeasurementVisitModel, OrderModel, PaymentModel, ReviewModel, TailoringRequestModel, TailorModel, TailorQuoteModel, UserModel, SettingModel, TransactionModel, DeliveryType, DeliveryRound, ensureDarjiCustomerId } from "../models.js";
 import { reserveCouponUsage, validateCoupon } from "../services/coupon.service.js";
 import { emitDeliveryEvent, latestDeliveryEventId, waitForDeliveryEvents } from "../delivery-events.js";
 import { emitTailoringEvent, latestTailoringEventId, waitForTailoringEvents } from "../tailoring-events.js";
@@ -631,7 +631,7 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
 
   const requestId = String(request.id ?? request._id);
   const [customer, tailor, deliveryPartner] = await Promise.all([
-    UserModel.findById(request.customerId).select("name phone role"),
+    UserModel.findById(request.customerId).select("name customerName phone email role darjiCustomerId avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
     tailorUserId ? TailorModel.findOne({ userId: tailorUserId }) : null,
     verifiedDropDeliveryPartnerForRequest(requestId)
   ]);
@@ -646,7 +646,11 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
   return {
     ...request,
     ...(deliveryMilestones ? { deliveryMilestones } : {}),
-    customer: customer?.toJSON(),
+    customer: customer ? {
+      ...customer.toJSON(),
+      name: customer.customerName || customer.name,
+      avatarUrl: customer.customerAvatarUri || customer.customerAvatarUrl || customer.avatarUri || customer.avatarUrl
+    } : null,
     ownQuote: ownQuote?.toJSON() ?? null,
     deliveryPartner,
 
@@ -2167,6 +2171,7 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
 
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
+  await ensureDarjiCustomerId(req.user!.id);
   const serviceAreaConfig = await getServiceAreaConfig();
   if (serviceAreaConfig.enabled) {
     if (!input.pickupLocation) {

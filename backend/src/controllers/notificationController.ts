@@ -41,6 +41,18 @@ const notificationPreferencesSchema = z.object({
   receivingNotifications: z.boolean().optional()
 });
 
+const devicePermissionStatusSchema = z.enum(["granted", "denied", "undetermined", "limited", "unavailable"]);
+const devicePermissionsSchema = z.object({
+  platform: z.enum(["android", "ios", "web"]),
+  permissions: z.object({
+    notifications: devicePermissionStatusSchema,
+    location: devicePermissionStatusSchema,
+    camera: devicePermissionStatusSchema,
+    mediaLibrary: devicePermissionStatusSchema,
+    microphone: devicePermissionStatusSchema
+  })
+});
+
 export async function registerDeviceTokenController(req: Request, res: Response) {
   const input = deviceTokenSchema.parse(req.body);
   await saveDeviceTokens(req.user!.id, input);
@@ -186,4 +198,15 @@ export async function updateNotificationPreferencesController(req: Request, res:
   );
   const user = await UserModel.findByIdAndUpdate(req.user!.id, { $set }, { returnDocument: "after" }).select("notificationPreferences");
   res.json({ data: user?.toJSON().notificationPreferences?.customer ?? input });
+}
+
+export async function updateDevicePermissionsController(req: Request, res: Response) {
+  const input = devicePermissionsSchema.parse(req.body ?? {});
+  const snapshot = { ...input, reportedAt: new Date() };
+  const user = await UserModel.findByIdAndUpdate(
+    req.user!.id,
+    { $set: { "devicePermissions.customer": snapshot } },
+    { returnDocument: "after" }
+  ).select("devicePermissions");
+  res.json({ data: user?.toJSON().devicePermissions?.customer ?? snapshot });
 }

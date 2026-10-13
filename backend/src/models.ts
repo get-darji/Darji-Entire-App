@@ -101,7 +101,8 @@ const userSchema = new Schema(
         quietHours: { type: Boolean, default: true },
         receivingNotifications: { type: Boolean, default: true }
       }
-    }
+    },
+    devicePermissions: { type: Schema.Types.Mixed, default: {} }
   },
   baseOptions
 );
@@ -1116,6 +1117,31 @@ export const TranslationCacheModel = mongoose.model("TranslationCache", translat
 
 export type UserDoc = InferSchemaType<typeof userSchema> & { id: string; _id: string };
 
+/** Assign a permanent customer identity when an account acts as a customer. */
+export async function ensureDarjiCustomerId(userId: string) {
+  const user = await UserModel.findById(userId).select("darjiCustomerId");
+  if (!user) return null;
+  if (user.darjiCustomerId) return String(user.darjiCustomerId);
+
+  const darjiCustomerId = await nextDarjiId("CUS");
+  const updated = await UserModel.findOneAndUpdate(
+    {
+      _id: userId,
+      $or: [
+        { darjiCustomerId: { $exists: false } },
+        { darjiCustomerId: null },
+        { darjiCustomerId: "" }
+      ]
+    },
+    { $set: { darjiCustomerId } },
+    { returnDocument: "after" }
+  ).select("darjiCustomerId");
+
+  if (updated?.darjiCustomerId) return String(updated.darjiCustomerId);
+  const current = await UserModel.findById(userId).select("darjiCustomerId");
+  return current?.darjiCustomerId ? String(current.darjiCustomerId) : null;
+}
+
 type DarjiIdBackfillJob = {
   model: mongoose.Model<any>;
   field: string;
@@ -1162,6 +1188,22 @@ export async function backfillDarjiIds() {
       );
       assigned += result.modifiedCount;
     }
+  }
+
+  // Customer identity follows customer activity, not only the account's
+  // current primary role. Repair legacy and cross-role customer accounts.
+  const customerActivityIds = [...new Set((await Promise.all([
+    OrderModel.distinct("customerId"),
+    TailoringRequestModel.distinct("customerId"),
+    MeasurementVisitModel.distinct("customerId")
+  ])).flat().map((id) => String(id ?? "")).filter(Boolean))];
+  for (const userId of customerActivityIds) {
+    const missing = await UserModel.exists({
+      _id: userId,
+      $or: [{ darjiCustomerId: { $exists: false } }, { darjiCustomerId: null }, { darjiCustomerId: "" }]
+    });
+    if (!missing) continue;
+    if (await ensureDarjiCustomerId(userId)) assigned += 1;
   }
 
   if (assigned) console.log(`Assigned Darji IDs to ${assigned} existing record(s).`);

@@ -36,6 +36,7 @@ import type {
   SystemHealth,
   NotificationCampaign,
   MarketingAudienceSummary,
+  CustomerProfile,
 } from "@/src/types/admin";
 
 let adminRefreshPromise: Promise<string | undefined> | undefined;
@@ -337,6 +338,18 @@ export async function getDeliveryPartners() {
 
 export async function getUsers() {
   return unwrap<AdminUser[]>(api.get("/users"));
+}
+
+export async function getCustomerProfile(customerId: string) {
+  return unwrap<CustomerProfile>(api.get(`/admin/customers/${customerId}/profile`));
+}
+
+export async function getOrderById(orderId: string) {
+  return unwrap<Order>(api.get(`/orders/${orderId}`));
+}
+
+export async function getTailoringRequestById(requestId: string) {
+  return unwrap<TailoringRequest>(api.get(`/tailoring-requests/${requestId}`));
 }
 
 export async function getPayments() {

@@ -47,7 +47,8 @@ import {
   MeasurementVisitModel,
   NotificationCampaignModel,
   MarketingSignupModel,
-  ServiceAreaInterestModel
+  ServiceAreaInterestModel,
+  ensureDarjiCustomerId
 } from "../models.js";
 import multer from "multer";
 import { z } from "zod";
@@ -425,6 +426,8 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
 
   return users.map((user) => ({
     ...user,
+    name: user.customerName || user.name,
+    avatarUrl: user.customerAvatarUri || user.customerAvatarUrl || user.avatarUri || user.avatarUrl,
     tailorProfile: tailorMap.get(String(user.id ?? user._id)) ?? null,
     deliveryProfile: partnerMap.get(String(user.id ?? user._id)) ?? null
   }));
@@ -1009,8 +1012,204 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
 }
 
 export async function listUsersController(_req: Request, res: Response) {
-  const users = await UserModel.find().sort({ createdAt: -1 });
+  const users = await UserModel.find()
+    .select("phone darjiCustomerId darjiAdminId name customerName email avatarUrl avatarUri customerAvatarUrl customerAvatarUri role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
+    .sort({ createdAt: -1 });
   res.json({ data: await attachProfilesToUsers(users.map((user) => user.toJSON())) });
+}
+
+export async function getAdminCustomerProfileController(req: Request, res: Response) {
+  const identifier = String(req.params.id);
+  const user = await UserModel.findOne({
+    $or: [{ _id: identifier }, { darjiCustomerId: identifier }]
+  });
+  if (!user) throw new AppError(404, "Customer not found");
+
+  const customerId = user.id;
+  const [hasOrder, hasRequest, hasVisit] = await Promise.all([
+    OrderModel.exists({ customerId }),
+    TailoringRequestModel.exists({ customerId }),
+    MeasurementVisitModel.exists({ customerId })
+  ]);
+  const isCustomer = user.role === "CUSTOMER" || Boolean(hasOrder || hasRequest || hasVisit);
+  if (!isCustomer) throw new AppError(404, "This account has no customer activity");
+
+  if (!user.darjiCustomerId) {
+    await ensureDarjiCustomerId(customerId);
+  }
+
+  const [refreshedUser, addresses, regularOrders, tailoringRequests, supportTickets, measurementVisits, notifications] = await Promise.all([
+    UserModel.findById(customerId).lean(),
+    AddressModel.find({ userId: customerId }).sort({ isDefault: -1, updatedAt: -1 }).lean(),
+    OrderModel.find({ customerId }).sort({ createdAt: -1 }).lean(),
+    TailoringRequestModel.find({ customerId }).sort({ createdAt: -1 }).lean(),
+    SupportTicketModel.find({ userId: customerId }).sort({ createdAt: -1 }).lean(),
+    MeasurementVisitModel.find({ customerId }).sort({ createdAt: -1 }).lean(),
+    NotificationModel.find({ userId: customerId }).sort({ createdAt: -1 }).limit(25).lean()
+  ]);
+  if (!refreshedUser) throw new AppError(404, "Customer not found");
+
+  const allOrderIds = [...regularOrders, ...tailoringRequests].map((item: any) => String(item._id));
+  const payments = allOrderIds.length
+    ? await PaymentModel.find({ orderId: { $in: allOrderIds } }).sort({ createdAt: -1 }).lean()
+    : [];
+  const paymentByOrder = new Map<string, any>();
+  payments.forEach((payment: any) => {
+    if (!paymentByOrder.has(String(payment.orderId))) paymentByOrder.set(String(payment.orderId), payment);
+  });
+
+  const normalizedRegularOrders = regularOrders.map((order: any) => ({
+    id: String(order._id),
+    publicId: order.darjiId || order.orderNumber,
+    orderNumber: order.orderNumber,
+    source: "ORDER",
+    title: `${Array.isArray(order.items) ? order.items.length : 0} item${Array.isArray(order.items) && order.items.length === 1 ? "" : "s"}`,
+    status: order.status,
+    paymentStatus: order.paymentStatus || paymentByOrder.get(String(order._id))?.status || "PENDING",
+    paymentMethod: order.paymentMethod,
+    amount: Number(order.totalAmount ?? 0),
+    itemCount: Array.isArray(order.items) ? order.items.length : 0,
+    placedAt: order.createdAt,
+    updatedAt: order.updatedAt
+  }));
+  const normalizedTailoringOrders = tailoringRequests.map((request: any) => ({
+    id: String(request._id),
+    publicId: request.darjiId || `TRQ-${String(request._id).slice(0, 8).toUpperCase()}`,
+    orderNumber: request.darjiId || `TRQ-${String(request._id).slice(0, 8).toUpperCase()}`,
+    source: "TAILORING_REQUEST",
+    title: [request.workType, request.clothType].filter(Boolean).join(" · ") || "Tailoring request",
+    status: request.orderStatus || request.status,
+    paymentStatus: request.paymentStatus || paymentByOrder.get(String(request._id))?.status || "PENDING",
+    paymentMethod: request.paymentMethod,
+    amount: Number(request.totalAmount ?? request.quoteAmount ?? 0),
+    itemCount: Number(request.itemCount ?? request.items?.length ?? 1),
+    placedAt: request.confirmedAt || request.createdAt,
+    updatedAt: request.updatedAt
+  }));
+  const orders = [...normalizedRegularOrders, ...normalizedTailoringOrders]
+    .sort((a, b) => new Date(b.placedAt ?? 0).getTime() - new Date(a.placedAt ?? 0).getTime());
+
+  type ActivityItem = { id: string; type: string; title: string; detail?: string; timestamp?: Date | string; entityId?: string; entityType?: string; tone?: string };
+  const activity: ActivityItem[] = [{
+    id: `account-${customerId}`,
+    type: "ACCOUNT_CREATED",
+    title: "Customer account created",
+    detail: refreshedUser.darjiCustomerId ? `Customer ID ${refreshedUser.darjiCustomerId}` : undefined,
+    timestamp: refreshedUser.createdAt,
+    entityId: customerId,
+    entityType: "CUSTOMER"
+  }];
+  orders.forEach((order) => activity.push({
+    id: `order-${order.source}-${order.id}`,
+    type: String(order.status).toLowerCase().includes("cancel") ? "ORDER_CANCELLED" : "ORDER_UPDATED",
+    title: String(order.status).toLowerCase().includes("cancel") ? "Order cancelled" : "Order activity",
+    detail: `${order.publicId} · ${order.title} · ${String(order.status).replaceAll("_", " ")}`,
+    timestamp: order.updatedAt || order.placedAt,
+    entityId: order.id,
+    entityType: order.source,
+    tone: String(order.status).toLowerCase().includes("cancel") ? "danger" : "default"
+  }));
+  [...regularOrders.map((order: any) => ({ source: "ORDER", order })), ...tailoringRequests.map((order: any) => ({ source: "TAILORING_REQUEST", order }))]
+    .forEach(({ source, order }: any) => {
+      ((order.timelineEvents as Array<{ status?: string; description?: string; timestamp?: Date }> | undefined) ?? []).forEach((event, index) => {
+        const status = String(event.status ?? "Order updated");
+        activity.push({
+          id: `timeline-${source}-${String(order._id)}-${index}`,
+          type: "ORDER_TIMELINE",
+          title: status.replaceAll("_", " "),
+          detail: event.description || order.darjiId || order.orderNumber,
+          timestamp: event.timestamp,
+          entityId: String(order._id),
+          entityType: source,
+          tone: status.toLowerCase().includes("cancel") ? "danger" : status.toLowerCase().includes("complete") || status.toLowerCase().includes("deliver") ? "success" : "default"
+        });
+      });
+    });
+  payments.forEach((payment: any) => activity.push({
+    id: `payment-${String(payment._id)}`,
+    type: `PAYMENT_${String(payment.status ?? "UPDATED")}`,
+    title: payment.status === "PAID" ? "Payment received" : payment.status === "REFUNDED" ? "Payment refunded" : "Payment updated",
+    detail: `${payment.method} · ₹${Number(payment.amount ?? 0).toLocaleString("en-IN")} · ${payment.status}`,
+    timestamp: payment.refundedAt || payment.paidAt || payment.updatedAt || payment.createdAt,
+    entityId: String(payment.orderId),
+    entityType: orders.find((order) => order.id === String(payment.orderId))?.source || "ORDER",
+    tone: payment.status === "PAID" ? "success" : payment.status === "FAILED" ? "danger" : "default"
+  }));
+  supportTickets.forEach((ticket: any) => activity.push({
+    id: `support-${String(ticket._id)}`,
+    type: "SUPPORT_TICKET",
+    title: "Support ticket updated",
+    detail: `${ticket.darjiId || ticket.subject} · ${ticket.status}`,
+    timestamp: ticket.updatedAt || ticket.createdAt,
+    entityId: String(ticket._id),
+    entityType: "SUPPORT"
+  }));
+  measurementVisits.forEach((visit: any) => activity.push({
+    id: `measurement-${String(visit._id)}`,
+    type: "MEASUREMENT_VISIT",
+    title: "Measurement visit updated",
+    detail: `${visit.darjiId || "Measurement visit"} · ${String(visit.status).replaceAll("_", " ")}`,
+    timestamp: visit.submittedAt || visit.cancelledAt || visit.updatedAt || visit.createdAt,
+    entityId: String(visit.requestId),
+    entityType: "TAILORING_REQUEST"
+  }));
+  activity.sort((a, b) => new Date(b.timestamp ?? 0).getTime() - new Date(a.timestamp ?? 0).getTime());
+
+  const completedStatuses = new Set(["DELIVERED", "COMPLETED", "completed"]);
+  const cancelledStatuses = new Set(["CANCELLED", "cancelled"]);
+  const paidTotal = payments
+    .filter((payment: any) => payment.status === "PAID")
+    .reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0);
+  const registeredApps = [...new Set([
+    ...((refreshedUser.fcmTokens as Array<{ app?: string }> | undefined) ?? []).map((token) => token.app),
+    ...((refreshedUser.expoPushTokens as Array<{ app?: string }> | undefined) ?? []).map((token) => token.app)
+  ].filter(Boolean))];
+
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({
+    data: {
+      customer: {
+        id: String(refreshedUser._id),
+        darjiCustomerId: refreshedUser.darjiCustomerId,
+        name: refreshedUser.customerName || refreshedUser.name,
+        phone: refreshedUser.phone,
+        email: refreshedUser.email,
+        avatarUrl: refreshedUser.customerAvatarUri || refreshedUser.customerAvatarUrl || refreshedUser.avatarUri || refreshedUser.avatarUrl,
+        role: refreshedUser.role,
+        accountStatus: refreshedUser.accountStatus,
+        suspendedUntil: refreshedUser.suspendedUntil,
+        moderationReason: refreshedUser.moderationReason,
+        moderatedAt: refreshedUser.moderatedAt,
+        preferredLanguage: refreshedUser.preferredLanguage,
+        createdAt: refreshedUser.createdAt,
+        updatedAt: refreshedUser.updatedAt
+      },
+      stats: {
+        totalOrders: orders.length,
+        activeOrders: orders.filter((order) => !completedStatuses.has(String(order.status)) && !cancelledStatuses.has(String(order.status))).length,
+        completedOrders: orders.filter((order) => completedStatuses.has(String(order.status))).length,
+        cancelledOrders: orders.filter((order) => cancelledStatuses.has(String(order.status))).length,
+        paidTotal,
+        supportTickets: supportTickets.length,
+        measurementVisits: measurementVisits.length
+      },
+      access: {
+        accountStatus: refreshedUser.accountStatus,
+        suspendedUntil: refreshedUser.suspendedUntil,
+        moderationReason: refreshedUser.moderationReason,
+        preferredLanguage: refreshedUser.preferredLanguage,
+        notificationPreferences: refreshedUser.notificationPreferences?.customer ?? {},
+        devicePermissions: (refreshedUser.devicePermissions as { customer?: unknown } | undefined)?.customer ?? null,
+        registeredApps,
+        hasPushRegistration: registeredApps.length > 0
+      },
+      addresses: addresses.map((address: any) => ({ ...address, id: String(address._id), _id: undefined })),
+      orders,
+      recentActivity: activity.slice(0, 100),
+      notifications: notifications.map((notification: any) => ({ ...notification, id: String(notification._id), _id: undefined })),
+      supportTickets: supportTickets.map((ticket: any) => ({ id: String(ticket._id), darjiId: ticket.darjiId, subject: ticket.subject, status: ticket.status, createdAt: ticket.createdAt, updatedAt: ticket.updatedAt }))
+    }
+  });
 }
 
 export async function moderateUserController(req: Request, res: Response) {

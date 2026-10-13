@@ -2,7 +2,7 @@ import "./global.css";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer, type AudioStatus } from "expo-audio";
+import { createAudioPlayer, getRecordingPermissionsAsync, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, type AudioPlayer, type AudioStatus } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -11774,6 +11774,52 @@ function AppContent() {
     if (!sessionNotice) return;
     Alert.alert("Signed out", sessionNotice, [{ text: "OK", onPress: clearSessionNotice }]);
   }, [clearSessionNotice, sessionNotice]);
+
+  useEffect(() => {
+    if (!token || !user) return;
+    let disposed = false;
+    let lastReportedAt = 0;
+    const normalizePermission = (result: { status?: string; granted?: boolean } | null | undefined) => {
+      if (!result) return "unavailable" as const;
+      if (result.granted || result.status === "granted") return "granted" as const;
+      if (result.status === "denied") return "denied" as const;
+      if (result.status === "limited") return "limited" as const;
+      return "undetermined" as const;
+    };
+    const syncDevicePermissions = async () => {
+      if (disposed || Date.now() - lastReportedAt < 15_000) return;
+      lastReportedAt = Date.now();
+      const results = await Promise.allSettled([
+        Notifications.getPermissionsAsync(),
+        Location.getForegroundPermissionsAsync(),
+        ImagePicker.getCameraPermissionsAsync(),
+        ImagePicker.getMediaLibraryPermissionsAsync(),
+        getRecordingPermissionsAsync()
+      ]);
+      const permissionAt = (index: number) => results[index]?.status === "fulfilled" ? results[index].value : null;
+      await api("/notifications/device-permissions", {
+        method: "PATCH",
+        body: JSON.stringify({
+          platform: Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web",
+          permissions: {
+            notifications: normalizePermission(permissionAt(0)),
+            location: normalizePermission(permissionAt(1)),
+            camera: normalizePermission(permissionAt(2)),
+            mediaLibrary: normalizePermission(permissionAt(3)),
+            microphone: normalizePermission(permissionAt(4))
+          }
+        })
+      });
+    };
+    void syncDevicePermissions().catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void syncDevicePermissions().catch(() => undefined);
+    });
+    return () => {
+      disposed = true;
+      subscription.remove();
+    };
+  }, [token, user?.id]);
 
   useEffect(() => {
     if (!paymentSheet || verifyingPayment) return;

@@ -47,6 +47,7 @@ export type Address = {
   state?: string;
   pincode?: string;
   landmark?: string;
+  isDefault?: boolean;
 };
 
 export type Payment = {
@@ -734,6 +735,66 @@ export type AdminUser = BasicUser & {
   deliveryProfile?: DeliveryPartnerProfile | null;
   hasCustomerActivity?: boolean;
   archivedCustomer?: boolean;
+};
+
+export type CustomerProfileOrder = {
+  id: string;
+  publicId: string;
+  orderNumber: string;
+  source: "ORDER" | "TAILORING_REQUEST";
+  title: string;
+  status: string;
+  paymentStatus: string;
+  paymentMethod?: string;
+  amount: number;
+  itemCount: number;
+  placedAt?: string;
+  updatedAt?: string;
+};
+
+export type CustomerProfileActivity = {
+  id: string;
+  type: string;
+  title: string;
+  detail?: string;
+  timestamp?: string;
+  entityId?: string;
+  entityType?: "ORDER" | "TAILORING_REQUEST" | "SUPPORT" | "CUSTOMER" | string;
+  tone?: "default" | "success" | "danger" | string;
+};
+
+export type CustomerProfile = {
+  customer: AdminUser & {
+    preferredLanguage?: "en" | "hi";
+  };
+  stats: {
+    totalOrders: number;
+    activeOrders: number;
+    completedOrders: number;
+    cancelledOrders: number;
+    paidTotal: number;
+    supportTickets: number;
+    measurementVisits: number;
+  };
+  access: {
+    accountStatus?: string;
+    suspendedUntil?: string | null;
+    moderationReason?: string | null;
+    preferredLanguage?: string;
+    notificationPreferences: Record<string, boolean>;
+    devicePermissions?: {
+      platform: "android" | "ios" | "web";
+      permissions: Record<"notifications" | "location" | "camera" | "mediaLibrary" | "microphone", "granted" | "denied" | "undetermined" | "limited" | "unavailable">;
+      reportedAt?: string;
+    } | null;
+    registeredApps: string[];
+    hasPushRegistration: boolean;
+  };
+  addresses: Address[];
+  orders: CustomerProfileOrder[];
+  recentActivity: CustomerProfileActivity[];
+  notifications: Array<{ id: string; title: string; body: string; readAt?: string; createdAt?: string }>;
+  supportTickets: Array<{ id: string; darjiId?: string; subject: string; status: string; createdAt?: string; updatedAt?: string }>;
 };
 
 export type AuthSession = {
