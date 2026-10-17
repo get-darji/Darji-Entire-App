@@ -6,6 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type ThemeMode = "light" | "dark";
 export type SectionId =
   | "dashboard"
+  | "alerts"
   | "orders"
   | "tailoring"
   | "delivery"

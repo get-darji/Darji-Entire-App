@@ -419,6 +419,7 @@ type SupportStatusTabId = "all" | "open" | "pending" | "resolved" | "closed";
 
 const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?: number }>; label: string; description: string }> = [
   { id: "dashboard", icon: BarChart3, label: "Dashboard", description: "Platform health and trends" },
+  { id: "alerts", icon: Bell, label: "Live Alerts", description: "Operational exceptions requiring attention" },
   { id: "orders", icon: PackageCheck, label: "Orders", description: "Assignment and status control" },
   { id: "tailoring", icon: Scissors, label: "Tailoring Requests", description: "Quote-led requests and work status" },
   { id: "delivery", icon: Truck, label: "Delivery Ops", description: "Pickup and delivery tasks" },
@@ -608,7 +609,7 @@ export function AdminPortal() {
   const ordersQuery = useQuery({
     queryKey: ["admin", "orders"],
     queryFn: () => getOrders({ limit: 1000 }),
-    enabled: needsSection("dashboard", "orders", "analytics", "activity", "exports")
+    enabled: needsSection("dashboard", "alerts", "orders", "analytics", "activity", "exports")
   });
   const [couponEditTarget, setCouponEditTarget] = useState<Coupon | null>(null);
   const catalogQuery = useQuery({
@@ -619,12 +620,12 @@ export function AdminPortal() {
   const tailoringQuery = useQuery({
     queryKey: ["admin", "tailoring-requests"],
     queryFn: getTailoringRequests,
-    enabled: needsSection("dashboard", "orders", "tailoring", "measurements", "payments", "analytics", "exports")
+    enabled: needsSection("dashboard", "alerts", "orders", "tailoring", "measurements", "payments", "analytics", "exports")
   });
   const deliveryQuery = useQuery({
     queryKey: ["admin", "delivery-requests"],
     queryFn: getDeliveryRequests,
-    enabled: needsSection("dashboard", "orders", "delivery", "batches", "payments", "analytics", "exports")
+    enabled: needsSection("dashboard", "alerts", "orders", "delivery", "batches", "payments", "analytics", "exports")
   });
   const deliveryRetriesQuery = useQuery({
     queryKey: ["admin", "delivery-retries"],
@@ -655,8 +656,8 @@ export function AdminPortal() {
   const operationalAlertsQuery = useQuery({
     queryKey: ["admin", "operational-alerts", "ALL"],
     queryFn: () => getOperationalAlerts(),
-    enabled: needsSection("dashboard"),
-    refetchInterval: activeSection === "dashboard" ? 15_000 : false
+    enabled: needsSection("dashboard", "alerts"),
+    refetchInterval: ["dashboard", "alerts"].includes(activeSection) ? 15_000 : false
   });
   const tailorsQuery = useQuery({
     queryKey: ["admin", "tailors"],
@@ -677,7 +678,7 @@ export function AdminPortal() {
   const paymentsQuery = useQuery({
     queryKey: ["admin", "payments"],
     queryFn: getPayments,
-    enabled: needsSection("dashboard", "payments", "analytics", "activity", "exports")
+    enabled: needsSection("dashboard", "alerts", "payments", "analytics", "activity", "exports")
   });
   const tailorPayoutsQuery = useQuery({
     queryKey: ["admin", "wallet-payouts", "tailors", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
@@ -702,7 +703,7 @@ export function AdminPortal() {
   const supportQuery = useQuery({
     queryKey: ["admin", "support"],
     queryFn: getSupportTickets,
-    enabled: needsSection("support", "dashboard", "activity", "exports")
+    enabled: needsSection("support", "dashboard", "alerts", "activity", "exports")
   });
   const settingsQuery = useQuery({
     queryKey: ["admin", "settings"],
@@ -1875,18 +1876,18 @@ export function AdminPortal() {
   const deliveryWalletByUser = new Map((deliveryPayoutsQuery.data ?? []).map((row) => [row.userId, row]));
   const periodPendingPayouts = dashboardAnalytics.finance.pendingPayouts;
   const liveAlerts = buildLiveAlerts({
-    deliveryRequests: dashboardDeliveryRequestsForPeriod,
-    operationalAlerts: (operationalAlertsQuery.data ?? []).filter((alert) => isDateInDashboardPeriod(alert.createdAt, dashboardPeriodBounds)),
-    orders: dashboardOrders,
-    payments: dashboardPayments,
+    deliveryRequests,
+    operationalAlerts: operationalAlertsQuery.data ?? [],
+    orders: allOrders,
+    payments,
     setActiveSection,
     setBatchFocus,
     setDeliveryDetail,
     setOrderDetail,
     setTicketDetail,
     setTailoringDetail,
-    tailoringRequests: dashboardTailoringRequestsForPeriod,
-    tickets: tickets.filter((ticket) => isDateInDashboardPeriod(ticket.createdAt, dashboardPeriodBounds))
+    tailoringRequests,
+    tickets
   });
   const todayOperations = buildTodayOperationsSummary({
     deliveryBatches: deliveryBatches.filter((batch) => isDateInDashboardPeriod(batch.roundAt, dashboardPeriodBounds)),
@@ -2539,7 +2540,7 @@ export function AdminPortal() {
             </Panel>
 
             <div className="grid gap-4 xl:grid-cols-12">
-              <LiveAlertsWidget className="xl:col-span-7" alerts={liveAlerts} />
+              <LiveAlertsWidget className="xl:col-span-7" alerts={liveAlerts} onViewAll={() => setActiveSection("alerts")} />
               <TodayOperationsWidget className="xl:col-span-5" items={todayOperations} onOpen={setActiveSection} title={`${dateRangeLabel} Operations`} />
             </div>
 
@@ -2727,6 +2728,13 @@ export function AdminPortal() {
               ))}
             </div>
           </div>
+        ) : null}
+
+        {activeSection === "alerts" ? (
+          <LiveAlertsPage
+            alerts={liveAlerts}
+            onBack={() => setActiveSection("dashboard")}
+          />
         ) : null}
 
         {activeSection === "orders" ? (
@@ -4676,40 +4684,213 @@ type AdminAlert = {
   onOpen: () => void;
 };
 
-function LiveAlertsWidget({ alerts, className }: { alerts: AdminAlert[]; className?: string }) {
+const alertToneStyles: Record<AdminAlert["tone"], { badge: string; icon: string; rail: string }> = {
+  amber: {
+    badge: "bg-orange-50 text-orange-700",
+    icon: "bg-orange-50 text-orange-600",
+    rail: "border-l-orange-500"
+  },
+  rose: {
+    badge: "bg-red-50 text-red-600",
+    icon: "bg-red-50 text-red-500",
+    rail: "border-l-red-500"
+  },
+  burgundy: {
+    badge: "bg-[#7f1d2d]/8 text-[#7f1d2d]",
+    icon: "bg-[#7f1d2d]/8 text-[#7f1d2d]",
+    rail: "border-l-[#7f1d2d]"
+  },
+  sky: {
+    badge: "bg-sky-50 text-sky-700",
+    icon: "bg-sky-50 text-sky-600",
+    rail: "border-l-sky-500"
+  },
+  emerald: {
+    badge: "bg-emerald-50 text-emerald-700",
+    icon: "bg-emerald-50 text-emerald-600",
+    rail: "border-l-emerald-500"
+  },
+  violet: {
+    badge: "bg-violet-50 text-violet-700",
+    icon: "bg-violet-50 text-violet-600",
+    rail: "border-l-violet-500"
+  }
+};
+
+function getAlertIcon(alert: AdminAlert) {
+  const key = `${alert.id} ${alert.title}`.toLowerCase();
+  if (key.includes("quote")) return FileText;
+  if (key.includes("payment")) return ReceiptIndianRupee;
+  if (key.includes("support")) return MessageSquareText;
+  if (key.includes("exception") || key.includes("failure") || key.includes("failed")) return AlertTriangle;
+  if (key.includes("delay")) return Hourglass;
+  if (key.includes("delivery") || key.includes("pickup") || key.includes("drop")) return Truck;
+  if (key.includes("order") || key.includes("tailor")) return Package;
+  return Bell;
+}
+
+function splitAlertDetail(detail: string) {
+  const match = detail.match(/^(.+?)\s+(has\b|is\b|failed\b|from\b)(.*)$/i);
+  if (!match) return { description: detail, headline: "" };
+  return { description: `${match[2]}${match[3]}`, headline: match[1] };
+}
+
+function LiveAlertCard({ alert }: { alert: AdminAlert }) {
+  const Icon = getAlertIcon(alert);
+  const detail = splitAlertDetail(alert.detail);
+  const tone = alertToneStyles[alert.tone];
   return (
-    <Panel className={className}>
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-semibold text-[var(--deep)]">Live Alerts</h3>
-          <p className="mt-1 text-sm text-[var(--muted)]">Operational exceptions that need admin attention.</p>
+    <button
+      className={cn(
+        "group relative flex min-h-[142px] items-center gap-3 overflow-hidden rounded-2xl border border-l-[5px] border-[var(--panel-border)] bg-white px-4 py-4 text-left shadow-[0_8px_24px_rgba(15,23,42,0.035)] transition duration-200 hover:-translate-y-0.5 hover:border-[var(--accent)] hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2",
+        tone.rail
+      )}
+      onClick={alert.onOpen}
+      type="button"
+    >
+      <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-full", tone.icon)}>
+        <Icon className="h-6 w-6" strokeWidth={2.15} />
+      </span>
+      <span className="min-w-0 flex-1 pr-6">
+        <span className={cn("inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold", tone.badge)}>{alert.title}</span>
+        {detail.headline ? <strong className="mt-2 block truncate text-sm font-bold text-[var(--deep)]" title={detail.headline}>{detail.headline}</strong> : null}
+        <span className={cn("block text-sm leading-5 text-[var(--muted)]", detail.headline ? "mt-0.5" : "mt-2")}>{detail.description}</span>
+      </span>
+      <ChevronRight className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" />
+    </button>
+  );
+}
+
+function LiveAlertsWidget({ alerts, className, onViewAll }: { alerts: AdminAlert[]; className?: string; onViewAll: () => void }) {
+  return (
+    <Panel className={cn("h-full p-5 sm:p-6", className)}>
+      <div className="mb-5 flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-600 sm:h-14 sm:w-14">
+            <Bell className="h-6 w-6" strokeWidth={2.3} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-xl font-bold tracking-[-0.025em] text-[var(--deep)] sm:text-2xl">Live Alerts</h3>
+            <p className="mt-0.5 text-sm text-[var(--muted)]">Operational exceptions that need admin attention.</p>
+          </div>
         </div>
-        <Badge tone={alerts.length ? "amber" : "emerald"}>{alerts.length} active</Badge>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {alerts.length ? alerts.slice(0, 6).map((alert) => (
-          <button key={alert.id} className={cn("rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)]", alert.tone === "burgundy" && "bg-[#fff7f7]")} onClick={alert.onOpen} type="button">
-            <Badge tone={alert.tone}>{alert.title}</Badge>
-            <p className="mt-3 text-sm font-semibold text-[var(--foreground)]">{alert.detail}</p>
+        <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+          <button className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm font-semibold text-[var(--deep)] transition hover:bg-orange-50 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]" onClick={onViewAll} type="button">
+            View all
+            <ArrowRight className="h-4 w-4" />
           </button>
-        )) : <EmptyState message="No live alerts right now." />}
+          <span className={cn(
+            "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold",
+            alerts.length ? "bg-orange-50 text-orange-700" : "bg-emerald-50 text-emerald-700"
+          )}>
+            <span className={cn("h-2 w-2 rounded-full", alerts.length ? "bg-orange-500" : "bg-emerald-500")} />
+            {alerts.length} active
+          </span>
+        </div>
+      </div>
+      <div className="grid gap-3.5 md:grid-cols-2">
+        {alerts.length ? alerts.slice(0, 6).map((alert) => <LiveAlertCard key={alert.id} alert={alert} />) : <EmptyState message="No live alerts right now." />}
       </div>
     </Panel>
   );
 }
 
-function TodayOperationsWidget({ className, items, onOpen, title = "Today's Operations" }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet"; target: SectionId }>; onOpen: (target: SectionId) => void; title?: string }) {
+function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () => void }) {
   return (
-    <Panel className={className}>
-      <h3 className="text-lg font-semibold text-[var(--deep)]">{title}</h3>
-      <p className="mt-1 text-sm text-[var(--muted)]">Operational summary for the selected dashboard period.</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {items.map((item) => (
-          <button key={item.label} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]" onClick={() => onOpen(item.target)} type="button">
-            <Badge tone={item.tone}>{item.label}</Badge>
-            <p className="mt-3 text-2xl font-bold text-[var(--deep)]">{item.value}</p>
-          </button>
-        ))}
+    <div className="space-y-4">
+      <Panel className="p-5 sm:p-6">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-600 sm:h-14 sm:w-14">
+              <Bell className="h-6 w-6" strokeWidth={2.3} />
+            </span>
+            <div>
+              <h2 className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">All Live Alerts</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Every current operational exception requiring admin attention. This list refreshes automatically.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-[var(--deep)] transition hover:bg-orange-50 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]" onClick={onBack} type="button">
+              <ChevronLeft className="h-4 w-4" />
+              Dashboard
+            </button>
+            <span className={cn(
+              "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold",
+              alerts.length ? "bg-orange-50 text-orange-700" : "bg-emerald-50 text-emerald-700"
+            )}>
+              <span className={cn("h-2 w-2 rounded-full", alerts.length ? "bg-orange-500" : "bg-emerald-500")} />
+              {alerts.length} active
+            </span>
+          </div>
+        </div>
+      </Panel>
+      {alerts.length ? (
+        <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
+          {alerts.map((alert) => <LiveAlertCard key={alert.id} alert={alert} />)}
+        </div>
+      ) : (
+        <Panel className="p-8">
+          <EmptyState message="No live alerts right now." />
+        </Panel>
+      )}
+    </div>
+  );
+}
+
+function TodayOperationsWidget({ className, items, onOpen, title = "Today's Operations" }: { className?: string; items: Array<{ label: string; value: string; tone: "amber" | "emerald" | "sky" | "rose" | "violet"; target: SectionId }>; onOpen: (target: SectionId) => void; title?: string }) {
+  const toneStyles = {
+    amber: { card: "bg-orange-50/45 hover:border-orange-200", icon: "bg-orange-50 text-orange-600", label: "text-orange-700" },
+    emerald: { card: "bg-emerald-50/40 hover:border-emerald-200", icon: "bg-emerald-50 text-emerald-600", label: "text-emerald-700" },
+    rose: { card: "bg-red-50/35 hover:border-red-200", icon: "bg-red-50 text-red-500", label: "text-slate-600" },
+    sky: { card: "bg-sky-50/45 hover:border-sky-200", icon: "bg-sky-50 text-sky-600", label: "text-sky-700" },
+    violet: { card: "bg-violet-50/40 hover:border-violet-200", icon: "bg-violet-50 text-indigo-600", label: "text-slate-600" }
+  } as const;
+  const getOperationIcon = (label: string) => {
+    const key = label.toLowerCase();
+    if (key.includes("completed")) return CheckCircle2;
+    if (key.includes("stitching")) return Hourglass;
+    if (key.includes("ready")) return PackageCheck;
+    if (key.includes("tailor")) return Users;
+    if (key.includes("partner")) return Truck;
+    if (key.includes("drop")) return Package;
+    return Package;
+  };
+
+  return (
+    <Panel className={cn("h-full p-5 sm:p-6", className)}>
+      <div className="flex items-center gap-3.5">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500 sm:h-14 sm:w-14">
+          <BarChart3 className="h-6 w-6" strokeWidth={2.2} />
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold leading-tight tracking-[-0.02em] text-[var(--deep)] sm:text-xl">{title}</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">Operational summary for the selected dashboard period.</p>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {items.map((item) => {
+          const Icon = getOperationIcon(item.label);
+          const tone = toneStyles[item.tone];
+          return (
+            <button
+              key={item.label}
+              className={cn(
+                "group flex min-h-[104px] items-center gap-3 rounded-2xl border border-[var(--panel-border)] p-3.5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2",
+                tone.card
+              )}
+              onClick={() => onOpen(item.target)}
+              type="button"
+            >
+              <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-full", tone.icon)}>
+                <Icon className="h-6 w-6" strokeWidth={2.15} />
+              </span>
+              <span className="min-w-0">
+                <span className={cn("block text-sm font-semibold", tone.label)}>{item.label}</span>
+                <strong className="mt-1 block text-2xl font-bold leading-none text-[var(--deep)]">{item.value}</strong>
+              </span>
+            </button>
+          );
+        })}
       </div>
     </Panel>
   );
@@ -11635,7 +11816,6 @@ function buildLiveAlerts({
 
   operationalAlerts
     .filter((alert) => alert.status === "OPEN")
-    .slice(0, 4)
     .forEach((alert) => {
       const metadata = alert.metadata ?? {};
       const candidateIds = [
@@ -11686,7 +11866,6 @@ function buildLiveAlerts({
 
   tailoringRequests
     .filter((request) => request.status === "QUOTE_REQUESTED" && minutesAgo(request.createdAt) >= 1.5)
-    .slice(0, 2)
     .forEach((request) => {
       const order = orders.find((item) => item.id === request.id || item.request?.id === request.id);
       alerts.push({
@@ -11708,7 +11887,6 @@ function buildLiveAlerts({
 
   deliveryRequests
     .filter((request) => isOpenDelivery(request) && !request.assignedDeliveryPartnerId && minutesAgo(request.createdAt) >= 10)
-    .slice(0, 2)
     .forEach((request) => {
       alerts.push({
         detail: `${request.taskId} has no delivery partner assigned.`,
@@ -11721,7 +11899,6 @@ function buildLiveAlerts({
 
   deliveryRequests
     .filter((request) => isOpenDelivery(request) && Boolean(request.deadlineAt) && new Date(request.deadlineAt as string).getTime() < now)
-    .slice(0, 2)
     .forEach((request) => {
       alerts.push({
         detail: `${request.taskId} is past ETA for ${formatStatus(request.type)}.`,
@@ -11734,7 +11911,6 @@ function buildLiveAlerts({
 
   deliveryRequests
     .filter((request) => Boolean(request.lastFailureReason) && isOpenDelivery(request))
-    .slice(0, 2)
     .forEach((request) => {
       alerts.push({
         detail: `${request.taskId}: ${request.lastFailureReason}`,
@@ -11747,7 +11923,6 @@ function buildLiveAlerts({
 
   payments
     .filter((payment) => payment.status === "FAILED")
-    .slice(0, 2)
     .forEach((payment) => {
       alerts.push({
         detail: `${payment.darjiId ?? payment.orderId} failed for ${formatCurrency(payment.amount)}.`,
@@ -11760,7 +11935,6 @@ function buildLiveAlerts({
 
   payments
     .filter((payment) => payment.status === "PENDING" && minutesAgo(payment.createdAt) >= 15)
-    .slice(0, 2)
     .forEach((payment) => {
       alerts.push({
         detail: `${payment.darjiId ?? payment.orderId} is still awaiting ${formatCurrency(payment.amount)}.`,
@@ -11773,7 +11947,6 @@ function buildLiveAlerts({
 
   orders
     .filter((order) => ["ORDER_PLACED", "CONFIRMED", "AT_TAILOR", "STITCHING_STARTED"].includes(order.status) && minutesAgo(order.updatedAt ?? order.createdAt) >= 24 * 60)
-    .slice(0, 2)
     .forEach((order) => {
       alerts.push({
         detail: `${getOrderDisplayNumber(order)} has not moved since ${formatDate(order.updatedAt ?? order.createdAt, true)}.`,
@@ -11789,7 +11962,6 @@ function buildLiveAlerts({
 
   tickets
     .filter((ticket) => ["HIGH", "URGENT"].includes(String(ticket.priority ?? "").toUpperCase()) && !["RESOLVED", "CLOSED"].includes(String(ticket.status).toUpperCase()))
-    .slice(0, 2)
     .forEach((ticket) => {
       alerts.push({
         detail: `${ticket.subject} from ${getUserDisplayName(ticket.user, "User")}.`,
@@ -11803,7 +11975,7 @@ function buildLiveAlerts({
       });
     });
 
-  return alerts.slice(0, 8);
+  return alerts;
 }
 
 function buildTodayOperationsSummary({
