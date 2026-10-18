@@ -48,8 +48,8 @@ All destinations are currently rendered from one client-side page and one flat 2
 ## Implementation checkpoints
 
 - [x] Preserve assisted-order location, voice, file validation, and Razorpay UPI-link QR work (`eb9a08d`).
-- [ ] Group navigation around operational workflows and synchronize section state with browser history.
-- [ ] Add reusable breadcrumbs and linked entity references.
+- [x] Group navigation around operational workflows and synchronize section state with browser history.
+- [x] Add page breadcrumbs; linked entity references continue in the connected-record checkpoint.
 - [ ] Simplify the orders list and make each row's primary action obvious.
 - [ ] Reorganize order details around overview, fulfilment, people, finance, activity, and safe management actions.
 - [ ] Connect customer, tailor, delivery partner, delivery job, batch, payment, and payout navigation.

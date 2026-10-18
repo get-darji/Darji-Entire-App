@@ -436,7 +436,9 @@ type SupportQueueItem =
 
 type SupportStatusTabId = "all" | "open" | "pending" | "resolved" | "closed";
 
-const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?: number }>; label: string; description: string }> = [
+type SidebarSection = { id: SectionId; icon: React.ComponentType<{ size?: number }>; label: string; description: string };
+
+const sidebarSections: SidebarSection[] = [
   { id: "dashboard", icon: BarChart3, label: "Dashboard", description: "Platform health and trends" },
   { id: "alerts", icon: Bell, label: "Live Alerts", description: "Operational exceptions requiring attention" },
   { id: "orders", icon: PackageCheck, label: "Orders", description: "Assignment and status control" },
@@ -462,6 +464,23 @@ const sidebarSections: Array<{ id: SectionId; icon: React.ComponentType<{ size?:
   { id: "website", icon: ImageIcon, label: "Configure Website", description: "Homepage content and audience" },
   { id: "settings", icon: Settings, label: "Settings", description: "Operational configuration" }
 ];
+
+const sidebarGroups: Array<{ label: string; sections: SectionId[] }> = [
+  { label: "Overview", sections: ["dashboard", "alerts"] },
+  { label: "Operations", sections: ["orders", "tailoring", "delivery", "batches", "measurements"] },
+  { label: "People", sections: ["users", "tailors", "partners", "samples"] },
+  { label: "Money", sections: ["payments", "coupons", "analytics", "exports"] },
+  { label: "Engagement", sections: ["support", "reviews", "notifications"] },
+  { label: "Administration", sections: ["activity", "roles", "health", "platform", "website", "settings"] }
+];
+
+const validSectionIds = new Set<SectionId>(sidebarSections.map((section) => section.id));
+
+function sectionFromUrl() {
+  if (typeof window === "undefined") return undefined;
+  const candidate = new URL(window.location.href).searchParams.get("section") as SectionId | null;
+  return candidate && validSectionIds.has(candidate) ? candidate : undefined;
+}
 
 const pieColors = ["#f6a313", "#0b2241", "#2a79ff", "#f97316", "#10b981"];
 const darjiChartPalette = {
@@ -511,6 +530,7 @@ export function AdminPortal() {
   const sessionNotice = useAdminStore((state) => state.sessionNotice);
   const clearSessionNotice = useAdminStore((state) => state.clearSessionNotice);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const urlSectionSyncReadyRef = useRef(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [sessionRestoreDone, setSessionRestoreDone] = useState(false);
   const [dashboardDrilldown, setDashboardDrilldown] = useState<DashboardDrilldown | null>(null);
@@ -521,6 +541,26 @@ export function AdminPortal() {
     toast.error(sessionNotice);
     clearSessionNotice();
   }, [clearSessionNotice, sessionNotice]);
+  useEffect(() => {
+    if (!hydrated) return;
+    const applyUrlSection = () => {
+      const urlSection = sectionFromUrl() ?? "dashboard";
+      if (urlSection !== useAdminStore.getState().activeSection) {
+        useAdminStore.getState().setActiveSection(urlSection);
+      }
+    };
+    applyUrlSection();
+    urlSectionSyncReadyRef.current = true;
+    window.addEventListener("popstate", applyUrlSection);
+    return () => window.removeEventListener("popstate", applyUrlSection);
+  }, [hydrated]);
+  useEffect(() => {
+    if (!hydrated || !urlSectionSyncReadyRef.current) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("section") === activeSection) return;
+    url.searchParams.set("section", activeSection);
+    window.history.pushState({ ...window.history.state, darjiAdminSection: activeSection }, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [activeSection, hydrated]);
   useEffect(() => {
     if (!hydrated || sessionRestoreDone) return;
     if (token) {
@@ -3786,6 +3826,63 @@ function SewingMachineIllustration() {
   );
 }
 
+function SidebarNavItem({ activeSection, onSectionChange, section, setSupportSubTab, supportSubTab }: {
+  activeSection: SectionId;
+  onSectionChange: (section: SectionId) => void;
+  section: SidebarSection;
+  setSupportSubTab: (tab: "customer" | "tailor" | "delivery" | "bugs") => void;
+  supportSubTab: "customer" | "tailor" | "delivery" | "bugs";
+}) {
+  const Icon = section.icon;
+  const isActive = section.id === activeSection;
+  const button = (
+    <button
+      aria-current={isActive ? "page" : undefined}
+      className={cn(
+        "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
+        isActive
+          ? "bg-orange-50 text-orange-700 shadow-[inset_3px_0_0_#f97316] dark:bg-orange-500/10 dark:text-orange-300"
+          : "text-[var(--foreground)] hover:bg-slate-100/80 dark:hover:bg-white/5"
+      )}
+      onClick={() => onSectionChange(section.id)}
+      title={section.description}
+      type="button"
+    >
+      <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg", isActive ? "bg-white text-orange-600 shadow-sm dark:bg-white/10" : "bg-slate-100 text-slate-500 dark:bg-white/5")}>
+        <Icon size={15} />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{section.label}</span>
+      {section.id === "support" ? <ChevronDown size={14} className={cn("transition", isActive && "rotate-180")} /> : <ChevronRight size={14} className="opacity-35 transition group-hover:translate-x-0.5 group-hover:opacity-70" />}
+    </button>
+  );
+
+  if (section.id !== "support") return button;
+  return (
+    <div className="space-y-1">
+      {button}
+      {isActive ? (
+        <div className="ml-11 space-y-0.5 border-l border-orange-200 pl-3">
+          {([
+            ["customer", "Customer Support"],
+            ["tailor", "Tailor Support"],
+            ["delivery", "Delivery Support"],
+            ["bugs", "Bug Reports"]
+          ] as const).map(([id, label]) => (
+            <button
+              className={cn("block w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold transition", supportSubTab === id ? "bg-orange-50 text-orange-700" : "text-[var(--muted)] hover:bg-slate-100 hover:text-[var(--foreground)]")}
+              key={id}
+              onClick={() => { setSupportSubTab(id); onSectionChange("support"); }}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PortalFrame({
   activeSection,
   alertCount,
@@ -3874,87 +3971,19 @@ function PortalFrame({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-            {sidebarSections.map((section) => {
-              const Icon = section.icon;
-              const isActive = section.id === activeSection;
-              
-              if (section.id === "support") {
-                return (
-                  <div key={section.id} className="space-y-1">
-                    <button
-                      className={cn(
-                        "flex w-full items-center gap-3 rounded-[18px] px-4 py-3.5 text-left transition",
-                        isActive
-                          ? "bg-[var(--accent-soft)] text-orange-500 shadow-[inset_0_0_0_1px_rgba(246,163,19,0.1)]"
-                          : "text-[var(--foreground)] hover:bg-[#fff6e7] dark:hover:bg-white/5"
-                      )}
-                      onClick={() => onSectionChange(section.id)}
-                    >
-                      <span className={cn("rounded-xl p-2.5", isActive ? "bg-[var(--accent-cream)]" : "bg-[#fff8ea] dark:bg-white/5 text-[var(--muted)]")}>
-                        <Icon size={16} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold">{section.label}</span>
-                      </span>
-                      <ChevronDown size={16} className={cn(isActive ? "text-[#cb7d00] dark:text-[#ffb83d]" : "text-[#c8b79b]")} />
-                    </button>
-                    {isActive && (
-                      <div className="pl-12 space-y-1 pt-1 pb-2">
-                        {[
-                          { id: "customer", label: "Customer Support" },
-                          { id: "tailor", label: "Tailor Support" },
-                          { id: "delivery", label: "Delivery Support" },
-                          { id: "bugs", label: "Bug Reports" }
-                        ].map((sub) => {
-                          const isSubActive = supportSubTab === sub.id;
-                          return (
-                            <button
-                              key={sub.id}
-                              onClick={() => {
-                                setSupportSubTab(sub.id as any);
-                                onSectionChange("support");
-                              }}
-                              className={cn(
-                                "flex w-full items-center py-1.5 text-sm transition-colors text-left",
-                                isSubActive
-                                  ? "text-orange-500 font-bold"
-                                  : "text-[var(--muted)] hover:text-[var(--foreground)] font-medium"
-                              )}
-                            >
-                              <span className="mr-2 text-xs opacity-60">-</span>
-                              {sub.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
-              return (
-                <button
-                  key={section.id}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-[18px] px-4 py-3.5 text-left transition",
-                    isActive
-                      ? "bg-[var(--accent-soft)] text-orange-500 shadow-[inset_0_0_0_1px_rgba(246,163,19,0.1)]"
-                      : "text-[var(--foreground)] hover:bg-[#fff6e7] dark:hover:bg-white/5"
-                  )}
-                  onClick={() => onSectionChange(section.id)}
-                >
-                  <span className={cn("rounded-xl p-2.5", isActive ? "bg-[var(--accent-cream)]" : "bg-[#fff8ea] dark:bg-white/5 text-[var(--muted)]")}>
-                    <Icon size={16} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold">{section.label}</span>
-                  </span>
-                  <ChevronRight size={16} className={cn(isActive ? "text-[#cb7d00] dark:text-[#ffb83d]" : "text-[#c8b79b]")} />
-                </button>
-              );
-            })}
-          </div>
+          <nav aria-label="Admin sections" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+            {sidebarGroups.map((group) => (
+              <div key={group.label}>
+                <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.label}</p>
+                <div className="space-y-1">
+                  {group.sections.map((sectionId) => {
+                    const section = sidebarSections.find((candidate) => candidate.id === sectionId);
+                    return section ? <SidebarNavItem activeSection={activeSection} key={section.id} onSectionChange={onSectionChange} section={section} setSupportSubTab={setSupportSubTab} supportSubTab={supportSubTab} /> : null;
+                  })}
+                </div>
+              </div>
+            ))}
+          </nav>
 
           <div className="mt-auto space-y-3 pt-4">
             {/* Dark Mode Toggle Switch */}
@@ -4120,7 +4149,14 @@ function PortalFrame({
             </header>
           </div>
 
-          <div className="min-w-0 px-3 py-3 sm:py-4 lg:px-6 lg:pb-8">{children}</div>
+          <div className="min-w-0 px-3 py-3 sm:py-4 lg:px-6 lg:pb-8">
+            <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-2 px-1 text-xs font-semibold text-[var(--muted)]">
+              <button className="transition hover:text-orange-600" onClick={() => onSectionChange("dashboard")} type="button">Admin</button>
+              <ChevronRight size={12} />
+              <span className="text-[var(--foreground)]">{sidebarSections.find((section) => section.id === activeSection)?.label ?? "Dashboard"}</span>
+            </nav>
+            {children}
+          </div>
         </div>
       </div>
     </main>
