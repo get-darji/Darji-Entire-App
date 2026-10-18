@@ -592,6 +592,7 @@ export function AdminPortal() {
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
   const [orderDetail, setOrderDetail] = useState<Order | null>(null);
+  const [paymentDetail, setPaymentDetail] = useState<Payment | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [createOrderDraft, setCreateOrderDraft] = useState<AdminCreateOrderDraft>(() => emptyAdminOrderDraft());
   const [orderDetailFocus, setOrderDetailFocus] = useState<OrderDetailFocus>("overview");
@@ -2409,6 +2410,15 @@ export function AdminPortal() {
   const orderColumns = getOrderColumns({
     onAssign: openOrderAssignment,
     onOpenCustomer: (order) => setUserDetail(users.find((candidate) => candidate.id === order.customerId) ?? ({ ...order.customer, id: order.customerId } as AdminUser)),
+    onOpenTailor: (order) => {
+      const tailor = tailors.find((candidate) => candidate.id === order.tailorId) ?? order.tailor;
+      if (tailor) setTailorDetail(tailor);
+    },
+    onOpenPartner: (order) => {
+      const partnerId = order.deliveryPartnerId ?? order.pickupPartnerId;
+      const partner = partners.find((candidate) => candidate.id === partnerId) ?? order.deliveryPartner ?? order.pickupPartner;
+      if (partner) setPartnerDetail(partner);
+    },
     onCallCustomer: (order) => {
       openOrderDetail(order, "overview");
       callCustomer(order);
@@ -2517,6 +2527,15 @@ export function AdminPortal() {
   const paymentColumns = getPaymentColumns({
     breakdowns: financeSummary.byPaymentId,
     onMarkPaid: (paymentId) => paymentMutation.mutate({ paymentId }),
+    onOpenPayment: setPaymentDetail,
+    onOpenOrder: (payment) => {
+      const order = allOrders.find((candidate) => candidate.id === payment.orderId);
+      if (!order) {
+        toast.error("The linked order is not available in the current data set");
+        return;
+      }
+      openOrderDetail(order, "overview");
+    },
     onOpenCustomer: (payment) => {
       const customerId = payment.order?.customerId;
       if (!customerId) return;
@@ -2833,6 +2852,7 @@ export function AdminPortal() {
             onExport={() => void downloadExcel("darji-orders.xlsx", "Orders", filteredOrders.map(orderToCsv))}
             onPaymentMethodChange={setPaymentFilter}
             onPaymentStatusChange={setOrderPaymentStatusFilter}
+            onOpen={openOrderDetail}
             onSearchChange={setOrderSearch}
             onStatusChange={changeOrderStatusFilter}
             onSummaryChange={openOrderSummaryFilter}
@@ -3359,8 +3379,53 @@ export function AdminPortal() {
           setOrderDetail(null);
           setUserDetail(customer);
         }}
+        onOpenTailor={() => {
+          if (!orderDetail?.tailor) return;
+          setOrderDetail(null);
+          setTailorDetail(tailors.find((candidate) => candidate.id === orderDetail.tailorId) ?? orderDetail.tailor);
+        }}
+        onOpenPartner={(partner) => {
+          setOrderDetail(null);
+          setPartnerDetail(partners.find((candidate) => candidate.id === partner.id) ?? partner);
+        }}
+        onOpenDeliveryTask={(request) => {
+          setOrderDetail(null);
+          setDeliveryDetail(request);
+        }}
+        onOpenBatch={(batch) => {
+          setOrderDetail(null);
+          setBatchFocus(batch);
+          setActiveSection("batches");
+        }}
+        onOpenPayment={(payment) => {
+          setOrderDetail(null);
+          setPaymentDetail(payment);
+        }}
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
+        }}
+      />
+      <PaymentDetailDialog
+        open={Boolean(paymentDetail)}
+        payment={paymentDetail}
+        onOpenOrder={() => {
+          if (!paymentDetail) return;
+          const order = allOrders.find((candidate) => candidate.id === paymentDetail.orderId);
+          if (!order) {
+            toast.error("The linked order is not available in the current data set");
+            return;
+          }
+          setPaymentDetail(null);
+          openOrderDetail(order, "overview");
+        }}
+        onOpenCustomer={() => {
+          const customerId = paymentDetail?.order?.customerId;
+          if (!customerId) return;
+          setPaymentDetail(null);
+          setUserDetail(users.find((candidate) => candidate.id === customerId) ?? ({ id: customerId, name: paymentDetail?.order?.customerName, phone: paymentDetail?.order?.customerPhone } as AdminUser));
+        }}
+        setOpen={(next) => {
+          if (!next) setPaymentDetail(null);
         }}
       />
       <TailoringRequestDialog
@@ -3380,6 +3445,10 @@ export function AdminPortal() {
       />
       <ProfileDialog
         orders={allOrders}
+        onOpenOrder={(order) => {
+          setTailorDetail(null);
+          openOrderDetail(order, "overview");
+        }}
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
         pending={tailorReviewMutation.isPending || tailorSampleReviewMutation.isPending}
@@ -3392,6 +3461,10 @@ export function AdminPortal() {
       />
       <ProfileDialog
         orders={allOrders}
+        onOpenOrder={(order) => {
+          setPartnerDetail(null);
+          openOrderDetail(order, "overview");
+        }}
         open={Boolean(partnerDetail)}
         profile={partnerDetail}
         pending={partnerReviewMutation.isPending}
@@ -5481,6 +5554,7 @@ function OrdersManagementView({
   onDateChange,
   onDeliveryPartnerChange,
   onExport,
+  onOpen,
   onPaymentMethodChange,
   onPaymentStatusChange,
   onReset,
@@ -5510,6 +5584,7 @@ function OrdersManagementView({
   onDateChange: (value: string) => void;
   onDeliveryPartnerChange: (value: string) => void;
   onExport: () => void;
+  onOpen: (order: Order, focus?: OrderDetailFocus) => void;
   onPaymentMethodChange: (value: string) => void;
   onPaymentStatusChange: (value: string) => void;
   onReset: () => void;
@@ -5605,7 +5680,7 @@ function OrdersManagementView({
         </div>
       </Panel>
 
-      <OrdersTable columns={columns} data={filteredOrders} emptyMessage="No orders match the current filters." />
+      <OrdersTable columns={columns} data={filteredOrders} emptyMessage="No orders match the current filters." onOpen={(order) => onOpen(order, "overview")} />
     </div>
   );
 }
@@ -5619,7 +5694,7 @@ function OrderSummaryCard({ icon: Icon, label, note, onClick, selected, tone, va
   return <button aria-label={`Show ${label.toLowerCase()}`} aria-pressed={selected} className={cn("rounded-2xl border-2 text-left outline-none transition hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2", selected ? "border-[var(--accent)] shadow-[0_8px_22px_rgba(255,145,0,0.16)]" : "border-transparent")} onClick={onClick} type="button"><Panel className="h-full rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel></button>;
 }
 
-function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string }) {
+function OrdersTable({ columns, data, emptyMessage, onOpen }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string; onOpen: (order: Order) => void }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -5647,7 +5722,13 @@ function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef
     return "#c4b5fd";
   };
 
-  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}><th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold">S. No.</th>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length + 1}>{emptyMessage}</td></tr> : pageRows.map((row, rowIndex) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}><td className="px-3 py-3 align-middle font-semibold tabular-nums text-[var(--muted)]">{safePage * pageSize + rowIndex + 1}</td>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
+  const activateRow = (event: React.MouseEvent | React.KeyboardEvent, order: Order) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea, [role='menuitem']")) return;
+    onOpen(order);
+  };
+
+  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}><th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold">S. No.</th>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length + 1}>{emptyMessage}</td></tr> : pageRows.map((row, rowIndex) => <tr aria-label={`Open order ${getOrderDisplayNumber(row.original)}`} className="cursor-pointer border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 focus-visible:outline-offset-[-2px]" key={row.id} onClick={(event) => activateRow(event, row.original)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") activateRow(event, row.original); }} role="button" style={{ borderLeftColor: statusRail(row.original.status) }} tabIndex={0}><td className="px-3 py-3 align-middle font-semibold tabular-nums text-[var(--muted)]">{safePage * pageSize + rowIndex + 1}</td>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
 }
 
 function SampleWorkModule({
@@ -9526,6 +9607,11 @@ function OrderDetailDialog({
   onStatusChange,
   onPrintInvoice,
   onOpenCustomer,
+  onOpenTailor,
+  onOpenPartner,
+  onOpenDeliveryTask,
+  onOpenBatch,
+  onOpenPayment,
   focusSection,
   open,
   order,
@@ -9541,6 +9627,11 @@ function OrderDetailDialog({
   onStatusChange: (status: string) => void;
   onPrintInvoice: () => void;
   onOpenCustomer: () => void;
+  onOpenTailor: () => void;
+  onOpenPartner: (partner: DeliveryPartnerProfile) => void;
+  onOpenDeliveryTask: (request: DeliveryRequest) => void;
+  onOpenBatch: (batch: BatchFocusTarget) => void;
+  onOpenPayment: (payment: Payment) => void;
   focusSection: OrderDetailFocus;
   open: boolean;
   order: Order | null;
@@ -9600,21 +9691,31 @@ function OrderDetailDialog({
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <OrderDrawerSummary icon={UserCircle2} label="Customer" value={getCustomerDisplayName(order.customer)} detail={order.customer?.phone ?? "No phone"} onClick={onOpenCustomer} />
                   <OrderDrawerSummary icon={CalendarDays} label="Order Date & Time" value={formatDate(order.createdAt)} detail={order.createdAt ? new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"} />
-                  <OrderDrawerSummary icon={CreditCard} label="Payment" value={formatStatus(order.paymentMethod)} detail={formatStatus(order.paymentStatus)} />
+                  <OrderDrawerSummary icon={CreditCard} label="Payment" value={formatStatus(order.paymentMethod)} detail={formatStatus(order.paymentStatus)} onClick={order.payments?.[0] ? () => onOpenPayment(order.payments![0]) : undefined} />
                   <OrderDrawerSummary icon={ReceiptIndianRupee} label="Order Total" value={formatCurrency(order.totalAmount)} detail="Customer total" />
                 </div>
               </div>
               <div className="space-y-4 p-5">
                 <div className="grid gap-4 lg:grid-cols-2" ref={overviewRef}>
                   <Panel className="rounded-2xl p-4">
-                    <h4 className="text-sm font-bold text-[var(--deep)]">Order Details</h4>
+                    <h4 className="text-sm font-bold text-[var(--deep)]">People &amp; fulfilment</h4>
                     <div className="mt-4 grid gap-3 text-xs">
                       <OrderDetailRow label="Category" value={order.items?.[0]?.service?.category?.name ?? "General"} />
-                      <OrderDetailRow label="Tailor" value={order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned"} />
-                      <OrderDetailRow label="Pickup Partner" value={order.pickupPartner ? getPartnerDisplayName(order.pickupPartner) : "Unassigned"} />
-                      <OrderDetailRow label="Delivery Partner" value={order.deliveryPartner ? getPartnerDisplayName(order.deliveryPartner) : "Unassigned"} />
+                      <OrderDetailRow label="Tailor" value={order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned"} onClick={order.tailor ? onOpenTailor : undefined} />
+                      <OrderDetailRow label="Pickup Partner" value={order.pickupPartner ? getPartnerDisplayName(order.pickupPartner) : "Unassigned"} onClick={order.pickupPartner ? () => onOpenPartner(order.pickupPartner!) : undefined} />
+                      <OrderDetailRow label="Delivery Partner" value={order.deliveryPartner ? getPartnerDisplayName(order.deliveryPartner) : "Unassigned"} onClick={order.deliveryPartner ? () => onOpenPartner(order.deliveryPartner!) : undefined} />
                       <OrderDetailRow label="Pickup Scheduled" value={formatDate(order.pickupScheduledAt, true)} />
-                      <OrderDetailRow label="Tracking Tasks" value={`${linkedDeliveryRequests.length} linked`} />
+                      {(() => {
+                        const batchId = order.batchId ?? linkedDeliveryRequests.find((request) => request.batchId)?.batchId;
+                        return <OrderDetailRow label="Delivery batch" value={batchId ? batchId.slice(0, 12).toUpperCase() : "Not batched"} onClick={batchId ? () => onOpenBatch({ batchId, roundAt: linkedDeliveryRequests.find((request) => request.batchId === batchId)?.roundAt }) : undefined} />;
+                      })()}
+                    </div>
+                    <div className="mt-4 border-t border-[#efe3d0] pt-4">
+                      <div className="flex items-center justify-between gap-3"><p className="text-xs font-bold text-[var(--deep)]">Delivery tasks</p><Badge tone={linkedDeliveryRequests.length ? "sky" : "slate"}>{linkedDeliveryRequests.length} linked</Badge></div>
+                      <div className="mt-2 space-y-2">
+                        {linkedDeliveryRequests.map((request) => <button className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50" key={request.id} onClick={() => onOpenDeliveryTask(request)} type="button"><span><span className="block text-xs font-semibold text-[var(--deep)]">{request.taskId ?? request.darjiId ?? request.id}</span><span className="block text-[10px] text-[var(--muted)]">{formatStatus(request.type)} · {(order.deliveryPartner ?? order.pickupPartner) ? getPartnerDisplayName((order.deliveryPartner ?? order.pickupPartner)!) : "Unassigned"}</span></span><StatusBadge value={request.taskStatus} /></button>)}
+                        {!linkedDeliveryRequests.length ? <p className="rounded-xl bg-slate-50 px-3 py-3 text-xs text-[var(--muted)]">No delivery tasks are linked to this order yet.</p> : null}
+                      </div>
                     </div>
                   </Panel>
 
@@ -9991,8 +10092,24 @@ function formatOrderDistance(oneWayMeters?: number, chargeableMeters?: number) {
   return "Not captured";
 }
 
-function OrderDetailRow({ label, value }: { label: string; value: string }) {
-  return <div className="grid grid-cols-[120px_1fr] items-start gap-3"><span className="text-[var(--muted)]">{label}</span><span className="font-semibold text-[var(--deep)]">{value}</span></div>;
+function OrderDetailRow({ label, onClick, value }: { label: string; onClick?: () => void; value: string }) {
+  return <div className="grid grid-cols-[120px_1fr] items-start gap-3"><span className="text-[var(--muted)]">{label}</span>{onClick ? <button className="inline-flex items-center gap-1.5 justify-self-start font-semibold text-[var(--deep)] underline decoration-orange-300 underline-offset-4 transition hover:text-orange-600" onClick={onClick} type="button">{value}<ChevronRight size={13} /></button> : <span className="font-semibold text-[var(--deep)]">{value}</span>}</div>;
+}
+
+function formatAdminValue(value: unknown): string {
+  if (value == null || value === "") return "Not provided";
+  if (Array.isArray(value)) return value.length ? value.map((item) => formatAdminValue(item)).join(", ") : "Not provided";
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => item != null && item !== "");
+    if (!entries.length) return "Not provided";
+    return entries.map(([key, item]) => `${formatStatus(key)}: ${formatAdminValue(item)}`).join(" · ");
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function PaymentDetailDialog({ open, onOpenCustomer, onOpenOrder, payment, setOpen }: { open: boolean; onOpenCustomer: () => void; onOpenOrder: () => void; payment: Payment | null; setOpen: (open: boolean) => void }) {
+  return <Dialog.Root onOpenChange={setOpen} open={open}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-[2px]" /><Dialog.Content className="fixed left-1/2 top-1/2 z-[60] max-h-[88vh] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[#fffdfa] p-6 shadow-[0_28px_80px_rgba(15,23,42,0.28)]">{payment ? <><div className="flex items-start justify-between gap-4 pr-10"><div><Dialog.Title className="text-xl font-bold text-[var(--deep)]">Payment details</Dialog.Title><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">{payment.darjiId ?? payment.id}</Dialog.Description></div><StatusBadge value={payment.status} /></div><Dialog.Close asChild><button aria-label="Close payment details" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[var(--panel-border)] bg-white" type="button"><X size={18} /></button></Dialog.Close><div className="mt-6 grid gap-3 sm:grid-cols-2"><OrderDrawerSummary icon={ReceiptIndianRupee} label="Collected" value={formatCurrency(payment.recognizedAmount ?? payment.amount)} detail={formatStatus(payment.method)} /><OrderDrawerSummary icon={CalendarDays} label="Created" value={formatDate(payment.createdAt)} detail={payment.paidAt ? `Paid ${formatDate(payment.paidAt, true)}` : "Not marked paid"} /><OrderDrawerSummary icon={Package} label="Linked order" value={payment.order?.orderNumber ?? payment.orderId} detail={formatStatus(payment.order?.status ?? "Unknown")} onClick={onOpenOrder} /><OrderDrawerSummary icon={UserCircle2} label="Customer" value={cleanText(payment.order?.customerName) ?? "Customer"} detail={payment.order?.customerPhone ?? payment.order?.customerId ?? "No customer reference"} onClick={payment.order?.customerId ? onOpenCustomer : undefined} /></div><Panel className="mt-5 rounded-2xl p-4"><h4 className="text-sm font-bold text-[var(--deep)]">Audit references</h4><div className="mt-4 grid gap-3 text-xs"><OrderDetailRow label="Payment ID" value={payment.id} /><OrderDetailRow label="Provider ref" value={payment.providerRef ?? "Not available"} /><OrderDetailRow label="Order ID" value={payment.orderId} /><OrderDetailRow label="Updated" value={formatDate(payment.updatedAt, true)} /></div></Panel></> : null}</Dialog.Content></Dialog.Portal></Dialog.Root>;
 }
 
 type OrderTrackingEvent = { id: string; label: string; detail: string; timestamp?: string; tone: "done" | "issue" | "active" };
@@ -10116,6 +10233,7 @@ function DeliveryRequestDialog({
 }
 
 function ProfileDialog({
+  onOpenOrder,
   onReview,
   onSampleReview,
   orders,
@@ -10125,6 +10243,7 @@ function ProfileDialog({
   setOpen,
   subtitle
 }: {
+  onOpenOrder: (order: Order) => void;
   onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
   onSampleReview?: (sampleId: string, status: "APPROVED" | "REJECTED") => void;
   orders: Order[];
@@ -10321,8 +10440,7 @@ function ProfileDialog({
                       { label: "Delivery Type", value: (profile as DeliveryPartnerProfile).deliveryType || "PICKUP" },
                       { label: "Assigned Area", value: (profile as DeliveryPartnerProfile).assignedArea || "unassigned" }
                     ] : []),
-                    { label: "Working hours", value: stringifyUnknown(profile.workingHours) },
-                    { label: "Settings", value: stringifyUnknown(profile.settings) },
+                    { label: "Working hours", value: formatAdminValue(profile.workingHours) },
                     { label: "Verification reviewed", value: formatDate(profile.verificationReviewedAt, true) },
                     { label: "Requested reuploads", value: Array.isArray((profile as TailorProfile).verificationReuploadFields) ? formatList((profile as TailorProfile).verificationReuploadFields) : "-" },
                     { label: "Can reapply after", value: formatDate((profile as TailorProfile).verificationRejectedUntil, true) },
@@ -10629,12 +10747,12 @@ function ProfileDialog({
                   );
                 })()}
                 <Panel>
-                  <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">Raw verification payload (debug)</summary>
-                    <pre className="mt-4 overflow-x-auto rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4 text-xs text-[var(--muted)]">
-                      {stringifyUnknown(profile.verification)}
-                    </pre>
-                  </details>
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-lg font-semibold">Associated orders</h4><p className="mt-1 text-sm text-[var(--muted)]">Open an order to review its full customer, fulfilment and payment trail.</p></div><Badge tone="slate">{profileOrders.length} total</Badge></div>
+                  <div className="mt-4 space-y-2">
+                    {profileOrders.slice(0, 12).map((order) => <button className="grid w-full gap-2 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 text-left transition hover:border-orange-300 hover:bg-orange-50 sm:grid-cols-[1.2fr_1fr_auto] sm:items-center" key={order.id} onClick={() => onOpenOrder(order)} type="button"><span><span className="block font-semibold text-[var(--deep)]">{getOrderDisplayNumber(order)}</span><span className="mt-0.5 block text-xs text-[var(--muted)]">{getCustomerDisplayName(order.customer)}</span></span><span className="text-xs text-[var(--muted)]">{formatDate(order.createdAt, true)}</span><span className="flex items-center gap-2"><StatusBadge value={order.status} /><ChevronRight size={15} /></span></button>)}
+                    {!profileOrders.length ? <p className="rounded-2xl bg-slate-50 px-4 py-5 text-center text-sm text-[var(--muted)]">No linked orders are available for this profile.</p> : null}
+                    {profileOrders.length > 12 ? <p className="text-center text-xs text-[var(--muted)]">Showing the 12 most recently loaded records.</p> : null}
+                  </div>
                 </Panel>
                 <VerificationMediaGallery items={submittedMedia} title="Uploaded verification documents" />
                 <VerificationMediaGallery items={draftMedia} title="Draft verification documents" />
@@ -11520,6 +11638,8 @@ function AssignOrderDialog({
 function getOrderColumns({
   onAssign,
   onOpenCustomer,
+  onOpenTailor,
+  onOpenPartner,
   onOpen,
   onChatCustomer,
   onCallCustomer,
@@ -11536,6 +11656,8 @@ function getOrderColumns({
 }: {
   onAssign: (order: Order) => void;
   onOpenCustomer: (order: Order) => void;
+  onOpenTailor: (order: Order) => void;
+  onOpenPartner: (order: Order) => void;
   onOpen: (order: Order, focus?: OrderDetailFocus) => void;
   onChatCustomer: (order: Order) => void;
   onCallCustomer: (order: Order) => void;
@@ -11612,13 +11734,13 @@ function getOrderColumns({
         const t = row.original.tailor;
         if (!t) return <span className="text-[var(--muted)]">Unassigned</span>;
         return (
-          <div className="flex items-center gap-2.5">
+          <button className="flex items-center gap-2.5 rounded-xl p-1 text-left transition hover:bg-emerald-50" onClick={() => onOpenTailor(row.original)} type="button">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">{getInitials(t.user?.name ?? t.shopName, "TA")}</span>
             <div className="space-y-0.5">
               <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getTailorDisplayName(t)}</p>
               <p className="text-xs text-[var(--muted)]">{t.user?.phone ?? t.darjiTailorId ?? "No phone"}</p>
             </div>
-          </div>
+          </button>
         );
       }
     },
@@ -11630,13 +11752,13 @@ function getOrderColumns({
         const dp = row.original.deliveryPartner || row.original.pickupPartner;
         if (!dp) return <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs text-[var(--muted)]"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100"><UserCircle2 size={15} /></span>Unassigned</span>;
         return (
-          <div className="flex items-center gap-2.5">
+          <button className="flex items-center gap-2.5 rounded-xl p-1 text-left transition hover:bg-sky-50" onClick={() => onOpenPartner(row.original)} type="button">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-sky-50 text-[10px] font-bold text-sky-700">{getInitials(dp.user?.name, "DP")}</span>
             <div className="space-y-0.5">
               <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getPartnerDisplayName(dp)}</p>
               <p className="text-xs text-[var(--muted)]">{dp.user?.phone ?? dp.darjiPartnerId ?? "No phone"}</p>
             </div>
-          </div>
+          </button>
         );
       }
     },
@@ -11690,16 +11812,7 @@ function getOrderColumns({
                   <Eye size={14} /> View Details
                 </DropdownMenu.Item>
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
-                  <PencilLine size={14} /> Edit Order
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
-                  <UserRoundPlus size={14} /> Assign Tailor
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
-                  <UserRoundPlus size={14} /> Assign Pickup Partner
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onAssign(row.original)}>
-                  <UserRoundPlus size={14} /> Reassign Delivery
+                  <UserRoundPlus size={14} /> Manage Assignments
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator className="my-2 h-px bg-[var(--panel-border)]" />
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onChatCustomer(row.original)}>
@@ -12187,11 +12300,15 @@ function getPaymentColumns({
   breakdowns,
   onMarkPaid,
   onOpenCustomer,
+  onOpenOrder,
+  onOpenPayment,
   pending
 }: {
   breakdowns: Map<string, PaymentBreakdown>;
   onMarkPaid: (paymentId: string) => void;
   onOpenCustomer: (payment: Payment) => void;
+  onOpenOrder: (payment: Payment) => void;
+  onOpenPayment: (payment: Payment) => void;
   pending: boolean;
 }): Array<ColumnDef<Payment>> {
   return [
@@ -12200,11 +12317,11 @@ function getPaymentColumns({
       header: "Order",
       accessorFn: (row) => row.order?.orderNumber ?? "",
       cell: ({ row }) => (
-        <div>
+        <button className="rounded-xl p-2 text-left transition hover:bg-orange-50" onClick={() => onOpenOrder(row.original)} type="button">
           <p className="font-medium text-[var(--foreground)]">{row.original.order?.orderNumber ?? row.original.darjiId ?? row.original.orderId ?? "-"}</p>
           <p className="mt-1 text-xs text-[var(--muted)]">Order ID: {row.original.orderId}</p>
           {row.original.darjiId ? <p className="mt-1 text-xs text-[var(--muted)]">Payment ID: {row.original.darjiId}</p> : null}
-        </div>
+        </button>
       )
     },
     {
@@ -12286,12 +12403,7 @@ function getPaymentColumns({
       id: "actions",
       header: "Actions",
       enableSorting: false,
-      cell: ({ row }) =>
-        row.original.status === "PENDING" ? (
-          <ActionButton className="px-3 py-2" disabled={pending} onClick={() => onMarkPaid(row.original.id)}>
-            Mark paid
-          </ActionButton>
-        ) : <StatusBadge value={row.original.status} />
+      cell: ({ row }) => <div className="flex flex-wrap gap-2"><ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpenPayment(row.original)}><Eye size={14} />View</ActionButton>{row.original.status === "PENDING" ? <ActionButton className="px-3 py-2" disabled={pending} onClick={() => onMarkPaid(row.original.id)}>Mark paid</ActionButton> : null}</div>
     }
   ];
 }

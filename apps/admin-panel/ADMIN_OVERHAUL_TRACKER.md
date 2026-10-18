@@ -50,10 +50,10 @@ All destinations are currently rendered from one client-side page and one flat 2
 - [x] Preserve assisted-order location, voice, file validation, and Razorpay UPI-link QR work (`eb9a08d`).
 - [x] Group navigation around operational workflows and synchronize section state with browser history.
 - [x] Add page breadcrumbs; linked entity references continue in the connected-record checkpoint.
-- [ ] Simplify the orders list and make each row's primary action obvious.
-- [ ] Reorganize order details around overview, fulfilment, people, finance, activity, and safe management actions.
-- [ ] Connect customer, tailor, delivery partner, delivery job, batch, payment, and payout navigation.
-- [ ] Consolidate customer, tailor, and delivery-partner profile presentation.
+- [x] Simplify the orders list: full rows now open details, entity controls remain independently clickable, and duplicate assignment actions are consolidated.
+- [x] Reorganize order details around overview, people/fulfilment, pricing, items, activity, proof media, and safe management actions.
+- [ ] Connect customer, tailor, delivery partner, delivery job, batch, payment, and payout navigation. (Order/customer/tailor/partner/task/batch/payment links complete; payout links remain.)
+- [ ] Consolidate customer, tailor, and delivery-partner profile presentation. (Partner identity, readable working hours, and linked orders complete; customer alignment remains.)
 - [ ] Improve finance/payout traceability without changing calculations.
 - [ ] Refine alerts into an action-oriented notification center.
 - [ ] Standardize remaining table actions, states, responsiveness, and accessibility.
