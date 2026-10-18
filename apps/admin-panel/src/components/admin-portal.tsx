@@ -12,6 +12,8 @@ import {
 import { defaultPlatformStatus, type PlatformStatus } from "../../../../shared/src/platform-status";
 import { defaultServiceAreaConfig, type ServiceAreaConfig } from "../../../../shared/src/service-area";
 import { allowedOrderStatusTransitions, orderStatuses } from "../../../../shared/src/order-statuses";
+import { GARMENTS_BY_GENDER, GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../shared/src/cloth-details";
+import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darji/shared";
 import {
   useMutation,
   useQuery,
@@ -55,6 +57,7 @@ import {
   Download,
   Eye,
   Filter,
+  Info,
   LayoutGrid,
   LoaderCircle,
   LogOut,
@@ -105,6 +108,7 @@ import {
   cancelDeliveryRetry,
   cancelTailoringRequest,
   createAdminOrder,
+  createAdminTailoringRequest,
   createCoupon,
   updateCoupon,
   deleteCoupon,
@@ -172,6 +176,7 @@ import {
   sendAdminNotification,
   getAdminNotificationCampaigns,
   getAdminActivityLogs,
+  getAdminTailorQuotes,
   getAdminOrderMetadata,
   updateAdminOrderMetadata,
   getSystemHealth,
@@ -183,6 +188,12 @@ import {
   addBugReportMessage,
   addChangeRequestMessage,
   uploadAdminMedia,
+  uploadAdminTailoringMedia,
+  startAdminTailoringCheckout,
+  verifyAdminTailoringCheckout,
+  recoverAdminTailoringCheckout,
+  selectAdminTailorQuote,
+  type UploadedTailoringMedia,
   type AdminReview
 } from "@/src/lib/api";
 import {
@@ -196,6 +207,7 @@ import {
   percentage,
   stringifyUnknown
 } from "@/src/lib/utils";
+import { getCustomerFallbackAvatarUrl, getDefaultAvatarUrl } from "@/src/lib/avatar";
 import { type SectionId, useAdminStore } from "@/src/store/admin-store";
 import SupportCommandCenter from "./support-command-center";
 import type {
@@ -215,6 +227,7 @@ import type {
   SettingRecord,
   SupportTicket,
   TailorProfile,
+  TailorQuote,
   TailoringRequest,
   BugReport,
   AccountChangeRequest,
@@ -2020,13 +2033,12 @@ export function AdminPortal() {
     {
       icon: Truck,
       label: "Delivery Partners",
-      note: "Active fleet",
+      note: "Registered fleet",
       tone: "cyan" as const,
-      value: dashboardAnalytics.partners.activeDeliveryPartners.toLocaleString("en-IN"),
+      value: partners.length.toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
       target: "partners" as SectionId,
-      drilldownKey: "active_delivery_partners" as DashboardDrilldownKey,
       periodScoped: false
     },
     {
@@ -2565,12 +2577,14 @@ export function AdminPortal() {
                   formula={"formula" in item ? item.formula : undefined}
                   onClick={() => "detailKind" in item && item.detailKind
                     ? setFinanceDetailKind(item.detailKind)
-                    : openDashboardDrilldown({
-                      key: item.drilldownKey,
-                      label: item.label,
-                      target: item.target,
-                      periodScoped: item.periodScoped
-                    })}
+                    : "drilldownKey" in item && item.drilldownKey
+                      ? openDashboardDrilldown({
+                        key: item.drilldownKey,
+                        label: item.label,
+                        target: item.target,
+                        periodScoped: item.periodScoped
+                      })
+                      : setActiveSection(item.target)}
                 />
               ))}
             </div>
@@ -2698,6 +2712,8 @@ export function AdminPortal() {
                 items={dashboardAnalytics.topTailors.map((row) => ({
                   id: row.profileId,
                   name: row.name,
+                  avatarUrl: row.avatarUrl,
+                  avatarSeed: row.avatarSeed,
                   subtitle: `${row.completedOrders} credited work orders`,
                   value: formatCurrency(row.amount),
                   rating: row.rating ? row.rating.toFixed(1) : undefined,
@@ -2715,6 +2731,8 @@ export function AdminPortal() {
                 items={dashboardAnalytics.topDeliveryPartners.map((row) => ({
                   id: row.profileId,
                   name: row.name,
+                  avatarUrl: row.avatarUrl,
+                  avatarGender: row.avatarGender,
                   subtitle: `${row.completedDeliveries} completed deliveries`,
                   value: formatCurrency(row.amount),
                   rating: row.rating ? row.rating.toFixed(1) : undefined,
@@ -2768,7 +2786,7 @@ export function AdminPortal() {
             onCreate={() => setCreateOrderOpen(true)}
             onDateChange={setOrderDateFilter}
             onDeliveryPartnerChange={setDeliveryPartnerFilter}
-            onExport={() => downloadCsv("darji-orders.csv", filteredOrders.map(orderToCsv))}
+            onExport={() => void downloadExcel("darji-orders.xlsx", "Orders", filteredOrders.map(orderToCsv))}
             onPaymentMethodChange={setPaymentFilter}
             onPaymentStatusChange={setOrderPaymentStatusFilter}
             onSearchChange={setOrderSearch}
@@ -3260,38 +3278,17 @@ export function AdminPortal() {
         }}
       />
 
-      <CreateOrderDialog
-        catalog={catalogQuery.data ?? []}
+      <AssistedCreateOrderDialog
+        coupons={couponsQuery.data ?? []}
         customers={customerUsers}
-        draft={createOrderDraft}
-        loadingCatalog={catalogQuery.isLoading}
-        onChange={setCreateOrderDraft}
-        onSubmit={() => {
-          const pickupDate = new Date(createOrderDraft.pickupScheduledAt);
-          if (Number.isNaN(pickupDate.getTime())) {
-            toast.error("Choose a valid pickup date and time");
-            return;
-          }
-          createOrderMutation.mutate({
-            customerId: createOrderDraft.customerId,
-            address: { ...createOrderDraft.address, isDefault: false },
-            pickupScheduledAt: pickupDate.toISOString(),
-            paymentMethod: createOrderDraft.paymentMethod,
-            instructions: createOrderDraft.instructions.trim() || undefined,
-            items: createOrderDraft.items.map((item) => ({
-              serviceId: item.serviceId,
-              quantity: item.quantity,
-              instructions: item.instructions.trim() || undefined
-            }))
-          });
+        onComplete={async (request) => {
+          setCreateOrderOpen(false);
+          setActiveSection("tailoring");
+          toast.success(`${request.darjiId ?? `REQ-${request.id.slice(0, 8).toUpperCase()}`} created`);
+          await refreshData();
         }}
         open={createOrderOpen}
-        pending={createOrderMutation.isPending}
-        setOpen={(next) => {
-          if (createOrderMutation.isPending) return;
-          setCreateOrderOpen(next);
-          if (!next) setCreateOrderDraft(emptyAdminOrderDraft());
-        }}
+        setOpen={setCreateOrderOpen}
       />
       <OrderDetailDialog
         me={me}
@@ -4224,31 +4221,21 @@ function avatarPalette(seed: string) {
   return palettes[value % palettes.length];
 }
 
-function MiniAvatar({ seed }: { seed: string }) {
+function MiniAvatar({ alt = "Profile photo", fallbackSrc: providedFallbackSrc, gender, seed, src }: { alt?: string; fallbackSrc?: string; gender?: string; seed: string; src?: string | null }) {
+  const fallbackSrc = providedFallbackSrc || getDefaultAvatarUrl(seed, gender);
   return (
     <div className="h-10 w-10 overflow-hidden rounded-full border border-[#ead8b2] bg-[#fff6e4] shadow-[0_4px_12px_rgba(206,156,39,0.12)]">
-      <img alt="" className="h-full w-full object-cover" src={getDefaultAvatarUrl(seed)} />
+      <img
+        alt={alt}
+        className="h-full w-full object-cover"
+        onError={(event) => {
+          event.currentTarget.onerror = null;
+          event.currentTarget.src = fallbackSrc;
+        }}
+        src={src || fallbackSrc}
+      />
     </div>
   );
-}
-
-function normalizedAvatarGender(gender?: string) {
-  const value = gender?.trim().toLowerCase();
-  if (!value) return undefined;
-  if (["male", "man", "men", "boy"].includes(value)) return "boy";
-  if (["female", "woman", "women", "girl"].includes(value)) return "girl";
-  return undefined;
-}
-
-function getDefaultAvatarUrl(seed: string, gender?: string) {
-  const selectedGender = normalizedAvatarGender(gender);
-  const avatarFiles = selectedGender === "boy"
-    ? ["boy.png", "young male.png", "black_male.png", "tanned_male.png", "uncle.png", "old_male.png"]
-    : selectedGender === "girl"
-      ? ["girl.png", "young female.png", "black_female.png", "aunt.png", "aunt_2.png"]
-      : ["boy.png", "girl.png", "young male.png", "young female.png", "black_male.png", "black_female.png", "uncle.png", "aunt.png", "tanned_male.png", "old_male.png"];
-  const value = Array.from(seed || "User").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return `/avatars/${encodeURIComponent(avatarFiles[value % avatarFiles.length])}`;
 }
 
 function getAdminAvatarOptions() {
@@ -4529,36 +4516,42 @@ function FinancialDetailDialog({
 
           <div className="space-y-5 p-5">
             {kind === "gross_paid" ? (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <FinanceDetailMetric label="Gross Paid" value={details.grossPaid.summary.grossPaid} />
-                <FinanceDetailMetric label="Online" value={details.grossPaid.summary.onlineCollections} />
-                <FinanceDetailMetric label="COD collected" value={details.grossPaid.summary.codCollections} />
-                <FinanceDetailMetric label="Refunds" value={details.grossPaid.summary.refunds} negative />
-                <FinanceDetailMetric label="Completed" value={details.grossPaid.summary.completedCollections} />
-                <FinanceDetailMetric label="Incomplete" value={details.grossPaid.summary.incompleteCollections} />
-                <FinanceDetailMetric label="Cancellation fees" value={details.grossPaid.summary.cancellationFees} />
-                <FinanceDetailMetric label="Cancelled cash awaiting refund proof" value={details.grossPaid.summary.unrefundedCancelledCollections} />
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+                  <p className="font-semibold">Gross Paid = Online collections + COD collections − successful refunds</p>
+                  <p className="mt-1 tabular-nums">{formatCurrency(details.grossPaid.summary.onlineCollections)} + {formatCurrency(details.grossPaid.summary.codCollections)} − {formatCurrency(details.grossPaid.summary.refunds)} = <strong>{formatCurrency(details.grossPaid.summary.grossPaid)}</strong></p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <FinanceDetailMetric info="Successful online and COD customer collections in the selected period, minus successful refunds recorded in that period. Pending and failed payments are excluded." label="Gross Paid" value={details.grossPaid.summary.grossPaid} />
+                  <FinanceDetailMetric info="Successful online or UPI customer collections whose payment date falls in the selected period." label="Online collections" value={details.grossPaid.summary.onlineCollections} />
+                  <FinanceDetailMetric info="COD marked collected after final delivery confirmation. This does not prove that the delivery partner has remitted the cash to Darji." label="COD collected" value={details.grossPaid.summary.codCollections} />
+                  <FinanceDetailMetric info="Successful full refunds recorded in the selected period. The current payment schema does not support partial-refund amounts." label="Refunds" value={details.grossPaid.summary.refunds} negative />
+                  <FinanceDetailMetric info="Net collections in this payment period belonging to orders that are currently completed." label="Completed-order collections" value={details.grossPaid.summary.completedCollections} />
+                  <FinanceDetailMetric info="Net collections already received for orders that are still pending or active. These remain in Gross Paid but are excluded from Realized Net Revenue until completion." label="Collected — Awaiting Completion" value={details.grossPaid.summary.incompleteCollections} />
+                  <FinanceDetailMetric info="The cancellation fee recorded on cancelled orders represented in this period. It is shown separately from actual refunds." label="Cancellation fees" value={details.grossPaid.summary.cancellationFees} />
+                  <FinanceDetailMetric info="Cancelled-order cash still recorded as collected above the cancellation fee, without a successful refund record proving that the balance was returned." label="Cancelled cash awaiting refund proof" value={details.grossPaid.summary.unrefundedCancelledCollections} />
+                </div>
               </div>
             ) : kind === "realized_revenue" ? (
               <div className="rounded-2xl border border-[var(--panel-border)] bg-white/70 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Financial equation</p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                  <FinanceDetailMetric label="Completed collections" value={analytics.finance.realizedGrossPaid} />
-                  <FinanceDetailMetric label="Stitching + measurement" value={analytics.finance.realizedTailorCost} negative />
-                  <FinanceDetailMetric label="Delivery" value={analytics.finance.realizedDeliveryCost} negative />
-                  <FinanceDetailMetric label={`₹16 × ${analytics.finance.realizedCompletedOrders}`} value={analytics.finance.realizedPackagingCost} negative />
-                  <FinanceDetailMetric label="Realized revenue" value={analytics.finance.netRevenue} />
-                  <FinanceDetailMetric label="Eligible orders" value={analytics.finance.realizedCompletedOrders} currency={false} />
+                  <FinanceDetailMetric info="Actual net customer collections attributable to financially complete orders completed during this reporting period." label="Completed collections" value={analytics.finance.realizedGrossPaid} />
+                  <FinanceDetailMetric info="Full accepted stitching quotes plus finalized home-measurement payouts for eligible completed orders." label="Stitching + measurement" value={analytics.finance.realizedTailorCost} negative />
+                  <FinanceDetailMetric info="Finalized instant-task payouts and allocated batch-delivery payouts for eligible completed orders." label="Delivery" value={analytics.finance.realizedDeliveryCost} negative />
+                  <FinanceDetailMetric info="Fixed operational allowance applied once per financially eligible completed order, not once per garment or delivery task." label={`₹16 × ${analytics.finance.realizedCompletedOrders}`} value={analytics.finance.realizedPackagingCost} negative />
+                  <FinanceDetailMetric info="Completed-order collections minus stitching, measurement, delivery and the ₹16 operational allowance." label="Realized revenue" value={analytics.finance.netRevenue} />
+                  <FinanceDetailMetric info="Completed orders in this period with a customer collection and all required finalized partner costs." label="Eligible orders" value={analytics.finance.realizedCompletedOrders} currency={false} />
                 </div>
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                <FinanceDetailMetric label={kind === "partner_cost" ? "Partner Cost" : "Pending Payout"} value={kind === "partner_cost" ? details.partnerCost.summary.partnerCost : details.pendingPayouts.summary.pendingPartnerCost} />
-                <FinanceDetailMetric label="Stitching" value={kind === "partner_cost" ? details.partnerCost.summary.stitchingCost : details.pendingPayouts.summary.pendingStitching} />
-                <FinanceDetailMetric label="Measurement" value={kind === "partner_cost" ? details.partnerCost.summary.measurementCost : details.pendingPayouts.summary.pendingMeasurement} />
-                <FinanceDetailMetric label="Delivery" value={kind === "partner_cost" ? details.partnerCost.summary.deliveryCost : details.pendingPayouts.summary.pendingDelivery} />
-                <FinanceDetailMetric label="Paid" value={kind === "partner_cost" ? details.partnerCost.summary.paidPartnerCost : details.pendingPayouts.summary.paidPartnerCost} />
-                <FinanceDetailMetric label="Unpaid" value={kind === "partner_cost" ? details.partnerCost.summary.pendingPartnerCost : details.pendingPayouts.summary.pendingPartnerCost} />
+                <FinanceDetailMetric info={kind === "partner_cost" ? "Total finalized stitching, measurement and delivery obligations for orders completed in the selected period. Paid plus unpaid equals Partner Cost." : "As-of-now unpaid finalized partner obligations belonging to completed orders only."} label={kind === "partner_cost" ? "Partner Cost" : "Pending Payout"} value={kind === "partner_cost" ? details.partnerCost.summary.partnerCost : details.pendingPayouts.summary.pendingPartnerCost} />
+                <FinanceDetailMetric info={kind === "partner_cost" ? "Full accepted stitching quotes recognized when their orders complete in the selected period." : "Unpaid portion of finalized stitching obligations belonging to completed orders."} label="Stitching" value={kind === "partner_cost" ? details.partnerCost.summary.stitchingCost : details.pendingPayouts.summary.pendingStitching} />
+                <FinanceDetailMetric info={kind === "partner_cost" ? "Finalized home-measurement partner payouts recognized when their related orders complete." : "Unpaid portion of finalized measurement-visit obligations belonging to completed orders."} label="Measurement" value={kind === "partner_cost" ? details.partnerCost.summary.measurementCost : details.pendingPayouts.summary.pendingMeasurement} />
+                <FinanceDetailMetric info={kind === "partner_cost" ? "Finalized instant delivery payouts plus deterministic shares of finalized batch payouts." : "Unpaid portion of finalized delivery obligations belonging to completed orders."} label="Delivery" value={kind === "partner_cost" ? details.partnerCost.summary.deliveryCost : details.pendingPayouts.summary.pendingDelivery} />
+                <FinanceDetailMetric info="Amount successfully recorded as paid to partners through payout history. Wallet credits alone do not count as paid." label="Paid" value={kind === "partner_cost" ? details.partnerCost.summary.paidPartnerCost : details.pendingPayouts.summary.paidPartnerCost} />
+                <FinanceDetailMetric info="Remaining finalized partner liability after successful payouts are allocated to earning sources." label="Unpaid" value={kind === "partner_cost" ? details.partnerCost.summary.pendingPartnerCost : details.pendingPayouts.summary.pendingPartnerCost} />
               </div>
             )}
 
@@ -4582,19 +4575,19 @@ function FinancialDetailDialog({
             <div className="overflow-x-auto rounded-2xl border border-[var(--panel-border)]">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-[#fff8ec] text-xs uppercase tracking-wide text-[#74654f]">
-                  {kind === "gross_paid" ? <tr><th className="px-4 py-3">Order / customer</th><th className="px-4 py-3">Payment</th><th className="px-4 py-3">Date / status</th><th className="px-4 py-3 text-right">Collected</th><th className="px-4 py-3 text-right">Refunded</th><th className="px-4 py-3 text-right">Net</th></tr>
-                    : kind === "realized_revenue" ? <tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Completion</th><th className="px-4 py-3 text-right">Collected</th><th className="px-4 py-3 text-right">Partner cost</th><th className="px-4 py-3 text-right">Allowance</th><th className="px-4 py-3 text-right">Revenue / margin</th></tr>
-                      : <tr><th className="px-4 py-3">Partner</th><th className="px-4 py-3">Order / source</th><th className="px-4 py-3">Category</th><th className="px-4 py-3 text-right">Earning</th><th className="px-4 py-3 text-right">Paid</th><th className="px-4 py-3 text-right">Pending</th></tr>}
+                  {kind === "gross_paid" ? <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Order / customer</th><th className="px-4 py-3">Payment</th><th className="px-4 py-3">Date / status</th><th className="px-4 py-3 text-right">Collected</th><th className="px-4 py-3 text-right">Refunded</th><th className="px-4 py-3 text-right">Net</th></tr>
+                    : kind === "realized_revenue" ? <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Order</th><th className="px-4 py-3">Completion</th><th className="px-4 py-3 text-right">Collected</th><th className="px-4 py-3 text-right">Partner cost</th><th className="px-4 py-3 text-right">Allowance</th><th className="px-4 py-3 text-right">Revenue / margin</th></tr>
+                      : <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Partner</th><th className="px-4 py-3">Order / source</th><th className="px-4 py-3">Category</th><th className="px-4 py-3 text-right">Earning</th><th className="px-4 py-3 text-right">Paid</th><th className="px-4 py-3 text-right">Pending</th></tr>}
                 </thead>
                 <tbody className="divide-y divide-[var(--panel-border)] bg-white/60">
-                  {rows.map((row: any) => kind === "gross_paid" ? (
-                    <tr key={row.key}><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.customerName ?? row.customerId ?? "Customer"}</p></td><td className="px-4 py-3"><StatusBadge value={row.paymentMethod} /><p className="mt-1 text-xs text-[var(--muted)]">{row.paymentId}{row.duplicateRecords ? ` · ${row.duplicateRecords} duplicate ignored` : ""}</p></td><td className="px-4 py-3"><p>{formatDate(row.paymentDate ?? row.refundDate, true)}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.orderStatus}{row.cancelled ? ` · fee ${formatCurrency(row.cancellationFee)}` : ""}{row.codRemittanceStatus === "COLLECTED_UNRECONCILED" ? " · COD remittance unverified" : ""}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right text-rose-600">{formatCurrency(row.refundedAmount)}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.netCollectedAmount)}</td></tr>
+                  {rows.map((row: any, rowIndex: number) => kind === "gross_paid" ? (
+                    <tr key={row.key}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.customerName ?? row.customerId ?? "Customer"}</p></td><td className="px-4 py-3"><StatusBadge value={row.paymentMethod} /><p className="mt-1 text-xs text-[var(--muted)]">{row.paymentId}{row.duplicateRecords ? ` · ${row.duplicateRecords} duplicate ignored` : ""}</p></td><td className="px-4 py-3"><p>{formatDate(row.paymentDate ?? row.refundDate, true)}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.orderStatus}{row.cancelled ? ` · fee ${formatCurrency(row.cancellationFee)}` : ""}{row.codRemittanceStatus === "COLLECTED_UNRECONCILED" ? " · COD remittance unverified" : ""}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right text-rose-600">{formatCurrency(row.refundedAmount)}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.netCollectedAmount)}</td></tr>
                   ) : kind === "realized_revenue" ? (
-                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.orderId}</p></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td></tr>
+                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.orderId}</p></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td></tr>
                   ) : (
-                    <tr key={row.id}><td className="px-4 py-3"><p className="font-semibold">{row.partnerName}</p><p className="text-xs text-[var(--muted)]">{row.partnerType} · {row.partnerId}</p></td><td className="px-4 py-3"><p>{row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.batchId ? `Batch ${row.batchId}` : row.taskId ? `Task ${row.taskId}` : row.sourceId}</p></td><td className="px-4 py-3"><StatusBadge value={row.category} /><p className="mt-1 text-xs text-[var(--muted)]">Recognized {formatDate(row.recognitionDate, true)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.amount)}</td><td className="px-4 py-3 text-right text-emerald-700">{formatCurrency(row.amountPaid)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{formatCurrency(row.amountPending)}</td></tr>
+                    <tr key={row.id}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.partnerName}</p><p className="text-xs text-[var(--muted)]">{row.partnerType} · {row.partnerId}</p></td><td className="px-4 py-3"><p>{row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.batchId ? `Batch ${row.batchId}` : row.taskId ? `Task ${row.taskId}` : row.sourceId}</p></td><td className="px-4 py-3"><StatusBadge value={row.category} /><p className="mt-1 text-xs text-[var(--muted)]">Recognized {formatDate(row.recognitionDate, true)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.amount)}</td><td className="px-4 py-3 text-right text-emerald-700">{formatCurrency(row.amountPaid)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{formatCurrency(row.amountPending)}</td></tr>
                   ))}
-                  {!rows.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>No financial records match these filters.</td></tr> : null}
+                  {!rows.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>No financial records match these filters.</td></tr> : null}
                 </tbody>
               </table>
             </div>
@@ -4617,8 +4610,30 @@ function FinancialDetailDialog({
   );
 }
 
-function FinanceDetailMetric({ currency = true, label, negative = false, value }: { currency?: boolean; label: string; negative?: boolean; value: number }) {
-  return <div className="rounded-2xl border border-[var(--panel-border)] bg-white/70 px-4 py-3"><p className="text-xs font-medium text-[var(--muted)]">{label}</p><p className={cn("mt-1 text-lg font-semibold", negative ? "text-rose-700" : "text-[var(--deep)]")}>{currency ? formatCurrency(value) : value.toLocaleString("en-IN")}</p></div>;
+function FinanceDetailMetric({ currency = true, info, label, negative = false, value }: { currency?: boolean; info: string; label: string; negative?: boolean; value: number }) {
+  return (
+    <div className="relative rounded-2xl border border-[var(--panel-border)] bg-white/70 px-4 py-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium text-[var(--muted)]">{label}</p>
+        <span className="group/info relative shrink-0">
+          <button
+            aria-label={`About ${label}`}
+            className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 transition hover:border-[var(--brand)] hover:text-[var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-1"
+            type="button"
+          >
+            <Info aria-hidden="true" size={12} strokeWidth={2.2} />
+          </button>
+          <span
+            className="pointer-events-none invisible absolute right-0 top-7 z-30 w-64 rounded-xl bg-slate-950 px-3 py-2 text-left text-xs font-normal leading-5 text-white opacity-0 shadow-xl transition-opacity group-hover/info:visible group-hover/info:opacity-100 group-focus-within/info:visible group-focus-within/info:opacity-100"
+            role="tooltip"
+          >
+            {info}
+          </span>
+        </span>
+      </div>
+      <p className={cn("mt-1 text-lg font-semibold", negative ? "text-rose-700" : "text-[var(--deep)]")}>{currency ? formatCurrency(value) : value.toLocaleString("en-IN")}</p>
+    </div>
+  );
 }
 
 function StatCard({
@@ -4802,6 +4817,7 @@ function ReviewsManagementPanel({
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
               <tr>
+                <th className="px-4 py-4 font-semibold">S. No.</th>
                 <th className="px-4 py-4 font-semibold">Customer</th>
                 <th className="px-4 py-4 font-semibold">Type</th>
                 <th className="px-4 py-4 font-semibold">Review For</th>
@@ -4815,19 +4831,20 @@ function ReviewsManagementPanel({
             <tbody>
               {filteredReviews.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={9}>
                     No reviews match the current filters.
                   </td>
                 </tr>
               ) : null}
-              {filteredReviews.map((review) => (
+              {filteredReviews.map((review, reviewIndex) => (
                 <tr key={review.id} className="border-b border-[var(--panel-border)] align-top transition hover:bg-[var(--accent-soft)]">
+                  <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{reviewIndex + 1}</td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
                       <img
                         alt={review.user?.name ?? "Customer avatar"}
                         className="h-10 w-10 rounded-full border border-[var(--panel-border)] object-cover"
-                        src={review.user?.avatarUrl || getDefaultAvatarUrl(review.user?.name ?? review.user?.phone ?? "Customer")}
+                        src={review.user?.avatarUrl || getCustomerFallbackAvatarUrl(review.user)}
                       />
                       <div>
                         <p className="font-semibold text-[var(--foreground)]">{review.user?.name ?? "Customer"}</p>
@@ -4890,9 +4907,32 @@ type AdminAlert = {
   id: string;
   title: string;
   detail: string;
+  createdAt?: string;
   tone: "amber" | "rose" | "burgundy" | "sky" | "emerald" | "violet";
   onOpen: () => void;
 };
+
+type AlertCategory = "delivery" | "order" | "payment" | "support" | "tailoring" | "other";
+
+function getAlertCategory(alert: AdminAlert): AlertCategory {
+  const key = `${alert.id} ${alert.title}`.toLowerCase();
+  if (key.includes("payment") || key.includes("cod")) return "payment";
+  if (key.includes("support") || key.includes("ticket")) return "support";
+  if (key.includes("quote") || key.includes("tailor")) return "tailoring";
+  if (key.includes("delivery") || key.includes("pickup") || key.includes("drop") || key.includes("batch")) return "delivery";
+  if (key.includes("order")) return "order";
+  return "other";
+}
+
+function getAlertSeverity(alert: AdminAlert) {
+  if (alert.tone === "burgundy") return "critical";
+  if (["rose", "amber"].includes(alert.tone)) return "warning";
+  return "info";
+}
+
+function alertPriority(alert: AdminAlert) {
+  return { critical: 3, warning: 2, info: 1 }[getAlertSeverity(alert)];
+}
 
 const alertToneStyles: Record<AdminAlert["tone"], { badge: string; icon: string; rail: string }> = {
   amber: {
@@ -4965,6 +5005,7 @@ function LiveAlertCard({ alert }: { alert: AdminAlert }) {
         <span className={cn("inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold", tone.badge)}>{alert.title}</span>
         {detail.headline ? <strong className="mt-2 block truncate text-sm font-bold text-[var(--deep)]" title={detail.headline}>{detail.headline}</strong> : null}
         <span className={cn("block text-sm leading-5 text-[var(--muted)]", detail.headline ? "mt-0.5" : "mt-2")}>{detail.description}</span>
+        {alert.createdAt ? <span className="mt-2 block text-xs font-medium text-slate-400">Raised {formatDate(alert.createdAt, true)}</span> : null}
       </span>
       <ChevronRight className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" />
     </button>
@@ -5006,6 +5047,26 @@ function LiveAlertsWidget({ alerts, className, onViewAll }: { alerts: AdminAlert
 }
 
 function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () => void }) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [severity, setSeverity] = useState("all");
+  const [sortBy, setSortBy] = useState("priority");
+  const filteredAlerts = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return alerts
+      .filter((alert) => !needle || `${alert.title} ${alert.detail} ${getAlertCategory(alert)}`.toLowerCase().includes(needle))
+      .filter((alert) => category === "all" || getAlertCategory(alert) === category)
+      .filter((alert) => severity === "all" || getAlertSeverity(alert) === severity)
+      .sort((left, right) => {
+        if (sortBy === "newest") return new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime();
+        if (sortBy === "oldest") return new Date(left.createdAt ?? 0).getTime() - new Date(right.createdAt ?? 0).getTime();
+        if (sortBy === "title") return left.title.localeCompare(right.title);
+        return alertPriority(right) - alertPriority(left)
+          || new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime();
+      });
+  }, [alerts, category, search, severity, sortBy]);
+  const hasFilters = Boolean(search.trim()) || category !== "all" || severity !== "all" || sortBy !== "priority";
+
   return (
     <div className="space-y-4">
       <Panel className="p-5 sm:p-6">
@@ -5034,13 +5095,42 @@ function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () =
           </div>
         </div>
       </Panel>
-      {alerts.length ? (
+      <Panel className="p-4 sm:p-5">
+        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_repeat(3,minmax(170px,auto))_auto]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              aria-label="Search live alerts"
+              className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[var(--accent)] focus:ring-2 focus:ring-orange-100"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search alert, order, payment or task"
+              value={search}
+            />
+          </label>
+          <FilterSelect value={category} onChange={setCategory} options={[{ label: "All categories", value: "all" }, { label: "Delivery", value: "delivery" }, { label: "Orders", value: "order" }, { label: "Payments", value: "payment" }, { label: "Support", value: "support" }, { label: "Tailoring", value: "tailoring" }, { label: "Other", value: "other" }]} />
+          <FilterSelect value={severity} onChange={setSeverity} options={[{ label: "All severities", value: "all" }, { label: "Critical", value: "critical" }, { label: "Warning", value: "warning" }, { label: "Information", value: "info" }]} />
+          <FilterSelect value={sortBy} onChange={setSortBy} options={[{ label: "Priority first", value: "priority" }, { label: "Newest first", value: "newest" }, { label: "Oldest first", value: "oldest" }, { label: "A–Z", value: "title" }]} />
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm font-semibold text-[var(--deep)] transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!hasFilters}
+            onClick={() => { setSearch(""); setCategory("all"); setSeverity("all"); setSortBy("priority"); }}
+            type="button"
+          >
+            <RotateCcw className="h-4 w-4" /> Reset
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]">
+          <span>Showing <strong className="text-[var(--deep)]">{filteredAlerts.length}</strong> of {alerts.length} active alerts</span>
+          <span>Search checks alert type, reference and description.</span>
+        </div>
+      </Panel>
+      {filteredAlerts.length ? (
         <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
-          {alerts.map((alert) => <LiveAlertCard key={alert.id} alert={alert} />)}
+          {filteredAlerts.map((alert) => <LiveAlertCard key={alert.id} alert={alert} />)}
         </div>
       ) : (
         <Panel className="p-8">
-          <EmptyState message="No live alerts right now." />
+          <EmptyState message={alerts.length ? "No alerts match these filters." : "No live alerts right now."} />
         </Panel>
       )}
     </div>
@@ -5279,9 +5369,9 @@ function ActivityLogsModule({ loading, logs }: { loading: boolean; logs: AdminAc
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              <tr><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Entity</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Timestamp</th></tr>
+              <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Entity</th><th className="px-4 py-3">Action</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Timestamp</th></tr>
             </thead>
-            <tbody>{rows.map((row) => <tr key={row.id} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3"><p className="font-semibold">{row.actorName || row.actorRole}</p><p className="text-xs text-[var(--muted)]">{row.actorId}</p></td><td className="px-4 py-3"><p>{formatStatus(row.entityType ?? "Admin action")}</p><p className="text-xs text-[var(--muted)]">{row.entityId ?? "—"}</p></td><td className="px-4 py-3"><Badge tone={row.method === "DELETE" ? "rose" : row.method === "POST" ? "emerald" : "sky"}>{row.method}</Badge></td><td className="px-4 py-3 text-xs">{row.path}</td><td className="px-4 py-3">{formatDate(row.createdAt, true)}</td></tr>)}</tbody>
+            <tbody>{rows.map((row, rowIndex) => <tr key={row.id} className="border-b border-[var(--panel-border)]"><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.actorName || row.actorRole}</p><p className="text-xs text-[var(--muted)]">{row.actorId}</p></td><td className="px-4 py-3"><p>{formatStatus(row.entityType ?? "Admin action")}</p><p className="text-xs text-[var(--muted)]">{row.entityId ?? "—"}</p></td><td className="px-4 py-3"><Badge tone={row.method === "DELETE" ? "rose" : row.method === "POST" ? "emerald" : "sky"}>{row.method}</Badge></td><td className="px-4 py-3 text-xs">{row.path}</td><td className="px-4 py-3">{formatDate(row.createdAt, true)}</td></tr>)}</tbody>
           </table>
         </div>
         {loading ? <LoadingState label="Loading activity logs..." /> : null}
@@ -5432,7 +5522,7 @@ function OrdersManagementView({
         </div>
         <div className="flex flex-wrap gap-3">
           <ActionButton className="min-h-11 rounded-xl px-5" variant="secondary" onClick={onExport}>
-            <Download size={16} /> Export CSV
+            <Download size={16} /> Export Excel
           </ActionButton>
           <ActionButton className="min-h-11 rounded-xl bg-gradient-to-r from-[#ffad16] to-[#ff8500] px-5 text-white shadow-[0_10px_24px_rgba(255,145,0,0.2)]" onClick={onCreate}>
             <Plus size={17} /> Create Order
@@ -5517,7 +5607,7 @@ function OrdersTable({ columns, data, emptyMessage }: { columns: Array<ColumnDef
     return "#c4b5fd";
   };
 
-  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length}>{emptyMessage}</td></tr> : pageRows.map((row) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
+  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}><th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold">S. No.</th>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length + 1}>{emptyMessage}</td></tr> : pageRows.map((row, rowIndex) => <tr className="border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/30" key={row.id} style={{ borderLeftColor: statusRail(row.original.status) }}><td className="px-3 py-3 align-middle font-semibold tabular-nums text-[var(--muted)]">{safePage * pageSize + rowIndex + 1}</td>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
 }
 
 function SampleWorkModule({
@@ -5705,13 +5795,14 @@ function RolesModule({
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              <tr><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
+              <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Access</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
             </thead>
             <tbody>
-              {rows.map((admin) => {
+              {rows.map((admin, adminIndex) => {
                 const protectedOwner = admin.phone === PROTECTED_ADMIN_PHONE;
                 return (
                   <tr key={admin.id} className="border-b border-[var(--panel-border)]">
+                    <td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{adminIndex + 1}</td>
                     <td className="px-4 py-3 font-semibold">+91 {admin.phone}</td>
                     <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Full access · Owner" : "Full access"}</Badge></td>
                     <td className="px-4 py-3"><StatusBadge value={admin.accountStatus ?? "ACTIVE"} /></td>
@@ -5782,7 +5873,7 @@ function ExportCenterModule({ analyticsRows, customers, deliveryPartners, orders
             <p className="mt-1 text-sm text-[var(--muted)]">{rows.length} matching loaded rows</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <ActionButton onClick={() => downloadCsv(filename, rows)}>CSV</ActionButton>
-              <ActionButton variant="secondary" onClick={() => downloadExcel(filename.replace(/\.csv$/i, ".xls"), label, rows)}>Excel-compatible</ActionButton>
+              <ActionButton variant="secondary" onClick={() => void downloadExcel(filename.replace(/\.csv$/i, ".xlsx"), label, rows)}>Excel (.xlsx)</ActionButton>
               <ActionButton variant="secondary" onClick={() => printTableReport(label, rows)}>Print / PDF</ActionButton>
             </div>
           </Panel>
@@ -5807,6 +5898,7 @@ function PartnerEarningsWorkspace({ onDetails, periodLabel, rows }: { onDetails:
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
             <tr>
+              <th className="px-4 py-4 font-semibold">S. No.</th>
               <th className="px-4 py-4 font-semibold">Partner</th>
               <th className="px-4 py-4 font-semibold">Type</th>
               <th className="px-4 py-4 font-semibold">Phone</th>
@@ -5816,9 +5908,10 @@ function PartnerEarningsWorkspace({ onDetails, periodLabel, rows }: { onDetails:
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>No partner earning records exist for this period.</td></tr> : null}
-            {rows.map((row) => (
+            {rows.length === 0 ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>No partner earning records exist for this period.</td></tr> : null}
+            {rows.map((row, rowIndex) => (
               <tr className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]" key={`${row.userType}-${row.userId}`}>
+                <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{rowIndex + 1}</td>
                 <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
                 <td className="px-4 py-4"><Badge tone={row.userType === "TAILOR" ? "amber" : "sky"}>{row.userType === "TAILOR" ? "Tailor" : "Delivery"}</Badge></td>
                 <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
@@ -5862,6 +5955,7 @@ function PayoutWorkspace({
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
               <tr>
+                <th className="px-4 py-4 font-semibold">S. No.</th>
                 <th className="px-4 py-4 font-semibold">Name</th>
                 <th className="px-4 py-4 font-semibold">Phone</th>
                 <th className="px-4 py-4 font-semibold">Wallet Balance</th>
@@ -5874,15 +5968,16 @@ function PayoutWorkspace({
             <tbody>
               {pendingRows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>
                     No unpaid bills right now.
                   </td>
                 </tr>
               ) : null}
-              {pendingRows.map((row) => {
+              {pendingRows.map((row, rowIndex) => {
                 const paying = payingUserId === row.userId;
                 return (
                 <tr key={row.userId} className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]">
+                  <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{rowIndex + 1}</td>
                   <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
                   <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
                   <td className="px-4 py-4 font-semibold">{formatCurrency(row.walletBalance)}</td>
@@ -5915,6 +6010,7 @@ function PayoutWorkspace({
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
               <tr>
+                <th className="px-4 py-4 font-semibold">S. No.</th>
                 <th className="px-4 py-4 font-semibold">Name</th>
                 <th className="px-4 py-4 font-semibold">Paid Amount</th>
                 <th className="px-4 py-4 font-semibold">Paid At</th>
@@ -5926,13 +6022,14 @@ function PayoutWorkspace({
             <tbody>
               {paidRows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>
                     Paid bills will appear here after payout.
                   </td>
                 </tr>
               ) : null}
-              {paidRows.map((row) => (
+              {paidRows.map((row, rowIndex) => (
                 <tr key={`${row.userId}-${row.lastPayment?.id}`} className="border-b border-emerald-500/20 bg-emerald-500/5">
+                  <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{rowIndex + 1}</td>
                   <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
                   <td className="px-4 py-4 font-semibold text-emerald-600">{formatCurrency(row.lastPayment?.amount ?? 0)}</td>
                   <td className="px-4 py-4 text-[var(--muted)]">{formatDate(row.lastPayment?.paidAt, true)}</td>
@@ -6196,9 +6293,9 @@ function MeasurementVisitsModule({
           <p className="mt-1 text-xs">{error}</p>
         </Panel>
       ) : null}
-      <Panel className="overflow-hidden p-0"><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-[var(--panel-border)] bg-[#fffaf0] text-xs uppercase tracking-[0.14em] text-[var(--muted)]"><tr><th className="px-4 py-3">Visit</th><th className="px-4 py-3">Customer details</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Measurement partner</th><th className="px-4 py-3">Partner payout</th><th className="px-4 py-3">Upload</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody>
-        {visibleVisits.map((visit) => { const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId); const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId); const measurementCount = Object.keys(visit.submission?.measurement?.fields ?? {}).length; return <tr className="border-b border-[var(--panel-border)] last:border-0 hover:bg-[#fffaf0]/50" key={visit.id}><td className="px-4 py-4"><p className="font-bold">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="text-xs text-[var(--muted)]">Request {visit.requestId}</p></td><td className="px-4 py-4"><button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(visit)} type="button"><p className="font-semibold">{cleanText(visit.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{visit.customerPhone ?? "Phone unavailable"}</p></button></td><td className="whitespace-nowrap px-4 py-4">{formatDate(visit.scheduledAt, true)}</td><td className="px-4 py-4"><p className="font-semibold">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? getTailorDisplayName(offeredTailor) : "Unassigned"}</p><p className="text-xs text-[var(--muted)]">{assignedTailor ? assignedTailor.darjiTailorId ?? "Partner ID pending" : offeredTailor ? "Offer awaiting acceptance" : "Needs assignment"}</p></td><td className="px-4 py-4"><p className="font-bold text-emerald-700">{formatCurrency(visit.visitPayout ?? 0)}</p><p className="text-xs text-[var(--muted)]">Paid to measurement partner</p></td><td className="px-4 py-4">{visit.submittedAt || visit.status === "SUBMITTED" ? <div><Badge tone="emerald">Uploaded</Badge><p className="mt-1 text-xs text-[var(--muted)]">{measurementCount} fields</p></div> : <Badge tone="amber">Pending upload</Badge>}</td><td className="px-4 py-4"><StatusBadge value={visit.status} /></td><td className="px-4 py-4"><ActionButton className="px-3 py-2" onClick={() => setSelectedVisit(visit)} variant="secondary"><Eye className="h-4 w-4" />View details</ActionButton></td></tr>; })}
-        {!visibleVisits.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>{visits.length ? "No measurement visits match these filters." : "No home measurement visits have been created yet."}</td></tr> : null}
+      <Panel className="overflow-hidden p-0"><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-[var(--panel-border)] bg-[#fffaf0] text-xs uppercase tracking-[0.14em] text-[var(--muted)]"><tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Visit</th><th className="px-4 py-3">Customer details</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Measurement partner</th><th className="px-4 py-3">Partner payout</th><th className="px-4 py-3">Upload</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody>
+        {visibleVisits.map((visit, visitIndex) => { const assignedTailor = tailors.find((tailor) => tailor.id === visit.assignedTailorId); const offeredTailor = tailors.find((tailor) => tailor.id === visit.offeredTailorId); const measurementCount = Object.keys(visit.submission?.measurement?.fields ?? {}).length; return <tr className="border-b border-[var(--panel-border)] last:border-0 hover:bg-[#fffaf0]/50" key={visit.id}><td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{visitIndex + 1}</td><td className="px-4 py-4"><p className="font-bold">{visit.darjiId ?? `MVS-${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="text-xs text-[var(--muted)]">Request {visit.requestId}</p></td><td className="px-4 py-4"><button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(visit)} type="button"><p className="font-semibold">{cleanText(visit.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{visit.customerPhone ?? "Phone unavailable"}</p></button></td><td className="whitespace-nowrap px-4 py-4">{formatDate(visit.scheduledAt, true)}</td><td className="px-4 py-4"><p className="font-semibold">{assignedTailor ? getTailorDisplayName(assignedTailor) : offeredTailor ? getTailorDisplayName(offeredTailor) : "Unassigned"}</p><p className="text-xs text-[var(--muted)]">{assignedTailor ? assignedTailor.darjiTailorId ?? "Partner ID pending" : offeredTailor ? "Offer awaiting acceptance" : "Needs assignment"}</p></td><td className="px-4 py-4"><p className="font-bold text-emerald-700">{formatCurrency(visit.visitPayout ?? 0)}</p><p className="text-xs text-[var(--muted)]">Paid to measurement partner</p></td><td className="px-4 py-4">{visit.submittedAt || visit.status === "SUBMITTED" ? <div><Badge tone="emerald">Uploaded</Badge><p className="mt-1 text-xs text-[var(--muted)]">{measurementCount} fields</p></div> : <Badge tone="amber">Pending upload</Badge>}</td><td className="px-4 py-4"><StatusBadge value={visit.status} /></td><td className="px-4 py-4"><ActionButton className="px-3 py-2" onClick={() => setSelectedVisit(visit)} variant="secondary"><Eye className="h-4 w-4" />View details</ActionButton></td></tr>; })}
+        {!visibleVisits.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={9}>{visits.length ? "No measurement visits match these filters." : "No home measurement visits have been created yet."}</td></tr> : null}
       </tbody></table></div></Panel>
       <MeasurementVisitDialog visit={selectedVisit} tailors={capableTailors} assignmentDrafts={assignmentDrafts} setAssignmentDrafts={setAssignmentDrafts} pendingVisitId={pendingVisitId} onAssign={onAssign} onClose={() => setSelectedVisit(null)} />
     </div>
@@ -6229,13 +6326,14 @@ function InstantDeliveryOrders({ requests, orders, partners, onOpenOrder, onOpen
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-[var(--panel-border)] bg-[#fffaf0] text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-            <tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Customer / tailor</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Partner</th><th className="px-4 py-3">Earnings</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Created</th></tr>
+            <tr><th className="px-4 py-3">S. No.</th><th className="px-4 py-3">Order</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Customer / tailor</th><th className="px-4 py-3">Route</th><th className="px-4 py-3">Partner</th><th className="px-4 py-3">Earnings</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Created</th></tr>
           </thead>
-          <tbody>{requests.map((request) => {
+          <tbody>{requests.map((request, requestIndex) => {
             const order = orders.find((candidate) => candidate.id === request.orderId || candidate.request?.id === request.orderId);
             const partner = partners.find((candidate) => candidate.id === request.assignedDeliveryPartnerId);
             const partnerPhone = partner?.user?.phone?.trim();
             return <tr className="border-b border-[var(--panel-border)] last:border-0" key={request.id}>
+              <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{requestIndex + 1}</td>
               <td className="px-4 py-4"><button className="font-bold text-[#c68008] hover:underline" onClick={() => order && onOpenOrder(order)} type="button">{order ? getOrderDisplayNumber(order) : formatCustomerRequestId(request.orderId)}</button><p className="text-xs text-[var(--muted)]">{request.taskId}</p></td>
               <td className="px-4 py-4"><DeliveryRoleBadge role={request.type === "customer_to_tailor" ? "PICKUP" : "DROP"} /></td>
               <td className="px-4 py-4"><button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(request)} type="button"><p className="font-semibold">{cleanText(request.customerName) ?? "Customer"}</p><p className="text-xs text-[var(--muted)]">{request.customerPhone ?? "No phone"}</p></button><p className="mt-1 text-xs text-[var(--muted)]">Tailor: {cleanText(request.tailorName) ?? "Unassigned"}</p></td>
@@ -6255,7 +6353,7 @@ function InstantDeliveryOrders({ requests, orders, partners, onOpenOrder, onOpen
               <td className="px-4 py-4"><StatusBadge value={request.taskStatus} /></td>
               <td className="whitespace-nowrap px-4 py-4 text-[var(--muted)]">{formatDate(request.createdAt, true)}</td>
             </tr>;
-          })}{!requests.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={8}>No instant delivery orders match these filters.</td></tr> : null}</tbody>
+          })}{!requests.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={9}>No instant delivery orders match these filters.</td></tr> : null}</tbody>
         </table>
       </div>
     </Panel>
@@ -6379,6 +6477,7 @@ function BatchSection({
                 <table className="min-w-full text-left text-sm">
                   <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
                     <tr>
+                      <th className="px-4 py-3 font-semibold">S. No.</th>
                       <th className="px-4 py-3 font-semibold">Order ID</th>
                       <th className="px-4 py-3 font-semibold">Customer</th>
                       <th className="px-4 py-3 font-semibold">Tailor</th>
@@ -6389,12 +6488,13 @@ function BatchSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {tasks.length ? tasks.map((task) => {
+                    {tasks.length ? tasks.map((task, taskIndex) => {
                       const order = orders.find((candidate) => candidate.id === task.orderId || candidate.request?.id === task.orderId);
                       const targetBatches = activeTargetBatches.filter((target) => target.batchId !== batch.batchId);
                       const pending = pendingTaskId === task.id;
                       return (
                         <tr key={task.id} className="border-b border-[var(--panel-border)] last:border-0">
+                          <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{taskIndex + 1}</td>
                           <td className="px-4 py-4">
                             <button className="font-bold text-[#c68008] hover:underline" type="button" onClick={() => order && onOpenOrder(order)}>
                               {order ? getOrderDisplayNumber(order) : formatCustomerRequestId(task.orderId)}
@@ -6444,7 +6544,7 @@ function BatchSection({
                     );
                     }) : (
                       <tr>
-                        <td className="px-4 py-8 text-center text-[var(--muted)]" colSpan={7}>No delivery requests in this batch yet.</td>
+                        <td className="px-4 py-8 text-center text-[var(--muted)]" colSpan={8}>No delivery requests in this batch yet.</td>
                       </tr>
                     )}
                   </tbody>
@@ -7167,11 +7267,12 @@ function MarketingAudienceCard({
               <div className="max-h-80 overflow-auto rounded-2xl border border-[var(--panel-border)]">
                 <table className="w-full min-w-[520px] text-left text-sm">
                   <thead className="sticky top-0 bg-[var(--panel)] text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                    <tr><th className="px-4 py-3 font-semibold">Email</th><th className="px-4 py-3 font-semibold">Subscribed</th></tr>
+                    <tr><th className="px-4 py-3 font-semibold">S. No.</th><th className="px-4 py-3 font-semibold">Email</th><th className="px-4 py-3 font-semibold">Subscribed</th></tr>
                   </thead>
                   <tbody>
-                    {data.newsletterSignups.map((signup) => (
+                    {data.newsletterSignups.map((signup, signupIndex) => (
                       <tr className="border-t border-[var(--panel-border)]" key={signup.id}>
+                        <td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{signupIndex + 1}</td>
                         <td className="px-4 py-3 font-medium text-[var(--foreground)]"><a className="hover:text-[var(--accent)] hover:underline" href={`mailto:${signup.email}`}>{signup.email}</a></td>
                         <td className="px-4 py-3 text-[var(--muted)]">{formatDate(signup.createdAt, true)}</td>
                       </tr>
@@ -7910,6 +8011,7 @@ function RecentOrdersPanel({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-[#fff6e6] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
               <tr>
+                <th className="px-4 py-4 font-medium">S. No.</th>
                 <th className="px-4 py-4 font-medium">Order ID</th>
                 <th className="px-4 py-4 font-medium">Customer</th>
                 <th className="px-4 py-4 font-medium">Tailor</th>
@@ -7921,21 +8023,22 @@ function RecentOrdersPanel({
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>
                     No recent orders available.
                   </td>
                 </tr>
               ) : null}
-              {orders.map((order) => (
+              {orders.map((order, orderIndex) => (
                 <tr
                   key={order.id}
                   className="cursor-pointer border-t border-[#f5eada] bg-white transition hover:bg-[#fffaf1]"
                   onClick={() => onOpen(order)}
                 >
+                  <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{orderIndex + 1}</td>
                   <td className="px-4 py-4 font-semibold text-[#c68008]">{order.orderNumber}</td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <MiniAvatar seed={order.customer?.name ?? order.customer?.phone ?? order.id} />
+                      <MiniAvatar alt={`${order.customer?.name ?? "Customer"} profile photo`} fallbackSrc={getCustomerFallbackAvatarUrl(order.customer)} seed={order.customer?.name ?? order.customer?.phone ?? order.id} src={order.customer?.avatarUrl} />
                       <div>
                         <p className="font-medium text-[var(--deep)]">{order.customer?.name ?? order.customer?.phone ?? "Customer"}</p>
                         <p className="mt-1 text-xs text-[var(--muted)]">{order.customer?.phone ?? "No phone"}</p>
@@ -7944,7 +8047,7 @@ function RecentOrdersPanel({
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3 text-[var(--foreground)]">
-                      <MiniAvatar seed={getTailorDisplayName(order.tailor) ?? `tailor-${order.id}`} />
+                      <MiniAvatar alt={`${getTailorDisplayName(order.tailor) ?? "Tailor"} profile photo`} seed={order.tailor?.user?.name ?? getTailorDisplayName(order.tailor) ?? `tailor-${order.id}`} src={order.tailor?.user?.avatarUrl} />
                       <span>{order.tailor ? getTailorDisplayName(order.tailor) : "Unassigned"}</span>
                     </div>
                   </td>
@@ -7972,7 +8075,7 @@ function LeaderboardCard({
 }: {
   className?: string;
   description: string;
-  items: Array<{ id: string; name: string; subtitle: string; value: string; rating?: string; onClick?: () => void }>;
+  items: Array<{ id: string; name: string; avatarUrl?: string; avatarGender?: string; avatarSeed?: string; subtitle: string; value: string; rating?: string; onClick?: () => void }>;
   onViewAll: () => void;
   title: string;
 }) {
@@ -7993,7 +8096,7 @@ function LeaderboardCard({
           const content = (
             <div className="flex items-center gap-3 rounded-2xl border border-[#ecd7ae] bg-[#fffdf8] px-4 py-3 text-left shadow-[0_10px_24px_rgba(188,142,47,0.05)]">
               <span className="w-5 text-sm font-semibold text-[var(--muted)]">{index + 1}</span>
-              <MiniAvatar seed={item.name} />
+              <MiniAvatar alt={`${item.name} profile photo`} gender={item.avatarGender} seed={item.avatarSeed ?? item.name} src={item.avatarUrl} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-[var(--deep)]">{item.name}</p>
                 <p className="mt-1 truncate text-xs text-[var(--muted)]">{item.subtitle}</p>
@@ -8353,6 +8456,7 @@ function DataTable<T extends object>({ columns, data, emptyMessage }: TableProps
             <thead className="sticky top-0 z-10 bg-[var(--accent-cream)] text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
+                  <th className="px-4 py-4 font-medium">S. No.</th>
                   {headerGroup.headers.map((header) => (
                     <th key={header.id} className="px-4 py-4 font-medium">
                       {header.isPlaceholder ? null : (
@@ -8373,13 +8477,14 @@ function DataTable<T extends object>({ columns, data, emptyMessage }: TableProps
             <tbody>
               {table.getRowModel().rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={columns.length}>
+                  <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={columns.length + 1}>
                     {emptyMessage}
                   </td>
                 </tr>
               ) : null}
-              {table.getRowModel().rows.map((row) => (
+              {table.getRowModel().rows.map((row, rowIndex) => (
                 <tr key={row.id} className="border-t border-[var(--panel-border)] bg-[var(--panel-strong)]/50 align-top transition hover:bg-[var(--accent-soft)]/40">
+                  <td className="px-4 py-5 font-semibold tabular-nums text-[var(--muted)]">{rowIndex + 1}</td>
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="px-4 py-5 align-top">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -8797,6 +8902,286 @@ function VerificationMediaGallery({ items, title }: { items: VerificationMediaIt
 
 function humanizeFieldLabel(value: string) {
   return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+type AssistedOrderStep = "request" | "summary" | "quotes" | "checkout" | "payment";
+type AssistedMeasurementMode = "MANUAL" | "SAMPLE" | "HOME";
+type AssistedOrderItem = {
+  id: string;
+  description: string;
+  gender: string;
+  clothType: string;
+  workType: string;
+  selectedWorkItems: string[];
+  otherWorkDescription: string;
+  measurementMode: AssistedMeasurementMode;
+  measurementNotes: string;
+  preferredMeasurementSlot: string;
+  mediaFiles: File[];
+  voiceFiles: File[];
+  sampleFile?: File;
+  designFile?: File;
+};
+
+const assistedMeasurementSlots = [
+  "08:00 AM - 10:00 AM", "10:00 AM - 12:00 PM", "12:00 PM - 02:00 PM", "02:00 PM - 04:00 PM",
+  "04:00 PM - 06:00 PM", "06:00 PM - 08:00 PM", "08:00 PM - 10:00 PM"
+];
+
+function newAssistedOrderItem(): AssistedOrderItem {
+  return {
+    id: `cloth-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    description: "",
+    gender: "",
+    clothType: "",
+    workType: "",
+    selectedWorkItems: [],
+    otherWorkDescription: "",
+    measurementMode: "MANUAL",
+    measurementNotes: "",
+    preferredMeasurementSlot: "",
+    mediaFiles: [],
+    voiceFiles: []
+  };
+}
+
+function parseMeasurementFields(notes: string) {
+  return Object.fromEntries(notes.split(/\r?\n/).map((line) => line.split(":")).filter((parts) => parts.length > 1).map(([label, ...value]) => [label.trim(), value.join(":").trim()]).filter(([label, value]) => label && value));
+}
+
+function activeCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
+  if (!coupon) return 0;
+  const raw = coupon.discountType === "PERCENTAGE" ? subtotal * Number(coupon.discountValue ?? 0) / 100 : Number(coupon.discountValue ?? 0);
+  return Number(Math.min(raw, Number(coupon.maxDiscount ?? raw), subtotal).toFixed(2));
+}
+
+function quoteEtaLabel(quote: TailorQuote) {
+  return quote.estimatedHours ? `${quote.estimatedHours} hour${quote.estimatedHours === 1 ? "" : "s"}` : `${quote.estimatedDays} day${quote.estimatedDays === 1 ? "" : "s"}`;
+}
+
+async function openAdminRazorpayCheckout(
+  requestId: string,
+  config: Extract<Awaited<ReturnType<typeof startAdminTailoringCheckout>>, { mode: "online" }>["razorpay"]
+) {
+  if (!(window as unknown as { Razorpay?: unknown }).Razorpay) {
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Razorpay checkout could not be loaded"));
+      document.head.appendChild(script);
+    });
+  }
+  return new Promise<TailoringRequest>((resolve, reject) => {
+    const Razorpay = (window as unknown as { Razorpay: new (options: Record<string, unknown>) => { open: () => void; on: (event: string, callback: (payload: { error?: { description?: string } }) => void) => void } }).Razorpay;
+    const checkout = new Razorpay({
+      key: config.keyId,
+      amount: config.amount,
+      currency: config.currency,
+      name: config.name,
+      description: config.description,
+      order_id: config.orderId,
+      prefill: config.prefill,
+      handler: async (payload: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
+        try { resolve(await verifyAdminTailoringCheckout(requestId, payload)); } catch (error) { reject(error); }
+      },
+      modal: { ondismiss: () => reject(new Error("Payment window closed before payment was confirmed")) }
+    });
+    checkout.on("payment.failed", (payload) => reject(new Error(payload.error?.description ?? "Razorpay reported a failed payment")));
+    checkout.open();
+  });
+}
+
+function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOpen }: {
+  coupons: Coupon[];
+  customers: AdminUser[];
+  onComplete: (request: TailoringRequest) => void | Promise<void>;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+}) {
+  const [step, setStep] = useState<AssistedOrderStep>("request");
+  const [customerId, setCustomerId] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [pickupAddress, setPickupAddress] = useState("");
+  const [urgency, setUrgency] = useState("Normal (up to 7 days)");
+  const [items, setItems] = useState<AssistedOrderItem[]>(() => [newAssistedOrderItem()]);
+  const [request, setRequest] = useState<TailoringRequest>();
+  const [selectedQuote, setSelectedQuote] = useState<TailorQuote>();
+  const [paymentMethod, setPaymentMethod] = useState<"COD" | "UPI" | "ONLINE">("COD");
+  const [couponCode, setCouponCode] = useState("");
+  const [qr, setQr] = useState<{ id: string; imageUrl: string; amount: number; currency: string; closeBy?: number }>();
+  const [busyLabel, setBusyLabel] = useState("");
+  const [error, setError] = useState("");
+  const activeCustomer = customers.find((customer) => customer.id === customerId);
+  const activeCustomerWhatsApp = (() => {
+    const digits = (activeCustomer?.phone ?? "").replace(/\D/g, "");
+    if (!digits) return "";
+    return digits.length === 10 ? `91${digits}` : digits;
+  })();
+  const customerOptions = customers.filter((customer) => {
+    const haystack = `${customer.name ?? ""} ${customer.phone ?? ""} ${customer.darjiCustomerId ?? ""}`.toLowerCase();
+    return customer.id === customerId || !customerSearch.trim() || haystack.includes(customerSearch.trim().toLowerCase());
+  });
+  const quoteQuery = useQuery({
+    queryKey: ["admin", "assisted-order-quotes", request?.id],
+    queryFn: () => getAdminTailorQuotes(request!.id),
+    enabled: Boolean(request?.id) && step === "quotes",
+    refetchInterval: step === "quotes" ? 10_000 : false
+  });
+  const quotes = (quoteQuery.data ?? []).filter((quote) => ["SUBMITTED", "RESERVED", "ACCEPTED"].includes(quote.status));
+  const deliveryFee = Number(selectedQuote?.deliveryEstimate?.deliveryFee ?? 0);
+  const tailoringSubtotal = Number(selectedQuote?.price ?? 0);
+  const platformFee = getPlatformFee(tailoringSubtotal);
+  const smallOrderFee = getSmallOrderFee(tailoringSubtotal);
+  const homeMeasurementFee = items.some((item) => item.measurementMode === "HOME") ? measurementVisitFee(selectedQuote?.deliveryEstimate?.oneWayDistanceMeters) : 0;
+  const beforeDiscount = tailoringSubtotal + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee;
+  const eligibleCoupons = coupons.filter((coupon) => coupon.isActive && Number(coupon.minOrderValue ?? 0) <= beforeDiscount && (!coupon.expiresAt || new Date(coupon.expiresAt).getTime() > Date.now()));
+  const appliedCoupon = eligibleCoupons.find((coupon) => coupon.code.toUpperCase() === couponCode.toUpperCase());
+  const discount = activeCouponDiscount(appliedCoupon, beforeDiscount);
+  const payable = Math.max(0, beforeDiscount - discount);
+
+  const reset = () => {
+    setStep("request"); setCustomerId(""); setCustomerSearch(""); setPickupAddress(""); setUrgency("Normal (up to 7 days)");
+    setItems([newAssistedOrderItem()]); setRequest(undefined); setSelectedQuote(undefined); setPaymentMethod("COD"); setCouponCode(""); setQr(undefined); setBusyLabel(""); setError("");
+  };
+  useEffect(() => { if (!open) reset(); }, [open]);
+  useEffect(() => {
+    if (!qr || !request?.id || step !== "payment") return;
+    const timer = window.setInterval(async () => {
+      try {
+        const status = await recoverAdminTailoringCheckout(request.id);
+        if (status.status === "paid" && status.request) {
+          window.clearInterval(timer);
+          toast.success("UPI payment received and order confirmed");
+          await onComplete(status.request);
+        }
+      } catch { /* keep the QR screen available; manual refresh remains possible */ }
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [onComplete, qr, request?.id, step]);
+
+  const updateItem = (id: string, patch: Partial<AssistedOrderItem>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
+  const itemIsValid = (item: AssistedOrderItem) => Boolean(
+    item.description.trim().length >= 10 && item.gender && item.clothType && item.workType && item.mediaFiles.length &&
+    (item.workType === "Other" ? item.otherWorkDescription.trim().length >= 3 : item.selectedWorkItems.length) &&
+    (item.measurementMode !== "HOME" || item.preferredMeasurementSlot) &&
+    (!item.selectedWorkItems.includes("Copy Existing Garment") || item.sampleFile) &&
+    (!item.selectedWorkItems.includes("Stitch from Reference / Design") || item.designFile)
+  );
+  const requestValid = Boolean(customerId && pickupAddress.trim().length >= 8 && items.length && items.every(itemIsValid));
+
+  const submitForQuotes = async () => {
+    if (!requestValid) return;
+    setBusyLabel("Uploading request files"); setError("");
+    try {
+      const uploadedItems = await Promise.all(items.map(async (item) => {
+        const [media, voiceNotes, sampleMedia, designMedia] = await Promise.all([
+          uploadAdminTailoringMedia(item.mediaFiles),
+          item.voiceFiles.length ? uploadAdminTailoringMedia(item.voiceFiles) : Promise.resolve([] as UploadedTailoringMedia[]),
+          item.sampleFile ? uploadAdminTailoringMedia([item.sampleFile]) : Promise.resolve([] as UploadedTailoringMedia[]),
+          item.designFile ? uploadAdminTailoringMedia([item.designFile]) : Promise.resolve([] as UploadedTailoringMedia[])
+        ]);
+        const measurementFields = item.measurementMode === "MANUAL" ? parseMeasurementFields(item.measurementNotes) : {};
+        return {
+          description: item.description.trim(), gender: item.gender, clothType: item.clothType, workType: item.workType,
+          serviceCategory: item.workType, selectedWorkItems: item.selectedWorkItems, otherWorkDescription: item.otherWorkDescription.trim() || undefined,
+          measurement: item.measurementMode === "MANUAL" ? { label: item.clothType, fields: measurementFields } : undefined,
+          measurementNotes: item.measurementNotes.trim() || undefined,
+          homeMeasurementBooked: item.measurementMode === "HOME", preferredMeasurementSlot: item.measurementMode === "HOME" ? item.preferredMeasurementSlot : undefined,
+          sampleProvided: item.measurementMode === "SAMPLE" || Boolean(item.sampleFile), media, voiceNotes, sampleMedia, designMedia
+        };
+      }));
+      setBusyLabel("Sending request to verified tailors");
+      const created = await createAdminTailoringRequest({ customerId, urgency, pickupAddress: pickupAddress.trim(), ...uploadedItems[0], items: uploadedItems });
+      setRequest(created); setStep("quotes");
+      toast.success("Request sent to verified tailors");
+    } catch (caught) { setError(extractError(caught)); } finally { setBusyLabel(""); }
+  };
+
+  const continueWithQuote = async () => {
+    if (!request || !selectedQuote) return;
+    setBusyLabel("Locking tailor and calculating delivery"); setError("");
+    try {
+      const result = await selectAdminTailorQuote(request.id, selectedQuote.id);
+      setRequest(result.request); setSelectedQuote(result.quote); setStep("checkout");
+    } catch (caught) { setError(extractError(caught)); } finally { setBusyLabel(""); }
+  };
+
+  const confirmOrder = async () => {
+    if (!request || !selectedQuote) return;
+    setBusyLabel(paymentMethod === "UPI" ? "Generating secure Razorpay QR" : paymentMethod === "ONLINE" ? "Opening Razorpay checkout" : "Confirming COD order"); setError("");
+    try {
+      const response = await startAdminTailoringCheckout(request.id, {
+        quoteId: selectedQuote.id, paymentMethod, adminQr: paymentMethod === "UPI", deliveryFee, platformFee, smallOrderFee, homeMeasurementFee,
+        preferredMeasurementSlot: items.find((item) => item.measurementMode === "HOME")?.preferredMeasurementSlot,
+        couponCode: appliedCoupon?.code,
+        additionalItems: items.slice(1).map((item) => ({ gender: item.gender, clothType: item.clothType, workType: item.workType, description: item.description })),
+        totalAmount: payable
+      });
+      if (response.mode === "admin_qr") { setRequest(response.request); setQr(response.razorpayQr); setStep("payment"); return; }
+      if (response.mode === "online") {
+        const confirmed = await openAdminRazorpayCheckout(request.id, response.razorpay);
+        await onComplete(confirmed); return;
+      }
+      await onComplete(response.request);
+    } catch (caught) { setError(extractError(caught)); } finally { setBusyLabel(""); }
+  };
+
+  const stepIndex = ["request", "summary", "quotes", "checkout", "payment"].indexOf(step);
+  const labels = ["Request", "Review", "Quotes", "Checkout", "Payment"];
+  return (
+    <Dialog.Root open={open} onOpenChange={(next) => { if (!busyLabel) setOpen(next); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[94vh] w-[min(1180px,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-[#ead7b6] bg-[#fffdfa] shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
+          <div className="sticky top-0 z-20 border-b border-[#efe1ca] bg-[#fffdfa]/95 px-5 py-4 backdrop-blur-xl sm:px-7">
+            <div className="flex items-start justify-between gap-4"><div><Dialog.Title className="text-2xl font-bold text-[var(--deep)]">Create customer order</Dialog.Title><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">The same request, tailor quote and checkout flow used by the customer app.</Dialog.Description></div><Dialog.Close asChild><button aria-label="Close" className="grid h-10 w-10 place-items-center rounded-xl border border-[#efd9b5] bg-white" disabled={Boolean(busyLabel)}><X size={18} /></button></Dialog.Close></div>
+            <div className="mt-4 grid grid-cols-5 gap-2">{labels.map((label, index) => <div key={label} className={cn("rounded-xl px-2 py-2 text-center text-[11px] font-bold", index <= stepIndex ? "bg-orange-500 text-white" : "bg-orange-50 text-amber-900/55")}>{index + 1}. {label}</div>)}</div>
+          </div>
+          <div className="space-y-5 p-5 sm:p-7">
+            {error ? <InlineError message={error} /> : null}
+            {busyLabel ? <div className="flex items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-800"><LoaderCircle className="animate-spin" size={18} />{busyLabel}</div> : null}
+
+            {step === "request" ? <>
+              <Panel className="grid gap-4 md:grid-cols-2"><Field label="Find customer"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" placeholder="Name, phone or CUS ID" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><Field label="Customer account"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Select customer</option>{customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{getCustomerDisplayName(customer)} · {customer.phone} · {customer.darjiCustomerId ?? customer.id.slice(0, 8)}</option>)}</select></Field><Field label="Pickup address"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" placeholder="House, street, area, city, state and pincode" value={pickupAddress} onChange={(event) => setPickupAddress(event.target.value)} /></Field><Field label="Delivery urgency"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={urgency} onChange={(event) => setUrgency(event.target.value)}><option>Normal (up to 7 days)</option><option>Express (3-5 days)</option><option>Instant Delivery</option></select></Field></Panel>
+              {items.map((item, itemIndex) => {
+                const garments = getGarmentsForGender(item.gender);
+                const workOptions = getServiceCategory(item.workType)?.workItems ?? [];
+                return <Panel key={item.id} className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-orange-500">Clothing item {itemIndex + 1}</p><h3 className="mt-1 text-lg font-bold text-[var(--deep)]">Photos and tailoring details</h3></div><button className="rounded-xl p-2 text-rose-600 disabled:opacity-30" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))}><Trash2 size={18} /></button></div>
+                  <div className="grid gap-4 md:grid-cols-2"><Field label="Photos / videos (required)"><input accept="image/*,video/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" multiple type="file" onChange={(event) => updateItem(item.id, { mediaFiles: Array.from(event.target.files ?? []) })} /><p className="mt-1 text-xs text-[var(--muted)]">{item.mediaFiles.length ? `${item.mediaFiles.length} selected` : "Add the same reference photos shown to tailors."}</p></Field><Field label="Voice clips (optional)"><input accept="audio/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" multiple type="file" onChange={(event) => updateItem(item.id, { voiceFiles: Array.from(event.target.files ?? []).slice(0, 3) })} /></Field></div>
+                  <Field label="What does the customer need?"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" maxLength={1000} placeholder="Describe the fit, repair, design and special instructions" value={item.description} onChange={(event) => updateItem(item.id, { description: event.target.value })} /></Field>
+                  <div className="grid gap-4 md:grid-cols-3"><Field label="Gender / fit"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" value={item.gender} onChange={(event) => updateItem(item.id, { gender: event.target.value, clothType: "" })}><option value="">Select</option>{GENDER_FIT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Garment type"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" value={item.clothType} onChange={(event) => updateItem(item.id, { clothType: event.target.value })}><option value="">Select</option>{garments.map((garment) => <option key={garment} value={garment}>{garment}</option>)}</select></Field><Field label="Service type"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" value={item.workType} onChange={(event) => updateItem(item.id, { workType: event.target.value, selectedWorkItems: [], otherWorkDescription: "" })}><option value="">Select</option>{SERVICE_CATEGORIES.map((category) => <option key={category.id} value={category.label}>{category.label}</option>)}</select></Field></div>
+                  {item.workType === "Other" ? <Field label="Other work details"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={item.otherWorkDescription} onChange={(event) => updateItem(item.id, { otherWorkDescription: event.target.value })} /></Field> : workOptions.length ? <div><p className="mb-2 text-sm font-semibold">Select work</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{workOptions.map((work) => <label key={work} className={cn("flex min-h-12 items-center gap-3 rounded-xl border px-3 text-sm font-semibold", item.selectedWorkItems.includes(work) ? "border-orange-400 bg-orange-50" : "border-[var(--panel-border)] bg-white")}><input checked={item.selectedWorkItems.includes(work)} type="checkbox" onChange={(event) => updateItem(item.id, { selectedWorkItems: event.target.checked ? [...item.selectedWorkItems, work] : item.selectedWorkItems.filter((entry) => entry !== work) })} />{work}</label>)}</div></div> : null}
+                  <div><p className="mb-2 text-sm font-semibold">Measurement method</p><div className="grid gap-2 sm:grid-cols-3">{([['MANUAL','Upload / enter measurements'],['SAMPLE','Use sample garment'],['HOME','Home measurement visit']] as const).map(([value, label]) => <button className={cn("rounded-xl border px-4 py-3 text-left text-sm font-semibold", item.measurementMode === value ? "border-orange-500 bg-orange-50 text-orange-700" : "border-[var(--panel-border)] bg-white")} key={value} onClick={() => updateItem(item.id, { measurementMode: value })} type="button">{label}</button>)}</div></div>
+                  {item.measurementMode === "MANUAL" ? <Field label="Measurements / notes"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" placeholder={'One per line, for example:\nChest: 40 in\nWaist: 34 in'} value={item.measurementNotes} onChange={(event) => updateItem(item.id, { measurementNotes: event.target.value })} /></Field> : null}
+                  {item.measurementMode === "SAMPLE" || item.selectedWorkItems.includes("Copy Existing Garment") ? <Field label="Sample garment photo"><input accept="image/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" type="file" onChange={(event) => updateItem(item.id, { sampleFile: event.target.files?.[0] })} /></Field> : null}
+                  {item.selectedWorkItems.includes("Stitch from Reference / Design") ? <Field label="Design / reference photo"><input accept="image/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" type="file" onChange={(event) => updateItem(item.id, { designFile: event.target.files?.[0] })} /></Field> : null}
+                  {item.measurementMode === "HOME" ? <Field label="Measurement visit time"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={item.preferredMeasurementSlot} onChange={(event) => updateItem(item.id, { preferredMeasurementSlot: event.target.value })}><option value="">Select time slot</option>{assistedMeasurementSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></Field> : null}
+                </Panel>;
+              })}
+              <div className="flex flex-wrap justify-between gap-3"><ActionButton variant="secondary" onClick={() => setItems((current) => [...current, newAssistedOrderItem()])}><Plus size={16} /> Add another cloth</ActionButton><ActionButton disabled={!requestValid} onClick={() => setStep("summary")}>Review request <ChevronRight size={16} /></ActionButton></div>
+            </> : null}
+
+            {step === "summary" ? <><Panel><h3 className="text-lg font-bold">Request summary</h3><div className="mt-4 grid gap-3 sm:grid-cols-3"><AssistedSummaryTile label="Customer" value={getCustomerDisplayName(activeCustomer)} /><AssistedSummaryTile label="Urgency" value={urgency} /><AssistedSummaryTile label="Clothing items" value={String(items.length)} /></div><p className="mt-4 rounded-xl bg-orange-50 p-4 text-sm font-semibold">Pickup: {pickupAddress}</p></Panel>{items.map((item, index) => <Panel key={item.id}><p className="text-xs font-bold uppercase text-orange-500">Item {index + 1}</p><h4 className="mt-1 text-lg font-bold">{item.gender} {item.clothType}</h4><p className="mt-1 text-sm text-[var(--muted)]">{item.workType}: {item.selectedWorkItems.join(", ") || item.otherWorkDescription}</p><p className="mt-3 text-sm">{item.description}</p><p className="mt-3 text-xs font-semibold text-[var(--muted)]">{item.mediaFiles.length} media · {item.voiceFiles.length} voice · {item.measurementMode === "HOME" ? item.preferredMeasurementSlot : item.measurementMode}</p></Panel>)}<div className="flex justify-between gap-3"><ActionButton variant="secondary" onClick={() => setStep("request")}>Edit</ActionButton><ActionButton disabled={Boolean(busyLabel)} onClick={() => void submitForQuotes()}>Get tailor quotes <ChevronRight size={16} /></ActionButton></div></> : null}
+
+            {step === "quotes" ? <><Panel className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-lg font-bold">Live tailor quotes</h3><p className="text-sm text-[var(--muted)]">{quotes.length ? `${quotes.length} quote${quotes.length === 1 ? "" : "s"} received` : "Waiting for verified tailors to quote."}</p></div><ActionButton variant="secondary" disabled={quoteQuery.isFetching} onClick={() => void quoteQuery.refetch()}><RotateCcw size={15} /> Refresh</ActionButton></Panel><div className="grid gap-3">{quotes.map((quote) => <button key={quote.id} className={cn("grid gap-4 rounded-2xl border bg-white p-5 text-left sm:grid-cols-[1fr_auto]", selectedQuote?.id === quote.id ? "border-orange-500 ring-2 ring-orange-100" : "border-[var(--panel-border)]")} onClick={() => setSelectedQuote(quote)}><div className="flex gap-3"><MiniAvatar seed={quote.tailorId} src={quote.tailor?.user?.avatarUrl} /><div><p className="font-bold">{getTailorDisplayName(quote.tailor ?? ({ id: quote.tailorId } as TailorProfile))}</p><p className="mt-1 text-sm text-[var(--muted)]">ETA {quoteEtaLabel(quote)} · Rating {Number(quote.tailor?.rating ?? 0).toFixed(1)}</p><p className="mt-2 text-sm">{quote.message || "No additional message"}</p></div></div><div className="text-right"><p className="text-2xl font-bold text-orange-600">{formatCurrency(quote.price)}</p><p className="mt-1 text-xs text-[var(--muted)]">Delivery {formatCurrency(quote.deliveryEstimate?.deliveryFee ?? 0)}</p><p className="text-xs text-[var(--muted)]">{((quote.deliveryEstimate?.oneWayDistanceMeters ?? 0) / 1000).toFixed(1)} km one way</p></div></button>)}{!quotes.length && !quoteQuery.isLoading ? <EmptyState message="No quote yet. Keep this window open or return later; new quotes refresh automatically." /> : null}</div><div className="flex justify-end"><ActionButton disabled={!selectedQuote || Boolean(busyLabel)} onClick={() => void continueWithQuote()}>Confirm this tailor <ChevronRight size={16} /></ActionButton></div></> : null}
+
+            {step === "checkout" && selectedQuote ? <><div className="grid gap-4 lg:grid-cols-[1fr_380px]"><Panel><h3 className="text-lg font-bold">Payment and coupon</h3><div className="mt-4 grid gap-3 sm:grid-cols-3">{([['COD','Cash on delivery'],['UPI','UPI QR'],['ONLINE','Online checkout']] as const).map(([value, label]) => <button className={cn("rounded-2xl border p-4 text-left font-semibold", paymentMethod === value ? "border-orange-500 bg-orange-50" : "border-[var(--panel-border)] bg-white")} key={value} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><Field label="Coupon"><select className="mt-4 h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={couponCode} onChange={(event) => setCouponCode(event.target.value)}><option value="">No coupon</option>{eligibleCoupons.map((coupon) => <option key={coupon.id ?? coupon.code} value={coupon.code}>{coupon.code} · {coupon.description}</option>)}</select></Field>{paymentMethod === "UPI" ? <p className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800">A fixed-amount, single-use Razorpay QR will be generated. Share it with the customer and the order will confirm only after Razorpay reports a captured payment.</p> : null}</Panel><Panel><h3 className="text-lg font-bold">Price breakdown</h3><div className="mt-4 space-y-3 text-sm"><SummaryAmount label="Tailor quote" value={tailoringSubtotal} /><SummaryAmount label="Two-way delivery" value={deliveryFee} /><SummaryAmount label="Platform fee" value={platformFee} /><SummaryAmount label="Small-order fee" value={smallOrderFee} />{homeMeasurementFee ? <SummaryAmount label="Home measurement" value={homeMeasurementFee} /> : null}{discount ? <SummaryAmount label={`Coupon ${appliedCoupon?.code}`} value={-discount} /> : null}<div className="border-t pt-3"><SummaryAmount label="Total payable" value={payable} strong /></div></div></Panel></div><div className="flex justify-between gap-3"><ActionButton variant="secondary" onClick={() => setStep("quotes")}>Back to quotes</ActionButton><ActionButton disabled={Boolean(busyLabel)} onClick={() => void confirmOrder()}>{paymentMethod === "COD" ? "Confirm COD order" : paymentMethod === "UPI" ? "Generate Razorpay QR" : "Pay with Razorpay"}</ActionButton></div></> : null}
+
+            {step === "payment" && qr ? <div className="mx-auto max-w-lg text-center"><Panel><p className="text-xs font-bold uppercase tracking-widest text-orange-500">Awaiting UPI payment</p><h3 className="mt-2 text-2xl font-bold">Pay {formatCurrency(qr.amount / 100)}</h3><img alt="Razorpay payment QR" className="mx-auto mt-5 aspect-square w-full max-w-[320px] rounded-2xl border border-[var(--panel-border)] bg-white object-contain p-3" src={qr.imageUrl} /><p className="mt-4 text-sm text-[var(--muted)]">This QR is single-use and expires automatically. Payment status is checked every 10 seconds.</p><div className="mt-5 flex flex-wrap justify-center gap-3"><ActionButton disabled={!activeCustomerWhatsApp} onClick={() => window.open(`https://wa.me/${activeCustomerWhatsApp}?text=${encodeURIComponent(`Darji order payment ${formatCurrency(qr.amount / 100)}: ${qr.imageUrl}`)}`, "_blank", "noopener,noreferrer")}><Send size={16} /> Share on WhatsApp</ActionButton><ActionButton variant="secondary" onClick={() => void navigator.clipboard.writeText(qr.imageUrl)}><Copy size={16} /> Copy QR link</ActionButton><ActionButton variant="secondary" onClick={async () => { if (!request) return; const status = await recoverAdminTailoringCheckout(request.id); if (status.status === "paid" && status.request) await onComplete(status.request); else toast.info(status.message ?? "Payment is still pending"); }}><RotateCcw size={16} /> Check payment</ActionButton></div></Panel></div> : null}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function SummaryAmount({ label, strong, value }: { label: string; strong?: boolean; value: number }) {
+  return <div className={cn("flex items-center justify-between gap-4", strong && "text-lg font-bold")}><span>{label}</span><span className={cn("tabular-nums", value < 0 && "text-emerald-700")}>{value < 0 ? "−" : ""}{formatCurrency(Math.abs(value))}</span></div>;
+}
+
+function AssistedSummaryTile({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-[var(--panel-border)] bg-white p-4"><p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">{label}</p><p className="mt-2 font-bold text-[var(--deep)]">{value || "Not selected"}</p></div>;
 }
 
 function CreateOrderDialog({
@@ -9615,6 +10000,12 @@ function ProfileDialog({
       : getTailorDisplayName(profile as TailorProfile)
     : "Profile";
   const avatarSeed = profile?.user?.name ?? profile?.user?.phone ?? displayName;
+  const avatarGender = isDelivery
+    ? String((profile?.verification as { personal?: { gender?: string }; gender?: string } | undefined)?.personal?.gender
+      ?? (profile?.verification as { gender?: string } | undefined)?.gender
+      ?? "")
+    : undefined;
+  const profileFallbackAvatar = getDefaultAvatarUrl(avatarSeed, avatarGender);
   const headline = profile
     ? isDelivery
       ? `${getPartnerRoleLabel(profile as DeliveryPartnerProfile)} delivery partner - ${getPartnerVehicleNumber(profile as DeliveryPartnerProfile)}`
@@ -9638,7 +10029,8 @@ function ProfileDialog({
                     <img
                       alt="Profile photo"
                       className="h-full w-full object-cover"
-                      src={profile.user?.avatarUrl || getDefaultAvatarUrl(avatarSeed)}
+                      onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = profileFallbackAvatar; }}
+                      src={profile.user?.avatarUrl || profileFallbackAvatar}
                     />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -10024,6 +10416,7 @@ function ProfileDialog({
                             <table className="w-full text-sm">
                               <thead>
                                 <tr className="border-b border-[var(--panel-border)] bg-[#f8fafc]">
+                                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">S. No.</th>
                                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Gender</th>
                                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Cloth Type</th>
                                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Stitching</th>
@@ -10033,6 +10426,7 @@ function ProfileDialog({
                               <tbody>
                                 {vRows.map((row, i) => (
                                   <tr key={i} className="border-b border-[var(--panel-border)] last:border-0">
+                                    <td className="px-3 py-2 font-semibold tabular-nums text-[var(--muted)]">{i + 1}</td>
                                     <td className="px-3 py-2">{String(row.gender ?? "-")}</td>
                                     <td className="px-3 py-2">{String(row.clothType ?? "-")}</td>
                                     <td className="px-3 py-2">{String(row.stitchingType ?? "-")}</td>
@@ -10118,7 +10512,7 @@ function UserDialog({
   const profile = profileQuery.data;
   const customer = profile?.customer ?? user;
   const displayName = customer ? getCustomerDisplayName(customer) : "Customer";
-  const avatarSeed = customer?.name ?? customer?.phone ?? displayName;
+  const customerFallbackAvatar = getCustomerFallbackAvatarUrl(customer);
   const visibleOrders = (profile?.orders ?? []).filter((order) => {
     const needle = orderSearch.trim().toLowerCase();
     return !needle || [order.publicId, order.orderNumber, order.title, order.status, order.paymentStatus].some((value) => String(value ?? "").toLowerCase().includes(needle));
@@ -10145,7 +10539,8 @@ function UserDialog({
                     <img
                       alt="Customer profile"
                       className="h-full w-full object-cover"
-                      src={customer?.avatarUrl || getDefaultAvatarUrl(avatarSeed)}
+                      onError={(event) => { event.currentTarget.onerror = null; event.currentTarget.src = customerFallbackAvatar; }}
+                      src={customer?.avatarUrl || customerFallbackAvatar}
                     />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -11460,14 +11855,17 @@ function getPartnerColumns({
     },
     {
       id: "availability",
-      header: "Current status",
-      accessorFn: (row) => String(row.isAvailable),
+      header: "Assignment status",
+      accessorFn: (row) => row.verificationStatus === "VERIFIED" && row.isAvailable ? "active" : "inactive",
       cell: ({ row }) => {
-        const hasLocation = Boolean(row.original.currentLocation?.coordinates?.length === 2);
-        const locationAge = row.original.lastLocationUpdatedAt ? Date.now() - new Date(row.original.lastLocationUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
-        if (hasLocation && locationAge > 5 * 60 * 1000) return <Badge tone="amber">Inactive</Badge>;
-        if (row.original.isAvailable && hasLocation) return <Badge tone="emerald">Online</Badge>;
-        return <Badge tone="slate">Offline</Badge>;
+        const isDashboardActive = row.original.verificationStatus === "VERIFIED" && row.original.isAvailable;
+        if (isDashboardActive) {
+          return <div><Badge tone="emerald">Active</Badge><p className="mt-1 text-xs text-[var(--muted)]">Available for assignments</p></div>;
+        }
+        if (row.original.isAvailable) {
+          return <div><Badge tone="amber">Not active</Badge><p className="mt-1 max-w-[170px] text-xs text-[var(--muted)]">Available, but verification is required</p></div>;
+        }
+        return <div><Badge tone="slate">Inactive</Badge><p className="mt-1 text-xs text-[var(--muted)]">Not accepting assignments</p></div>;
       }
     },
     {
@@ -11483,7 +11881,7 @@ function getPartnerColumns({
         const locationAge = row.original.lastLocationUpdatedAt ? Date.now() - new Date(row.original.lastLocationUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
         const isFresh = locationAge <= 5 * 60 * 1000;
         const tone = !isFresh ? "amber" : row.original.isAvailable ? "emerald" : "slate";
-        const label = !isFresh ? "Inactive GPS" : row.original.isAvailable ? "Live phone GPS" : "Offline GPS";
+        const label = !isFresh ? "Stale GPS" : row.original.isAvailable ? "Live phone GPS" : "Recent GPS · Inactive";
         return <div className="min-w-[180px]"><Badge tone={tone}>{label}</Badge><p className="mt-1 font-mono text-xs">{Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}</p><p className="text-xs text-[var(--muted)]">Updated {formatDate(row.original.lastLocationUpdatedAt, true)}{row.original.lastLocationAccuracy != null ? ` · ±${Math.round(row.original.lastLocationAccuracy)}m` : ""}</p></div>;
       }
     },
@@ -12043,6 +12441,7 @@ function buildLiveAlerts({
       const relatedPayment = payments.find((payment) => candidateIds.includes(payment.id) || candidateIds.includes(payment.orderId));
       const relatedBatch = deliveryRequests.find((request) => candidateIds.includes(String((request as DeliveryRequest & { batchId?: string }).batchId ?? "")));
       alerts.push({
+        createdAt: alert.createdAt ?? alert.updatedAt,
         detail: alert.message,
         id: `operational-${alert.id}`,
         onOpen: () => {
@@ -12079,6 +12478,7 @@ function buildLiveAlerts({
     .forEach((request) => {
       const order = orders.find((item) => item.id === request.id || item.request?.id === request.id);
       alerts.push({
+        createdAt: request.createdAt,
         detail: `${formatCustomerRequestId(request.id)} has been waiting ${Math.floor(minutesAgo(request.createdAt))} min for tailor quotes.`,
         id: `tailoring-wait-${request.id}`,
         onOpen: () => {
@@ -12099,6 +12499,7 @@ function buildLiveAlerts({
     .filter((request) => isOpenDelivery(request) && !request.assignedDeliveryPartnerId && minutesAgo(request.createdAt) >= 10)
     .forEach((request) => {
       alerts.push({
+        createdAt: request.createdAt,
         detail: `${request.taskId} has no delivery partner assigned.`,
         id: `delivery-unassigned-${request.id}`,
         onOpen: () => openOrderForDelivery(request),
@@ -12111,6 +12512,7 @@ function buildLiveAlerts({
     .filter((request) => isOpenDelivery(request) && Boolean(request.deadlineAt) && new Date(request.deadlineAt as string).getTime() < now)
     .forEach((request) => {
       alerts.push({
+        createdAt: request.deadlineAt ?? request.createdAt,
         detail: `${request.taskId} is past ETA for ${formatStatus(request.type)}.`,
         id: `delivery-delay-${request.id}`,
         onOpen: () => openOrderForDelivery(request),
@@ -12123,6 +12525,7 @@ function buildLiveAlerts({
     .filter((request) => Boolean(request.lastFailureReason) && isOpenDelivery(request))
     .forEach((request) => {
       alerts.push({
+        createdAt: request.updatedAt ?? request.createdAt,
         detail: `${request.taskId}: ${request.lastFailureReason}`,
         id: `delivery-failure-${request.id}`,
         onOpen: () => openOrderForDelivery(request),
@@ -12135,6 +12538,7 @@ function buildLiveAlerts({
     .filter((payment) => payment.status === "FAILED")
     .forEach((payment) => {
       alerts.push({
+        createdAt: payment.createdAt,
         detail: `${payment.darjiId ?? payment.orderId} failed for ${formatCurrency(payment.amount)}.`,
         id: `payment-failed-${payment.id}`,
         onOpen: () => setActiveSection("payments"),
@@ -12147,6 +12551,7 @@ function buildLiveAlerts({
     .filter((payment) => payment.status === "PENDING" && minutesAgo(payment.createdAt) >= 15)
     .forEach((payment) => {
       alerts.push({
+        createdAt: payment.createdAt,
         detail: `${payment.darjiId ?? payment.orderId} is still awaiting ${formatCurrency(payment.amount)}.`,
         id: `payment-pending-${payment.id}`,
         onOpen: () => setActiveSection("payments"),
@@ -12159,6 +12564,7 @@ function buildLiveAlerts({
     .filter((order) => ["ORDER_PLACED", "CONFIRMED", "AT_TAILOR", "STITCHING_STARTED"].includes(order.status) && minutesAgo(order.updatedAt ?? order.createdAt) >= 24 * 60)
     .forEach((order) => {
       alerts.push({
+        createdAt: order.updatedAt ?? order.createdAt,
         detail: `${getOrderDisplayNumber(order)} has not moved since ${formatDate(order.updatedAt ?? order.createdAt, true)}.`,
         id: `order-stalled-${order.id}`,
         onOpen: () => {
@@ -12174,6 +12580,7 @@ function buildLiveAlerts({
     .filter((ticket) => ["HIGH", "URGENT"].includes(String(ticket.priority ?? "").toUpperCase()) && !["RESOLVED", "CLOSED"].includes(String(ticket.status).toUpperCase()))
     .forEach((ticket) => {
       alerts.push({
+        createdAt: ticket.createdAt,
         detail: `${ticket.subject} from ${getUserDisplayName(ticket.user, "User")}.`,
         id: `support-priority-${ticket.id}`,
         onOpen: () => {
@@ -12844,18 +13251,62 @@ function buildDashboardMonthSlots(bounds: DashboardPeriodBounds, values: Array<s
   });
 }
 
-function downloadExcel(filename: string, title: string, rows: Array<Record<string, unknown>>) {
+async function downloadExcel(filename: string, title: string, rows: Array<Record<string, unknown>>) {
   if (!rows.length) {
     toast.error("Nothing to export");
     return;
   }
-  const headers = Object.keys(rows[0]);
-  const table = `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows
-    .map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(row[header] ?? ""))}</td>`).join("")}</tr>`)
-    .join("")}</tbody></table>`;
-  const workbook = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body>${table}</body></html>`;
-  downloadBlob(filename, `\ufeff${workbook}`, "application/vnd.ms-excel;charset=utf-8");
-  toast.success(`${title} Excel-compatible export downloaded`);
+  try {
+    const ExcelJS = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Darji Admin";
+    workbook.created = new Date();
+    const sheetName = title.replace(/[\\/?*\[\]:]/g, " ").slice(0, 31) || "Export";
+    const worksheet = workbook.addWorksheet(sheetName, { views: [{ state: "frozen", ySplit: 1 }] });
+    const sourceHeaders = Object.keys(rows[0]);
+    const headers = ["S. No.", ...sourceHeaders.map(humanizeFieldLabel)];
+    worksheet.addRow(headers);
+    rows.forEach((row, index) => worksheet.addRow([
+      index + 1,
+      ...sourceHeaders.map((header) => {
+        const value = row[header];
+        if (value === null || value === undefined) return "";
+        if (value instanceof Date || typeof value === "number" || typeof value === "boolean") return value;
+        const cellText = typeof value === "object" ? JSON.stringify(value) : String(value);
+        return /^[=+@\t\r]/.test(cellText) ? `'${cellText}` : cellText;
+      })
+    ]));
+    const headerRow = worksheet.getRow(1);
+    headerRow.height = 24;
+    headerRow.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0B2241" } };
+    headerRow.alignment = { horizontal: "center", vertical: "middle" };
+    worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+    worksheet.eachRow((row, rowNumber) => {
+      row.font = { ...row.font, name: "Arial", size: 10 };
+      row.alignment = { vertical: "middle" };
+      if (rowNumber > 1 && rowNumber % 2 === 1) row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8EC" } };
+      row.eachCell((cell) => { cell.border = { bottom: { style: "hair", color: { argb: "FFE5E7EB" } } }; });
+    });
+    worksheet.columns.forEach((column, columnIndex) => {
+      let width = columnIndex === 0 ? 9 : headers[columnIndex]?.length ?? 12;
+      column.eachCell?.({ includeEmpty: false }, (cell) => { width = Math.max(width, String(cell.value ?? "").length + 2); });
+      column.width = Math.min(Math.max(width, 10), 42);
+    });
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([new Uint8Array(buffer)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success(`${title} Excel workbook downloaded`);
+  } catch (error) {
+    toast.error(extractError(error));
+  }
 }
 
 function printTableReport(title: string, rows: Array<Record<string, unknown>>) {
@@ -12868,8 +13319,8 @@ function printTableReport(title: string, rows: Array<Record<string, unknown>>) {
     toast.error("Allow pop-ups to create the PDF report");
     return;
   }
-  const headers = Object.keys(rows[0]);
-  const cells = rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(row[header] ?? ""))}</td>`).join("")}</tr>`).join("");
+  const headers = ["S. No.", ...Object.keys(rows[0])];
+  const cells = rows.map((row, index) => `<tr>${headers.map((header) => `<td>${escapeHtml(String(header === "S. No." ? index + 1 : row[header] ?? ""))}</td>`).join("")}</tr>`).join("");
   reportWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} report</title><style>@page{size:landscape;margin:12mm}body{font:12px ui-sans-serif,system-ui,sans-serif;color:#172033}h1{font-size:22px;margin:0 0 4px}p{color:#667085;margin:0 0 18px}table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #d7dce3;padding:7px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#fff1cf;color:#3b2a0c}tr:nth-child(even){background:#f8fafc}</style></head><body><h1>Darji — ${escapeHtml(title)}</h1><p>${rows.length} rows · Generated ${escapeHtml(new Date().toLocaleString("en-IN"))}</p><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${cells}</tbody></table><script>window.addEventListener('load',()=>window.print())<\/script></body></html>`);
   reportWindow.document.close();
 }
@@ -12933,12 +13384,13 @@ function openPrintableInvoice(order: Order) {
 
   const customerName = getCustomerDisplayName(order.customer);
   const items = (order.items ?? [])
-    .map((item) => {
+    .map((item, index) => {
       const title = escapeHtml(item.service?.name ?? "Service item");
       const subtitle = escapeHtml(`${item.service?.category?.name ?? "General"} / Qty ${item.quantity}`);
       const amount = formatCurrency(item.price ?? item.service?.price ?? 0);
       return `
         <tr>
+          <td style="width:56px;padding:12px 12px 12px 0;border-bottom:1px solid #eee;color:#6b7280">${index + 1}</td>
           <td style="padding:12px 0;border-bottom:1px solid #eee;">
             <div style="font-weight:600;color:#111827">${title}</div>
             <div style="font-size:12px;color:#6b7280">${subtitle}</div>
@@ -13001,11 +13453,12 @@ function openPrintableInvoice(order: Order) {
             <table>
               <thead>
                 <tr>
+                  <th style="width:56px;text-align:left;padding:0 12px 12px 0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.12em">S. No.</th>
                   <th style="text-align:left;padding:0 0 12px 0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.12em">Item</th>
                   <th style="text-align:right;padding:0 0 12px 0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.12em">Amount</th>
                 </tr>
               </thead>
-              <tbody>${items || `<tr><td colspan="2" style="padding:12px 0;color:#6b7280">No line items available.</td></tr>`}</tbody>
+              <tbody>${items || `<tr><td colspan="3" style="padding:12px 0;color:#6b7280">No line items available.</td></tr>`}</tbody>
             </table>
 
             <div class="total">

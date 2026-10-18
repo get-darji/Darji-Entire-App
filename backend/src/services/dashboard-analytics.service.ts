@@ -274,8 +274,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     WalletTransactionModel.find({ transactionType: "CREDIT" }).select("_id userId userType orderId category amount createdAt").lean(),
     PaymentHistoryModel.find({ status: "PAID" }).select("_id userId userType amount paidAt status").lean(),
     WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("userId userType balance").lean(),
-    TailorModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId shopName isAvailable verificationStatus rating createdAt").lean(),
-    DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus rating createdAt").lean(),
+    TailorModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId shopName isAvailable verificationStatus verification.personal.name verification.idVerification.facePhotoUrl rating createdAt").lean(),
+    DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus verification.personal.gender verification.identity.facePhotoUrl rating createdAt").lean(),
     DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt").lean(),
     DeliveryBatchModel.find().select("batchId deliveryPartnerId status finalPayout").lean(),
     MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean()
@@ -680,7 +680,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     return {
       profileId: String(tailor._id), userId: String(tailor.userId),
       name: tailor.shopName || user?.name || user?.phone || "Tailor",
-      avatarUrl: user?.avatarUrl, amount: Number((earning?.amount ?? 0).toFixed(2)),
+      avatarSeed: user?.name || tailor.verification?.personal?.name || tailor.shopName || "Tailor",
+      avatarUrl: user?.avatarUrl || tailor.verification?.idVerification?.facePhotoUrl,
+      amount: Number((earning?.amount ?? 0).toFixed(2)),
       completedOrders: earning?.orderIds.size ?? 0, rating: Number(tailor.rating ?? 0)
     };
   }).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount || b.rating - a.rating).slice(0, 5);
@@ -690,7 +692,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     const user = userMap.get(String(partner.userId));
     return {
       profileId: String(partner._id), userId: String(partner.userId),
-      name: user?.name || user?.phone || "Delivery partner", avatarUrl: user?.avatarUrl,
+      name: user?.name || user?.phone || "Delivery partner",
+      avatarUrl: user?.avatarUrl || partner.verification?.identity?.facePhotoUrl,
+      avatarGender: partner.verification?.personal?.gender,
       amount: Number((earning?.amount ?? 0).toFixed(2)),
       completedDeliveries: completedDeliveries.get(String(partner._id)) ?? 0,
       rating: Number(partner.rating ?? 0)

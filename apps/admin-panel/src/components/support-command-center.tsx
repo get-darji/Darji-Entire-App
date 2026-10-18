@@ -62,22 +62,9 @@ import {
   addChangeRequestMessage
 } from "../lib/api";
 import { getSocketUrl } from "../lib/api-base";
+import { getUserFallbackAvatarUrl } from "../lib/avatar";
 
 import { useAdminStore } from "../store/admin-store";
-
-function normalizedAvatarGender(gender?: string) {
-  const value = gender?.trim().toLowerCase();
-  if (!value) return undefined;
-  if (["male", "man", "men", "boy"].includes(value)) return "boy";
-  if (["female", "woman", "women", "girl"].includes(value)) return "girl";
-  return undefined;
-}
-
-function getDefaultAvatarUrl(seed: string, gender?: string) {
-  const selectedGender = normalizedAvatarGender(gender);
-  const avatarGender = selectedGender ?? (Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 2 === 0 ? "boy" : "girl");
-  return `https://avatar.iran.liara.run/public/${avatarGender}?username=${encodeURIComponent(seed || "User")}`;
-}
 
 interface SupportCommandCenterProps {
   tickets: SupportTicket[];
@@ -1688,7 +1675,7 @@ export default function SupportCommandCenter({
                 {currentChatUser.avatarUrl ? (
                   <img src={currentChatUser.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <img src={getDefaultAvatarUrl(currentChatUser.name ?? currentChatUser.phone ?? "User")} alt="Default avatar" className="w-full h-full object-cover" />
+                  <img src={getUserFallbackAvatarUrl(currentChatUser)} alt="Default avatar" className="w-full h-full object-cover" />
                 )}
               </div>
               <h5 className="mt-3 font-bold text-sm text-[var(--foreground)]">{currentChatUser.name || "Customer"}</h5>

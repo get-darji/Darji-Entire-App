@@ -19,6 +19,9 @@ export type BasicUser = {
   moderatedAt?: string | null;
   email?: string;
   avatarUrl?: string;
+  avatarPreset?: string;
+  gender?: string;
+  dateOfBirth?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -278,8 +281,8 @@ export type DashboardAnalytics = {
     revenue: Array<{ label: string; grossPaid: number; partnerCost: number; packagingCost: number; netRevenue: number }>;
   };
   liveStages: Array<{ stage: string; count: number }>;
-  topTailors: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; amount: number; completedOrders: number; rating: number }>;
-  topDeliveryPartners: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; amount: number; completedDeliveries: number; rating: number }>;
+  topTailors: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; avatarSeed?: string; amount: number; completedOrders: number; rating: number }>;
+  topDeliveryPartners: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; avatarGender?: string; amount: number; completedDeliveries: number; rating: number }>;
   limitations: string[];
 };
 
@@ -692,9 +695,16 @@ export type TailorQuote = {
   tailorId: string;
   price: number;
   estimatedDays: number;
+  estimatedHours?: number;
   message?: string;
   pickupIncluded?: boolean;
   status: string;
+  deliveryEstimate?: {
+    deliveryMode?: string;
+    oneWayDistanceMeters?: number;
+    totalChargeableDistanceMeters?: number;
+    deliveryFee?: number;
+  };
   tailor?: TailorProfile | null;
   createdAt?: string;
 };

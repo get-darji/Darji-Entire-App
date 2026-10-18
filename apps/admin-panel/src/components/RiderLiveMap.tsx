@@ -71,7 +71,7 @@ function buildPopup(partner: DeliveryPartnerProfile, lat: number, lng: number, u
   const status = presence === "online"
     ? "Online · live location"
     : presence === "inactive"
-      ? "Inactive · no location update for more than 5 minutes"
+      ? "Stale GPS · no location update for more than 5 minutes"
       : "Offline";
   const acc = partner.lastLocationAccuracy != null ? " &middot; &plusmn;" + Math.round(partner.lastLocationAccuracy) + "m" : "";
   return (
@@ -271,7 +271,7 @@ export default function RiderLiveMap({
         }}
       >
         <div><span style={{ color: "#22c55e", fontWeight: 700 }}>&#9670; </span>Online &amp; recent</div>
-        <div><span style={{ color: "#f97316", fontWeight: 700 }}>&#9670; </span>Inactive (&gt;5 min)</div>
+        <div><span style={{ color: "#f97316", fontWeight: 700 }}>&#9670; </span>Stale GPS (&gt;5 min)</div>
         <div><span style={{ color: "#94a3b8", fontWeight: 700 }}>&#9670; </span>Offline</div>
       </div>
 

@@ -401,7 +401,15 @@ function normalizeTailorTutorialMedia(value: unknown) {
 
 async function withUser<T extends { toJSON: () => Record<string, unknown>; userId: string }>(profile: T) {
   const user = await UserModel.findById(profile.userId).select("name phone role email avatarUrl accountStatus suspendedUntil moderationReason moderatedAt");
-  return { ...profile.toJSON(), user: user?.toJSON() };
+  const profileValue = profile.toJSON() as Record<string, any>;
+  const userValue = user?.toJSON() as Record<string, unknown> | undefined;
+  const avatarUrl = userValue?.avatarUrl
+    || profileValue.verification?.idVerification?.facePhotoUrl
+    || profileValue.verification?.identity?.facePhotoUrl;
+  return {
+    ...profileValue,
+    user: userValue ? { ...userValue, avatarUrl } : avatarUrl ? { avatarUrl } : undefined
+  };
 }
 
 async function ensureDeliveryPartnerRoleId(partner: { id: string; deliveryType?: string; darjiPartnerId?: string | null }) {
@@ -411,6 +419,18 @@ async function ensureDeliveryPartnerRoleId(partner: { id: string; deliveryType?:
   const darjiPartnerId = await nextDarjiId(prefix);
   await DeliveryPartnerModel.findByIdAndUpdate(partner.id, { darjiPartnerId });
   return darjiPartnerId;
+}
+
+function normalizeUserForAdmin(user: Record<string, any>) {
+  const isCustomer = String(user.role ?? "").toUpperCase() === "CUSTOMER";
+  return {
+    ...user,
+    name: isCustomer ? user.customerName || user.name : user.name,
+    avatarUrl: isCustomer
+      ? user.customerAvatarUri || user.customerAvatarUrl || user.avatarUri || user.avatarUrl
+      : user.avatarUrl,
+    avatarPreset: isCustomer ? user.customerAvatarPreset || user.avatarPreset : user.avatarPreset
+  };
 }
 
 async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
@@ -426,9 +446,7 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
   const partnerMap = new Map(partners.map((partner) => [String(partner.userId), partner]));
 
   return users.map((user) => ({
-    ...user,
-    name: user.customerName || user.name,
-    avatarUrl: user.customerAvatarUri || user.customerAvatarUrl || user.avatarUri || user.avatarUrl,
+    ...normalizeUserForAdmin(user),
     tailorProfile: tailorMap.get(String(user.id ?? user._id)) ?? null,
     deliveryProfile: partnerMap.get(String(user.id ?? user._id)) ?? null
   }));
@@ -1014,7 +1032,7 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
 
 export async function listUsersController(_req: Request, res: Response) {
   const users = await UserModel.find()
-    .select("phone darjiCustomerId darjiAdminId name customerName email avatarUrl avatarUri customerAvatarUrl customerAvatarUri role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
+    .select("phone darjiCustomerId darjiAdminId name customerName email avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
     .sort({ createdAt: -1 });
   res.json({ data: await attachProfilesToUsers(users.map((user) => user.toJSON())) });
 }
@@ -1373,6 +1391,7 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
       req.user!.id,
       {
         name: input.personal.fullName,
+        gender: input.personal.gender,
         ...(input.personal.email ? { email: input.personal.email } : {}),
         ...(input.identity.facePhotoUrl ? { avatarUrl: input.identity.facePhotoUrl } : {})
       },
@@ -1843,12 +1862,15 @@ export async function listSupportTicketsController(req: Request, res: Response) 
   const data = await Promise.all(
     tickets.map(async (ticket) => {
       const ticketJson = ticket.toJSON() as any;
+      const ticketUser = ticket.userId
+        ? await UserModel.findById(ticket.userId).select("phone name customerName role avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth")
+        : null;
       if (!isAdmin && ticketJson.messages) {
         ticketJson.messages = ticketJson.messages.filter((m: any) => m.sender !== "internal");
       }
       return {
         ...ticketJson,
-        user: ticket.userId ? (await UserModel.findById(ticket.userId).select("phone name role"))?.toJSON() : undefined,
+        user: ticketUser ? normalizeUserForAdmin(ticketUser.toJSON()) : undefined,
         order: ticket.orderId ? (await OrderModel.findById(ticket.orderId).select("orderNumber status"))?.toJSON() : undefined
       };
     })
@@ -3260,7 +3282,7 @@ export async function listAdminReviewsController(req: Request, res: Response) {
   const reviews = await ReviewModel.find({}).sort({ createdAt: -1 });
   const populated = await Promise.all(
     reviews.map(async (review) => {
-      const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
+      const user = await UserModel.findById(review.userId).select("name customerName phone role avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth");
       const context = await reviewOrderContext(String(review.orderId), String(review.kind), String(review.userId));
       return {
         id: review.id,
@@ -3272,7 +3294,7 @@ export async function listAdminReviewsController(req: Request, res: Response) {
         isFeatured: review.isFeatured ?? false,
         isHidden: review.isHidden ?? false,
         createdAt: review.createdAt,
-        user: user ? { name: user.name, phone: user.phone, avatarUrl: user.avatarUrl } : null,
+        user: user ? normalizeUserForAdmin(user.toJSON()) : null,
         orderNumber: context.orderNumber,
         customerAddress: context.customerAddress,
         targetId: context.targetId,

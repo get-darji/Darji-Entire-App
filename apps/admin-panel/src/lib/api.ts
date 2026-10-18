@@ -22,6 +22,7 @@ import type {
   SettingRecord,
   SupportTicket,
   TailorProfile,
+  TailorQuote,
   TailoringRequest,
   BugReport,
   AccountChangeRequest,
@@ -198,6 +199,68 @@ export type AdminCreateOrderPayload = {
 
 export async function createAdminOrder(payload: AdminCreateOrderPayload) {
   return unwrap<Order>(api.post("/admin/orders", payload));
+}
+
+export type UploadedTailoringMedia = {
+  url: string;
+  publicId: string;
+  resourceType: "image" | "video" | "audio";
+  bytes: number;
+  format?: string;
+  originalName?: string;
+};
+
+export type AdminTailoringCheckoutResponse =
+  | { mode: "cod" | "test" | "confirmed"; request: TailoringRequest; testMode?: boolean }
+  | {
+      mode: "online";
+      request: TailoringRequest;
+      quote: TailorQuote;
+      razorpay: {
+        keyId: string;
+        orderId: string;
+        amount: number;
+        currency: string;
+        name: string;
+        description: string;
+        prefill?: { name?: string; contact?: string };
+      };
+    }
+  | {
+      mode: "admin_qr";
+      request: TailoringRequest;
+      quote: TailorQuote;
+      razorpayQr: { id: string; imageUrl: string; amount: number; currency: string; closeBy?: number };
+    };
+
+export async function uploadAdminTailoringMedia(files: File[]) {
+  const form = new FormData();
+  files.forEach((file) => form.append("media", file));
+  return unwrap<UploadedTailoringMedia[]>(api.post("/tailoring-requests/media", form, { headers: { "Content-Type": "multipart/form-data" } }));
+}
+
+export async function createAdminTailoringRequest(payload: Record<string, unknown>) {
+  return unwrap<TailoringRequest>(api.post("/tailoring-requests", payload));
+}
+
+export async function getAdminTailorQuotes(requestId: string) {
+  return unwrap<TailorQuote[]>(api.get(`/tailoring-requests/${requestId}/quotes`));
+}
+
+export async function selectAdminTailorQuote(requestId: string, quoteId: string) {
+  return unwrap<{ request: TailoringRequest; quote: TailorQuote }>(api.post(`/tailoring-requests/${requestId}/quotes/${quoteId}/select`, {}));
+}
+
+export async function startAdminTailoringCheckout(requestId: string, payload: Record<string, unknown>) {
+  return unwrap<AdminTailoringCheckoutResponse>(api.post(`/tailoring-requests/${requestId}/checkout`, payload));
+}
+
+export async function verifyAdminTailoringCheckout(requestId: string, payload: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) {
+  return unwrap<TailoringRequest>(api.post(`/tailoring-requests/${requestId}/checkout/verify`, payload));
+}
+
+export async function recoverAdminTailoringCheckout(requestId: string) {
+  return unwrap<{ status: "paid" | "pending" | "failed"; request?: TailoringRequest; message?: string }>(api.get(`/tailoring-requests/${requestId}/checkout/status`));
 }
 
 export async function getTailoringRequests() {

@@ -39,16 +39,31 @@ function customerJson(doc: { toJSON?: () => unknown } | Record<string, unknown> 
   return {
     ...value,
     name: value.customerName || value.name,
-    avatarUrl: value.customerAvatarUri || value.customerAvatarUrl || value.avatarUri || value.avatarUrl
+    avatarUrl: value.customerAvatarUri || value.customerAvatarUrl || value.avatarUri || value.avatarUrl,
+    avatarPreset: value.customerAvatarPreset || value.avatarPreset,
+    gender: value.gender,
+    dateOfBirth: value.dateOfBirth
   };
+}
+
+function profileFacePhoto(profile: Record<string, any>) {
+  return profile.verification?.idVerification?.facePhotoUrl
+    || profile.verification?.identity?.facePhotoUrl;
+}
+
+function profileUserJson(user: unknown, profile: Record<string, any>) {
+  const value = json(user as { toJSON?: () => unknown } | null | undefined) as Record<string, unknown> | null;
+  const avatarUrl = value?.avatarUrl || profileFacePhoto(profile);
+  return value ? { ...value, avatarUrl } : avatarUrl ? { avatarUrl } : null;
 }
 
 async function partnerWithUser(model: { findById: (id: string) => Promise<(JsonDoc & { userId: string }) | null> }, id?: string) {
   if (!id) return null;
   const profile = await model.findById(id);
   if (!profile) return null;
-  const user = await UserModel.findById(profile.userId).select("name phone role");
-  return { ...profile.toJSON(), user: json(user) };
+  const user = await UserModel.findById(profile.userId).select("name phone role avatarUrl");
+  const profileValue = profile.toJSON();
+  return { ...profileValue, user: profileUserJson(user, profileValue) };
 }
 
 async function assignExistingDeliveryTask(orderId: string, partnerId: string | undefined, mode: "pickup" | "delivery" | undefined) {
@@ -125,7 +140,7 @@ export async function hydrateOrder(orderInput: unknown) {
   const orderId = String(order.id ?? order._id);
   const [address, customer, tailor, pickupPartner, deliveryPartner, payments, reviews] = await Promise.all([
     AddressModel.findById(order.addressId),
-    UserModel.findById(order.customerId).select("name customerName phone email role darjiCustomerId avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
+    UserModel.findById(order.customerId).select("name customerName phone email role darjiCustomerId avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth"),
     partnerWithUser(TailorModel, order.tailorId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.pickupPartnerId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.deliveryPartnerId as string | undefined),
@@ -178,7 +193,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
 
   const [addresses, customers, tailors, partners, payments, reviews, services] = await Promise.all([
     AddressModel.find({ _id: { $in: ids("addressId") } }),
-    UserModel.find({ _id: { $in: ids("customerId") } }).select("name customerName phone email role darjiCustomerId avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
+    UserModel.find({ _id: { $in: ids("customerId") } }).select("name customerName phone email role darjiCustomerId avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth"),
     TailorModel.find({ _id: { $in: ids("tailorId") } }),
     DeliveryPartnerModel.find({ _id: { $in: [...ids("pickupPartnerId"), ...ids("deliveryPartnerId")] } }),
     PaymentModel.find({ orderId: { $in: orderIds } }).sort({ createdAt: -1 }),
@@ -188,7 +203,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
   const profileUserIds = [...new Set([...tailors, ...partners].map((profile) => String(profile.userId ?? "")).filter(Boolean))];
   const categoryIds = [...new Set(services.map((service) => String(service.categoryId ?? "")).filter(Boolean))];
   const [profileUsers, categories] = await Promise.all([
-    UserModel.find({ _id: { $in: profileUserIds } }).select("name phone role"),
+    UserModel.find({ _id: { $in: profileUserIds } }).select("name phone role avatarUrl"),
     ServiceCategoryModel.find({ _id: { $in: categoryIds } })
   ]);
 
@@ -208,7 +223,11 @@ async function hydrateOrders(orderInputs: unknown[]) {
     if (!byKind.has(String(review.kind))) byKind.set(String(review.kind), review);
     reviewsByOrder.set(String(review.orderId), byKind);
   });
-  const partnerJson = (profile: any) => profile ? { ...profile.toJSON(), user: json(profileUserMap.get(String(profile.userId))) } : null;
+  const partnerJson = (profile: any) => {
+    if (!profile) return null;
+    const profileValue = profile.toJSON();
+    return { ...profileValue, user: profileUserJson(profileUserMap.get(String(profile.userId)), profileValue) };
+  };
 
   return orders.map((order) => {
     const orderId = String(order.id ?? order._id);

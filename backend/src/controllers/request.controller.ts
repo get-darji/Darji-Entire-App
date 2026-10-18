@@ -267,6 +267,7 @@ const tailoringRequestItemInputSchema = z.object({
 });
 
 const createTailoringRequestSchema = tailoringRequestItemInputSchema.extend({
+  customerId: z.string().trim().min(1).optional(),
   urgency: z.string().trim().min(2).max(80),
   pickupAddress: z.string().trim().min(8).max(500),
   pickupLocation: z.object({ lat: z.number(), lng: z.number() }).optional(),
@@ -315,6 +316,7 @@ const checkoutTailoringRequestSchema = z.object({
     workType: z.string().trim().max(120).optional(),
     description: z.string().trim().max(500).optional()
   })).max(10).default([]),
+  adminQr: z.boolean().optional(),
   totalAmount: z.number().positive()
 });
 
@@ -497,6 +499,43 @@ async function fetchRazorpayOrderPayments(orderId: string) {
     throw new AppError(502, `Razorpay payment status check failed${body ? `: ${body}` : ""}`);
   }
   return response.json() as Promise<{ items?: Array<{ id: string; order_id?: string; status?: string; captured?: boolean; amount?: number; currency?: string }> }>;
+}
+
+async function createRazorpayQr(input: { amount: number; requestId: string; description: string }) {
+  assertRazorpayConfigured();
+  const token = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
+  const response = await fetch("https://api.razorpay.com/v1/payments/qr_codes", {
+    method: "POST",
+    headers: { Authorization: `Basic ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "upi_qr",
+      name: `Darji ${input.requestId.slice(0, 8).toUpperCase()}`,
+      usage: "single_use",
+      fixed_amount: true,
+      payment_amount: Math.round(input.amount * 100),
+      description: input.description,
+      close_by: Math.floor(Date.now() / 1000) + 2 * 60 * 60,
+      notes: { requestId: input.requestId, source: "admin_assisted_order" }
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new AppError(502, `Razorpay QR creation failed. Confirm that QR Codes are enabled for this account${body ? `: ${body}` : ""}`);
+  }
+  return response.json() as Promise<{ id: string; image_url: string; payment_amount: number; status: string; close_by?: number }>;
+}
+
+async function fetchRazorpayQrPayments(qrId: string) {
+  assertRazorpayConfigured();
+  const token = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
+  const response = await fetch(`https://api.razorpay.com/v1/payments/qr_codes/${encodeURIComponent(qrId)}/payments`, {
+    headers: { Authorization: `Basic ${token}` }
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new AppError(502, `Razorpay QR payment status check failed${body ? `: ${body}` : ""}`);
+  }
+  return response.json() as Promise<{ items?: Array<{ id: string; status?: string; captured?: boolean; amount?: number; currency?: string }> }>;
 }
 
 async function findSelectedQuote(requestId: string, selectedQuoteId?: string | null) {
@@ -2171,13 +2210,20 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
 
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
-  await ensureDarjiCustomerId(req.user!.id);
+  const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
+  const customerId = isAdmin && input.customerId ? input.customerId : req.user!.id;
+  if (input.customerId && !isAdmin) throw new AppError(403, "Only an admin can create a request for another customer");
+  const customer = await UserModel.findOne({ _id: customerId, role: "CUSTOMER" }).select("_id");
+  if (!customer) throw new AppError(404, "Customer not found");
+  await ensureDarjiCustomerId(customerId);
+  const { customerId: _requestedCustomerId, ...requestInput } = input;
+  const resolvedPickupLocation = input.pickupLocation ?? (isAdmin ? await geocodeAddress(input.pickupAddress) : undefined);
   const serviceAreaConfig = await getServiceAreaConfig();
   if (serviceAreaConfig.enabled) {
-    if (!input.pickupLocation) {
+    if (!resolvedPickupLocation) {
       throw new AppError(400, "Select a pickup address with a map location so we can confirm service availability");
     }
-    const availability = await checkServiceAvailability(input.pickupLocation.lat, input.pickupLocation.lng);
+    const availability = await checkServiceAvailability(resolvedPickupLocation.lat, resolvedPickupLocation.lng);
     if (!availability.serviceable) {
       throw new AppError(409, availability.message ?? "Darji is not available at this pickup address yet");
     }
@@ -2202,7 +2248,8 @@ export async function createTailoringRequestController(req: Request, res: Respon
   }];
   const primary = items[0];
   const request = await TailoringRequestModel.create({
-    ...input,
+    ...requestInput,
+    ...(resolvedPickupLocation ? { pickupLocation: resolvedPickupLocation } : {}),
     deliveryMode: deliveryModeFromUrgency(input.urgency),
     description: primary.description,
     gender: primary.gender,
@@ -2222,7 +2269,7 @@ export async function createTailoringRequestController(req: Request, res: Respon
     designMedia: primary.designMedia,
     items,
     itemCount: items.length,
-    customerId: req.user!.id
+    customerId
   });
 
   emitTailoringEvent({ type: "REQUEST_CREATED", requestId: request.id });
@@ -2579,6 +2626,36 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     return;
   }
 
+  if (input.adminQr) {
+    if (req.user!.role !== "ADMIN" && req.user!.role !== "SUPER_ADMIN") {
+      throw new AppError(403, "Only an admin can generate an assisted-payment QR");
+    }
+    if (input.paymentMethod !== "UPI") {
+      throw new AppError(400, "Assisted-payment QR is available only for UPI");
+    }
+    const razorpayQr = await createRazorpayQr({
+      amount: payableAmount,
+      requestId: request.id,
+      description: requestItemCount(request) === 1 ? `${request.workType} - ${request.clothType}` : `${requestItemCount(request)} clothing items`
+    });
+    await PaymentModel.create({ orderId: request.id, method: "UPI", amount: payableAmount, status: "PENDING", providerRef: razorpayQr.id });
+    res.json({
+      data: {
+        mode: "admin_qr",
+        request: await hydrateTailoringRequest(await TailoringRequestModel.findById(request.id)),
+        quote: await hydrateTailorQuote(quote),
+        razorpayQr: {
+          id: razorpayQr.id,
+          imageUrl: razorpayQr.image_url,
+          amount: razorpayQr.payment_amount,
+          currency: "INR",
+          closeBy: razorpayQr.close_by
+        }
+      }
+    });
+    return;
+  }
+
   if (env.RAZORPAY_KEY_ID?.startsWith("rzp_test_")) {
     await PaymentModel.create({
       orderId: request.id,
@@ -2743,7 +2820,9 @@ export async function recoverTailoringCheckoutController(req: Request, res: Resp
     return;
   }
 
-  const razorpayPayments = await fetchRazorpayOrderPayments(pendingPayment.providerRef);
+  const razorpayPayments = pendingPayment.providerRef.startsWith("qr_")
+    ? await fetchRazorpayQrPayments(pendingPayment.providerRef)
+    : await fetchRazorpayOrderPayments(pendingPayment.providerRef);
   const providerPayments = razorpayPayments.items ?? [];
   const capturedPayment = providerPayments.find((payment) => String(payment.status ?? "").toLowerCase() === "captured" || payment.captured === true);
 
