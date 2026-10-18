@@ -149,6 +149,93 @@ export type DashboardAnalytics = {
     unrealizedCompletedOrders: number;
     averageOrderValue: number;
     pendingPayouts: number;
+    pendingPayoutAsOf: string;
+    onlineCollections: number;
+    codCollections: number;
+    refunds: number;
+    completedCollections: number;
+    incompleteCollections: number;
+    cancelledCollections: number;
+    cancellationFees: number;
+    unrefundedCancelledCollections: number;
+    duplicatePaymentRecordsIgnored: number;
+    paidPartnerCost: number;
+    pendingPartnerCost: number;
+    pendingStitching: number;
+    pendingMeasurement: number;
+    pendingDelivery: number;
+    rawWalletLiability: number;
+  };
+  financeDetails?: {
+    grossPaid: {
+      summary: {
+        grossPaid: number;
+        onlineCollections: number;
+        codCollections: number;
+        refunds: number;
+        completedCollections: number;
+        incompleteCollections: number;
+        cancelledCollections: number;
+        cancellationFees: number;
+        unrefundedCancelledCollections: number;
+        paidOrders: number;
+        duplicatePaymentRecordsIgnored: number;
+      };
+      rows: Array<{
+        key: string;
+        paymentId: string;
+        orderId: string;
+        customerId?: string;
+        customerName?: string;
+        orderNumber?: string;
+        paymentMethod: string;
+        paymentDate?: string;
+        refundDate?: string;
+        orderStatus: string;
+        completed: boolean;
+        cancelled: boolean;
+        cancellationFee: number;
+        collectedAmount: number;
+        refundedAmount: number;
+        netCollectedAmount: number;
+        duplicateRecords: number;
+        codRemittanceStatus: "NOT_APPLICABLE" | "COLLECTED_UNRECONCILED";
+      }>;
+    };
+    partnerCost: {
+      summary: FinancialPartnerSummary;
+      rows: FinancialPartnerRow[];
+    };
+    pendingPayouts: {
+      asOf: string;
+      summary: FinancialPartnerSummary;
+      rows: FinancialPartnerRow[];
+    };
+    realizedRevenue: {
+      summary: { completedOrders: number; grossPaid: number; tailorCost: number; deliveryCost: number; partnerCost: number; packagingCost: number; netRevenue: number };
+      rows: Array<{
+        orderId: string;
+        orderNumber?: string;
+        completionDate: string;
+        collectedAmount: number;
+        stitchingCost: number;
+        measurementCost: number;
+        deliveryCost: number;
+        operationalAllowance: number;
+        partnerCost: number;
+        realizedRevenue: number;
+        marginPercentage: number | null;
+      }>;
+    };
+    reconciliation: {
+      collectedInPeriod: number;
+      completedOrderCollectionsInPeriod: number;
+      advanceOrOtherCollectionsInPeriod: number;
+      eligibleCompletedPartnerCost: number;
+      currentEligiblePendingPayouts: number;
+      rawWalletLiability: number;
+      exceptions: Array<{ type: string; orderId?: string; sourceId?: string; message: string }>;
+    };
   };
   partners: { activeTailors: number; activeDeliveryPartners: number };
   growth: { newCustomers: number; newTailors: number; newDeliveryPartners: number };
@@ -194,6 +281,40 @@ export type DashboardAnalytics = {
   topTailors: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; amount: number; completedOrders: number; rating: number }>;
   topDeliveryPartners: Array<{ profileId: string; userId: string; name: string; avatarUrl?: string; amount: number; completedDeliveries: number; rating: number }>;
   limitations: string[];
+};
+
+export type FinancialPartnerSummary = {
+  partnerCost: number;
+  stitchingCost: number;
+  measurementCost: number;
+  deliveryCost: number;
+  paidPartnerCost: number;
+  pendingPartnerCost: number;
+  pendingStitching: number;
+  pendingMeasurement: number;
+  pendingDelivery: number;
+};
+
+export type FinancialPartnerRow = {
+  id: string;
+  orderId: string;
+  partnerId: string;
+  partnerName: string;
+  partnerType: "TAILOR" | "DELIVERY_PARTNER";
+  category: "STITCHING" | "MEASUREMENT" | "DELIVERY";
+  sourceId: string;
+  sourceType: "ORDER" | "MEASUREMENT_VISIT" | "DELIVERY_TASK" | "DELIVERY_BATCH";
+  taskId?: string;
+  batchId?: string;
+  amount: number;
+  amountPaid: number;
+  amountPending: number;
+  payoutStatus: "PAID" | "PARTIALLY_PAID" | "PENDING";
+  earningDate: string;
+  completionDate?: string;
+  recognitionDate: string;
+  creditId?: string;
+  creditAmount?: number;
 };
 
 export type MeasurementVisit = {

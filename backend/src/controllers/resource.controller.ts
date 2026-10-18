@@ -64,6 +64,7 @@ import { emitToCustomer, emitToAdmins, emitToUserRole, publishPlatformStatus } f
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
 import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
+import { OPERATIONAL_ALLOWANCE_PER_ORDER, allocateAmountExactly, paymentDedupeKey } from "../services/financial-reporting.logic.js";
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
 import { checkServiceAvailability, getServiceAreaConfig, saveServiceAreaConfig } from "../services/service-area.service.js";
 import { geocodeAddress } from "../services/delivery-pricing.service.js";
@@ -2007,18 +2008,16 @@ export async function paymentsController(req: Request, res: Response) {
     OrderModel.find({ _id: { $in: orderIds } }).select("orderNumber customerId status totalAmount").lean(),
     TailoringRequestModel.find({ _id: { $in: orderIds } }).select("customerId orderStatus status totalAmount quoteAmount selectedQuoteId cancellationFee").lean(),
     DeliveryRequestModel.find({ orderId: { $in: orderIds }, taskStatus: { $ne: "cancelled" } }).select("_id orderId batchId finalPayout").lean(),
-    MeasurementVisitModel.find({ requestId: { $in: orderIds } }).select("_id requestId").lean()
+    MeasurementVisitModel.find({ requestId: { $in: orderIds } }).select("_id requestId status visitPayout").lean()
   ]);
   const batchIds = [...new Set(tasks.map((task: any) => String(task.batchId ?? "")).filter(Boolean))];
   const taskIds = tasks.map((task: any) => String(task._id));
   const quoteIds = tailoringRequests.map((request: any) => request.selectedQuoteId).filter(Boolean);
   const customerIds = [...new Set([...orders, ...tailoringRequests].map((item: any) => String(item.customerId)))];
-  const measurementVisitIds = measurementVisits.map((visit: any) => String(visit._id));
-  const [batches, allBatchTasks, deliveryTransactions, tailorTransactions, quotes, customers] = await Promise.all([
+  const [batches, allBatchTasks, deliveryTransactions, quotes, customers] = await Promise.all([
     batchIds.length ? DeliveryBatchModel.find({ batchId: { $in: batchIds } }).select("batchId finalPayout").lean() : [],
     batchIds.length ? DeliveryRequestModel.find({ batchId: { $in: batchIds }, taskStatus: { $ne: "cancelled" } }).select("batchId").lean() : [],
     WalletTransactionModel.find({ orderId: { $in: [...taskIds, ...batchIds] }, userType: "DELIVERY_PARTNER", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean(),
-    WalletTransactionModel.find({ orderId: { $in: [...orderIds, ...measurementVisitIds] }, userType: "TAILOR", transactionType: "CREDIT", category: "ORDER_EARNING" }).select("orderId amount").lean(),
     quoteIds.length ? TailorQuoteModel.find({ _id: { $in: quoteIds } }).select("_id price").lean() : [],
     UserModel.find({ _id: { $in: customerIds } }).select("_id name phone").lean()
   ]);
@@ -2027,15 +2026,10 @@ export async function paymentsController(req: Request, res: Response) {
   const requestMap = new Map(tailoringRequests.map((request: any) => [String(request._id), request]));
   const customerMap = new Map(customers.map((customer: any) => [String(customer._id), customer]));
   const quoteMap = new Map(quotes.map((quote: any) => [String(quote._id), Number(quote.price ?? 0)]));
-  const requestIdByMeasurementVisitId = new Map(measurementVisits.map((visit: any) => [String(visit._id), String(visit.requestId)]));
-  const tailorCostMap = new Map<string, number>();
   const measurementVisitCostMap = new Map<string, number>();
-  tailorTransactions.forEach((transaction: any) => {
-    const transactionOrderId = String(transaction.orderId);
-    const requestId = requestIdByMeasurementVisitId.get(transactionOrderId);
-    const costMap = requestId ? measurementVisitCostMap : tailorCostMap;
-    const orderId = requestId ?? transactionOrderId;
-    costMap.set(orderId, (costMap.get(orderId) ?? 0) + Number(transaction.amount ?? 0));
+  measurementVisits.filter((visit: any) => String(visit.status).toUpperCase() === "SUBMITTED").forEach((visit: any) => {
+    const requestId = String(visit.requestId);
+    measurementVisitCostMap.set(requestId, (measurementVisitCostMap.get(requestId) ?? 0) + Number(visit.visitPayout ?? 0));
   });
   const batchMap = new Map(batches.map((batch: any) => [String(batch.batchId), batch]));
   const activeBatchCounts = new Map<string, number>();
@@ -2058,11 +2052,25 @@ export async function paymentsController(req: Request, res: Response) {
         const count = activeBatchCounts.get(batchId) ?? 0;
         const payout = batchMap.get(batchId)?.finalPayout ?? deliveryLedgerMap.get(batchId);
         if (payout == null || count <= 0) return null;
-        total += Number(payout) / count;
+        const batchTaskIds = allBatchTasks.filter((batchTask: any) => String(batchTask.batchId) === batchId).map((batchTask: any) => String(batchTask._id));
+        total += allocateAmountExactly(Number(payout), batchTaskIds).get(String(task._id)) ?? 0;
       }
     }
     return Number(total.toFixed(2));
   };
+
+  const canonicalPaymentIds = new Map<string, string>();
+  const refundedPaymentKeys = new Set<string>();
+  [...payments].sort((a: any, b: any) => new Date(a.paidAt ?? a.createdAt ?? 0).getTime() - new Date(b.paidAt ?? b.createdAt ?? 0).getTime())
+    .filter((payment: any) => ["PAID", "REFUNDED"].includes(String(payment.status).toUpperCase()))
+    .forEach((payment: any) => {
+      const key = paymentDedupeKey({
+        id: String(payment._id), orderId: String(payment.orderId), method: String(payment.method), status: String(payment.status), amount: Number(payment.amount),
+        providerRef: payment.providerRef ?? undefined, paidAt: payment.paidAt ?? undefined, refundedAt: payment.refundedAt ?? undefined, createdAt: payment.createdAt ?? undefined, updatedAt: payment.updatedAt ?? undefined
+      });
+      if (!canonicalPaymentIds.has(key)) canonicalPaymentIds.set(key, String(payment._id));
+      if (String(payment.status).toUpperCase() === "REFUNDED") refundedPaymentKeys.add(key);
+    });
 
   const data = payments.map((payment) => {
     const orderId = String(payment.orderId);
@@ -2072,16 +2080,20 @@ export async function paymentsController(req: Request, res: Response) {
     const entity = order ?? request;
     const customer: any = customerMap.get(String(entity.customerId));
     const completed = order ? String(order.status) === "DELIVERED" : String(request.orderStatus).toLowerCase() === "completed";
-    const actualStitchingCost = tailorCostMap.get(orderId);
+    const expectedStitchingCost = order ? Number(order.totalAmount ?? payment.amount ?? 0) * 0.45 : Number(request.quoteAmount ?? quoteMap.get(String(request.selectedQuoteId)) ?? 0);
     const measurementVisitCost = measurementVisitCostMap.get(orderId) ?? 0;
-    const actualTailorCost = actualStitchingCost == null ? undefined : actualStitchingCost + measurementVisitCost;
+    const actualTailorCost = expectedStitchingCost > 0 ? expectedStitchingCost + measurementVisitCost : undefined;
     const actualDeliveryCost = deliveryCostFor(orderId);
-    const realized = payment.status === "PAID" && completed && actualTailorCost != null && actualDeliveryCost != null;
+    const paymentKey = paymentDedupeKey({
+      id: String(payment._id), orderId, method: String(payment.method), status: String(payment.status), amount: Number(payment.amount), providerRef: payment.providerRef ?? undefined,
+      paidAt: payment.paidAt ?? undefined, refundedAt: payment.refundedAt ?? undefined, createdAt: payment.createdAt ?? undefined, updatedAt: payment.updatedAt ?? undefined
+    });
+    const duplicatePayment = ["PAID", "REFUNDED"].includes(String(payment.status).toUpperCase()) && canonicalPaymentIds.get(paymentKey) !== String(payment._id);
+    const fullyRefunded = refundedPaymentKeys.has(paymentKey);
+    const realized = payment.status === "PAID" && !duplicatePayment && !fullyRefunded && completed && actualTailorCost != null && actualDeliveryCost != null;
     const customerPaid = Number(payment.amount ?? entity.totalAmount ?? 0);
-    const cancelled = String(order?.status ?? request?.orderStatus ?? request?.status ?? "").toLowerCase() === "cancelled";
-    const recognizedAmount = cancelled ? Math.min(customerPaid, Number(request?.cancellationFee ?? 0)) : customerPaid;
-    const expectedTailorCost = order ? Number(order.totalAmount ?? payment.amount ?? 0) * 0.45 : Number(request.quoteAmount ?? quoteMap.get(String(request.selectedQuoteId)) ?? 0);
-    const tailorQuote = actualTailorCost ?? expectedTailorCost;
+    const recognizedAmount = duplicatePayment || fullyRefunded || String(payment.status).toUpperCase() === "REFUNDED" ? 0 : customerPaid;
+    const tailorQuote = actualTailorCost ?? expectedStitchingCost;
     const deliveryEarnings = actualDeliveryCost ?? 0;
     return {
       ...payment.toJSON(),
@@ -2091,8 +2103,10 @@ export async function paymentsController(req: Request, res: Response) {
       tailorQuote,
       measurementVisitCost,
       deliveryEarnings,
-      netRevenue: realized ? Number((customerPaid - tailorQuote - deliveryEarnings - 8).toFixed(2)) : null,
-      packagingCost: realized ? 8 : 0,
+      netRevenue: realized ? Number((customerPaid - tailorQuote - deliveryEarnings - OPERATIONAL_ALLOWANCE_PER_ORDER).toFixed(2)) : null,
+      packagingCost: realized ? OPERATIONAL_ALLOWANCE_PER_ORDER : 0,
+      duplicatePayment,
+      fullyRefunded,
       realized,
       order: {
         id: orderId,

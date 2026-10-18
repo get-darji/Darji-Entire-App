@@ -262,6 +262,8 @@ type DashboardDrilldown = {
   periodScoped: boolean;
 };
 
+type FinanceDetailKind = "gross_paid" | "partner_cost" | "pending_payouts" | "realized_revenue";
+
 type QueryBundle = {
   analytics: AnalyticsSummary;
   me: MeResponse;
@@ -495,6 +497,7 @@ export function AdminPortal() {
   const [globalSearch, setGlobalSearch] = useState("");
   const [sessionRestoreDone, setSessionRestoreDone] = useState(false);
   const [dashboardDrilldown, setDashboardDrilldown] = useState<DashboardDrilldown | null>(null);
+  const [financeDetailKind, setFinanceDetailKind] = useState<FinanceDetailKind | null>(null);
 
   useEffect(() => {
     if (!sessionNotice) return;
@@ -1949,7 +1952,7 @@ export function AdminPortal() {
     {
       icon: BarChart3,
       label: "Realized Net Revenue",
-      formula: "Collected customer payments − recorded tailor earnings − finalized delivery payout − ₹8 packaging/other cost, for delivered orders with finalized costs only.",
+      formula: "Completed-order net collections − finalized stitching, measurement and delivery costs − ₹16 operational allowance once per eligible completed order.",
       note: `From ${dashboardAnalytics.finance.realizedCompletedOrders.toLocaleString("en-IN")} completed order${dashboardAnalytics.finance.realizedCompletedOrders === 1 ? "" : "s"}`,
       tone: "sky" as const,
       value: formatCurrency(dashboardAnalytics.finance.netRevenue),
@@ -1957,45 +1960,49 @@ export function AdminPortal() {
       changeTone: comparisonTone(dashboardAnalytics.comparison.netRevenue),
       target: "orders" as SectionId,
       drilldownKey: "orders_realized" as DashboardDrilldownKey,
+      detailKind: "realized_revenue" as FinanceDetailKind,
       periodScoped: true
     },
     {
       icon: ReceiptIndianRupee,
       label: "Gross Paid",
-      formula: "Total amount successfully collected from customers during the selected period. Pending and failed payments are excluded.",
-      note: "Customer paid amount",
+      formula: "Successful customer collections minus successful full refunds in the selected payment/refund period. Duplicate payment records are ignored.",
+      note: `${formatCurrency(dashboardAnalytics.finance.incompleteCollections)} awaiting completion`,
       tone: "emerald" as const,
       value: formatCurrency(dashboardAnalytics.finance.grossPaid),
       change: comparisonLabel(dashboardAnalytics.comparison.grossPaid),
       changeTone: comparisonTone(dashboardAnalytics.comparison.grossPaid),
       target: "payments" as SectionId,
       drilldownKey: "payments_paid" as DashboardDrilldownKey,
+      detailKind: "gross_paid" as FinanceDetailKind,
       periodScoped: true
     },
     {
       icon: AlertCircle,
       label: "Partner Cost",
-      formula: "Tailor earnings + actual delivery partner earnings credited in the wallet ledger.",
-      note: "Wallet earnings credited to tailors + delivery partners",
+      formula: "Finalized stitching, measurement and delivery obligations for orders completed in the selected period, whether paid or still pending.",
+      note: `${formatCurrency(dashboardAnalytics.finance.paidPartnerCost)} paid · ${formatCurrency(dashboardAnalytics.finance.pendingPartnerCost)} pending`,
       tone: "rose" as const,
       value: formatCurrency(dashboardAnalytics.finance.partnerCost),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId,
       drilldownKey: "partner_cost" as DashboardDrilldownKey,
+      detailKind: "partner_cost" as FinanceDetailKind,
       periodScoped: true
     },
     {
       icon: PackageCheck,
       label: "Pending Payouts",
-      formula: "Current positive wallet balances owed to tailors and delivery partners. This is a current liability, not a period delta.",
-      note: "Current unpaid wallet balance",
+      formula: "As-of-now unpaid portion of finalized partner obligations belonging to completed orders only.",
+      note: `As of ${formatDate(dashboardAnalytics.finance.pendingPayoutAsOf, true)}`,
       tone: "amber" as const,
       value: formatCurrency(periodPendingPayouts),
       change: "",
       changeTone: "neutral" as const,
       target: "payments" as SectionId,
       drilldownKey: "pending_payouts" as DashboardDrilldownKey,
+      detailKind: "pending_payouts" as FinanceDetailKind,
       periodScoped: false
     },
     {
@@ -2556,23 +2563,25 @@ export function AdminPortal() {
                   change={item.change}
                   changeTone={item.changeTone}
                   formula={"formula" in item ? item.formula : undefined}
-                  onClick={() => openDashboardDrilldown({
-                    key: item.drilldownKey,
-                    label: item.label,
-                    target: item.target,
-                    periodScoped: item.periodScoped
-                  })}
+                  onClick={() => "detailKind" in item && item.detailKind
+                    ? setFinanceDetailKind(item.detailKind)
+                    : openDashboardDrilldown({
+                      key: item.drilldownKey,
+                      label: item.label,
+                      target: item.target,
+                      periodScoped: item.periodScoped
+                    })}
                 />
               ))}
             </div>
 
             <Panel className="overflow-hidden p-0">
               <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">
-                <FinanceBreakdownItem label="Gross Paid" value={dashboardAnalytics.finance.realizedGrossPaid} onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Gross Paid", target: "orders", periodScoped: true })} />
-                <FinanceBreakdownItem label="Tailor + Measurement Cost" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Tailor + Measurement Cost", target: "orders", periodScoped: true })} />
-                <FinanceBreakdownItem label="Delivery Payout" value={dashboardAnalytics.finance.realizedDeliveryCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Delivery Payout", target: "orders", periodScoped: true })} />
-                <FinanceBreakdownItem label={`Packaging (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.realizedCompletedOrders})`} value={dashboardAnalytics.finance.realizedPackagingCost} tone="cost" onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Packaging Cost", target: "orders", periodScoped: true })} />
-                <FinanceBreakdownItem emphasized label="Realized Net Revenue" value={dashboardAnalytics.finance.netRevenue} onClick={() => openDashboardDrilldown({ key: "orders_realized", label: "Realized Net Revenue", target: "orders", periodScoped: true })} />
+                <FinanceBreakdownItem label="Completed-order collections" value={dashboardAnalytics.finance.realizedGrossPaid} onClick={() => setFinanceDetailKind("realized_revenue")} />
+                <FinanceBreakdownItem label="Stitching + measurement" value={dashboardAnalytics.finance.realizedTailorCost} tone="cost" onClick={() => setFinanceDetailKind("realized_revenue")} />
+                <FinanceBreakdownItem label="Finalized delivery payout" value={dashboardAnalytics.finance.realizedDeliveryCost} tone="cost" onClick={() => setFinanceDetailKind("realized_revenue")} />
+                <FinanceBreakdownItem label={`Operational allowance (₹${dashboardAnalytics.finance.packagingCostPerOrder} × ${dashboardAnalytics.finance.realizedCompletedOrders})`} value={dashboardAnalytics.finance.realizedPackagingCost} tone="cost" onClick={() => setFinanceDetailKind("realized_revenue")} />
+                <FinanceBreakdownItem emphasized label="Realized Net Revenue" value={dashboardAnalytics.finance.netRevenue} onClick={() => setFinanceDetailKind("realized_revenue")} />
               </div>
               {dashboardAnalytics.finance.unrealizedCompletedOrders > 0 ? (
                 <p className="bg-amber-50 px-5 py-3 text-xs font-medium text-amber-800">
@@ -2913,7 +2922,7 @@ export function AdminPortal() {
             {dashboardDrilldown?.target === "payments" ? <KpiDrilldownNotice count={dashboardDrilldown.key === "payments_paid" ? filteredPayments.length : activePayoutRows.filter((row) => dashboardDrilldown.key === "partner_cost" ? row.currentWeekEarnings > 0 : row.pendingAmount > 0).length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             <SectionIntro
               title="Payments and collections"
-              description="Payment ledger reconciled against collected payments, recorded partner earnings, finalized delivery payout, and ₹8 packaging cost."
+              description="Payment ledger reconciled against net customer collections, completed-order partner obligations, successful payouts, and the ₹16 operational allowance."
               action={
                 <div className="flex items-center gap-2">
                   <FilterSelect
@@ -3234,6 +3243,22 @@ export function AdminPortal() {
           </div>
         ) : null}
       </PortalFrame>
+
+      <FinancialDetailDialog
+        analytics={dashboardAnalytics}
+        kind={financeDetailKind}
+        periodLabel={dateRangeLabel}
+        onClose={() => setFinanceDetailKind(null)}
+        onOpenPartnerManagement={() => {
+          setFinanceDetailKind(null);
+          setActiveSection("partners");
+        }}
+        onOpenPayouts={() => {
+          setFinanceDetailKind(null);
+          setPaymentsSubTab("payouts");
+          setActiveSection("payments");
+        }}
+      />
 
       <CreateOrderDialog
         catalog={catalogQuery.data ?? []}
@@ -4409,6 +4434,191 @@ function KpiDrilldownNotice({ count, label, onClear, periodLabel }: { count: num
       </button>
     </div>
   );
+}
+
+function FinancialDetailDialog({
+  analytics,
+  kind,
+  onClose,
+  onOpenPartnerManagement,
+  onOpenPayouts,
+  periodLabel
+}: {
+  analytics: DashboardAnalytics;
+  kind: FinanceDetailKind | null;
+  onClose: () => void;
+  onOpenPartnerManagement: () => void;
+  onOpenPayouts: () => void;
+  periodLabel: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  useEffect(() => {
+    setSearch("");
+    setCategory("");
+    setPage(1);
+  }, [kind]);
+  if (!kind) return null;
+
+  const details = analytics.financeDetails;
+  if (!details) {
+    return (
+      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Dialog.Title className="text-xl font-semibold text-[var(--foreground)]">Financial breakdown unavailable</Dialog.Title>
+                <Dialog.Description className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                  The dashboard is connected to an older backend response. Restart or deploy the updated backend, then refresh this page. Summary cards remain available in the meantime.
+                </Dialog.Description>
+              </div>
+              <Dialog.Close className="rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--accent-soft)]"><X size={18} /></Dialog.Close>
+            </div>
+            <div className="mt-5 flex justify-end"><Dialog.Close asChild><ActionButton>Close</ActionButton></Dialog.Close></div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    );
+  }
+
+  const title = kind === "gross_paid" ? "Gross Paid"
+    : kind === "partner_cost" ? "Completed-order Partner Cost"
+      : kind === "pending_payouts" ? "Pending Partner Payouts"
+        : "Realized Net Revenue";
+  const description = kind === "gross_paid"
+    ? `Collection-date ledger for ${periodLabel}. Online advances remain visible before completion; COD is not treated as remitted cash.`
+    : kind === "partner_cost"
+      ? `Finalized obligations recognized by order completion date for ${periodLabel}. Paid plus pending always equals total partner cost.`
+      : kind === "pending_payouts"
+        ? `As-of-now liabilities from completed orders only, calculated at ${formatDate(details.pendingPayouts.asOf, true)}.`
+        : `Completed-order contribution for ${periodLabel}, using ₹16 once per eligible order.`;
+
+  const sourceRows = kind === "gross_paid" ? details.grossPaid.rows
+    : kind === "partner_cost" ? details.partnerCost.rows
+      : kind === "pending_payouts" ? details.pendingPayouts.rows
+        : details.realizedRevenue.rows;
+  const filteredRows = sourceRows.filter((row) => {
+    const values = Object.values(row as Record<string, unknown>).join(" ").toLowerCase();
+    if (search && !values.includes(search.toLowerCase())) return false;
+    if (!category) return true;
+    if ("category" in row) return String(row.category) === category;
+    if (kind === "gross_paid") return String((row as { paymentMethod: string }).paymentMethod) === category;
+    return true;
+  });
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const rows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const exceptions = details.reconciliation.exceptions;
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm" />
+        <Dialog.Content className="fixed bottom-3 right-3 top-3 z-50 w-[min(1120px,calc(100vw-1.5rem))] overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] shadow-2xl">
+          <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--panel-border)] bg-[var(--panel-strong)] px-5 py-4">
+            <div>
+              <Dialog.Title className="text-xl font-semibold text-[var(--foreground)]">{title}</Dialog.Title>
+              <Dialog.Description className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">{description}</Dialog.Description>
+            </div>
+            <Dialog.Close className="rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--accent-soft)]"><X size={18} /></Dialog.Close>
+          </div>
+
+          <div className="space-y-5 p-5">
+            {kind === "gross_paid" ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <FinanceDetailMetric label="Gross Paid" value={details.grossPaid.summary.grossPaid} />
+                <FinanceDetailMetric label="Online" value={details.grossPaid.summary.onlineCollections} />
+                <FinanceDetailMetric label="COD collected" value={details.grossPaid.summary.codCollections} />
+                <FinanceDetailMetric label="Refunds" value={details.grossPaid.summary.refunds} negative />
+                <FinanceDetailMetric label="Completed" value={details.grossPaid.summary.completedCollections} />
+                <FinanceDetailMetric label="Incomplete" value={details.grossPaid.summary.incompleteCollections} />
+                <FinanceDetailMetric label="Cancellation fees" value={details.grossPaid.summary.cancellationFees} />
+                <FinanceDetailMetric label="Cancelled cash awaiting refund proof" value={details.grossPaid.summary.unrefundedCancelledCollections} />
+              </div>
+            ) : kind === "realized_revenue" ? (
+              <div className="rounded-2xl border border-[var(--panel-border)] bg-white/70 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Financial equation</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                  <FinanceDetailMetric label="Completed collections" value={analytics.finance.realizedGrossPaid} />
+                  <FinanceDetailMetric label="Stitching + measurement" value={analytics.finance.realizedTailorCost} negative />
+                  <FinanceDetailMetric label="Delivery" value={analytics.finance.realizedDeliveryCost} negative />
+                  <FinanceDetailMetric label={`₹16 × ${analytics.finance.realizedCompletedOrders}`} value={analytics.finance.realizedPackagingCost} negative />
+                  <FinanceDetailMetric label="Realized revenue" value={analytics.finance.netRevenue} />
+                  <FinanceDetailMetric label="Eligible orders" value={analytics.finance.realizedCompletedOrders} currency={false} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                <FinanceDetailMetric label={kind === "partner_cost" ? "Partner Cost" : "Pending Payout"} value={kind === "partner_cost" ? details.partnerCost.summary.partnerCost : details.pendingPayouts.summary.pendingPartnerCost} />
+                <FinanceDetailMetric label="Stitching" value={kind === "partner_cost" ? details.partnerCost.summary.stitchingCost : details.pendingPayouts.summary.pendingStitching} />
+                <FinanceDetailMetric label="Measurement" value={kind === "partner_cost" ? details.partnerCost.summary.measurementCost : details.pendingPayouts.summary.pendingMeasurement} />
+                <FinanceDetailMetric label="Delivery" value={kind === "partner_cost" ? details.partnerCost.summary.deliveryCost : details.pendingPayouts.summary.pendingDelivery} />
+                <FinanceDetailMetric label="Paid" value={kind === "partner_cost" ? details.partnerCost.summary.paidPartnerCost : details.pendingPayouts.summary.paidPartnerCost} />
+                <FinanceDetailMetric label="Unpaid" value={kind === "partner_cost" ? details.partnerCost.summary.pendingPartnerCost : details.pendingPayouts.summary.pendingPartnerCost} />
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+              <strong>Reconciliation:</strong> collected in period {formatCurrency(details.reconciliation.collectedInPeriod)} · completed-order collections recognized {formatCurrency(details.reconciliation.completedOrderCollectionsInPeriod)} · current eligible unpaid partner liability {formatCurrency(details.reconciliation.currentEligiblePendingPayouts)}.
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={16} />
+                <input className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-10 pr-3 text-sm outline-none focus:border-[var(--accent)]" placeholder="Search order, payment, partner, task or batch" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {kind === "gross_paid" ? <FilterSelect value={category} onChange={(value) => { setCategory(value); setPage(1); }} options={[{ label: "All methods", value: "" }, { label: "Online", value: "ONLINE" }, { label: "UPI", value: "UPI" }, { label: "COD", value: "COD" }]} /> : null}
+                {kind === "partner_cost" || kind === "pending_payouts" ? <FilterSelect value={category} onChange={(value) => { setCategory(value); setPage(1); }} options={[{ label: "All costs", value: "" }, { label: "Stitching", value: "STITCHING" }, { label: "Measurement", value: "MEASUREMENT" }, { label: "Delivery", value: "DELIVERY" }]} /> : null}
+                {(kind === "partner_cost" || kind === "pending_payouts") ? <ActionButton variant="secondary" onClick={onOpenPartnerManagement}>Partners</ActionButton> : null}
+                {kind === "pending_payouts" ? <ActionButton onClick={onOpenPayouts}>Open payouts</ActionButton> : null}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-[var(--panel-border)]">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-[#fff8ec] text-xs uppercase tracking-wide text-[#74654f]">
+                  {kind === "gross_paid" ? <tr><th className="px-4 py-3">Order / customer</th><th className="px-4 py-3">Payment</th><th className="px-4 py-3">Date / status</th><th className="px-4 py-3 text-right">Collected</th><th className="px-4 py-3 text-right">Refunded</th><th className="px-4 py-3 text-right">Net</th></tr>
+                    : kind === "realized_revenue" ? <tr><th className="px-4 py-3">Order</th><th className="px-4 py-3">Completion</th><th className="px-4 py-3 text-right">Collected</th><th className="px-4 py-3 text-right">Partner cost</th><th className="px-4 py-3 text-right">Allowance</th><th className="px-4 py-3 text-right">Revenue / margin</th></tr>
+                      : <tr><th className="px-4 py-3">Partner</th><th className="px-4 py-3">Order / source</th><th className="px-4 py-3">Category</th><th className="px-4 py-3 text-right">Earning</th><th className="px-4 py-3 text-right">Paid</th><th className="px-4 py-3 text-right">Pending</th></tr>}
+                </thead>
+                <tbody className="divide-y divide-[var(--panel-border)] bg-white/60">
+                  {rows.map((row: any) => kind === "gross_paid" ? (
+                    <tr key={row.key}><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.customerName ?? row.customerId ?? "Customer"}</p></td><td className="px-4 py-3"><StatusBadge value={row.paymentMethod} /><p className="mt-1 text-xs text-[var(--muted)]">{row.paymentId}{row.duplicateRecords ? ` · ${row.duplicateRecords} duplicate ignored` : ""}</p></td><td className="px-4 py-3"><p>{formatDate(row.paymentDate ?? row.refundDate, true)}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.orderStatus}{row.cancelled ? ` · fee ${formatCurrency(row.cancellationFee)}` : ""}{row.codRemittanceStatus === "COLLECTED_UNRECONCILED" ? " · COD remittance unverified" : ""}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right text-rose-600">{formatCurrency(row.refundedAmount)}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.netCollectedAmount)}</td></tr>
+                  ) : kind === "realized_revenue" ? (
+                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.orderId}</p></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td></tr>
+                  ) : (
+                    <tr key={row.id}><td className="px-4 py-3"><p className="font-semibold">{row.partnerName}</p><p className="text-xs text-[var(--muted)]">{row.partnerType} · {row.partnerId}</p></td><td className="px-4 py-3"><p>{row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.batchId ? `Batch ${row.batchId}` : row.taskId ? `Task ${row.taskId}` : row.sourceId}</p></td><td className="px-4 py-3"><StatusBadge value={row.category} /><p className="mt-1 text-xs text-[var(--muted)]">Recognized {formatDate(row.recognitionDate, true)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.amount)}</td><td className="px-4 py-3 text-right text-emerald-700">{formatCurrency(row.amountPaid)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{formatCurrency(row.amountPending)}</td></tr>
+                  ))}
+                  {!rows.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={6}>No financial records match these filters.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 text-sm text-[var(--muted)]">
+              <span>{filteredRows.length.toLocaleString("en-IN")} record{filteredRows.length === 1 ? "" : "s"}</span>
+              <div className="flex items-center gap-2"><ActionButton variant="secondary" disabled={safePage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /> Previous</ActionButton><span>Page {safePage} of {pageCount}</span><ActionButton variant="secondary" disabled={safePage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>Next <ChevronRight size={15} /></ActionButton></div>
+            </div>
+
+            {exceptions.length ? (
+              <details className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <summary className="cursor-pointer font-semibold text-amber-950">Reconciliation exceptions ({exceptions.length})</summary>
+                <div className="mt-3 space-y-2 text-sm text-amber-950">{exceptions.map((exception, index) => <p key={`${exception.type}-${exception.orderId ?? index}`}><strong>{exception.type.replaceAll("_", " ")}:</strong> {exception.message}{exception.orderId ? ` Order ${exception.orderId}.` : ""}</p>)}</div>
+              </details>
+            ) : null}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function FinanceDetailMetric({ currency = true, label, negative = false, value }: { currency?: boolean; label: string; negative?: boolean; value: number }) {
+  return <div className="rounded-2xl border border-[var(--panel-border)] bg-white/70 px-4 py-3"><p className="text-xs font-medium text-[var(--muted)]">{label}</p><p className={cn("mt-1 text-lg font-semibold", negative ? "text-rose-700" : "text-[var(--deep)]")}>{currency ? formatCurrency(value) : value.toLocaleString("en-IN")}</p></div>;
 }
 
 function StatCard({

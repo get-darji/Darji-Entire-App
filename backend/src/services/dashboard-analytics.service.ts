@@ -5,6 +5,7 @@ import {
   MeasurementVisitModel,
   OrderModel,
   PaymentModel,
+  PaymentHistoryModel,
   TailorModel,
   TailorQuoteModel,
   TailoringRequestModel,
@@ -12,8 +13,20 @@ import {
   WalletModel,
   WalletTransactionModel
 } from "../models.js";
+import {
+  OPERATIONAL_ALLOWANCE_PER_ORDER,
+  allocateAmountExactly,
+  allocatePayoutsFifo,
+  buildPaymentCollections,
+  inFinancePeriod,
+  reconcilePartnerObligations,
+  roundMoney,
+  summarizePartnerCosts,
+  type FinanceOrder,
+  type PartnerObligation
+} from "./financial-reporting.logic.js";
 
-const PACKAGING_COST_PER_ORDER = 8;
+const PACKAGING_COST_PER_ORDER = OPERATIONAL_ALLOWANCE_PER_ORDER;
 
 type OrderCategory = "pending" | "active" | "completed" | "cancelled";
 type PeriodBounds = { start: Date; endExclusive: Date };
@@ -21,6 +34,9 @@ type NormalizedOrder = {
   id: string;
   source: "ORDER" | "TAILORING_REQUEST";
   customerId: string;
+  customerName?: string;
+  orderNumber?: string;
+  status: string;
   tailorId?: string;
   createdAt: Date;
   completedAt?: Date;
@@ -129,54 +145,8 @@ function orderCounts(orders: NormalizedOrder[], bounds: PeriodBounds) {
   };
 }
 
-function paymentDate(payment: any) {
-  return validDate(payment.paidAt ?? payment.updatedAt ?? payment.createdAt, new Date(0));
-}
-
-function collectedPayments(payments: any[], bounds: PeriodBounds) {
-  return payments.filter((payment) => String(payment.status).toUpperCase() === "PAID" && inPeriod(paymentDate(payment), bounds));
-}
-
 function transactionDate(transaction: any) {
   return validDate(transaction.createdAt, new Date(0));
-}
-
-function financeSummary(payments: any[], earnings: any[], orders: NormalizedOrder[], bounds: PeriodBounds) {
-  const paid = collectedPayments(payments, bounds);
-  const orderById = new Map(orders.map((order) => [order.id, order]));
-  const paidByOrder = new Map<string, number>();
-  paid.forEach((payment) => {
-    const orderId = String(payment.orderId);
-    paidByOrder.set(orderId, (paidByOrder.get(orderId) ?? 0) + Number(payment.amount ?? 0));
-  });
-  let grossPaid = 0;
-  const paidOrderIds = new Set<string>();
-  paidByOrder.forEach((amount, orderId) => {
-    const order = orderById.get(orderId);
-    const recognizedAmount = order?.category === "cancelled" ? Math.min(amount, Number(order.cancellationFee ?? 0)) : amount;
-    if (recognizedAmount > 0) paidOrderIds.add(orderId);
-    grossPaid += recognizedAmount;
-  });
-  const periodEarnings = earnings.filter((transaction) => inPeriod(transactionDate(transaction), bounds));
-  const tailorCost = periodEarnings
-    .filter((transaction) => transaction.userType === "TAILOR")
-    .reduce((sum, transaction) => sum + Number(transaction.amount ?? 0), 0);
-  const deliveryCost = periodEarnings
-    .filter((transaction) => transaction.userType === "DELIVERY_PARTNER")
-    .reduce((sum, transaction) => sum + Number(transaction.amount ?? 0), 0);
-  const partnerCost = tailorCost + deliveryCost;
-  const packagingCost = paidOrderIds.size * PACKAGING_COST_PER_ORDER;
-  return {
-    grossPaid: Number(grossPaid.toFixed(2)),
-    paidOrders: paidOrderIds.size,
-    tailorCost: Number(tailorCost.toFixed(2)),
-    deliveryCost: Number(deliveryCost.toFixed(2)),
-    partnerCost: Number(partnerCost.toFixed(2)),
-    packagingCost,
-    packagingCostPerOrder: PACKAGING_COST_PER_ORDER,
-    netRevenue: Number((grossPaid - partnerCost - packagingCost).toFixed(2)),
-    averageOrderValue: paidOrderIds.size ? Number((grossPaid / paidOrderIds.size).toFixed(2)) : 0
-  };
 }
 
 type RealizedRecord = {
@@ -204,89 +174,6 @@ export function summarizeRealizedRecords(records: RealizedRecord[]) {
   };
 }
 
-function actualDeliveryCostByOrder(deliveryRequests: any[], deliveryBatches: any[], earnings: any[]) {
-  const batchById = new Map(deliveryBatches.map((batch) => [String(batch.batchId), batch]));
-  const deliveryLedgerBySource = new Map<string, number>();
-  earnings.filter((transaction) => transaction.userType === "DELIVERY_PARTNER").forEach((transaction) => {
-    const sourceId = String(transaction.orderId ?? "");
-    if (sourceId) deliveryLedgerBySource.set(sourceId, (deliveryLedgerBySource.get(sourceId) ?? 0) + Number(transaction.amount ?? 0));
-  });
-  const activeTaskCountByBatch = new Map<string, number>();
-  deliveryRequests.forEach((task) => {
-    const batchId = String(task.batchId ?? "");
-    if (batchId && String(task.taskStatus) !== "cancelled") {
-      activeTaskCountByBatch.set(batchId, (activeTaskCountByBatch.get(batchId) ?? 0) + 1);
-    }
-  });
-
-  const tasksByOrder = new Map<string, any[]>();
-  deliveryRequests.forEach((task) => {
-    if (String(task.taskStatus) === "cancelled") return;
-    const orderId = String(task.orderId);
-    const tasks = tasksByOrder.get(orderId) ?? [];
-    tasks.push(task);
-    tasksByOrder.set(orderId, tasks);
-  });
-
-  const result = new Map<string, number | null>();
-  tasksByOrder.forEach((tasks, orderId) => {
-    let total = 0;
-    let finalized = tasks.length > 0;
-    tasks.forEach((task) => {
-      const batchId = String(task.batchId ?? "");
-      if (!batchId) {
-        const actualPayout = task.finalPayout ?? deliveryLedgerBySource.get(String(task._id));
-        if (actualPayout == null) finalized = false;
-        else total += Number(actualPayout);
-        return;
-      }
-      const batch = batchById.get(batchId);
-      const activeTaskCount = activeTaskCountByBatch.get(batchId) ?? 0;
-      const actualPayout = batch?.finalPayout ?? deliveryLedgerBySource.get(batchId);
-      if (actualPayout == null || activeTaskCount <= 0) finalized = false;
-      else total += Number(actualPayout) / activeTaskCount;
-    });
-    result.set(orderId, finalized ? Number(total.toFixed(2)) : null);
-  });
-  return result;
-}
-
-function buildRealizedRecords(
-  orders: NormalizedOrder[],
-  payments: any[],
-  earnings: any[],
-  deliveryRequests: any[],
-  deliveryBatches: any[],
-  measurementVisits: any[]
-) {
-  const paidByOrder = new Map<string, number>();
-  payments.filter((payment) => String(payment.status).toUpperCase() === "PAID").forEach((payment) => {
-    const orderId = String(payment.orderId);
-    paidByOrder.set(orderId, (paidByOrder.get(orderId) ?? 0) + Number(payment.amount ?? 0));
-  });
-  const requestIdByMeasurementVisitId = new Map(
-    measurementVisits.map((visit) => [String(visit._id), String(visit.requestId)])
-  );
-  const tailorCostByOrder = new Map<string, number>();
-  earnings.filter((transaction) => transaction.userType === "TAILOR").forEach((transaction) => {
-    const transactionOrderId = String(transaction.orderId ?? "");
-    const orderId = requestIdByMeasurementVisitId.get(transactionOrderId) ?? transactionOrderId;
-    if (orderId) tailorCostByOrder.set(orderId, (tailorCostByOrder.get(orderId) ?? 0) + Number(transaction.amount ?? 0));
-  });
-  const deliveryCostByOrder = actualDeliveryCostByOrder(deliveryRequests, deliveryBatches, earnings);
-
-  const records: RealizedRecord[] = [];
-  orders.filter((order) => order.category === "completed" && order.completedAt).forEach((order) => {
-    const grossPaid = paidByOrder.get(order.id);
-    const tailorCost = tailorCostByOrder.get(order.id);
-    const deliveryCost = deliveryCostByOrder.get(order.id);
-    if (grossPaid == null || tailorCost == null || deliveryCost == null) {
-      return;
-    }
-    records.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost });
-  });
-  return { records };
-}
 
 function bucketMode(bounds: PeriodBounds) {
   const days = (bounds.endExclusive.getTime() - bounds.start.getTime()) / 86_400_000;
@@ -379,17 +266,19 @@ function buildSeries(
 
 export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown, lifetime = false) {
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
-  const [legacyOrders, tailoringRequests, payments, earnings, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits] = await Promise.all([
-    OrderModel.find().select("_id customerId tailorId status createdAt timelineEvents").lean(),
-    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee createdAt timelineEvents").lean(),
-    PaymentModel.find().select("_id orderId amount status paidAt createdAt updatedAt").lean(),
-    WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("userId userType orderId amount createdAt").lean(),
+  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits] = await Promise.all([
+    OrderModel.find().select("_id orderNumber customerId tailorId status totalAmount createdAt timelineEvents").lean(),
+    TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
+    PaymentModel.find().select("_id orderId method amount status providerRef paidAt refundedAt createdAt updatedAt").lean(),
+    WalletTransactionModel.find({ transactionType: "CREDIT", category: "ORDER_EARNING" }).select("_id userId userType orderId amount createdAt").lean(),
+    WalletTransactionModel.find({ transactionType: "CREDIT" }).select("_id userId userType orderId category amount createdAt").lean(),
+    PaymentHistoryModel.find({ status: "PAID" }).select("_id userId userType amount paidAt status").lean(),
     WalletModel.find({ userType: { $in: ["TAILOR", "DELIVERY_PARTNER"] }, balance: { $gt: 0 } }).select("userId userType balance").lean(),
     TailorModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId shopName isAvailable verificationStatus rating createdAt").lean(),
     DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus rating createdAt").lean(),
-    DeliveryRequestModel.find().select("_id orderId type batchId taskStatus finalPayout deliveredAt").lean(),
-    DeliveryBatchModel.find().select("batchId status finalPayout").lean(),
-    MeasurementVisitModel.find().select("_id requestId").lean()
+    DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt").lean(),
+    DeliveryBatchModel.find().select("batchId deliveryPartnerId status finalPayout").lean(),
+    MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean()
   ]);
 
   const completionByOrder = new Map<string, Date>();
@@ -420,7 +309,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const quoteCountMap = new Map(quoteCounts.map((item) => [String(item._id), Number(item.count)]));
   const selectedQuoteIds = tailoringRequests.map((request: any) => request.selectedQuoteId).filter(Boolean);
   const selectedQuotes = selectedQuoteIds.length
-    ? await TailorQuoteModel.find({ _id: { $in: selectedQuoteIds } }).select("_id tailorId").lean()
+    ? await TailorQuoteModel.find({ _id: { $in: selectedQuoteIds } }).select("_id requestId tailorId price status").lean()
     : [];
   const selectedQuoteTailorMap = new Map(selectedQuotes.map((quote: any) => [String(quote._id), String(quote.tailorId)]));
 
@@ -431,6 +320,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       id,
       source: "ORDER",
       customerId: String(order.customerId),
+      orderNumber: String(order.orderNumber ?? order._id),
+      status: String(order.status ?? "UNKNOWN"),
       tailorId: order.tailorId ? String(order.tailorId) : undefined,
       createdAt: validDate(order.createdAt, new Date(0)),
       completedAt: completionByOrder.get(id),
@@ -445,6 +336,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       id,
       source: "TAILORING_REQUEST",
       customerId: String(request.customerId),
+      orderNumber: String(request._id),
+      status: String(request.orderStatus ?? request.status ?? "UNKNOWN"),
       tailorId: request.assignedTailorId
         ? String(request.assignedTailorId)
         : request.selectedQuoteId
@@ -459,12 +352,284 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   });
   const normalizedOrders = [...normalizedMap.values()];
 
+  const financeUserIds = [...new Set([
+    ...normalizedOrders.map((order) => order.customerId),
+    ...tailors.map((tailor: any) => String(tailor.userId)),
+    ...partners.map((partner: any) => String(partner.userId))
+  ].filter(Boolean))];
+  const financeUsers = financeUserIds.length
+    ? await UserModel.find({ _id: { $in: financeUserIds } }).select("_id name phone avatarUrl").lean()
+    : [];
+  const userMap = new Map(financeUsers.map((user: any) => [String(user._id), user]));
+  normalizedOrders.forEach((order) => {
+    const customer = userMap.get(order.customerId);
+    order.customerName = customer?.name || customer?.phone || "Customer";
+  });
+
+  const financeOrdersById = new Map<string, FinanceOrder>(normalizedOrders.map((order) => [order.id, {
+    id: order.id,
+    customerId: order.customerId,
+    customerName: order.customerName,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    category: order.category,
+    cancellationFee: order.cancellationFee,
+    completedAt: order.completedAt
+  }]));
+  const paymentCollections = buildPaymentCollections(
+    payments.map((payment: any) => ({
+      id: String(payment._id),
+      orderId: String(payment.orderId),
+      method: String(payment.method ?? "UNKNOWN"),
+      status: String(payment.status ?? "UNKNOWN"),
+      amount: Number(payment.amount ?? 0),
+      providerRef: payment.providerRef,
+      paidAt: payment.paidAt,
+      refundedAt: payment.refundedAt,
+      createdAt: payment.createdAt,
+      updatedAt: payment.updatedAt
+    })),
+    financeOrdersById,
+    current
+  );
+
+  const earningInputs = walletCredits.map((earning: any) => ({
+    id: String(earning._id),
+    userId: String(earning.userId),
+    userType: earning.userType as "TAILOR" | "DELIVERY_PARTNER",
+    amount: Number(earning.amount ?? 0),
+    createdAt: validDate(earning.createdAt, new Date(0))
+  }));
+  const payoutInputs = payoutHistory.map((payout: any) => ({
+    id: String(payout._id),
+    userId: String(payout.userId),
+    userType: payout.userType as "TAILOR" | "DELIVERY_PARTNER",
+    amount: Number(payout.amount ?? 0),
+    paidAt: validDate(payout.paidAt, new Date(0)),
+    status: String(payout.status)
+  }));
+  const payoutAllocation = allocatePayoutsFifo(earningInputs, payoutInputs);
+  const creditBySource = new Map<string, any>();
+  earnings.forEach((earning: any) => {
+    const key = `${earning.userType}:${String(earning.userId)}:${String(earning.orderId ?? "")}`;
+    if (!creditBySource.has(key)) creditBySource.set(key, earning);
+  });
+  const tailorByProfileId = new Map(tailors.map((tailor: any) => [String(tailor._id), tailor]));
+  const partnerByProfileId = new Map(partners.map((partner: any) => [String(partner._id), partner]));
+  const selectedQuoteByRequestId = new Map(selectedQuotes.map((quote: any) => [String(quote.requestId), quote]));
+  const legacyOrderById = new Map(legacyOrders.map((order: any) => [String(order._id), order]));
+  const tailoringRequestById = new Map(tailoringRequests.map((request: any) => [String(request._id), request]));
+  const taskById = new Map(deliveryRequests.map((task: any) => [String(task._id), task]));
+  const batchById = new Map(deliveryBatches.map((batch: any) => [String(batch.batchId), batch]));
+  const obligations: PartnerObligation[] = [];
+  const financeExceptions: Array<{ type: string; orderId?: string; sourceId?: string; message: string }> = [];
+
+  const addObligation = (input: Omit<PartnerObligation, "partnerName">) => {
+    const partnerUser = userMap.get(input.partnerId);
+    obligations.push({ ...input, partnerName: partnerUser?.name || partnerUser?.phone || input.partnerId });
+  };
+  const creditFor = (userType: "TAILOR" | "DELIVERY_PARTNER", userId: string, sourceId: string) =>
+    creditBySource.get(`${userType}:${userId}:${sourceId}`);
+
+  normalizedOrders.forEach((order) => {
+    if (order.source === "TAILORING_REQUEST") {
+      const request: any = tailoringRequestById.get(order.id);
+      const quote: any = selectedQuoteByRequestId.get(order.id);
+      const tailorProfile: any = quote?.tailorId ? tailorByProfileId.get(String(quote.tailorId)) : undefined;
+      const amount = Number(quote?.price ?? request?.quoteAmount ?? 0);
+      if (tailorProfile?.userId && amount > 0) {
+        const credit = creditFor("TAILOR", String(tailorProfile.userId), order.id);
+        addObligation({
+          id: `stitching:${order.id}`,
+          orderId: order.id,
+          partnerId: String(tailorProfile.userId),
+          partnerType: "TAILOR",
+          category: "STITCHING",
+          sourceId: order.id,
+          sourceType: "ORDER",
+          amount: roundMoney(amount),
+          earningDate: validDate(credit?.createdAt, order.completedAt ?? order.createdAt),
+          completionDate: order.completedAt,
+          creditId: credit ? String(credit._id) : undefined,
+          creditAmount: credit ? Number(credit.amount ?? 0) : undefined
+        });
+      }
+    } else {
+      const legacy: any = legacyOrderById.get(order.id);
+      const tailorProfile: any = legacy?.tailorId ? tailorByProfileId.get(String(legacy.tailorId)) : undefined;
+      const amount = roundMoney(Number(legacy?.totalAmount ?? 0) * 0.45);
+      if (tailorProfile?.userId && amount > 0) {
+        const credit = creditFor("TAILOR", String(tailorProfile.userId), order.id);
+        addObligation({
+          id: `stitching:${order.id}`,
+          orderId: order.id,
+          partnerId: String(tailorProfile.userId),
+          partnerType: "TAILOR",
+          category: "STITCHING",
+          sourceId: order.id,
+          sourceType: "ORDER",
+          amount,
+          earningDate: validDate(credit?.createdAt, order.completedAt ?? order.createdAt),
+          completionDate: order.completedAt,
+          creditId: credit ? String(credit._id) : undefined,
+          creditAmount: credit ? Number(credit.amount ?? 0) : undefined
+        });
+      }
+    }
+  });
+
+  measurementVisits.forEach((visit: any) => {
+    if (String(visit.status).toUpperCase() !== "SUBMITTED") return;
+    const order = normalizedMap.get(String(visit.requestId));
+    const tailorProfile: any = visit.assignedTailorId ? tailorByProfileId.get(String(visit.assignedTailorId)) : undefined;
+    const amount = Number(visit.visitPayout ?? 0);
+    if (!order || !tailorProfile?.userId || amount <= 0) return;
+    const credit = creditFor("TAILOR", String(tailorProfile.userId), String(visit._id));
+    addObligation({
+      id: `measurement:${String(visit._id)}`,
+      orderId: order.id,
+      partnerId: String(tailorProfile.userId),
+      partnerType: "TAILOR",
+      category: "MEASUREMENT",
+      sourceId: String(visit._id),
+      sourceType: "MEASUREMENT_VISIT",
+      amount: roundMoney(amount),
+      earningDate: validDate(credit?.createdAt ?? visit.submittedAt ?? visit.updatedAt, order.completedAt ?? order.createdAt),
+      completionDate: order.completedAt,
+      creditId: credit ? String(credit._id) : undefined,
+      creditAmount: credit ? Number(credit.amount ?? 0) : undefined
+    });
+  });
+
+  const batchAllocations = new Map<string, number>();
+  deliveryBatches.forEach((batch: any) => {
+    if (batch.finalPayout == null) return;
+    const activeTaskIds = deliveryRequests
+      .filter((task: any) => String(task.batchId ?? "") === String(batch.batchId) && String(task.taskStatus) !== "cancelled")
+      .map((task: any) => String(task._id));
+    allocateAmountExactly(Number(batch.finalPayout), activeTaskIds).forEach((amount, taskId) => batchAllocations.set(taskId, amount));
+  });
+  deliveryRequests.filter((task: any) => String(task.taskStatus) !== "cancelled").forEach((task: any) => {
+    const order = normalizedMap.get(String(task.orderId));
+    if (!order) return;
+    const batch: any = task.batchId ? batchById.get(String(task.batchId)) : undefined;
+    const partnerProfile: any = batch?.deliveryPartnerId
+      ? partnerByProfileId.get(String(batch.deliveryPartnerId))
+      : task.assignedDeliveryPartnerId
+        ? partnerByProfileId.get(String(task.assignedDeliveryPartnerId))
+        : undefined;
+    const amount = task.batchId ? batchAllocations.get(String(task._id)) : task.finalPayout;
+    if (!partnerProfile?.userId || amount == null) return;
+    const sourceId = task.batchId ? String(task.batchId) : String(task._id);
+    const credit = creditFor("DELIVERY_PARTNER", String(partnerProfile.userId), sourceId);
+    addObligation({
+      id: `delivery:${String(task._id)}`,
+      orderId: order.id,
+      partnerId: String(partnerProfile.userId),
+      partnerType: "DELIVERY_PARTNER",
+      category: "DELIVERY",
+      sourceId,
+      sourceType: task.batchId ? "DELIVERY_BATCH" : "DELIVERY_TASK",
+      taskId: String(task.taskId ?? task._id),
+      batchId: task.batchId ? String(task.batchId) : undefined,
+      amount: roundMoney(Number(amount)),
+      earningDate: validDate(credit?.createdAt ?? task.deliveredAt, order.completedAt ?? order.createdAt),
+      completionDate: order.completedAt,
+      creditId: credit ? String(credit._id) : undefined,
+      creditAmount: credit ? Number(credit.amount ?? 0) : undefined
+    });
+  });
+
+  const reconciledObligations = reconcilePartnerObligations(obligations, payoutAllocation.paidByEarningId);
+  const completedPartnerRows = reconciledObligations.filter((row) => normalizedMap.get(row.orderId)?.category === "completed" && row.completionDate);
+  const currentPartnerRows = completedPartnerRows.filter((row) => row.completionDate && inFinancePeriod(row.completionDate, current));
+  const currentPartnerSummary = summarizePartnerCosts(currentPartnerRows);
+  const allCompletedPartnerSummary = summarizePartnerCosts(completedPartnerRows);
+
+  const obligationsByOrder = new Map<string, typeof completedPartnerRows>();
+  completedPartnerRows.forEach((row) => obligationsByOrder.set(row.orderId, [...(obligationsByOrder.get(row.orderId) ?? []), row]));
+  const paymentOrderIds = new Set(paymentCollections.allRows.map((row) => row.orderId));
+  const realizedRecords: RealizedRecord[] = [];
+  const realizedOrderRows: Array<{
+    orderId: string; orderNumber?: string; completionDate: string; collectedAmount: number; stitchingCost: number;
+    measurementCost: number; deliveryCost: number; operationalAllowance: number; partnerCost: number; realizedRevenue: number; marginPercentage: number | null;
+  }> = [];
+  normalizedOrders.filter((order) => order.category === "completed" && order.completedAt).forEach((order) => {
+    const rows = obligationsByOrder.get(order.id) ?? [];
+    const stitchingRows = rows.filter((row) => row.category === "STITCHING");
+    const measurementRows = rows.filter((row) => row.category === "MEASUREMENT");
+    const deliveryRows = rows.filter((row) => row.category === "DELIVERY");
+    const request: any = tailoringRequestById.get(order.id);
+    const measurementRequired = Boolean(request?.homeMeasurementBooked || Number(request?.homeMeasurementFee ?? 0) > 0);
+    const activeTasks = deliveryRequests.filter((task: any) => String(task.orderId) === order.id && String(task.taskStatus) !== "cancelled");
+    const missing: string[] = [];
+    if (!paymentOrderIds.has(order.id)) missing.push("customer collection");
+    if (!stitchingRows.length) missing.push("stitching cost");
+    if (measurementRequired && !measurementRows.length) missing.push("measurement cost");
+    if (!activeTasks.length || deliveryRows.length !== activeTasks.length) missing.push("finalized delivery cost");
+    if (missing.length) {
+      financeExceptions.push({ type: "INCOMPLETE_ORDER_FINANCE", orderId: order.id, message: `Excluded from realized revenue: missing ${missing.join(", ")}.` });
+      return;
+    }
+    rows.filter((row) => !row.creditId).forEach((row) => financeExceptions.push({
+      type: "MISSING_WALLET_CREDIT", orderId: order.id, sourceId: row.sourceId,
+      message: `${row.category.toLowerCase()} liability is finalized but has no matching wallet earning credit.`
+    }));
+    const grossPaid = roundMoney(paymentCollections.allTimeNetByOrder.get(order.id) ?? 0);
+    const stitchingCost = roundMoney(stitchingRows.reduce((sum, row) => sum + row.amount, 0));
+    const measurementCost = roundMoney(measurementRows.reduce((sum, row) => sum + row.amount, 0));
+    const deliveryCost = roundMoney(deliveryRows.reduce((sum, row) => sum + row.amount, 0));
+    const tailorCost = roundMoney(stitchingCost + measurementCost);
+    const realizedRevenue = roundMoney(grossPaid - tailorCost - deliveryCost - OPERATIONAL_ALLOWANCE_PER_ORDER);
+    realizedRecords.push({ orderId: order.id, completedAt: order.completedAt!, grossPaid, tailorCost, deliveryCost });
+    realizedOrderRows.push({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      completionDate: order.completedAt!.toISOString(),
+      collectedAmount: grossPaid,
+      stitchingCost,
+      measurementCost,
+      deliveryCost,
+      operationalAllowance: OPERATIONAL_ALLOWANCE_PER_ORDER,
+      partnerCost: roundMoney(tailorCost + deliveryCost),
+      realizedRevenue,
+      marginPercentage: grossPaid ? roundMoney((realizedRevenue / grossPaid) * 100) : null
+    });
+  });
+  if (payoutAllocation.unallocatedPaidAmount > 0) financeExceptions.push({
+    type: "UNALLOCATED_PARTNER_PAYOUT",
+    message: `${payoutAllocation.unallocatedPaidAmount.toFixed(2)} of successful partner payouts cannot be matched to order-earning credits.`
+  });
+  reconciledObligations.filter((row) => normalizedMap.get(row.orderId)?.category !== "completed").forEach((row) => {
+    if (row.amountPaid > 0) financeExceptions.push({
+      type: "PAYOUT_FOR_UNFINISHED_ORDER", orderId: row.orderId, sourceId: row.sourceId,
+      message: `${row.amountPaid.toFixed(2)} was paid against an earning whose order is not completed; it is excluded from completed-order Partner Cost.`
+    });
+  });
+
   const currentOrders = orderCounts(normalizedOrders, current);
   const previousOrders = previous ? orderCounts(normalizedOrders, previous) : null;
-  const currentPaidPayments = collectedPayments(payments, current);
-  const currentFinance = financeSummary(payments, earnings, normalizedOrders, current);
-  const previousFinance = previous ? financeSummary(payments, earnings, normalizedOrders, previous) : null;
-  const { records: realizedRecords } = buildRealizedRecords(normalizedOrders, payments, earnings, deliveryRequests, deliveryBatches, measurementVisits);
+  const currentPaidPayments = paymentCollections.periodRows;
+  const currentFinance = {
+    ...paymentCollections.summary,
+    tailorCost: currentPartnerSummary.stitchingCost + currentPartnerSummary.measurementCost,
+    deliveryCost: currentPartnerSummary.deliveryCost,
+    partnerCost: currentPartnerSummary.partnerCost,
+    paidPartnerCost: currentPartnerSummary.paidPartnerCost,
+    pendingPartnerCost: currentPartnerSummary.pendingPartnerCost,
+    packagingCost: 0,
+    packagingCostPerOrder: OPERATIONAL_ALLOWANCE_PER_ORDER,
+    netRevenue: 0,
+    averageOrderValue: paymentCollections.summary.paidOrders ? roundMoney(paymentCollections.summary.grossPaid / paymentCollections.summary.paidOrders) : 0
+  };
+  const previousPaymentCollections = previous ? buildPaymentCollections(
+    payments.map((payment: any) => ({
+      id: String(payment._id), orderId: String(payment.orderId), method: String(payment.method ?? "UNKNOWN"), status: String(payment.status ?? "UNKNOWN"),
+      amount: Number(payment.amount ?? 0), providerRef: payment.providerRef, paidAt: payment.paidAt, refundedAt: payment.refundedAt,
+      createdAt: payment.createdAt, updatedAt: payment.updatedAt
+    })), financeOrdersById, previous
+  ) : null;
+  const previousFinance = previousPaymentCollections?.summary ?? null;
   const currentRealizedRecords = realizedRecords.filter((record) => inPeriod(record.completedAt, current));
   const previousRealizedRecords = previous ? realizedRecords.filter((record) => inPeriod(record.completedAt, previous)) : [];
   const currentRealized = summarizeRealizedRecords(currentRealizedRecords);
@@ -500,9 +665,6 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   };
   const tailorEarnings = earningByUser("TAILOR");
   const partnerEarnings = earningByUser("DELIVERY_PARTNER");
-  const userIds = [...new Set([...tailorEarnings.keys(), ...partnerEarnings.keys()])];
-  const users = userIds.length ? await UserModel.find({ _id: { $in: userIds } }).select("_id name phone avatarUrl").lean() : [];
-  const userMap = new Map(users.map((user: any) => [String(user._id), user]));
 
   const deliveredTasks = await DeliveryRequestModel.find({
     taskStatus: "delivered",
@@ -545,7 +707,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
   const activePartnerRecords = partners.filter((partner: any) => partner.isAvailable && partner.verificationStatus === "VERIFIED");
   const activeTailors = activeTailorRecords.length;
   const activeDeliveryPartners = activePartnerRecords.length;
-  const pendingPayouts = wallets.reduce((sum: number, wallet: any) => sum + Number(wallet.balance ?? 0), 0);
+  const pendingPayouts = allCompletedPartnerSummary.pendingPartnerCost;
+  const rawWalletLiability = roundMoney(wallets.reduce((sum: number, wallet: any) => sum + Number(wallet.balance ?? 0), 0));
 
   return {
     period: {
@@ -564,7 +727,49 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       realizedPackagingCost: currentRealized.packagingCost,
       realizedCompletedOrders: currentRealized.completedOrders,
       unrealizedCompletedOrders: Math.max(0, completedInCurrentPeriod - currentRealized.completedOrders),
-      pendingPayouts: Number(pendingPayouts.toFixed(2))
+      pendingPayouts: roundMoney(pendingPayouts),
+      pendingPayoutAsOf: new Date().toISOString(),
+      onlineCollections: paymentCollections.summary.onlineCollections,
+      codCollections: paymentCollections.summary.codCollections,
+      refunds: paymentCollections.summary.refunds,
+      completedCollections: paymentCollections.summary.completedCollections,
+      incompleteCollections: paymentCollections.summary.incompleteCollections,
+      cancelledCollections: paymentCollections.summary.cancelledCollections,
+      duplicatePaymentRecordsIgnored: paymentCollections.summary.duplicatePaymentRecordsIgnored,
+      paidPartnerCost: currentPartnerSummary.paidPartnerCost,
+      pendingPartnerCost: currentPartnerSummary.pendingPartnerCost,
+      pendingStitching: allCompletedPartnerSummary.pendingStitching,
+      pendingMeasurement: allCompletedPartnerSummary.pendingMeasurement,
+      pendingDelivery: allCompletedPartnerSummary.pendingDelivery,
+      rawWalletLiability
+    },
+    financeDetails: {
+      grossPaid: {
+        summary: paymentCollections.summary,
+        rows: paymentCollections.periodRows
+      },
+      partnerCost: {
+        summary: currentPartnerSummary,
+        rows: currentPartnerRows
+      },
+      pendingPayouts: {
+        asOf: new Date().toISOString(),
+        summary: allCompletedPartnerSummary,
+        rows: completedPartnerRows.filter((row) => row.amountPending > 0)
+      },
+      realizedRevenue: {
+        summary: currentRealized,
+        rows: realizedOrderRows.filter((row) => inPeriod(validDate(row.completionDate, new Date(0)), current))
+      },
+      reconciliation: {
+        collectedInPeriod: paymentCollections.summary.grossPaid,
+        completedOrderCollectionsInPeriod: currentRealized.grossPaid,
+        advanceOrOtherCollectionsInPeriod: roundMoney(paymentCollections.summary.grossPaid - paymentCollections.summary.completedCollections),
+        eligibleCompletedPartnerCost: currentPartnerSummary.partnerCost,
+        currentEligiblePendingPayouts: allCompletedPartnerSummary.pendingPartnerCost,
+        rawWalletLiability,
+        exceptions: financeExceptions
+      }
     },
     partners: { activeTailors, activeDeliveryPartners },
     growth: { newCustomers, newTailors: currentTailors, newDeliveryPartners: currentPartners },
@@ -579,9 +784,9 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
         realized: currentRealizedRecords.map((record) => record.orderId)
       },
       finance: {
-        paidPaymentIds: currentPaidPayments.map((payment: any) => String(payment._id)),
-        partnerCostUserIds: [...new Set(currentEarnings.map((transaction: any) => String(transaction.userId)))],
-        pendingPayoutUserIds: wallets.map((wallet: any) => String(wallet.userId))
+        paidPaymentIds: currentPaidPayments.map((payment: any) => String(payment.paymentId)),
+        partnerCostUserIds: [...new Set(currentPartnerRows.map((row) => row.partnerId))],
+        pendingPayoutUserIds: [...new Set(completedPartnerRows.filter((row) => row.amountPending > 0).map((row) => row.partnerId))]
       },
       partners: {
         activeTailorIds: activeTailorRecords.map((tailor: any) => String(tailor._id)),
@@ -607,11 +812,12 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     topDeliveryPartners,
     limitations: [
       "Historical paidAt is unavailable for older payments; updatedAt is used as the collection-date fallback.",
-      "Partial refund amounts are not represented by the current payment schema.",
+      "The current payment schema supports full refunded status only; partial refund amounts are not represented.",
+      "COD payment status confirms collection by a delivery partner, not remittance to Darji; COD rows remain collected-unreconciled.",
       "Order cancellation status does not currently store the actor, so customer-initiated and admin-initiated cancellations cannot be separated historically.",
       "Realized revenue excludes delivered orders that lack a completion timestamp, collected payment, recorded tailor earning, or finalized delivery payout; no estimated delivery cost is substituted.",
-      "Finalized batch payout is allocated across its non-cancelled delivery tasks using the existing per-task allocation approach.",
-      "Packaging and other cost is currently fixed at ₹8 per realized completed order."
+      "Finalized batch payout is allocated equally across non-cancelled tasks in paise, with deterministic remainder assignment by task ID.",
+      "The operational allowance is fixed at ₹16 once per eligible completed order."
     ]
   };
 }
