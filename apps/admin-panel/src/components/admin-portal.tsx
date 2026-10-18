@@ -3340,6 +3340,32 @@ export function AdminPortal() {
           setPaymentsSubTab("payouts");
           setActiveSection("payments");
         }}
+        onOpenOrder={(orderId) => {
+          const order = allOrders.find((candidate) => candidate.id === orderId || candidate.orderNumber === orderId || candidate.darjiId === orderId);
+          if (!order) {
+            toast.error("The linked order is not available in the current data set");
+            return;
+          }
+          setFinanceDetailKind(null);
+          openOrderDetail(order, "overview");
+        }}
+        onOpenPartner={(partnerId, partnerType) => {
+          if (partnerType === "TAILOR") {
+            const tailor = tailors.find((candidate) => candidate.id === partnerId || candidate.userId === partnerId);
+            if (tailor) {
+              setFinanceDetailKind(null);
+              setTailorDetail(tailor);
+              return;
+            }
+          }
+          const partner = partners.find((candidate) => candidate.id === partnerId || candidate.userId === partnerId);
+          if (partner) {
+            setFinanceDetailKind(null);
+            setPartnerDetail(partner);
+            return;
+          }
+          toast.error("The linked partner is not available in the current data set");
+        }}
       />
 
       <AssistedCreateOrderDialog
@@ -4541,6 +4567,8 @@ function FinancialDetailDialog({
   kind,
   onClose,
   onOpenPartnerManagement,
+  onOpenPartner,
+  onOpenOrder,
   onOpenPayouts,
   periodLabel
 }: {
@@ -4548,6 +4576,8 @@ function FinancialDetailDialog({
   kind: FinanceDetailKind | null;
   onClose: () => void;
   onOpenPartnerManagement: () => void;
+  onOpenPartner: (partnerId: string, partnerType?: string) => void;
+  onOpenOrder: (orderId: string) => void;
   onOpenPayouts: () => void;
   periodLabel: string;
 }) {
@@ -4694,11 +4724,11 @@ function FinancialDetailDialog({
                 </thead>
                 <tbody className="divide-y divide-[var(--panel-border)] bg-white/60">
                   {rows.map((row: any, rowIndex: number) => kind === "gross_paid" ? (
-                    <tr key={row.key}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.customerName ?? row.customerId ?? "Customer"}</p></td><td className="px-4 py-3"><StatusBadge value={row.paymentMethod} /><p className="mt-1 text-xs text-[var(--muted)]">{row.paymentId}{row.duplicateRecords ? ` · ${row.duplicateRecords} duplicate ignored` : ""}</p></td><td className="px-4 py-3"><p>{formatDate(row.paymentDate ?? row.refundDate, true)}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.orderStatus}{row.cancelled ? ` · fee ${formatCurrency(row.cancellationFee)}` : ""}{row.codRemittanceStatus === "COLLECTED_UNRECONCILED" ? " · COD remittance unverified" : ""}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right text-rose-600">{formatCurrency(row.refundedAmount)}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.netCollectedAmount)}</td></tr>
+                    <tr key={row.key}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block font-semibold">{row.orderNumber ?? row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.customerName ?? row.customerId ?? "Customer"}</span></button></td><td className="px-4 py-3"><StatusBadge value={row.paymentMethod} /><p className="mt-1 text-xs text-[var(--muted)]">{row.paymentId}{row.duplicateRecords ? ` · ${row.duplicateRecords} duplicate ignored` : ""}</p></td><td className="px-4 py-3"><p>{formatDate(row.paymentDate ?? row.refundDate, true)}</p><p className="mt-1 text-xs text-[var(--muted)]">{row.orderStatus}{row.cancelled ? ` · fee ${formatCurrency(row.cancellationFee)}` : ""}{row.codRemittanceStatus === "COLLECTED_UNRECONCILED" ? " · COD remittance unverified" : ""}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right text-rose-600">{formatCurrency(row.refundedAmount)}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.netCollectedAmount)}</td></tr>
                   ) : kind === "realized_revenue" ? (
-                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.orderNumber ?? row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.orderId}</p></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td></tr>
+                    <tr className={row.realizedRevenue < 0 ? "bg-rose-50/70" : undefined} key={row.orderId}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block font-semibold">{row.orderNumber ?? row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.orderId}</span></button></td><td className="px-4 py-3">{formatDate(row.completionDate, true)}</td><td className="px-4 py-3 text-right">{formatCurrency(row.collectedAmount)}</td><td className="px-4 py-3 text-right"><p>{formatCurrency(row.partnerCost)}</p><p className="text-xs text-[var(--muted)]">S {formatCurrency(row.stitchingCost)} · M {formatCurrency(row.measurementCost)} · D {formatCurrency(row.deliveryCost)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.operationalAllowance)}</td><td className={cn("px-4 py-3 text-right font-semibold", row.realizedRevenue < 0 ? "text-rose-700" : "text-emerald-700")}><p>{formatCurrency(row.realizedRevenue)}</p><p className="text-xs">{row.marginPercentage == null ? "—" : `${row.marginPercentage.toFixed(2)}%`}</p></td></tr>
                   ) : (
-                    <tr key={row.id}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><p className="font-semibold">{row.partnerName}</p><p className="text-xs text-[var(--muted)]">{row.partnerType} · {row.partnerId}</p></td><td className="px-4 py-3"><p>{row.orderId}</p><p className="text-xs text-[var(--muted)]">{row.batchId ? `Batch ${row.batchId}` : row.taskId ? `Task ${row.taskId}` : row.sourceId}</p></td><td className="px-4 py-3"><StatusBadge value={row.category} /><p className="mt-1 text-xs text-[var(--muted)]">Recognized {formatDate(row.recognitionDate, true)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.amount)}</td><td className="px-4 py-3 text-right text-emerald-700">{formatCurrency(row.amountPaid)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{formatCurrency(row.amountPending)}</td></tr>
+                    <tr key={row.id}><td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{(safePage - 1) * pageSize + rowIndex + 1}</td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenPartner(row.partnerId, row.partnerType)} type="button"><span className="block font-semibold">{row.partnerName}</span><span className="block text-xs text-[var(--muted)]">{row.partnerType} · {row.partnerId}</span></button></td><td className="px-4 py-3"><button className="rounded-lg text-left underline decoration-orange-300 underline-offset-4 hover:text-orange-700" onClick={() => onOpenOrder(row.orderId)} type="button"><span className="block">{row.orderId}</span><span className="block text-xs text-[var(--muted)]">{row.batchId ? `Batch ${row.batchId}` : row.taskId ? `Task ${row.taskId}` : row.sourceId}</span></button></td><td className="px-4 py-3"><StatusBadge value={row.category} /><p className="mt-1 text-xs text-[var(--muted)]">Recognized {formatDate(row.recognitionDate, true)}</p></td><td className="px-4 py-3 text-right">{formatCurrency(row.amount)}</td><td className="px-4 py-3 text-right text-emerald-700">{formatCurrency(row.amountPaid)}</td><td className="px-4 py-3 text-right font-semibold text-amber-700">{formatCurrency(row.amountPending)}</td></tr>
                   ))}
                   {!rows.length ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>No financial records match these filters.</td></tr> : null}
                 </tbody>
@@ -5119,6 +5149,7 @@ function LiveAlertCard({ alert }: { alert: AdminAlert }) {
         {detail.headline ? <strong className="mt-2 block truncate text-sm font-bold text-[var(--deep)]" title={detail.headline}>{detail.headline}</strong> : null}
         <span className={cn("block text-sm leading-5 text-[var(--muted)]", detail.headline ? "mt-0.5" : "mt-2")}>{detail.description}</span>
         {alert.createdAt ? <span className="mt-2 block text-xs font-medium text-slate-400">Raised {formatDate(alert.createdAt, true)}</span> : null}
+        <span className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-orange-700">Open related record <ArrowRight size={13} /></span>
       </span>
       <ChevronRight className="absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" />
     </button>
@@ -5179,6 +5210,11 @@ function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () =
       });
   }, [alerts, category, search, severity, sortBy]);
   const hasFilters = Boolean(search.trim()) || category !== "all" || severity !== "all" || sortBy !== "priority";
+  const severityCounts = {
+    critical: alerts.filter((alert) => getAlertSeverity(alert) === "critical").length,
+    warning: alerts.filter((alert) => getAlertSeverity(alert) === "warning").length,
+    info: alerts.filter((alert) => getAlertSeverity(alert) === "info").length
+  };
 
   return (
     <div className="space-y-4">
@@ -5208,6 +5244,13 @@ function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () =
           </div>
         </div>
       </Panel>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {([
+          { id: "critical", label: "Critical", count: severityCounts.critical, note: "Immediate intervention", className: "border-rose-200 bg-rose-50 text-rose-800" },
+          { id: "warning", label: "Warning", count: severityCounts.warning, note: "Needs review soon", className: "border-orange-200 bg-orange-50 text-orange-800" },
+          { id: "info", label: "Information", count: severityCounts.info, note: "Monitor and follow up", className: "border-sky-200 bg-sky-50 text-sky-800" }
+        ] as const).map((item) => <button aria-pressed={severity === item.id} className={cn("rounded-2xl border px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]", item.className, severity === item.id && "ring-2 ring-[var(--accent)] ring-offset-2")} key={item.id} onClick={() => setSeverity((current) => current === item.id ? "all" : item.id)} type="button"><span className="flex items-center justify-between gap-3"><span><span className="block text-sm font-semibold">{item.label}</span><span className="mt-0.5 block text-xs opacity-75">{item.note}</span></span><strong className="text-2xl tabular-nums">{item.count}</strong></span></button>)}
+      </div>
       <Panel className="p-4 sm:p-5">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_repeat(3,minmax(170px,auto))_auto]">
           <label className="relative block">

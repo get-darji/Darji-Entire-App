@@ -52,10 +52,10 @@ All destinations are currently rendered from one client-side page and one flat 2
 - [x] Add page breadcrumbs; linked entity references continue in the connected-record checkpoint.
 - [x] Simplify the orders list: full rows now open details, entity controls remain independently clickable, and duplicate assignment actions are consolidated.
 - [x] Reorganize order details around overview, people/fulfilment, pricing, items, activity, proof media, and safe management actions.
-- [ ] Connect customer, tailor, delivery partner, delivery job, batch, payment, and payout navigation. (Order/customer/tailor/partner/task/batch/payment links complete; payout links remain.)
+- [x] Connect customer, tailor, delivery partner, delivery job, batch, payment, and payout navigation across operational and financial detail views.
 - [ ] Consolidate customer, tailor, and delivery-partner profile presentation. (Partner identity, readable working hours, and linked orders complete; customer alignment remains.)
-- [ ] Improve finance/payout traceability without changing calculations.
-- [ ] Refine alerts into an action-oriented notification center.
+- [x] Improve finance/payout traceability without changing calculations: financial source rows now link to orders and partner profiles.
+- [x] Refine alerts into an action-oriented notification center with severity summaries, search, filtering, sorting, and direct record actions.
 - [ ] Standardize remaining table actions, states, responsiveness, and accessibility.
 - [ ] Complete typecheck, production builds, focused tests, and browser verification where available.
 
