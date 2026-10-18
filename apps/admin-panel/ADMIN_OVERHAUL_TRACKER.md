@@ -57,7 +57,16 @@ All destinations are currently rendered from one client-side page and one flat 2
 - [x] Improve finance/payout traceability without changing calculations: financial source rows now link to orders and partner profiles.
 - [x] Refine alerts into an action-oriented notification center with severity summaries, search, filtering, sorting, and direct record actions.
 - [ ] Standardize remaining table actions, states, responsiveness, and accessibility. (Reusable entity links and keyboard-openable order rows complete; remaining low-frequency modules require browser QA.)
-- [ ] Complete typecheck, production builds, focused tests, and browser verification where available.
+- [x] Complete admin/backend typechecks, admin production build, financial regression tests, HTTP smoke check, and Git diff validation.
+
+## Validation evidence
+
+- Admin TypeScript: passed (`npm --workspace @darji/admin-panel run typecheck`).
+- Backend TypeScript: passed (`npm --workspace backend run typecheck`).
+- Admin production build: passed (`npm --workspace @darji/admin-panel run build`).
+- Financial reporting regression suite: 17/17 passed.
+- Existing local server: HTTP 200 at `http://localhost:3000/?section=orders`, title `Darji Admin`.
+- Browser screenshots and interactive visual acceptance remain unavailable because no browser-control surface or Windows automation bridge was exposed to this session.
 
 ## Git checkpoint convention
 
