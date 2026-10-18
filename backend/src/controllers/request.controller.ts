@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import type { Request, Response } from "express";
 import multer from "multer";
+import QRCode from "qrcode";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
@@ -501,28 +502,64 @@ async function fetchRazorpayOrderPayments(orderId: string) {
   return response.json() as Promise<{ items?: Array<{ id: string; order_id?: string; status?: string; captured?: boolean; amount?: number; currency?: string }> }>;
 }
 
-async function createRazorpayQr(input: { amount: number; requestId: string; description: string }) {
+function razorpayErrorDescription(body: string) {
+  try {
+    const parsed = JSON.parse(body) as { error?: { description?: string } };
+    return parsed.error?.description?.trim() || "Razorpay rejected the request";
+  } catch {
+    return body.trim() || "Razorpay rejected the request";
+  }
+}
+
+async function createRazorpayPaymentLink(input: { amount: number; requestId: string; description: string }) {
   assertRazorpayConfigured();
   const token = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
-  const response = await fetch("https://api.razorpay.com/v1/payments/qr_codes", {
+  const expireBy = Math.floor(Date.now() / 1000) + 2 * 60 * 60;
+  const response = await fetch("https://api.razorpay.com/v1/payment_links", {
     method: "POST",
     headers: { Authorization: `Basic ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      type: "upi_qr",
-      name: `Darji ${input.requestId.slice(0, 8).toUpperCase()}`,
-      usage: "single_use",
-      fixed_amount: true,
-      payment_amount: Math.round(input.amount * 100),
+      upi_link: true,
+      amount: Math.round(input.amount * 100),
+      currency: "INR",
+      accept_partial: false,
+      reference_id: `${input.requestId.slice(0, 27)}-${Date.now().toString(36)}`.slice(0, 40),
       description: input.description,
-      close_by: Math.floor(Date.now() / 1000) + 2 * 60 * 60,
+      expire_by: expireBy,
+      notify: { sms: false, email: false },
+      reminder_enable: false,
       notes: { requestId: input.requestId, source: "admin_assisted_order" }
     })
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new AppError(502, `Razorpay QR creation failed. Confirm that QR Codes are enabled for this account${body ? `: ${body}` : ""}`);
+    throw new AppError(502, `Razorpay payment link could not be created: ${razorpayErrorDescription(body)}`);
   }
-  return response.json() as Promise<{ id: string; image_url: string; payment_amount: number; status: string; close_by?: number }>;
+  const paymentLink = await response.json() as { id: string; short_url: string; amount: number; currency: string; status: string; expire_by?: number };
+  if (!paymentLink.id || !paymentLink.short_url) {
+    throw new AppError(502, "Razorpay created an incomplete payment link. Please try again.");
+  }
+  const imageUrl = await QRCode.toDataURL(paymentLink.short_url, { width: 640, margin: 2, errorCorrectionLevel: "M" });
+  return { ...paymentLink, imageUrl };
+}
+
+async function fetchRazorpayPaymentLink(paymentLinkId: string) {
+  assertRazorpayConfigured();
+  const token = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString("base64");
+  const response = await fetch(`https://api.razorpay.com/v1/payment_links/${encodeURIComponent(paymentLinkId)}`, {
+    headers: { Authorization: `Basic ${token}` }
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new AppError(502, `Razorpay payment status check failed: ${razorpayErrorDescription(body)}`);
+  }
+  return response.json() as Promise<{
+    id: string;
+    status?: string;
+    amount?: number;
+    currency?: string;
+    payments?: Array<{ payment_id?: string; status?: string; amount?: number; method?: string }>;
+  }>;
 }
 
 async function fetchRazorpayQrPayments(qrId: string) {
@@ -2633,23 +2670,24 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     if (input.paymentMethod !== "UPI") {
       throw new AppError(400, "Assisted-payment QR is available only for UPI");
     }
-    const razorpayQr = await createRazorpayQr({
+    const razorpayPaymentLink = await createRazorpayPaymentLink({
       amount: payableAmount,
       requestId: request.id,
       description: requestItemCount(request) === 1 ? `${request.workType} - ${request.clothType}` : `${requestItemCount(request)} clothing items`
     });
-    await PaymentModel.create({ orderId: request.id, method: "UPI", amount: payableAmount, status: "PENDING", providerRef: razorpayQr.id });
+    await PaymentModel.create({ orderId: request.id, method: "UPI", amount: payableAmount, status: "PENDING", providerRef: razorpayPaymentLink.id });
     res.json({
       data: {
         mode: "admin_qr",
         request: await hydrateTailoringRequest(await TailoringRequestModel.findById(request.id)),
         quote: await hydrateTailorQuote(quote),
         razorpayQr: {
-          id: razorpayQr.id,
-          imageUrl: razorpayQr.image_url,
-          amount: razorpayQr.payment_amount,
-          currency: "INR",
-          closeBy: razorpayQr.close_by
+          id: razorpayPaymentLink.id,
+          imageUrl: razorpayPaymentLink.imageUrl,
+          paymentUrl: razorpayPaymentLink.short_url,
+          amount: razorpayPaymentLink.amount,
+          currency: razorpayPaymentLink.currency,
+          closeBy: razorpayPaymentLink.expire_by
         }
       }
     });
@@ -2820,14 +2858,33 @@ export async function recoverTailoringCheckoutController(req: Request, res: Resp
     return;
   }
 
-  const razorpayPayments = pendingPayment.providerRef.startsWith("qr_")
-    ? await fetchRazorpayQrPayments(pendingPayment.providerRef)
-    : await fetchRazorpayOrderPayments(pendingPayment.providerRef);
-  const providerPayments = razorpayPayments.items ?? [];
-  const capturedPayment = providerPayments.find((payment) => String(payment.status ?? "").toLowerCase() === "captured" || payment.captured === true);
+  const paymentLink = pendingPayment.providerRef.startsWith("plink_")
+    ? await fetchRazorpayPaymentLink(pendingPayment.providerRef)
+    : undefined;
+  const razorpayPayments = paymentLink
+    ? undefined
+    : pendingPayment.providerRef.startsWith("qr_")
+      ? await fetchRazorpayQrPayments(pendingPayment.providerRef)
+      : await fetchRazorpayOrderPayments(pendingPayment.providerRef);
+  const providerPayments = paymentLink
+    ? (paymentLink.payments ?? []).map((payment) => ({
+        id: payment.payment_id ?? paymentLink.id,
+        status: payment.status,
+        captured: String(payment.status ?? "").toLowerCase() === "captured",
+        amount: payment.amount,
+        currency: paymentLink.currency
+      }))
+    : (razorpayPayments?.items ?? []);
+  const capturedPayment = providerPayments.find((payment) => String(payment.status ?? "").toLowerCase() === "captured" || payment.captured === true)
+    ?? (String(paymentLink?.status ?? "").toLowerCase() === "paid"
+      ? { id: paymentLink!.id, status: "captured", captured: true, amount: paymentLink!.amount, currency: paymentLink!.currency }
+      : undefined);
 
   if (!capturedPayment) {
-    const hasFailedPayment = providerPayments.some((payment) => String(payment.status ?? "").toLowerCase() === "failed");
+    const paymentLinkStatus = String(paymentLink?.status ?? "").toLowerCase();
+    const hasFailedPayment = providerPayments.some((payment) => String(payment.status ?? "").toLowerCase() === "failed")
+      || paymentLinkStatus === "cancelled"
+      || paymentLinkStatus === "expired";
     if (hasFailedPayment) await PaymentModel.findByIdAndUpdate(pendingPayment.id, { status: "FAILED" });
     res.json({
       data: {

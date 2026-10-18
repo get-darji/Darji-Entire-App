@@ -230,8 +230,14 @@ export type AdminTailoringCheckoutResponse =
       mode: "admin_qr";
       request: TailoringRequest;
       quote: TailorQuote;
-      razorpayQr: { id: string; imageUrl: string; amount: number; currency: string; closeBy?: number };
+      razorpayQr: { id: string; imageUrl: string; paymentUrl: string; amount: number; currency: string; closeBy?: number };
     };
+
+export async function reverseGeocodeAdminLocation(lat: number, lng: number) {
+  return unwrap<{ formattedAddress: string; latitude: number; longitude: number }>(
+    api.get("/location/reverse-geocode", { params: { lat, lng } })
+  );
+}
 
 export async function uploadAdminTailoringMedia(files: File[]) {
   const form = new FormData();

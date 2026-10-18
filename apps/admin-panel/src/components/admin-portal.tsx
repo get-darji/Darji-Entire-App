@@ -98,7 +98,10 @@ import {
   Flag,
   Trash2,
   AlertTriangle,
-  Hourglass
+  Hourglass,
+  MapPin,
+  Mic,
+  Square
 } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
@@ -192,6 +195,7 @@ import {
   startAdminTailoringCheckout,
   verifyAdminTailoringCheckout,
   recoverAdminTailoringCheckout,
+  reverseGeocodeAdminLocation,
   selectAdminTailorQuote,
   type UploadedTailoringMedia,
   type AdminReview
@@ -8921,7 +8925,40 @@ type AssistedOrderItem = {
   voiceFiles: File[];
   sampleFile?: File;
   designFile?: File;
+  mediaError?: string;
+  voiceError?: string;
+  sampleError?: string;
+  designError?: string;
 };
+
+const ASSISTED_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const ASSISTED_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const ASSISTED_AUDIO_MAX_BYTES = 50 * 1024 * 1024;
+const ASSISTED_MAX_MEDIA_FILES = 20;
+const ASSISTED_MAX_VOICE_FILES = 3;
+
+function fileSizeLabel(bytes: number) {
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 1024 * 1024 ? 1 : 2)} MB`;
+}
+
+function validateAssistedFiles(files: File[], kind: "media" | "voice" | "image") {
+  const maxCount = kind === "voice" ? ASSISTED_MAX_VOICE_FILES : kind === "media" ? ASSISTED_MAX_MEDIA_FILES : 1;
+  if (files.length > maxCount) return `Select no more than ${maxCount} ${kind === "voice" ? "voice clips" : kind === "media" ? "photos or videos" : "photo"}.`;
+  for (const file of files) {
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    const isAudio = file.type.startsWith("audio/");
+    if (kind === "media" && !isImage && !isVideo) return `${file.name} is not a supported photo or video.`;
+    if (kind === "voice" && !isAudio) return `${file.name} is not a supported audio file.`;
+    if (kind === "image" && !isImage) return `${file.name} is not a supported photo.`;
+    const limit = isImage ? ASSISTED_IMAGE_MAX_BYTES : isVideo ? ASSISTED_VIDEO_MAX_BYTES : ASSISTED_AUDIO_MAX_BYTES;
+    if (file.size > limit) {
+      const label = isImage ? "Photos" : isVideo ? "Videos" : "Voice clips";
+      return `${file.name} is ${fileSizeLabel(file.size)}. ${label} must be ${fileSizeLabel(limit)} or smaller.`;
+    }
+  }
+  return "";
+}
 
 const assistedMeasurementSlots = [
   "08:00 AM - 10:00 AM", "10:00 AM - 12:00 PM", "12:00 PM - 02:00 PM", "02:00 PM - 04:00 PM",
@@ -9003,15 +9040,23 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
   const [customerId, setCustomerId] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [pickupAddress, setPickupAddress] = useState("");
+  const [pickupLocation, setPickupLocation] = useState<{ lat: number; lng: number }>();
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const [urgency, setUrgency] = useState("Normal (up to 7 days)");
   const [items, setItems] = useState<AssistedOrderItem[]>(() => [newAssistedOrderItem()]);
   const [request, setRequest] = useState<TailoringRequest>();
   const [selectedQuote, setSelectedQuote] = useState<TailorQuote>();
   const [paymentMethod, setPaymentMethod] = useState<"COD" | "UPI" | "ONLINE">("COD");
   const [couponCode, setCouponCode] = useState("");
-  const [qr, setQr] = useState<{ id: string; imageUrl: string; amount: number; currency: string; closeBy?: number }>();
+  const [qr, setQr] = useState<{ id: string; imageUrl: string; paymentUrl: string; amount: number; currency: string; closeBy?: number }>();
   const [busyLabel, setBusyLabel] = useState("");
   const [error, setError] = useState("");
+  const recorderRef = useRef<MediaRecorder | undefined>(undefined);
+  const recorderStreamRef = useRef<MediaStream | undefined>(undefined);
+  const recorderChunksRef = useRef<Blob[]>([]);
+  const [recordingItemId, setRecordingItemId] = useState("");
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const activeCustomer = customers.find((customer) => customer.id === customerId);
   const activeCustomerWhatsApp = (() => {
     const digits = (activeCustomer?.phone ?? "").replace(/\D/g, "");
@@ -9041,10 +9086,24 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
   const payable = Math.max(0, beforeDiscount - discount);
 
   const reset = () => {
-    setStep("request"); setCustomerId(""); setCustomerSearch(""); setPickupAddress(""); setUrgency("Normal (up to 7 days)");
+    setStep("request"); setCustomerId(""); setCustomerSearch(""); setPickupAddress(""); setPickupLocation(undefined); setLocationBusy(false); setLocationError(""); setUrgency("Normal (up to 7 days)");
     setItems([newAssistedOrderItem()]); setRequest(undefined); setSelectedQuote(undefined); setPaymentMethod("COD"); setCouponCode(""); setQr(undefined); setBusyLabel(""); setError("");
   };
-  useEffect(() => { if (!open) reset(); }, [open]);
+  useEffect(() => {
+    if (!open) {
+      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+      reset();
+    }
+  }, [open]);
+  useEffect(() => {
+    if (!recordingItemId) return;
+    const timer = window.setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [recordingItemId]);
+  useEffect(() => () => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
   useEffect(() => {
     if (!qr || !request?.id || step !== "payment") return;
     const timer = window.setInterval(async () => {
@@ -9052,7 +9111,7 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
         const status = await recoverAdminTailoringCheckout(request.id);
         if (status.status === "paid" && status.request) {
           window.clearInterval(timer);
-          toast.success("UPI payment received and order confirmed");
+          toast.success("Online payment received and order confirmed");
           await onComplete(status.request);
         }
       } catch { /* keep the QR screen available; manual refresh remains possible */ }
@@ -9061,8 +9120,82 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
   }, [onComplete, qr, request?.id, step]);
 
   const updateItem = (id: string, patch: Partial<AssistedOrderItem>) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
+  const useCurrentLocation = () => {
+    setLocationError("");
+    if (!navigator.geolocation) {
+      setLocationError("Current location is not supported by this browser. Enter the pickup address manually.");
+      return;
+    }
+    setLocationBusy(true);
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+      try {
+        const resolved = await reverseGeocodeAdminLocation(coords.latitude, coords.longitude);
+        setPickupAddress(resolved.formattedAddress);
+        setPickupLocation({ lat: resolved.latitude, lng: resolved.longitude });
+      } catch (caught) {
+        setLocationError(extractError(caught));
+      } finally {
+        setLocationBusy(false);
+      }
+    }, (geolocationError) => {
+      setLocationBusy(false);
+      setLocationError(geolocationError.code === geolocationError.PERMISSION_DENIED
+        ? "Location permission was denied. Allow location access or enter the address manually."
+        : "Your current location could not be detected. Try again or enter the address manually.");
+    }, { enableHighAccuracy: true, timeout: 15_000, maximumAge: 30_000 });
+  };
+  const setMediaFiles = (itemId: string, files: File[]) => updateItem(itemId, { mediaFiles: files, mediaError: validateAssistedFiles(files, "media") });
+  const setVoiceFiles = (itemId: string, files: File[]) => updateItem(itemId, { voiceFiles: files, voiceError: validateAssistedFiles(files, "voice") });
+  const startVoiceRecording = async (itemId: string) => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      updateItem(itemId, { voiceError: "Voice recording is not supported by this browser. Upload an audio file instead." });
+      return;
+    }
+    const target = items.find((item) => item.id === itemId);
+    if (!target || target.voiceFiles.length >= ASSISTED_MAX_VOICE_FILES) {
+      updateItem(itemId, { voiceError: `You can add up to ${ASSISTED_MAX_VOICE_FILES} voice clips.` });
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
+      recorderStreamRef.current = stream;
+      recorderRef.current = recorder;
+      recorderChunksRef.current = [];
+      recorder.ondataavailable = (event) => { if (event.data.size) recorderChunksRef.current.push(event.data); };
+      recorder.onstop = () => {
+        const mimeType = recorder.mimeType || "audio/webm";
+        const blob = new Blob(recorderChunksRef.current, { type: mimeType });
+        const extension = mimeType.includes("mp4") ? "m4a" : "webm";
+        const file = new File([blob], `voice-${Date.now()}.${extension}`, { type: mimeType });
+        setItems((current) => current.map((item) => {
+          if (item.id !== itemId) return item;
+          const nextFiles = [...item.voiceFiles, file];
+          const voiceError = file.size < 1024 ? "The recording is empty or too short. Record it again." : validateAssistedFiles(nextFiles, "voice");
+          return { ...item, voiceFiles: voiceError ? item.voiceFiles : nextFiles, voiceError };
+        }));
+        stream.getTracks().forEach((track) => track.stop());
+        recorderChunksRef.current = [];
+        recorderRef.current = undefined;
+        recorderStreamRef.current = undefined;
+        setRecordingItemId("");
+        setRecordingSeconds(0);
+      };
+      recorder.start();
+      setRecordingSeconds(0);
+      setRecordingItemId(itemId);
+      updateItem(itemId, { voiceError: "" });
+    } catch {
+      updateItem(itemId, { voiceError: "Microphone access was denied or unavailable. Allow access or upload an audio file instead." });
+    }
+  };
+  const stopVoiceRecording = () => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+  };
   const itemIsValid = (item: AssistedOrderItem) => Boolean(
     item.description.trim().length >= 10 && item.gender && item.clothType && item.workType && item.mediaFiles.length &&
+    !item.mediaError && !item.voiceError && !item.sampleError && !item.designError &&
     (item.workType === "Other" ? item.otherWorkDescription.trim().length >= 3 : item.selectedWorkItems.length) &&
     (item.measurementMode !== "HOME" || item.preferredMeasurementSlot) &&
     (!item.selectedWorkItems.includes("Copy Existing Garment") || item.sampleFile) &&
@@ -9092,7 +9225,7 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
         };
       }));
       setBusyLabel("Sending request to verified tailors");
-      const created = await createAdminTailoringRequest({ customerId, urgency, pickupAddress: pickupAddress.trim(), ...uploadedItems[0], items: uploadedItems });
+      const created = await createAdminTailoringRequest({ customerId, urgency, pickupAddress: pickupAddress.trim(), pickupLocation, ...uploadedItems[0], items: uploadedItems });
       setRequest(created); setStep("quotes");
       toast.success("Request sent to verified tailors");
     } catch (caught) { setError(extractError(caught)); } finally { setBusyLabel(""); }
@@ -9143,19 +9276,19 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
             {busyLabel ? <div className="flex items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-800"><LoaderCircle className="animate-spin" size={18} />{busyLabel}</div> : null}
 
             {step === "request" ? <>
-              <Panel className="grid gap-4 md:grid-cols-2"><Field label="Find customer"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" placeholder="Name, phone or CUS ID" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><Field label="Customer account"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Select customer</option>{customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{getCustomerDisplayName(customer)} · {customer.phone} · {customer.darjiCustomerId ?? customer.id.slice(0, 8)}</option>)}</select></Field><Field label="Pickup address"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" placeholder="House, street, area, city, state and pincode" value={pickupAddress} onChange={(event) => setPickupAddress(event.target.value)} /></Field><Field label="Delivery urgency"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={urgency} onChange={(event) => setUrgency(event.target.value)}><option>Normal (up to 7 days)</option><option>Express (3-5 days)</option><option>Instant Delivery</option></select></Field></Panel>
+              <Panel className="grid gap-4 md:grid-cols-2"><Field label="Find customer"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" placeholder="Name, phone or CUS ID" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><Field label="Customer account"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Select customer</option>{customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{getCustomerDisplayName(customer)} · {customer.phone} · {customer.darjiCustomerId ?? customer.id.slice(0, 8)}</option>)}</select></Field><Field label="Pickup address"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" placeholder="House, street, area, city, state and pincode" value={pickupAddress} onChange={(event) => { setPickupAddress(event.target.value); setPickupLocation(undefined); setLocationError(""); }} /><div className="mt-2 flex flex-wrap items-center gap-2"><button className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-orange-300 bg-orange-50 px-3 text-sm font-bold text-orange-700 disabled:opacity-50" disabled={locationBusy} onClick={useCurrentLocation} type="button">{locationBusy ? <LoaderCircle className="animate-spin" size={16} /> : <MapPin size={16} />}{locationBusy ? "Fetching location" : "Use current location"}</button>{pickupLocation ? <span className="text-xs font-semibold text-emerald-700">Location captured · {pickupLocation.lat.toFixed(5)}, {pickupLocation.lng.toFixed(5)}</span> : null}</div>{locationError ? <p className="mt-2 text-xs font-semibold text-rose-600">{locationError}</p> : null}</Field><Field label="Delivery urgency"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={urgency} onChange={(event) => setUrgency(event.target.value)}><option>Normal (up to 7 days)</option><option>Express (3-5 days)</option><option>Instant Delivery</option></select></Field></Panel>
               {items.map((item, itemIndex) => {
                 const garments = getGarmentsForGender(item.gender);
                 const workOptions = getServiceCategory(item.workType)?.workItems ?? [];
                 return <Panel key={item.id} className="space-y-4"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-orange-500">Clothing item {itemIndex + 1}</p><h3 className="mt-1 text-lg font-bold text-[var(--deep)]">Photos and tailoring details</h3></div><button className="rounded-xl p-2 text-rose-600 disabled:opacity-30" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))}><Trash2 size={18} /></button></div>
-                  <div className="grid gap-4 md:grid-cols-2"><Field label="Photos / videos (required)"><input accept="image/*,video/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" multiple type="file" onChange={(event) => updateItem(item.id, { mediaFiles: Array.from(event.target.files ?? []) })} /><p className="mt-1 text-xs text-[var(--muted)]">{item.mediaFiles.length ? `${item.mediaFiles.length} selected` : "Add the same reference photos shown to tailors."}</p></Field><Field label="Voice clips (optional)"><input accept="audio/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" multiple type="file" onChange={(event) => updateItem(item.id, { voiceFiles: Array.from(event.target.files ?? []).slice(0, 3) })} /></Field></div>
+                  <div className="grid gap-4 md:grid-cols-2"><Field label="Photos / videos (required)"><input accept="image/*,video/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" multiple type="file" onChange={(event) => setMediaFiles(item.id, Array.from(event.target.files ?? []))} /><p className="mt-1 text-xs text-[var(--muted)]">Photos: max 5 MB each · Videos: max 50 MB each · Up to 20 files.</p>{item.mediaFiles.length ? <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{item.mediaFiles.length} selected</p> : null}{item.mediaError ? <p className="mt-2 text-xs font-semibold text-rose-600">{item.mediaError}</p> : null}</Field><Field label="Voice clips (optional)"><input accept="audio/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" multiple type="file" onChange={(event) => setVoiceFiles(item.id, Array.from(event.target.files ?? []))} /><div className="mt-2 flex flex-wrap items-center gap-2"><button className={cn("inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-bold", recordingItemId === item.id ? "border-rose-300 bg-rose-50 text-rose-700" : "border-orange-300 bg-orange-50 text-orange-700")} disabled={Boolean(recordingItemId && recordingItemId !== item.id)} onClick={() => recordingItemId === item.id ? stopVoiceRecording() : void startVoiceRecording(item.id)} type="button">{recordingItemId === item.id ? <Square size={15} /> : <Mic size={16} />}{recordingItemId === item.id ? `Stop recording (${recordingSeconds}s)` : "Record voice"}</button><span className="text-xs text-[var(--muted)]">or upload · max 50 MB each · up to 3</span></div>{item.voiceFiles.length ? <div className="mt-2 space-y-1">{item.voiceFiles.map((file, fileIndex) => <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs" key={`${file.name}-${file.lastModified}-${fileIndex}`}><span className="min-w-0 truncate">{file.name} · {fileSizeLabel(file.size)}</span><button className="shrink-0 font-bold text-rose-600" onClick={() => setVoiceFiles(item.id, item.voiceFiles.filter((_, index) => index !== fileIndex))} type="button">Remove</button></div>)}</div> : null}{item.voiceError ? <p className="mt-2 text-xs font-semibold text-rose-600">{item.voiceError}</p> : null}</Field></div>
                   <Field label="What does the customer need?"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" maxLength={1000} placeholder="Describe the fit, repair, design and special instructions" value={item.description} onChange={(event) => updateItem(item.id, { description: event.target.value })} /></Field>
                   <div className="grid gap-4 md:grid-cols-3"><Field label="Gender / fit"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" value={item.gender} onChange={(event) => updateItem(item.id, { gender: event.target.value, clothType: "" })}><option value="">Select</option>{GENDER_FIT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Garment type"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" value={item.clothType} onChange={(event) => updateItem(item.id, { clothType: event.target.value })}><option value="">Select</option>{garments.map((garment) => <option key={garment} value={garment}>{garment}</option>)}</select></Field><Field label="Service type"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-3" value={item.workType} onChange={(event) => updateItem(item.id, { workType: event.target.value, selectedWorkItems: [], otherWorkDescription: "" })}><option value="">Select</option>{SERVICE_CATEGORIES.map((category) => <option key={category.id} value={category.label}>{category.label}</option>)}</select></Field></div>
                   {item.workType === "Other" ? <Field label="Other work details"><input className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={item.otherWorkDescription} onChange={(event) => updateItem(item.id, { otherWorkDescription: event.target.value })} /></Field> : workOptions.length ? <div><p className="mb-2 text-sm font-semibold">Select work</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{workOptions.map((work) => <label key={work} className={cn("flex min-h-12 items-center gap-3 rounded-xl border px-3 text-sm font-semibold", item.selectedWorkItems.includes(work) ? "border-orange-400 bg-orange-50" : "border-[var(--panel-border)] bg-white")}><input checked={item.selectedWorkItems.includes(work)} type="checkbox" onChange={(event) => updateItem(item.id, { selectedWorkItems: event.target.checked ? [...item.selectedWorkItems, work] : item.selectedWorkItems.filter((entry) => entry !== work) })} />{work}</label>)}</div></div> : null}
                   <div><p className="mb-2 text-sm font-semibold">Measurement method</p><div className="grid gap-2 sm:grid-cols-3">{([['MANUAL','Upload / enter measurements'],['SAMPLE','Use sample garment'],['HOME','Home measurement visit']] as const).map(([value, label]) => <button className={cn("rounded-xl border px-4 py-3 text-left text-sm font-semibold", item.measurementMode === value ? "border-orange-500 bg-orange-50 text-orange-700" : "border-[var(--panel-border)] bg-white")} key={value} onClick={() => updateItem(item.id, { measurementMode: value })} type="button">{label}</button>)}</div></div>
                   {item.measurementMode === "MANUAL" ? <Field label="Measurements / notes"><textarea className="min-h-24 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3" placeholder={'One per line, for example:\nChest: 40 in\nWaist: 34 in'} value={item.measurementNotes} onChange={(event) => updateItem(item.id, { measurementNotes: event.target.value })} /></Field> : null}
-                  {item.measurementMode === "SAMPLE" || item.selectedWorkItems.includes("Copy Existing Garment") ? <Field label="Sample garment photo"><input accept="image/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" type="file" onChange={(event) => updateItem(item.id, { sampleFile: event.target.files?.[0] })} /></Field> : null}
-                  {item.selectedWorkItems.includes("Stitch from Reference / Design") ? <Field label="Design / reference photo"><input accept="image/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" type="file" onChange={(event) => updateItem(item.id, { designFile: event.target.files?.[0] })} /></Field> : null}
+                  {item.measurementMode === "SAMPLE" || item.selectedWorkItems.includes("Copy Existing Garment") ? <Field label="Sample garment photo"><input accept="image/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" type="file" onChange={(event) => { const file = event.target.files?.[0]; updateItem(item.id, { sampleFile: file, sampleError: file ? validateAssistedFiles([file], "image") : "" }); }} /><p className="mt-1 text-xs text-[var(--muted)]">Maximum photo size: 5 MB.</p>{item.sampleError ? <p className="mt-2 text-xs font-semibold text-rose-600">{item.sampleError}</p> : null}</Field> : null}
+                  {item.selectedWorkItems.includes("Stitch from Reference / Design") ? <Field label="Design / reference photo"><input accept="image/*" className="block w-full rounded-xl border border-[var(--panel-border)] bg-white p-3 text-sm" type="file" onChange={(event) => { const file = event.target.files?.[0]; updateItem(item.id, { designFile: file, designError: file ? validateAssistedFiles([file], "image") : "" }); }} /><p className="mt-1 text-xs text-[var(--muted)]">Maximum photo size: 5 MB.</p>{item.designError ? <p className="mt-2 text-xs font-semibold text-rose-600">{item.designError}</p> : null}</Field> : null}
                   {item.measurementMode === "HOME" ? <Field label="Measurement visit time"><select className="h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={item.preferredMeasurementSlot} onChange={(event) => updateItem(item.id, { preferredMeasurementSlot: event.target.value })}><option value="">Select time slot</option>{assistedMeasurementSlots.map((slot) => <option key={slot}>{slot}</option>)}</select></Field> : null}
                 </Panel>;
               })}
@@ -9166,9 +9299,9 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
 
             {step === "quotes" ? <><Panel className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-lg font-bold">Live tailor quotes</h3><p className="text-sm text-[var(--muted)]">{quotes.length ? `${quotes.length} quote${quotes.length === 1 ? "" : "s"} received` : "Waiting for verified tailors to quote."}</p></div><ActionButton variant="secondary" disabled={quoteQuery.isFetching} onClick={() => void quoteQuery.refetch()}><RotateCcw size={15} /> Refresh</ActionButton></Panel><div className="grid gap-3">{quotes.map((quote) => <button key={quote.id} className={cn("grid gap-4 rounded-2xl border bg-white p-5 text-left sm:grid-cols-[1fr_auto]", selectedQuote?.id === quote.id ? "border-orange-500 ring-2 ring-orange-100" : "border-[var(--panel-border)]")} onClick={() => setSelectedQuote(quote)}><div className="flex gap-3"><MiniAvatar seed={quote.tailorId} src={quote.tailor?.user?.avatarUrl} /><div><p className="font-bold">{getTailorDisplayName(quote.tailor ?? ({ id: quote.tailorId } as TailorProfile))}</p><p className="mt-1 text-sm text-[var(--muted)]">ETA {quoteEtaLabel(quote)} · Rating {Number(quote.tailor?.rating ?? 0).toFixed(1)}</p><p className="mt-2 text-sm">{quote.message || "No additional message"}</p></div></div><div className="text-right"><p className="text-2xl font-bold text-orange-600">{formatCurrency(quote.price)}</p><p className="mt-1 text-xs text-[var(--muted)]">Delivery {formatCurrency(quote.deliveryEstimate?.deliveryFee ?? 0)}</p><p className="text-xs text-[var(--muted)]">{((quote.deliveryEstimate?.oneWayDistanceMeters ?? 0) / 1000).toFixed(1)} km one way</p></div></button>)}{!quotes.length && !quoteQuery.isLoading ? <EmptyState message="No quote yet. Keep this window open or return later; new quotes refresh automatically." /> : null}</div><div className="flex justify-end"><ActionButton disabled={!selectedQuote || Boolean(busyLabel)} onClick={() => void continueWithQuote()}>Confirm this tailor <ChevronRight size={16} /></ActionButton></div></> : null}
 
-            {step === "checkout" && selectedQuote ? <><div className="grid gap-4 lg:grid-cols-[1fr_380px]"><Panel><h3 className="text-lg font-bold">Payment and coupon</h3><div className="mt-4 grid gap-3 sm:grid-cols-3">{([['COD','Cash on delivery'],['UPI','UPI QR'],['ONLINE','Online checkout']] as const).map(([value, label]) => <button className={cn("rounded-2xl border p-4 text-left font-semibold", paymentMethod === value ? "border-orange-500 bg-orange-50" : "border-[var(--panel-border)] bg-white")} key={value} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><Field label="Coupon"><select className="mt-4 h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={couponCode} onChange={(event) => setCouponCode(event.target.value)}><option value="">No coupon</option>{eligibleCoupons.map((coupon) => <option key={coupon.id ?? coupon.code} value={coupon.code}>{coupon.code} · {coupon.description}</option>)}</select></Field>{paymentMethod === "UPI" ? <p className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800">A fixed-amount, single-use Razorpay QR will be generated. Share it with the customer and the order will confirm only after Razorpay reports a captured payment.</p> : null}</Panel><Panel><h3 className="text-lg font-bold">Price breakdown</h3><div className="mt-4 space-y-3 text-sm"><SummaryAmount label="Tailor quote" value={tailoringSubtotal} /><SummaryAmount label="Two-way delivery" value={deliveryFee} /><SummaryAmount label="Platform fee" value={platformFee} /><SummaryAmount label="Small-order fee" value={smallOrderFee} />{homeMeasurementFee ? <SummaryAmount label="Home measurement" value={homeMeasurementFee} /> : null}{discount ? <SummaryAmount label={`Coupon ${appliedCoupon?.code}`} value={-discount} /> : null}<div className="border-t pt-3"><SummaryAmount label="Total payable" value={payable} strong /></div></div></Panel></div><div className="flex justify-between gap-3"><ActionButton variant="secondary" onClick={() => setStep("quotes")}>Back to quotes</ActionButton><ActionButton disabled={Boolean(busyLabel)} onClick={() => void confirmOrder()}>{paymentMethod === "COD" ? "Confirm COD order" : paymentMethod === "UPI" ? "Generate Razorpay QR" : "Pay with Razorpay"}</ActionButton></div></> : null}
+            {step === "checkout" && selectedQuote ? <><div className="grid gap-4 lg:grid-cols-[1fr_380px]"><Panel><h3 className="text-lg font-bold">Payment and coupon</h3><div className="mt-4 grid gap-3 sm:grid-cols-3">{([['COD','Cash on delivery'],['UPI','Payment QR'],['ONLINE','Online checkout']] as const).map(([value, label]) => <button className={cn("rounded-2xl border p-4 text-left font-semibold", paymentMethod === value ? "border-orange-500 bg-orange-50" : "border-[var(--panel-border)] bg-white")} key={value} onClick={() => setPaymentMethod(value)}>{label}</button>)}</div><Field label="Coupon"><select className="mt-4 h-12 w-full rounded-xl border border-[var(--panel-border)] bg-white px-4" value={couponCode} onChange={(event) => setCouponCode(event.target.value)}><option value="">No coupon</option>{eligibleCoupons.map((coupon) => <option key={coupon.id ?? coupon.code} value={coupon.code}>{coupon.code} · {coupon.description}</option>)}</select></Field>{paymentMethod === "UPI" ? <p className="mt-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800">A fixed-amount QR for Razorpay's secure hosted payment page will be generated. Share it with the customer; the order confirms only after Razorpay reports a captured payment.</p> : null}</Panel><Panel><h3 className="text-lg font-bold">Price breakdown</h3><div className="mt-4 space-y-3 text-sm"><SummaryAmount label="Tailor quote" value={tailoringSubtotal} /><SummaryAmount label="Two-way delivery" value={deliveryFee} /><SummaryAmount label="Platform fee" value={platformFee} /><SummaryAmount label="Small-order fee" value={smallOrderFee} />{homeMeasurementFee ? <SummaryAmount label="Home measurement" value={homeMeasurementFee} /> : null}{discount ? <SummaryAmount label={`Coupon ${appliedCoupon?.code}`} value={-discount} /> : null}<div className="border-t pt-3"><SummaryAmount label="Total payable" value={payable} strong /></div></div></Panel></div><div className="flex justify-between gap-3"><ActionButton variant="secondary" onClick={() => setStep("quotes")}>Back to quotes</ActionButton><ActionButton disabled={Boolean(busyLabel)} onClick={() => void confirmOrder()}>{paymentMethod === "COD" ? "Confirm COD order" : paymentMethod === "UPI" ? "Generate Razorpay QR" : "Pay with Razorpay"}</ActionButton></div></> : null}
 
-            {step === "payment" && qr ? <div className="mx-auto max-w-lg text-center"><Panel><p className="text-xs font-bold uppercase tracking-widest text-orange-500">Awaiting UPI payment</p><h3 className="mt-2 text-2xl font-bold">Pay {formatCurrency(qr.amount / 100)}</h3><img alt="Razorpay payment QR" className="mx-auto mt-5 aspect-square w-full max-w-[320px] rounded-2xl border border-[var(--panel-border)] bg-white object-contain p-3" src={qr.imageUrl} /><p className="mt-4 text-sm text-[var(--muted)]">This QR is single-use and expires automatically. Payment status is checked every 10 seconds.</p><div className="mt-5 flex flex-wrap justify-center gap-3"><ActionButton disabled={!activeCustomerWhatsApp} onClick={() => window.open(`https://wa.me/${activeCustomerWhatsApp}?text=${encodeURIComponent(`Darji order payment ${formatCurrency(qr.amount / 100)}: ${qr.imageUrl}`)}`, "_blank", "noopener,noreferrer")}><Send size={16} /> Share on WhatsApp</ActionButton><ActionButton variant="secondary" onClick={() => void navigator.clipboard.writeText(qr.imageUrl)}><Copy size={16} /> Copy QR link</ActionButton><ActionButton variant="secondary" onClick={async () => { if (!request) return; const status = await recoverAdminTailoringCheckout(request.id); if (status.status === "paid" && status.request) await onComplete(status.request); else toast.info(status.message ?? "Payment is still pending"); }}><RotateCcw size={16} /> Check payment</ActionButton></div></Panel></div> : null}
+            {step === "payment" && qr ? <div className="mx-auto max-w-lg text-center"><Panel><p className="text-xs font-bold uppercase tracking-widest text-orange-500">Awaiting online payment</p><h3 className="mt-2 text-2xl font-bold">Pay {formatCurrency(qr.amount / 100)}</h3><img alt="Razorpay payment QR" className="mx-auto mt-5 aspect-square w-full max-w-[320px] rounded-2xl border border-[var(--panel-border)] bg-white object-contain p-3" src={qr.imageUrl} /><p className="mt-4 text-sm text-[var(--muted)]">The QR opens Razorpay's hosted payment page and expires automatically. Payment status is checked every 10 seconds.</p><div className="mt-5 flex flex-wrap justify-center gap-3"><ActionButton disabled={!activeCustomerWhatsApp} onClick={() => window.open(`https://wa.me/${activeCustomerWhatsApp}?text=${encodeURIComponent(`Darji order payment ${formatCurrency(qr.amount / 100)}: ${qr.paymentUrl}`)}`, "_blank", "noopener,noreferrer")}><Send size={16} /> Share on WhatsApp</ActionButton><ActionButton variant="secondary" onClick={() => void navigator.clipboard.writeText(qr.paymentUrl)}><Copy size={16} /> Copy payment link</ActionButton><ActionButton variant="secondary" onClick={() => window.open(qr.paymentUrl, "_blank", "noopener,noreferrer")}><ArrowRight size={16} /> Open payment page</ActionButton><ActionButton variant="secondary" onClick={async () => { if (!request) return; const status = await recoverAdminTailoringCheckout(request.id); if (status.status === "paid" && status.request) await onComplete(status.request); else toast.info(status.message ?? "Payment is still pending"); }}><RotateCcw size={16} /> Check payment</ActionButton></div></Panel></div> : null}
           </div>
         </Dialog.Content>
       </Dialog.Portal>
