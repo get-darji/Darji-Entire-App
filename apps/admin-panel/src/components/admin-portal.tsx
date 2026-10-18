@@ -105,6 +105,7 @@ import {
 } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
+import { EntityLink } from "./entity-link";
 import {
   assignOrder,
   assignMeasurementVisit,
@@ -3470,10 +3471,26 @@ export function AdminPortal() {
         }}
       />
       <ProfileDialog
+        deliveryRequests={deliveryRequests}
         orders={allOrders}
+        onOpenBatch={(batch) => {
+          setTailorDetail(null);
+          setBatchFocus(batch);
+          setActiveSection("batches");
+        }}
+        onOpenDeliveryTask={(request) => {
+          setTailorDetail(null);
+          setDeliveryDetail(request);
+        }}
         onOpenOrder={(order) => {
           setTailorDetail(null);
           openOrderDetail(order, "overview");
+        }}
+        onOpenWallet={() => {
+          const row = activePayoutRows.find((candidate) => candidate.userId === tailorDetail?.userId);
+          if (!row) return toast.info("No wallet record is available for this tailor yet");
+          setTailorDetail(null);
+          setWalletDetailTarget(row);
         }}
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
@@ -3486,10 +3503,26 @@ export function AdminPortal() {
         }}
       />
       <ProfileDialog
+        deliveryRequests={deliveryRequests}
         orders={allOrders}
+        onOpenBatch={(batch) => {
+          setPartnerDetail(null);
+          setBatchFocus(batch);
+          setActiveSection("batches");
+        }}
+        onOpenDeliveryTask={(request) => {
+          setPartnerDetail(null);
+          setDeliveryDetail(request);
+        }}
         onOpenOrder={(order) => {
           setPartnerDetail(null);
           openOrderDetail(order, "overview");
+        }}
+        onOpenWallet={() => {
+          const row = activePayoutRows.find((candidate) => candidate.userId === partnerDetail?.userId);
+          if (!row) return toast.info("No wallet record is available for this delivery partner yet");
+          setPartnerDetail(null);
+          setWalletDetailTarget(row);
         }}
         open={Boolean(partnerDetail)}
         profile={partnerDetail}
@@ -10276,7 +10309,11 @@ function DeliveryRequestDialog({
 }
 
 function ProfileDialog({
+  deliveryRequests,
+  onOpenBatch,
+  onOpenDeliveryTask,
   onOpenOrder,
+  onOpenWallet,
   onReview,
   onSampleReview,
   orders,
@@ -10286,7 +10323,11 @@ function ProfileDialog({
   setOpen,
   subtitle
 }: {
+  deliveryRequests: DeliveryRequest[];
+  onOpenBatch: (batch: BatchFocusTarget) => void;
+  onOpenDeliveryTask: (request: DeliveryRequest) => void;
   onOpenOrder: (order: Order) => void;
+  onOpenWallet: () => void;
   onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
   onSampleReview?: (sampleId: string, status: "APPROVED" | "REJECTED") => void;
   orders: Order[];
@@ -10325,6 +10366,9 @@ function ProfileDialog({
     : [];
   const activeProfileOrders = profileOrders.filter((order) => !["DELIVERED", "CANCELLED", "completed", "cancelled"].includes(order.status));
   const completedProfileOrders = profileOrders.filter((order) => ["DELIVERED", "completed"].includes(order.status));
+  const profileDeliveryRequests = profile && isDelivery
+    ? deliveryRequests.filter((request) => request.assignedDeliveryPartnerId === profile.id)
+    : [];
   const displayName = profile
     ? isDelivery
       ? getPartnerDisplayName(profile as DeliveryPartnerProfile)
@@ -10378,6 +10422,7 @@ function ProfileDialog({
                       <span>Joined {formatDate(profile.createdAt, true)}</span>
                     </div>
                     <p className="mt-2 text-xs text-[var(--muted)]">For verified partners, this photo is the submitted face verification selfie.</p>
+                    <div className="mt-4 flex flex-wrap gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={onOpenWallet}><ReceiptIndianRupee size={14} />Wallet &amp; payouts</ActionButton></div>
                   </div>
                 </div>
                 <div className="grid border-t border-white/80 bg-white/50 md:grid-cols-4">
@@ -10789,6 +10834,13 @@ function ProfileDialog({
                     </>
                   );
                 })()}
+                {isDelivery ? <Panel>
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-lg font-semibold">Delivery assignments</h4><p className="mt-1 text-sm text-[var(--muted)]">Active and historical jobs assigned to this partner.</p></div><Badge tone="sky">{profileDeliveryRequests.length} jobs</Badge></div>
+                  <div className="mt-4 space-y-2">
+                    {profileDeliveryRequests.slice(0, 12).map((request) => <div className="flex flex-col gap-3 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 sm:flex-row sm:items-center sm:justify-between" key={request.id}><button className="text-left" onClick={() => onOpenDeliveryTask(request)} type="button"><span className="block font-semibold text-[var(--deep)] underline decoration-sky-300 underline-offset-4">{request.taskId ?? request.darjiId ?? request.id}</span><span className="mt-1 block text-xs text-[var(--muted)]">{formatStatus(request.type)} · {formatDate(request.createdAt, true)}</span></button><span className="flex flex-wrap items-center gap-2"><StatusBadge value={request.taskStatus} />{request.batchId ? <button className="inline-flex items-center gap-1 rounded-lg border border-[var(--panel-border)] bg-white px-2 py-1 text-xs font-semibold hover:border-orange-300" onClick={() => onOpenBatch({ batchId: String(request.batchId), roundAt: request.roundAt ?? request.createdAt ?? new Date().toISOString() })} type="button">Batch {request.batchId.slice(0, 8)}<ChevronRight size={12} /></button> : <Badge tone="slate">Instant / unbatched</Badge>}</span></div>)}
+                    {!profileDeliveryRequests.length ? <p className="rounded-2xl bg-slate-50 px-4 py-5 text-center text-sm text-[var(--muted)]">No delivery jobs are linked to this partner.</p> : null}
+                  </div>
+                </Panel> : null}
                 <Panel>
                   <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-lg font-semibold">Associated orders</h4><p className="mt-1 text-sm text-[var(--muted)]">Open an order to review its full customer, fulfilment and payment trail.</p></div><Badge tone="slate">{profileOrders.length} total</Badge></div>
                   <div className="mt-4 space-y-2">
@@ -11754,13 +11806,7 @@ function getOrderColumns({
       header: "Customer",
       accessorFn: (row) => row.customer?.name ?? row.customer?.phone ?? "",
       cell: ({ row }) => (
-        <button className="flex items-center gap-2.5 rounded-xl p-1 text-left transition hover:bg-orange-50" onClick={() => onOpenCustomer(row.original)} type="button">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#fff0dc] text-[10px] font-bold text-orange-600">{getInitials(row.original.customer?.name, "CU")}</span>
-          <div className="space-y-0.5">
-            <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getCustomerDisplayName(row.original.customer)}</p>
-            <p className="text-xs text-[var(--muted)]">{row.original.customer?.phone ?? "No phone"}</p>
-          </div>
-        </button>
+        <EntityLink avatar={getInitials(row.original.customer?.name, "CU")} label={getCustomerDisplayName(row.original.customer)} onClick={() => onOpenCustomer(row.original)} subtitle={row.original.customer?.phone ?? "No phone"} tone="amber" />
       )
     },
     {
@@ -11777,13 +11823,7 @@ function getOrderColumns({
         const t = row.original.tailor;
         if (!t) return <span className="text-[var(--muted)]">Unassigned</span>;
         return (
-          <button className="flex items-center gap-2.5 rounded-xl p-1 text-left transition hover:bg-emerald-50" onClick={() => onOpenTailor(row.original)} type="button">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">{getInitials(t.user?.name ?? t.shopName, "TA")}</span>
-            <div className="space-y-0.5">
-              <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getTailorDisplayName(t)}</p>
-              <p className="text-xs text-[var(--muted)]">{t.user?.phone ?? t.darjiTailorId ?? "No phone"}</p>
-            </div>
-          </button>
+          <EntityLink avatar={getInitials(t.user?.name ?? t.shopName, "TA")} label={getTailorDisplayName(t)} onClick={() => onOpenTailor(row.original)} subtitle={t.user?.phone ?? t.darjiTailorId ?? "No phone"} tone="emerald" />
         );
       }
     },
@@ -11795,13 +11835,7 @@ function getOrderColumns({
         const dp = row.original.deliveryPartner || row.original.pickupPartner;
         if (!dp) return <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs text-[var(--muted)]"><span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100"><UserCircle2 size={15} /></span>Unassigned</span>;
         return (
-          <button className="flex items-center gap-2.5 rounded-xl p-1 text-left transition hover:bg-sky-50" onClick={() => onOpenPartner(row.original)} type="button">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-sky-50 text-[10px] font-bold text-sky-700">{getInitials(dp.user?.name, "DP")}</span>
-            <div className="space-y-0.5">
-              <p className="whitespace-nowrap font-semibold text-[var(--foreground)]">{getPartnerDisplayName(dp)}</p>
-              <p className="text-xs text-[var(--muted)]">{dp.user?.phone ?? dp.darjiPartnerId ?? "No phone"}</p>
-            </div>
-          </button>
+          <EntityLink avatar={getInitials(dp.user?.name, "DP")} label={getPartnerDisplayName(dp)} onClick={() => onOpenPartner(row.original)} subtitle={dp.user?.phone ?? dp.darjiPartnerId ?? "No phone"} tone="sky" />
         );
       }
     },
