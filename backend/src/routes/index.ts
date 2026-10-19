@@ -8,6 +8,13 @@ import {
   listAdminActivityLogsController,
   listAdminOrderMetadataController,
   updateAdminOrderMetadataController,
+  downloadAdminOrderImagesController,
+  downloadAdminOrderInvoiceController,
+  listAdminOrderQuotesController,
+  reportAdminOrderIssueController,
+  deleteAdminOrderController,
+  updateAdminTailorProfileController,
+  updateAdminDeliveryProfileController,
   systemHealthController,
   assignOrderController,
   catalogController,
@@ -270,10 +277,16 @@ router.post("/admin/orders", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), a
 router.get("/orders/:id", requireAuth, getOrderController);
 router.patch("/orders/:id/status", requireAuth, requireRole("TAILOR", "DELIVERY_PARTNER", "ADMIN", "SUPER_ADMIN"), updateOrderStatusController);
 router.patch("/orders/:id/assign", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), assignOrderController);
+router.get("/admin/orders/:id/images.zip", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), downloadAdminOrderImagesController);
+router.get("/admin/orders/:id/invoice.pdf", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), downloadAdminOrderInvoiceController);
+router.get("/admin/orders/:id/quotes", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminOrderQuotesController);
+router.post("/admin/orders/:id/issues", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), reportAdminOrderIssueController);
+router.delete("/admin/orders/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminOrderController);
 
 router.get("/tailors", requireAuth, listTailorsController);
 router.get("/tailors/tutorial-media", requireAuth, requireRole("TAILOR", "ADMIN", "SUPER_ADMIN"), getTailorTutorialMediaController);
 router.patch("/tailors/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewTailorVerificationController);
+router.patch("/admin/tailors/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminTailorProfileController);
 router.patch("/tailors/me/availability", requireAuth, requireRole("TAILOR"), updateTailorAvailabilityController);
 router.patch("/tailors/me/profile", requireAuth, requireRole("TAILOR"), updateTailorProfileController);
 router.patch("/tailors/me/verification-draft", requireAuth, requireRole("TAILOR"), saveTailorVerificationDraftController);
@@ -286,6 +299,7 @@ router.patch("/tailors/:tailorId/samples/:sampleId", requireAuth, requireRole("A
 
 router.get("/delivery-partners", requireAuth, listDeliveryPartnersController);
 router.patch("/delivery-partners/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewDeliveryVerificationController);
+router.patch("/admin/delivery-partners/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminDeliveryProfileController);
 router.patch("/delivery-partners/me/availability", requireAuth, requireRole("DELIVERY_PARTNER"), updateDeliveryAvailabilityController);
 router.patch("/delivery-partners/me/location", requireAuth, requireRole("DELIVERY_PARTNER"), updateRiderLocationController);
 router.get("/location/reverse-geocode", requireAuth, reverseGeocodeController);
@@ -339,8 +353,8 @@ router.post(
   createPublicAccountDeletionRequestController
 );
 router.get("/support/change-requests", requireAuth, listAccountChangeRequestsController);
-router.patch("/support/change-requests/:id/approve", requireAuth, requireRole("ADMIN"), approveAccountChangeRequestController);
-router.patch("/support/change-requests/:id/reject", requireAuth, requireRole("ADMIN"), rejectAccountChangeRequestController);
+router.patch("/support/change-requests/:id/approve", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), approveAccountChangeRequestController);
+router.patch("/support/change-requests/:id/reject", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), rejectAccountChangeRequestController);
 router.post("/support/change-requests/:id/messages", requireAuth, addChangeRequestMessageController);
 
 router.get("/coupons", requireAuth, listCouponsController);

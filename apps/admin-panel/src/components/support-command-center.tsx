@@ -74,6 +74,7 @@ interface SupportCommandCenterProps {
   supportStats?: SupportStats;
   onRefresh: () => void;
   onExit?: () => void;
+  onOpenPartnerProfile?: (request: AccountChangeRequest) => void;
 }
 
 // Canned responses definitions
@@ -93,7 +94,8 @@ export default function SupportCommandCenter({
   me,
   supportStats,
   onRefresh,
-  onExit
+  onExit,
+  onOpenPartnerProfile
 }: SupportCommandCenterProps) {
   const queryClient = useQueryClient();
   const token = useAdminStore((s) => s.token);
@@ -1719,6 +1721,7 @@ export default function SupportCommandCenter({
           {activeRequest && (
             <div className="flex flex-col gap-4">
               <h6 className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Verification Request</h6>
+              {activeRequest.userRole !== "CUSTOMER" ? <button className="flex w-full items-center justify-between rounded-2xl border border-[var(--panel-border)] bg-white px-4 py-3 text-left text-xs font-bold text-[var(--foreground)] transition hover:border-[var(--accent)] hover:bg-orange-50" onClick={() => onOpenPartnerProfile?.(activeRequest)} type="button"><span className="flex items-center gap-2"><User size={15} />Open complete {activeRequest.userRole === "TAILOR" ? "tailor" : "delivery partner"} profile</span><ChevronRight size={14} /></button> : null}
 
               {/* Diff changes display */}
               <div className="p-4 bg-[var(--panel-strong)] rounded-[20px] border border-[var(--panel-border)] text-xs flex flex-col gap-3.5">

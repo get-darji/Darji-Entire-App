@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import archiver = require("archiver");
+import PDFDocument from "pdfkit";
 import { PROTECTED_ADMIN_PHONE, adminInviteRole } from "../utils/admin-access.js";
 import {
   CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
@@ -3436,6 +3438,300 @@ export async function updateAdminOrderMetadataController(req: Request, res: Resp
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
   res.json({ data: metadata });
+}
+
+type AdminOrderEntity = {
+  kind: "ORDER" | "TAILORING_REQUEST";
+  document: any;
+  value: Record<string, any>;
+};
+
+async function findAdminOrderEntity(id: string): Promise<AdminOrderEntity | null> {
+  const order = await OrderModel.findById(id);
+  if (order) return { kind: "ORDER", document: order, value: order.toJSON() as Record<string, any> };
+  const request = await TailoringRequestModel.findById(id);
+  if (request) return { kind: "TAILORING_REQUEST", document: request, value: request.toJSON() as Record<string, any> };
+  return null;
+}
+
+function safeFilePart(value: unknown, fallback: string) {
+  const normalized = String(value ?? "").trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return normalized || fallback;
+}
+
+function mediaExtension(url: string, originalName?: string) {
+  const originalExtension = String(originalName ?? "").match(/\.([a-zA-Z0-9]{2,5})$/)?.[1];
+  if (originalExtension) return originalExtension.toLowerCase();
+  try {
+    const extension = new URL(url).pathname.match(/\.([a-zA-Z0-9]{2,5})$/)?.[1];
+    return extension?.toLowerCase() || "jpg";
+  } catch {
+    return "jpg";
+  }
+}
+
+type DownloadableMedia = { folder: string; label: string; url: string; originalName?: string };
+
+function collectAdminOrderMedia(entity: AdminOrderEntity, deliveryTasks: any[]): DownloadableMedia[] {
+  const value = entity.value;
+  const media: DownloadableMedia[] = [];
+  const add = (folder: string, label: string, item: any) => {
+    const url = typeof item === "string" ? item : item?.url || item?.imageUrl;
+    const resourceType = typeof item === "object" ? item?.resourceType : "image";
+    if (url && (!resourceType || resourceType === "image")) media.push({ folder, label, url, originalName: item?.originalName });
+  };
+  const addMany = (folder: string, label: string, items: any) => (Array.isArray(items) ? items : []).forEach((item) => add(folder, label, item));
+
+  if (entity.kind === "ORDER") {
+    (value.items ?? []).forEach((item: any) => add("01-customer-uploads", "customer-reference", item.referenceImageUrl));
+    add("03-tailor-before-stitching", "tailor-before-stitching", value.pickupImageUrl);
+    add("04-tailor-after-stitching", "tailor-after-stitching", value.finalImageUrl);
+    add("06-delivery-partner-proof", "delivery-proof", value.deliveryProofUrl);
+  } else {
+    addMany("01-customer-uploads", "customer-upload", value.media);
+    addMany("02-customer-reference-designs", "customer-sample", value.sampleMedia);
+    addMany("02-customer-reference-designs", "customer-design", value.designMedia);
+    (value.items ?? []).forEach((item: any) => {
+      addMany("01-customer-uploads", "customer-upload", item.media);
+      addMany("02-customer-reference-designs", "customer-sample", item.sampleMedia);
+      addMany("02-customer-reference-designs", "customer-design", item.designMedia);
+    });
+    addMany("03-tailor-before-stitching", "tailor-before-stitching", value.receivedMedia);
+    addMany("04-tailor-after-stitching", "tailor-after-stitching", value.stitchedMedia);
+  }
+  deliveryTasks.forEach((task) => {
+    const folder = task.type === "customer_to_tailor" ? "05-pickup-partner-proof" : "06-delivery-partner-proof";
+    addMany(folder, "cloth-photo", task.clothPhotos);
+    addMany(folder, "sample-photo", task.samplePhotos);
+    addMany(folder, "delivery-photo", task.deliveryPhotos);
+  });
+  return media;
+}
+
+export async function downloadAdminOrderImagesController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const deliveryTasks = await DeliveryRequestModel.find({ orderId: String(req.params.id) }).lean();
+  const media = collectAdminOrderMedia(entity, deliveryTasks);
+  const orderNumber = safeFilePart(entity.value.orderNumber || entity.value.darjiId || entity.value.id || req.params.id, "order");
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="Darji-${orderNumber}-images.zip"`);
+  res.setHeader("Cache-Control", "no-store");
+  const archive = archiver("zip", { zlib: { level: 9 } });
+  archive.on("error", (error: Error) => res.destroy(error));
+  archive.pipe(res);
+
+  const folders = [
+    "01-customer-uploads",
+    "02-customer-reference-designs",
+    "03-tailor-before-stitching",
+    "04-tailor-after-stitching",
+    "05-pickup-partner-proof",
+    "06-delivery-partner-proof"
+  ];
+  for (const folder of folders) {
+    const folderMedia = media.filter((item) => item.folder === folder);
+    if (!folderMedia.length) archive.append("No images were uploaded for this stage.\n", { name: `${folder}/NO-IMAGES.txt` });
+  }
+  for (const [index, item] of media.entries()) {
+    try {
+      const response = await fetch(item.url, { signal: AbortSignal.timeout(20_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const extension = mediaExtension(item.url, item.originalName);
+      archive.append(buffer, { name: `${item.folder}/${safeFilePart(item.label, "image")}-${String(index + 1).padStart(2, "0")}.${extension}` });
+    } catch (error) {
+      archive.append(`Image could not be downloaded from ${item.url}\n${error instanceof Error ? error.message : "Unknown error"}\n`, {
+        name: `${item.folder}/FAILED-${String(index + 1).padStart(2, "0")}.txt`
+      });
+    }
+  }
+  await archive.finalize();
+}
+
+function invoiceLine(doc: PDFKit.PDFDocument, label: string, value: unknown) {
+  const left = 54;
+  const y = doc.y;
+  doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555").text(label.toUpperCase(), left, y, { width: 160 });
+  doc.font("Helvetica").fontSize(10).fillColor("#111111").text(String(value ?? "-"), left + 170, y, { width: 330 });
+  doc.moveDown(0.8);
+}
+
+export async function downloadAdminOrderInvoiceController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const value = entity.value;
+  const [customer, address, quote] = await Promise.all([
+    UserModel.findById(value.customerId).lean(),
+    value.addressId ? AddressModel.findById(value.addressId).lean() : null,
+    value.selectedQuoteId ? TailorQuoteModel.findById(value.selectedQuoteId).lean() : null
+  ]);
+  const orderNumber = safeFilePart(value.orderNumber || value.darjiId || value.id || req.params.id, "order");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="Darji-Invoice-${orderNumber}.pdf"`);
+  res.setHeader("Cache-Control", "no-store");
+  const pdf = new PDFDocument({ size: "A4", margin: 54, info: { Title: `Darji invoice ${orderNumber}` } });
+  pdf.pipe(res);
+  pdf.font("Helvetica-Bold").fontSize(25).fillColor("#111111").text("DARJI");
+  pdf.font("Helvetica").fontSize(10).fillColor("#777777").text("Tailoring order invoice");
+  pdf.moveDown(1.5);
+  pdf.moveTo(54, pdf.y).lineTo(541, pdf.y).strokeColor("#E9A23B").stroke();
+  pdf.moveDown(1.2);
+  invoiceLine(pdf, "Invoice / order", orderNumber);
+  invoiceLine(pdf, "Order date", new Date(value.confirmedAt || value.createdAt || Date.now()).toLocaleString("en-IN"));
+  invoiceLine(pdf, "Customer", customer?.name || customer?.customerName || customer?.phone || value.customerId);
+  invoiceLine(pdf, "Phone", customer?.phone || "-");
+  invoiceLine(pdf, "Address", address ? [address.line1, address.line2, address.landmark, address.city, address.state, address.pincode].filter(Boolean).join(", ") : value.pickupAddress || value.address || "-");
+  invoiceLine(pdf, "Delivery urgency", value.deliveryMode || value.urgency || "STANDARD");
+  invoiceLine(pdf, "Payment", `${value.paymentMethod || "-"} / ${value.paymentStatus || "PENDING"}`);
+  invoiceLine(pdf, "Status", value.orderStatus || value.status || "-");
+  pdf.moveDown(1);
+  pdf.font("Helvetica-Bold").fontSize(13).fillColor("#111111").text("Charges");
+  pdf.moveDown(0.7);
+  const tailoringSubtotal = Number(value.subtotal ?? value.quoteAmount ?? quote?.price ?? 0);
+  const rows: Array<[string, number]> = [
+    ["Tailoring subtotal", tailoringSubtotal],
+    ["Delivery charges", Number(value.deliveryFee ?? 0)],
+    ["Platform fee", Number(value.platformFee ?? 0)],
+    ["Small-order fee", Number(value.smallOrderFee ?? 0)],
+    ["Home measurement", Number(value.homeMeasurementFee ?? 0)],
+    ["Discount", -Number(value.discount ?? value.discountAmount ?? 0)]
+  ];
+  rows.forEach(([label, amount]) => {
+    pdf.font("Helvetica").fontSize(10).fillColor("#333333").text(label, 54, pdf.y, { continued: true, width: 370 });
+    pdf.font("Helvetica-Bold").text(`${amount < 0 ? "-" : ""}INR ${Math.abs(amount).toLocaleString("en-IN")}`, { align: "right" });
+  });
+  pdf.moveDown(0.5);
+  pdf.moveTo(54, pdf.y).lineTo(541, pdf.y).strokeColor("#DDDDDD").stroke();
+  pdf.moveDown(0.6);
+  pdf.font("Helvetica-Bold").fontSize(14).fillColor("#111111").text("Total", 54, pdf.y, { continued: true, width: 370 });
+  pdf.text(`INR ${Number(value.totalAmount ?? rows.reduce((sum, [, amount]) => sum + amount, 0)).toLocaleString("en-IN")}`, { align: "right" });
+  pdf.moveDown(2);
+  pdf.font("Helvetica").fontSize(9).fillColor("#777777").text("This invoice was generated from the order information recorded by Darji.", { align: "center" });
+  pdf.end();
+}
+
+export async function listAdminOrderQuotesController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const requestId = entity.kind === "TAILORING_REQUEST" ? String(req.params.id) : String(entity.value.requestId || "");
+  if (!requestId) return res.json({ data: [] });
+  const quotes = await TailorQuoteModel.find({ requestId }).sort({ createdAt: 1 });
+  const data = await Promise.all(quotes.map(async (quote) => {
+    const tailor = await TailorModel.findById(quote.tailorId);
+    return { ...quote.toJSON(), tailor: tailor ? await withUser(tailor) : null };
+  }));
+  res.json({ data });
+}
+
+export async function reportAdminOrderIssueController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const input = z.object({ message: z.string().trim().min(3).max(1000).default("Order requires admin review") }).parse(req.body ?? {});
+  const identifier = entity.kind === "TAILORING_REQUEST" ? `REQ-${String(req.params.id).slice(0, 8).toUpperCase()}` : String(entity.value.orderNumber || entity.value.darjiId || req.params.id);
+  const alert = await OperationalAlertModel.findOneAndUpdate(
+    { dedupeKey: `admin-order-issue:${req.params.id}` },
+    {
+      $set: {
+        type: "ADMIN_ORDER_ISSUE",
+        status: "OPEN",
+        severity: "WARNING",
+        title: `Review ${identifier}`,
+        message: input.message,
+        entityType: entity.kind,
+        entityId: String(req.params.id),
+        customerId: entity.value.customerId,
+        metadata: { reportedBy: req.user!.id, identifier }
+      }
+    },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  );
+  res.status(201).json({ data: alert });
+}
+
+export async function deleteAdminOrderController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const identifier = entity.kind === "TAILORING_REQUEST"
+    ? `REQ-${String(req.params.id).slice(0, 8).toUpperCase()}`
+    : String(entity.value.orderNumber || entity.value.darjiId || entity.value.id || req.params.id);
+  const input = z.object({ confirmation: z.string() }).parse(req.body);
+  if (input.confirmation !== `DELETE ${identifier}`) throw new AppError(400, `Type DELETE ${identifier} to permanently delete this order`);
+  const entityId = String(req.params.id);
+  const deliveryTasks = await DeliveryRequestModel.find({ orderId: entityId }).lean();
+  const taskIds = deliveryTasks.map((task: any) => String(task._id));
+  const batchIds = [...new Set(deliveryTasks.map((task: any) => String(task.batchId || "")).filter(Boolean))];
+  const walletTransactions = await WalletTransactionModel.find({ orderId: entityId }).lean();
+  const walletAdjustments = new Map<string, number>();
+  walletTransactions.forEach((transaction: any) => {
+    const signedAmount = transaction.transactionType === "CREDIT" ? Number(transaction.amount ?? 0) : -Number(transaction.amount ?? 0);
+    walletAdjustments.set(String(transaction.walletId), (walletAdjustments.get(String(transaction.walletId)) ?? 0) + signedAmount);
+  });
+  await Promise.all([...walletAdjustments].map(([walletId, amount]) => WalletModel.updateOne({ _id: walletId }, { $inc: { balance: -amount } })));
+  await Promise.all([
+    OrderModel.deleteOne({ _id: entityId }),
+    TailoringRequestModel.deleteOne({ _id: entityId }),
+    TailorQuoteModel.deleteMany({ requestId: entityId }),
+    DeliveryRequestModel.deleteMany({ orderId: entityId }),
+    PaymentModel.deleteMany({ orderId: entityId }),
+    PaymentHistoryModel.deleteMany({ walletTransactionId: { $in: walletTransactions.map((transaction: any) => String(transaction._id)) } }),
+    TransactionModel.deleteMany({ orderId: entityId }),
+    WalletTransactionModel.deleteMany({ orderId: entityId }),
+    ReviewModel.deleteMany({ orderId: entityId }),
+    MeasurementVisitModel.deleteMany({ requestId: entityId }),
+    NotificationModel.deleteMany({ orderId: entityId }),
+    OperationalAlertModel.deleteMany({ entityId }),
+    CouponRedemptionModel.updateMany({ orderIds: entityId }, { $pull: { orderIds: entityId } }),
+    SupportTicketModel.updateMany({ orderId: entityId }, { $unset: { orderId: "" } }),
+    AdminOrderMetadataModel.deleteMany({ entityId }),
+    DeliveryBatchModel.updateMany({ $or: [{ batchId: { $in: batchIds } }, { tasks: { $in: taskIds } }] }, { $pull: { tasks: { $in: taskIds } } })
+  ]);
+  res.json({ data: { deleted: true, id: entityId, identifier } });
+}
+
+const adminProfileUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  phone: z.string().trim().min(7).max(20).optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  avatarUrl: z.string().url().optional().or(z.literal("")),
+  displayName: z.string().trim().max(120).optional(),
+  shopName: z.string().trim().max(160).optional(),
+  specialization: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  vehicleNumber: z.string().trim().max(40).optional(),
+  deliveryType: z.enum(["PICKUP", "DROP"]).optional(),
+  assignedArea: z.string().trim().max(160).optional(),
+  isAvailable: z.boolean().optional(),
+  workingHours: z.unknown().optional(),
+  verification: z.record(z.string(), z.unknown()).optional()
+});
+
+async function updateAdminPartnerProfile(req: Request, res: Response, role: "TAILOR" | "DELIVERY_PARTNER") {
+  const input = adminProfileUpdateSchema.parse(req.body);
+  const profile = role === "TAILOR"
+    ? await TailorModel.findById(String(req.params.id))
+    : await DeliveryPartnerModel.findById(String(req.params.id));
+  if (!profile) throw new AppError(404, `${role === "TAILOR" ? "Tailor" : "Delivery partner"} profile not found`);
+  const userUpdate = Object.fromEntries(Object.entries({ name: input.name, phone: input.phone, email: input.email || undefined, avatarUrl: input.avatarUrl || undefined }).filter(([, value]) => value !== undefined));
+  if (Object.keys(userUpdate).length) await UserModel.findByIdAndUpdate(profile.userId, { $set: userUpdate });
+  const profileUpdate = { ...input } as Record<string, unknown>;
+  delete profileUpdate.name;
+  delete profileUpdate.phone;
+  delete profileUpdate.email;
+  delete profileUpdate.avatarUrl;
+  if (Object.keys(profileUpdate).length) {
+    if (role === "TAILOR") await TailorModel.findByIdAndUpdate(profile.id, { $set: profileUpdate });
+    else await DeliveryPartnerModel.findByIdAndUpdate(profile.id, { $set: profileUpdate });
+  }
+  const updated = role === "TAILOR" ? await TailorModel.findById(profile.id) : await DeliveryPartnerModel.findById(profile.id);
+  res.json({ data: await withUser(updated!) });
+}
+
+export async function updateAdminTailorProfileController(req: Request, res: Response) {
+  return updateAdminPartnerProfile(req, res, "TAILOR");
+}
+
+export async function updateAdminDeliveryProfileController(req: Request, res: Response) {
+  return updateAdminPartnerProfile(req, res, "DELIVERY_PARTNER");
 }
 
 export async function systemHealthController(_req: Request, res: Response) {

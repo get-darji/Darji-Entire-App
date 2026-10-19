@@ -183,6 +183,13 @@ import {
   getAdminTailorQuotes,
   getAdminOrderMetadata,
   updateAdminOrderMetadata,
+  downloadAdminOrderImages,
+  downloadAdminOrderInvoice,
+  permanentlyDeleteAdminOrder,
+  getAdminOrderQuotes,
+  reportAdminOrderIssue,
+  updateAdminTailorProfile,
+  updateAdminDeliveryProfile,
   getSystemHealth,
   getMarketingSignups,
   updateAdminProfile,
@@ -199,7 +206,8 @@ import {
   reverseGeocodeAdminLocation,
   selectAdminTailorQuote,
   type UploadedTailoringMedia,
-  type AdminReview
+  type AdminReview,
+  type AdminPartnerProfileUpdate
 } from "@/src/lib/api";
 import {
   cn,
@@ -593,6 +601,7 @@ export function AdminPortal() {
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
   const [orderDetail, setOrderDetail] = useState<Order | null>(null);
+  const [deleteOrderTarget, setDeleteOrderTarget] = useState<Order | null>(null);
   const [paymentDetail, setPaymentDetail] = useState<Payment | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [createOrderDraft, setCreateOrderDraft] = useState<AdminCreateOrderDraft>(() => emptyAdminOrderDraft());
@@ -976,22 +985,24 @@ export function AdminPortal() {
     window.open(`tel:${phone}`);
   };
 
-  const downloadMediaManifest = (order: Order) => {
-    const media = collectOrderMedia(order);
-    if (!media.length) {
-      toast.error("No customer images found for this order");
-      return;
+  const downloadOrderImages = async (order: Order) => {
+    try {
+      const blob = await downloadAdminOrderImages(order.id);
+      downloadFileBlob(`Darji-${safeFileName(getOrderDisplayNumber(order))}-images.zip`, blob);
+      toast.success("Order images downloaded as ZIP");
+    } catch (error) {
+      toast.error(extractError(error));
     }
-    downloadBlob(
-      `${safeFileName(getOrderDisplayNumber(order))}-images.json`,
-      JSON.stringify(media, null, 2),
-      "application/json;charset=utf-8"
-    );
-    toast.success("Image manifest downloaded");
   };
 
-  const printOrderInvoice = (order: Order) => {
-    openPrintableInvoice(order);
+  const downloadOrderInvoice = async (order: Order) => {
+    try {
+      const blob = await downloadAdminOrderInvoice(order.id);
+      downloadFileBlob(`Darji-Invoice-${safeFileName(getOrderDisplayNumber(order))}.pdf`, blob);
+      toast.success("Invoice downloaded");
+    } catch (error) {
+      toast.error(extractError(error));
+    }
   };
 
   const requestOtpMutation = useMutation({
@@ -1280,6 +1291,17 @@ export function AdminPortal() {
     onError: (error) => toast.error(extractError(error))
   });
 
+  const orderDeleteMutation = useMutation({
+    mutationFn: permanentlyDeleteAdminOrder,
+    onSuccess: async () => {
+      setDeleteOrderTarget(null);
+      setOrderDetail(null);
+      toast.success("Order permanently deleted");
+      await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
   const createOrderMutation = useMutation({
     mutationFn: createAdminOrder,
     onSuccess: async (order) => {
@@ -1348,6 +1370,26 @@ export function AdminPortal() {
     onSuccess: async (_, variables) => {
       toast.success(`Delivery partner marked ${formatStatus(variables.status).toLowerCase()}`);
       await refreshData();
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const tailorProfileUpdateMutation = useMutation({
+    mutationFn: updateAdminTailorProfile,
+    onSuccess: async (profile) => {
+      setTailorDetail(profile);
+      toast.success("Tailor profile updated");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const deliveryProfileUpdateMutation = useMutation({
+    mutationFn: updateAdminDeliveryProfile,
+    onSuccess: async (profile) => {
+      setPartnerDetail(profile);
+      toast.success("Delivery partner profile updated");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "partners"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -2429,40 +2471,22 @@ export function AdminPortal() {
       openCustomerChat(order);
     },
     onDownloadImages: (order) => {
-      openOrderDetail(order, "media");
-      downloadMediaManifest(order);
-    },
-    onDuplicateOrder: (order) => {
-      const payload = {
-        customerId: order.customerId,
-        items: order.items,
-        instructions: order.instructions,
-        sourceOrderId: order.id
-      };
-      const draft = JSON.stringify(payload, null, 2);
-      if (!navigator.clipboard?.writeText) {
-        toast.error("Clipboard access is not available in this browser");
-        return;
-      }
-      navigator.clipboard.writeText(draft).then(
-        () => toast.success("Order draft copied for duplication"),
-        () => toast.error("Unable to copy order draft")
-      );
+      void downloadOrderImages(order);
     },
     onGenerateInvoice: (order) => {
-      openOrderDetail(order, "invoice");
-      printOrderInvoice(order);
+      void downloadOrderInvoice(order);
     },
     onMarkHighPriority: (order) => {
-      setOrderPriorities((current) => ({ ...current, [order.id]: "High" }));
-      openOrderDetail(order, "notes");
-      toast.success("Order marked high priority");
+      orderMetadataMutation.mutate({ orderId: order.id, priority: "High" }, { onSuccess: () => toast.success("Order marked high priority") });
     },
+    onDeleteOrder: setDeleteOrderTarget,
     onOpen: openOrderDetail,
     onReportIssue: (order) => {
-      openOrderDetail(order, "notes");
-      setActiveSection("support");
-      toast.info("Use support to log the operational issue for this order.");
+      void reportAdminOrderIssue({ orderId: order.id }).then(async () => {
+        openOrderDetail(order, "notes");
+        toast.success("Operational issue reported for this order");
+        await queryClient.invalidateQueries({ queryKey: ["admin", "operational-alerts"] });
+      }).catch((error) => toast.error(extractError(error)));
     },
     onOpenBatch: (batch) => {
       setBatchFocus(batch);
@@ -2851,6 +2875,13 @@ export function AdminPortal() {
             onDateChange={setOrderDateFilter}
             onDeliveryPartnerChange={setDeliveryPartnerFilter}
             onExport={() => void downloadExcel("darji-orders.xlsx", "Orders", filteredOrders.map(orderToCsv))}
+            onBulkPriority={(orders, priority) => {
+              void Promise.all(orders.map((order) => updateAdminOrderMetadata({ orderId: order.id, priority }))).then(async (records) => {
+                setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) }));
+                toast.success(`${orders.length} orders marked ${priority.toLowerCase()}`);
+                await queryClient.invalidateQueries({ queryKey: ["admin", "order-metadata"] });
+              }).catch((error) => toast.error(extractError(error)));
+            }}
             onPaymentMethodChange={setPaymentFilter}
             onPaymentStatusChange={setOrderPaymentStatusFilter}
             onOpen={openOrderDetail}
@@ -3116,6 +3147,15 @@ export function AdminPortal() {
             me={me}
             supportStats={supportStatsQuery.data}
             onExit={() => setActiveSection("dashboard")}
+            onOpenPartnerProfile={(request) => {
+              if (request.userRole === "TAILOR") {
+                const tailor = tailors.find((candidate) => candidate.userId === request.userId);
+                if (tailor) setTailorDetail(tailor); else toast.error("Tailor profile is not available in the current data set");
+              } else if (request.userRole === "DELIVERY_PARTNER") {
+                const partner = partners.find((candidate) => candidate.userId === request.userId);
+                if (partner) setPartnerDetail(partner); else toast.error("Delivery partner profile is not available in the current data set");
+              }
+            }}
             onRefresh={() => {
               queryClient.invalidateQueries({ queryKey: ["admin", "support"] });
               queryClient.invalidateQueries({ queryKey: ["admin", "support-stats"] });
@@ -3399,7 +3439,9 @@ export function AdminPortal() {
         deliveryRequests={deliveryRequests}
         priority={orderDetail ? orderPriorities[orderDetail.id] ?? "Normal" : "Normal"}
         focusSection={orderDetailFocus}
-        onPrintInvoice={() => orderDetail && printOrderInvoice(orderDetail)}
+        onPrintInvoice={() => orderDetail && void downloadOrderInvoice(orderDetail)}
+        onDownloadImages={() => orderDetail && void downloadOrderImages(orderDetail)}
+        onDeleteOrder={() => orderDetail && setDeleteOrderTarget(orderDetail)}
         onOpenCustomer={() => {
           if (!orderDetail) return;
           const customer = users.find((candidate) => candidate.id === orderDetail.customerId) ?? ({ ...orderDetail.customer, id: orderDetail.customerId } as AdminUser);
@@ -3410,6 +3452,10 @@ export function AdminPortal() {
           if (!orderDetail?.tailor) return;
           setOrderDetail(null);
           setTailorDetail(tailors.find((candidate) => candidate.id === orderDetail.tailorId) ?? orderDetail.tailor);
+        }}
+        onOpenQuoteTailor={(tailor) => {
+          setOrderDetail(null);
+          setTailorDetail(tailors.find((candidate) => candidate.id === tailor.id) ?? tailor);
         }}
         onOpenPartner={(partner) => {
           setOrderDetail(null);
@@ -3431,6 +3477,13 @@ export function AdminPortal() {
         setOpen={(next) => {
           if (!next) setOrderDetail(null);
         }}
+      />
+      <PermanentDeleteOrderDialog
+        open={Boolean(deleteOrderTarget)}
+        order={deleteOrderTarget}
+        pending={orderDeleteMutation.isPending}
+        onClose={() => setDeleteOrderTarget(null)}
+        onConfirm={(confirmation) => deleteOrderTarget && orderDeleteMutation.mutate({ orderId: deleteOrderTarget.id, confirmation })}
       />
       <PaymentDetailDialog
         open={Boolean(paymentDetail)}
@@ -3494,7 +3547,8 @@ export function AdminPortal() {
         }}
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
-        pending={tailorReviewMutation.isPending || tailorSampleReviewMutation.isPending}
+        pending={tailorReviewMutation.isPending || tailorSampleReviewMutation.isPending || tailorProfileUpdateMutation.isPending}
+        onSave={(updates) => tailorDetail && tailorProfileUpdateMutation.mutate({ tailorId: tailorDetail.id, updates })}
         onReview={(review) => tailorDetail && tailorReviewMutation.mutate({ tailorId: tailorDetail.id, status: review.status, reason: review.reason, reuploadFields: review.reuploadFields })}
         onSampleReview={(sampleId, status) => tailorDetail && tailorSampleReviewMutation.mutate({ tailorId: tailorDetail.id, sampleId, status })}
         subtitle="Tailor profile"
@@ -3526,7 +3580,8 @@ export function AdminPortal() {
         }}
         open={Boolean(partnerDetail)}
         profile={partnerDetail}
-        pending={partnerReviewMutation.isPending}
+        pending={partnerReviewMutation.isPending || deliveryProfileUpdateMutation.isPending}
+        onSave={(updates) => partnerDetail && deliveryProfileUpdateMutation.mutate({ partnerId: partnerDetail.id, updates })}
         onReview={(review) => partnerDetail && partnerReviewMutation.mutate({ partnerId: partnerDetail.id, status: review.status, reason: review.reason, deliveryType: review.deliveryType, assignedArea: review.assignedArea })}
         subtitle="Delivery partner profile"
         setOpen={(next) => {
@@ -5630,6 +5685,7 @@ function OrdersManagementView({
   onDateChange,
   onDeliveryPartnerChange,
   onExport,
+  onBulkPriority,
   onOpen,
   onPaymentMethodChange,
   onPaymentStatusChange,
@@ -5660,6 +5716,7 @@ function OrdersManagementView({
   onDateChange: (value: string) => void;
   onDeliveryPartnerChange: (value: string) => void;
   onExport: () => void;
+  onBulkPriority: (orders: Order[], priority: AdminOrderPriority) => void;
   onOpen: (order: Order, focus?: OrderDetailFocus) => void;
   onPaymentMethodChange: (value: string) => void;
   onPaymentStatusChange: (value: string) => void;
@@ -5756,7 +5813,7 @@ function OrdersManagementView({
         </div>
       </Panel>
 
-      <OrdersTable columns={columns} data={filteredOrders} emptyMessage="No orders match the current filters." onOpen={(order) => onOpen(order, "overview")} />
+      <OrdersTable columns={columns} data={filteredOrders} emptyMessage="No orders match the current filters." onBulkPriority={onBulkPriority} onOpen={(order) => onOpen(order, "overview")} />
     </div>
   );
 }
@@ -5770,10 +5827,11 @@ function OrderSummaryCard({ icon: Icon, label, note, onClick, selected, tone, va
   return <button aria-label={`Show ${label.toLowerCase()}`} aria-pressed={selected} className={cn("rounded-2xl border-2 text-left outline-none transition hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2", selected ? "border-[var(--accent)] shadow-[0_8px_22px_rgba(255,145,0,0.16)]" : "border-transparent")} onClick={onClick} type="button"><Panel className="h-full rounded-2xl p-4"><div className="flex items-center gap-4"><span className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full", tones[tone])}><Icon size={24} /></span><div><p className={cn("text-xs font-semibold", tones[tone].split(" ")[1])}>{label}</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[var(--deep)]">{value.toLocaleString("en-IN")}</p><p className="mt-1 text-xs text-[var(--muted)]">{note}</p></div></div></Panel></button>;
 }
 
-function OrdersTable({ columns, data, emptyMessage, onOpen }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string; onOpen: (order: Order) => void }) {
+function OrdersTable({ columns, data, emptyMessage, onBulkPriority, onOpen }: { columns: Array<ColumnDef<Order>>; data: Order[]; emptyMessage: string; onBulkPriority: (orders: Order[], priority: AdminOrderPriority) => void; onOpen: (order: Order) => void }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const tableTopRef = useRef<HTMLDivElement>(null);
   const table = useReactTable({ columns, data, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(), onSortingChange: setSorting, state: { sorting } });
   const rows = table.getRowModel().rows;
@@ -5784,6 +5842,14 @@ function OrdersTable({ columns, data, emptyMessage, onOpen }: { columns: Array<C
   const firstVisiblePage = Math.max(0, Math.min(safePage - 2, pageCount - visiblePageCount));
   const visiblePages = Array.from({ length: visiblePageCount }, (_, index) => firstVisiblePage + index);
   useEffect(() => setPage(0), [data, pageSize]);
+  useEffect(() => setSelectedIds((current) => new Set([...current].filter((id) => data.some((order) => order.id === id)))), [data]);
+  const selectedOrders = data.filter((order) => selectedIds.has(order.id));
+  const allSelected = data.length > 0 && selectedIds.size === data.length;
+  const toggleSelected = (id: string) => setSelectedIds((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const goToPage = (nextPage: number) => {
     setPage(Math.max(0, Math.min(nextPage, pageCount - 1)));
@@ -5804,7 +5870,7 @@ function OrdersTable({ columns, data, emptyMessage, onOpen }: { columns: Array<C
     onOpen(order);
   };
 
-  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0"><div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1080px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}><th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold">S. No.</th>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length + 1}>{emptyMessage}</td></tr> : pageRows.map((row, rowIndex) => <tr aria-label={`Open order ${getOrderDisplayNumber(row.original)}`} className="cursor-pointer border-t border-l-[3px] border-[var(--panel-border)] bg-white align-middle transition hover:bg-orange-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 focus-visible:outline-offset-[-2px]" key={row.id} onClick={(event) => activateRow(event, row.original)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") activateRow(event, row.original); }} role="button" style={{ borderLeftColor: statusRail(row.original.status) }} tabIndex={0}><td className="px-3 py-3 align-middle font-semibold tabular-nums text-[var(--muted)]">{safePage * pageSize + rowIndex + 1}</td>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
+  return <Panel className="max-w-full overflow-hidden rounded-2xl p-0">{selectedOrders.length ? <div className="flex flex-wrap items-center justify-between gap-3 border-b border-orange-200 bg-orange-50 px-4 py-3"><p className="text-sm font-semibold text-orange-950">{selectedOrders.length} order{selectedOrders.length === 1 ? "" : "s"} selected</p><div className="flex flex-wrap gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={() => onBulkPriority(selectedOrders, "Normal")}>Normal</ActionButton><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={() => onBulkPriority(selectedOrders, "High")}><Flag size={14} /> High</ActionButton><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={() => onBulkPriority(selectedOrders, "Urgent")}><AlertTriangle size={14} /> Urgent</ActionButton><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={() => onBulkPriority(selectedOrders, "VIP")}><Star size={14} /> VIP</ActionButton><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={() => setSelectedIds(new Set())}>Clear</ActionButton></div></div> : null}<div className="scroll-mt-24 max-h-[68vh] overflow-auto overscroll-contain" ref={tableTopRef}><table className="w-full min-w-[1220px] text-left text-xs"><thead className="sticky top-0 z-20 bg-[#fffcf7] text-[11px] text-amber-900/70 shadow-[0_1px_0_rgba(226,215,196,0.95)]">{table.getHeaderGroups().map((group) => <tr key={group.id}><th className="bg-[#fffcf7] px-3 py-3.5"><input aria-label="Select all filtered orders" checked={allSelected} onChange={() => setSelectedIds(allSelected ? new Set() : new Set(data.map((order) => order.id)))} type="checkbox" /></th><th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold">S. No.</th>{group.headers.map((header) => <th className="whitespace-nowrap bg-[#fffcf7] px-3 py-3.5 font-semibold" key={header.id}><button className="inline-flex items-center gap-1.5" onClick={() => header.column.getCanSort() && header.column.toggleSorting(header.column.getIsSorted() === "asc")} type="button">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getCanSort() ? <ChevronDown size={12} /> : null}</button></th>)}</tr>)}</thead><tbody>{!pageRows.length ? <tr><td className="px-4 py-14 text-center text-[var(--muted)]" colSpan={columns.length + 2}>{emptyMessage}</td></tr> : pageRows.map((row, rowIndex) => <tr aria-label={`Open order ${getOrderDisplayNumber(row.original)}`} className={cn("cursor-pointer border-t border-l-[3px] border-[var(--panel-border)] align-middle transition hover:bg-orange-50/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-400 focus-visible:outline-offset-[-2px]", selectedIds.has(row.original.id) ? "bg-orange-50/70" : "bg-white")} key={row.id} onClick={(event) => activateRow(event, row.original)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") activateRow(event, row.original); }} role="button" style={{ borderLeftColor: statusRail(row.original.status) }} tabIndex={0}><td className="px-3 py-3"><input aria-label={`Select ${getOrderDisplayNumber(row.original)}`} checked={selectedIds.has(row.original.id)} onChange={() => toggleSelected(row.original.id)} type="checkbox" /></td><td className="px-3 py-3 align-middle font-semibold tabular-nums text-[var(--muted)]">{safePage * pageSize + rowIndex + 1}</td>{row.getVisibleCells().map((cell) => <td className="px-3 py-3 align-middle" key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div><div className="flex flex-col gap-3 border-t border-[var(--panel-border)] bg-[#fffefa] px-4 py-3.5 text-xs sm:flex-row sm:items-center sm:justify-between"><p className="text-[var(--muted)]">Showing {rows.length ? safePage * pageSize + 1 : 0} to {Math.min((safePage + 1) * pageSize, rows.length)} of {rows.length} orders</p><div className="flex flex-wrap items-center gap-1.5"><button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage === 0} onClick={() => goToPage(safePage - 1)} type="button"><ChevronRight className="rotate-180" size={15} /></button>{visiblePages.map((index) => <button className={cn("h-8 min-w-8 rounded-lg px-2 font-semibold", safePage === index ? "bg-orange-500 text-white shadow-sm" : "text-amber-950 hover:bg-orange-50")} key={index} onClick={() => goToPage(index)} type="button">{index + 1}</button>)}<button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--panel-border)] bg-white disabled:opacity-40" disabled={safePage >= pageCount - 1} onClick={() => goToPage(safePage + 1)} type="button"><ChevronRight size={15} /></button><select aria-label="Rows per page" className="ml-2 h-8 rounded-lg border border-[var(--panel-border)] bg-white px-2" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10 / page</option><option value={25}>25 / page</option><option value={50}>50 / page</option></select></div></div></Panel>;
 }
 
 function SampleWorkModule({
@@ -8726,6 +8792,12 @@ function PriorityBadge({ value }: { value: AdminOrderPriority }) {
   return <Badge tone={toneByPriority[value]}>{value}</Badge>;
 }
 
+function UrgencyBadge({ value }: { value: string }) {
+  const normalized = value.toUpperCase();
+  const tone = normalized === "INSTANT" ? "rose" : normalized === "EXPRESS" ? "amber" : "sky";
+  return <Badge tone={tone}>{formatStatus(normalized)}</Badge>;
+}
+
 function cleanText(value?: string | null) {
   const trimmed = String(value ?? "").trim();
   return trimmed.length ? trimmed : undefined;
@@ -9682,8 +9754,11 @@ function OrderDetailDialog({
   onPriorityChange,
   onStatusChange,
   onPrintInvoice,
+  onDownloadImages,
+  onDeleteOrder,
   onOpenCustomer,
   onOpenTailor,
+  onOpenQuoteTailor,
   onOpenPartner,
   onOpenDeliveryTask,
   onOpenBatch,
@@ -9702,8 +9777,11 @@ function OrderDetailDialog({
   onPriorityChange: (priority: AdminOrderPriority) => void;
   onStatusChange: (status: string) => void;
   onPrintInvoice: () => void;
+  onDownloadImages: () => void;
+  onDeleteOrder: () => void;
   onOpenCustomer: () => void;
   onOpenTailor: () => void;
+  onOpenQuoteTailor: (tailor: TailorProfile) => void;
   onOpenPartner: (partner: DeliveryPartnerProfile) => void;
   onOpenDeliveryTask: (request: DeliveryRequest) => void;
   onOpenBatch: (batch: BatchFocusTarget) => void;
@@ -9744,6 +9822,11 @@ function OrderDetailDialog({
   const linkedDeliveryRequests = order ? deliveryRequests.filter((request) => request.orderId === order.id) : [];
   const trackingEvents = order ? buildOrderTrackingEvents(order, linkedDeliveryRequests) : [];
   const pricingDetails = order ? buildOrderPricingDetails(order) : null;
+  const quotesQuery = useQuery({
+    queryKey: ["admin", "order-quotes", order?.id],
+    queryFn: () => getAdminOrderQuotes(order!.id),
+    enabled: open && Boolean(order?.id)
+  });
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
@@ -9755,12 +9838,13 @@ function OrderDetailDialog({
               <div className="sticky top-0 z-20 border-b border-[#efe1ca] bg-[#fffdfa]/95 px-5 py-4 backdrop-blur-xl">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <div className="flex flex-wrap items-center gap-3"><Dialog.Title className="text-xl font-bold text-[var(--deep)]">{getOrderDisplayNumber(order)}</Dialog.Title><StatusBadge value={order.status} /></div>
+                    <div className="flex flex-wrap items-center gap-3"><Dialog.Title className="text-xl font-bold text-[var(--deep)]">{getOrderDisplayNumber(order)}</Dialog.Title><StatusBadge value={order.status} /><UrgencyBadge value={String(order.deliveryMode ?? order.request?.deliveryMode ?? order.request?.urgency ?? "STANDARD")} /><PriorityBadge value={priority} /></div>
                     <Dialog.Description className="mt-2 text-xs font-medium text-[var(--muted)]">Internal trace: {order.darjiId ?? order.id}</Dialog.Description>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 pr-11">
                     <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onAssign}><PencilLine className="h-4 w-4" />Edit</ActionButton>
-                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onPrintInvoice}><Printer className="h-4 w-4" />Print Invoice</ActionButton>
+                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onDownloadImages}><Download className="h-4 w-4" />Images ZIP</ActionButton>
+                    <ActionButton className="h-10 rounded-xl px-4" variant="secondary" onClick={onPrintInvoice}><Download className="h-4 w-4" />Download Invoice</ActionButton>
                   </div>
                 </div>
                 <Dialog.Close asChild><button aria-label="Close order details" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#efd9b5] bg-white text-[var(--deep)] transition hover:bg-orange-50" type="button"><X size={18} /></button></Dialog.Close>
@@ -9852,6 +9936,16 @@ function OrderDetailDialog({
                   </Panel>
                 ) : null}
 
+                <Panel className="rounded-2xl p-4">
+                  <div className="flex items-start justify-between gap-3"><div><h4 className="text-lg font-semibold">Tailor quotes</h4><p className="mt-1 text-sm text-[var(--muted)]">Every quote received for this request, linked to the tailor profile.</p></div><Badge tone="slate">{quotesQuery.data?.length ?? 0} quotes</Badge></div>
+                  {quotesQuery.isLoading ? <div className="mt-4"><LoadingState label="Loading quotes..." /></div> : null}
+                  {quotesQuery.isError ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{extractError(quotesQuery.error)}</p> : null}
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    {(quotesQuery.data ?? []).map((quote) => <button className="rounded-2xl border border-[var(--panel-border)] bg-white p-4 text-left transition hover:border-orange-300 hover:bg-orange-50/40" key={quote.id} onClick={() => quote.tailor && onOpenQuoteTailor(quote.tailor)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[var(--deep)]">{quote.tailor ? getTailorDisplayName(quote.tailor) : quote.tailorId}</p><p className="mt-1 text-xs text-[var(--muted)]">{quote.darjiId ?? quote.id} · {formatDate(quote.createdAt, true)}</p></div><StatusBadge value={quote.status} /></div><div className="mt-4 flex items-end justify-between gap-3"><div className="text-xs text-[var(--muted)]"><p>{quote.estimatedHours ? `${quote.estimatedHours} hours` : `${quote.estimatedDays} days`} estimated</p><p className="mt-1">{quote.message || "No tailor message"}</p></div><p className="text-lg font-bold text-orange-600">{formatCurrency(quote.price)}</p></div></button>)}
+                    {!quotesQuery.isLoading && !quotesQuery.data?.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-[var(--muted)]">No quotes are linked to this order.</p> : null}
+                  </div>
+                </Panel>
+
                 <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
                 <Panel className="rounded-2xl p-4" ref={invoiceRef}>
                   <div className="grid gap-5 lg:grid-cols-[0.7fr_1.3fr]">
@@ -9934,6 +10028,7 @@ function OrderDetailDialog({
                         ))}
                       </select>
                       <ActionButton disabled={nextStatus === order.status} className="w-full justify-center bg-gradient-to-r from-[#ffad16] to-[#ff8500] text-white" onClick={() => onStatusChange(nextStatus)}>Update status</ActionButton>
+                      <ActionButton className="w-full justify-center" variant="danger" onClick={onDeleteOrder}><Trash2 size={15} />Permanently delete</ActionButton>
                     </div>
                   </div>
                 </Panel>
@@ -10184,6 +10279,16 @@ function formatAdminValue(value: unknown): string {
   return String(value);
 }
 
+function flattenAdminRecord(value: unknown, prefix = ""): Array<{ label: string; value: string }> {
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+    const label = prefix ? `${prefix} / ${formatStatus(key)}` : formatStatus(key);
+    if (item && typeof item === "object" && !Array.isArray(item)) return flattenAdminRecord(item, label);
+    if (Array.isArray(item) && item.some((entry) => entry && typeof entry === "object")) return [{ label, value: `${item.length} uploaded record${item.length === 1 ? "" : "s"}` }];
+    return [{ label, value: formatAdminValue(item) }];
+  });
+}
+
 function PaymentDetailDialog({ open, onOpenCustomer, onOpenOrder, payment, setOpen }: { open: boolean; onOpenCustomer: () => void; onOpenOrder: () => void; payment: Payment | null; setOpen: (open: boolean) => void }) {
   return <Dialog.Root onOpenChange={setOpen} open={open}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-[2px]" /><Dialog.Content className="fixed left-1/2 top-1/2 z-[60] max-h-[88vh] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[#fffdfa] p-6 shadow-[0_28px_80px_rgba(15,23,42,0.28)]">{payment ? <><div className="flex items-start justify-between gap-4 pr-10"><div><Dialog.Title className="text-xl font-bold text-[var(--deep)]">Payment details</Dialog.Title><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">{payment.darjiId ?? payment.id}</Dialog.Description></div><StatusBadge value={payment.status} /></div><Dialog.Close asChild><button aria-label="Close payment details" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[var(--panel-border)] bg-white" type="button"><X size={18} /></button></Dialog.Close><div className="mt-6 grid gap-3 sm:grid-cols-2"><OrderDrawerSummary icon={ReceiptIndianRupee} label="Collected" value={formatCurrency(payment.recognizedAmount ?? payment.amount)} detail={formatStatus(payment.method)} /><OrderDrawerSummary icon={CalendarDays} label="Created" value={formatDate(payment.createdAt)} detail={payment.paidAt ? `Paid ${formatDate(payment.paidAt, true)}` : "Not marked paid"} /><OrderDrawerSummary icon={Package} label="Linked order" value={payment.order?.orderNumber ?? payment.orderId} detail={formatStatus(payment.order?.status ?? "Unknown")} onClick={onOpenOrder} /><OrderDrawerSummary icon={UserCircle2} label="Customer" value={cleanText(payment.order?.customerName) ?? "Customer"} detail={payment.order?.customerPhone ?? payment.order?.customerId ?? "No customer reference"} onClick={payment.order?.customerId ? onOpenCustomer : undefined} /></div><Panel className="mt-5 rounded-2xl p-4"><h4 className="text-sm font-bold text-[var(--deep)]">Audit references</h4><div className="mt-4 grid gap-3 text-xs"><OrderDetailRow label="Payment ID" value={payment.id} /><OrderDetailRow label="Provider ref" value={payment.providerRef ?? "Not available"} /><OrderDetailRow label="Order ID" value={payment.orderId} /><OrderDetailRow label="Updated" value={formatDate(payment.updatedAt, true)} /></div></Panel></> : null}</Dialog.Content></Dialog.Portal></Dialog.Root>;
 }
@@ -10315,6 +10420,7 @@ function ProfileDialog({
   onOpenOrder,
   onOpenWallet,
   onReview,
+  onSave,
   onSampleReview,
   orders,
   open,
@@ -10329,6 +10435,7 @@ function ProfileDialog({
   onOpenOrder: (order: Order) => void;
   onOpenWallet: () => void;
   onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
+  onSave: (updates: AdminPartnerProfileUpdate) => void;
   onSampleReview?: (sampleId: string, status: "APPROVED" | "REJECTED") => void;
   orders: Order[];
   open: boolean;
@@ -10341,6 +10448,9 @@ function ProfileDialog({
   const [assignedArea, setAssignedArea] = useState<string>("unassigned");
   const [reviewReason, setReviewReason] = useState("");
   const [selectedReuploadFields, setSelectedReuploadFields] = useState<string[]>(["aadhaarFront", "aadhaarBack", "facePhoto"]);
+  const [profileTab, setProfileTab] = useState<"personal" | "business" | "bank" | "documents" | "activity">("personal");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [editDraft, setEditDraft] = useState({ name: "", phone: "", email: "", avatarUrl: "", shopName: "", specialization: "", address: "", shopAddress: "", vehicleNumber: "", vehicleModel: "", accountHolder: "", accountNumber: "", ifsc: "", upi: "" });
 
   useEffect(() => {
     if (profile && !("specialization" in profile)) {
@@ -10352,6 +10462,30 @@ function ProfileDialog({
       setSelectedReuploadFields(profile.verificationReuploadFields?.length ? profile.verificationReuploadFields : idType === "Aadhaar" ? ["aadhaarFront", "aadhaarBack", "facePhoto"] : ["panPhoto", "facePhoto"]);
     }
     setReviewReason(profile?.verificationRejectionReason ?? "");
+    if (profile) {
+      const verification = (profile.verification ?? {}) as Record<string, any>;
+      const personal = (verification.personal ?? {}) as Record<string, any>;
+      const shop = (verification.shop ?? {}) as Record<string, any>;
+      const vehicle = (verification.vehicle ?? {}) as Record<string, any>;
+      const bank = (verification.bank ?? {}) as Record<string, any>;
+      setProfileTab("personal");
+      setEditDraft({
+        name: profile.user?.name ?? personal.name ?? personal.fullName ?? "",
+        phone: profile.user?.phone ?? "",
+        email: profile.user?.email ?? personal.email ?? "",
+        avatarUrl: profile.user?.avatarUrl ?? "",
+        shopName: "shopName" in profile ? profile.shopName ?? shop.shopName ?? "" : "",
+        specialization: "specialization" in profile ? (profile.specialization ?? []).join(", ") : "",
+        address: personal.address ?? "",
+        shopAddress: shop.shopAddress ?? "",
+        vehicleNumber: "vehicleNumber" in profile ? profile.vehicleNumber ?? vehicle.vehicleNumber ?? "" : "",
+        vehicleModel: vehicle.vehicleModel ?? "",
+        accountHolder: bank.accountHolder ?? "",
+        accountNumber: bank.accountNumber ?? "",
+        ifsc: bank.ifsc ?? "",
+        upi: bank.upi ?? ""
+      });
+    }
   }, [profile]);
 
   const isDelivery = profile ? !isTailorProfile(profile) : false;
@@ -10386,6 +10520,23 @@ function ProfileDialog({
       ? `${getPartnerRoleLabel(profile as DeliveryPartnerProfile)} delivery partner - ${getPartnerVehicleNumber(profile as DeliveryPartnerProfile)}`
       : `${(profile as TailorProfile).shopName ?? "Tailor shop"} - ${formatList((profile as TailorProfile).specialization)}`
     : subtitle;
+  const updateDraft = (field: keyof typeof editDraft, value: string) => setEditDraft((current) => ({ ...current, [field]: value }));
+  const saveProfile = () => {
+    if (!profile) return;
+    const verification = structuredClone((profile.verification ?? {}) as Record<string, any>);
+    verification.personal = { ...(verification.personal ?? {}), name: editDraft.name, fullName: editDraft.name, email: editDraft.email, address: editDraft.address };
+    verification.bank = { ...(verification.bank ?? {}), accountHolder: editDraft.accountHolder, accountNumber: editDraft.accountNumber, ifsc: editDraft.ifsc, upi: editDraft.upi };
+    if (isDelivery) verification.vehicle = { ...(verification.vehicle ?? {}), vehicleNumber: editDraft.vehicleNumber, vehicleModel: editDraft.vehicleModel };
+    else verification.shop = { ...(verification.shop ?? {}), shopName: editDraft.shopName, shopAddress: editDraft.shopAddress };
+    onSave({
+      name: editDraft.name,
+      phone: editDraft.phone,
+      email: editDraft.email,
+      avatarUrl: editDraft.avatarUrl,
+      ...(isDelivery ? { vehicleNumber: editDraft.vehicleNumber, deliveryType, assignedArea } : { shopName: editDraft.shopName, specialization: editDraft.specialization.split(",").map((item) => item.trim()).filter(Boolean) }),
+      verification
+    });
+  };
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
@@ -10433,6 +10584,25 @@ function ProfileDialog({
                 </div>
               </div>
               <div className="mt-6 space-y-5">
+                <div className="rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
+                  <div className="flex gap-2 overflow-x-auto p-1">
+                    {([
+                      ["personal", "Personal details"],
+                      ["business", isDelivery ? "Vehicle details" : "Shop details"],
+                      ["bank", "Bank details"],
+                      ["documents", "Documents & images"],
+                      ["activity", "Orders & activity"]
+                    ] as const).map(([id, label]) => <button className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition", profileTab === id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")} key={id} onClick={() => setProfileTab(id)} type="button">{label}</button>)}
+                  </div>
+                  <div className="border-t border-slate-100 p-4">
+                    {profileTab === "personal" ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Full name"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field><Field label="Phone"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.phone} onChange={(event) => updateDraft("phone", event.target.value)} /></Field><Field label="Email"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" type="email" value={editDraft.email} onChange={(event) => updateDraft("email", event.target.value)} /></Field><Field label="Profile photo"><div className="flex gap-2"><input className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 px-3" value={editDraft.avatarUrl} onChange={(event) => updateDraft("avatarUrl", event.target.value)} /><label className="inline-flex h-11 cursor-pointer items-center rounded-xl border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50">{uploadingAvatar ? "Uploading..." : "Upload"}<input accept="image/*" className="hidden" disabled={uploadingAvatar} type="file" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setUploadingAvatar(true); try { const uploaded = await uploadAdminMedia(file); updateDraft("avatarUrl", uploaded.url); toast.success("Profile photo uploaded. Save changes to apply it."); } catch (error) { toast.error(extractError(error)); } finally { setUploadingAvatar(false); event.target.value = ""; } }} /></label></div></Field><div className="sm:col-span-2"><Field label="Home address"><textarea className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2" value={editDraft.address} onChange={(event) => updateDraft("address", event.target.value)} /></Field></div></div> : null}
+                    {profileTab === "business" ? isDelivery ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Vehicle number"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.vehicleNumber} onChange={(event) => updateDraft("vehicleNumber", event.target.value)} /></Field><Field label="Vehicle model"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.vehicleModel} onChange={(event) => updateDraft("vehicleModel", event.target.value)} /></Field><Field label="Delivery role"><select className="h-11 w-full rounded-xl border border-slate-200 px-3" value={deliveryType} onChange={(event) => setDeliveryType(event.target.value as "PICKUP" | "DROP")}><option value="PICKUP">Pickup</option><option value="DROP">Drop</option></select></Field><Field label="Assigned area"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={assignedArea} onChange={(event) => setAssignedArea(event.target.value)} /></Field></div> : <div className="grid gap-4 sm:grid-cols-2"><Field label="Shop name"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.shopName} onChange={(event) => updateDraft("shopName", event.target.value)} /></Field><Field label="Specializations"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" placeholder="Shirt, Kurta, Blouse" value={editDraft.specialization} onChange={(event) => updateDraft("specialization", event.target.value)} /></Field><div className="sm:col-span-2"><Field label="Shop address"><textarea className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2" value={editDraft.shopAddress} onChange={(event) => updateDraft("shopAddress", event.target.value)} /></Field></div></div> : null}
+                    {profileTab === "bank" ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Account holder"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.accountHolder} onChange={(event) => updateDraft("accountHolder", event.target.value)} /></Field><Field label="Account number"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.accountNumber} onChange={(event) => updateDraft("accountNumber", event.target.value)} /></Field><Field label="IFSC"><input className="h-11 w-full rounded-xl border border-slate-200 px-3 uppercase" value={editDraft.ifsc} onChange={(event) => updateDraft("ifsc", event.target.value.toUpperCase())} /></Field><Field label="UPI ID"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.upi} onChange={(event) => updateDraft("upi", event.target.value)} /></Field></div> : null}
+                    {profileTab === "documents" ? <div><p className="text-sm text-slate-600">Complete registration record and every uploaded verification image.</p><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{[...submittedMedia, ...draftMedia].map((item, index) => <a className="overflow-hidden rounded-xl border border-slate-200" href={item.url} key={`${item.url}-${index}`} rel="noreferrer" target="_blank"><img alt={item.label} className="aspect-square w-full object-cover" src={item.url} /><p className="truncate px-2 py-1.5 text-[10px] font-semibold text-slate-600">{item.label}</p></a>)}</div><div className="mt-5 grid gap-3 sm:grid-cols-2">{flattenAdminRecord(profile.verification).map((item) => <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" key={item.label}><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{item.value}</p></div>)}</div></div> : null}
+                    {profileTab === "activity" ? <div className="grid gap-3 sm:grid-cols-3"><ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} /></div> : null}
+                    <div className="mt-5 flex justify-end"><ActionButton disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save profile changes</ActionButton></div>
+                  </div>
+                </div>
                 {onReview ? (
                   <Panel>
                     <h4 className="text-lg font-semibold text-[var(--foreground)]">Review action</h4>
@@ -11637,6 +11807,50 @@ function InspectChangeRequestDialog({
 }
 
 
+function PermanentDeleteOrderDialog({
+  onClose,
+  onConfirm,
+  open,
+  order,
+  pending
+}: {
+  onClose: () => void;
+  onConfirm: (confirmation: string) => void;
+  open: boolean;
+  order: Order | null;
+  pending: boolean;
+}) {
+  const identifier = order ? getOrderDisplayNumber(order) : "";
+  const phrase = identifier ? `DELETE ${identifier}` : "";
+  const [confirmation, setConfirmation] = useState("");
+  useEffect(() => setConfirmation(""), [order?.id, open]);
+  return (
+    <Dialog.Root open={open} onOpenChange={(next) => !next && !pending && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-red-200 bg-white p-6 shadow-2xl">
+          <div className="flex items-start gap-4">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-red-50 text-red-600"><Trash2 size={22} /></span>
+            <div>
+              <Dialog.Title className="text-xl font-bold text-slate-950">Permanently delete this order?</Dialog.Title>
+              <Dialog.Description className="mt-2 text-sm leading-6 text-slate-600">This removes the order and its linked quotes, delivery tasks, payment records, reviews, internal notes, and batch references from Darji. This cannot be undone.</Dialog.Description>
+            </div>
+          </div>
+          <div className="mt-5 rounded-2xl border border-red-100 bg-red-50/70 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-red-700">Type this phrase exactly</p>
+            <p className="mt-2 select-all font-mono text-sm font-bold text-red-900">{phrase}</p>
+          </div>
+          <input autoFocus className="mt-4 h-12 w-full rounded-xl border border-slate-300 px-4 font-mono text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100" onChange={(event) => setConfirmation(event.target.value)} placeholder={phrase} value={confirmation} />
+          <div className="mt-6 flex justify-end gap-3">
+            <ActionButton disabled={pending} variant="secondary" onClick={onClose}>Keep Order</ActionButton>
+            <ActionButton disabled={pending || confirmation !== phrase} variant="danger" onClick={() => onConfirm(confirmation)}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 size={15} />} Delete Permanently</ActionButton>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 function AssignOrderDialog({
   onSubmit,
   open,
@@ -11739,7 +11953,7 @@ function getOrderColumns({
   onChatCustomer,
   onCallCustomer,
   onDownloadImages,
-  onDuplicateOrder,
+  onDeleteOrder,
   onGenerateInvoice,
   onMarkHighPriority,
   onReportIssue,
@@ -11757,7 +11971,7 @@ function getOrderColumns({
   onChatCustomer: (order: Order) => void;
   onCallCustomer: (order: Order) => void;
   onDownloadImages: (order: Order) => void;
-  onDuplicateOrder: (order: Order) => void;
+  onDeleteOrder: (order: Order) => void;
   onGenerateInvoice: (order: Order) => void;
   onMarkHighPriority: (order: Order) => void;
   onReportIssue: (order: Order) => void;
@@ -11840,6 +12054,18 @@ function getOrderColumns({
       }
     },
     {
+      id: "urgency",
+      header: "Urgency",
+      accessorFn: (row) => row.deliveryMode ?? row.request?.deliveryMode ?? row.request?.urgency ?? "STANDARD",
+      cell: ({ row }) => <UrgencyBadge value={String(row.original.deliveryMode ?? row.original.request?.deliveryMode ?? row.original.request?.urgency ?? "STANDARD")} />
+    },
+    {
+      id: "priority",
+      header: "Priority",
+      accessorFn: (row) => priorities[row.id] ?? "Normal",
+      cell: ({ row }) => <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
+    },
+    {
       accessorKey: "totalAmount",
       header: "Amount",
       cell: ({ row }) => <span className="font-semibold text-[var(--foreground)]">{formatCurrency(row.original.totalAmount)}</span>
@@ -11899,16 +12125,13 @@ function getOrderColumns({
                   <PhoneCall size={14} /> Call Customer
                 </DropdownMenu.Item>
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onGenerateInvoice(row.original)}>
-                  <Printer size={14} /> Generate Invoice
+                  <Download size={14} /> Download Invoice
                 </DropdownMenu.Item>
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onDownloadImages(row.original)}>
                   <Download size={14} /> Download Images
                 </DropdownMenu.Item>
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onOpen(row.original, "notes")}>
                   <FileText size={14} /> Add Internal Note
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onDuplicateOrder(row.original)}>
-                  <Copy size={14} /> Duplicate Order
                 </DropdownMenu.Item>
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-[var(--accent-soft)]" onSelect={() => onMarkHighPriority(row.original)}>
                   <Flag size={14} /> Mark High Priority
@@ -11919,6 +12142,9 @@ function getOrderColumns({
                 <DropdownMenu.Separator className="my-2 h-px bg-[var(--panel-border)]" />
                 <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-[var(--foreground)] outline-none hover:bg-red-50" onSelect={() => onStatusChange(row.original, "CANCELLED")}>
                   <Trash2 size={14} className="text-red-500" /> Cancel Order
+                </DropdownMenu.Item>
+                <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold text-red-700 outline-none hover:bg-red-50" onSelect={() => onDeleteOrder(row.original)}>
+                  <Trash2 size={14} /> Permanently Delete Order
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
@@ -13693,6 +13919,17 @@ function downloadBlob(filename: string, content: string, mimeType: string) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function downloadFileBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function safeFileName(value: string) {

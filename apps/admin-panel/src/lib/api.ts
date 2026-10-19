@@ -328,6 +328,53 @@ export async function updateAdminOrderMetadata(payload: { orderId: string; prior
   return unwrap<AdminOrderMetadata>(api.patch(`/admin/orders/${orderId}/metadata`, body));
 }
 
+export async function downloadAdminOrderImages(orderId: string) {
+  const response = await api.get<Blob>(`/admin/orders/${orderId}/images.zip`, { responseType: "blob", timeout: 120000 });
+  return response.data;
+}
+
+export async function downloadAdminOrderInvoice(orderId: string) {
+  const response = await api.get<Blob>(`/admin/orders/${orderId}/invoice.pdf`, { responseType: "blob", timeout: 60000 });
+  return response.data;
+}
+
+export async function getAdminOrderQuotes(orderId: string) {
+  return unwrap<TailorQuote[]>(api.get(`/admin/orders/${orderId}/quotes`));
+}
+
+export async function reportAdminOrderIssue(payload: { orderId: string; message?: string }) {
+  return unwrap<OperationalAlert>(api.post(`/admin/orders/${payload.orderId}/issues`, { message: payload.message ?? "Order requires admin review" }));
+}
+
+export async function permanentlyDeleteAdminOrder(payload: { orderId: string; confirmation: string }) {
+  const { orderId, confirmation } = payload;
+  return unwrap<{ deleted: true; id: string; identifier: string }>(api.delete(`/admin/orders/${orderId}`, { data: { confirmation } }));
+}
+
+export type AdminPartnerProfileUpdate = {
+  name?: string;
+  phone?: string;
+  email?: string;
+  avatarUrl?: string;
+  displayName?: string;
+  shopName?: string;
+  specialization?: string[];
+  vehicleNumber?: string;
+  deliveryType?: "PICKUP" | "DROP";
+  assignedArea?: string;
+  isAvailable?: boolean;
+  workingHours?: unknown;
+  verification?: Record<string, unknown>;
+};
+
+export async function updateAdminTailorProfile(payload: { tailorId: string; updates: AdminPartnerProfileUpdate }) {
+  return unwrap<TailorProfile>(api.patch(`/admin/tailors/${payload.tailorId}`, payload.updates));
+}
+
+export async function updateAdminDeliveryProfile(payload: { partnerId: string; updates: AdminPartnerProfileUpdate }) {
+  return unwrap<DeliveryPartnerProfile>(api.patch(`/admin/delivery-partners/${payload.partnerId}`, payload.updates));
+}
+
 export async function getSystemHealth() {
   return unwrap<SystemHealth>(api.get("/admin/system-health"));
 }
