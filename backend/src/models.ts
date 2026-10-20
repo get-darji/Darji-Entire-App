@@ -1092,10 +1092,21 @@ const notificationCampaignSchema = new Schema(
   {
     _id: stringId,
     channel: { type: String, enum: ["push"], default: "push" },
-    target: { type: String, enum: ["everyone", "customers", "tailors", "delivery", "customer"], required: true },
+    target: { type: String, enum: ["everyone", "customers", "tailors", "delivery", "customer", "tailor", "delivery_partner"], required: true },
     targetUserId: { type: String, index: true },
     title: { type: String, required: true, maxlength: 120 },
     body: { type: String, required: true, maxlength: 500 },
+    // Optional, versioned composer data. Keeping the plain title/body fields means
+    // older clients and all automatic notifications continue to work unchanged.
+    payloadVersion: { type: Number, default: 1 },
+    category: { type: String, default: "GENERAL_ANNOUNCEMENT" },
+    bodyFormat: { type: String, enum: ["PLAIN_TEXT", "RESTRICTED_RICH_TEXT"], default: "PLAIN_TEXT" },
+    richBody: { type: Schema.Types.Mixed },
+    style: { type: String, enum: ["STANDARD", "BIG_TEXT", "LARGE_ICON", "BIG_PICTURE", "ACTION"], default: "STANDARD" },
+    largeIconUrl: String,
+    imageUrl: String,
+    action: { type: Schema.Types.Mixed },
+    isTest: { type: Boolean, default: false },
     status: { type: String, enum: ["SCHEDULED", "SENDING", "SENT", "FAILED"], required: true, index: true },
     scheduledAt: { type: Date, index: true },
     sentAt: Date,

@@ -7,6 +7,9 @@ export type PushPayload = {
   body: string;
   subtitle?: string;
   imageUrl?: string;
+  largeIconUrl?: string;
+  notificationStyle?: "STANDARD" | "BIG_TEXT" | "LARGE_ICON" | "BIG_PICTURE" | "ACTION";
+  richBody?: unknown;
   data?: Record<string, string | number | boolean | undefined>;
   actions?: string[];
   channelId?: string;
@@ -333,6 +336,11 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
       ...(isIncomingRequest ? { expiresAt: normalizedPayloadData.expiresAt || new Date(Date.now() + 30_000).toISOString() } : {}),
       brand: "Darji"
     };
+    // Data payloads are strictly strings in FCM. Rich content is descriptive data
+    // for clients that understand it; `body` remains the safe universal fallback.
+    if (payload.notificationStyle) data.notificationStyle = payload.notificationStyle;
+    if (payload.largeIconUrl) data.largeIconUrl = payload.largeIconUrl;
+    if (payload.richBody) data.richBody = JSON.stringify(payload.richBody).slice(0, 3500);
     const tag = data.taskId || data.requestId || data.orderId || "darji-order";
     if (tokens.length && !firebaseReady) providerErrors.push("Firebase Admin is not configured");
     const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({

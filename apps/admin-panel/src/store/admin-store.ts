@@ -78,7 +78,7 @@ export const useAdminStore = create<AdminStore>()(
       storage: createJSONStorage(() => localStorage),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<AdminStore>;
-        const retiredSection = persisted.activeSection === ("serviceAreas" as SectionId) || persisted.activeSection === ("launchRequests" as SectionId);
+        const retiredSection = persisted.activeSection === ("serviceAreas" as SectionId) || persisted.activeSection === ("launchRequests" as SectionId) || persisted.activeSection === "analytics";
         return {
           ...currentState,
           ...persisted,

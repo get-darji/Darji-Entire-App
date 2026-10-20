@@ -158,6 +158,8 @@ export const accountChangeRequestSchema = z.object({
     "Vehicle",
     "RC",
     "DrivingLicense",
+    "IdentityDocument",
+    "Address",
     "AccountDeletion"
   ]),
   requestedValues: z.record(z.string(), z.any()),

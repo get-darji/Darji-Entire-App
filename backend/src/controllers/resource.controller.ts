@@ -2867,6 +2867,9 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
             } else if (request.type === "ContactNumber") {
               const user = await UserModel.findById(request.userId);
               currentValues = { phone: user?.phone || "" };
+            } else if (request.type === "IdentityDocument") {
+              const identity = verification.idVerification || {};
+              currentValues = { idType: identity.idType || "", idNumber: identity.idNumber || "" };
             }
           }
         } else if (request.userRole === "DELIVERY_PARTNER") {
@@ -2900,6 +2903,11 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
             } else if (request.type === "ContactNumber") {
               const user = await UserModel.findById(request.userId);
               currentValues = { phone: user?.phone || "" };
+            } else if (request.type === "IdentityDocument") {
+              const identity = verification.identity || {};
+              currentValues = { identityType: identity.identityType || "", idNumber: identity.aadhaarNumber || identity.panNumber || "" };
+            } else if (request.type === "Address") {
+              currentValues = { address: verification.personal?.address || "" };
             }
           }
         }
@@ -2968,6 +2976,16 @@ export async function approveAccountChangeRequestController(req: Request, res: R
         verification.shop.shopAddress = vals.shopAddress;
       } else if (request.type === "ContactNumber") {
         await UserModel.findByIdAndUpdate(userId, { phone: vals.phone });
+      } else if (request.type === "IdentityDocument") {
+        if (!verification.idVerification) verification.idVerification = {};
+        verification.idVerification.idType = vals.idType;
+        verification.idVerification.idNumber = vals.idNumber;
+        if (vals.idType === "Aadhaar") {
+          if (vals.aadhaarFrontUrl) verification.idVerification.aadhaarFrontUrl = vals.aadhaarFrontUrl;
+          if (vals.aadhaarBackUrl) verification.idVerification.aadhaarBackUrl = vals.aadhaarBackUrl;
+        } else if (vals.panUrl) {
+          verification.idVerification.panUrl = vals.panUrl;
+        }
       }
       tailor.verification = verification;
       tailor.markModified("verification");
@@ -2998,6 +3016,22 @@ export async function approveAccountChangeRequestController(req: Request, res: R
         verification.bank.upi = vals.upi;
       } else if (request.type === "ContactNumber") {
         await UserModel.findByIdAndUpdate(userId, { phone: vals.phone });
+      } else if (request.type === "IdentityDocument") {
+        if (!verification.identity) verification.identity = {};
+        verification.identity.identityType = vals.identityType;
+        if (vals.identityType === "Aadhaar") {
+          verification.identity.aadhaarNumber = vals.idNumber;
+          verification.identity.panNumber = "";
+          if (vals.identityFrontUrl) verification.identity.identityFrontUrl = vals.identityFrontUrl;
+          if (vals.identityBackUrl) verification.identity.identityBackUrl = vals.identityBackUrl;
+        } else {
+          verification.identity.panNumber = vals.idNumber;
+          verification.identity.aadhaarNumber = "";
+          if (vals.identityFrontUrl) verification.identity.identityFrontUrl = vals.identityFrontUrl;
+        }
+      } else if (request.type === "Address") {
+        if (!verification.personal) verification.personal = {};
+        verification.personal.address = vals.address;
       }
       partner.verification = verification;
       partner.markModified("verification");

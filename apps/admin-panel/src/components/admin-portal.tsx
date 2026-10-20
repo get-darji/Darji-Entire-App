@@ -480,7 +480,6 @@ const sidebarSections: SidebarSection[] = [
   { id: "support", icon: Bell, label: "Support", description: "Tickets and customer follow-up" },
   { id: "reviews", icon: MessageSquareText, label: "Reviews", description: "Customer and tailor reviews management" },
   { id: "notifications", icon: Send, label: "Notifications", description: "Push, SMS, email and in-app campaigns" },
-  { id: "analytics", icon: BarChart3, label: "Analytics", description: "Dedicated reports and exports" },
   { id: "activity", icon: FileText, label: "Activity Logs", description: "Admin action audit trail" },
   { id: "roles", icon: ShieldCheck, label: "Accounts", description: "Approved admin phone access" },
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
@@ -494,7 +493,7 @@ const sidebarGroups: Array<{ label: string; sections: SectionId[] }> = [
   { label: "Overview", sections: ["dashboard", "alerts"] },
   { label: "Operations", sections: ["orders", "tailoring", "delivery", "batches", "measurements"] },
   { label: "People", sections: ["users", "tailors", "partners", "samples"] },
-  { label: "Money", sections: ["payments", "coupons", "analytics", "exports"] },
+  { label: "Money", sections: ["payments", "coupons", "exports"] },
   { label: "Engagement", sections: ["support", "reviews", "notifications"] },
   { label: "Administration", sections: ["activity", "roles", "health", "platform", "website", "settings"] }
 ];
@@ -3403,17 +3402,6 @@ export function AdminPortal() {
           />
         ) : null}
 
-        {activeSection === "analytics" ? (
-          <AnalyticsModule
-            categoryBreakdown={categoryBreakdown}
-            dashboardAnalytics={dashboardAnalytics}
-            orders={allOrders}
-            payments={payments}
-            reviews={reviewsQuery.data ?? []}
-            serviceMix={serviceMix}
-          />
-        ) : null}
-
         {activeSection === "activity" ? (
           <ActivityLogsModule
             loading={activityLogsQuery.isLoading}
@@ -5769,12 +5757,41 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
+  const [category, setCategory] = useState<NonNullable<NotificationCampaign["category"]>>("GENERAL_ANNOUNCEMENT");
+  const [style, setStyle] = useState<NonNullable<NotificationCampaign["style"]>>("STANDARD");
+  const [richEnabled, setRichEnabled] = useState(false);
+  const [marks, setMarks] = useState<Array<"bold" | "italic" | "underline">>([]);
+  const [bullets, setBullets] = useState(false);
+  const [imageMode, setImageMode] = useState<"none" | "large" | "picture" | "both">("none");
+  const [largeIconUrl, setLargeIconUrl] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [actionType, setActionType] = useState("OPEN_APP");
+  const [actionEntityId, setActionEntityId] = useState("");
+  const selectedPeople = target === "customer" ? customers : target === "tailor" ? tailors : target === "delivery_partner" ? partners : [];
+  const isSingleTarget = ["customer", "tailor", "delivery_partner"].includes(target);
+  const permittedActions = target === "tailors" || target === "tailor"
+    ? [["OPEN_APP", "Open app"], ["VIEW_ASSIGNED_WORK", "View assigned work"], ["VIEW_MEASUREMENT_VISIT", "View measurement visit"], ["VIEW_TAILORING_REQUEST", "View tailoring request"]]
+    : target === "delivery" || target === "delivery_partner"
+      ? [["OPEN_APP", "Open app"], ["VIEW_DELIVERY_TASK", "View delivery task"], ["VIEW_BATCH", "View batch"]]
+      : [["OPEN_APP", "Open app"], ["VIEW_ORDER", "View order"], ["TRACK_DELIVERY", "Track delivery"], ["VIEW_PAYMENT", "View payment"], ["VIEW_ANNOUNCEMENT", "View announcement"]];
+  const requiresEntity = actionType !== "OPEN_APP" && actionType !== "VIEW_ANNOUNCEMENT";
+  const richBody = richEnabled ? { blocks: message.split(/\n+/).map((text) => text.trim()).filter(Boolean).slice(0, 12).map((text) => ({ type: bullets ? "bullet" as const : "paragraph" as const, text, ...(marks.length ? { marks } : {}) })) } : undefined;
+  const resetComposer = () => { setTitle(""); setMessage(""); setScheduledAt(""); setLargeIconUrl(""); setImageUrl(""); setImageMode("none"); setActionType("OPEN_APP"); setActionEntityId(""); setRichEnabled(false); setMarks([]); setBullets(false); };
+  const useCampaign = (item: NotificationCampaign) => {
+    setTarget(item.target); setTargetUserId(item.targetUserId ?? ""); setTitle(item.title); setMessage(item.body); setCategory(item.category ?? "GENERAL_ANNOUNCEMENT"); setStyle(item.style ?? "STANDARD"); setRichEnabled(item.bodyFormat === "RESTRICTED_RICH_TEXT"); setMarks(item.richBody?.blocks?.[0]?.marks ?? []); setBullets(item.richBody?.blocks?.[0]?.type === "bullet"); setLargeIconUrl(item.largeIconUrl ?? ""); setImageUrl(item.imageUrl ?? ""); setImageMode(item.largeIconUrl && item.imageUrl ? "both" : item.largeIconUrl ? "large" : item.imageUrl ? "picture" : "none"); setActionType(item.action?.type ?? "OPEN_APP"); setActionEntityId(item.action?.entityId ?? "");
+  };
+  const templates = [
+    { label: "Order confirmed", title: "Your order is confirmed!", body: "Your tailoring order has been confirmed. Track its progress in Darji.", category: "ORDER_UPDATE" as const, action: "VIEW_ORDER", target: "customers" },
+    { label: "Tailor selected", title: "Your tailor is selected!", body: "Your tailoring request is moving forward.", category: "TAILORING_UPDATE" as const, action: "VIEW_ASSIGNED_WORK", target: "tailors" },
+    { label: "Stitching completed", title: "Your outfit is ready!", body: "Your stitching is complete. Delivery updates will follow.", category: "TAILORING_UPDATE" as const, action: "VIEW_ORDER", target: "customers" },
+    { label: "Delivery update", title: "Your delivery is on the way!", body: "Track your delivery in the Darji app.", category: "DELIVERY_UPDATE" as const, action: "TRACK_DELIVERY", target: "customers" },
+    { label: "Payment received", title: "Payment received!", body: "Your payment was successfully recorded.", category: "PAYMENT_UPDATE" as const, action: "VIEW_PAYMENT", target: "customers" }
+  ];
   const sendMutation = useMutation({
     mutationFn: sendAdminNotification,
     onSuccess: (result) => {
-      setTitle("");
-      setMessage("");
-      setScheduledAt("");
+      resetComposer();
       onRefresh();
       toast.success(result.campaign.status === "SCHEDULED"
         ? "Push campaign scheduled"
@@ -5785,77 +5802,81 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
       toast.error(extractError(error));
     }
   });
-  const targetCount = target === "customer" ? (targetUserId ? 1 : 0) : target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
+  const targetCount = isSingleTarget ? (targetUserId ? 1 : 0) : target === "customers" ? customers.length : target === "tailors" ? tailors.length : target === "delivery" ? partners.length : customers.length + tailors.length + partners.length;
   const scheduleIsValid = Boolean(scheduledAt && new Date(scheduledAt).getTime() > Date.now() + 5000);
+  const canSend = Boolean(title.trim() && message.trim() && (!isSingleTarget || targetUserId) && (!requiresEntity || actionEntityId.trim()));
+  const buildPayload = (sendMode: "now" | "schedule", isTest = false) => ({
+    channel: "push" as const, target: target as Parameters<typeof sendAdminNotification>[0]["target"], targetUserId: isSingleTarget ? targetUserId : undefined, title: title.trim(), body: message.trim(), sendMode, scheduledAt: sendMode === "schedule" ? new Date(scheduledAt).toISOString() : null,
+    payloadVersion: 1 as const, category, bodyFormat: richEnabled ? "RESTRICTED_RICH_TEXT" as const : "PLAIN_TEXT" as const, richBody, style, largeIconUrl: imageMode === "large" || imageMode === "both" ? largeIconUrl || null : null, imageUrl: imageMode === "picture" || imageMode === "both" ? imageUrl || null : null,
+    action: { type: actionType, ...(requiresEntity ? { entityId: actionEntityId.trim() } : {}) }, isTest
+  });
+  const uploadImage = async (file: File, placement: "large" | "picture") => {
+    if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) { toast.error("Choose an image under 5 MB."); return; }
+    setUploadingImage(true);
+    try { const uploaded = await uploadAdminMedia(file); if (placement === "large") setLargeIconUrl(uploaded.url); else setImageUrl(uploaded.url); toast.success("Notification image uploaded"); } catch (error) { toast.error(extractError(error)); } finally { setUploadingImage(false); }
+  };
 
   return (
     <div className="space-y-6">
-      <SectionIntro title="Notifications" description="Send or schedule push campaigns. Every attempt and provider failure is retained in the backend." />
+      <SectionIntro title="Notifications" description="Compose a safe, versioned push campaign. Delivery history records provider acceptance, not proof that a person opened it." />
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel>
+          <div className="mb-4"><p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">Start from a template</p><div className="mt-2 flex flex-wrap gap-2">{templates.map((template) => <button className="rounded-xl border border-[var(--panel-border)] px-3 py-2 text-xs font-semibold hover:border-orange-300 hover:bg-orange-50" key={template.label} onClick={() => { setTitle(template.title); setMessage(template.body); setCategory(template.category); setTarget(template.target); setActionType(template.action); }} type="button">{template.label}</button>)}</div></div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Channel"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 text-[var(--foreground)]" disabled value="Push notification" /></Field>
             <Field label="Target">
-              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={target} onChange={(event) => setTarget(event.target.value)}>
+              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={target} onChange={(event) => { setTarget(event.target.value); setActionType("OPEN_APP"); setActionEntityId(""); }}>
                 <option value="everyone">Everyone</option>
                 <option value="customers">Customers</option>
                 <option value="tailors">Tailors</option>
                 <option value="delivery">Delivery Partners</option>
                 <option value="customer">One Specific Customer</option>
+                <option value="tailor">One Specific Tailor</option>
+                <option value="delivery_partner">One Specific Delivery Partner</option>
               </select>
             </Field>
           </div>
-          {target === "customer" ? <div className="mt-4"><Field label="Customer">
+          {isSingleTarget ? <div className="mt-4"><Field label="Recipient">
             <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={targetUserId} onChange={(event) => setTargetUserId(event.target.value)}>
-              <option value="">Choose a customer</option>
-              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name || "Customer"} - {customer.phone}</option>)}
+              <option value="">Choose a recipient</option>
+              {selectedPeople.map((person) => <option key={person.id} value={"userId" in person ? person.userId : person.id}>{("name" in person ? person.name : "") || ("user" in person ? person.user?.name : "") || ("shopName" in person ? person.shopName : "Partner")} - {"phone" in person ? person.phone : "darjiTailorId" in person ? person.darjiTailorId : "darjiPartnerId" in person ? person.darjiPartnerId : person.id}</option>)}
             </select>
           </Field></div> : null}
           <div className="mt-4 space-y-3">
-            <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Notification title" value={title} onChange={(event) => setTitle(event.target.value)} />
-            <textarea className="min-h-32 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Message" value={message} onChange={(event) => setMessage(event.target.value)} />
+            <div className="grid gap-3 sm:grid-cols-2"><Field label="Category"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={category} onChange={(event) => setCategory(event.target.value as typeof category)}>{[["GENERAL_ANNOUNCEMENT", "General announcement"], ["ORDER_UPDATE", "Order update"], ["TAILORING_UPDATE", "Tailoring update"], ["DELIVERY_UPDATE", "Delivery update"], ["PAYMENT_UPDATE", "Payment update"], ["PROMOTIONAL", "Promotional"], ["CUSTOM", "Custom"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="Style"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={style} onChange={(event) => setStyle(event.target.value as typeof style)}>{[["STANDARD", "Standard"], ["BIG_TEXT", "Expanded text"], ["LARGE_ICON", "Large icon"], ["BIG_PICTURE", "Big picture"], ["ACTION", "Action notification"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div>
+            <input maxLength={120} className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Notification title" value={title} onChange={(event) => setTitle(event.target.value)} />
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-slate-50 p-2 text-xs"><button className={cn("rounded-lg px-3 py-2 font-bold", richEnabled && "bg-slate-950 text-white")} onClick={() => setRichEnabled((value) => !value)} type="button">Rich text</button>{(["bold", "italic", "underline"] as const).map((mark) => <button className={cn("rounded-lg px-3 py-2 capitalize", marks.includes(mark) && "bg-orange-100 font-bold text-orange-800")} disabled={!richEnabled} key={mark} onClick={() => setMarks((current) => current.includes(mark) ? current.filter((item) => item !== mark) : [...current, mark])} type="button">{mark}</button>)}<button className={cn("rounded-lg px-3 py-2", bullets && "bg-orange-100 font-bold text-orange-800")} disabled={!richEnabled} onClick={() => setBullets((value) => !value)} type="button">Bullets</button><span className="text-[var(--muted)]">Formatting is stored safely; Android receives plain text when it cannot style content.</span></div>
+            <textarea maxLength={500} className="min-h-28 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Message (new lines become separate rich-text blocks)" value={message} onChange={(event) => setMessage(event.target.value)} />
+            <div className="grid gap-3 sm:grid-cols-2"><Field label="Image treatment"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={imageMode} onChange={(event) => setImageMode(event.target.value as typeof imageMode)}><option value="none">No additional image</option><option value="large">Large icon / thumbnail</option><option value="picture">Big picture</option><option value="both">Both</option></select></Field><Field label="Notification action"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={actionType} onChange={(event) => { setActionType(event.target.value); setActionEntityId(""); }}>{permittedActions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div>
+            {(imageMode === "large" || imageMode === "both") ? <ImageUploadRow label="Large icon / thumbnail" url={largeIconUrl} uploading={uploadingImage} onClear={() => setLargeIconUrl("")} onUpload={(file) => uploadImage(file, "large")} /> : null}
+            {(imageMode === "picture" || imageMode === "both") ? <ImageUploadRow label="Big picture" url={imageUrl} uploading={uploadingImage} onClear={() => setImageUrl("")} onUpload={(file) => uploadImage(file, "picture")} /> : null}
+            {requiresEntity ? <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" placeholder="Validated order, task, batch, visit, or request ID" value={actionEntityId} onChange={(event) => setActionEntityId(event.target.value)} /> : null}
             <Field label="Schedule time">
               <input className="w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 outline-none" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
             </Field>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <ActionButton disabled={!title.trim() || !message.trim() || (target === "customer" && !targetUserId) || sendMutation.isPending} onClick={() => sendMutation.mutate({
-                channel: "push",
-                target: target as "everyone" | "customers" | "tailors" | "delivery" | "customer",
-                targetUserId: target === "customer" ? targetUserId : undefined,
-                title: title.trim(),
-                body: message.trim(),
-                sendMode: "now",
-                scheduledAt: null
-              })}>
+              <ActionButton disabled={!canSend || sendMutation.isPending} onClick={() => sendMutation.mutate(buildPayload("now"))}>
                 {sendMutation.isPending && sendMutation.variables?.sendMode === "now" ? "Sending..." : "Send Now"}
               </ActionButton>
-              <ActionButton variant="secondary" disabled={!title.trim() || !message.trim() || (target === "customer" && !targetUserId) || !scheduleIsValid || sendMutation.isPending} onClick={() => sendMutation.mutate({
-                channel: "push",
-                target: target as "everyone" | "customers" | "tailors" | "delivery" | "customer",
-                targetUserId: target === "customer" ? targetUserId : undefined,
-                title: title.trim(),
-                body: message.trim(),
-                sendMode: "schedule",
-                scheduledAt: new Date(scheduledAt).toISOString()
-              })}>
+              <ActionButton variant="secondary" disabled={!canSend || !scheduleIsValid || sendMutation.isPending} onClick={() => sendMutation.mutate(buildPayload("schedule"))}>
                 {sendMutation.isPending && sendMutation.variables?.sendMode === "schedule" ? "Scheduling..." : "Schedule Notification"}
               </ActionButton>
+              <ActionButton variant="secondary" disabled={!canSend || !isSingleTarget || sendMutation.isPending} onClick={() => sendMutation.mutate(buildPayload("now", true))}>Send test to selected account</ActionButton>
             </div>
           </div>
         </Panel>
         <Panel>
-          <h3 className="text-lg font-semibold">Campaign Preview</h3>
+          <h3 className="text-lg font-semibold">Android-style preview</h3>
           <div className="mt-4 rounded-3xl border border-[var(--panel-border)] bg-[#fbfdff] p-4">
-            <Badge tone="sky">PUSH - {targetCount} potential recipients</Badge>
-            <p className="mt-4 text-xl font-bold text-[var(--deep)]">{title || "Notification title"}</p>
-            <p className="mt-2 text-sm text-[var(--muted)]">{message || "Message preview will appear here."}</p>
-            <p className="mt-4 text-xs text-[var(--muted)]">{scheduledAt ? `Scheduled ${scheduledAt}` : "Send immediately"}</p>
+            <Badge tone="sky">APPROXIMATE PREVIEW - {targetCount} potential recipients</Badge>
+            <div className="mt-4 rounded-2xl bg-slate-950 p-4 text-white shadow-lg"><div className="flex gap-3">{(largeIconUrl || imageUrl) ? <img alt="" className="h-10 w-10 rounded-lg object-cover" src={largeIconUrl || imageUrl} /> : <div className="grid h-10 w-10 place-items-center rounded-lg bg-orange-500 font-black">D</div>}<div className="min-w-0 flex-1"><p className="text-[10px] uppercase tracking-wide text-slate-300">Darji · now</p><p className={cn("mt-1 font-bold", marks.includes("italic") && "italic", marks.includes("underline") && "underline")}>{title || "Notification title"}</p><p className={cn("mt-1 line-clamp-2 text-sm text-slate-200", marks.includes("bold") && "font-bold")}>{message || "Message preview will appear here."}</p></div></div>{imageUrl && (style === "BIG_PICTURE" || style === "ACTION") ? <img alt="Big picture preview" className="mt-3 aspect-[16/8] w-full rounded-xl object-cover" src={imageUrl} /> : null}{style === "BIG_TEXT" ? <p className="mt-3 whitespace-pre-wrap text-sm text-slate-200">{message || "Expanded text preview"}</p> : null}{style === "ACTION" ? <button className="mt-3 text-xs font-bold uppercase text-orange-300" type="button">{permittedActions.find(([value]) => value === actionType)?.[1] ?? "Open app"}</button> : null}</div>
+            <p className="mt-4 text-xs text-[var(--muted)]">{scheduledAt ? `Scheduled ${scheduledAt}` : "Send immediately"} · Device and Android version control the final layout.</p>
           </div>
           <h4 className="mt-5 font-semibold">Delivery history</h4>
           <div className="mt-3 space-y-2">
             {campaigns.map((item) => (
               <div key={item.id} className="rounded-2xl border border-[var(--panel-border)] p-3 text-sm">
-                <div className="flex items-start justify-between gap-3"><p className="font-semibold">{item.title}</p><StatusBadge value={item.status} /></div>
+                <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{item.title}</p><p className="mt-1 text-xs text-[var(--muted)]">{formatStatus(item.category ?? "GENERAL_ANNOUNCEMENT")} · {formatStatus(item.style ?? "STANDARD")}{item.isTest ? " · Test" : ""}</p></div><StatusBadge value={item.status} /></div>
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   Push to {item.target} · {item.status === "SCHEDULED" ? `Scheduled ${formatDate(item.scheduledAt, true)}` : formatDate(item.sentAt ?? item.createdAt, true)} · {item.status === "SCHEDULED"
                     ? "Waiting for scheduled delivery"
@@ -5863,7 +5884,9 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
                       ? `${item.recipientCount ?? 0} recipients (legacy result)`
                       : `${item.deliveredCount ?? 0}/${item.deviceCount ?? 0} device deliveries accepted · ${item.recipientCount ?? 0} matching users`}
                 </p>
+                <p className="mt-1 text-xs text-[var(--muted)]">Created by {item.createdByName ?? "Administrator"}</p>
                 {item.error ? <p className="mt-2 text-xs font-semibold text-rose-700">{item.error}</p> : null}
+                <button className="mt-2 text-xs font-bold text-orange-700 hover:underline" onClick={() => useCampaign(item)} type="button">Reuse as draft</button>
               </div>
             ))}
             {loading ? <LoadingState label="Loading campaign history..." /> : null}
@@ -5873,6 +5896,10 @@ function NotificationsModule({ campaigns, customers, loading, onRefresh, partner
       </div>
     </div>
   );
+}
+
+function ImageUploadRow({ label, onClear, onUpload, uploading, url }: { label: string; url: string; uploading: boolean; onClear: () => void; onUpload: (file: File) => void }) {
+  return <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[var(--panel-border)] p-3">{url ? <img alt={label} className="h-12 w-16 rounded-lg object-cover" src={url} /> : <ImageIcon className="h-5 w-5 text-[var(--muted)]" />}<div className="min-w-0 flex-1"><p className="text-xs font-bold">{label}</p><p className="truncate text-[11px] text-[var(--muted)]">{url || "PNG, JPG, or WebP · maximum 5 MB"}</p></div><label className="cursor-pointer rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs font-bold hover:bg-slate-50">{uploading ? "Uploading..." : "Upload"}<input accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploading} type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUpload(file); event.currentTarget.value = ""; }} /></label>{url ? <button className="text-xs font-bold text-rose-600" onClick={onClear} type="button">Remove</button> : null}</div>;
 }
 
 function AnalyticsModule({ categoryBreakdown, dashboardAnalytics, orders, payments, reviews, serviceMix }: { categoryBreakdown: Array<{ name: string; value: number; share: number }>; dashboardAnalytics: DashboardAnalytics; orders: Order[]; payments: Payment[]; reviews: AdminReview[]; serviceMix: Array<{ name: string; value: number }> }) {

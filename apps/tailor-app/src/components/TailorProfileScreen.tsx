@@ -1874,6 +1874,7 @@ function TailorSupportChatScreen({ setScreen, palette, styles, token, socket }: 
                 <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                   {[
+                    { label: "Order Issue", icon: "bag-handle-outline" },
                     { label: "Price Request Issue", icon: "create-outline" },
                     { label: "Order Delay", icon: "time-outline" },
                     { label: "Material Issue", icon: "shirt-outline" },
@@ -2305,7 +2306,7 @@ function SupportCenterCard({ icon, title, copy, badgeIcon, badgeText, badgeTone,
 
 function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
   const maxDocuments = 5;
-  const [type, setType] = useState<"ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber">("ShopName");
+  const [type, setType] = useState<"ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "IdentityDocument">("ShopName");
   
   const [shopNameField, setShopNameField] = useState("");
   const [accountHolder, setAccountHolder] = useState("");
@@ -2314,6 +2315,8 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
   const [upiId, setUpiId] = useState("");
   const [addressField, setAddressField] = useState("");
   const [phoneField, setPhoneField] = useState("");
+  const [identityType, setIdentityType] = useState<"Aadhaar" | "PAN">("Aadhaar");
+  const [idNumber, setIdNumber] = useState("");
 
   const [documents, setDocuments] = useState<string[]>([]);
   const [uploadingSource, setUploadingSource] = useState<"camera" | "gallery" | undefined>();
@@ -2417,6 +2420,19 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
         return;
       }
       requestedValues = { phone: phoneField.trim() };
+    } else if (type === "IdentityDocument") {
+      const normalized = idNumber.trim().replace(/\s/g, "");
+      if ((identityType === "Aadhaar" && !/^\d{12}$/.test(normalized)) || (identityType === "PAN" && !/^[A-Z]{5}\d{4}[A-Z]$/.test(normalized.toUpperCase()))) {
+        Alert.alert("Invalid document number", identityType === "Aadhaar" ? "Enter a valid 12 digit Aadhaar number." : "Enter a valid PAN number.");
+        return;
+      }
+      if (documents.length < (identityType === "Aadhaar" ? 2 : 1)) {
+        Alert.alert("Document photos needed", identityType === "Aadhaar" ? "Upload Aadhaar front and back photos." : "Upload a clear PAN photo.");
+        return;
+      }
+      requestedValues = identityType === "Aadhaar"
+        ? { idType: "Aadhaar", idNumber: normalized, aadhaarFrontUrl: documents[0], aadhaarBackUrl: documents[1] }
+        : { idType: "PAN", idNumber: normalized.toUpperCase(), panUrl: documents[0] };
     }
 
     if (!token) return;
@@ -2439,6 +2455,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
       setUpiId("");
       setAddressField("");
       setPhoneField("");
+      setIdNumber("");
       setDocuments([]);
       setScreen("support_center");
     } catch (e) {
@@ -2473,6 +2490,7 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
                 { id: "UPI", label: "UPI ID" },
                 { id: "Address", label: "Address" },
                 { id: "ContactNumber", label: "Contact Number" }
+                ,{ id: "IdentityDocument", label: "Aadhaar / PAN" }
               ].map((item) => (
                 <Pressable
                   key={item.id}
@@ -2585,6 +2603,15 @@ function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDi
                   placeholderTextColor={palette.muted}
                   keyboardType="phone-pad"
                 />
+              </View>
+            )}
+            {type === "IdentityDocument" && (
+              <View style={{ gap: 12 }}>
+                <Text style={{ color: palette.muted, fontSize: 12 }}>Your update will be checked by Darji before it changes the verification record.</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {(["Aadhaar", "PAN"] as const).map((option) => <Pressable key={option} onPress={() => { setIdentityType(option); setIdNumber(""); setDocuments([]); }} style={{ borderWidth: 1, borderColor: identityType === option ? BRAND_ORANGE : palette.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: identityType === option ? palette.surfaceAlt : palette.bg }}><Text style={{ color: identityType === option ? BRAND_ORANGE : palette.text, fontWeight: "800" }}>{option}</Text></Pressable>)}
+                </View>
+                <TextInput style={[styles.input, { backgroundColor: palette.bg }]} value={idNumber} onChangeText={(value) => setIdNumber(identityType === "Aadhaar" ? value.replace(/\D/g, "").slice(0, 12) : value.toUpperCase())} keyboardType={identityType === "Aadhaar" ? "number-pad" : "default"} placeholder={identityType === "Aadhaar" ? "12 digit Aadhaar number" : "PAN number"} placeholderTextColor={palette.muted} />
               </View>
             )}
           </View>

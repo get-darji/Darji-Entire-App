@@ -1106,10 +1106,20 @@ export type SystemHealth = {
 export type NotificationCampaign = {
   id: string;
   channel: "push";
-  target: "everyone" | "customers" | "tailors" | "delivery" | "customer";
+  target: "everyone" | "customers" | "tailors" | "delivery" | "customer" | "tailor" | "delivery_partner";
   targetUserId?: string;
   title: string;
   body: string;
+  payloadVersion?: number;
+  category?: "GENERAL_ANNOUNCEMENT" | "ORDER_UPDATE" | "TAILORING_UPDATE" | "DELIVERY_UPDATE" | "PAYMENT_UPDATE" | "PROMOTIONAL" | "CUSTOM";
+  bodyFormat?: "PLAIN_TEXT" | "RESTRICTED_RICH_TEXT";
+  richBody?: { blocks: Array<{ type: "paragraph" | "bullet"; text: string; marks?: Array<"bold" | "italic" | "underline"> }> };
+  style?: "STANDARD" | "BIG_TEXT" | "LARGE_ICON" | "BIG_PICTURE" | "ACTION";
+  largeIconUrl?: string;
+  imageUrl?: string;
+  action?: { type: string; entityId?: string };
+  isTest?: boolean;
+  createdByName?: string;
   status: "SCHEDULED" | "SENDING" | "SENT" | "FAILED";
   scheduledAt?: string;
   sentAt?: string;

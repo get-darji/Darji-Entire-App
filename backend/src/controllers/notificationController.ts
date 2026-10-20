@@ -17,17 +17,56 @@ const testNotificationSchema = z.object({
   body: z.string().trim().min(1).max(500).default("Push notifications are configured correctly.")
 });
 
+const notificationCategorySchema = z.enum(["GENERAL_ANNOUNCEMENT", "ORDER_UPDATE", "TAILORING_UPDATE", "DELIVERY_UPDATE", "PAYMENT_UPDATE", "PROMOTIONAL", "CUSTOM"]);
+const notificationStyleSchema = z.enum(["STANDARD", "BIG_TEXT", "LARGE_ICON", "BIG_PICTURE", "ACTION"]);
+const richBodySchema = z.object({
+  blocks: z.array(z.object({
+    type: z.enum(["paragraph", "bullet"]),
+    text: z.string().trim().min(1).max(500),
+    marks: z.array(z.enum(["bold", "italic", "underline"])).max(3).optional()
+  })).min(1).max(12)
+}).strict();
+const httpsUrlSchema = z.string().url().refine((value) => new URL(value).protocol === "https:", "Image URL must use HTTPS");
+const actionTypeSchema = z.enum(["OPEN_APP", "VIEW_ORDER", "TRACK_DELIVERY", "VIEW_PAYMENT", "VIEW_ASSIGNED_WORK", "VIEW_MEASUREMENT_VISIT", "VIEW_TAILORING_REQUEST", "VIEW_DELIVERY_TASK", "VIEW_BATCH", "VIEW_ANNOUNCEMENT"]);
+const richActionSchema = z.object({ type: actionTypeSchema, entityId: z.string().trim().min(1).max(120).optional() }).strict();
+const targetSchema = z.enum(["everyone", "customers", "tailors", "delivery", "customer", "tailor", "delivery_partner"]);
+
 const adminSendNotificationSchema = z.object({
   channel: z.literal("push").default("push"),
-  target: z.enum(["everyone", "customers", "tailors", "delivery", "customer"]),
+  target: targetSchema,
   targetUserId: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).max(120),
   body: z.string().trim().min(1).max(500),
+  payloadVersion: z.literal(1).optional(),
+  category: notificationCategorySchema.optional(),
+  bodyFormat: z.enum(["PLAIN_TEXT", "RESTRICTED_RICH_TEXT"]).optional(),
+  richBody: richBodySchema.optional(),
+  style: notificationStyleSchema.optional(),
+  largeIconUrl: httpsUrlSchema.optional().nullable(),
+  imageUrl: httpsUrlSchema.optional().nullable(),
+  action: richActionSchema.optional().nullable(),
+  isTest: z.boolean().optional(),
   sendMode: z.enum(["now", "schedule"]).optional(),
   scheduledAt: z.string().datetime().optional().nullable()
 }).superRefine((input, context) => {
-  if (input.target === "customer" && !input.targetUserId) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["targetUserId"], message: "Choose a customer" });
+  if (["customer", "tailor", "delivery_partner"].includes(input.target) && !input.targetUserId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["targetUserId"], message: "Choose a recipient" });
+  }
+  if (input.bodyFormat === "RESTRICTED_RICH_TEXT" && !input.richBody) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["richBody"], message: "Rich text content is required" });
+  }
+  const entityActions = new Set(["VIEW_ORDER", "TRACK_DELIVERY", "VIEW_PAYMENT", "VIEW_ASSIGNED_WORK", "VIEW_MEASUREMENT_VISIT", "VIEW_TAILORING_REQUEST", "VIEW_DELIVERY_TASK", "VIEW_BATCH"]);
+  if (input.action && entityActions.has(input.action.type) && !input.action.entityId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["action", "entityId"], message: "This action requires a record ID" });
+  }
+  const allowedByAudience: Record<string, string[]> = {
+    customers: ["OPEN_APP", "VIEW_ORDER", "TRACK_DELIVERY", "VIEW_PAYMENT", "VIEW_ANNOUNCEMENT"], customer: ["OPEN_APP", "VIEW_ORDER", "TRACK_DELIVERY", "VIEW_PAYMENT", "VIEW_ANNOUNCEMENT"],
+    tailors: ["OPEN_APP", "VIEW_ASSIGNED_WORK", "VIEW_MEASUREMENT_VISIT", "VIEW_TAILORING_REQUEST"], tailor: ["OPEN_APP", "VIEW_ASSIGNED_WORK", "VIEW_MEASUREMENT_VISIT", "VIEW_TAILORING_REQUEST"],
+    delivery: ["OPEN_APP", "VIEW_DELIVERY_TASK", "VIEW_BATCH"], delivery_partner: ["OPEN_APP", "VIEW_DELIVERY_TASK", "VIEW_BATCH"],
+    everyone: ["OPEN_APP", "VIEW_ANNOUNCEMENT"]
+  };
+  if (input.action && !allowedByAudience[input.target].includes(input.action.type)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["action", "type"], message: "This action is not supported by the selected audience" });
   }
 });
 
@@ -76,9 +115,22 @@ export async function sendTestNotificationController(req: Request, res: Response
   res.json({ data: { ok: true } });
 }
 
-async function deliverCampaign(campaign: { target: "everyone" | "customers" | "tailors" | "delivery" | "customer"; targetUserId?: string; title: string; body: string }) {
+function actionScreen(action: { type: z.infer<typeof actionTypeSchema> } | undefined, app: string) {
+  if (!action || action.type === "OPEN_APP" || action.type === "VIEW_ANNOUNCEMENT") return "notifications";
+  if (app === "customer") return action.type === "VIEW_ORDER" || action.type === "TRACK_DELIVERY" || action.type === "VIEW_PAYMENT" ? "orderDetails" : "notifications";
+  if (app === "tailor") return action.type === "VIEW_TAILORING_REQUEST" ? "requestDetails" : action.type === "VIEW_ASSIGNED_WORK" || action.type === "VIEW_MEASUREMENT_VISIT" ? "orderDetails" : "notifications";
+  return action.type === "VIEW_DELIVERY_TASK" || action.type === "VIEW_BATCH" ? "pickupDetails" : "notifications";
+}
+
+function channelFor(app: string, category: string) {
+  if (app === "customer") return category === "PROMOTIONAL" ? "customer-offers-v2" : category === "PAYMENT_UPDATE" ? "customer-payments-v2" : "customer-orders-v2";
+  if (app === "tailor") return category === "TAILORING_UPDATE" ? "tailor-new-requests-v2" : "tailor-pickup-updates-v2";
+  return category === "DELIVERY_UPDATE" ? "delivery-updates-v2" : "delivery-pickup-assigned-v2";
+}
+
+async function deliverCampaign(campaign: any) {
   const roleQuery: Record<string, unknown> =
-    campaign.target === "customer" ? { _id: campaign.targetUserId! } :
+    ["customer", "tailor", "delivery_partner"].includes(campaign.target) ? { _id: campaign.targetUserId! } :
     campaign.target === "customers" ? { $or: [{ role: "CUSTOMER" }, { "fcmTokens.app": "customer" }, { "expoPushTokens.app": "customer" }] } :
     campaign.target === "tailors" ? { $or: [{ role: "TAILOR" }, { "fcmTokens.app": "tailor" }, { "expoPushTokens.app": "tailor" }] } :
     campaign.target === "delivery" ? { $or: [{ role: "DELIVERY_PARTNER" }, { "fcmTokens.app": "delivery" }, { "expoPushTokens.app": "delivery" }] } :
@@ -87,9 +139,9 @@ async function deliverCampaign(campaign: { target: "everyone" | "customers" | "t
   const userIds = users.map((user) => String(user._id));
   const targetApps = campaign.target === "customers" || campaign.target === "customer"
     ? ["customer"]
-    : campaign.target === "tailors"
+    : campaign.target === "tailors" || campaign.target === "tailor"
       ? ["tailor"]
-      : campaign.target === "delivery"
+      : campaign.target === "delivery" || campaign.target === "delivery_partner"
         ? ["delivery"]
         : ["customer", "tailor", "delivery"];
   const appDeliveries = await Promise.all(targetApps.map((app) => sendPushToUsers(userIds, {
@@ -98,11 +150,18 @@ async function deliverCampaign(campaign: { target: "everyone" | "customers" | "t
     data: {
       type: "ADMIN_BROADCAST",
       target: campaign.target,
-      screen: "notifications"
+      screen: actionScreen(campaign.action, app),
+      actionType: campaign.action?.type ?? "OPEN_APP",
+      entityId: campaign.action?.entityId ?? "",
+      orderId: ["VIEW_ORDER", "TRACK_DELIVERY", "VIEW_PAYMENT"].includes(campaign.action?.type) ? campaign.action?.entityId ?? "" : ""
     },
-    channelId: app === "delivery" ? "delivery-updates-v2" : app === "tailor" ? "tailor-pickup-updates-v2" : "customer-orders-v2",
+    channelId: channelFor(app, campaign.category ?? "GENERAL_ANNOUNCEMENT"),
     sound: "ding.mp3",
-    targetApps: [app]
+    targetApps: [app],
+    imageUrl: campaign.imageUrl ?? undefined,
+    largeIconUrl: campaign.largeIconUrl ?? undefined,
+    notificationStyle: campaign.style ?? "STANDARD",
+    richBody: campaign.bodyFormat === "RESTRICTED_RICH_TEXT" ? campaign.richBody : undefined
   })));
   const delivery = appDeliveries.reduce((total, item) => ({
     requestedRecipientCount: total.requestedRecipientCount + item.requestedRecipientCount,
@@ -141,6 +200,11 @@ async function completeCampaign(campaign: any) {
 
 export async function sendAdminNotificationController(req: Request, res: Response) {
   const input = adminSendNotificationSchema.parse(req.body ?? {});
+  if (["customer", "tailor", "delivery_partner"].includes(input.target)) {
+    const recipient = await UserModel.findById(input.targetUserId).select("role");
+    const expectedRole = input.target === "customer" ? "CUSTOMER" : input.target === "tailor" ? "TAILOR" : "DELIVERY_PARTNER";
+    if (!recipient || recipient.role !== expectedRole) throw new AppError(400, "The selected recipient does not belong to that audience.");
+  }
   const sendMode = input.sendMode ?? (input.scheduledAt ? "schedule" : "now");
   const scheduledAt = sendMode === "schedule" && input.scheduledAt ? new Date(input.scheduledAt) : null;
   if (sendMode === "schedule" && (!scheduledAt || scheduledAt.getTime() <= Date.now() + 5000)) {
@@ -153,6 +217,15 @@ export async function sendAdminNotificationController(req: Request, res: Respons
     targetUserId: input.targetUserId,
     title: input.title,
     body: input.body,
+    payloadVersion: input.payloadVersion ?? 1,
+    category: input.category ?? "GENERAL_ANNOUNCEMENT",
+    bodyFormat: input.bodyFormat ?? "PLAIN_TEXT",
+    richBody: input.richBody,
+    style: input.style ?? "STANDARD",
+    largeIconUrl: input.largeIconUrl ?? undefined,
+    imageUrl: input.imageUrl ?? undefined,
+    action: input.action ?? undefined,
+    isTest: input.isTest ?? false,
     scheduledAt: scheduledAt ?? new Date(),
     status: scheduled ? "SCHEDULED" : "SENDING",
     createdBy: req.user!.id
@@ -172,7 +245,10 @@ export async function sendAdminNotificationController(req: Request, res: Respons
 
 export async function listAdminNotificationCampaignsController(_req: Request, res: Response) {
   const campaigns = await NotificationCampaignModel.find().sort({ createdAt: -1 }).limit(200);
-  res.json({ data: campaigns });
+  const creatorIds = [...new Set(campaigns.map((campaign) => String(campaign.createdBy)).filter(Boolean))];
+  const creators = creatorIds.length ? await UserModel.find({ _id: { $in: creatorIds } }).select("name phone email") : [];
+  const creatorNames = new Map(creators.map((user) => [String(user._id), user.name || user.email || user.phone || "Administrator"]));
+  res.json({ data: campaigns.map((campaign) => ({ ...campaign.toJSON(), createdByName: creatorNames.get(String(campaign.createdBy)) ?? "Administrator" })) });
 }
 
 export async function processDueNotificationCampaigns() {

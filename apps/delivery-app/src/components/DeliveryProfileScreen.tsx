@@ -1487,6 +1487,7 @@ function DeliverySupportChatScreen({ setScreen, palette, styles, token, socket }
                 <Text style={{ color: palette.text, fontSize: 14, fontWeight: "800", marginBottom: 8 }}>Select Help Category</Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                   {[
+                    { label: "Order Issue", icon: "bag-handle-outline" },
                     { label: "Pickup Issue", icon: "cube-outline" },
                     { label: "Drop Issue", icon: "location-outline" },
                     { label: "Vehicle Problem", icon: "car-outline" },
@@ -1785,7 +1786,7 @@ function DeliverySupportCenterScreen({ setScreen, palette, styles, token }: { se
 }
 
 function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: { title: string; message: string; icon?: IconName }) => void }) {
-  const [type, setType] = useState<"Vehicle" | "RC" | "DrivingLicense" | "BankAccount" | "UPI" | "ContactNumber" >("Vehicle");
+  const [type, setType] = useState<"Vehicle" | "RC" | "DrivingLicense" | "BankAccount" | "UPI" | "ContactNumber" | "IdentityDocument" | "Address" >("Vehicle");
   
   const [vehicleNumberField, setVehicleNumberField] = useState("");
   const [vehicleModelField, setVehicleModelField] = useState("");
@@ -1794,6 +1795,9 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
   const [ifsc, setIfsc] = useState("");
   const [upiId, setUpiId] = useState("");
   const [phoneField, setPhoneField] = useState("");
+  const [identityType, setIdentityType] = useState<"Aadhaar" | "PAN">("Aadhaar");
+  const [idNumber, setIdNumber] = useState("");
+  const [addressField, setAddressField] = useState("");
 
   const [documents, setDocuments] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -1870,6 +1874,25 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
         return;
       }
       requestedValues = { phone: phoneField.trim() };
+    } else if (type === "IdentityDocument") {
+      const normalized = idNumber.trim().replace(/\s/g, "");
+      if ((identityType === "Aadhaar" && !/^\d{12}$/.test(normalized)) || (identityType === "PAN" && !/^[A-Z]{5}\d{4}[A-Z]$/.test(normalized.toUpperCase()))) {
+        Alert.alert("Invalid document number", identityType === "Aadhaar" ? "Enter a valid 12 digit Aadhaar number." : "Enter a valid PAN number.");
+        return;
+      }
+      if (documents.length < (identityType === "Aadhaar" ? 2 : 1)) {
+        Alert.alert("Document photos needed", identityType === "Aadhaar" ? "Upload Aadhaar front and back photos." : "Upload a clear PAN photo.");
+        return;
+      }
+      requestedValues = identityType === "Aadhaar"
+        ? { identityType: "Aadhaar", idNumber: normalized, identityFrontUrl: documents[0], identityBackUrl: documents[1] }
+        : { identityType: "PAN", idNumber: normalized.toUpperCase(), identityFrontUrl: documents[0] };
+    } else if (type === "Address") {
+      if (addressField.trim().length < 8) {
+        Alert.alert("Invalid address", "Enter a complete address of at least 8 characters.");
+        return;
+      }
+      requestedValues = { address: addressField.trim() };
     }
 
     if (!token) return;
@@ -1892,6 +1915,8 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
       setIfsc("");
       setUpiId("");
       setPhoneField("");
+      setIdNumber("");
+      setAddressField("");
       setDocuments([]);
       setScreen("support_center");
     } catch (e) {
@@ -1926,7 +1951,9 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
                 { id: "DrivingLicense", label: "License Update" },
                 { id: "BankAccount", label: "Bank Account" },
                 { id: "UPI", label: "UPI ID" },
-                { id: "ContactNumber", label: "Contact Number" }
+                { id: "ContactNumber", label: "Contact Number" },
+                { id: "IdentityDocument", label: "Aadhaar / PAN" },
+                { id: "Address", label: "Address" }
               ].map((item) => (
                 <Pressable
                   key={item.id}
@@ -2053,6 +2080,18 @@ function DeliveryAccountRequestsScreen({ setScreen, palette, styles, token, show
                   keyboardType="phone-pad"
                 />
               </View>
+            )}
+            {type === "IdentityDocument" && (
+              <View style={{ gap: 12 }}>
+                <Text style={{ color: palette.subtext, fontSize: 12 }}>The Darji team reviews document changes before your verification record is updated.</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {(["Aadhaar", "PAN"] as const).map((option) => <Pressable key={option} onPress={() => { setIdentityType(option); setIdNumber(""); setDocuments([]); }} style={{ borderWidth: 1, borderColor: identityType === option ? BRAND_ORANGE : palette.cardBorder, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: identityType === option ? palette.accentSurface : palette.background }}><Text style={{ color: identityType === option ? BRAND_ORANGE : palette.text, fontWeight: "800" }}>{option}</Text></Pressable>)}
+                </View>
+                <TextInput style={[styles.input, { backgroundColor: palette.background }]} value={idNumber} onChangeText={(value) => setIdNumber(identityType === "Aadhaar" ? value.replace(/\D/g, "").slice(0, 12) : value.toUpperCase())} keyboardType={identityType === "Aadhaar" ? "number-pad" : "default"} placeholder={identityType === "Aadhaar" ? "12 digit Aadhaar number" : "PAN number"} placeholderTextColor={palette.subtext} />
+              </View>
+            )}
+            {type === "Address" && (
+              <View><Text style={{ color: palette.subtext, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>New residential address</Text><TextInput style={[styles.input, { backgroundColor: palette.background, minHeight: 88, textAlignVertical: "top" }]} value={addressField} onChangeText={setAddressField} multiline placeholder="House, street, area, city and PIN code" placeholderTextColor={palette.subtext} /></View>
             )}
           </View>
 

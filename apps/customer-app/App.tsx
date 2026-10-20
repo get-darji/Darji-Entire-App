@@ -9898,6 +9898,7 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
                 <Text style={styles.supportLabel}>What can we help you with?</Text>
                 <View style={styles.supportCategoryGrid}>
                   {[
+                    { label: "Order Issue", icon: "bag-handle-outline" },
                     { label: "Order Delay", icon: "time-outline" },
                     { label: "Pickup Issue", icon: "cube-outline" },
                     { label: "Tailor Issue", icon: "cut-outline" },
