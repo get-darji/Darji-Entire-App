@@ -782,6 +782,10 @@ export type TailoringRequest = {
   itemCount?: number;
   totalAmount?: number;
   confirmedAt?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  cancellationFee?: number;
+  timelineEvents?: TimelineEvent[];
   createdAt?: string;
   updatedAt?: string;
 };
@@ -793,7 +797,8 @@ export type DeliveryRequest = {
   orderId: string;
   tailorId: string;
   customerId: string;
-  type: "customer_to_tailor" | "tailor_to_customer";
+  type: "customer_to_tailor" | "tailor_to_customer" | "darji_to_customer";
+  deliveryType?: "PICKUP" | "DROP";
   assignedDeliveryPartnerId?: string;
   batchId?: string;
   serviceLevel?: "STANDARD" | "EXPRESS" | "INSTANT";
@@ -802,6 +807,7 @@ export type DeliveryRequest = {
   taskStatus: string;
   shift: string;
   estimatedDistanceKm?: number;
+  distanceMeters?: number;
   estimatedEarnings: number;
   estimatedPayout?: number;
   finalPayout?: number;
@@ -813,7 +819,15 @@ export type DeliveryRequest = {
   tailorPhone?: string;
   clothType?: string;
   workType?: string;
+  itemCount?: number;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  totalAmount?: number;
+  cashCollectionRequired?: boolean;
+  cashCollected?: boolean;
+  cashCollectedAt?: string;
   sampleProvided?: boolean;
+  sampleMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
   retryStatus?: "ACTIVE" | "PENDING_RETRY" | "ACTION_REQUIRED" | "CANCELLED" | "RESOLVED";
   retryCount?: number;
   lastFailureReason?: string;
@@ -827,6 +841,21 @@ export type DeliveryRequest = {
   deadlineAt?: string;
   acceptedAt?: string;
   notificationSentAt?: string;
+  pickupOtpVerifiedAt?: string;
+  dropOtpVerifiedAt?: string;
+  clothPhotos?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  samplePhotos?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  deliveryPhotos?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  failureHistory?: Array<{
+    reason?: string;
+    note?: string;
+    failedAt?: string;
+    action?: string;
+    nextScheduledBatch?: string;
+    deliveryRound?: string;
+    actorId?: string;
+  }>;
+  timelineEvents?: TimelineEvent[];
   pickedUpAt?: string;
   deliveredAt?: string;
   createdAt?: string;

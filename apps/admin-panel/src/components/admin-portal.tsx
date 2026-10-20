@@ -181,6 +181,13 @@ import {
   getAdminNotificationCampaigns,
   getAdminActivityLogs,
   getAdminTailorQuotes,
+  alertAdminNoQuote,
+  uploadAdminTailoringAuditMedia,
+  deleteAdminTailoringAuditMedia,
+  getDeliveryRequestById,
+  getDeliveryRescheduleOptions,
+  rescheduleAdminDelivery,
+  failAdminDelivery,
   getAdminOrderMetadata,
   updateAdminOrderMetadata,
   downloadAdminOrderImages,
@@ -613,6 +620,16 @@ export function AdminPortal() {
   const [orderDetailFocus, setOrderDetailFocus] = useState<OrderDetailFocus>("overview");
   const [tailoringDetail, setTailoringDetail] = useState<TailoringRequest | null>(null);
   const [deliveryDetail, setDeliveryDetail] = useState<DeliveryRequest | null>(null);
+  const [tailoringStatusFilter, setTailoringStatusFilter] = useState("");
+  const [tailoringWorkFilter, setTailoringWorkFilter] = useState("");
+  const [tailoringUrgencyFilter, setTailoringUrgencyFilter] = useState("");
+  const [tailoringAttentionOnly, setTailoringAttentionOnly] = useState(false);
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState("");
+  const [deliveryTypeFilter, setDeliveryTypeFilter] = useState("");
+  const [deliveryServiceFilter, setDeliveryServiceFilter] = useState("");
+  const [deliveryExceptionOnly, setDeliveryExceptionOnly] = useState(false);
+  const [selectedTailoringIds, setSelectedTailoringIds] = useState<string[]>([]);
+  const [selectedDeliveryIds, setSelectedDeliveryIds] = useState<string[]>([]);
   const [tailorDetail, setTailorDetail] = useState<TailorProfile | null>(null);
   const [partnerDetail, setPartnerDetail] = useState<DeliveryPartnerProfile | null>(null);
   const [userDetail, setUserDetail] = useState<AdminUser | null>(null);
@@ -726,7 +743,7 @@ export function AdminPortal() {
   const measurementVisitsQuery = useQuery({
     queryKey: ["admin", "measurement-visits"],
     queryFn: getMeasurementVisits,
-    enabled: needsSection("measurements"),
+    enabled: needsSection("measurements", "tailoring"),
     refetchInterval: activeSection === "measurements" ? 15_000 : false
   });
   const operationalAlertsQuery = useQuery({
@@ -831,7 +848,7 @@ export function AdminPortal() {
   const orderMetadataQuery = useQuery({
     queryKey: ["admin", "order-metadata"],
     queryFn: getAdminOrderMetadata,
-    enabled: isAuthed && ["orders", "dashboard"].includes(activeSection)
+    enabled: isAuthed && ["orders", "dashboard", "tailoring", "delivery"].includes(activeSection)
   });
   const activityLogsQuery = useQuery({
     queryKey: ["admin", "activity-logs"],
@@ -2250,23 +2267,34 @@ export function AdminPortal() {
     })
     .sort((a, b) => new Date(b.createdAt ?? "").getTime() - new Date(a.createdAt ?? "").getTime());
 
-  const filteredTailoring = tailoringRequests.filter((request) =>
-    !searchTerm ||
-    [request.description, request.clothType, request.workType, request.darjiId, request.customer?.name, request.customer?.phone]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(searchTerm)
-  );
+  const tailoringNeedsAttention = (request: TailoringRequest) => {
+    const createdAt = new Date(request.createdAt ?? 0).getTime();
+    const waitingWithoutQuote = request.status === "QUOTE_REQUESTED" && Number(request.quoteCount ?? 0) === 0 && Date.now() - createdAt > 15 * 60_000;
+    return waitingWithoutQuote || request.orderStatus === "delivery_issue" || request.orderStatus === "delivery_retry_scheduled" || ["High", "Urgent", "VIP"].includes(orderPriorities[request.id] ?? "Normal");
+  };
+  const deliveryNeedsAttention = (request: DeliveryRequest) => {
+    const overdue = Boolean(request.deadlineAt && new Date(request.deadlineAt).getTime() < Date.now() && !["delivered", "cancelled"].includes(request.taskStatus));
+    return overdue || Boolean(request.lastFailureReason) || ["PENDING_RETRY", "ACTION_REQUIRED"].includes(request.retryStatus ?? "") || ["High", "Urgent", "VIP"].includes(orderPriorities[request.id] ?? "Normal");
+  };
+  const filteredTailoring = tailoringRequests.filter((request) => {
+    const searchMatch = !searchTerm || [request.id, request.description, request.clothType, request.workType, request.darjiId, request.customer?.name, request.customer?.phone, request.selectedQuote?.tailor?.shopName]
+      .filter(Boolean).join(" ").toLowerCase().includes(searchTerm);
+    return searchMatch &&
+      (!tailoringStatusFilter || request.status === tailoringStatusFilter) &&
+      (!tailoringWorkFilter || request.workStatus === tailoringWorkFilter) &&
+      (!tailoringUrgencyFilter || String(request.urgency).toUpperCase() === tailoringUrgencyFilter) &&
+      (!tailoringAttentionOnly || (tailoringStatusFilter === "QUOTE_REQUESTED" ? Number(request.quoteCount ?? 0) === 0 : tailoringNeedsAttention(request)));
+  });
 
-  const filteredDelivery = deliveryRequests.filter((request) =>
-    !searchTerm ||
-    [request.taskId, request.darjiId, request.customerName, request.tailorName, request.pickupAddress, request.dropAddress, request.taskStatus]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(searchTerm)
-  );
+  const filteredDelivery = deliveryRequests.filter((request) => {
+    const searchMatch = !searchTerm || [request.id, request.taskId, request.orderId, request.darjiId, request.customerName, request.customerPhone, request.tailorName, request.pickupAddress, request.dropAddress, request.taskStatus, request.assignedDeliveryPartnerId]
+      .filter(Boolean).join(" ").toLowerCase().includes(searchTerm);
+    return searchMatch &&
+      (!deliveryStatusFilter || request.taskStatus === deliveryStatusFilter) &&
+      (!deliveryTypeFilter || request.type === deliveryTypeFilter) &&
+      (!deliveryServiceFilter || request.serviceLevel === deliveryServiceFilter) &&
+      (!deliveryExceptionOnly || deliveryNeedsAttention(request));
+  });
   const retryDeliveryRows = (deliveryRetriesQuery.data ?? []).filter((request) =>
     !searchTerm ||
     [request.taskId, request.darjiId, request.customerName, request.tailorName, request.lastFailureReason, request.retryStatus]
@@ -2275,6 +2303,24 @@ export function AdminPortal() {
       .toLowerCase()
       .includes(searchTerm)
   );
+  const tailoringSummary = {
+    total: tailoringRequests.length,
+    awaitingQuotes: tailoringRequests.filter((request) => request.status === "QUOTE_REQUESTED").length,
+    noQuotes: tailoringRequests.filter((request) => request.status === "QUOTE_REQUESTED" && Number(request.quoteCount ?? 0) === 0).length,
+    paymentPending: tailoringRequests.filter((request) => request.status === "PAYMENT_PENDING" || request.paymentStatus === "PENDING").length,
+    working: tailoringRequests.filter((request) => request.workStatus === "WORKING").length,
+    ready: tailoringRequests.filter((request) => request.workStatus === "READY").length,
+    attention: tailoringRequests.filter(tailoringNeedsAttention).length
+  };
+  const deliverySummary = {
+    total: deliveryRequests.length,
+    unassigned: deliveryRequests.filter((request) => request.taskStatus === "pending" && !request.assignedDeliveryPartnerId).length,
+    accepted: deliveryRequests.filter((request) => request.taskStatus === "accepted").length,
+    inTransit: deliveryRequests.filter((request) => request.taskStatus === "picked_up").length,
+    delivered: deliveryRequests.filter((request) => request.taskStatus === "delivered").length,
+    retries: deliveryRequests.filter((request) => ["PENDING_RETRY", "ACTION_REQUIRED"].includes(request.retryStatus ?? "")).length,
+    attention: deliveryRequests.filter(deliveryNeedsAttention).length
+  };
 
   const filteredTailors = tailors.filter((tailor) => {
     const status = tailor.verificationStatus ?? "NOT_SUBMITTED";
@@ -2513,12 +2559,38 @@ export function AdminPortal() {
   });
   const tailoringColumns = getTailoringColumns({
     onOpen: setTailoringDetail,
-    onOpenCustomer: (request) => setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ ...request.customer, id: request.customerId } as AdminUser))
+    onOpenCustomer: (request) => setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ ...request.customer, id: request.customerId } as AdminUser)),
+    onOpenTailor: (request) => {
+      const tailorId = request.selectedQuote?.tailorId ?? request.assignedTailorId;
+      const tailor = tailors.find((candidate) => candidate.id === tailorId);
+      if (tailor) setTailorDetail(tailor);
+      else toast.info("The selected tailor profile is not available in the current data set");
+    },
+    priorities: orderPriorities,
+    selectedIds: selectedTailoringIds,
+    visibleIds: filteredTailoring.map((request) => request.id),
+    onToggleSelected: (requestId) => setSelectedTailoringIds((current) => current.includes(requestId) ? current.filter((id) => id !== requestId) : [...current, requestId]),
+    onToggleAll: () => setSelectedTailoringIds((current) => filteredTailoring.every((request) => current.includes(request.id)) ? current.filter((id) => !filteredTailoring.some((request) => request.id === id)) : Array.from(new Set([...current, ...filteredTailoring.map((request) => request.id)])))
   });
   const deliveryColumns = getDeliveryColumns({
     onOpen: setDeliveryDetail,
     onOpenCustomer: (request) => setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ id: request.customerId, name: request.customerName, phone: request.customerPhone } as AdminUser)),
-    partners
+    onOpenPartner: (request) => {
+      const partner = partners.find((candidate) => candidate.id === request.assignedDeliveryPartnerId);
+      if (partner) setPartnerDetail(partner);
+      else toast.info("No delivery partner is assigned to this task");
+    },
+    onOpenTailor: (request) => {
+      const tailor = tailors.find((candidate) => candidate.id === request.tailorId);
+      if (tailor) setTailorDetail(tailor);
+      else toast.info("The linked tailor profile is not available in the current data set");
+    },
+    partners,
+    priorities: orderPriorities,
+    selectedIds: selectedDeliveryIds,
+    visibleIds: filteredDelivery.map((request) => request.id),
+    onToggleSelected: (requestId) => setSelectedDeliveryIds((current) => current.includes(requestId) ? current.filter((id) => id !== requestId) : [...current, requestId]),
+    onToggleAll: () => setSelectedDeliveryIds((current) => filteredDelivery.every((request) => current.includes(request.id)) ? current.filter((id) => !filteredDelivery.some((request) => request.id === id)) : Array.from(new Set([...current, ...filteredDelivery.map((request) => request.id)])))
   });
   const tailorColumns = getTailorColumns({
     onOpen: setTailorDetail,
@@ -2920,9 +2992,26 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Tailoring request marketplace"
-              description="Quote-based requests, work progress, and handoff readiness."
+              description="Operate the complete quote-to-stitching lifecycle and move directly into the connected customer, tailor, payment, measurement, and delivery records."
               action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-tailoring-requests.csv", filteredTailoring.map(tailoringToCsv))}>Export CSV</ActionButton>}
             />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+              <OperationsMetricButton label="All requests" value={tailoringSummary.total} active={!tailoringStatusFilter && !tailoringWorkFilter && !tailoringAttentionOnly} onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter(""); setTailoringAttentionOnly(false); }} />
+              <OperationsMetricButton label="Awaiting quotes" value={tailoringSummary.awaitingQuotes} active={tailoringStatusFilter === "QUOTE_REQUESTED" && !tailoringAttentionOnly} onClick={() => { setTailoringStatusFilter("QUOTE_REQUESTED"); setTailoringWorkFilter(""); setTailoringAttentionOnly(false); }} tone="amber" />
+              <OperationsMetricButton label="No quotes" value={tailoringSummary.noQuotes} active={tailoringStatusFilter === "QUOTE_REQUESTED" && tailoringAttentionOnly} onClick={() => { setTailoringStatusFilter("QUOTE_REQUESTED"); setTailoringWorkFilter(""); setTailoringAttentionOnly(true); }} tone="rose" />
+              <OperationsMetricButton label="Payment pending" value={tailoringSummary.paymentPending} active={tailoringStatusFilter === "PAYMENT_PENDING"} onClick={() => { setTailoringStatusFilter("PAYMENT_PENDING"); setTailoringWorkFilter(""); setTailoringAttentionOnly(false); }} tone="violet" />
+              <OperationsMetricButton label="In stitching" value={tailoringSummary.working} active={tailoringWorkFilter === "WORKING"} onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter("WORKING"); setTailoringAttentionOnly(false); }} tone="sky" />
+              <OperationsMetricButton label="Ready" value={tailoringSummary.ready} active={tailoringWorkFilter === "READY"} onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter("READY"); setTailoringAttentionOnly(false); }} tone="emerald" />
+              <OperationsMetricButton label="Needs attention" value={tailoringSummary.attention} active={tailoringAttentionOnly} onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter(""); setTailoringAttentionOnly(true); }} tone="rose" />
+            </div>
+            <Panel className="flex flex-wrap items-center gap-3 p-4">
+              <FilterSelect value={tailoringStatusFilter} onChange={setTailoringStatusFilter} options={[{ label: "All request statuses", value: "" }, { label: "Quote requested", value: "QUOTE_REQUESTED" }, { label: "Payment pending", value: "PAYMENT_PENDING" }, { label: "Tailor selected", value: "TAILOR_SELECTED" }, { label: "Cancelled", value: "CANCELLED" }]} />
+              <FilterSelect value={tailoringWorkFilter} onChange={setTailoringWorkFilter} options={[{ label: "All work statuses", value: "" }, { label: "Accepted", value: "ACCEPTED" }, { label: "Working", value: "WORKING" }, { label: "Ready", value: "READY" }]} />
+              <FilterSelect value={tailoringUrgencyFilter} onChange={setTailoringUrgencyFilter} options={[{ label: "All urgency levels", value: "" }, { label: "Standard", value: "STANDARD" }, { label: "Express", value: "EXPRESS" }, { label: "Instant", value: "INSTANT" }]} />
+              <button className={cn("rounded-xl border px-4 py-2 text-sm font-bold", tailoringAttentionOnly ? "border-rose-300 bg-rose-50 text-rose-700" : "border-[var(--panel-border)] bg-white text-[var(--muted)]")} onClick={() => setTailoringAttentionOnly((current) => !current)} type="button">Needs attention only</button>
+              <button className="ml-auto rounded-xl px-4 py-2 text-sm font-bold text-[var(--muted)] hover:bg-slate-100" onClick={() => { setTailoringStatusFilter(""); setTailoringWorkFilter(""); setTailoringUrgencyFilter(""); setTailoringAttentionOnly(false); }} type="button"><RotateCcw className="mr-2 inline" size={14} />Reset</button>
+            </Panel>
+            {selectedTailoringIds.length ? <Panel className="flex flex-wrap items-center gap-3 border-orange-200 bg-orange-50/70 p-4"><p className="mr-auto text-sm font-black text-orange-900">{selectedTailoringIds.length} request(s) selected</p><button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" onClick={() => downloadCsv("darji-selected-tailoring-requests.csv", tailoringRequests.filter((request) => selectedTailoringIds.includes(request.id)).map(tailoringToCsv))} type="button"><Download className="mr-2 inline" size={14} />Export selected</button>{(["High", "Urgent", "Normal"] as AdminOrderPriority[]).map((priority) => <button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" key={priority} onClick={() => { void Promise.all(selectedTailoringIds.map((orderId) => updateAdminOrderMetadata({ orderId, priority }))).then((records) => { setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) })); toast.success(`${records.length} requests marked ${priority.toLowerCase()}`); }).catch((error) => toast.error(extractError(error))); }} type="button">Mark {priority}</button>)}<button className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500" onClick={() => setSelectedTailoringIds([])} type="button">Clear</button></Panel> : null}
             <DataTable columns={tailoringColumns} data={filteredTailoring} emptyMessage="No tailoring requests available." />
           </div>
         ) : null}
@@ -2931,9 +3020,26 @@ export function AdminPortal() {
           <div className="space-y-6">
             <SectionIntro
               title="Delivery operations"
-              description="Pickup and drop tasks created from the tailoring workflow."
+              description="Operate individual pickup and final-delivery tasks while preserving OTP, proof-photo, COD, batch, retry, and payout safeguards."
               action={<ActionButton variant="secondary" onClick={() => downloadCsv("darji-delivery-ops.csv", filteredDelivery.map(deliveryToCsv))}>Export CSV</ActionButton>}
             />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+              <OperationsMetricButton label="All tasks" value={deliverySummary.total} active={!deliveryStatusFilter && !deliveryExceptionOnly} onClick={() => { setDeliveryStatusFilter(""); setDeliveryExceptionOnly(false); }} />
+              <OperationsMetricButton label="Unassigned" value={deliverySummary.unassigned} active={deliveryStatusFilter === "pending" && !deliveryExceptionOnly} onClick={() => { setDeliveryStatusFilter("pending"); setDeliveryExceptionOnly(false); }} tone="amber" />
+              <OperationsMetricButton label="Accepted" value={deliverySummary.accepted} active={deliveryStatusFilter === "accepted"} onClick={() => { setDeliveryStatusFilter("accepted"); setDeliveryExceptionOnly(false); }} tone="sky" />
+              <OperationsMetricButton label="In transit" value={deliverySummary.inTransit} active={deliveryStatusFilter === "picked_up"} onClick={() => { setDeliveryStatusFilter("picked_up"); setDeliveryExceptionOnly(false); }} tone="violet" />
+              <OperationsMetricButton label="Delivered" value={deliverySummary.delivered} active={deliveryStatusFilter === "delivered"} onClick={() => { setDeliveryStatusFilter("delivered"); setDeliveryExceptionOnly(false); }} tone="emerald" />
+              <OperationsMetricButton label="Retries" value={deliverySummary.retries} active={deliveryExceptionOnly && deliveryStatusFilter === "pending"} onClick={() => { setDeliveryStatusFilter("pending"); setDeliveryExceptionOnly(true); }} tone="rose" />
+              <OperationsMetricButton label="Needs attention" value={deliverySummary.attention} active={deliveryExceptionOnly && !deliveryStatusFilter} onClick={() => { setDeliveryStatusFilter(""); setDeliveryExceptionOnly(true); }} tone="rose" />
+            </div>
+            <Panel className="flex flex-wrap items-center gap-3 p-4">
+              <FilterSelect value={deliveryStatusFilter} onChange={setDeliveryStatusFilter} options={[{ label: "All task statuses", value: "" }, { label: "Pending", value: "pending" }, { label: "Accepted", value: "accepted" }, { label: "Picked up", value: "picked_up" }, { label: "Delivered", value: "delivered" }, { label: "Cancelled", value: "cancelled" }]} />
+              <FilterSelect value={deliveryTypeFilter} onChange={setDeliveryTypeFilter} options={[{ label: "All task types", value: "" }, { label: "Customer to tailor", value: "customer_to_tailor" }, { label: "Tailor to customer", value: "tailor_to_customer" }, { label: "Darji to customer", value: "darji_to_customer" }]} />
+              <FilterSelect value={deliveryServiceFilter} onChange={setDeliveryServiceFilter} options={[{ label: "All service levels", value: "" }, { label: "Standard", value: "STANDARD" }, { label: "Express", value: "EXPRESS" }, { label: "Instant", value: "INSTANT" }]} />
+              <button className={cn("rounded-xl border px-4 py-2 text-sm font-bold", deliveryExceptionOnly ? "border-rose-300 bg-rose-50 text-rose-700" : "border-[var(--panel-border)] bg-white text-[var(--muted)]")} onClick={() => setDeliveryExceptionOnly((current) => !current)} type="button">Exceptions only</button>
+              <button className="ml-auto rounded-xl px-4 py-2 text-sm font-bold text-[var(--muted)] hover:bg-slate-100" onClick={() => { setDeliveryStatusFilter(""); setDeliveryTypeFilter(""); setDeliveryServiceFilter(""); setDeliveryExceptionOnly(false); }} type="button"><RotateCcw className="mr-2 inline" size={14} />Reset</button>
+            </Panel>
+            {selectedDeliveryIds.length ? <Panel className="flex flex-wrap items-center gap-3 border-orange-200 bg-orange-50/70 p-4"><p className="mr-auto text-sm font-black text-orange-900">{selectedDeliveryIds.length} task(s) selected</p><button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" onClick={() => downloadCsv("darji-selected-delivery-tasks.csv", deliveryRequests.filter((request) => selectedDeliveryIds.includes(request.id)).map(deliveryToCsv))} type="button"><Download className="mr-2 inline" size={14} />Export selected</button>{(["High", "Urgent", "Normal"] as AdminOrderPriority[]).map((priority) => <button className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-bold" key={priority} onClick={() => { void Promise.all(selectedDeliveryIds.map((orderId) => updateAdminOrderMetadata({ orderId, priority }))).then((records) => { setOrderPriorities((current) => ({ ...current, ...Object.fromEntries(records.map((record) => [record.entityId, record.priority])) })); toast.success(`${records.length} tasks marked ${priority.toLowerCase()}`); }).catch((error) => toast.error(extractError(error))); }} type="button">Mark {priority}</button>)}<button className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500" onClick={() => setSelectedDeliveryIds([])} type="button">Clear</button></Panel> : null}
             <PendingRetryOrdersPanel
               rows={retryDeliveryRows}
               pending={deliveryRetryMutation.isPending}
@@ -3524,16 +3630,49 @@ export function AdminPortal() {
         }}
       />
       <TailoringRequestDialog
+        deliveryRequests={deliveryRequests}
+        measurementVisits={measurementVisitsQuery.data ?? []}
+        notes={tailoringDetail ? orderNotes[tailoringDetail.id] ?? [] : []}
+        priority={tailoringDetail ? orderPriorities[tailoringDetail.id] ?? "Normal" : "Normal"}
         open={Boolean(tailoringDetail)}
         request={tailoringDetail}
+        onMetadata={(payload) => tailoringDetail && orderMetadataMutation.mutate({ orderId: tailoringDetail.id, ...payload })}
+        onOpenCustomer={(request) => {
+          setTailoringDetail(null);
+          setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ ...request.customer, id: request.customerId } as AdminUser));
+        }}
+        onOpenDelivery={(request) => { setTailoringDetail(null); setDeliveryDetail(request); }}
+        onOpenTailor={(tailor) => { setTailoringDetail(null); setTailorDetail(tailor); }}
+        onUpdated={(updated) => setTailoringDetail(updated)}
         setOpen={(next) => {
           if (!next) setTailoringDetail(null);
         }}
       />
       <DeliveryRequestDialog
+        batches={deliveryBatches}
+        notes={deliveryDetail ? orderNotes[deliveryDetail.id] ?? [] : []}
+        priority={deliveryDetail ? orderPriorities[deliveryDetail.id] ?? "Normal" : "Normal"}
         open={Boolean(deliveryDetail)}
         partners={partners}
         request={deliveryDetail}
+        onMetadata={(payload) => deliveryDetail && orderMetadataMutation.mutate({ orderId: deliveryDetail.id, ...payload })}
+        onOpenBatch={(batch) => { setDeliveryDetail(null); setBatchFocus({ batchId: batch.batchId, roundAt: batch.roundAt }); setActiveSection("batches"); }}
+        onOpenCustomer={(request) => { setDeliveryDetail(null); setUserDetail(users.find((candidate) => candidate.id === request.customerId) ?? ({ id: request.customerId, name: request.customerName, phone: request.customerPhone } as AdminUser)); }}
+        onOpenOrder={(request) => {
+          const order = allOrders.find((candidate) => candidate.id === request.orderId || candidate.request?.id === request.orderId);
+          if (!order) return toast.error("The linked order is not available in the current data set");
+          setDeliveryDetail(null);
+          openOrderDetail(order, "overview");
+        }}
+        onOpenPartner={(partner) => { setDeliveryDetail(null); setPartnerDetail(partner); }}
+        onOpenTailor={(request) => {
+          const tailor = tailors.find((candidate) => candidate.id === request.tailorId);
+          if (!tailor) return toast.error("The linked tailor profile is not available in the current data set");
+          setDeliveryDetail(null);
+          setTailorDetail(tailor);
+        }}
+        onRetryAction={(taskId, action) => deliveryRetryMutation.mutate({ taskId, action })}
+        onUpdated={(updated) => setDeliveryDetail(updated)}
         setOpen={(next) => {
           if (!next) setDeliveryDetail(null);
         }}
@@ -4977,6 +5116,39 @@ function FinanceStatCard({
       <p className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">{value}</p>
       <p className="mt-2 text-sm text-[var(--muted)]">{note}</p>
     </Panel>
+  );
+}
+
+function OperationsMetricButton({
+  active,
+  label,
+  onClick,
+  tone = "neutral",
+  value
+}: {
+  active?: boolean;
+  label: string;
+  onClick: () => void;
+  tone?: "neutral" | "amber" | "sky" | "violet" | "emerald" | "rose";
+  value: number;
+}) {
+  const tones = {
+    neutral: "bg-slate-100 text-slate-700",
+    amber: "bg-amber-100 text-amber-800",
+    sky: "bg-sky-100 text-sky-800",
+    violet: "bg-violet-100 text-violet-800",
+    emerald: "bg-emerald-100 text-emerald-800",
+    rose: "bg-rose-100 text-rose-800"
+  };
+  return (
+    <button
+      className={cn("rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", active ? "border-orange-400 ring-2 ring-orange-100" : "border-[var(--panel-border)]")}
+      onClick={onClick}
+      type="button"
+    >
+      <span className={cn("inline-flex min-w-10 items-center justify-center rounded-xl px-2.5 py-1 text-lg font-black tabular-nums", tones[tone])}>{value.toLocaleString("en-IN")}</span>
+      <span className="mt-3 block text-xs font-bold text-[var(--deep)]">{label}</span>
+    </button>
   );
 }
 
@@ -8826,6 +8998,11 @@ function cleanText(value?: string | null) {
   return trimmed.length ? trimmed : undefined;
 }
 
+function formatDistance(meters?: number | null) {
+  if (meters == null || !Number.isFinite(meters)) return "Distance unavailable";
+  return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
+}
+
 function getUserDisplayName(user?: BasicUser | AdminUser | null, fallback = "Customer") {
   return cleanText(user?.name) ?? cleanText(user?.phone) ?? cleanText(user?.darjiCustomerId) ?? fallback;
 }
@@ -9176,6 +9353,30 @@ function MediaStrip({
         ))}
       </div>
     </div>
+  );
+}
+
+function ProofMediaManager({
+  items,
+  onAdd,
+  onDelete,
+  pending,
+  stage,
+  title
+}: {
+  items: Array<{ url: string; resourceType: string; originalName?: string }>;
+  onAdd: (files: File[]) => void;
+  onDelete: (url: string) => void;
+  pending: boolean;
+  stage: "RECEIVED" | "STITCHED";
+  title: string;
+}) {
+  return (
+    <Panel className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-black">{title}</h4><p className="mt-1 text-xs text-slate-500">{items.length} uploaded photo(s)</p></div><label className={cn("cursor-pointer rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white", pending && "pointer-events-none opacity-50")}><input accept="image/*" className="hidden" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) onAdd(files); event.currentTarget.value = ""; }} type="file" />Upload {stage === "RECEIVED" ? "received" : "stitched"} photos</label></div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map((item) => <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" key={item.url}><a href={item.url} rel="noreferrer" target="_blank"><img alt={item.originalName ?? title} className="aspect-video w-full object-cover" src={item.url} /></a><div className="flex items-center justify-between gap-2 p-3"><p className="truncate text-xs text-slate-500">{item.originalName ?? "Proof photo"}</p><button className="text-xs font-bold text-rose-600" disabled={pending} onClick={() => { if (window.confirm("Remove this proof photo?")) onDelete(item.url); }} type="button">Remove</button></div></div>)}</div>
+      {!items.length ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No proof photos uploaded yet.</p> : null}
+    </Panel>
   );
 }
 
@@ -10452,46 +10653,128 @@ const OrderTrackingPanel = forwardRef<HTMLDivElement, { events: OrderTrackingEve
 OrderTrackingPanel.displayName = "OrderTrackingPanel";
 
 function TailoringRequestDialog({
+  deliveryRequests,
+  measurementVisits,
+  notes,
+  onMetadata,
+  onOpenCustomer,
+  onOpenDelivery,
+  onOpenTailor,
+  onUpdated,
   open,
+  priority,
   request,
   setOpen
 }: {
+  deliveryRequests: DeliveryRequest[];
+  measurementVisits: MeasurementVisit[];
+  notes: AdminOrderNote[];
+  onMetadata: (payload: { priority?: AdminOrderPriority; note?: string }) => void;
+  onOpenCustomer: (request: TailoringRequest) => void;
+  onOpenDelivery: (request: DeliveryRequest) => void;
+  onOpenTailor: (tailor: TailorProfile) => void;
+  onUpdated: (request: TailoringRequest) => void;
   open: boolean;
+  priority: AdminOrderPriority;
   request: TailoringRequest | null;
   setOpen: (open: boolean) => void;
 }) {
+  const [tab, setTab] = useState<"overview" | "quotes" | "measurement" | "logistics" | "progress" | "finance" | "timeline">("overview");
+  const [note, setNote] = useState("");
+  const queryClient = useQueryClient();
+  const detailQuery = useQuery({
+    queryKey: ["admin", "tailoring-request", request?.id],
+    queryFn: () => getTailoringRequestById(request!.id),
+    enabled: open && Boolean(request?.id)
+  });
+  const quotesQuery = useQuery({
+    queryKey: ["admin", "tailoring-quotes", request?.id],
+    queryFn: () => getAdminTailorQuotes(request!.id),
+    enabled: open && Boolean(request?.id)
+  });
+  const activeRequest = detailQuery.data ?? request;
+  const requestDeliveries = deliveryRequests.filter((task) => task.orderId === activeRequest?.id);
+  const requestVisits = measurementVisits.filter((visit) => visit.requestId === activeRequest?.id);
+  const quotes = quotesQuery.data ?? [];
+  const selectedQuote = quotes.find((quote) => quote.id === activeRequest?.selectedQuoteId || quote.status === "ACCEPTED") ?? activeRequest?.selectedQuote;
+  const refreshRequest = async (updated?: TailoringRequest) => {
+    if (updated) onUpdated(updated);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-request", request?.id] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] })
+    ]);
+  };
+  const workMutation = useMutation({
+    mutationFn: ({ action }: { action: "WORKING" | "READY" | "CANCEL" }) => action === "CANCEL" ? cancelTailoringRequest(activeRequest!.id) : updateTailoringWorkStatus(activeRequest!.id, action),
+    onSuccess: async (updated) => { toast.success("Tailoring request updated"); await refreshRequest(updated); },
+    onError: (error) => toast.error(extractError(error))
+  });
+  const noQuoteMutation = useMutation({
+    mutationFn: () => alertAdminNoQuote(activeRequest!.id),
+    onSuccess: (result) => toast.success(result.alerted ? "No-quote escalation created" : "The request already has an active quote"),
+    onError: (error) => toast.error(extractError(error))
+  });
+  const mediaMutation = useMutation({
+    mutationFn: ({ files, stage }: { files: File[]; stage: "RECEIVED" | "STITCHED" }) => uploadAdminTailoringAuditMedia(activeRequest!.id, stage, files),
+    onSuccess: async (updated) => { toast.success("Proof photos uploaded"); await refreshRequest(updated); },
+    onError: (error) => toast.error(extractError(error))
+  });
+  const mediaDeleteMutation = useMutation({
+    mutationFn: ({ stage, url }: { stage: "RECEIVED" | "STITCHED"; url: string }) => deleteAdminTailoringAuditMedia(activeRequest!.id, stage, url),
+    onSuccess: async (updated) => { toast.success("Proof photo removed"); await refreshRequest(updated); },
+    onError: (error) => toast.error(extractError(error))
+  });
+  useEffect(() => { if (open) { setTab("overview"); setNote(""); } }, [open, request?.id]);
+
+  const tabs = [
+    ["overview", "Overview"], ["quotes", `Quotes (${quotes.length})`], ["measurement", "Measurement"], ["logistics", `Pickup & delivery (${requestDeliveries.length})`], ["progress", "Tailoring progress"], ["finance", "Pricing & payment"], ["timeline", "Timeline & notes"]
+  ] as const;
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,900px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
-          {request ? (
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[94vh] w-[min(98vw,1240px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[#fbfaf7] shadow-[var(--shadow)]">
+          {activeRequest ? (
             <>
-              <Dialog.Title className="text-2xl font-semibold">Tailoring request</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">{request.clothType} / {request.workType}</Dialog.Description>
-              <div className="mt-6 space-y-5">
+              <header className="border-b border-slate-200 bg-white px-6 py-5">
+                <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><Dialog.Title className="text-xl font-black text-slate-950">{activeRequest.darjiId ?? `TRQ-${activeRequest.id.slice(0, 8).toUpperCase()}`}</Dialog.Title><StatusBadge value={activeRequest.status} /><StatusBadge value={activeRequest.deliveryMode ?? activeRequest.urgency} /><PriorityBadge value={priority} /></div><Dialog.Description className="mt-2 text-sm text-slate-600">{activeRequest.clothType} · {activeRequest.workType} · submitted {formatDate(activeRequest.createdAt, true)}</Dialog.Description></div><div className="flex flex-wrap gap-2"><select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold" value={priority} onChange={(event) => onMetadata({ priority: event.target.value as AdminOrderPriority })}><option>Normal</option><option>High</option><option>Urgent</option><option>VIP</option></select>{activeRequest.status === "QUOTE_REQUESTED" && Number(activeRequest.quoteCount ?? quotes.length) === 0 ? <ActionButton variant="secondary" onClick={() => noQuoteMutation.mutate()} disabled={noQuoteMutation.isPending}>Escalate no quote</ActionButton> : null}{activeRequest.status === "TAILOR_SELECTED" && activeRequest.workStatus === "ACCEPTED" ? <ActionButton onClick={() => workMutation.mutate({ action: "WORKING" })} disabled={workMutation.isPending}>Start stitching</ActionButton> : null}{activeRequest.status === "TAILOR_SELECTED" && activeRequest.workStatus === "WORKING" ? <ActionButton onClick={() => workMutation.mutate({ action: "READY" })} disabled={workMutation.isPending}>Mark ready</ActionButton> : null}<Dialog.Close asChild><button className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white" type="button"><X size={18} /></button></Dialog.Close></div></div>
+                <div className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200">{tabs.map(([id, label]) => <button className={cn("whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold", tab === id ? "border-slate-950 text-slate-950" : "border-transparent text-slate-500 hover:text-slate-900")} key={id} onClick={() => setTab(id)} type="button">{label}</button>)}</div>
+              </header>
+              <div className="overflow-y-auto p-6">
+                {detailQuery.isLoading ? <div className="grid min-h-48 place-items-center"><LoaderCircle className="animate-spin text-orange-500" /></div> : null}
+                {tab === "overview" ? <div className="space-y-5">
                 <InspectGrid
                   items={[
-                    { label: "Customer", value: `${getCustomerDisplayName(request.customer)} / ${request.customer?.phone ?? "No phone"}` },
-                    { label: "Request status", value: <StatusBadge value={request.status} /> },
-                    { label: "Work status", value: <StatusBadge value={request.workStatus} /> },
-                    { label: "Order status", value: <StatusBadge value={request.orderStatus} /> },
-                    { label: "Quotes", value: request.quoteCount?.toString() ?? "0" },
-                    { label: "Urgency", value: request.urgency },
-                    { label: "Pickup address", value: request.pickupAddress },
-                    { label: "Submitted", value: formatDate(request.createdAt, true) }
+                    { label: "Customer", value: <button className="font-bold text-orange-600" onClick={() => onOpenCustomer(activeRequest)} type="button">{getCustomerDisplayName(activeRequest.customer)} · {activeRequest.customer?.phone ?? "No phone"}</button> },
+                    { label: "Request / work status", value: <span className="flex flex-wrap gap-2"><StatusBadge value={activeRequest.status} /><StatusBadge value={activeRequest.workStatus} /></span> },
+                    { label: "Handoff status", value: <StatusBadge value={activeRequest.orderStatus ?? "Not started"} /> },
+                    { label: "Items", value: `${activeRequest.itemCount ?? activeRequest.items?.length ?? 1} · ${activeRequest.clothType}` },
+                    { label: "Service", value: `${formatStatus(activeRequest.deliveryMode ?? activeRequest.urgency)} · ${activeRequest.workType}` },
+                    { label: "Measurement", value: activeRequest.homeMeasurementBooked ? `Home visit · ${activeRequest.preferredMeasurementSlot ?? "slot pending"}` : "Customer-provided measurements" },
+                    { label: "Pickup address", value: activeRequest.pickupAddress },
+                    { label: "Submitted", value: formatDate(activeRequest.createdAt, true) }
                   ]}
                 />
                 <Panel>
                   <h4 className="text-lg font-semibold">Description</h4>
-                  <p className="mt-3 text-sm text-[var(--muted)]">{request.description}</p>
-                  {request.measurementNotes ? <p className="mt-3 text-sm text-[var(--muted)]">Measurement notes: {request.measurementNotes}</p> : null}
+                  <p className="mt-3 text-sm text-[var(--muted)]">{activeRequest.description}</p>
+                  {activeRequest.measurementNotes ? <p className="mt-3 text-sm text-[var(--muted)]">Measurement notes: {activeRequest.measurementNotes}</p> : null}
                 </Panel>
-                <MediaStrip items={request.media} title="Uploaded request media" />
-                <MediaStrip items={request.sampleMedia} title="Sample media" />
-                <MediaStrip items={request.receivedMedia} title="Received clothing proof" />
-                <MediaStrip items={request.stitchedMedia} title="Stitched clothing proof" />
+                <MediaStrip items={activeRequest.media} title="Customer request media" />
+                <MediaStrip items={activeRequest.designMedia} title="Design references" />
+                <MediaStrip items={activeRequest.sampleMedia} title="Sample garment media" />
+                {activeRequest.voiceNotes?.length ? <MediaStrip items={activeRequest.voiceNotes} title="Voice notes" /> : null}
+                </div> : null}
+                {tab === "quotes" ? <div className="space-y-4">{quotesQuery.isLoading ? <LoaderCircle className="animate-spin text-orange-500" /> : null}{quotes.map((quote) => <Panel className={cn("p-5", quote.id === selectedQuote?.id ? "border-emerald-300 bg-emerald-50/40" : "bg-white")} key={quote.id}><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><p className="text-lg font-black">{quote.tailor?.shopName ?? quote.tailor?.user?.name ?? "Tailor"}</p><StatusBadge value={quote.status} /></div><p className="mt-1 text-sm text-slate-500">{quote.tailor?.darjiTailorId ?? quote.tailorId} · {quote.estimatedHours ? `${quote.estimatedHours} hours` : `${quote.estimatedDays} days`}</p><p className="mt-3 text-sm text-slate-600">{quote.message || "No quote message"}</p></div><div className="text-right"><p className="text-2xl font-black">{formatCurrency(quote.price)}</p><p className="text-xs text-slate-500">Tailoring quote</p>{quote.tailor ? <button className="mt-3 text-sm font-bold text-orange-600" onClick={() => onOpenTailor(quote.tailor!)} type="button">View tailor profile</button> : null}</div></div>{quote.deliveryEstimate ? <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 text-sm sm:grid-cols-3"><span>{formatStatus(quote.deliveryEstimate.deliveryMode ?? "STANDARD")}</span><span>{formatDistance(quote.deliveryEstimate.oneWayDistanceMeters)}</span><span>{formatCurrency(quote.deliveryEstimate.deliveryFee ?? 0)} delivery</span></div> : null}</Panel>)}{!quotesQuery.isLoading && !quotes.length ? <EmptyState message="No tailor quotes have been submitted for this request." /> : null}</div> : null}
+                {tab === "measurement" ? <div className="space-y-4"><InspectGrid items={[{ label: "Measurement method", value: activeRequest.homeMeasurementBooked ? "Home measurement visit" : "Customer-provided measurement" }, { label: "Preferred slot", value: activeRequest.preferredMeasurementSlot ?? "Not applicable" }, { label: "Measurement fee", value: formatCurrency(activeRequest.homeMeasurementFee ?? 0) }, { label: "Measurement notes", value: activeRequest.measurementNotes ?? "No notes" }]} />{activeRequest.measurement ? <Panel><h4 className="font-bold">Submitted measurement</h4><pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs text-slate-600">{JSON.stringify(activeRequest.measurement, null, 2)}</pre></Panel> : null}{requestVisits.map((visit) => <Panel key={visit.id}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-black">{visit.darjiId ?? `Visit ${visit.id.slice(0, 8).toUpperCase()}`}</p><p className="mt-1 text-sm text-slate-500">{visit.customerName} · {formatDate(visit.scheduledAt, true)}</p></div><StatusBadge value={visit.status} /></div></Panel>)}{activeRequest.homeMeasurementBooked && !requestVisits.length ? <EmptyState message="The measurement visit has not been created or is not available in the current data set." /> : null}</div> : null}
+                {tab === "logistics" ? <div className="space-y-4">{requestDeliveries.map((task) => <button className="block w-full rounded-2xl border border-slate-200 bg-white p-5 text-left transition hover:border-orange-300" key={task.id} onClick={() => onOpenDelivery(task)} type="button"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-black">{task.taskId}</p><p className="mt-1 text-sm text-slate-500">{formatStatus(task.type)} · {formatStatus(task.serviceLevel ?? "STANDARD")}</p></div><StatusBadge value={task.taskStatus} /></div><div className="mt-4 grid gap-3 text-sm md:grid-cols-3"><span>{task.pickupAddress}</span><span>→ {task.dropAddress}</span><span>{task.batchId ? `Batch ${task.batchId.slice(0, 8).toUpperCase()}` : "Unbatched / instant"}</span></div></button>)}{!requestDeliveries.length ? <EmptyState message="Pickup and delivery tasks will appear after the order reaches the relevant workflow stage." /> : null}</div> : null}
+                {tab === "progress" ? <div className="space-y-5"><InspectGrid items={[{ label: "Current work status", value: <StatusBadge value={activeRequest.workStatus} /> }, { label: "Required proof count", value: String(Math.max(1, activeRequest.itemCount ?? activeRequest.items?.length ?? 1)) }, { label: "Received-clothes proofs", value: String(activeRequest.receivedMedia?.length ?? 0) }, { label: "Stitched-clothes proofs", value: String(activeRequest.stitchedMedia?.length ?? 0) }]} /><ProofMediaManager title="Before stitching / clothes received" items={activeRequest.receivedMedia ?? []} stage="RECEIVED" pending={mediaMutation.isPending || mediaDeleteMutation.isPending} onAdd={(files) => mediaMutation.mutate({ files, stage: "RECEIVED" })} onDelete={(url) => mediaDeleteMutation.mutate({ url, stage: "RECEIVED" })} /><ProofMediaManager title="After stitching / finished clothes" items={activeRequest.stitchedMedia ?? []} stage="STITCHED" pending={mediaMutation.isPending || mediaDeleteMutation.isPending} onAdd={(files) => mediaMutation.mutate({ files, stage: "STITCHED" })} onDelete={(url) => mediaDeleteMutation.mutate({ url, stage: "STITCHED" })} /><p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">The backend requires one received-clothes photo per item before stitching can start, and one stitched-clothes photo per item before the request can be marked ready.</p></div> : null}
+                {tab === "finance" ? <div className="space-y-5"><InspectGrid items={[{ label: "Payment", value: <span className="flex flex-wrap gap-2"><StatusBadge value={activeRequest.paymentMethod ?? "Not selected"} /><StatusBadge value={activeRequest.paymentStatus ?? "PENDING"} /></span> }, { label: "Tailor quote", value: formatCurrency(activeRequest.quoteAmount ?? selectedQuote?.price ?? 0) }, { label: "Delivery fee", value: formatCurrency(activeRequest.deliveryFee ?? 0) }, { label: "Platform fee", value: formatCurrency(activeRequest.platformFee ?? 0) }, { label: "Small-order fee", value: formatCurrency(activeRequest.smallOrderFee ?? 0) }, { label: "Home measurement fee", value: formatCurrency(activeRequest.homeMeasurementFee ?? 0) }, { label: "Coupon / discount", value: `${activeRequest.couponCode ?? "No coupon"} · -${formatCurrency(activeRequest.discountAmount ?? 0)}` }, { label: "Customer total", value: <strong className="text-lg">{formatCurrency(activeRequest.totalAmount ?? 0)}</strong> }]} /><p className="rounded-xl bg-slate-100 p-3 text-xs font-semibold text-slate-600">Financial values are shown from the confirmed backend record and are not free-text editable here.</p></div> : null}
+                {tab === "timeline" ? <div className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr]"><Panel><h4 className="font-black">Request timeline</h4><div className="mt-4 space-y-3">{(activeRequest.timelineEvents ?? []).map((event, index) => <div className="flex gap-3 border-b border-slate-100 pb-3" key={`${event.timestamp}-${index}`}><span className="mt-1 h-2.5 w-2.5 rounded-full bg-orange-500" /><div><p className="text-sm font-bold">{formatStatus(event.status)}</p><p className="text-xs text-slate-500">{event.description ?? "Request updated"} · {formatDate(event.timestamp, true)}</p></div></div>)}{!activeRequest.timelineEvents?.length ? <p className="text-sm text-slate-500">No request timeline events are available yet.</p> : null}</div></Panel><div className="space-y-4"><Panel><h4 className="font-black">Internal note</h4><textarea className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-orange-400" maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="Add context for other administrators" value={note} /><ActionButton className="mt-3 w-full justify-center" disabled={!note.trim()} onClick={() => { onMetadata({ note: note.trim() }); setNote(""); }}>Save internal note</ActionButton></Panel>{notes.map((item, index) => <Panel className="p-4" key={`${item.createdAt}-${index}`}><p className="text-sm text-slate-700">{item.note}</p><p className="mt-2 text-xs font-semibold text-slate-500">{item.admin} · {formatDate(item.createdAt, true)}</p></Panel>)}</div></div> : null}
               </div>
+              <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-4"><p className="text-xs text-slate-500">Only backend-validated transitions are available. Pickup and delivery milestones are controlled from their linked tasks.</p>{!["CANCELLED"].includes(activeRequest.status) && activeRequest.orderStatus !== "completed" ? <button className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50" disabled={workMutation.isPending} onClick={() => { if (window.confirm("Cancel this tailoring request? The backend will also cancel active delivery tasks and measurement visits where applicable.")) workMutation.mutate({ action: "CANCEL" }); }} type="button">Cancel request</button> : null}</footer>
             </>
           ) : null}
         </Dialog.Content>
@@ -10501,42 +10784,77 @@ function TailoringRequestDialog({
 }
 
 function DeliveryRequestDialog({
+  batches,
+  notes,
+  onMetadata,
+  onOpenBatch,
+  onOpenCustomer,
+  onOpenOrder,
+  onOpenPartner,
+  onOpenTailor,
+  onRetryAction,
+  onUpdated,
   open,
   partners,
+  priority,
   request,
   setOpen
 }: {
+  batches: DeliveryBatch[];
+  notes: AdminOrderNote[];
+  onMetadata: (payload: { priority?: AdminOrderPriority; note?: string }) => void;
+  onOpenBatch: (batch: DeliveryBatch) => void;
+  onOpenCustomer: (request: DeliveryRequest) => void;
+  onOpenOrder: (request: DeliveryRequest) => void;
+  onOpenPartner: (partner: DeliveryPartnerProfile) => void;
+  onOpenTailor: (request: DeliveryRequest) => void;
+  onRetryAction: (taskId: string, action: "retry" | "resolve" | "cancel") => void;
+  onUpdated: (request: DeliveryRequest) => void;
   open: boolean;
   partners: DeliveryPartnerProfile[];
+  priority: AdminOrderPriority;
   request: DeliveryRequest | null;
   setOpen: (open: boolean) => void;
 }) {
-  const assignedPartner = partners.find((partner) => partner.id === request?.assignedDeliveryPartnerId);
+  const [tab, setTab] = useState<"overview" | "assignment" | "route" | "handoff" | "proofs" | "exceptions" | "finance" | "timeline">("overview");
+  const [failureReason, setFailureReason] = useState("Customer not available");
+  const [failureNote, setFailureNote] = useState("");
+  const [note, setNote] = useState("");
+  const queryClient = useQueryClient();
+  const detailQuery = useQuery({ queryKey: ["admin", "delivery-request", request?.id], queryFn: () => getDeliveryRequestById(request!.id), enabled: open && Boolean(request?.id) });
+  const activeRequest = detailQuery.data ?? request;
+  const assignedPartner = partners.find((partner) => partner.id === activeRequest?.assignedDeliveryPartnerId);
+  const assignedBatch = batches.find((batch) => batch.batchId === activeRequest?.batchId);
+  const rescheduleQuery = useQuery({ queryKey: ["admin", "delivery-reschedule-options", activeRequest?.id], queryFn: () => getDeliveryRescheduleOptions(activeRequest!.id), enabled: open && tab === "exceptions" && Boolean(activeRequest?.id) && activeRequest?.taskStatus === "pending" && activeRequest?.serviceLevel !== "INSTANT" });
+  const refreshTask = async (updated?: DeliveryRequest) => {
+    if (updated) onUpdated(updated);
+    await Promise.all([queryClient.invalidateQueries({ queryKey: ["admin", "delivery-request", request?.id] }), queryClient.invalidateQueries({ queryKey: ["admin", "delivery-requests"] }), queryClient.invalidateQueries({ queryKey: ["admin", "delivery-retries"] }), queryClient.invalidateQueries({ queryKey: ["admin", "delivery-batches"] })]);
+  };
+  const rescheduleMutation = useMutation({ mutationFn: (option: { deliveryRound: "ONE_PM" | "SIX_PM"; roundAt: string }) => rescheduleAdminDelivery(activeRequest!.id, option), onSuccess: async (result) => { toast.success("Delivery rescheduled"); await refreshTask(result.task); }, onError: (error) => toast.error(extractError(error)) });
+  const failMutation = useMutation({ mutationFn: () => failAdminDelivery(activeRequest!.id, { reason: failureReason, note: failureNote.trim() || undefined }), onSuccess: async (updated) => { toast.success("Failure recorded and retry policy applied"); setFailureNote(""); await refreshTask(updated); }, onError: (error) => toast.error(extractError(error)) });
+  useEffect(() => { if (open) { setTab("overview"); setNote(""); setFailureNote(""); } }, [open, request?.id]);
+  const tabs = [["overview", "Overview"], ["assignment", "Assignment"], ["route", "Route & batch"], ["handoff", "OTP & milestones"], ["proofs", "Proofs"], ["exceptions", "Failures & retry"], ["finance", "Cash & payout"], ["timeline", "Timeline & notes"]] as const;
 
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(96vw,860px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
-          {request ? (
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[94vh] w-[min(98vw,1240px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[#fbfaf7] shadow-[var(--shadow)]">
+          {activeRequest ? (
             <>
-              <Dialog.Title className="text-2xl font-semibold">{request.taskId}</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Delivery task created from the tailoring workflow.</Dialog.Description>
-              <div className="mt-6 space-y-5">
-                <InspectGrid
-                  items={[
-                    { label: "Task type", value: formatStatus(request.type) },
-                    { label: "Task status", value: <StatusBadge value={request.taskStatus} /> },
-                    ...(request.lastFailureReason ? [{ label: "Failure Reason", value: <span className="text-red-500 font-semibold">{request.lastFailureReason}</span> }] : []),
-                    { label: "Assigned partner", value: assignedPartner ? <span className="inline-flex flex-wrap items-center gap-2">{getPartnerDisplayName(assignedPartner)} <DeliveryRoleBadge partner={assignedPartner} /></span> : "Unassigned" },
-                    { label: "Estimated earnings", value: formatCurrency(request.estimatedEarnings) },
-                    { label: "Customer", value: `${cleanText(request.customerName) ?? cleanText(request.customerPhone) ?? "Customer"} / ${request.customerPhone ?? "No phone"}` },
-                    { label: "Tailor", value: `${cleanText(request.tailorName) ?? cleanText(request.tailorPhone) ?? "Tailor"} / ${request.tailorPhone ?? "No phone"}` },
-                    { label: "Pickup address", value: request.pickupAddress },
-                    { label: "Drop address", value: request.dropAddress }
-                  ]}
-                />
+              <header className="border-b border-slate-200 bg-white px-6 py-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><Dialog.Title className="text-xl font-black text-slate-950">{activeRequest.taskId}</Dialog.Title><StatusBadge value={activeRequest.taskStatus} /><StatusBadge value={activeRequest.serviceLevel ?? "STANDARD"} /><PriorityBadge value={priority} /></div><Dialog.Description className="mt-2 text-sm text-slate-600">{formatStatus(activeRequest.type)} · created {formatDate(activeRequest.createdAt, true)}</Dialog.Description></div><div className="flex flex-wrap gap-2"><select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold" value={priority} onChange={(event) => onMetadata({ priority: event.target.value as AdminOrderPriority })}><option>Normal</option><option>High</option><option>Urgent</option><option>VIP</option></select><ActionButton variant="secondary" onClick={() => onOpenOrder(activeRequest)}>Open order</ActionButton><Dialog.Close asChild><button className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200" type="button"><X size={18} /></button></Dialog.Close></div></div><div className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200">{tabs.map(([id, label]) => <button className={cn("whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold", tab === id ? "border-slate-950 text-slate-950" : "border-transparent text-slate-500 hover:text-slate-900")} key={id} onClick={() => setTab(id)} type="button">{label}</button>)}</div></header>
+              <div className="overflow-y-auto p-6">
+                {detailQuery.isLoading ? <div className="grid min-h-48 place-items-center"><LoaderCircle className="animate-spin text-orange-500" /></div> : null}
+                {tab === "overview" ? <div className="space-y-5"><InspectGrid items={[{ label: "Task / linked order", value: `${activeRequest.taskId} · ${activeRequest.orderId}` }, { label: "Task type", value: <span className="flex flex-wrap gap-2"><StatusBadge value={activeRequest.type} /><StatusBadge value={activeRequest.deliveryType ?? (activeRequest.type === "customer_to_tailor" ? "PICKUP" : "DROP")} /></span> }, { label: "Customer", value: <button className="font-bold text-orange-600" onClick={() => onOpenCustomer(activeRequest)} type="button">{activeRequest.customerName ?? "Customer"} · {activeRequest.customerPhone ?? "No phone"}</button> }, { label: "Tailor", value: <button className="font-bold text-orange-600" onClick={() => onOpenTailor(activeRequest)} type="button">{activeRequest.tailorName ?? "Tailor"} · {activeRequest.tailorPhone ?? "No phone"}</button> }, { label: "Garments", value: `${activeRequest.clothType ?? "Clothing"} · ${activeRequest.itemCount ?? 1} item(s)` }, { label: "Schedule", value: activeRequest.serviceLevel === "INSTANT" ? "Immediate / instant job" : `${formatStatus(activeRequest.deliveryRound ?? activeRequest.shift)} · ${formatDate(activeRequest.roundAt, true)}` }, { label: "Pickup address", value: activeRequest.pickupAddress }, { label: "Drop address", value: activeRequest.dropAddress }]} /></div> : null}
+                {tab === "assignment" ? <div className="space-y-5">{assignedPartner ? <Panel><div className="flex flex-wrap items-center justify-between gap-4"><div className="flex items-center gap-3"><span className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-orange-100 font-black text-orange-700">{assignedPartner.user?.avatarUrl ? <img alt={getPartnerDisplayName(assignedPartner)} className="h-full w-full object-cover" src={assignedPartner.user.avatarUrl} /> : getInitials(getPartnerDisplayName(assignedPartner))}</span><div><p className="font-black">{getPartnerDisplayName(assignedPartner)}</p><p className="text-sm text-slate-500">{assignedPartner.darjiPartnerId} · {getPartnerVehicleNumber(assignedPartner)}</p><div className="mt-1"><DeliveryRoleBadge partner={assignedPartner} /></div></div></div><ActionButton variant="secondary" onClick={() => onOpenPartner(assignedPartner)}>View partner profile</ActionButton></div></Panel> : <EmptyState message="This delivery task is currently unassigned." />}<p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Partner assignment and reassignment use the connected order assignment workflow so pickup/drop role eligibility and distance ranking remain enforced.</p><ActionButton onClick={() => onOpenOrder(activeRequest)}>Manage assignment from order</ActionButton></div> : null}
+                {tab === "route" ? <div className="space-y-5"><InspectGrid items={[{ label: "Service level", value: <StatusBadge value={activeRequest.serviceLevel ?? "STANDARD"} /> }, { label: "Distance", value: activeRequest.distanceMeters ? formatDistance(activeRequest.distanceMeters) : activeRequest.estimatedDistanceKm != null ? `${activeRequest.estimatedDistanceKm.toFixed(1)} km` : "Unavailable" }, { label: "Delivery round", value: formatStatus(activeRequest.deliveryRound ?? activeRequest.shift) }, { label: "ETA window", value: `${formatDate(activeRequest.etaWindowStart, true)} – ${formatDate(activeRequest.etaWindowEnd, true)}` }, { label: "Deadline", value: formatDate(activeRequest.deadlineAt, true) }, { label: "Route position", value: activeRequest.routePosition ? `${activeRequest.routePosition} of ${activeRequest.routeTotal ?? "?"}` : "Not routed" }]} />{assignedBatch ? <Panel><div className="flex items-center justify-between gap-3"><div><p className="font-black">Batch {assignedBatch.batchId.slice(0, 8).toUpperCase()}</p><p className="mt-1 text-sm text-slate-500">{assignedBatch.area} · {formatDate(assignedBatch.roundAt, true)}</p></div><ActionButton variant="secondary" onClick={() => onOpenBatch(assignedBatch)}>Open batch</ActionButton></div></Panel> : <EmptyState message={activeRequest.serviceLevel === "INSTANT" ? "Instant jobs intentionally use the single-job route instead of an optimized scheduled batch." : "This task is not currently attached to a delivery batch."} />}</div> : null}
+                {tab === "handoff" ? <div className="space-y-5"><InspectGrid items={[{ label: "Accepted", value: formatDate(activeRequest.acceptedAt, true) }, { label: "Pickup OTP", value: activeRequest.pickupOtpVerifiedAt ? <span className="font-bold text-emerald-700">Verified · {formatDate(activeRequest.pickupOtpVerifiedAt, true)}</span> : <span className="font-bold text-amber-700">Pending</span> }, { label: "Picked up", value: formatDate(activeRequest.pickedUpAt, true) }, { label: "Drop OTP", value: activeRequest.dropOtpVerifiedAt ? <span className="font-bold text-emerald-700">Verified · {formatDate(activeRequest.dropOtpVerifiedAt, true)}</span> : <span className="font-bold text-amber-700">Pending</span> }, { label: "Delivered", value: formatDate(activeRequest.deliveredAt, true) }, { label: "Current status", value: <StatusBadge value={activeRequest.taskStatus} /> }]} /><p className="rounded-xl bg-slate-100 p-3 text-xs font-semibold text-slate-600">Raw OTP values are intentionally not displayed. Completion remains blocked until the correct handoff OTP and required proof photos are recorded by the delivery workflow.</p></div> : null}
+                {tab === "proofs" ? <div className="space-y-5"><MediaStrip items={activeRequest.clothPhotos} title={`Customer pickup cloth proofs (${activeRequest.clothPhotos?.length ?? 0}/${Math.max(1, activeRequest.itemCount ?? 1)})`} /><MediaStrip items={activeRequest.samplePhotos} title="Sample garment proofs" /><MediaStrip items={activeRequest.deliveryPhotos} title={`Final delivery proofs (${activeRequest.deliveryPhotos?.length ?? 0}/${Math.max(1, activeRequest.itemCount ?? 1)})`} /><p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Delivery proof changes remain in the assigned partner workflow because the backend requires live partner ownership, fresh location, the correct task stage, and verified OTP.</p></div> : null}
+                {tab === "exceptions" ? <div className="space-y-5"><InspectGrid items={[{ label: "Retry status", value: <StatusBadge value={activeRequest.retryStatus ?? "ACTIVE"} /> }, { label: "Retry count", value: String(activeRequest.retryCount ?? 0) }, { label: "Last failure", value: activeRequest.lastFailureReason ?? "No failure" }, { label: "Last failure time", value: formatDate(activeRequest.lastFailureAt, true) }, { label: "Next batch", value: formatDate(activeRequest.nextScheduledBatch, true) }, { label: "Next round", value: formatStatus(activeRequest.nextDeliveryRound ?? "Not scheduled") }]} />{(activeRequest.failureHistory ?? []).map((failure, index) => <Panel className="p-4" key={`${failure.failedAt}-${index}`}><div className="flex flex-wrap justify-between gap-2"><p className="font-bold text-rose-700">{failure.reason ?? "Delivery failure"}</p><p className="text-xs text-slate-500">{formatDate(failure.failedAt, true)}</p></div><p className="mt-2 text-sm text-slate-600">{failure.note ?? formatStatus(failure.action ?? "Recorded")}</p></Panel>)}{["accepted", "picked_up"].includes(activeRequest.taskStatus) ? <Panel><h4 className="font-black">Record delivery failure</h4><div className="mt-3 grid gap-3 md:grid-cols-2"><select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={failureReason} onChange={(event) => setFailureReason(event.target.value)}>{["Customer not available", "Customer requested later today", "Customer requested tomorrow", "Phone unreachable", "Wrong address", "Customer cancelled", "Other"].map((reason) => <option key={reason}>{reason}</option>)}</select><input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" maxLength={500} onChange={(event) => setFailureNote(event.target.value)} placeholder="Optional operational note" value={failureNote} /></div><ActionButton className="mt-3" disabled={failMutation.isPending} onClick={() => { if (window.confirm("Record this failure and apply the backend retry policy?")) failMutation.mutate(); }}>Record failure</ActionButton></Panel> : null}{rescheduleQuery.data?.length ? <Panel><h4 className="font-black">Available reschedule slots</h4><div className="mt-3 flex flex-wrap gap-2">{rescheduleQuery.data.map((option) => <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold hover:border-orange-400" disabled={rescheduleMutation.isPending} key={`${option.deliveryRound}-${option.roundAt}`} onClick={() => rescheduleMutation.mutate({ deliveryRound: option.deliveryRound, roundAt: option.roundAt })} type="button">{option.label}</button>)}</div></Panel> : null}{["PENDING_RETRY", "ACTION_REQUIRED"].includes(activeRequest.retryStatus ?? "") ? <div className="flex flex-wrap gap-2"><ActionButton onClick={() => onRetryAction(activeRequest.id, "retry")}>Retry now</ActionButton><ActionButton variant="secondary" onClick={() => onRetryAction(activeRequest.id, "resolve")}>Resolve exception</ActionButton><button className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700" onClick={() => onRetryAction(activeRequest.id, "cancel")} type="button">Cancel retry</button></div> : null}</div> : null}
+                {tab === "finance" ? <div className="space-y-5"><InspectGrid items={[{ label: "Payment", value: <span className="flex flex-wrap gap-2"><StatusBadge value={activeRequest.paymentMethod ?? "Not available"} /><StatusBadge value={activeRequest.paymentStatus ?? "PENDING"} /></span> }, { label: "Customer order total", value: formatCurrency(activeRequest.totalAmount ?? 0) }, { label: "COD required", value: activeRequest.cashCollectionRequired ? "Yes" : "No" }, { label: "Cash collection", value: activeRequest.cashCollectionRequired ? activeRequest.cashCollected ? `Collected · ${formatDate(activeRequest.cashCollectedAt, true)}` : "Pending" : "Not applicable" }, { label: "Estimated payout", value: formatCurrency(activeRequest.estimatedPayout ?? activeRequest.estimatedEarnings) }, { label: "Final payout", value: activeRequest.finalPayout != null ? formatCurrency(activeRequest.finalPayout) : "Finalizes on completion" }]} /><p className="rounded-xl bg-slate-100 p-3 text-xs font-semibold text-slate-600">COD confirmation remains locked behind final delivery OTP verification. Payout amounts are read from the backend and are not manually recalculated here.</p></div> : null}
+                {tab === "timeline" ? <div className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr]"><Panel><h4 className="font-black">Task timeline</h4><div className="mt-4 space-y-3">{(activeRequest.timelineEvents ?? []).map((event, index) => <div className="flex gap-3 border-b border-slate-100 pb-3" key={`${event.timestamp}-${index}`}><span className="mt-1 h-2.5 w-2.5 rounded-full bg-orange-500" /><div><p className="text-sm font-bold">{formatStatus(event.status)}</p><p className="text-xs text-slate-500">{event.description ?? "Task updated"} · {formatDate(event.timestamp, true)}</p></div></div>)}{!activeRequest.timelineEvents?.length ? <p className="text-sm text-slate-500">No task timeline events are available yet.</p> : null}</div></Panel><div className="space-y-4"><Panel><h4 className="font-black">Internal note</h4><textarea className="mt-3 min-h-28 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" maxLength={2000} onChange={(event) => setNote(event.target.value)} placeholder="Add context for other administrators" value={note} /><ActionButton className="mt-3 w-full justify-center" disabled={!note.trim()} onClick={() => { onMetadata({ note: note.trim() }); setNote(""); }}>Save internal note</ActionButton></Panel>{notes.map((item, index) => <Panel className="p-4" key={`${item.createdAt}-${index}`}><p className="text-sm text-slate-700">{item.note}</p><p className="mt-2 text-xs font-semibold text-slate-500">{item.admin} · {formatDate(item.createdAt, true)}</p></Panel>)}</div></div> : null}
               </div>
+              <footer className="border-t border-slate-200 bg-white px-6 py-4 text-xs font-semibold text-slate-500">Status completion is intentionally not editable from this page; OTP, proof, location, ownership, COD, and task-order rules remain enforced by the delivery workflow.</footer>
             </>
           ) : null}
         </Dialog.Content>
@@ -12381,19 +12699,38 @@ function getOrderColumns({
 
 function getTailoringColumns({
   onOpen,
-  onOpenCustomer
+  onOpenCustomer,
+  onOpenTailor,
+  priorities,
+  selectedIds,
+  visibleIds,
+  onToggleSelected,
+  onToggleAll
 }: {
   onOpen: (request: TailoringRequest) => void;
   onOpenCustomer: (request: TailoringRequest) => void;
+  onOpenTailor: (request: TailoringRequest) => void;
+  priorities: Record<string, AdminOrderPriority>;
+  selectedIds: string[];
+  visibleIds: string[];
+  onToggleSelected: (requestId: string) => void;
+  onToggleAll: () => void;
 }): Array<ColumnDef<TailoringRequest>> {
   return [
+    {
+      id: "select",
+      header: () => <input aria-label="Select all visible tailoring requests" checked={visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id))} onChange={onToggleAll} type="checkbox" />,
+      enableSorting: false,
+      cell: ({ row }) => <input aria-label={`Select ${row.original.darjiId ?? row.original.id}`} checked={selectedIds.includes(row.original.id)} onChange={() => onToggleSelected(row.original.id)} onClick={(event) => event.stopPropagation()} type="checkbox" />
+    },
     {
       id: "request",
       header: "Request",
       accessorFn: (row) => row.id,
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.clothType}</p>
+          <button className="font-bold text-[var(--deep)] hover:text-orange-600" onClick={() => onOpen(row.original)} type="button">{row.original.darjiId ?? `TRQ-${row.original.id.slice(0, 8).toUpperCase()}`}</button>
+          <p className="mt-1 text-xs font-semibold text-[var(--muted)]">{row.original.clothType} · {row.original.itemCount ?? row.original.items?.length ?? 1} item(s)</p>
           <p className="text-xs text-[var(--muted)]">{formatDate(row.original.createdAt, true)}</p>
         </div>
       )
@@ -12412,12 +12749,21 @@ function getTailoringColumns({
       )
     },
     {
-      accessorKey: "workType",
-      header: "Work type"
+      id: "tailor",
+      header: "Selected tailor",
+      accessorFn: (row) => row.selectedQuote?.tailor?.shopName ?? row.selectedQuote?.tailor?.user?.name ?? row.assignedTailorId ?? "",
+      cell: ({ row }) => row.original.selectedQuote || row.original.assignedTailorId ? (
+        <button className="max-w-44 rounded-lg px-2 py-1 text-left hover:bg-orange-50" onClick={() => onOpenTailor(row.original)} type="button">
+          <p className="font-semibold">{row.original.selectedQuote?.tailor?.shopName ?? row.original.selectedQuote?.tailor?.user?.name ?? "Assigned tailor"}</p>
+          <p className="text-xs text-[var(--muted)]">{row.original.selectedQuote?.tailor?.darjiTailorId ?? row.original.assignedTailorId}</p>
+        </button>
+      ) : <span className="text-[var(--muted)]">Not selected</span>
     },
     {
-      accessorKey: "urgency",
-      header: "Urgency"
+      id: "service",
+      header: "Service",
+      accessorFn: (row) => `${row.workType} ${row.urgency}`,
+      cell: ({ row }) => <div><p className="font-semibold">{row.original.workType}</p><div className="mt-1"><StatusBadge value={row.original.deliveryMode ?? row.original.urgency} /></div></div>
     },
     {
       accessorKey: "status",
@@ -12431,7 +12777,25 @@ function getTailoringColumns({
     },
     {
       accessorKey: "quoteCount",
-      header: "Quotes"
+      header: "Quotes",
+      cell: ({ row }) => <span className={cn("inline-flex min-w-8 justify-center rounded-full px-2 py-1 text-xs font-black", Number(row.original.quoteCount ?? 0) ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>{row.original.quoteCount ?? 0}</span>
+    },
+    {
+      id: "payment",
+      header: "Payment",
+      accessorFn: (row) => row.paymentStatus ?? "",
+      cell: ({ row }) => <div><StatusBadge value={row.original.paymentStatus ?? "PENDING"} />{row.original.totalAmount != null ? <p className="mt-1 text-xs font-bold">{formatCurrency(row.original.totalAmount)}</p> : null}</div>
+    },
+    {
+      accessorKey: "orderStatus",
+      header: "Handoff",
+      cell: ({ row }) => <StatusBadge value={row.original.orderStatus ?? "awaiting confirmation"} />
+    },
+    {
+      id: "priority",
+      header: "Priority",
+      accessorFn: (row) => priorities[row.id] ?? "Normal",
+      cell: ({ row }) => <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
     },
     {
       id: "actions",
@@ -12449,21 +12813,43 @@ function getTailoringColumns({
 function getDeliveryColumns({
   onOpen,
   onOpenCustomer,
-  partners
+  onOpenPartner,
+  onOpenTailor,
+  partners,
+  priorities,
+  selectedIds,
+  visibleIds,
+  onToggleSelected,
+  onToggleAll
 }: {
   onOpen: (request: DeliveryRequest) => void;
   onOpenCustomer: (request: DeliveryRequest) => void;
+  onOpenPartner: (request: DeliveryRequest) => void;
+  onOpenTailor: (request: DeliveryRequest) => void;
   partners: DeliveryPartnerProfile[];
+  priorities: Record<string, AdminOrderPriority>;
+  selectedIds: string[];
+  visibleIds: string[];
+  onToggleSelected: (requestId: string) => void;
+  onToggleAll: () => void;
 }): Array<ColumnDef<DeliveryRequest>> {
   return [
     {
-      accessorKey: "taskId",
-      header: "Task"
+      id: "select",
+      header: () => <input aria-label="Select all visible delivery requests" checked={visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id))} onChange={onToggleAll} type="checkbox" />,
+      enableSorting: false,
+      cell: ({ row }) => <input aria-label={`Select ${row.original.taskId}`} checked={selectedIds.includes(row.original.id)} onChange={() => onToggleSelected(row.original.id)} onClick={(event) => event.stopPropagation()} type="checkbox" />
+    },
+    {
+      id: "task",
+      header: "Task / order",
+      accessorFn: (row) => row.taskId,
+      cell: ({ row }) => <div><button className="font-bold hover:text-orange-600" onClick={() => onOpen(row.original)} type="button">{row.original.taskId}</button><p className="mt-1 text-xs text-[var(--muted)]">{row.original.darjiId ?? row.original.orderId}</p></div>
     },
     {
       accessorKey: "type",
-      header: "Type",
-      cell: ({ row }) => <StatusBadge value={row.original.type} />
+      header: "Task type",
+      cell: ({ row }) => <div className="space-y-1"><StatusBadge value={row.original.type} /><div><StatusBadge value={row.original.serviceLevel ?? "STANDARD"} /></div></div>
     },
     {
       accessorKey: "customerName",
@@ -12479,10 +12865,10 @@ function getDeliveryColumns({
       accessorKey: "tailorName",
       header: "Tailor",
       cell: ({ row }) => (
-        <div>
+        <button className="rounded-lg px-2 py-1 text-left transition hover:bg-orange-50" onClick={() => onOpenTailor(row.original)} type="button">
           <p className="font-medium">{cleanText(row.original.tailorName) ?? cleanText(row.original.tailorPhone) ?? "Tailor"}</p>
           <p className="text-xs text-[var(--muted)]">{row.original.tailorPhone ?? "No phone"}</p>
-        </div>
+        </button>
       )
     },
     {
@@ -12493,7 +12879,7 @@ function getDeliveryColumns({
         const partner = partners.find((p) => p.id === row.original.assignedDeliveryPartnerId);
         if (!partner) return <span>Unassigned</span>;
         return (
-          <div className="flex flex-col gap-1">
+          <button className="flex flex-col gap-1 rounded-lg px-2 py-1 text-left hover:bg-orange-50" onClick={() => onOpenPartner(row.original)} type="button">
             <span>
               {getPartnerDisplayName(partner)}{" "}
               {partner.darjiPartnerId ? (
@@ -12501,14 +12887,32 @@ function getDeliveryColumns({
               ) : null}
             </span>
             <DeliveryRoleBadge partner={partner} />
-          </div>
+          </button>
         );
       }
     },
     {
-      accessorKey: "estimatedEarnings",
-      header: "Earnings",
-      cell: ({ row }) => formatCurrency(row.original.estimatedEarnings)
+      id: "schedule",
+      header: "Schedule / route",
+      accessorFn: (row) => row.roundAt ?? row.createdAt ?? "",
+      cell: ({ row }) => <div><p className="font-semibold">{row.original.serviceLevel === "INSTANT" ? "Immediate" : formatStatus(row.original.deliveryRound ?? row.original.shift)}</p><p className="text-xs text-[var(--muted)]">{formatDate(row.original.roundAt ?? row.original.createdAt, true)}</p>{row.original.batchId ? <p className="mt-1 text-xs font-bold text-orange-600">Batch {row.original.batchId.slice(0, 8).toUpperCase()} · {row.original.routePosition ?? "-"}/{row.original.routeTotal ?? "-"}</p> : <p className="mt-1 text-xs text-[var(--muted)]">Unbatched</p>}</div>
+    },
+    {
+      id: "handoff",
+      header: "OTP / proof",
+      accessorFn: (row) => `${Boolean(row.pickupOtpVerifiedAt)} ${Boolean(row.dropOtpVerifiedAt)}`,
+      cell: ({ row }) => {
+        const isPickup = row.original.type === "customer_to_tailor";
+        const otpVerified = isPickup ? row.original.pickupOtpVerifiedAt : row.original.dropOtpVerifiedAt;
+        const proofs = isPickup ? (row.original.clothPhotos?.length ?? 0) : (row.original.deliveryPhotos?.length ?? 0);
+        return <div><span className={cn("text-xs font-bold", otpVerified ? "text-emerald-700" : "text-amber-700")}>{otpVerified ? "OTP verified" : "OTP pending"}</span><p className="mt-1 text-xs text-[var(--muted)]">{proofs}/{Math.max(1, row.original.itemCount ?? 1)} proof(s)</p></div>;
+      }
+    },
+    {
+      id: "earnings",
+      header: "Payout / cash",
+      accessorFn: (row) => row.finalPayout ?? row.estimatedPayout ?? row.estimatedEarnings,
+      cell: ({ row }) => <div><p className="font-bold">{formatCurrency(row.original.finalPayout ?? row.original.estimatedPayout ?? row.original.estimatedEarnings)}</p>{row.original.cashCollectionRequired ? <p className={cn("mt-1 text-xs font-bold", row.original.cashCollected ? "text-emerald-700" : "text-rose-700")}>{row.original.cashCollected ? "COD collected" : "COD pending"}</p> : <p className="mt-1 text-xs text-[var(--muted)]">No COD</p>}</div>
     },
     {
       accessorKey: "taskStatus",
@@ -12523,6 +12927,12 @@ function getDeliveryColumns({
       ) : (
         <span className="text-[var(--muted)]">-</span>
       )
+    },
+    {
+      id: "priority",
+      header: "Priority",
+      accessorFn: (row) => priorities[row.id] ?? "Normal",
+      cell: ({ row }) => <PriorityBadge value={priorities[row.original.id] ?? "Normal"} />
     },
     {
       id: "actions",

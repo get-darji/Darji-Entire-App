@@ -253,6 +253,21 @@ export async function getAdminTailorQuotes(requestId: string) {
   return unwrap<TailorQuote[]>(api.get(`/tailoring-requests/${requestId}/quotes`));
 }
 
+export async function alertAdminNoQuote(requestId: string) {
+  return unwrap<{ alerted: boolean; quoteCount?: number }>(api.post(`/tailoring-requests/${requestId}/no-quote-alert`, {}));
+}
+
+export async function uploadAdminTailoringAuditMedia(requestId: string, stage: "RECEIVED" | "STITCHED", files: File[]) {
+  const form = new FormData();
+  form.append("stage", stage);
+  files.forEach((file) => form.append("media", file));
+  return unwrap<TailoringRequest>(api.post(`/tailoring-requests/${requestId}/audit-media`, form, { headers: { "Content-Type": "multipart/form-data" } }));
+}
+
+export async function deleteAdminTailoringAuditMedia(requestId: string, stage: "RECEIVED" | "STITCHED", url: string) {
+  return unwrap<TailoringRequest>(api.delete(`/tailoring-requests/${requestId}/audit-media`, { data: { stage, url } }));
+}
+
 export async function selectAdminTailorQuote(requestId: string, quoteId: string) {
   return unwrap<{ request: TailoringRequest; quote: TailorQuote }>(api.post(`/tailoring-requests/${requestId}/quotes/${quoteId}/select`, {}));
 }
@@ -275,6 +290,29 @@ export async function getTailoringRequests() {
 
 export async function getDeliveryRequests() {
   return unwrap<DeliveryRequest[]>(api.get("/delivery-requests"));
+}
+
+export async function getDeliveryRequestById(requestId: string) {
+  return unwrap<DeliveryRequest>(api.get(`/delivery-requests/${requestId}`));
+}
+
+export type DeliveryRescheduleOption = {
+  deliveryRound: "ONE_PM" | "SIX_PM";
+  roundAt: string;
+  lockAt: string;
+  label: string;
+};
+
+export async function getDeliveryRescheduleOptions(requestId: string) {
+  return unwrap<DeliveryRescheduleOption[]>(api.get(`/delivery-requests/${requestId}/reschedule-options`));
+}
+
+export async function rescheduleAdminDelivery(requestId: string, option: Pick<DeliveryRescheduleOption, "deliveryRound" | "roundAt">) {
+  return unwrap<{ task: DeliveryRequest }>(api.patch(`/delivery-requests/${requestId}/reschedule`, option));
+}
+
+export async function failAdminDelivery(requestId: string, payload: { reason: string; note?: string }) {
+  return unwrap<DeliveryRequest>(api.post(`/delivery-requests/${requestId}/fail`, payload));
 }
 
 export async function getDeliveryRetries() {
