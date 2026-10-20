@@ -64,6 +64,7 @@ import {
   getDeliveryFareSettingsController,
   listAddressesController,
   listCouponsController,
+  listCouponRedemptionsController,
   listDeliveryPartnersController,
   checkDeliveryEmailAvailabilityController,
   listNotificationsController,
@@ -367,6 +368,7 @@ router.patch("/support/change-requests/:id/reject", requireAuth, requireRole("AD
 router.post("/support/change-requests/:id/messages", requireAuth, addChangeRequestMessageController);
 
 router.get("/coupons", requireAuth, listCouponsController);
+router.get("/coupons/:id/redemptions", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listCouponRedemptionsController);
 router.post("/coupons", requireAuth, requireRole("ADMIN"), createCouponController);
 router.patch("/coupons/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateCouponController);
 router.delete("/coupons/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteCouponController);

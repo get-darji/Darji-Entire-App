@@ -12,6 +12,7 @@ import type {
   ApiEnvelope,
   AuthSession,
   Coupon,
+  CouponRedemption,
   DeliveryPartnerProfile,
   DeliveryBatch,
   DeliveryRequest,
@@ -573,6 +574,10 @@ export async function getCoupons() {
   return unwrap<Coupon[]>(api.get("/coupons"));
 }
 
+export async function getCouponRedemptions(couponId: string) {
+  return unwrap<CouponRedemption[]>(api.get(`/coupons/${couponId}/redemptions`));
+}
+
 export async function getSupportTickets() {
   return unwrap<SupportTicket[]>(api.get("/support"));
 }
@@ -643,13 +648,28 @@ export async function markPaymentPaid(payload: { paymentId: string; providerRef?
 export async function createCoupon(payload: {
   code: string;
   description: string;
+  benefitType: NonNullable<Coupon["benefitType"]>;
   discountType: "FLAT" | "PERCENTAGE";
   discountValue: number;
   minOrderValue: number;
   maxDiscount?: number | null;
   usageLimit?: number | null;
   perCustomerLimit?: number | null;
+  maxCampaignDiscount?: number | null;
+  startsAt?: string | null;
   expiresAt?: string | null;
+  orderEligibilityType: NonNullable<Coupon["orderEligibilityType"]>;
+  orderNumber?: number | null;
+  orderNumberFrom?: number | null;
+  orderNumberTo?: number | null;
+  audienceType: NonNullable<Coupon["audienceType"]>;
+  selectedCustomerIds: string[];
+  inactiveDays?: number | null;
+  registeredAfter?: string | null;
+  registeredBefore?: string | null;
+  orderScope: NonNullable<Coupon["orderScope"]>;
+  allowedDeliveryModes: NonNullable<Coupon["allowedDeliveryModes"]>;
+  allowedPaymentMethods: NonNullable<Coupon["allowedPaymentMethods"]>;
   isActive: boolean;
 }) {
   return unwrap<Coupon>(api.post("/coupons", payload));

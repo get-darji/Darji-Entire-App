@@ -280,19 +280,37 @@ export async function createOrder(customerId: string, payload: unknown) {
 
   const platformFee = getPlatformFee(subtotal);
   const smallOrderFee = getSmallOrderFee(subtotal);
+  const orderId = randomUUID();
 
   let discount = 0;
   let couponId: string | undefined;
+  let couponBenefitType: string | undefined;
+  let couponDiscountComponent: string | undefined;
   if (input.couponCode) {
-    const validated = await validateCoupon(input.couponCode, subtotal, customerId);
+    const validated = await validateCoupon(input.couponCode, {
+      customerId,
+      currentOrderId: orderId,
+      orderType: "CATALOG",
+      paymentMethod: input.paymentMethod,
+      pricing: { orderSubtotal: subtotal, platformFee, smallOrderFee }
+    });
     couponId = validated.coupon.id;
     discount = validated.discount;
+    couponBenefitType = validated.benefit.benefitType;
+    couponDiscountComponent = validated.benefit.affectedComponent;
   }
 
   const totalAmount = Math.max(subtotal + platformFee + smallOrderFee - discount, 0);
 
-  const orderId = randomUUID();
-  if (couponId) await reserveCouponUsage(couponId, customerId, orderId);
+  if (couponId) await reserveCouponUsage({
+    couponId,
+    customerId,
+    orderId,
+    orderType: "CATALOG",
+    discountAmount: discount,
+    benefitType: couponBenefitType!,
+    affectedComponent: couponDiscountComponent!
+  });
   const order = await OrderModel.create({
     _id: orderId,
     orderNumber: generateOrderNumber(),
@@ -305,6 +323,8 @@ export async function createOrder(customerId: string, payload: unknown) {
     smallOrderFee,
     discount,
     couponCode: input.couponCode?.toUpperCase(),
+    couponBenefitType,
+    couponDiscountComponent,
     totalAmount,
     pickupScheduledAt: new Date(input.pickupScheduledAt),
     instructions: input.instructions,

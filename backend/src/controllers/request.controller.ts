@@ -2772,16 +2772,41 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
   let discountAmount = 0;
   let couponCode: string | undefined;
   let couponId: string | undefined;
+  let couponBenefitType: string | undefined;
+  let couponDiscountComponent: string | undefined;
   if (input.couponCode) {
-    const validated = await validateCoupon(input.couponCode, subtotalBeforeDiscount, request.customerId);
+    const validated = await validateCoupon(input.couponCode, {
+      customerId: request.customerId,
+      currentOrderId: request.id,
+      orderType: "TAILORING",
+      paymentMethod: input.paymentMethod,
+      deliveryMode: currentDeliveryMode,
+      pricing: {
+        orderSubtotal: tailoringSubtotal,
+        deliveryFee: expectedDeliveryFee,
+        platformFee: expectedPlatformFee,
+        smallOrderFee: expectedSmallOrderFee,
+        homeMeasurementFee: expectedHomeMeasurementFee
+      }
+    });
     couponId = validated.coupon.id;
     couponCode = validated.coupon.code;
     discountAmount = validated.discount;
+    couponBenefitType = validated.benefit.benefitType;
+    couponDiscountComponent = validated.benefit.affectedComponent;
   }
   const payableAmount = Number(Math.max(subtotalBeforeDiscount - discountAmount, 0).toFixed(2));
   if (enforceClientCheckoutTotals && Math.abs(input.totalAmount - payableAmount) > 1) throw new AppError(400, "Checkout total changed. Refresh cart and try again.");
 
-  if (couponId) await reserveCouponUsage(couponId, request.customerId, request.id);
+  if (couponId) await reserveCouponUsage({
+    couponId,
+    customerId: request.customerId,
+    orderId: request.id,
+    orderType: "TAILORING",
+    discountAmount,
+    benefitType: couponBenefitType!,
+    affectedComponent: couponDiscountComponent!
+  });
 
   await TailorQuoteModel.updateMany({ requestId: request.id, _id: { $ne: quote.id }, status: "RESERVED" }, { status: "SUBMITTED" });
   await TailorQuoteModel.findByIdAndUpdate(quote.id, { status: input.paymentMethod === "COD" ? "ACCEPTED" : "RESERVED" });
@@ -2803,6 +2828,8 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     ...(preferredMeasurementSlot ? { preferredMeasurementSlot } : {}),
     couponCode,
     discountAmount,
+    couponBenefitType,
+    couponDiscountComponent,
     itemCount,
     additionalItems: input.additionalItems,
     totalAmount: payableAmount,

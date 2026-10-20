@@ -13,7 +13,7 @@ import { defaultPlatformStatus, type PlatformStatus } from "../../../../shared/s
 import { defaultServiceAreaConfig, type ServiceAreaConfig } from "../../../../shared/src/service-area";
 import { allowedOrderStatusTransitions, orderStatuses } from "../../../../shared/src/order-statuses";
 import { GARMENTS_BY_GENDER, GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../shared/src/cloth-details";
-import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darji/shared";
+import { calculateCouponBenefit, getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darji/shared";
 import {
   useMutation,
   useQuery,
@@ -122,6 +122,7 @@ import {
   getCatalog,
   getDashboardAnalytics,
   getCoupons,
+  getCouponRedemptions,
   getDeliveryPartners,
   getDeliveryBatches,
   notifyDeliveryBatch,
@@ -267,7 +268,8 @@ import type {
   SystemHealth,
   NotificationCampaign,
   MarketingAudienceSummary,
-  CustomerProfileOrder
+  CustomerProfileOrder,
+  CouponRedemption
 } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
@@ -527,6 +529,47 @@ function localDateTimeInputValue(date: Date) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
+type CouponFormDraft = {
+  code: string;
+  description: string;
+  benefitType: NonNullable<Coupon["benefitType"]>;
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscount: string;
+  usageLimit: string;
+  perCustomerLimit: string;
+  maxCampaignDiscount: string;
+  startsAt: string;
+  expiresAt: string;
+  orderEligibilityType: NonNullable<Coupon["orderEligibilityType"]>;
+  orderNumber: string;
+  orderNumberFrom: string;
+  orderNumberTo: string;
+  audienceType: NonNullable<Coupon["audienceType"]>;
+  selectedCustomerIds: string[];
+  inactiveDays: string;
+  registeredAfter: string;
+  registeredBefore: string;
+  orderScope: NonNullable<Coupon["orderScope"]>;
+  allowedDeliveryModes: NonNullable<Coupon["allowedDeliveryModes"]>;
+  allowedPaymentMethods: NonNullable<Coupon["allowedPaymentMethods"]>;
+  isActive: boolean;
+};
+
+function emptyCouponDraft(): CouponFormDraft {
+  return {
+    code: "", description: "", benefitType: "ORDER_FLAT", discountValue: 100, minOrderValue: 499,
+    maxDiscount: "", usageLimit: "", perCustomerLimit: "", maxCampaignDiscount: "", startsAt: "", expiresAt: "",
+    orderEligibilityType: "ANY", orderNumber: "", orderNumberFrom: "", orderNumberTo: "", audienceType: "EVERYONE",
+    selectedCustomerIds: [], inactiveDays: "", registeredAfter: "", registeredBefore: "", orderScope: "BOTH",
+    allowedDeliveryModes: [], allowedPaymentMethods: [], isActive: true
+  };
+}
+
+function couponDiscountType(benefitType: CouponFormDraft["benefitType"]): "FLAT" | "PERCENTAGE" {
+  return benefitType === "ORDER_PERCENTAGE" || benefitType === "DELIVERY_PERCENTAGE" ? "PERCENTAGE" : "FLAT";
+}
+
 function emptyAdminOrderDraft(): AdminCreateOrderDraft {
   return {
     customerId: "",
@@ -612,6 +655,7 @@ export function AdminPortal() {
   const [orderDateFilter, setOrderDateFilter] = useState("");
   const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
+  const [measurementVisitFocusId, setMeasurementVisitFocusId] = useState<string | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
   const [orderDetail, setOrderDetail] = useState<Order | null>(null);
@@ -665,18 +709,7 @@ export function AdminPortal() {
   const [assignTailorId, setAssignTailorId] = useState("");
   const [assignPickupPartnerId, setAssignPickupPartnerId] = useState("");
   const [assignDeliveryPartnerId, setAssignDeliveryPartnerId] = useState("");
-  const [couponDraft, setCouponDraft] = useState({
-    code: "",
-    description: "",
-    discountType: "FLAT" as "FLAT" | "PERCENTAGE",
-    discountValue: 100,
-    minOrderValue: 499,
-    maxDiscount: "",
-    usageLimit: "",
-    perCustomerLimit: "",
-    expiresAt: "",
-    isActive: true
-  });
+  const [couponDraft, setCouponDraft] = useState<CouponFormDraft>(emptyCouponDraft);
   const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
   const [batchSettingsDraft, setBatchSettingsDraft] = useState<DeliveryBatchSettingsDraft>({ lockMinutes: 45, maxOrdersPerBatch: 10 });
   const [platformStatusDraft, setPlatformStatusDraft] = useState<PlatformStatus>(defaultPlatformStatus);
@@ -707,6 +740,7 @@ export function AdminPortal() {
     enabled: needsSection("dashboard", "alerts", "orders", "analytics", "activity", "exports")
   });
   const [couponEditTarget, setCouponEditTarget] = useState<Coupon | null>(null);
+  const [couponHistoryTarget, setCouponHistoryTarget] = useState<Coupon | null>(null);
   const catalogQuery = useQuery({
     queryKey: ["admin", "catalog"],
     queryFn: getCatalog,
@@ -745,7 +779,7 @@ export function AdminPortal() {
   const measurementVisitsQuery = useQuery({
     queryKey: ["admin", "measurement-visits"],
     queryFn: getMeasurementVisits,
-    enabled: needsSection("measurements", "tailoring"),
+    enabled: needsSection("measurements", "tailoring", "payments"),
     refetchInterval: activeSection === "measurements" ? 15_000 : false
   });
   const operationalAlertsQuery = useQuery({
@@ -799,6 +833,11 @@ export function AdminPortal() {
     queryKey: ["admin", "coupons"],
     queryFn: getCoupons,
     enabled: needsSection("coupons")
+  });
+  const couponHistoryQuery = useQuery({
+    queryKey: ["admin", "coupon-redemptions", couponHistoryTarget?.id],
+    queryFn: () => getCouponRedemptions(couponHistoryTarget!.id),
+    enabled: isAuthed && Boolean(couponHistoryTarget)
   });
   const supportQuery = useQuery({
     queryKey: ["admin", "support"],
@@ -1135,18 +1174,7 @@ export function AdminPortal() {
     mutationFn: createCoupon,
     onSuccess: async () => {
       toast.success("Coupon created");
-      setCouponDraft({
-        code: "",
-        description: "",
-        discountType: "FLAT",
-        discountValue: 100,
-        minOrderValue: 499,
-        maxDiscount: "",
-        usageLimit: "",
-        perCustomerLimit: "",
-        expiresAt: "",
-        isActive: true
-      });
+      setCouponDraft(emptyCouponDraft());
       await refreshData();
     },
     onError: (error) => toast.error(extractError(error))
@@ -2674,6 +2702,7 @@ export function AdminPortal() {
       if (window.confirm(`Delete unused coupon ${coupon.code}? This cannot be undone.`)) couponDeleteMutation.mutate(coupon.id);
     },
     onEdit: setCouponEditTarget,
+    onHistory: setCouponHistoryTarget,
     onToggle: (coupon) => couponUpdateMutation.mutate({ couponId: coupon.id, isActive: !coupon.isActive }),
     pendingId: couponUpdateMutation.isPending ? couponUpdateMutation.variables?.couponId : couponDeleteMutation.isPending ? couponDeleteMutation.variables : undefined
   });
@@ -3086,6 +3115,8 @@ export function AdminPortal() {
         {activeSection === "measurements" ? (
           <MeasurementVisitsModule
             error={measurementVisitsQuery.isError ? extractError(measurementVisitsQuery.error) : undefined}
+            focusVisitId={measurementVisitFocusId}
+            onFocusVisitOpened={() => setMeasurementVisitFocusId(null)}
             onAssign={(visitId, tailorId) => measurementAssignMutation.mutate({ visitId, tailorId })}
             onOpenCustomer={(visit) => setUserDetail(users.find((candidate) => candidate.id === visit.customerId) ?? ({ id: visit.customerId, name: visit.customerName, phone: visit.customerPhone } as AdminUser))}
             pendingVisitId={measurementAssignMutation.isPending ? measurementAssignMutation.variables?.visitId : undefined}
@@ -3236,7 +3267,20 @@ export function AdminPortal() {
                   const order = allOrders.find((candidate) => [candidate.id, candidate.orderNumber, candidate.darjiId].filter(Boolean).includes(entry.sourceId ?? ""));
                   if (order) return openOrderDetail(order, "overview");
                   const request = tailoringRequests.find((candidate) => candidate.id === entry.sourceId || candidate.darjiId === entry.sourceId);
-                  if (request) setTailoringDetail(request);
+                  if (request) return setTailoringDetail(request);
+                  const visit = measurementVisits.find((candidate) => candidate.id === entry.sourceId || candidate.darjiId === entry.sourceId);
+                  if (visit) {
+                    setMeasurementVisitFocusId(visit.id);
+                    return setActiveSection("measurements");
+                  }
+                  const delivery = deliveryRequests.find((candidate) => candidate.id === entry.sourceId || candidate.taskId === entry.sourceId);
+                  if (delivery) return setDeliveryDetail(delivery);
+                  const batch = deliveryBatches.find((candidate) => candidate.batchId === entry.sourceId);
+                  if (batch) {
+                    setBatchFocus({ batchId: batch.batchId, roundAt: batch.roundAt });
+                    return setActiveSection("batches");
+                  }
+                  toast.error("The linked operational record is not available");
                 }}
               />
             ) : (
@@ -3261,25 +3305,51 @@ export function AdminPortal() {
             <SectionIntro
               title="Coupon management"
               description="Promotional codes backed by the existing coupon API."
-              action={<CouponComposer draft={couponDraft} onChange={setCouponDraft} onSubmit={() => couponMutation.mutate({
+              action={<CouponComposer customers={customerUsers} draft={couponDraft} onChange={setCouponDraft} onSubmit={() => couponMutation.mutate({
                 code: couponDraft.code.trim().toUpperCase(),
                 description: couponDraft.description.trim(),
-                discountType: couponDraft.discountType,
+                benefitType: couponDraft.benefitType,
+                discountType: couponDiscountType(couponDraft.benefitType),
                 discountValue: Number(couponDraft.discountValue),
                 minOrderValue: Number(couponDraft.minOrderValue),
                 maxDiscount: couponDraft.maxDiscount ? Number(couponDraft.maxDiscount) : null,
                 usageLimit: couponDraft.usageLimit ? Number(couponDraft.usageLimit) : null,
                 perCustomerLimit: couponDraft.perCustomerLimit ? Number(couponDraft.perCustomerLimit) : null,
+                maxCampaignDiscount: couponDraft.maxCampaignDiscount ? Number(couponDraft.maxCampaignDiscount) : null,
+                startsAt: couponDraft.startsAt ? new Date(couponDraft.startsAt).toISOString() : null,
                 expiresAt: couponDraft.expiresAt ? new Date(couponDraft.expiresAt).toISOString() : null,
+                orderEligibilityType: couponDraft.orderEligibilityType,
+                orderNumber: couponDraft.orderNumber ? Number(couponDraft.orderNumber) : null,
+                orderNumberFrom: couponDraft.orderNumberFrom ? Number(couponDraft.orderNumberFrom) : null,
+                orderNumberTo: couponDraft.orderNumberTo ? Number(couponDraft.orderNumberTo) : null,
+                audienceType: couponDraft.audienceType,
+                selectedCustomerIds: couponDraft.selectedCustomerIds,
+                inactiveDays: couponDraft.inactiveDays ? Number(couponDraft.inactiveDays) : null,
+                registeredAfter: couponDraft.registeredAfter ? new Date(couponDraft.registeredAfter).toISOString() : null,
+                registeredBefore: couponDraft.registeredBefore ? new Date(couponDraft.registeredBefore).toISOString() : null,
+                orderScope: couponDraft.orderScope,
+                allowedDeliveryModes: couponDraft.allowedDeliveryModes,
+                allowedPaymentMethods: couponDraft.allowedPaymentMethods,
                 isActive: couponDraft.isActive
               })} pending={couponMutation.isPending} />}
             />
             <DataTable columns={couponColumns} data={filteredCoupons} emptyMessage="No coupons match the current search." />
             <CouponEditDialog
               coupon={couponEditTarget}
+              customers={customerUsers}
               onClose={() => setCouponEditTarget(null)}
               onSave={(payload) => couponEditTarget && couponUpdateMutation.mutate({ couponId: couponEditTarget.id, ...payload })}
               pending={couponUpdateMutation.isPending}
+            />
+            <CouponRedemptionDialog
+              coupon={couponHistoryTarget}
+              loading={couponHistoryQuery.isLoading}
+              redemptions={couponHistoryQuery.data ?? []}
+              onClose={() => setCouponHistoryTarget(null)}
+              onOpenOrder={(redemption) => {
+                const order = allOrders.find((candidate) => candidate.id === redemption.orderId || candidate.orderNumber === redemption.order?.reference || candidate.darjiId === redemption.order?.reference);
+                if (order) openOrderDetail(order, "overview"); else toast.error("The linked order is not available in the current data set");
+              }}
             />
           </div>
         ) : null}
@@ -3801,6 +3871,34 @@ export function AdminPortal() {
         loading={walletDetailQuery.isLoading}
         open={Boolean(walletDetailTarget)}
         row={walletDetailTarget}
+        onOpenAllocation={(allocation) => {
+          const sourceId = allocation.sourceId;
+          if (!sourceId) return toast.info("This wallet adjustment is not linked to an operational record");
+          setWalletDetailTarget(null);
+          if (allocation.sourceType === "MEASUREMENT") {
+            const visit = measurementVisits.find((candidate) => candidate.id === sourceId || candidate.darjiId === sourceId);
+            if (!visit) return toast.error("The linked measurement visit is not available");
+            setMeasurementVisitFocusId(visit.id);
+            setActiveSection("measurements");
+            return;
+          }
+          if (allocation.sourceType === "DELIVERY_TASK") {
+            const request = deliveryRequests.find((candidate) => candidate.id === sourceId || candidate.taskId === sourceId || candidate.orderId === sourceId);
+            if (!request) return toast.error("The linked delivery task is not available");
+            setDeliveryDetail(request);
+            return;
+          }
+          if (allocation.sourceType === "DELIVERY_BATCH") {
+            const batch = deliveryBatches.find((candidate) => candidate.batchId === sourceId);
+            if (!batch) return toast.error("The linked delivery batch is not available");
+            setBatchFocus({ batchId: batch.batchId, roundAt: batch.roundAt });
+            setActiveSection("batches");
+            return;
+          }
+          const order = allOrders.find((candidate) => candidate.id === sourceId || candidate.request?.id === sourceId || candidate.orderNumber === sourceId || candidate.darjiId === sourceId);
+          if (!order) return toast.error("The linked order is not available");
+          openOrderDetail(order, "overview");
+        }}
         setOpen={(next) => {
           if (!next) setWalletDetailTarget(null);
         }}
@@ -6463,7 +6561,7 @@ function FinancialLedgerWorkspace({
                   <td className="whitespace-nowrap px-4 py-4 text-[var(--muted)]">{formatDate(entry.occurredAt, true)}</td>
                   <td className="px-4 py-4"><p className="font-semibold">{entry.category}</p><p className="text-xs text-[var(--muted)]">{entry.accountingType === "CASH" ? "Cash movement" : "Liability accrued"}</p></td>
                   <td className="px-4 py-4">
-                    {entry.partyId ? <button className="block max-w-[280px] text-left font-semibold underline decoration-transparent underline-offset-4 transition hover:text-[var(--accent)] hover:decoration-current" onClick={() => onOpenPartner(entry)} type="button">{entry.partyName ?? "Partner"}</button> : <p className="font-semibold">{entry.partyName ?? entry.sourceLabel ?? "Darji"}</p>}
+                    {entry.partyId ? <button className="block max-w-[280px] text-left font-semibold underline decoration-transparent underline-offset-4 transition hover:text-[var(--accent)] hover:decoration-current" onClick={() => onOpenPartner(entry)} type="button">{entry.partyName ?? "Partner"}</button> : <p className="font-semibold">{entry.entryType === "REFUND" ? "Customer refund" : entry.entryType === "CUSTOMER_PAYMENT" ? "Customer order" : "Darji"}</p>}
                     {entry.sourceId ? <button className="block max-w-[280px] truncate text-left text-xs text-[var(--muted)] underline decoration-transparent underline-offset-2 hover:text-[var(--accent)] hover:decoration-current" onClick={() => onOpenSource(entry)} type="button">{entry.sourceLabel ?? entry.sourceId}</button> : <p className="max-w-[280px] truncate text-xs text-[var(--muted)]">{entry.partyType ?? "-"}</p>}
                   </td>
                   <td className="px-4 py-4"><Badge tone={entry.direction === "IN" ? "emerald" : entry.direction === "OUT" ? "rose" : "violet"}>{entry.direction === "IN" ? "Money in" : entry.direction === "OUT" ? "Money out" : "Accrued"}</Badge></td>
@@ -6811,6 +6909,8 @@ function DeliveryBatchManagement({
 
 function MeasurementVisitsModule({
   error,
+  focusVisitId,
+  onFocusVisitOpened,
   onAssign,
   onOpenCustomer,
   pendingVisitId,
@@ -6818,6 +6918,8 @@ function MeasurementVisitsModule({
   visits
 }: {
   error?: string;
+  focusVisitId?: string | null;
+  onFocusVisitOpened: () => void;
   onAssign: (visitId: string, tailorId: string) => void;
   onOpenCustomer: (visit: MeasurementVisit) => void;
   pendingVisitId?: string;
@@ -6838,6 +6940,14 @@ function MeasurementVisitsModule({
   const assignedCount = visits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)).length;
   const submittedCount = visits.filter((visit) => visit.status === "SUBMITTED").length;
   const capableTailors = [...tailors].sort((a, b) => getTailorDisplayName(a).localeCompare(getTailorDisplayName(b)));
+  useEffect(() => {
+    if (!focusVisitId) return;
+    const visit = visits.find((candidate) => candidate.id === focusVisitId || candidate.darjiId === focusVisitId);
+    if (visit) {
+      setSelectedVisit(visit);
+      onFocusVisitOpened();
+    }
+  }, [focusVisitId, onFocusVisitOpened, visits]);
 
   return (
     <div className="space-y-6">
@@ -7128,12 +7238,14 @@ function BatchSection({
 function WalletDetailDialog({
   detail,
   loading,
+  onOpenAllocation,
   open,
   row,
   setOpen
 }: {
   detail?: WalletDetail;
   loading: boolean;
+  onOpenAllocation: (allocation: WalletDetail["outstandingAllocations"][number]) => void;
   open: boolean;
   row: WalletPayoutRow | null;
   setOpen: (open: boolean) => void;
@@ -7144,14 +7256,14 @@ function WalletDetailDialog({
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
         <Dialog.Content className="fixed right-4 top-4 bottom-4 z-50 w-[min(720px,calc(100vw-2rem))] overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-5 shadow-2xl">
           <Dialog.Title className="text-xl font-semibold">{row?.name ?? "Wallet details"}</Dialog.Title>
-          <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Ledger transactions, order earnings, and payment history.</Dialog.Description>
+          <Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Payable work and completed payout statements.</Dialog.Description>
           {loading ? (
             <div className="py-10 text-center text-[var(--muted)]">Loading wallet...</div>
           ) : (
             <div className="mt-5 space-y-5">
               <div className="grid gap-3 md:grid-cols-3">
-                <FinanceStatCard label="Wallet Balance" value={formatCurrency(detail?.balance ?? 0)} note="Pending payout" tone="amber" />
-                <FinanceStatCard label="Current Week" value={formatCurrency(detail?.currentWeekEarnings ?? 0)} note="Order credits this week" tone="emerald" />
+                <FinanceStatCard label="Total payable" value={formatCurrency(detail?.balance ?? 0)} note="Current unpaid balance" tone="amber" />
+                <FinanceStatCard label="Unpaid work" value={String(detail?.unpaidItemCount ?? 0)} note={detail?.oldestUnpaidAt ? `Oldest from ${formatDate(detail.oldestUnpaidAt)}` : "No pending work"} tone="emerald" />
                 <FinanceStatCard label="Last Payment" value={detail?.lastPayment ? formatCurrency(detail.lastPayment.amount) : "-"} note={detail?.lastPayment ? formatDate(detail.lastPayment.paidAt, true) : "No payout yet"} tone="sky" />
               </div>
               <Panel>
@@ -7161,44 +7273,19 @@ function WalletDetailDialog({
                 </div>
                 <div className="space-y-2">
                   {(detail?.outstandingAllocations ?? []).map((allocation) => (
-                    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--panel-border)] p-3" key={allocation.earningTransactionId}>
-                      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-semibold">{allocation.label}</p><Badge tone={allocation.sourceType === "MEASUREMENT" ? "violet" : allocation.sourceType.startsWith("DELIVERY") ? "sky" : "amber"}>{formatStatus(allocation.sourceType)}</Badge></div><p className="mt-1 text-xs text-[var(--muted)]">{allocation.sourceId ?? allocation.earningTransactionId} · {formatDate(allocation.earnedAt, true)}</p></div>
+                    <button className="group flex w-full items-center justify-between gap-4 rounded-2xl border border-[var(--panel-border)] p-3 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]" key={allocation.earningTransactionId} onClick={() => onOpenAllocation(allocation)} type="button">
+                      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-semibold underline decoration-transparent underline-offset-4 group-hover:decoration-current">{allocation.label}</p><Badge tone={allocation.sourceType === "MEASUREMENT" ? "violet" : allocation.sourceType.startsWith("DELIVERY") ? "sky" : "amber"}>{formatStatus(allocation.sourceType)}</Badge></div><p className="mt-1 text-xs text-[var(--muted)]">{allocation.sourceId ?? allocation.earningTransactionId} · {formatDate(allocation.earnedAt, true)} · Open linked record</p></div>
                       <p className="shrink-0 font-bold tabular-nums">{formatCurrency(allocation.amount)}</p>
-                    </div>
+                    </button>
                   ))}
                   {!(detail?.outstandingAllocations?.length) ? <EmptyState message="No unpaid earning items." /> : null}
                 </div>
               </Panel>
               <Panel>
-                <h4 className="mb-3 font-semibold">Wallet Transactions</h4>
-                <div className="space-y-2">
-                  {(detail?.transactions ?? []).map((transaction) => (
-                    <div key={transaction.id} className="rounded-2xl border border-[var(--panel-border)] p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold">{formatStatus(transaction.category)}</p>
-                            {transaction.category === "ORDER_EARNING" ? <Badge tone={/measurement visit payout/i.test(transaction.remarks ?? "") ? "violet" : "sky"}>{/measurement visit payout/i.test(transaction.remarks ?? "") ? "Measurement visit" : "Stitching order"}</Badge> : null}
-                          </div>
-                          <p className="text-xs text-[var(--muted)]">{transaction.remarks ?? transaction.orderId ?? "Wallet transaction"}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className={cn("font-semibold", transaction.transactionType === "CREDIT" ? "text-emerald-600" : "text-rose-600")}>
-                            {transaction.transactionType === "CREDIT" ? "+" : "-"}{formatCurrency(transaction.amount)}
-                          </p>
-                          <p className="text-xs text-[var(--muted)]">Balance {formatCurrency(transaction.balanceAfterTransaction)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {!(detail?.transactions?.length) ? <EmptyState message="No wallet transactions yet." /> : null}
-                </div>
-              </Panel>
-              <Panel>
-                <h4 className="mb-3 font-semibold">Payment History</h4>
+                <h4 className="mb-3 font-semibold">Payout history</h4>
                 <div className="space-y-2">
                   {(detail?.payments ?? []).map((payment) => (
-                    <a key={payment.id} className="block rounded-2xl border border-[var(--panel-border)] p-3 hover:border-[var(--accent)]" href={payment.receiptUrl} target="_blank" rel="noreferrer">
+                    <div key={payment.id} className="rounded-2xl border border-[var(--panel-border)] p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{formatCurrency(payment.amount)}</p><Badge tone={payment.allocationMode === "EXACT" ? "emerald" : "amber"}>{payment.allocationMode === "EXACT" ? "Exact statement" : "Reconstructed"}</Badge></div>
@@ -7208,19 +7295,19 @@ function WalletDetailDialog({
                       </div>
                       <div className="mt-3 space-y-1.5 border-t border-[var(--panel-border)] pt-3">
                         {(payment.allocations ?? []).map((allocation) => (
-                          <div className="flex items-start justify-between gap-3 text-xs" key={`${payment.id}-${allocation.earningTransactionId}-${allocation.amount}`}>
+                          <button className="flex w-full items-start justify-between gap-3 rounded-lg p-1 text-left text-xs hover:bg-[var(--accent-soft)]" key={`${payment.id}-${allocation.earningTransactionId}-${allocation.amount}`} onClick={() => onOpenAllocation(allocation)} type="button">
                             <div className="min-w-0"><p className="truncate font-semibold text-[var(--foreground)]">{allocation.label}</p><p className="truncate text-[var(--muted)]">{formatStatus(allocation.sourceType)} · {allocation.sourceId ?? "Wallet credit"}</p></div>
                             <span className="shrink-0 font-semibold tabular-nums">{formatCurrency(allocation.amount)}</span>
-                          </div>
+                          </button>
                         ))}
                         {!(payment.allocations?.length) ? <p className="text-xs text-[var(--muted)]">No source items could be reconstructed for this legacy payout.</p> : null}
                       </div>
                       {payment.receiptUrl?.startsWith("data:image") || /\.(png|jpe?g|webp)$/i.test(payment.receiptUrl) ? (
-                        <img alt="Payment proof" className="mt-3 max-h-48 rounded-2xl border border-[var(--panel-border)] object-contain" src={payment.receiptUrl} />
+                        <a href={payment.receiptUrl} target="_blank" rel="noreferrer"><img alt="Payment proof" className="mt-3 max-h-48 rounded-2xl border border-[var(--panel-border)] object-contain" src={payment.receiptUrl} /></a>
                       ) : (
-                        <p className="mt-3 text-xs font-semibold text-[var(--accent)]">Open payment proof</p>
+                        <a className="mt-3 inline-flex text-xs font-semibold text-[var(--accent)]" href={payment.receiptUrl} target="_blank" rel="noreferrer">Open payment proof</a>
                       )}
-                    </a>
+                    </div>
                   ))}
                   {!(detail?.payments?.length) ? <EmptyState message="No payments have been recorded." /> : null}
                 </div>
@@ -8888,38 +8975,23 @@ function FilterSelect({
 }
 
 function CouponComposer({
+  customers,
   draft,
   onChange,
   onSubmit,
   pending
 }: {
-  draft: {
-    code: string;
-    description: string;
-    discountType: "FLAT" | "PERCENTAGE";
-    discountValue: number;
-    minOrderValue: number;
-    maxDiscount: string;
-    usageLimit: string;
-    perCustomerLimit: string;
-    expiresAt: string;
-    isActive: boolean;
-  };
-  onChange: (value: {
-    code: string;
-    description: string;
-    discountType: "FLAT" | "PERCENTAGE";
-    discountValue: number;
-    minOrderValue: number;
-    maxDiscount: string;
-    usageLimit: string;
-    perCustomerLimit: string;
-    expiresAt: string;
-    isActive: boolean;
-  }) => void;
+  customers: AdminUser[];
+  draft: CouponFormDraft;
+  onChange: (value: CouponFormDraft) => void;
   onSubmit: () => void;
   pending: boolean;
 }) {
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [randomCount, setRandomCount] = useState("10");
+  const visibleCustomers = customers.filter((customer) => `${customer.name ?? ""} ${customer.phone ?? ""} ${customer.darjiCustomerId ?? ""}`.toLowerCase().includes(customerSearch.toLowerCase())).slice(0, 100);
+  const valueRequired = ["ORDER_FLAT", "ORDER_PERCENTAGE", "DELIVERY_PERCENTAGE"].includes(draft.benefitType);
+  const toggleValue = <T extends string>(values: T[], value: T) => values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
   return (
     <Dialog.Root>
       <Dialog.Trigger asChild>
@@ -8927,11 +8999,11 @@ function CouponComposer({
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(94vw,680px)] -translate-x-1/2 -translate-y-1/2 rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[min(96vw,980px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
           <div className="flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-2xl font-semibold">New coupon</Dialog.Title>
-              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Create a coupon using the existing `/coupons` admin endpoint.</Dialog.Description>
+              <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Define the benefit, eligible order, audience, limits, and checkout restrictions.</Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <button className="rounded-full p-2 text-[var(--muted)] hover:bg-[#f4f7fb]">
@@ -8940,50 +9012,56 @@ function CouponComposer({
             </Dialog.Close>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <Field label="Coupon code">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={draft.code} onChange={(event) => onChange({ ...draft, code: event.target.value.toUpperCase() })} />
-            </Field>
-            <Field label="Discount type">
-              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={draft.discountType} onChange={(event) => onChange({ ...draft, discountType: event.target.value as "FLAT" | "PERCENTAGE" })}>
-                <option value="FLAT">Flat</option>
-                <option value="PERCENTAGE">Percentage</option>
-              </select>
-            </Field>
-            <Field label="Description">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} />
-            </Field>
-            <Field label="Discount value">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" type="number" value={draft.discountValue} onChange={(event) => onChange({ ...draft, discountValue: Number(event.target.value) })} />
-            </Field>
-            <Field label="Minimum order value">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" type="number" value={draft.minOrderValue} onChange={(event) => onChange({ ...draft, minOrderValue: Number(event.target.value) })} />
-            </Field>
-            <Field label="Maximum discount">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" type="number" value={draft.maxDiscount} onChange={(event) => onChange({ ...draft, maxDiscount: event.target.value })} />
-            </Field>
-            <Field label="Total usage limit">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" min="1" placeholder="Unlimited" type="number" value={draft.usageLimit} onChange={(event) => onChange({ ...draft, usageLimit: event.target.value })} />
-            </Field>
-            <Field label="Per-customer limit">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" min="1" placeholder="Unlimited" type="number" value={draft.perCustomerLimit} onChange={(event) => onChange({ ...draft, perCustomerLimit: event.target.value })} />
-            </Field>
-            <Field label="Expiry">
-              <input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" type="datetime-local" value={draft.expiresAt} onChange={(event) => onChange({ ...draft, expiresAt: event.target.value })} />
-            </Field>
-            <Field label="Active">
-              <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={String(draft.isActive)} onChange={(event) => onChange({ ...draft, isActive: event.target.value === "true" })}>
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
-            </Field>
+          <div className="mt-6 space-y-5">
+            <div className="rounded-[24px] border border-[var(--panel-border)] bg-[#fbfdff] p-5">
+              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">1. Benefit</p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Coupon code"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4 outline-none" value={draft.code} onChange={(event) => onChange({ ...draft, code: event.target.value.toUpperCase() })} /></Field>
+                <Field label="Benefit type"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" value={draft.benefitType} onChange={(event) => onChange({ ...draft, benefitType: event.target.value as CouponFormDraft["benefitType"] })}>
+                  <option value="ORDER_FLAT">Flat amount off entire order</option><option value="ORDER_PERCENTAGE">Percentage off entire order</option><option value="FREE_DELIVERY">Free delivery</option><option value="DELIVERY_PERCENTAGE">Percentage off delivery</option><option value="WAIVE_PLATFORM_FEE">Waive platform fee</option><option value="WAIVE_SMALL_ORDER_FEE">Waive small-order fee</option><option value="FREE_MEASUREMENT">Free home measurement</option>
+                </select></Field>
+                <Field label="Customer-facing description"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" value={draft.description} onChange={(event) => onChange({ ...draft, description: event.target.value })} /></Field>
+                {valueRequired ? <Field label={draft.benefitType.includes("PERCENTAGE") ? "Discount percentage" : "Discount amount"}><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="0" max={draft.benefitType.includes("PERCENTAGE") ? 100 : undefined} type="number" value={draft.discountValue} onChange={(event) => onChange({ ...draft, discountValue: Number(event.target.value) })} /></Field> : null}
+                <Field label="Minimum order value"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="0" type="number" value={draft.minOrderValue} onChange={(event) => onChange({ ...draft, minOrderValue: Number(event.target.value) })} /></Field>
+                <Field label="Maximum discount per order"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" placeholder="No cap" type="number" value={draft.maxDiscount} onChange={(event) => onChange({ ...draft, maxDiscount: event.target.value })} /></Field>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-[var(--panel-border)] bg-[#fbfdff] p-5">
+              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">2. Eligible order</p>
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="Order milestone"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" value={draft.orderEligibilityType} onChange={(event) => onChange({ ...draft, orderEligibilityType: event.target.value as CouponFormDraft["orderEligibilityType"] })}><option value="ANY">Any order</option><option value="FIRST">First order only</option><option value="EXACT">Exact order number</option><option value="RANGE">Order-number range</option></select></Field>
+                {draft.orderEligibilityType === "EXACT" ? <Field label="Exact order number"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" type="number" value={draft.orderNumber} onChange={(event) => onChange({ ...draft, orderNumber: event.target.value })} /></Field> : null}
+                {draft.orderEligibilityType === "RANGE" ? <><Field label="From order"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" type="number" value={draft.orderNumberFrom} onChange={(event) => onChange({ ...draft, orderNumberFrom: event.target.value })} /></Field><Field label="To order"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" type="number" value={draft.orderNumberTo} onChange={(event) => onChange({ ...draft, orderNumberTo: event.target.value })} /></Field></> : null}
+                <Field label="Order type"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" value={draft.orderScope} onChange={(event) => onChange({ ...draft, orderScope: event.target.value as CouponFormDraft["orderScope"] })}><option value="BOTH">Catalog and tailoring</option><option value="CATALOG">Catalog only</option><option value="TAILORING">Tailoring only</option></select></Field>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <Field label="Allowed delivery speeds (empty means all)"><div className="flex flex-wrap gap-2">{(["STANDARD", "EXPRESS", "INSTANT"] as const).map((mode) => <button className={cn("rounded-full border px-3 py-2 text-sm", draft.allowedDeliveryModes.includes(mode) ? "border-[#0b2241] bg-[#0b2241] text-white" : "border-[var(--panel-border)] bg-white")} key={mode} onClick={() => onChange({ ...draft, allowedDeliveryModes: toggleValue(draft.allowedDeliveryModes, mode) })} type="button">{formatStatus(mode)}</button>)}</div></Field>
+                <Field label="Allowed payment methods (empty means all)"><div className="flex flex-wrap gap-2">{(["ONLINE", "UPI", "COD"] as const).map((method) => <button className={cn("rounded-full border px-3 py-2 text-sm", draft.allowedPaymentMethods.includes(method) ? "border-[#0b2241] bg-[#0b2241] text-white" : "border-[var(--panel-border)] bg-white")} key={method} onClick={() => onChange({ ...draft, allowedPaymentMethods: toggleValue(draft.allowedPaymentMethods, method) })} type="button">{method}</button>)}</div></Field>
+              </div>
+            </div>
+
+            <div className="rounded-[24px] border border-[var(--panel-border)] bg-[#fbfdff] p-5">
+              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">3. Audience</p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Who can use it"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" value={draft.audienceType} onChange={(event) => onChange({ ...draft, audienceType: event.target.value as CouponFormDraft["audienceType"], selectedCustomerIds: event.target.value === "SELECTED_CUSTOMERS" ? draft.selectedCustomerIds : [] })}><option value="EVERYONE">Everyone</option><option value="SELECTED_CUSTOMERS">Selected customers</option><option value="NEW_CUSTOMERS">New customers</option><option value="INACTIVE_CUSTOMERS">Inactive customers</option><option value="REGISTERED_BETWEEN">Registered during a date range</option></select></Field>
+                {draft.audienceType === "INACTIVE_CUSTOMERS" ? <Field label="Inactive for at least (days)"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" type="number" value={draft.inactiveDays} onChange={(event) => onChange({ ...draft, inactiveDays: event.target.value })} /></Field> : null}
+                {draft.audienceType === "REGISTERED_BETWEEN" ? <><Field label="Registered after"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" type="datetime-local" value={draft.registeredAfter} onChange={(event) => onChange({ ...draft, registeredAfter: event.target.value })} /></Field><Field label="Registered before"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" type="datetime-local" value={draft.registeredBefore} onChange={(event) => onChange({ ...draft, registeredBefore: event.target.value })} /></Field></> : null}
+              </div>
+              {draft.audienceType === "SELECTED_CUSTOMERS" ? <div className="mt-4 rounded-2xl border border-[var(--panel-border)] bg-white p-4"><div className="flex flex-wrap items-end gap-3"><Field label="Search customers"><input className="h-11 rounded-xl border border-[var(--panel-border)] px-3" placeholder="Name, phone or customer ID" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} /></Field><Field label="Random customer count"><input className="h-11 w-32 rounded-xl border border-[var(--panel-border)] px-3" min="1" type="number" value={randomCount} onChange={(event) => setRandomCount(event.target.value)} /></Field><ActionButton onClick={() => { const shuffled = [...customers].sort(() => Math.random() - 0.5); onChange({ ...draft, selectedCustomerIds: shuffled.slice(0, Math.min(Number(randomCount) || 1, customers.length)).map((customer) => customer.id) }); }} variant="secondary">Select random</ActionButton></div><p className="mt-3 text-xs text-[var(--muted)]">{draft.selectedCustomerIds.length} customer(s) selected</p><div className="mt-3 max-h-48 space-y-2 overflow-y-auto">{visibleCustomers.map((customer) => <label className="flex items-center justify-between rounded-xl border border-[var(--panel-border)] px-3 py-2 text-sm" key={customer.id}><span><span className="font-semibold">{getCustomerDisplayName(customer)}</span><span className="ml-2 text-[var(--muted)]">{customer.darjiCustomerId ?? customer.phone}</span></span><input checked={draft.selectedCustomerIds.includes(customer.id)} onChange={() => onChange({ ...draft, selectedCustomerIds: toggleValue(draft.selectedCustomerIds, customer.id) })} type="checkbox" /></label>)}</div></div> : null}
+            </div>
+
+            <div className="rounded-[24px] border border-[var(--panel-border)] bg-[#fbfdff] p-5">
+              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">4. Schedule and safeguards</p>
+              <div className="grid gap-4 md:grid-cols-3"><Field label="Starts"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" type="datetime-local" value={draft.startsAt} onChange={(event) => onChange({ ...draft, startsAt: event.target.value })} /></Field><Field label="Expires"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" type="datetime-local" value={draft.expiresAt} onChange={(event) => onChange({ ...draft, expiresAt: event.target.value })} /></Field><Field label="Campaign discount budget"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" placeholder="Unlimited" type="number" value={draft.maxCampaignDiscount} onChange={(event) => onChange({ ...draft, maxCampaignDiscount: event.target.value })} /></Field><Field label="Total redemptions"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" placeholder="Unlimited" type="number" value={draft.usageLimit} onChange={(event) => onChange({ ...draft, usageLimit: event.target.value })} /></Field><Field label="Per-customer redemptions"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" min="1" placeholder="Unlimited" type="number" value={draft.perCustomerLimit} onChange={(event) => onChange({ ...draft, perCustomerLimit: event.target.value })} /></Field><Field label="State"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-white px-4" value={String(draft.isActive)} onChange={(event) => onChange({ ...draft, isActive: event.target.value === "true" })}><option value="true">Enabled</option><option value="false">Disabled</option></select></Field></div>
+            </div>
           </div>
 
           <div className="mt-6 flex justify-end gap-3">
             <Dialog.Close asChild>
               <ActionButton variant="secondary">Cancel</ActionButton>
             </Dialog.Close>
-            <ActionButton disabled={pending} onClick={onSubmit}>
+            <ActionButton disabled={pending || draft.code.trim().length < 3 || draft.description.trim().length < 3 || (valueRequired && draft.discountValue <= 0) || (draft.audienceType === "SELECTED_CUSTOMERS" && !draft.selectedCustomerIds.length)} onClick={onSubmit}>
               {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
               Create coupon
             </ActionButton>
@@ -8994,24 +9072,40 @@ function CouponComposer({
   );
 }
 
-function CouponEditDialog({ coupon, onClose, onSave, pending }: {
+function CouponEditDialog({ coupon, customers, onClose, onSave, pending }: {
   coupon: Coupon | null;
+  customers: AdminUser[];
   onClose: () => void;
   onSave: (payload: Partial<Coupon>) => void;
   pending: boolean;
 }) {
-  const [draft, setDraft] = useState({ description: "", discountType: "FLAT" as "FLAT" | "PERCENTAGE", discountValue: 0, minOrderValue: 0, maxDiscount: "", usageLimit: "", perCustomerLimit: "", expiresAt: "", isActive: true });
+  const [draft, setDraft] = useState<CouponFormDraft>(emptyCouponDraft);
   useEffect(() => {
     if (!coupon) return;
     setDraft({
+      code: coupon.code,
       description: coupon.description,
-      discountType: coupon.discountType,
+      benefitType: coupon.benefitType ?? (coupon.discountType === "PERCENTAGE" ? "ORDER_PERCENTAGE" : "ORDER_FLAT"),
       discountValue: coupon.discountValue,
       minOrderValue: coupon.minOrderValue,
       maxDiscount: coupon.maxDiscount == null ? "" : String(coupon.maxDiscount),
       usageLimit: coupon.usageLimit == null ? "" : String(coupon.usageLimit),
       perCustomerLimit: coupon.perCustomerLimit == null ? "" : String(coupon.perCustomerLimit),
+      maxCampaignDiscount: coupon.maxCampaignDiscount == null ? "" : String(coupon.maxCampaignDiscount),
+      startsAt: coupon.startsAt ? new Date(coupon.startsAt).toISOString().slice(0, 16) : "",
       expiresAt: coupon.expiresAt ? new Date(coupon.expiresAt).toISOString().slice(0, 16) : "",
+      orderEligibilityType: coupon.orderEligibilityType ?? "ANY",
+      orderNumber: coupon.orderNumber == null ? "" : String(coupon.orderNumber),
+      orderNumberFrom: coupon.orderNumberFrom == null ? "" : String(coupon.orderNumberFrom),
+      orderNumberTo: coupon.orderNumberTo == null ? "" : String(coupon.orderNumberTo),
+      audienceType: coupon.audienceType ?? "EVERYONE",
+      selectedCustomerIds: coupon.selectedCustomerIds ?? [],
+      inactiveDays: coupon.inactiveDays == null ? "" : String(coupon.inactiveDays),
+      registeredAfter: coupon.registeredAfter ? new Date(coupon.registeredAfter).toISOString().slice(0, 16) : "",
+      registeredBefore: coupon.registeredBefore ? new Date(coupon.registeredBefore).toISOString().slice(0, 16) : "",
+      orderScope: coupon.orderScope ?? "BOTH",
+      allowedDeliveryModes: coupon.allowedDeliveryModes ?? [],
+      allowedPaymentMethods: coupon.allowedPaymentMethods ?? [],
       isActive: coupon.isActive
     });
   }, [coupon]);
@@ -9019,20 +9113,54 @@ function CouponEditDialog({ coupon, onClose, onSave, pending }: {
     <Dialog.Root open={Boolean(coupon)} onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[min(94vw,680px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[min(96vw,920px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
           <div className="flex items-start justify-between gap-4"><div><Dialog.Title className="text-xl font-semibold">Edit {coupon?.code}</Dialog.Title><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Changes apply to future validations; existing redemptions are preserved.</Dialog.Description></div><Dialog.Close asChild><button aria-label="Close coupon editor" className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--accent-soft)]"><X size={18} /></button></Dialog.Close></div>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <Field label="Description"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field>
-            <Field label="Discount type"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.discountType} onChange={(event) => setDraft({ ...draft, discountType: event.target.value as "FLAT" | "PERCENTAGE" })}><option value="FLAT">Flat</option><option value="PERCENTAGE">Percentage</option></select></Field>
+            <Field label="Benefit"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.benefitType} onChange={(event) => setDraft({ ...draft, benefitType: event.target.value as CouponFormDraft["benefitType"] })}><option value="ORDER_FLAT">Flat amount off order</option><option value="ORDER_PERCENTAGE">Percentage off order</option><option value="FREE_DELIVERY">Free delivery</option><option value="DELIVERY_PERCENTAGE">Percentage off delivery</option><option value="WAIVE_PLATFORM_FEE">Waive platform fee</option><option value="WAIVE_SMALL_ORDER_FEE">Waive small-order fee</option><option value="FREE_MEASUREMENT">Free home measurement</option></select></Field>
             <Field label="Discount value"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="0" type="number" value={draft.discountValue} onChange={(event) => setDraft({ ...draft, discountValue: Number(event.target.value) })} /></Field>
             <Field label="Minimum order"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="0" type="number" value={draft.minOrderValue} onChange={(event) => setDraft({ ...draft, minOrderValue: Number(event.target.value) })} /></Field>
             <Field label="Maximum discount"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="No cap" type="number" value={draft.maxDiscount} onChange={(event) => setDraft({ ...draft, maxDiscount: event.target.value })} /></Field>
+            <Field label="Campaign budget"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="Unlimited" type="number" value={draft.maxCampaignDiscount} onChange={(event) => setDraft({ ...draft, maxCampaignDiscount: event.target.value })} /></Field>
             <Field label="Total usage limit"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="Unlimited" type="number" value={draft.usageLimit} onChange={(event) => setDraft({ ...draft, usageLimit: event.target.value })} /></Field>
             <Field label="Per-customer limit"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" min="1" placeholder="Unlimited" type="number" value={draft.perCustomerLimit} onChange={(event) => setDraft({ ...draft, perCustomerLimit: event.target.value })} /></Field>
+            <Field label="Starts"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft({ ...draft, startsAt: event.target.value })} /></Field>
             <Field label="Expiry"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.expiresAt} onChange={(event) => setDraft({ ...draft, expiresAt: event.target.value })} /></Field>
+            <Field label="Order milestone"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.orderEligibilityType} onChange={(event) => setDraft({ ...draft, orderEligibilityType: event.target.value as CouponFormDraft["orderEligibilityType"] })}><option value="ANY">Any order</option><option value="FIRST">First order</option><option value="EXACT">Exact order</option><option value="RANGE">Order range</option></select></Field>
+            {draft.orderEligibilityType === "EXACT" ? <Field label="Order number"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="number" value={draft.orderNumber} onChange={(event) => setDraft({ ...draft, orderNumber: event.target.value })} /></Field> : null}
+            {draft.orderEligibilityType === "RANGE" ? <><Field label="Order range from"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="number" value={draft.orderNumberFrom} onChange={(event) => setDraft({ ...draft, orderNumberFrom: event.target.value })} /></Field><Field label="Order range to"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="number" value={draft.orderNumberTo} onChange={(event) => setDraft({ ...draft, orderNumberTo: event.target.value })} /></Field></> : null}
+            <Field label="Order type"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.orderScope} onChange={(event) => setDraft({ ...draft, orderScope: event.target.value as CouponFormDraft["orderScope"] })}><option value="BOTH">Catalog and tailoring</option><option value="CATALOG">Catalog only</option><option value="TAILORING">Tailoring only</option></select></Field>
+            <Field label="Audience"><select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" value={draft.audienceType} onChange={(event) => setDraft({ ...draft, audienceType: event.target.value as CouponFormDraft["audienceType"] })}><option value="EVERYONE">Everyone</option><option value="SELECTED_CUSTOMERS">Selected customers</option><option value="NEW_CUSTOMERS">New customers</option><option value="INACTIVE_CUSTOMERS">Inactive customers</option><option value="REGISTERED_BETWEEN">Registered in date range</option></select></Field>
+            {draft.audienceType === "INACTIVE_CUSTOMERS" ? <Field label="Inactive days"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="number" value={draft.inactiveDays} onChange={(event) => setDraft({ ...draft, inactiveDays: event.target.value })} /></Field> : null}
+            {draft.audienceType === "REGISTERED_BETWEEN" ? <><Field label="Registered after"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.registeredAfter} onChange={(event) => setDraft({ ...draft, registeredAfter: event.target.value })} /></Field><Field label="Registered before"><input className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4" type="datetime-local" value={draft.registeredBefore} onChange={(event) => setDraft({ ...draft, registeredBefore: event.target.value })} /></Field></> : null}
           </div>
+          {draft.audienceType === "SELECTED_CUSTOMERS" ? <div className="mt-4 max-h-48 space-y-2 overflow-y-auto rounded-2xl border border-[var(--panel-border)] p-3">{customers.map((customer) => <label className="flex items-center justify-between rounded-xl px-2 py-1 text-sm" key={customer.id}><span>{getCustomerDisplayName(customer)} <span className="text-[var(--muted)]">{customer.darjiCustomerId ?? customer.phone}</span></span><input checked={draft.selectedCustomerIds.includes(customer.id)} onChange={() => setDraft({ ...draft, selectedCustomerIds: draft.selectedCustomerIds.includes(customer.id) ? draft.selectedCustomerIds.filter((id) => id !== customer.id) : [...draft.selectedCustomerIds, customer.id] })} type="checkbox" /></label>)}</div> : null}
           <label className="mt-4 flex items-center gap-3 text-sm font-semibold"><input checked={draft.isActive} onChange={(event) => setDraft({ ...draft, isActive: event.target.checked })} type="checkbox" />Coupon active</label>
-          <div className="mt-6 flex justify-end gap-3"><ActionButton disabled={pending} onClick={onClose} variant="secondary">Cancel</ActionButton><ActionButton disabled={pending || draft.description.trim().length < 3 || draft.discountValue <= 0} onClick={() => onSave({ ...draft, maxDiscount: draft.maxDiscount ? Number(draft.maxDiscount) : null, usageLimit: draft.usageLimit ? Number(draft.usageLimit) : null, perCustomerLimit: draft.perCustomerLimit ? Number(draft.perCustomerLimit) : null, expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : null })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save coupon</ActionButton></div>
+          <div className="mt-6 flex justify-end gap-3"><ActionButton disabled={pending} onClick={onClose} variant="secondary">Cancel</ActionButton><ActionButton disabled={pending || draft.description.trim().length < 3} onClick={() => onSave({ description: draft.description, benefitType: draft.benefitType, discountType: couponDiscountType(draft.benefitType), discountValue: draft.discountValue, minOrderValue: draft.minOrderValue, maxDiscount: draft.maxDiscount ? Number(draft.maxDiscount) : null, usageLimit: draft.usageLimit ? Number(draft.usageLimit) : null, perCustomerLimit: draft.perCustomerLimit ? Number(draft.perCustomerLimit) : null, maxCampaignDiscount: draft.maxCampaignDiscount ? Number(draft.maxCampaignDiscount) : null, startsAt: draft.startsAt ? new Date(draft.startsAt).toISOString() : null, expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : null, orderEligibilityType: draft.orderEligibilityType, orderNumber: draft.orderNumber ? Number(draft.orderNumber) : null, orderNumberFrom: draft.orderNumberFrom ? Number(draft.orderNumberFrom) : null, orderNumberTo: draft.orderNumberTo ? Number(draft.orderNumberTo) : null, audienceType: draft.audienceType, selectedCustomerIds: draft.selectedCustomerIds, inactiveDays: draft.inactiveDays ? Number(draft.inactiveDays) : null, registeredAfter: draft.registeredAfter ? new Date(draft.registeredAfter).toISOString() : null, registeredBefore: draft.registeredBefore ? new Date(draft.registeredBefore).toISOString() : null, orderScope: draft.orderScope, allowedDeliveryModes: draft.allowedDeliveryModes, allowedPaymentMethods: draft.allowedPaymentMethods, isActive: draft.isActive })}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}Save coupon</ActionButton></div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function CouponRedemptionDialog({ coupon, redemptions, loading, onClose, onOpenOrder }: {
+  coupon: Coupon | null;
+  redemptions: CouponRedemption[];
+  loading: boolean;
+  onClose: () => void;
+  onOpenOrder: (redemption: CouponRedemption) => void;
+}) {
+  return (
+    <Dialog.Root open={Boolean(coupon)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(94vw,760px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+          <div className="flex items-start justify-between gap-4"><div><Dialog.Title className="text-xl font-semibold">{coupon?.code} redemption history</Dialog.Title><Dialog.Description className="mt-1 text-sm text-[var(--muted)]">Every reserved use is retained with its order, benefit, amount, and timestamp.</Dialog.Description></div><button aria-label="Close redemption history" className="rounded-full p-2 hover:bg-[var(--accent-soft)]" onClick={onClose}><X size={18} /></button></div>
+          <div className="mt-6 space-y-3">
+            {loading ? <div className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] p-5 text-sm text-[var(--muted)]"><LoaderCircle className="h-4 w-4 animate-spin" />Loading redemption history…</div> : null}
+            {!loading && redemptions.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--panel-border)] p-8 text-center text-sm text-[var(--muted)]">This coupon has not been used yet.</div> : null}
+            {redemptions.map((redemption) => <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] p-4" key={`${redemption.orderId}-${redemption.redeemedAt}`}><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold">{redemption.customer?.name ?? redemption.customer?.phone ?? "Customer"}</p><p className="mt-1 text-xs text-[var(--muted)]">{redemption.customer?.darjiCustomerId ?? redemption.customer?.phone ?? redemption.customerId} · {formatDate(redemption.redeemedAt, true)}</p></div><p className="text-lg font-semibold text-emerald-700">−{formatCurrency(redemption.discountAmount)}</p></div><div className="mt-3 flex flex-wrap items-center gap-2 text-xs"><Badge tone="violet">{formatStatus(redemption.benefitType ?? "ORDER")}</Badge><Badge tone="sky">{formatStatus(redemption.affectedComponent ?? "ORDER")}</Badge><ActionButton className="px-3 py-1.5" onClick={() => onOpenOrder(redemption)} variant="secondary">Open {redemption.orderType === "CATALOG" ? "order" : "tailoring request"} {redemption.order?.reference ?? ""}</ActionButton></div></div>)}
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -9651,10 +9779,9 @@ function parseMeasurementFields(notes: string) {
   return Object.fromEntries(notes.split(/\r?\n/).map((line) => line.split(":")).filter((parts) => parts.length > 1).map(([label, ...value]) => [label.trim(), value.join(":").trim()]).filter(([label, value]) => label && value));
 }
 
-function activeCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
+function activeCouponDiscount(coupon: Coupon | undefined, pricing: { orderSubtotal: number; deliveryFee: number; platformFee: number; smallOrderFee: number; homeMeasurementFee: number }) {
   if (!coupon) return 0;
-  const raw = coupon.discountType === "PERCENTAGE" ? subtotal * Number(coupon.discountValue ?? 0) / 100 : Number(coupon.discountValue ?? 0);
-  return Number(Math.min(raw, Number(coupon.maxDiscount ?? raw), subtotal).toFixed(2));
+  return calculateCouponBenefit(coupon, pricing).discount;
 }
 
 function quoteEtaLabel(quote: TailorQuote) {
@@ -9745,9 +9872,9 @@ function AssistedCreateOrderDialog({ coupons, customers, onComplete, open, setOp
   const smallOrderFee = getSmallOrderFee(tailoringSubtotal);
   const homeMeasurementFee = items.some((item) => item.measurementMode === "HOME") ? measurementVisitFee(selectedQuote?.deliveryEstimate?.oneWayDistanceMeters) : 0;
   const beforeDiscount = tailoringSubtotal + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee;
-  const eligibleCoupons = coupons.filter((coupon) => coupon.isActive && Number(coupon.minOrderValue ?? 0) <= beforeDiscount && (!coupon.expiresAt || new Date(coupon.expiresAt).getTime() > Date.now()));
+  const eligibleCoupons = coupons.filter((coupon) => coupon.isActive && Number(coupon.minOrderValue ?? 0) <= tailoringSubtotal && (!coupon.startsAt || new Date(coupon.startsAt).getTime() <= Date.now()) && (!coupon.expiresAt || new Date(coupon.expiresAt).getTime() > Date.now()));
   const appliedCoupon = eligibleCoupons.find((coupon) => coupon.code.toUpperCase() === couponCode.toUpperCase());
-  const discount = activeCouponDiscount(appliedCoupon, beforeDiscount);
+  const discount = activeCouponDiscount(appliedCoupon, { orderSubtotal: tailoringSubtotal, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee });
   const payable = Math.max(0, beforeDiscount - discount);
 
   const reset = () => {
@@ -13489,7 +13616,7 @@ function getPaymentColumns({
   ];
 }
 
-function getCouponColumns({ onDelete, onEdit, onToggle, pendingId }: { onDelete: (coupon: Coupon) => void; onEdit: (coupon: Coupon) => void; onToggle: (coupon: Coupon) => void; pendingId?: string }): Array<ColumnDef<Coupon>> {
+function getCouponColumns({ onDelete, onEdit, onHistory, onToggle, pendingId }: { onDelete: (coupon: Coupon) => void; onEdit: (coupon: Coupon) => void; onHistory: (coupon: Coupon) => void; onToggle: (coupon: Coupon) => void; pendingId?: string }): Array<ColumnDef<Coupon>> {
   return [
     {
       accessorKey: "code",
@@ -13506,19 +13633,24 @@ function getCouponColumns({ onDelete, onEdit, onToggle, pendingId }: { onDelete:
       header: "Description"
     },
     {
-      accessorKey: "discountType",
-      header: "Type",
-      cell: ({ row }) => <StatusBadge value={row.original.discountType} />
+      accessorKey: "benefitType",
+      header: "Benefit",
+      cell: ({ row }) => <StatusBadge value={row.original.benefitType ?? (row.original.discountType === "PERCENTAGE" ? "ORDER_PERCENTAGE" : "ORDER_FLAT")} />
     },
     {
       accessorKey: "discountValue",
       header: "Value",
-      cell: ({ row }) => (row.original.discountType === "PERCENTAGE" ? `${row.original.discountValue}%` : formatCurrency(row.original.discountValue))
+      cell: ({ row }) => ["ORDER_PERCENTAGE", "DELIVERY_PERCENTAGE"].includes(row.original.benefitType ?? "") || (!row.original.benefitType && row.original.discountType === "PERCENTAGE") ? `${row.original.discountValue}%` : ["FREE_DELIVERY", "WAIVE_PLATFORM_FEE", "WAIVE_SMALL_ORDER_FEE", "FREE_MEASUREMENT"].includes(row.original.benefitType ?? "") ? "Full charge" : formatCurrency(row.original.discountValue)
     },
     {
       accessorKey: "minOrderValue",
       header: "Min order",
       cell: ({ row }) => formatCurrency(row.original.minOrderValue)
+    },
+    {
+      id: "eligibility",
+      header: "Eligibility",
+      cell: ({ row }) => <div><p className="font-medium">{formatStatus(row.original.orderEligibilityType ?? "ANY")}</p><p className="text-xs text-[var(--muted)]">{formatStatus(row.original.audienceType ?? "EVERYONE")} · {formatStatus(row.original.orderScope ?? "BOTH")}</p></div>
     },
     {
       accessorKey: "expiresAt",
@@ -13539,7 +13671,7 @@ function getCouponColumns({ onDelete, onEdit, onToggle, pendingId }: { onDelete:
       id: "actions",
       header: "Actions",
       enableSorting: false,
-      cell: ({ row }) => <div className="flex flex-wrap gap-2"><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id} onClick={() => onEdit(row.original)} variant="secondary">Edit</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id} onClick={() => onToggle(row.original)} variant="secondary">{row.original.isActive ? "Disable" : "Enable"}</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id || Number(row.original.usedCount ?? 0) > 0} onClick={() => onDelete(row.original)} variant="danger">Delete</ActionButton></div>
+      cell: ({ row }) => <div className="flex flex-wrap gap-2"><ActionButton className="px-3 py-2" onClick={() => onHistory(row.original)} variant="secondary">History</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id} onClick={() => onEdit(row.original)} variant="secondary">Edit</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id} onClick={() => onToggle(row.original)} variant="secondary">{row.original.isActive ? "Disable" : "Enable"}</ActionButton><ActionButton className="px-3 py-2" disabled={pendingId === row.original.id || Number(row.original.usedCount ?? 0) > 0} onClick={() => onDelete(row.original)} variant="danger">Delete</ActionButton></div>
     }
   ];
 }

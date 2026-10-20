@@ -614,17 +614,45 @@ export type Coupon = {
   darjiId?: string;
   code: string;
   description: string;
+  benefitType?: "ORDER_FLAT" | "ORDER_PERCENTAGE" | "FREE_DELIVERY" | "DELIVERY_PERCENTAGE" | "WAIVE_PLATFORM_FEE" | "WAIVE_SMALL_ORDER_FEE" | "FREE_MEASUREMENT";
   discountType: "FLAT" | "PERCENTAGE";
   discountValue: number;
   minOrderValue: number;
   maxDiscount?: number | null;
   usageLimit?: number | null;
   perCustomerLimit?: number | null;
+  maxCampaignDiscount?: number | null;
+  totalDiscountIssued?: number;
   usedCount?: number;
+  startsAt?: string | null;
   expiresAt?: string | null;
+  orderEligibilityType?: "ANY" | "FIRST" | "EXACT" | "RANGE";
+  orderNumber?: number | null;
+  orderNumberFrom?: number | null;
+  orderNumberTo?: number | null;
+  audienceType?: "EVERYONE" | "SELECTED_CUSTOMERS" | "NEW_CUSTOMERS" | "INACTIVE_CUSTOMERS" | "REGISTERED_BETWEEN";
+  selectedCustomerIds?: string[];
+  inactiveDays?: number | null;
+  registeredAfter?: string | null;
+  registeredBefore?: string | null;
+  orderScope?: "BOTH" | "CATALOG" | "TAILORING";
+  allowedDeliveryModes?: Array<"STANDARD" | "EXPRESS" | "INSTANT">;
+  allowedPaymentMethods?: Array<"UPI" | "COD" | "ONLINE">;
   isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type CouponRedemption = {
+  customerId: string;
+  orderId: string;
+  orderType: "CATALOG" | "TAILORING";
+  discountAmount: number;
+  benefitType?: string;
+  affectedComponent?: string;
+  redeemedAt?: string;
+  customer?: { id: string; name?: string; phone?: string; darjiCustomerId?: string } | null;
+  order?: { id: string; reference?: string } | null;
 };
 
 export type SettingRecord = {

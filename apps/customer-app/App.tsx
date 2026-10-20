@@ -383,6 +383,7 @@ type CheckoutAdditionalItem = {
 type Coupon = {
   code: string;
   description: string;
+  benefitType?: "ORDER_FLAT" | "ORDER_PERCENTAGE" | "FREE_DELIVERY" | "DELIVERY_PERCENTAGE" | "WAIVE_PLATFORM_FEE" | "WAIVE_SMALL_ORDER_FEE" | "FREE_MEASUREMENT";
   discountType: "FLAT" | "PERCENTAGE";
   discountValue: number;
   minOrderValue: number;
@@ -1908,18 +1909,35 @@ function subtotalForQuote(quote: Quote, draft: RequestDraft) {
   return quote.price + (quote.deliveryFee ?? deliveryFeeForUrgency(draft.urgency)) + getPlatformFee(quote.price) + homeMeasurementFeeForDraft(draft);
 }
 
-function calculateCouponDiscount(coupon: Coupon | undefined, subtotal: number) {
+type CouponPricing = { orderSubtotal: number; deliveryFee?: number; platformFee?: number; smallOrderFee?: number; homeMeasurementFee?: number };
+
+function calculateCouponDiscount(coupon: Coupon | undefined, pricing: number | CouponPricing) {
   if (!coupon || !coupon.isActive) return 0;
   if (coupon.expiresAt && new Date(coupon.expiresAt) <= new Date()) return 0;
-  if (subtotal < Number(coupon.minOrderValue ?? 0)) return 0;
-  const raw = coupon.discountType === "PERCENTAGE" ? (subtotal * Number(coupon.discountValue ?? 0)) / 100 : Number(coupon.discountValue ?? 0);
+  const parts = typeof pricing === "number" ? { orderSubtotal: pricing, deliveryFee: 0, platformFee: 0, smallOrderFee: 0, homeMeasurementFee: 0 } : pricing;
+  if (parts.orderSubtotal < Number(coupon.minOrderValue ?? 0)) return 0;
+  const subtotal = Object.values(parts).reduce((sum, value) => sum + Number(value ?? 0), 0);
+  const benefitType = coupon.benefitType ?? (coupon.discountType === "PERCENTAGE" ? "ORDER_PERCENTAGE" : "ORDER_FLAT");
+  const value = Number(coupon.discountValue ?? 0);
+  const raw = benefitType === "ORDER_PERCENTAGE" ? subtotal * value / 100
+    : benefitType === "ORDER_FLAT" ? value
+    : benefitType === "FREE_DELIVERY" ? Number(parts.deliveryFee ?? 0)
+    : benefitType === "DELIVERY_PERCENTAGE" ? Number(parts.deliveryFee ?? 0) * value / 100
+    : benefitType === "WAIVE_PLATFORM_FEE" ? Number(parts.platformFee ?? 0)
+    : benefitType === "WAIVE_SMALL_ORDER_FEE" ? Number(parts.smallOrderFee ?? 0)
+    : benefitType === "FREE_MEASUREMENT" ? Number(parts.homeMeasurementFee ?? 0) : 0;
   const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
   return Number(Math.min(Math.max(0, capped), subtotal).toFixed(2));
 }
 
 function couponDiscountLabel(coupon: Coupon) {
+  if (coupon.benefitType === "FREE_DELIVERY") return "Free delivery";
+  if (coupon.benefitType === "WAIVE_PLATFORM_FEE") return "No platform fee";
+  if (coupon.benefitType === "WAIVE_SMALL_ORDER_FEE") return "No small-order fee";
+  if (coupon.benefitType === "FREE_MEASUREMENT") return "Free home measurement";
   const value = Number(coupon.discountValue ?? 0);
-  if (coupon.discountType === "PERCENTAGE") {
+  if (coupon.benefitType === "DELIVERY_PERCENTAGE") return `${value.toFixed(0)}% off delivery`;
+  if (coupon.benefitType === "ORDER_PERCENTAGE" || (!coupon.benefitType && coupon.discountType === "PERCENTAGE")) {
     const cap = coupon.maxDiscount != null ? ` up to Rs${Number(coupon.maxDiscount).toFixed(0)}` : "";
     return `${value.toFixed(0)}% off${cap}`;
   }
@@ -7289,7 +7307,7 @@ function ConfirmOrderScreen({
   const smallOrderFee = getSmallOrderFee(tailoringTotal);
 
   const subtotal = tailoringTotal + deliveryFee + platformFee + smallOrderFee + homeMeasurementFee;
-  const discount = calculateCouponDiscount(appliedCoupon, subtotal);
+  const discount = calculateCouponDiscount(appliedCoupon, { orderSubtotal: tailoringTotal, deliveryFee, platformFee, smallOrderFee, homeMeasurementFee });
   const total = Math.max(subtotal - discount, 0);
   const buttonLabel = payment === "COD" ? `Confirm COD Rs${total}` : payment === "UPI" ? `Pay UPI Rs${total}` : `Pay Online Rs${total}`;
   const measurementSlot = measurementSlotForDraft(draft);
@@ -7306,7 +7324,7 @@ function ConfirmOrderScreen({
       Alert.alert("Coupon not found", "Enter a valid coupon from Darji offers.");
       return;
     }
-    const unavailableReason = couponUnavailableReason(coupon, subtotal);
+    const unavailableReason = couponUnavailableReason(coupon, tailoringTotal);
     if (unavailableReason) {
       Alert.alert("Coupon not applicable", unavailableReason);
       return;
@@ -7406,7 +7424,7 @@ function ConfirmOrderScreen({
           <Text style={styles.cardLabel}>COUPONS</Text>
           {coupons.length ? (
             coupons.map((coupon) => {
-              const unavailableReason = couponUnavailableReason(coupon, subtotal);
+              const unavailableReason = couponUnavailableReason(coupon, tailoringTotal);
               const isApplied = appliedCoupon?.code.toUpperCase() === coupon.code.toUpperCase();
               return (
                 <Pressable

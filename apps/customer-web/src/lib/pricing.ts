@@ -1,5 +1,5 @@
 import type { Coupon } from "./types";
-import { calculateCouponDiscount } from "@darji/shared";
+import { calculateCouponBenefit, type CouponPricingBreakdown } from "@darji/shared";
 
 export const HOME_MEASUREMENT_FEE = 99;
 
@@ -30,15 +30,21 @@ export function quoteEta(quote?: { estimatedDays?: number; estimatedHours?: numb
   return `${quote.estimatedDays ?? 1} days`;
 }
 
-export function couponDiscount(coupon: Coupon | undefined, subtotal: number) {
+export function couponDiscount(coupon: Coupon | undefined, pricing: number | CouponPricingBreakdown) {
   if (!coupon?.isActive) return 0;
   if (coupon.expiresAt && new Date(coupon.expiresAt) <= new Date()) return 0;
-  if (subtotal < Number(coupon.minOrderValue ?? 0)) return 0;
-  return calculateCouponDiscount(coupon, subtotal);
+  const breakdown = typeof pricing === "number" ? { orderSubtotal: pricing } : pricing;
+  if (breakdown.orderSubtotal < Number(coupon.minOrderValue ?? 0)) return 0;
+  return calculateCouponBenefit(coupon, breakdown).discount;
 }
 
 export function couponLabel(coupon: Coupon) {
-  if (coupon.discountType === "PERCENTAGE") {
+  if (coupon.benefitType === "FREE_DELIVERY") return "Free delivery";
+  if (coupon.benefitType === "WAIVE_PLATFORM_FEE") return "No platform fee";
+  if (coupon.benefitType === "WAIVE_SMALL_ORDER_FEE") return "No small-order fee";
+  if (coupon.benefitType === "FREE_MEASUREMENT") return "Free home measurement";
+  if (coupon.benefitType === "DELIVERY_PERCENTAGE") return `${Number(coupon.discountValue).toFixed(0)}% off delivery`;
+  if (coupon.benefitType === "ORDER_PERCENTAGE" || (!coupon.benefitType && coupon.discountType === "PERCENTAGE")) {
     return `${Number(coupon.discountValue).toFixed(0)}% off${coupon.maxDiscount ? ` up to Rs${Number(coupon.maxDiscount).toFixed(0)}` : ""}`;
   }
   return `Rs${Number(coupon.discountValue).toFixed(0)} off`;

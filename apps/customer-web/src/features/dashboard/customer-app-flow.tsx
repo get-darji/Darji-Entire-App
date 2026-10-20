@@ -2224,7 +2224,7 @@ function ConfirmOrderStep({
   const platformFee = getPlatformFee(Number(quote.price ?? 0));
   const smallOrderFee = getSmallOrderFee(Number(quote.price ?? 0));
   const subtotal = Number(quote.price ?? 0) + deliveryFee + platformFee + smallOrderFee + homeFee;
-  const discount = couponDiscount(selectedCoupon, subtotal);
+  const discount = couponDiscount(selectedCoupon, { orderSubtotal: Number(quote.price ?? 0), deliveryFee, platformFee, smallOrderFee, homeMeasurementFee: homeFee });
   const total = Math.max(subtotal - discount, 0);
 
   const checkout = useMutation({
@@ -2289,7 +2289,7 @@ function ConfirmOrderStep({
       setSelectedCoupon(undefined);
       return;
     }
-    const amount = couponDiscount(coupon, subtotal);
+    const amount = couponDiscount(coupon, { orderSubtotal: Number(quote.price ?? 0), deliveryFee, platformFee, smallOrderFee, homeMeasurementFee: homeFee });
     if (!amount) {
       setCouponMessage("Coupon is not applicable.");
       setSelectedCoupon(undefined);
@@ -2915,7 +2915,7 @@ function PendingOrderCheckout({ request, coupons, onOrderPlaced }: { request: Ta
   const platformFee = getPlatformFee(Number(selectedQuote?.price ?? 0));
   const smallOrderFee = getSmallOrderFee(Number(selectedQuote?.price ?? 0));
   const subtotal = Number(selectedQuote?.price ?? 0) + deliveryFee + platformFee + smallOrderFee + homeFee;
-  const discount = couponDiscount(selectedCoupon, subtotal);
+  const discount = couponDiscount(selectedCoupon, { orderSubtotal: Number(selectedQuote?.price ?? 0), deliveryFee, platformFee, smallOrderFee, homeMeasurementFee: homeFee });
   const total = Math.max(subtotal - discount, 0);
 
   const checkout = useMutation({

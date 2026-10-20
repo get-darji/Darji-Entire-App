@@ -103,6 +103,7 @@ export type Coupon = {
   id?: string;
   code: string;
   description: string;
+  benefitType?: "ORDER_FLAT" | "ORDER_PERCENTAGE" | "FREE_DELIVERY" | "DELIVERY_PERCENTAGE" | "WAIVE_PLATFORM_FEE" | "WAIVE_SMALL_ORDER_FEE" | "FREE_MEASUREMENT";
   discountType: "FLAT" | "PERCENTAGE";
   discountValue: number;
   minOrderValue: number;

@@ -68,6 +68,7 @@ import { getPlatformStatus, savePlatformStatus } from "../services/platform-stat
 import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
 import { OPERATIONAL_ALLOWANCE_PER_ORDER, allocateAmountExactly, paymentDedupeKey } from "../services/financial-reporting.logic.js";
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
+import { couponsVisibleToCustomer } from "../services/coupon.service.js";
 import { checkServiceAvailability, getServiceAreaConfig, saveServiceAreaConfig } from "../services/service-area.service.js";
 import { extractTailorPoint, geocodeAddress, pointFrom, roadDistanceMatrix, type LatLng } from "../services/delivery-pricing.service.js";
 
@@ -2005,20 +2006,59 @@ export async function listSupportTicketsController(req: Request, res: Response) 
 
 export async function listCouponsController(req: Request, res: Response) {
   const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
-  const coupons = await CouponModel.find(isAdmin ? {} : {
+  let coupons = await CouponModel.find(isAdmin ? {} : {
     isActive: true,
     $and: [
+      { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: new Date() } }] },
       { $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }] },
       { $or: [{ usageLimit: null }, { usageLimit: { $exists: false } }, { $expr: { $lt: [{ $ifNull: ["$usedCount", 0] }, "$usageLimit"] } }] }
     ]
   }).sort({ createdAt: -1 });
+  if (!isAdmin) coupons = await couponsVisibleToCustomer(coupons, req.user!.id);
   res.json({ data: coupons });
+}
+
+export async function listCouponRedemptionsController(req: Request, res: Response) {
+  const coupon = await CouponModel.findById(String(req.params.id)).select("code").lean();
+  if (!coupon) throw new AppError(404, "Coupon not found");
+  const documents = await CouponRedemptionModel.find({ couponId: coupon._id }).lean();
+  const redemptions = documents.flatMap((document) => (document.redemptions ?? []).map((redemption: any) => ({
+    customerId: String(document.customerId),
+    ...redemption
+  }))).sort((a: any, b: any) => new Date(b.redeemedAt ?? 0).getTime() - new Date(a.redeemedAt ?? 0).getTime());
+  const customerIds = [...new Set(redemptions.map((redemption: any) => redemption.customerId))];
+  const catalogOrderIds = [...new Set(redemptions.filter((redemption: any) => redemption.orderType === "CATALOG").map((redemption: any) => redemption.orderId))];
+  const tailoringOrderIds = [...new Set(redemptions.filter((redemption: any) => redemption.orderType === "TAILORING").map((redemption: any) => redemption.orderId))];
+  const [customers, catalogOrders, tailoringOrders] = await Promise.all([
+    UserModel.find({ _id: { $in: customerIds } }).select("name phone darjiCustomerId").lean(),
+    OrderModel.find({ _id: { $in: catalogOrderIds } }).select("orderNumber").lean(),
+    TailoringRequestModel.find({ _id: { $in: tailoringOrderIds } }).select("darjiId").lean()
+  ]);
+  const customerById = new Map(customers.map((customer: any) => [String(customer._id), customer]));
+  const catalogById = new Map(catalogOrders.map((order: any) => [String(order._id), order]));
+  const tailoringById = new Map(tailoringOrders.map((request: any) => [String(request._id), request]));
+  res.json({ data: redemptions.map((redemption: any) => {
+    const customer = customerById.get(redemption.customerId);
+    const order = redemption.orderType === "CATALOG" ? catalogById.get(String(redemption.orderId)) : tailoringById.get(String(redemption.orderId));
+    return {
+      ...redemption,
+      customer: customer ? { id: redemption.customerId, name: customer.name, phone: customer.phone, darjiCustomerId: customer.darjiCustomerId } : null,
+      order: order ? { id: redemption.orderId, reference: redemption.orderType === "CATALOG" ? order.orderNumber : order.darjiId } : { id: redemption.orderId, reference: redemption.orderId }
+    };
+  }) });
 }
 
 export async function createCouponController(req: Request, res: Response) {
   const input = couponSchema.parse(req.body);
   try {
-    const coupon = await CouponModel.create({ ...input, code: input.code.toUpperCase(), expiresAt: input.expiresAt ? new Date(input.expiresAt) : null });
+    const coupon = await CouponModel.create({
+      ...input,
+      code: input.code.toUpperCase(),
+      startsAt: input.startsAt ? new Date(input.startsAt) : null,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      registeredAfter: input.registeredAfter ? new Date(input.registeredAfter) : null,
+      registeredBefore: input.registeredBefore ? new Date(input.registeredBefore) : null
+    });
     res.status(201).json({ data: coupon });
   } catch (error: any) {
     if (error?.code === 11000) throw new AppError(409, "A coupon with this code already exists");
@@ -2031,26 +2071,51 @@ export async function updateCouponController(req: Request, res: Response) {
     code: z.string().trim().min(3).max(24).optional(),
     description: z.string().trim().min(3).max(500).optional(),
     discountType: z.enum(["FLAT", "PERCENTAGE"]).optional(),
-    discountValue: z.number().positive().optional(),
+    benefitType: z.enum(["ORDER_FLAT", "ORDER_PERCENTAGE", "FREE_DELIVERY", "DELIVERY_PERCENTAGE", "WAIVE_PLATFORM_FEE", "WAIVE_SMALL_ORDER_FEE", "FREE_MEASUREMENT"]).optional(),
+    discountValue: z.number().nonnegative().optional(),
     minOrderValue: z.number().nonnegative().optional(),
     maxDiscount: z.number().positive().nullable().optional(),
     usageLimit: z.number().int().positive().nullable().optional(),
     perCustomerLimit: z.number().int().positive().nullable().optional(),
+    maxCampaignDiscount: z.number().positive().nullable().optional(),
+    startsAt: z.string().datetime().nullable().optional(),
     expiresAt: z.string().datetime().nullable().optional(),
+    orderEligibilityType: z.enum(["ANY", "FIRST", "EXACT", "RANGE"]).optional(),
+    orderNumber: z.number().int().positive().nullable().optional(),
+    orderNumberFrom: z.number().int().positive().nullable().optional(),
+    orderNumberTo: z.number().int().positive().nullable().optional(),
+    audienceType: z.enum(["EVERYONE", "SELECTED_CUSTOMERS", "NEW_CUSTOMERS", "INACTIVE_CUSTOMERS", "REGISTERED_BETWEEN"]).optional(),
+    selectedCustomerIds: z.array(z.string().min(1)).max(10000).optional(),
+    inactiveDays: z.number().int().positive().nullable().optional(),
+    registeredAfter: z.string().datetime().nullable().optional(),
+    registeredBefore: z.string().datetime().nullable().optional(),
+    orderScope: z.enum(["BOTH", "CATALOG", "TAILORING"]).optional(),
+    allowedDeliveryModes: z.array(z.enum(["STANDARD", "EXPRESS", "INSTANT"])).optional(),
+    allowedPaymentMethods: z.array(z.enum(["UPI", "COD", "ONLINE"])).optional(),
     isActive: z.boolean().optional()
   }).parse(req.body);
   const current = await CouponModel.findById(String(req.params.id));
   if (!current) throw new AppError(404, "Coupon not found");
-  const discountType = input.discountType ?? current.discountType;
-  const discountValue = input.discountValue ?? Number(current.discountValue);
-  if (discountType === "PERCENTAGE" && discountValue > 100) throw new AppError(400, "Percentage discount cannot exceed 100");
+  const currentValue = current.toObject() as any;
+  couponSchema.parse({
+    ...currentValue,
+    ...input,
+    startsAt: input.startsAt !== undefined ? input.startsAt : current.startsAt?.toISOString() ?? null,
+    expiresAt: input.expiresAt !== undefined ? input.expiresAt : current.expiresAt?.toISOString() ?? null,
+    registeredAfter: input.registeredAfter !== undefined ? input.registeredAfter : current.registeredAfter?.toISOString() ?? null,
+    registeredBefore: input.registeredBefore !== undefined ? input.registeredBefore : current.registeredBefore?.toISOString() ?? null
+  });
   if (input.usageLimit != null && input.usageLimit < Number(current.usedCount ?? 0)) throw new AppError(400, "Usage limit cannot be lower than existing redemptions");
+  if (input.maxCampaignDiscount != null && input.maxCampaignDiscount < Number(current.totalDiscountIssued ?? 0)) throw new AppError(400, "Campaign budget cannot be lower than the discount already issued");
   try {
     const coupon = await CouponModel.findByIdAndUpdate(String(req.params.id), {
       $set: {
         ...input,
         ...(input.code ? { code: input.code.toUpperCase() } : {}),
-        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {})
+        ...(input.startsAt !== undefined ? { startsAt: input.startsAt ? new Date(input.startsAt) : null } : {}),
+        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
+        ...(input.registeredAfter !== undefined ? { registeredAfter: input.registeredAfter ? new Date(input.registeredAfter) : null } : {}),
+        ...(input.registeredBefore !== undefined ? { registeredBefore: input.registeredBefore ? new Date(input.registeredBefore) : null } : {})
       }
     }, { returnDocument: "after", runValidators: true });
     res.json({ data: coupon });

@@ -77,18 +77,40 @@ export const updateOrderStatusSchema = z.object({
 export const couponSchema = z.object({
   code: z.string().min(3).max(24).toUpperCase(),
   description: z.string().min(3),
+  benefitType: z.enum(["ORDER_FLAT", "ORDER_PERCENTAGE", "FREE_DELIVERY", "DELIVERY_PERCENTAGE", "WAIVE_PLATFORM_FEE", "WAIVE_SMALL_ORDER_FEE", "FREE_MEASUREMENT"]).optional(),
   discountType: z.enum(["FLAT", "PERCENTAGE"]),
-  discountValue: z.number().positive(),
+  discountValue: z.number().nonnegative(),
   minOrderValue: z.number().nonnegative().default(0),
   maxDiscount: z.number().positive().optional().nullable(),
   usageLimit: z.number().int().positive().optional().nullable(),
   perCustomerLimit: z.number().int().positive().optional().nullable(),
+  maxCampaignDiscount: z.number().positive().optional().nullable(),
+  startsAt: z.string().datetime().optional().nullable(),
   expiresAt: z.string().datetime().optional().nullable(),
+  orderEligibilityType: z.enum(["ANY", "FIRST", "EXACT", "RANGE"]).default("ANY"),
+  orderNumber: z.number().int().positive().optional().nullable(),
+  orderNumberFrom: z.number().int().positive().optional().nullable(),
+  orderNumberTo: z.number().int().positive().optional().nullable(),
+  audienceType: z.enum(["EVERYONE", "SELECTED_CUSTOMERS", "NEW_CUSTOMERS", "INACTIVE_CUSTOMERS", "REGISTERED_BETWEEN"]).default("EVERYONE"),
+  selectedCustomerIds: z.array(z.string().min(1)).max(10000).default([]),
+  inactiveDays: z.number().int().positive().optional().nullable(),
+  registeredAfter: z.string().datetime().optional().nullable(),
+  registeredBefore: z.string().datetime().optional().nullable(),
+  orderScope: z.enum(["BOTH", "CATALOG", "TAILORING"]).default("BOTH"),
+  allowedDeliveryModes: z.array(z.enum(["STANDARD", "EXPRESS", "INSTANT"])).default([]),
+  allowedPaymentMethods: z.array(z.enum(paymentMethods)).default([]),
   isActive: z.boolean().default(true)
 }).superRefine((coupon, context) => {
-  if (coupon.discountType === "PERCENTAGE" && coupon.discountValue > 100) {
+  const benefitType = coupon.benefitType ?? (coupon.discountType === "PERCENTAGE" ? "ORDER_PERCENTAGE" : "ORDER_FLAT");
+  if (["ORDER_PERCENTAGE", "DELIVERY_PERCENTAGE"].includes(benefitType) && coupon.discountValue > 100) {
     context.addIssue({ code: "custom", path: ["discountValue"], message: "Percentage discount cannot exceed 100" });
   }
+  if (["ORDER_FLAT", "ORDER_PERCENTAGE", "DELIVERY_PERCENTAGE"].includes(benefitType) && coupon.discountValue <= 0) {
+    context.addIssue({ code: "custom", path: ["discountValue"], message: "Discount value must be greater than zero" });
+  }
+  if (coupon.orderEligibilityType === "EXACT" && !coupon.orderNumber) context.addIssue({ code: "custom", path: ["orderNumber"], message: "Exact order number is required" });
+  if (coupon.orderEligibilityType === "RANGE" && (!coupon.orderNumberFrom || !coupon.orderNumberTo || coupon.orderNumberFrom > coupon.orderNumberTo)) context.addIssue({ code: "custom", path: ["orderNumberFrom"], message: "A valid order-number range is required" });
+  if (coupon.audienceType === "SELECTED_CUSTOMERS" && !coupon.selectedCustomerIds.length) context.addIssue({ code: "custom", path: ["selectedCustomerIds"], message: "Select at least one customer" });
 });
 
 export const supportMessageSchema = z.object({
@@ -230,6 +252,47 @@ export function calculateCouponDiscount(
   const raw = coupon.discountType === "PERCENTAGE" ? subtotal * value / 100 : value;
   const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
   return Number(Math.max(0, Math.min(capped, subtotal)).toFixed(2));
+}
+
+export type CouponPricingBreakdown = {
+  orderSubtotal: number;
+  deliveryFee?: number;
+  platformFee?: number;
+  smallOrderFee?: number;
+  homeMeasurementFee?: number;
+};
+
+export function calculateCouponBenefit(
+  coupon: { benefitType?: unknown; discountType?: unknown; discountValue?: unknown; maxDiscount?: unknown },
+  pricing: CouponPricingBreakdown
+) {
+  const normalized = {
+    orderSubtotal: Math.max(0, Number(pricing.orderSubtotal ?? 0)),
+    deliveryFee: Math.max(0, Number(pricing.deliveryFee ?? 0)),
+    platformFee: Math.max(0, Number(pricing.platformFee ?? 0)),
+    smallOrderFee: Math.max(0, Number(pricing.smallOrderFee ?? 0)),
+    homeMeasurementFee: Math.max(0, Number(pricing.homeMeasurementFee ?? 0))
+  };
+  const totalBeforeDiscount = Object.values(normalized).reduce((sum, value) => sum + value, 0);
+  const legacyType = coupon.discountType === "PERCENTAGE" ? "ORDER_PERCENTAGE" : "ORDER_FLAT";
+  const benefitType = String(coupon.benefitType ?? legacyType);
+  const value = Math.max(0, Number(coupon.discountValue ?? 0));
+  let raw = 0;
+  if (benefitType === "ORDER_PERCENTAGE") raw = totalBeforeDiscount * value / 100;
+  else if (benefitType === "ORDER_FLAT") raw = value;
+  else if (benefitType === "FREE_DELIVERY") raw = normalized.deliveryFee;
+  else if (benefitType === "DELIVERY_PERCENTAGE") raw = normalized.deliveryFee * value / 100;
+  else if (benefitType === "WAIVE_PLATFORM_FEE") raw = normalized.platformFee;
+  else if (benefitType === "WAIVE_SMALL_ORDER_FEE") raw = normalized.smallOrderFee;
+  else if (benefitType === "FREE_MEASUREMENT") raw = normalized.homeMeasurementFee;
+  const capped = coupon.maxDiscount != null ? Math.min(raw, Number(coupon.maxDiscount)) : raw;
+  const discount = Number(Math.max(0, Math.min(capped, totalBeforeDiscount)).toFixed(2));
+  return {
+    benefitType,
+    discount,
+    totalBeforeDiscount: Number(totalBeforeDiscount.toFixed(2)),
+    affectedComponent: benefitType.includes("DELIVERY") ? "DELIVERY" : benefitType === "WAIVE_PLATFORM_FEE" ? "PLATFORM_FEE" : benefitType === "WAIVE_SMALL_ORDER_FEE" ? "SMALL_ORDER_FEE" : benefitType === "FREE_MEASUREMENT" ? "MEASUREMENT" : "ORDER"
+  };
 }
 
 export * from "./localization.js";
