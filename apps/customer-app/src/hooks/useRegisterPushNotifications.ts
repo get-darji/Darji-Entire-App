@@ -84,7 +84,8 @@ export function useRegisterPushNotifications({ authToken, app, userId }: Options
             expoPushToken,
             fcmToken: fcmToken ? String(fcmToken.data) : undefined,
             platform: Platform.OS,
-            app: Constants.expoConfig?.slug ?? app
+            app: Constants.expoConfig?.slug ?? app,
+            richRenderer: Platform.OS === "android"
           })
         },
         registrationAuthToken

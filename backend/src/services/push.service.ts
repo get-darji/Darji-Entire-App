@@ -10,6 +10,7 @@ export type PushPayload = {
   largeIconUrl?: string;
   notificationStyle?: "STANDARD" | "BIG_TEXT" | "LARGE_ICON" | "BIG_PICTURE" | "ACTION";
   richBody?: unknown;
+  useRichRenderer?: boolean;
   data?: Record<string, string | number | boolean | undefined>;
   actions?: string[];
   channelId?: string;
@@ -133,7 +134,7 @@ export function initFirebaseAdmin() {
   }
 }
 
-export async function saveFcmToken(userId: string, input: { token: string; platform?: string; app?: string }) {
+export async function saveFcmToken(userId: string, input: { token: string; platform?: string; app?: string; richRenderer?: boolean }) {
   const token = input.token.trim();
   if (!token) return null;
   const app = normalizeAppName(input.app) ?? input.app?.trim();
@@ -151,6 +152,7 @@ export async function saveFcmToken(userId: string, input: { token: string; platf
           token,
           platform: input.platform,
           app,
+          richRenderer: input.richRenderer === true,
           updatedAt: new Date()
         }
       }
@@ -161,14 +163,14 @@ export async function saveFcmToken(userId: string, input: { token: string; platf
 
 export async function saveDeviceTokens(
   userId: string,
-  input: { fcmToken?: string; expoPushToken?: string; platform?: string; app?: string }
+  input: { fcmToken?: string; expoPushToken?: string; platform?: string; app?: string; richRenderer?: boolean }
 ) {
   const updates: Promise<unknown>[] = [];
   const fcmToken = input.fcmToken?.trim();
   const expoPushToken = input.expoPushToken?.trim();
   const app = normalizeAppName(input.app) ?? input.app?.trim();
 
-  if (fcmToken) updates.push(saveFcmToken(userId, { token: fcmToken, platform: input.platform, app }));
+  if (fcmToken) updates.push(saveFcmToken(userId, { token: fcmToken, platform: input.platform, app, richRenderer: input.richRenderer }));
   if (expoPushToken) {
     updates.push(
       UserModel.updateMany({ _id: { $ne: userId } }, { $pull: { expoPushTokens: { token: expoPushToken } } }).then(() =>
@@ -180,6 +182,7 @@ export async function saveDeviceTokens(
               token: expoPushToken,
               platform: input.platform,
               app,
+            richRenderer: input.richRenderer === true,
               updatedAt: new Date()
             }
           }
@@ -270,18 +273,17 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
     const normalizedApp = normalizeAppName(app);
     return normalizedApp !== "customer" || customerPushAllowed(preferences, payload, normalizedPayloadData);
   };
-  const tokens = [
-    ...new Set(
-      eligibleUsers.flatMap((user) => {
-        const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string }>; notificationPreferences?: unknown };
-        const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app) && tokenAllowed(item.app, json.notificationPreferences)).map((item) => item.token!);
+  const fcmEntries = eligibleUsers.flatMap((user) => {
+        const json = user.toJSON() as { fcmToken?: string; fcmTokens?: Array<{ token?: string; app?: string; richRenderer?: boolean }>; notificationPreferences?: unknown };
+        const matchingFcmTokens = (json.fcmTokens ?? []).filter((item) => item.token && matchesTargetApp(item.app) && tokenAllowed(item.app, json.notificationPreferences)).map((item) => ({ token: item.token!, richRenderer: item.richRenderer === true }));
         // Legacy tokens have no app identity. Never use them for an app-scoped push,
         // otherwise a tailor alert can surface in the customer app on a shared device.
-        const legacyToken = json.fcmToken && !shouldFilterByApp ? [json.fcmToken] : [];
+        const legacyToken = json.fcmToken && !shouldFilterByApp ? [{ token: json.fcmToken, richRenderer: false }] : [];
         return [...legacyToken, ...matchingFcmTokens];
-      })
-    )
-  ];
+      });
+  const richFcmTokens = payload.useRichRenderer ? [...new Set(fcmEntries.filter((item) => item.richRenderer).map((item) => item.token))] : [];
+  const standardFcmTokens = [...new Set(fcmEntries.filter((item) => !payload.useRichRenderer || !item.richRenderer).map((item) => item.token))];
+  const tokens = [...new Set([...standardFcmTokens, ...richFcmTokens])];
   const expoTokens = [
     ...new Set(eligibleUsers.flatMap((user) => {
       const json = user.toJSON() as {
@@ -343,20 +345,20 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
     if (payload.richBody) data.richBody = JSON.stringify(payload.richBody).slice(0, 3500);
     const tag = data.taskId || data.requestId || data.orderId || "darji-order";
     if (tokens.length && !firebaseReady) providerErrors.push("Firebase Admin is not configured");
-    const result = tokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
-      tokens,
-      ...(!isIncomingRequest ? {
+    const sendFcm = async (fcmTokens: string[], rich: boolean) => fcmTokens.length && firebaseReady ? await admin.messaging().sendEachForMulticast({
+      tokens: fcmTokens,
+      ...(!isIncomingRequest && !rich ? {
         notification: {
           title: payload.title,
           body: payload.body,
           imageUrl: payload.imageUrl
         }
       } : {}),
-      data,
+      data: rich ? { ...data, darjiRichNotification: "true", campaignId: data.campaignId || tag, imageUrl: payload.imageUrl ?? "" } : data,
       android: {
         priority: "high",
         ...(isIncomingRequest ? { ttl: 35_000, collapseKey: `incoming-${tag}` } : {}),
-        ...(!isIncomingRequest ? {
+        ...(!isIncomingRequest && !rich ? {
           notification: {
             channelId: payload.channelId ?? "darji-alerts-v2",
             color: "#F98A04",
@@ -387,13 +389,17 @@ export async function sendPushToUsers(userIds: string[], payload: PushPayload): 
       const message = error instanceof Error ? error.message : "Firebase push provider failed";
       providerErrors.push(message);
       console.error("[FCM] Push delivery failed", error);
-      return { responses: [], successCount: 0, failureCount: tokens.length };
-    }) : { responses: [], successCount: 0, failureCount: tokens.length };
+      return { responses: [], successCount: 0, failureCount: fcmTokens.length };
+    }) : { responses: [], successCount: 0, failureCount: fcmTokens.length };
+    const standardResult = await sendFcm(standardFcmTokens, false);
+    const richResult = await sendFcm(richFcmTokens, true);
+    const result = { successCount: standardResult.successCount + richResult.successCount, failureCount: standardResult.failureCount + richResult.failureCount };
 
-    const invalidTokens = result.responses.flatMap((response, index) => {
+    const invalidFrom = (responses: Array<{ error?: { code?: string } }>, source: string[]) => responses.flatMap((response, index) => {
       const code = response.error?.code ?? "";
-      return /registration-token-not-registered|invalid-registration-token|invalid-argument/i.test(code) ? [tokens[index]] : [];
+      return /registration-token-not-registered|invalid-registration-token|invalid-argument/i.test(code) ? [source[index]] : [];
     });
+    const invalidTokens = [...invalidFrom(standardResult.responses, standardFcmTokens), ...invalidFrom(richResult.responses, richFcmTokens)];
     if (invalidTokens.length) {
       await Promise.all([
         UserModel.updateMany({}, { $pull: { fcmTokens: { token: { $in: invalidTokens } } } }),

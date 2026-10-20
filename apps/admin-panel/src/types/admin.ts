@@ -1079,6 +1079,11 @@ export type AdminActivityLog = {
   actorId: string;
   actorRole: string;
   actorName?: string;
+  actorPhone?: string;
+  category?: "ACCESS" | "ORDERS" | "OPERATIONS" | "PEOPLE" | "FINANCE" | "SUPPORT" | "CONFIGURATION" | "OTHER";
+  action?: string;
+  ipAddress?: string;
+  userAgent?: string;
   method: string;
   path: string;
   statusCode: number;

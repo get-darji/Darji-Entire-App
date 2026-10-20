@@ -80,6 +80,7 @@ const userSchema = new Schema(
         token: { type: String, required: true },
         platform: String,
         app: String,
+        richRenderer: { type: Boolean, default: false },
         updatedAt: { type: Date, default: Date.now }
       }
     ],
@@ -88,6 +89,7 @@ const userSchema = new Schema(
         token: { type: String, required: true },
         platform: String,
         app: String,
+        richRenderer: { type: Boolean, default: false },
         updatedAt: { type: Date, default: Date.now }
       }
     ],
@@ -1076,6 +1078,11 @@ const adminAuditLogSchema = new Schema(
     actorId: { type: String, required: true, index: true },
     actorRole: { type: String, required: true, index: true },
     actorName: String,
+    actorPhone: String,
+    category: { type: String, default: "OTHER", index: true },
+    action: String,
+    ipAddress: String,
+    userAgent: String,
     method: { type: String, required: true },
     path: { type: String, required: true, index: true },
     statusCode: { type: Number, required: true },

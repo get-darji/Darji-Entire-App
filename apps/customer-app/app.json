@@ -39,6 +39,7 @@
         }
       ],
       "expo-font",
+      "./modules/rich-notification/app.plugin.js",
       "expo-sharing",
       [
         "expo-notifications",

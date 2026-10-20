@@ -4,11 +4,12 @@ import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { env } from "../env.js";
 import { requestOtpSchema, verifyOtpSchema } from "@darji/shared";
-import { DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
+import { AdminAuditLogModel, DeliveryPartnerModel, DeliveryRequestModel, OrderModel, ReviewModel, TailorModel, TailoringRequestModel, TailorQuoteModel, UserModel, WalletModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/tokens.js";
 import { AppError } from "../middleware/error.js";
 import { z } from "zod";
+import { auditRequestContext } from "../middleware/admin-audit.js";
 
 const adminRefreshCookie = "darji_admin_refresh";
 
@@ -199,6 +200,14 @@ export async function verifyOtpController(req: Request, res: Response) {
 
   if (role === "ADMIN" || role === "SUPER_ADMIN") setAdminRefreshCookie(res, refreshToken);
 
+  if (role === "ADMIN" || role === "SUPER_ADMIN") {
+    await AdminAuditLogModel.create({
+      actorId: user.id, actorRole: role, actorName: user.name, actorPhone: user.phone,
+      category: "ACCESS", action: "Signed in to admin panel", method: "POST", path: req.originalUrl.split("?")[0], statusCode: 200,
+      entityType: "ADMIN_SESSION", entityId: sessionId, summary: "Signed in to admin panel", ...auditRequestContext(req), metadata: { loginMethod: "OTP" }
+    }).catch(() => undefined);
+  }
+
   res.json({ data: { user: { ...user.toJSON(), role }, accessToken, refreshToken: requestedAdmin ? undefined : refreshToken } });
 }
 
@@ -249,6 +258,14 @@ export async function logoutController(req: Request, res: Response) {
     }
   });
   clearAdminRefreshCookie(res);
+  if (adminSession) {
+    const user = await UserModel.findById(req.user!.id).select("name phone").lean();
+    await AdminAuditLogModel.create({
+      actorId: req.user!.id, actorRole: req.user!.role, actorName: user?.name, actorPhone: user?.phone,
+      category: "ACCESS", action: "Signed out of admin panel", method: "POST", path: req.originalUrl.split("?")[0], statusCode: 200,
+      entityType: "ADMIN_SESSION", summary: "Signed out of admin panel", ...auditRequestContext(req), metadata: {}
+    }).catch(() => undefined);
+  }
   res.json({ data: { ok: true } });
 }
 

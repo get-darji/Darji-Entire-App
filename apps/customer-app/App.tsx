@@ -6906,11 +6906,13 @@ function QuotesScreen({
   }, [draft.backendRequestId, liveQuote]);
 
   const visibleQuotes = [...backendQuotes].sort((a, b) => {
-    const aFav = (a.tailorId && favoriteTailorIds.includes(a.tailorId)) || (a.tailorProfile?.id && favoriteTailorIds.includes(a.tailorProfile.id));
-    const bFav = (b.tailorId && favoriteTailorIds.includes(b.tailorId)) || (b.tailorProfile?.id && favoriteTailorIds.includes(b.tailorProfile.id));
-    if (aFav && !bFav) return -1;
-    if (!aFav && bFav) return 1;
-    if (a.price !== b.price) return a.price - b.price;
+    const aFav = Boolean((a.tailorId && favoriteTailorIds.includes(a.tailorId)) || (a.tailorProfile?.id && favoriteTailorIds.includes(a.tailorProfile.id)));
+    const bFav = Boolean((b.tailorId && favoriteTailorIds.includes(b.tailorId)) || (b.tailorProfile?.id && favoriteTailorIds.includes(b.tailorProfile.id)));
+    // Favourite tailors form the first group. Within each group, cheaper quotes
+    // always come first; the ID tie-breaker keeps a refresh from shuffling cards.
+    if (aFav !== bFav) return aFav ? -1 : 1;
+    const priceDifference = Number(a.price) - Number(b.price);
+    if (Number.isFinite(priceDifference) && priceDifference !== 0) return priceDifference;
     return String(a.backendQuoteId ?? a.id).localeCompare(String(b.backendQuoteId ?? b.id));
   });
 
@@ -7052,7 +7054,7 @@ function QuotesScreen({
         {visibleQuotes.length > 0 ? (
           <View style={styles.quotesListHeader}>
             <Text style={styles.sectionTitle}>Tailor Quotes</Text>
-            <Text style={styles.mutedSmall}>Compare and choose the best quote for you.</Text>
+            <Text style={styles.mutedSmall}>Favorites first · Then lowest price first</Text>
           </View>
         ) : null}
 

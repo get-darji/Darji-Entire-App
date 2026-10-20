@@ -9,7 +9,8 @@ const deviceTokenSchema = z.object({
   fcmToken: z.string().trim().min(20).optional(),
   expoPushToken: z.string().trim().regex(/^ExponentPushToken\[[^\]]+\]$/).optional(),
   platform: z.enum(["android", "ios"]).optional(),
-  app: z.string().trim().max(80).optional()
+  app: z.string().trim().max(80).optional(),
+  richRenderer: z.boolean().optional()
 }).refine((input) => Boolean(input.fcmToken || input.expoPushToken), "At least one push token is required");
 
 const testNotificationSchema = z.object({
@@ -161,7 +162,12 @@ async function deliverCampaign(campaign: any) {
     imageUrl: campaign.imageUrl ?? undefined,
     largeIconUrl: campaign.largeIconUrl ?? undefined,
     notificationStyle: campaign.style ?? "STANDARD",
-    richBody: campaign.bodyFormat === "RESTRICTED_RICH_TEXT" ? campaign.richBody : undefined
+    richBody: campaign.bodyFormat === "RESTRICTED_RICH_TEXT" ? campaign.richBody : undefined,
+    // New Android builds register this capability. Older installs deliberately
+    // retain the normal FCM notification path instead of losing a campaign.
+    // Preserve Expo's existing response/deep-link path for record-specific
+    // actions until the native renderer has its own authenticated bridge.
+    useRichRenderer: !campaign.action?.entityId && Boolean(campaign.largeIconUrl || campaign.imageUrl || campaign.style === "BIG_TEXT" || campaign.style === "BIG_PICTURE" || campaign.style === "LARGE_ICON")
   })));
   const delivery = appDeliveries.reduce((total, item) => ({
     requestedRecipientCount: total.requestedRecipientCount + item.requestedRecipientCount,

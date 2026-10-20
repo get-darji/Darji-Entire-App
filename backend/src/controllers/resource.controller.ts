@@ -56,6 +56,7 @@ import multer from "multer";
 import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
+import { auditRequestContext } from "../middleware/admin-audit.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
 import { pushRuntimeStatus, saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { nextDarjiId } from "../utils/darji-id.js";
@@ -1585,13 +1586,17 @@ export async function adminCreatePayoutController(req: Request, res: Response) {
     actorId: req.user!.id,
     actorRole: req.user!.role,
     actorName: actor?.name || actor?.phone || "Admin",
+    actorPhone: actor?.phone,
+    category: "FINANCE",
+    action: `Recorded ${input.userType === "TAILOR" ? "tailor" : "delivery partner"} weekly payout`,
     method: req.method,
     path: req.originalUrl.split("?")[0],
     statusCode: 201,
     entityType: "PARTNER_PAYOUT",
     entityId: history.id,
     summary: `Recorded ${input.userType === "TAILOR" ? "tailor" : "delivery partner"} weekly payout`,
-    metadata: { userId: input.userId, amount: input.amount, referenceNumber: input.referenceNumber, allocationCount: history.allocations?.length ?? 0 }
+    metadata: { userId: input.userId, amount: input.amount, referenceNumber: input.referenceNumber, allocationCount: history.allocations?.length ?? 0 },
+    ...auditRequestContext(req)
   }).catch(() => undefined);
   res.status(201).json({ data: history });
 }
@@ -3624,9 +3629,11 @@ export async function listAdminActivityLogsController(req: Request, res: Respons
   const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
   const search = String(req.query.search ?? "").trim().slice(0, 100);
   const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const filter = search ? {
-    $or: ["actorName", "method", "path", "entityType", "entityId", "summary"].map((field) => ({ [field]: { $regex: escaped, $options: "i" } }))
+  const category = String(req.query.category ?? "").trim().toUpperCase();
+  const filter: Record<string, unknown> = search ? {
+    $or: ["actorName", "actorPhone", "method", "path", "entityType", "entityId", "summary", "action", "ipAddress"].map((field) => ({ [field]: { $regex: escaped, $options: "i" } }))
   } : {};
+  if (category && category !== "ALL") filter.category = category;
   const logs = await AdminAuditLogModel.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
   res.json({ data: logs.map((log: any) => ({ ...log, id: String(log._id), _id: undefined })) });
 }
@@ -4082,13 +4089,17 @@ async function recordAdminPartnerChanges(req: Request, role: "TAILOR" | "DELIVER
     actorId: req.user!.id,
     actorRole: req.user!.role,
     actorName: actor?.name || actor?.phone || "Admin",
+    actorPhone: actor?.phone,
+    category: "PEOPLE",
+    action: summary,
     method: req.method,
     path: req.originalUrl.split("?")[0],
     statusCode: 200,
     entityType: role === "TAILOR" ? "TAILOR_PROFILE" : "DELIVERY_PARTNER_PROFILE",
     entityId: profileId,
     summary,
-    metadata: { changes: changes.slice(0, 250) }
+    metadata: { changes: changes.slice(0, 250) },
+    ...auditRequestContext(req)
   });
 }
 

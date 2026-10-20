@@ -14,6 +14,7 @@ class IncomingAlertFirebaseReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val extras = intent.extras ?: return
     val payload = IncomingAlertManager.bundleToPayload(extras)
+    if (payload.optString("darjiRichNotification").equals("true", ignoreCase = true)) { RichNotificationRenderer.show(context, payload); return }
     Log.d("DarjiIncomingAlert", "FCM broadcast received action=${intent.action} keys=${payload.keys().asSequence().joinToString(",")} incoming=${IncomingAlertManager.isIncoming(payload)} foreground=${IncomingAlertManager.isAppInForeground(context)}")
     if (!IncomingAlertManager.isIncoming(payload)) return
     IncomingAlertManager.show(context, payload)

@@ -16,6 +16,9 @@ import { monitorNoQuoteRequests } from "./services/operational-alert.service.js"
 import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
 
 const app = express();
+// Railway forwards client addresses through one proxy. Express only trusts that
+// proxy in production, preventing a local caller from spoofing an audit IP.
+app.set("trust proxy", env.NODE_ENV === "production" ? 1 : false);
 const configuredOrigins = new Set((env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim().replace(/\/$/, ""))
