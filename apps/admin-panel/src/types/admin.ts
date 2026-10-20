@@ -402,6 +402,22 @@ export type OrderItem = {
   price?: number;
   instructions?: string;
   referenceImageUrl?: string;
+  description?: string;
+  gender?: string;
+  clothType?: string;
+  workType?: string;
+  serviceCategory?: string;
+  selectedWorkItems?: string[];
+  otherWorkDescription?: string;
+  measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
+  measurementNotes?: string;
+  media?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  voiceNotes?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  sampleProvided?: boolean;
+  sampleMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  designMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
   service?: {
     id: string;
     name: string;
@@ -719,9 +735,15 @@ export type TailoringRequest = {
   workType: string;
   urgency: string;
   measurementNotes?: string;
+  serviceCategory?: string;
+  selectedWorkItems?: string[];
+  otherWorkDescription?: string;
+  measurement?: { label?: string; fields?: Record<string, string | number>; imageUrl?: string };
   pickupAddress: string;
   media?: Array<{ url: string; resourceType: string; originalName?: string }>;
   voiceNotes?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  designMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
+  items?: OrderItem[];
   sampleProvided?: boolean;
   sampleMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
   receivedMedia?: Array<{ url: string; resourceType: string; originalName?: string }>;
@@ -752,6 +774,7 @@ export type TailoringRequest = {
   couponCode?: string;
   discountAmount?: number;
   homeMeasurementBooked?: boolean;
+  preferredMeasurementSlot?: string;
   itemCount?: number;
   totalAmount?: number;
   confirmedAt?: string;

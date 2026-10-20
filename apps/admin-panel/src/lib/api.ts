@@ -342,6 +342,26 @@ export async function getAdminOrderQuotes(orderId: string) {
   return unwrap<TailorQuote[]>(api.get(`/admin/orders/${orderId}/quotes`));
 }
 
+export async function updateAdminOrderQuote(payload: { orderId: string; quoteId: string; price?: number; estimatedDays?: number; estimatedHours?: number | null; message?: string }) {
+  const { orderId, quoteId, ...body } = payload;
+  return unwrap<TailorQuote>(api.patch(`/admin/orders/${orderId}/quotes/${quoteId}`, body));
+}
+
+export type AdminAssignmentCandidate<T extends TailorProfile | DeliveryPartnerProfile> = {
+  profile: T;
+  distanceMeters: number | null;
+  locationLabel: string;
+};
+
+export async function getAdminAssignmentCandidates<T extends TailorProfile | DeliveryPartnerProfile>(params: {
+  role: "TAILOR" | "DELIVERY_PARTNER";
+  orderId?: string;
+  customerId?: string;
+  address?: string;
+}) {
+  return unwrap<{ originLabel: string; candidates: Array<AdminAssignmentCandidate<T>> }>(api.get("/admin/assignment-candidates", { params }));
+}
+
 export async function reportAdminOrderIssue(payload: { orderId: string; message?: string }) {
   return unwrap<OperationalAlert>(api.post(`/admin/orders/${payload.orderId}/issues`, { message: payload.message ?? "Order requires admin review" }));
 }

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
-import archiver = require("archiver");
+import archiver from "archiver";
 import PDFDocument from "pdfkit";
 import { PROTECTED_ADMIN_PHONE, adminInviteRole } from "../utils/admin-access.js";
 import {
@@ -69,7 +69,7 @@ import { getDashboardAnalytics } from "../services/dashboard-analytics.service.j
 import { OPERATIONAL_ALLOWANCE_PER_ORDER, allocateAmountExactly, paymentDedupeKey } from "../services/financial-reporting.logic.js";
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
 import { checkServiceAvailability, getServiceAreaConfig, saveServiceAreaConfig } from "../services/service-area.service.js";
-import { geocodeAddress } from "../services/delivery-pricing.service.js";
+import { extractTailorPoint, geocodeAddress, pointFrom, roadDistanceMatrix, type LatLng } from "../services/delivery-pricing.service.js";
 
 cloudinary.config({
   cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -3622,6 +3622,121 @@ export async function listAdminOrderQuotesController(req: Request, res: Response
     return { ...quote.toJSON(), tailor: tailor ? await withUser(tailor) : null };
   }));
   res.json({ data });
+}
+
+export async function updateAdminOrderQuoteController(req: Request, res: Response) {
+  const entity = await findAdminOrderEntity(String(req.params.id));
+  if (!entity) throw new AppError(404, "Order not found");
+  const requestId = entity.kind === "TAILORING_REQUEST" ? String(req.params.id) : String(entity.value.requestId || "");
+  if (!requestId) throw new AppError(400, "This order does not have tailor quotes");
+  const input = z.object({
+    price: z.coerce.number().min(0).max(1_000_000).optional(),
+    estimatedDays: z.coerce.number().int().min(0).max(365).optional(),
+    estimatedHours: z.coerce.number().int().min(0).max(8760).nullable().optional(),
+    message: z.string().trim().max(1000).optional()
+  }).refine((value) => Object.keys(value).length > 0, "Provide at least one quote field").parse(req.body);
+  const quote = await TailorQuoteModel.findOne({ _id: String(req.params.quoteId), requestId });
+  if (!quote) throw new AppError(404, "Tailor quote not found");
+  const request = await TailoringRequestModel.findById(requestId);
+  const isSelected = String(request?.selectedQuoteId ?? "") === String(quote.id) || quote.status === "ACCEPTED";
+  if (isSelected && (request?.paymentStatus === "PAID" || ["completed", "cancelled"].includes(String(request?.orderStatus ?? "")))) {
+    throw new AppError(409, "An accepted quote cannot be changed after payment or order completion");
+  }
+  const previousPrice = Number(quote.price ?? 0);
+  if (input.price !== undefined) quote.price = input.price;
+  if (input.estimatedDays !== undefined) quote.estimatedDays = input.estimatedDays;
+  if (input.estimatedHours !== undefined) quote.estimatedHours = input.estimatedHours ?? undefined;
+  if (input.message !== undefined) quote.message = input.message;
+  await quote.save();
+  if (request && isSelected && input.price !== undefined) {
+    const priceDelta = input.price - previousPrice;
+    request.quoteAmount = input.price;
+    request.totalAmount = Math.max(0, Number(request.totalAmount ?? previousPrice) + priceDelta);
+    await request.save();
+  }
+  const tailor = await TailorModel.findById(quote.tailorId);
+  res.json({ data: { ...quote.toJSON(), tailor: tailor ? await withUser(tailor) : null } });
+}
+
+function addressText(address?: Record<string, any> | null) {
+  return address ? [address.line1, address.line2, address.landmark, address.city, address.state, address.pincode].filter(Boolean).join(", ") : "";
+}
+
+function profileAddress(profile: Record<string, any>) {
+  const verification = profile.verification ?? profile.verificationDraft ?? {};
+  const value = verification.shop?.address ?? verification.shopAddress ?? verification.personal?.address ?? verification.address ?? profile.assignedArea;
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") return addressText(value);
+  return "";
+}
+
+async function resolveAdminDistanceOrigin(query: Record<string, unknown>): Promise<{ point: LatLng; label: string }> {
+  const orderId = String(query.orderId ?? "").trim();
+  const customerId = String(query.customerId ?? "").trim();
+  const typedAddress = String(query.address ?? "").trim();
+  if (orderId) {
+    const order = await OrderModel.findById(orderId).lean();
+    if (order) {
+      const address = await AddressModel.findById(order.addressId).lean();
+      const label = addressText(address as Record<string, any> | null);
+      const point = pointFrom(address) ?? await geocodeAddress(label);
+      if (point) return { point, label: label || `Order ${order.orderNumber}` };
+    }
+    const request = await TailoringRequestModel.findById(orderId).lean();
+    if (request) {
+      const label = String(request.pickupAddress ?? "");
+      const point = pointFrom(request.pickupLocation) ?? await geocodeAddress(label);
+      if (point) return { point, label };
+    }
+  }
+  if (customerId) {
+    const address = await AddressModel.findOne({ userId: customerId }).sort({ isDefault: -1, updatedAt: -1 }).lean();
+    const label = addressText(address as Record<string, any> | null);
+    const point = pointFrom(address) ?? await geocodeAddress(label);
+    if (point) return { point, label };
+  }
+  if (typedAddress) {
+    const point = await geocodeAddress(typedAddress);
+    if (point) return { point, label: typedAddress };
+  }
+  throw new AppError(422, "A usable customer or address location could not be found");
+}
+
+export async function listAdminAssignmentCandidatesController(req: Request, res: Response) {
+  const input = z.object({
+    role: z.enum(["TAILOR", "DELIVERY_PARTNER"]),
+    orderId: z.string().trim().optional(),
+    customerId: z.string().trim().optional(),
+    address: z.string().trim().optional()
+  }).parse(req.query);
+  const origin = await resolveAdminDistanceOrigin(input);
+  const profiles = input.role === "TAILOR"
+    ? await TailorModel.find({}).lean()
+    : await DeliveryPartnerModel.find({}).lean();
+  const resolved = await Promise.all(profiles.map(async (profile: any) => {
+    const address = profileAddress(profile);
+    const point = input.role === "TAILOR"
+      ? extractTailorPoint(profile)
+      : pointFrom(profile.currentLocation) ?? extractTailorPoint(profile);
+    return { profile, address, point: point ?? await geocodeAddress(address) };
+  }));
+  const located = resolved.filter((item): item is typeof item & { point: LatLng } => Boolean(item.point));
+  const distanceById = new Map<string, number>();
+  for (let start = 0; start < located.length; start += 40) {
+    const chunk = located.slice(start, start + 40);
+    const matrix = await roadDistanceMatrix([origin.point, ...chunk.map((item) => item.point)]);
+    chunk.forEach((item, index) => distanceById.set(String(item.profile._id), Math.round(matrix[0]?.[index + 1]?.distance ?? 0)));
+  }
+  const data = await Promise.all(resolved.map(async ({ profile, address }) => {
+    const model = input.role === "TAILOR" ? await TailorModel.findById(profile._id) : await DeliveryPartnerModel.findById(profile._id);
+    return {
+      profile: model ? await withUser(model as any) : { ...profile, id: String(profile._id) },
+      distanceMeters: distanceById.get(String(profile._id)) ?? null,
+      locationLabel: address || "Location unavailable"
+    };
+  }));
+  data.sort((a, b) => (a.distanceMeters ?? Number.POSITIVE_INFINITY) - (b.distanceMeters ?? Number.POSITIVE_INFINITY));
+  res.json({ data: { originLabel: origin.label, candidates: data } });
 }
 
 export async function reportAdminOrderIssueController(req: Request, res: Response) {

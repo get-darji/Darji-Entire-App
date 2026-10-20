@@ -187,6 +187,8 @@ import {
   downloadAdminOrderInvoice,
   permanentlyDeleteAdminOrder,
   getAdminOrderQuotes,
+  updateAdminOrderQuote,
+  getAdminAssignmentCandidates,
   reportAdminOrderIssue,
   updateAdminTailorProfile,
   updateAdminDeliveryProfile,
@@ -234,6 +236,7 @@ import type {
   MeasurementVisit,
   MeResponse,
   Order,
+  OrderItem,
   Payment,
   BasicUser,
   CatalogService,
@@ -2226,12 +2229,14 @@ export function AdminPortal() {
       const dateMatch = !orderDateFilter || Boolean(order.createdAt && new Date(order.createdAt).toISOString().slice(0, 10) === orderDateFilter);
       const normalizedStatus = String(order.status).toUpperCase();
       const dashboardState = classifyDashboardOrderStatus(normalizedStatus);
+      const orderPlacedStatuses = ["ORDER_PLACED", "QUOTE_REQUESTED", "PAYMENT_PENDING", "TAILOR_SELECTED", "PICKUP_ASSIGNED"];
       const statusMatch = !orderFilter ||
         (orderFilter === "__ACTIVE__" && dashboardState === "active") ||
         (orderFilter === "__COMPLETED__" && dashboardState === "completed") ||
         (orderFilter === "__CANCELLED__" && dashboardState === "cancelled") ||
         (orderFilter === "__PENDING__" && dashboardState === "pending") ||
         (orderFilter === "__RESOLVED__" && (dashboardState === "completed" || dashboardState === "cancelled")) ||
+        (orderFilter === "ORDER_PLACED" && (orderPlacedStatuses.includes(normalizedStatus) || (Boolean(order.pickupPartnerId || order.deliveryPartnerId) && !["DELIVERED", "CANCELLED"].includes(normalizedStatus)))) ||
         normalizedStatus === orderFilter;
       return matchesOrderSearch(order, orderSearch) && statusMatch && partnerMatch && categoryMatch && tailorMatch && paymentMethodMatch && paymentStatusMatch && dateMatch;
     })
@@ -2971,6 +2976,7 @@ export function AdminPortal() {
                 </div>
               }
             />
+            <PartnerProximitySearch customers={users.filter((user) => String(user.role).toUpperCase() === "CUSTOMER")} role="TAILOR" onOpen={(profile) => setTailorDetail(profile as TailorProfile)} />
             <div className="space-y-3">
               <div>
                 <h3 className="text-xl font-semibold text-[var(--foreground)]">Rejected tailors</h3>
@@ -3006,6 +3012,7 @@ export function AdminPortal() {
                 </div>
               }
             />
+            <PartnerProximitySearch customers={users.filter((user) => String(user.role).toUpperCase() === "CUSTOMER")} role="DELIVERY_PARTNER" onOpen={(profile) => setPartnerDetail(profile as DeliveryPartnerProfile)} />
             <RiderLiveMap partners={filteredPartners} token={token} />
             <DataTable
               columns={partnerColumns}
@@ -5790,7 +5797,7 @@ function OrdersManagementView({
         <div className="space-y-3 p-4 lg:p-5">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.3fr_repeat(4,1fr)]">
             <OrderSearchInput value={orderSearch} onChange={onSearchChange} />
-            <FilterSelect value={orderFilter.startsWith("__") ? "" : orderFilter} onChange={onStatusChange} options={[{ label: "All Statuses", value: "" }, ...orderStatuses.map((status) => ({ label: formatStatus(status), value: status }))]} />
+            <FilterSelect value={orderFilter.startsWith("__") ? "" : orderFilter} onChange={onStatusChange} options={[{ label: "All Statuses", value: "" }, ...orderStatuses.map((status) => ({ label: status === "ORDER_PLACED" ? "Order Placed (includes assigned pickup)" : formatStatus(status), value: status }))]} />
             <FilterSelect value={orderCategoryFilter} onChange={onCategoryChange} options={[{ label: "All Categories", value: "" }, ...categories.map((category) => ({ label: category, value: category }))]} />
             <FilterSelect value={deliveryPartnerFilter} onChange={onDeliveryPartnerChange} options={[{ label: "All Delivery Partners", value: "" }, ...deliveryPartners.map((partner) => ({ label: getPartnerDisplayName(partner), value: partner.id }))]} />
             <FilterSelect value={paymentFilter} onChange={onPaymentMethodChange} options={[{ label: "All Payment Methods", value: "" }, { label: "COD", value: "COD" }, { label: "Online", value: "ONLINE" }, { label: "UPI", value: "UPI" }]} />
@@ -8817,12 +8824,33 @@ function normalizeTailoringRequestForAdmin(request: TailoringRequest, partners: 
   const orderStatusMap: Record<string, string> = {
     completed: "DELIVERED", cancelled: "CANCELLED", ready_for_delivery: "READY",
     received_by_tailor: "AT_TAILOR", picked_up_from_customer: "CLOTH_PICKED",
-    pickup_started: "PICKUP_ASSIGNED", tailor_accepted: "PICKUP_ASSIGNED", payment_pending: "ORDER_PLACED"
+    pickup_started: "PICKUP_ASSIGNED", tailor_accepted: "PICKUP_ASSIGNED", payment_pending: "ORDER_PLACED",
+    out_for_delivery: "OUT_FOR_DELIVERY", delivery_retry_scheduled: "OUT_FOR_DELIVERY", delivery_issue: "OUT_FOR_DELIVERY"
   };
   const mappedStatus = request.status === "CANCELLED"
     ? "CANCELLED"
     : request.orderStatus ? (orderStatusMap[request.orderStatus] || request.orderStatus) : request.status;
   const price = request.quoteAmount ?? request.selectedQuote?.price ?? request.ownQuote?.price ?? 0;
+  const requestItems = request.items?.length ? request.items : [{
+    serviceId: "tailoring",
+    quantity: 1,
+    description: request.description,
+    gender: request.gender,
+    clothType: request.clothType,
+    workType: request.workType,
+    serviceCategory: request.serviceCategory,
+    selectedWorkItems: request.selectedWorkItems,
+    otherWorkDescription: request.otherWorkDescription,
+    measurement: request.measurement,
+    measurementNotes: request.measurementNotes,
+    media: request.media,
+    voiceNotes: request.voiceNotes,
+    sampleProvided: request.sampleProvided,
+    sampleMedia: request.sampleMedia,
+    designMedia: request.designMedia,
+    homeMeasurementBooked: request.homeMeasurementBooked,
+    preferredMeasurementSlot: request.preferredMeasurementSlot
+  }];
   return {
     id: request.id,
     darjiId: request.darjiId,
@@ -8852,7 +8880,18 @@ function normalizeTailoringRequestForAdmin(request: TailoringRequest, partners: 
     totalAmount: request.totalAmount || price,
     createdAt: request.confirmedAt || request.createdAt,
     request,
-    items: [{ serviceId: "tailoring", quantity: 1, service: { id: "tailoring", name: request.workType, price, category: { name: request.clothType } } }]
+    items: requestItems.map((item, index) => ({
+      ...item,
+      serviceId: item.serviceId || `tailoring-${index + 1}`,
+      quantity: item.quantity || 1,
+      price: index === 0 ? price : item.price,
+      service: {
+        id: item.serviceId || `tailoring-${index + 1}`,
+        name: item.workType || request.workType || `Item ${index + 1}`,
+        price: index === 0 ? price : Number(item.price ?? 0),
+        category: { name: item.clothType || request.clothType || "Tailoring" }
+      }
+    }))
   } as Order;
 }
 
@@ -9795,6 +9834,10 @@ function OrderDetailDialog({
 }) {
   const [nextStatus, setNextStatus] = useState(order?.status ?? "ORDER_PLACED");
   const [noteDraft, setNoteDraft] = useState("");
+  const [expandedItem, setExpandedItem] = useState<number | null>(null);
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [quoteDraft, setQuoteDraft] = useState({ price: "", estimatedDays: "", estimatedHours: "", message: "" });
+  const queryClient = useQueryClient();
   const overviewRef = useRef<HTMLDivElement>(null);
   const instructionsRef = useRef<HTMLDivElement>(null);
   const notesRef = useRef<HTMLDivElement>(null);
@@ -9805,6 +9848,8 @@ function OrderDetailDialog({
   useEffect(() => {
     setNextStatus(order?.status ?? "ORDER_PLACED");
     setNoteDraft("");
+    setExpandedItem(null);
+    setEditingQuoteId(null);
   }, [order]);
 
   useEffect(() => {
@@ -9826,6 +9871,16 @@ function OrderDetailDialog({
     queryKey: ["admin", "order-quotes", order?.id],
     queryFn: () => getAdminOrderQuotes(order!.id),
     enabled: open && Boolean(order?.id)
+  });
+  const quoteUpdateMutation = useMutation({
+    mutationFn: updateAdminOrderQuote,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "order-quotes", order?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "tailoring-requests"] });
+      setEditingQuoteId(null);
+      toast.success("Tailor quote updated");
+    },
+    onError: (error) => toast.error(extractError(error))
   });
 
   return (
@@ -9910,18 +9965,16 @@ function OrderDetailDialog({
                   <h4 className="text-sm font-bold text-[var(--deep)]">Order Items</h4>
                   <div className="mt-4 space-y-3">
                     {(order.items ?? []).map((item, index) => (
-                      <div key={`${item.serviceId}-${index}`} className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3">
-                        <div className="flex items-start justify-between gap-4">
+                      <div key={`${item.serviceId}-${index}`} className="overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff]">
+                        <button className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition hover:bg-orange-50/60" onClick={() => setExpandedItem(expandedItem === index ? null : index)} type="button">
                           <div>
-                            <p className="font-medium">{item.service?.name ?? "Service item"}</p>
-                            <p className="mt-1 text-sm text-[var(--muted)]">
-                              {item.service?.category?.name ?? "General"} / Qty {item.quantity}
-                            </p>
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-orange-500">Item {index + 1}</p>
+                            <p className="mt-1 font-medium">{item.service?.name ?? item.workType ?? "Service item"}</p>
+                            <p className="mt-1 text-sm text-[var(--muted)]">{item.gender ? `${formatStatus(item.gender)} / ` : ""}{item.clothType ?? item.service?.category?.name ?? "General"} / Qty {item.quantity}</p>
                           </div>
-                          <span className="text-sm font-medium">{formatCurrency(item.price ?? item.service?.price ?? 0)}</span>
-                        </div>
-                        {item.instructions ? <p className="mt-3 text-sm text-[var(--muted)]">{item.instructions}</p> : null}
-                        {item.referenceImageUrl ? <img alt="Reference" className="mt-3 h-28 rounded-2xl object-cover" src={item.referenceImageUrl} /> : null}
+                          <span className="flex items-center gap-3"><span className="text-sm font-medium">{formatCurrency(item.price ?? item.service?.price ?? 0)}</span>{expandedItem === index ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
+                        </button>
+                        {expandedItem === index ? <OrderItemDetail item={item} index={index} /> : null}
                       </div>
                     ))}
                   </div>
@@ -9941,7 +9994,7 @@ function OrderDetailDialog({
                   {quotesQuery.isLoading ? <div className="mt-4"><LoadingState label="Loading quotes..." /></div> : null}
                   {quotesQuery.isError ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{extractError(quotesQuery.error)}</p> : null}
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    {(quotesQuery.data ?? []).map((quote) => <button className="rounded-2xl border border-[var(--panel-border)] bg-white p-4 text-left transition hover:border-orange-300 hover:bg-orange-50/40" key={quote.id} onClick={() => quote.tailor && onOpenQuoteTailor(quote.tailor)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[var(--deep)]">{quote.tailor ? getTailorDisplayName(quote.tailor) : quote.tailorId}</p><p className="mt-1 text-xs text-[var(--muted)]">{quote.darjiId ?? quote.id} · {formatDate(quote.createdAt, true)}</p></div><StatusBadge value={quote.status} /></div><div className="mt-4 flex items-end justify-between gap-3"><div className="text-xs text-[var(--muted)]"><p>{quote.estimatedHours ? `${quote.estimatedHours} hours` : `${quote.estimatedDays} days`} estimated</p><p className="mt-1">{quote.message || "No tailor message"}</p></div><p className="text-lg font-bold text-orange-600">{formatCurrency(quote.price)}</p></div></button>)}
+                    {(quotesQuery.data ?? []).map((quote) => <div className="rounded-2xl border border-[var(--panel-border)] bg-white p-4" key={quote.id}>{editingQuoteId === quote.id ? <div className="space-y-3"><div className="flex items-center justify-between gap-3"><p className="font-bold">Edit {quote.tailor ? getTailorDisplayName(quote.tailor) : "tailor quote"}</p><StatusBadge value={quote.status} /></div><div className="grid gap-3 sm:grid-cols-3"><Field label="Quote amount"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] px-3" min="0" type="number" value={quoteDraft.price} onChange={(event) => setQuoteDraft((current) => ({ ...current, price: event.target.value }))} /></Field><Field label="Estimated days"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] px-3" min="0" type="number" value={quoteDraft.estimatedDays} onChange={(event) => setQuoteDraft((current) => ({ ...current, estimatedDays: event.target.value }))} /></Field><Field label="Estimated hours"><input className="h-11 w-full rounded-xl border border-[var(--panel-border)] px-3" min="0" type="number" value={quoteDraft.estimatedHours} onChange={(event) => setQuoteDraft((current) => ({ ...current, estimatedHours: event.target.value }))} /></Field></div><Field label="Tailor message"><textarea className="min-h-20 w-full rounded-xl border border-[var(--panel-border)] px-3 py-2" value={quoteDraft.message} onChange={(event) => setQuoteDraft((current) => ({ ...current, message: event.target.value }))} /></Field><div className="flex justify-end gap-2"><ActionButton variant="secondary" onClick={() => setEditingQuoteId(null)}>Cancel</ActionButton><ActionButton disabled={quoteUpdateMutation.isPending || !quoteDraft.price} onClick={() => quoteUpdateMutation.mutate({ orderId: order.id, quoteId: quote.id, price: Number(quoteDraft.price), estimatedDays: Number(quoteDraft.estimatedDays || 0), estimatedHours: quoteDraft.estimatedHours ? Number(quoteDraft.estimatedHours) : null, message: quoteDraft.message })}>{quoteUpdateMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save quote</ActionButton></div></div> : <><button className="w-full text-left transition hover:text-orange-700" onClick={() => quote.tailor && onOpenQuoteTailor(quote.tailor)} type="button"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[var(--deep)]">{quote.tailor ? getTailorDisplayName(quote.tailor) : quote.tailorId}</p><p className="mt-1 text-xs text-[var(--muted)]">{quote.darjiId ?? quote.id} · {formatDate(quote.createdAt, true)}</p></div><StatusBadge value={quote.status} /></div><div className="mt-4 flex items-end justify-between gap-3"><div className="text-xs text-[var(--muted)]"><p>{quote.estimatedHours ? `${quote.estimatedHours} hours` : `${quote.estimatedDays} days`} estimated</p><p className="mt-1">{quote.message || "No tailor message"}</p></div><p className="text-lg font-bold text-orange-600">{formatCurrency(quote.price)}</p></div></button><div className="mt-3 flex justify-end border-t border-[#efe3d0] pt-3"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={() => { setEditingQuoteId(quote.id); setQuoteDraft({ price: String(quote.price), estimatedDays: String(quote.estimatedDays), estimatedHours: quote.estimatedHours ? String(quote.estimatedHours) : "", message: quote.message ?? "" }); }}><PencilLine size={14} />Edit quote</ActionButton></div></>}</div>)}
                     {!quotesQuery.isLoading && !quotesQuery.data?.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-[var(--muted)]">No quotes are linked to this order.</p> : null}
                   </div>
                 </Panel>
@@ -10207,6 +10260,21 @@ function OrderDetailDialog({
   );
 }
 
+function OrderItemDetail({ item, index }: { item: OrderItem; index: number }) {
+  const customerMedia = [
+    ...(item.media ?? []).map((media) => ({ ...media, label: "Customer garment photo" })),
+    ...(item.sampleMedia ?? []).map((media) => ({ ...media, label: "Sample garment photo" })),
+    ...(item.designMedia ?? []).map((media) => ({ ...media, label: "Design / reference photo" })),
+    ...(item.referenceImageUrl ? [{ url: item.referenceImageUrl, resourceType: "image", label: "Reference image" }] : [])
+  ];
+  const measurementType = item.homeMeasurementBooked
+    ? "Tailor home measurement"
+    : item.sampleProvided
+      ? "Sample garment"
+      : item.measurement?.label || (Object.keys(item.measurement?.fields ?? {}).length || item.measurementNotes ? "Customer measurements" : "Not specified");
+  return <div className="border-t border-[#efe3d0] bg-white px-4 py-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><DetailBox label="Gender / fit" value={formatStatus(item.gender ?? "Not specified")} /><DetailBox label="Garment type" value={item.clothType ?? item.service?.category?.name ?? "Not specified"} /><DetailBox label="Service type" value={item.workType ?? item.serviceCategory ?? item.service?.name ?? "Not specified"} /><DetailBox label="Selected work" value={item.selectedWorkItems?.length ? item.selectedWorkItems.join(", ") : item.otherWorkDescription ?? "Not specified"} /><DetailBox label="Measurement type" value={measurementType} note={item.preferredMeasurementSlot ? `Visit slot: ${item.preferredMeasurementSlot}` : undefined} /><DetailBox label="Quantity" value={String(item.quantity ?? 1)} /></div><div className="mt-4 rounded-xl bg-[#fff8ed] p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Customer description</p><p className="mt-2 whitespace-pre-wrap text-sm text-[var(--deep)]">{item.description ?? item.instructions ?? "No description provided for this item."}</p>{item.measurementNotes ? <p className="mt-3 border-t border-orange-100 pt-3 text-sm text-[var(--muted)]"><strong className="text-[var(--deep)]">Measurement notes:</strong> {item.measurementNotes}</p> : null}</div>{Object.keys(item.measurement?.fields ?? {}).length ? <div className="mt-4"><p className="text-xs font-bold text-[var(--deep)]">Recorded measurements</p><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(item.measurement?.fields ?? {}).map(([label, value]) => <div className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2" key={label}><p className="text-[10px] uppercase text-[var(--muted)]">{formatStatus(label)}</p><p className="mt-1 text-sm font-bold">{String(value)}</p></div>)}</div></div> : null}{item.voiceNotes?.length ? <div className="mt-4"><p className="text-xs font-bold text-[var(--deep)]">Customer voice recordings</p><div className="mt-2 space-y-2">{item.voiceNotes.map((voice, voiceIndex) => <div className="rounded-xl border border-[var(--panel-border)] bg-[#fbfdff] p-3" key={`${voice.url}-${voiceIndex}`}><p className="mb-2 text-[11px] font-semibold text-[var(--muted)]">{voice.originalName || `Item ${index + 1} voice note ${voiceIndex + 1}`}</p><audio className="h-10 w-full" controls preload="none" src={voice.url} /></div>)}</div></div> : null}{customerMedia.length ? <div className="mt-4"><p className="text-xs font-bold text-[var(--deep)]">Item photos and references</p><div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{customerMedia.map((media, mediaIndex) => <a className="overflow-hidden rounded-xl border border-[var(--panel-border)] bg-[#fbfdff]" href={media.url} key={`${media.url}-${mediaIndex}`} rel="noopener noreferrer" target="_blank"><img alt={media.label} className="aspect-video w-full object-cover" src={media.url} /><div className="px-3 py-2"><p className="text-xs font-bold">{media.label}</p><p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{media.originalName || `Item ${index + 1}`}</p></div></a>)}</div></div> : null}</div>;
+}
+
 function OrderDrawerSummary({ detail, icon: Icon, label, onClick, value }: { detail: string; icon: ComponentType<{ size?: number }>; label: string; onClick?: () => void; value: string }) {
   const content = <><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-50 text-orange-500"><Icon size={16} /></span><div className="min-w-0"><p className="text-[10px] font-semibold text-[var(--muted)]">{label}</p><p className="mt-0.5 truncate text-sm font-bold text-[var(--deep)]">{value}</p><p className="truncate text-[11px] text-[var(--muted)]">{detail}</p></div></>;
   return onClick
@@ -10448,9 +10516,15 @@ function ProfileDialog({
   const [assignedArea, setAssignedArea] = useState<string>("unassigned");
   const [reviewReason, setReviewReason] = useState("");
   const [selectedReuploadFields, setSelectedReuploadFields] = useState<string[]>(["aadhaarFront", "aadhaarBack", "facePhoto"]);
-  const [profileTab, setProfileTab] = useState<"personal" | "business" | "bank" | "documents" | "activity">("personal");
+  const [profileTab, setProfileTab] = useState<"personal" | "business" | "bank" | "documents" | "review" | "activity">("personal");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editDraft, setEditDraft] = useState({ name: "", phone: "", email: "", avatarUrl: "", shopName: "", specialization: "", address: "", shopAddress: "", vehicleNumber: "", vehicleModel: "", accountHolder: "", accountNumber: "", ifsc: "", upi: "" });
+  const [draftBeforeEdit, setDraftBeforeEdit] = useState(editDraft);
+  const [verificationJson, setVerificationJson] = useState("{}");
+  const [verificationJsonBeforeEdit, setVerificationJsonBeforeEdit] = useState("{}");
+  const [deliveryTypeBeforeEdit, setDeliveryTypeBeforeEdit] = useState<"PICKUP" | "DROP">("PICKUP");
+  const [assignedAreaBeforeEdit, setAssignedAreaBeforeEdit] = useState("unassigned");
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (profile && !("specialization" in profile)) {
@@ -10462,6 +10536,7 @@ function ProfileDialog({
       setSelectedReuploadFields(profile.verificationReuploadFields?.length ? profile.verificationReuploadFields : idType === "Aadhaar" ? ["aadhaarFront", "aadhaarBack", "facePhoto"] : ["panPhoto", "facePhoto"]);
     }
     setReviewReason(profile?.verificationRejectionReason ?? "");
+    setIsEditing(false);
     if (profile) {
       const verification = (profile.verification ?? {}) as Record<string, any>;
       const personal = (verification.personal ?? {}) as Record<string, any>;
@@ -10469,6 +10544,7 @@ function ProfileDialog({
       const vehicle = (verification.vehicle ?? {}) as Record<string, any>;
       const bank = (verification.bank ?? {}) as Record<string, any>;
       setProfileTab("personal");
+      setVerificationJson(JSON.stringify(verification, null, 2));
       setEditDraft({
         name: profile.user?.name ?? personal.name ?? personal.fullName ?? "",
         phone: profile.user?.phone ?? "",
@@ -10523,7 +10599,15 @@ function ProfileDialog({
   const updateDraft = (field: keyof typeof editDraft, value: string) => setEditDraft((current) => ({ ...current, [field]: value }));
   const saveProfile = () => {
     if (!profile) return;
-    const verification = structuredClone((profile.verification ?? {}) as Record<string, any>);
+    let verification: Record<string, any>;
+    try {
+      const parsed = JSON.parse(verificationJson) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Registration record must be a JSON object");
+      verification = structuredClone(parsed as Record<string, any>);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Registration record contains invalid JSON");
+      return;
+    }
     verification.personal = { ...(verification.personal ?? {}), name: editDraft.name, fullName: editDraft.name, email: editDraft.email, address: editDraft.address };
     verification.bank = { ...(verification.bank ?? {}), accountHolder: editDraft.accountHolder, accountNumber: editDraft.accountNumber, ifsc: editDraft.ifsc, upi: editDraft.upi };
     if (isDelivery) verification.vehicle = { ...(verification.vehicle ?? {}), vehicleNumber: editDraft.vehicleNumber, vehicleModel: editDraft.vehicleModel };
@@ -10536,6 +10620,7 @@ function ProfileDialog({
       ...(isDelivery ? { vehicleNumber: editDraft.vehicleNumber, deliveryType, assignedArea } : { shopName: editDraft.shopName, specialization: editDraft.specialization.split(",").map((item) => item.trim()).filter(Boolean) }),
       verification
     });
+    setIsEditing(false);
   };
 
   return (
@@ -10564,23 +10649,15 @@ function ProfileDialog({
                       <h3 className="text-2xl font-bold tracking-[-0.03em] text-[var(--deep)]">{displayName}</h3>
                       {isDelivery ? <DeliveryRoleBadge partner={profile as DeliveryPartnerProfile} /> : null}
                       <StatusBadge value={profile.verificationStatus} />
-                      <Badge tone={profile.isAvailable ? "emerald" : "slate"}>{profile.isAvailable ? "Online" : "Offline"}</Badge>
                     </div>
                     <p className="mt-1 text-sm font-medium text-[#6f614c]">{headline}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--muted)]">
-                      <span>{profile.user?.phone ?? "No phone"}</span>
                       <span>{isDelivery ? (profile as DeliveryPartnerProfile).darjiPartnerId ?? "Partner ID pending" : (profile as TailorProfile).darjiTailorId ?? "Tailor ID pending"}</span>
                       <span>Joined {formatDate(profile.createdAt, true)}</span>
                     </div>
                     <p className="mt-2 text-xs text-[var(--muted)]">For verified partners, this photo is the submitted face verification selfie.</p>
-                    <div className="mt-4 flex flex-wrap gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={onOpenWallet}><ReceiptIndianRupee size={14} />Wallet &amp; payouts</ActionButton></div>
+                    <div className="mt-4 flex flex-wrap gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={onOpenWallet}><ReceiptIndianRupee size={14} />Wallet &amp; payouts</ActionButton>{!isEditing ? <ActionButton className="px-3 py-2 text-xs" onClick={() => { setDraftBeforeEdit(editDraft); setVerificationJsonBeforeEdit(verificationJson); setDeliveryTypeBeforeEdit(deliveryType); setAssignedAreaBeforeEdit(assignedArea); setIsEditing(true); }}><PencilLine size={14} />Edit profile</ActionButton> : null}</div>
                   </div>
-                </div>
-                <div className="grid border-t border-white/80 bg-white/50 md:grid-cols-4">
-                  <ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} />
-                  <ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} />
-                  <ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} />
-                  <ProfileMetric label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-"} />
                 </div>
               </div>
               <div className="mt-6 space-y-5">
@@ -10591,19 +10668,28 @@ function ProfileDialog({
                       ["business", isDelivery ? "Vehicle details" : "Shop details"],
                       ["bank", "Bank details"],
                       ["documents", "Documents & images"],
+                      ["review", "Verification review"],
                       ["activity", "Orders & activity"]
                     ] as const).map(([id, label]) => <button className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition", profileTab === id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")} key={id} onClick={() => setProfileTab(id)} type="button">{label}</button>)}
                   </div>
-                  <div className="border-t border-slate-100 p-4">
+                  <fieldset className="border-t border-slate-100 p-4 disabled:opacity-75" disabled={!isEditing && ["personal", "business", "bank", "documents"].includes(profileTab)}>
                     {profileTab === "personal" ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Full name"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field><Field label="Phone"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.phone} onChange={(event) => updateDraft("phone", event.target.value)} /></Field><Field label="Email"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" type="email" value={editDraft.email} onChange={(event) => updateDraft("email", event.target.value)} /></Field><Field label="Profile photo"><div className="flex gap-2"><input className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 px-3" value={editDraft.avatarUrl} onChange={(event) => updateDraft("avatarUrl", event.target.value)} /><label className="inline-flex h-11 cursor-pointer items-center rounded-xl border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50">{uploadingAvatar ? "Uploading..." : "Upload"}<input accept="image/*" className="hidden" disabled={uploadingAvatar} type="file" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setUploadingAvatar(true); try { const uploaded = await uploadAdminMedia(file); updateDraft("avatarUrl", uploaded.url); toast.success("Profile photo uploaded. Save changes to apply it."); } catch (error) { toast.error(extractError(error)); } finally { setUploadingAvatar(false); event.target.value = ""; } }} /></label></div></Field><div className="sm:col-span-2"><Field label="Home address"><textarea className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2" value={editDraft.address} onChange={(event) => updateDraft("address", event.target.value)} /></Field></div></div> : null}
                     {profileTab === "business" ? isDelivery ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Vehicle number"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.vehicleNumber} onChange={(event) => updateDraft("vehicleNumber", event.target.value)} /></Field><Field label="Vehicle model"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.vehicleModel} onChange={(event) => updateDraft("vehicleModel", event.target.value)} /></Field><Field label="Delivery role"><select className="h-11 w-full rounded-xl border border-slate-200 px-3" value={deliveryType} onChange={(event) => setDeliveryType(event.target.value as "PICKUP" | "DROP")}><option value="PICKUP">Pickup</option><option value="DROP">Drop</option></select></Field><Field label="Assigned area"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={assignedArea} onChange={(event) => setAssignedArea(event.target.value)} /></Field></div> : <div className="grid gap-4 sm:grid-cols-2"><Field label="Shop name"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.shopName} onChange={(event) => updateDraft("shopName", event.target.value)} /></Field><Field label="Specializations"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" placeholder="Shirt, Kurta, Blouse" value={editDraft.specialization} onChange={(event) => updateDraft("specialization", event.target.value)} /></Field><div className="sm:col-span-2"><Field label="Shop address"><textarea className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2" value={editDraft.shopAddress} onChange={(event) => updateDraft("shopAddress", event.target.value)} /></Field></div></div> : null}
                     {profileTab === "bank" ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Account holder"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.accountHolder} onChange={(event) => updateDraft("accountHolder", event.target.value)} /></Field><Field label="Account number"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.accountNumber} onChange={(event) => updateDraft("accountNumber", event.target.value)} /></Field><Field label="IFSC"><input className="h-11 w-full rounded-xl border border-slate-200 px-3 uppercase" value={editDraft.ifsc} onChange={(event) => updateDraft("ifsc", event.target.value.toUpperCase())} /></Field><Field label="UPI ID"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.upi} onChange={(event) => updateDraft("upi", event.target.value)} /></Field></div> : null}
                     {profileTab === "documents" ? <div><p className="text-sm text-slate-600">Complete registration record and every uploaded verification image.</p><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{[...submittedMedia, ...draftMedia].map((item, index) => <a className="overflow-hidden rounded-xl border border-slate-200" href={item.url} key={`${item.url}-${index}`} rel="noreferrer" target="_blank"><img alt={item.label} className="aspect-square w-full object-cover" src={item.url} /><p className="truncate px-2 py-1.5 text-[10px] font-semibold text-slate-600">{item.label}</p></a>)}</div><div className="mt-5 grid gap-3 sm:grid-cols-2">{flattenAdminRecord(profile.verification).map((item) => <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" key={item.label}><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{item.value}</p></div>)}</div></div> : null}
-                    {profileTab === "activity" ? <div className="grid gap-3 sm:grid-cols-3"><ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} /></div> : null}
-                    <div className="mt-5 flex justify-end"><ActionButton disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save profile changes</ActionButton></div>
-                  </div>
+                    {profileTab === "documents" && isEditing ? <div className="mt-5 border-t border-slate-200 pt-5"><Field label="Advanced registration record"><textarea className="min-h-64 w-full rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 font-mono text-xs leading-5 text-slate-100 outline-none focus:border-orange-400" spellCheck={false} value={verificationJson} onChange={(event) => setVerificationJson(event.target.value)} /></Field><p className="mt-2 text-xs text-slate-500">This record exposes every uncommon registration field. Keep valid JSON; the named forms in the other tabs remain the easiest way to edit standard details.</p></div> : null}
+                    {profileTab === "activity" ? <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-4"><ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-"} /></div>{isDelivery && profileDeliveryRequests.length ? <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent delivery assignments</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{profileDeliveryRequests.slice(0, 6).map((request) => <button className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={request.id} onClick={() => onOpenDeliveryTask(request)} type="button"><span><span className="block text-sm font-bold">{request.taskId ?? request.darjiId ?? request.id}</span><span className="text-[10px] text-slate-500">{formatStatus(request.type)}</span></span><StatusBadge value={request.taskStatus} /></button>)}</div></div> : null}<div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent orders</p><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">{profileOrders.slice(0, 12).map((profileOrder) => <button className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={profileOrder.id} onClick={() => onOpenOrder(profileOrder)} type="button"><span><span className="block text-sm font-bold">{getOrderDisplayNumber(profileOrder)}</span><span className="text-[10px] text-slate-500">{getCustomerDisplayName(profileOrder.customer)}</span></span><StatusBadge value={profileOrder.status} /></button>)}{!profileOrders.length ? <p className="text-sm text-slate-500">No associated orders.</p> : null}</div></div></div> : null}
+                    {isEditing && ["personal", "business", "bank", "documents"].includes(profileTab) ? <div className="mt-5 flex justify-end gap-2"><ActionButton variant="secondary" onClick={() => { setEditDraft(draftBeforeEdit); setVerificationJson(verificationJsonBeforeEdit); setDeliveryType(deliveryTypeBeforeEdit); setAssignedArea(assignedAreaBeforeEdit); setIsEditing(false); }}>Cancel</ActionButton><ActionButton disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save profile changes</ActionButton></div> : null}
+                  </fieldset>
+                  {profileTab === "personal" ? (
+                    <div className="mt-5 grid gap-3 border-t border-slate-200 pt-5 sm:grid-cols-3">
+                      <DetailBox label="Current availability" value={profile.isAvailable ? "Online" : "Offline"} />
+                      <DetailBox label="Verification status" value={formatStatus(profile.verificationStatus ?? "Pending")} />
+                      <DetailBox label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "Not rated"} />
+                    </div>
+                  ) : null}
                 </div>
-                {onReview ? (
+                {profileTab === "review" && onReview ? (
                   <Panel>
                     <h4 className="text-lg font-semibold text-[var(--foreground)]">Review action</h4>
                     <textarea
@@ -10660,6 +10746,7 @@ function ProfileDialog({
                     </div>
                   </Panel>
                 ) : null}
+                <div className="hidden">
                 {isDelivery ? (
                   <Panel>
                     <h4 className="text-lg font-semibold text-[var(--foreground)]">Delivery partner role assignment</h4>
@@ -11021,6 +11108,7 @@ function ProfileDialog({
                 </Panel>
                 <VerificationMediaGallery items={submittedMedia} title="Uploaded verification documents" />
                 <VerificationMediaGallery items={draftMedia} title="Draft verification documents" />
+                </div>
               </div>
             </>
           ) : null}
@@ -11851,6 +11939,22 @@ function PermanentDeleteOrderDialog({
   );
 }
 
+function PartnerProximitySearch({ customers, onOpen, role }: { customers: AdminUser[]; onOpen: (profile: TailorProfile | DeliveryPartnerProfile) => void; role: "TAILOR" | "DELIVERY_PARTNER" }) {
+  const [mode, setMode] = useState<"address" | "customer">("address");
+  const [address, setAddress] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [search, setSearch] = useState<{ address?: string; customerId?: string } | null>(null);
+  const result = useQuery({
+    queryKey: ["admin", "proximity-search", role, search?.address, search?.customerId],
+    queryFn: () => getAdminAssignmentCandidates<TailorProfile | DeliveryPartnerProfile>({ role, ...search! }),
+    enabled: Boolean(search),
+    staleTime: 60_000
+  });
+  const label = role === "TAILOR" ? "tailors" : "delivery partners";
+  const formatDistance = (meters: number | null) => meters == null ? "Distance unavailable" : meters < 1000 ? `${meters} m away` : `${(meters / 1000).toFixed(1)} km away`;
+  return <Panel className="rounded-2xl p-4"><div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><div className="flex items-center gap-2"><MapPin className="text-orange-500" size={18} /><h3 className="font-bold">Find nearest {label}</h3></div><p className="mt-1 text-xs text-[var(--muted)]">Search from an address or a customer&apos;s saved address. Results are ordered nearest to farthest.</p></div><div className="flex flex-col gap-2 sm:flex-row"><FilterSelect value={mode} onChange={(value) => { setMode(value as "address" | "customer"); setSearch(null); }} options={[{ label: "Search by address", value: "address" }, { label: "Search by customer", value: "customer" }]} />{mode === "address" ? <input className="h-12 min-w-[280px] rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none focus:border-orange-400" placeholder="Enter area or full address" value={address} onChange={(event) => setAddress(event.target.value)} /> : <select className="h-12 min-w-[280px] rounded-xl border border-[var(--panel-border)] bg-white px-4 text-sm outline-none" value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{getCustomerDisplayName(customer)} · {customer.phone}</option>)}</select>}<ActionButton disabled={result.isFetching || (mode === "address" ? address.trim().length < 3 : !customerId)} onClick={() => setSearch(mode === "address" ? { address: address.trim() } : { customerId })}>{result.isFetching ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search size={15} />}Find nearest</ActionButton></div></div>{result.isError ? <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{extractError(result.error)}</p> : null}{result.data ? <div className="mt-4"><p className="text-xs font-semibold text-[var(--muted)]">Distances from {result.data.originLabel}</p><div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">{result.data.candidates.map((candidate, index) => { const profile = candidate.profile; const name = role === "TAILOR" ? getTailorDisplayName(profile as TailorProfile) : getPartnerDisplayName(profile as DeliveryPartnerProfile); const id = role === "TAILOR" ? (profile as TailorProfile).darjiTailorId : (profile as DeliveryPartnerProfile).darjiPartnerId; return <button className="flex w-full items-center justify-between gap-4 rounded-xl border border-[var(--panel-border)] bg-white px-4 py-3 text-left transition hover:border-orange-300 hover:bg-orange-50" key={profile.id} onClick={() => onOpen(profile)} type="button"><span className="flex min-w-0 items-center gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-orange-50 text-xs font-bold text-orange-700">{index + 1}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{name}</span><span className="block truncate text-xs text-[var(--muted)]">{id ?? "Darji ID pending"} · {candidate.locationLabel}</span></span></span><span className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold">{formatDistance(candidate.distanceMeters)}</span></button>; })}</div></div> : null}</Panel>;
+}
+
 function AssignOrderDialog({
   onSubmit,
   open,
@@ -11880,6 +11984,23 @@ function AssignOrderDialog({
     tailorId: string;
   };
 }) {
+  const tailorCandidatesQuery = useQuery({
+    queryKey: ["admin", "assignment-candidates", "TAILOR", order?.id],
+    queryFn: () => getAdminAssignmentCandidates<TailorProfile>({ role: "TAILOR", orderId: order!.id }),
+    enabled: open && Boolean(order?.id),
+    staleTime: 60_000
+  });
+  const partnerCandidatesQuery = useQuery({
+    queryKey: ["admin", "assignment-candidates", "DELIVERY_PARTNER", order?.id],
+    queryFn: () => getAdminAssignmentCandidates<DeliveryPartnerProfile>({ role: "DELIVERY_PARTNER", orderId: order!.id }),
+    enabled: open && Boolean(order?.id),
+    staleTime: 60_000
+  });
+  const sortedTailors = tailorCandidatesQuery.data?.candidates.map((candidate) => candidate.profile) ?? tailors;
+  const sortedPartners = partnerCandidatesQuery.data?.candidates.map((candidate) => candidate.profile) ?? partners;
+  const tailorDistance = new Map((tailorCandidatesQuery.data?.candidates ?? []).map((candidate) => [candidate.profile.id, candidate.distanceMeters]));
+  const partnerDistance = new Map((partnerCandidatesQuery.data?.candidates ?? []).map((candidate) => [candidate.profile.id, candidate.distanceMeters]));
+  const distanceLabel = (meters?: number | null) => meters == null ? "distance unavailable" : meters < 1000 ? `${meters} m away` : `${(meters / 1000).toFixed(1)} km away`;
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
@@ -11894,14 +12015,15 @@ function AssignOrderDialog({
               <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 text-sm">
                 <p className="font-medium">{getOrderDisplayNumber(order)}</p>
                 <p className="mt-1 text-[var(--muted)]">{getCustomerDisplayName(order.customer)}</p>
+                <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-orange-700"><MapPin size={13} />Distances from {tailorCandidatesQuery.data?.originLabel ?? partnerCandidatesQuery.data?.originLabel ?? order.address?.line1 ?? "the customer address"}</p>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <Field label="Tailor">
                   <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={values.tailorId} onChange={(event) => setAssignTailorId(event.target.value)}>
                     <option value="">Unassigned</option>
-                    {tailors.map((tailor) => (
+                    {sortedTailors.map((tailor) => (
                       <option key={tailor.id} value={tailor.id}>
-                        {getTailorDisplayName(tailor)} ({tailor.darjiTailorId ?? "Darji ID pending"})
+                        {getTailorDisplayName(tailor)} · {distanceLabel(tailorDistance.get(tailor.id))} ({tailor.darjiTailorId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -11909,9 +12031,9 @@ function AssignOrderDialog({
                 <Field label="Pickup partner">
                   <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={values.pickupPartnerId} onChange={(event) => setAssignPickupPartnerId(event.target.value)}>
                     <option value="">Unassigned</option>
-                    {partners.map((partner) => (
+                    {sortedPartners.map((partner) => (
                       <option key={partner.id} value={partner.id}>
-                        {getPartnerDisplayName(partner)} - {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
+                        {getPartnerDisplayName(partner)} · {distanceLabel(partnerDistance.get(partner.id))} · {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
@@ -11919,9 +12041,9 @@ function AssignOrderDialog({
                 <Field label="Delivery partner">
                   <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={values.deliveryPartnerId} onChange={(event) => setAssignDeliveryPartnerId(event.target.value)}>
                     <option value="">Unassigned</option>
-                    {partners.map((partner) => (
+                    {sortedPartners.map((partner) => (
                       <option key={partner.id} value={partner.id}>
-                        {getPartnerDisplayName(partner)} - {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
+                        {getPartnerDisplayName(partner)} · {distanceLabel(partnerDistance.get(partner.id))} · {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
                       </option>
                     ))}
                   </select>
