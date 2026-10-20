@@ -129,9 +129,13 @@ function bindPopupWithAddress(marker: L.Marker, partner: DeliveryPartnerProfile,
 }
 
 export default function RiderLiveMap({
+  focusPartnerId,
+  focusRequestId,
   partners,
   token,
 }: {
+  focusPartnerId: string | null;
+  focusRequestId: number;
   partners: DeliveryPartnerProfile[];
   token: string | null;
 }) {
@@ -207,9 +211,26 @@ export default function RiderLiveMap({
       markersRef.current.delete(partnerId);
     });
     setShowOverlay(bounds.length === 0);
-    if (bounds.length === 1) map.setView(bounds[0], 15);
+    const focusedMarker = focusPartnerId ? markersRef.current.get(focusPartnerId) : undefined;
+    if (focusedMarker) map.setView(focusedMarker.getLatLng(), 17);
+    else if (bounds.length === 1) map.setView(bounds[0], 15);
     else if (bounds.length > 1) map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40], maxZoom: 15 });
-  }, [partners, token]);
+  }, [focusPartnerId, partners, token]);
+
+  // Directory selections use the partner's latest real phone coordinates.
+  // requestId lets repeated clicks on the same partner focus the map again.
+  useEffect(() => {
+    if (!focusPartnerId || !focusRequestId) return;
+    const map = mapRef.current;
+    const marker = markersRef.current.get(focusPartnerId);
+    const container = containerRef.current;
+    if (!map || !marker || !container) return;
+
+    container.scrollIntoView({ behavior: "smooth", block: "center" });
+    map.invalidateSize();
+    map.flyTo(marker.getLatLng(), 17, { animate: true, duration: 0.8 });
+    marker.openPopup();
+  }, [focusPartnerId, focusRequestId]);
 
   // Socket.IO — only the affected marker moves, zero React re-renders
   useEffect(() => {

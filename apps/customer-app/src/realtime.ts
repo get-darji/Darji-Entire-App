@@ -12,7 +12,7 @@ export function createRealtimeSocket(
 ) {
   let refreshingAuthentication = false;
   const socket: Socket = io(socketUrl, {
-    auth: { token },
+    auth: { token, client: "customer-app" },
     transports: ["websocket", "polling"],
     reconnection: true,
     reconnectionAttempts: Infinity,

@@ -14,6 +14,7 @@ import { lockAndDispatchDueBatches } from "./services/hybrid-delivery.service.js
 import { getPlatformStatus } from "./services/platform-status.service.js";
 import { monitorNoQuoteRequests } from "./services/operational-alert.service.js";
 import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
+import { allMaintenanceApps } from "@darji/shared";
 
 const app = express();
 // Railway forwards client addresses through one proxy. Express only trusts that
@@ -68,7 +69,8 @@ initFirebaseAdmin();
 
 async function processDueDeliveryBatches() {
   const platformStatus = await getPlatformStatus();
-  if (platformStatus.maintenanceMode) return;
+  // A targeted maintenance window must not freeze unaffected app workflows.
+  if (allMaintenanceApps.every((app) => platformStatus.maintenanceApps.includes(app))) return;
   await lockAndDispatchDueBatches();
   await monitorNoQuoteRequests();
   await processDueNotificationCampaigns();

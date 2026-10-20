@@ -114,6 +114,7 @@ import { CompactLanguageToggle } from "../../shared/src/compact-language-toggle"
 import { BottomSnackbar } from "../../shared/src/bottom-snackbar";
 import { userFacingMessage } from "../../shared/src/user-facing-error";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
+import { isAppUnderMaintenance } from "../../shared/src/platform-status";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { measurementVisitFee } from "../../shared/src";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
@@ -13222,7 +13223,7 @@ function AppContent() {
     }
   }
 
-  if (platform.status.maintenanceMode) {
+  if (isAppUnderMaintenance(platform.status, "CUSTOMER_APP")) {
     return (
       <PlatformMaintenanceScreen
         language={language}
@@ -13231,6 +13232,7 @@ function AppContent() {
         refreshing={platform.refreshing}
         error={platform.error}
         onRefresh={() => void platform.refresh(true)}
+        logoSource={darjiLogo}
       />
     );
   }

@@ -108,6 +108,7 @@ import { BottomSnackbar } from "../../shared/src/bottom-snackbar";
 import { userFacingMessage } from "../../shared/src/user-facing-error";
 import { useLayoutEffect } from "react";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
+import { isAppUnderMaintenance } from "../../shared/src/platform-status";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import {
@@ -4937,7 +4938,7 @@ function AppContent() {
     );
   }
 
-  if (platform.status.maintenanceMode) {
+  if (isAppUnderMaintenance(platform.status, "DELIVERY_APP")) {
     return (
       <PlatformMaintenanceScreen
         language={language}
@@ -4946,6 +4947,7 @@ function AppContent() {
         refreshing={platform.refreshing}
         error={platform.error}
         onRefresh={() => void platform.refresh(true)}
+        logoSource={darjiLogo}
       />
     );
   }

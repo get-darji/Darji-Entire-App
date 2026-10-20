@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Playfair_Display, Cormorant_Garamond } from "next/font/google";
 import { Providers } from "@/src/providers";
+import { PlatformMaintenanceGate } from "@/src/components/platform-maintenance-gate";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -156,7 +157,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="antialiased">
-        <Providers>{children}</Providers>
+        <Providers><PlatformMaintenanceGate>{children}</PlatformMaintenanceGate></Providers>
       </body>
     </html>
   );

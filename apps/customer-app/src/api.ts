@@ -71,6 +71,7 @@ async function requestJson<T>(path: string, options: RequestInit, token?: string
       headers: {
         "Content-Type": "application/json",
         "ngrok-skip-browser-warning": "true",
+        "x-darji-client": "customer-app",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers
       }

@@ -1,10 +1,9 @@
 import type { Server as HttpServer } from "node:http";
 import { Server, type Socket } from "socket.io";
-import type { Role } from "@darji/shared";
+import { isAppUnderMaintenance, type MaintenanceApp, type Role, type PlatformStatus } from "@darji/shared";
 import { DeliveryPartnerModel, DeliveryRequestModel, TailorModel, UserModel, SupportTicketModel, BugReportModel, AccountChangeRequestModel } from "../models.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 import { getPlatformStatus } from "./platform-status.service.js";
-import type { PlatformStatus } from "@darji/shared";
 
 type SocketUser = {
   id: string;
@@ -12,6 +11,7 @@ type SocketUser = {
   tailorId?: string;
   deliveryPartnerId?: string;
   deliveryVerified?: boolean;
+  maintenanceApp?: MaintenanceApp;
 };
 
 type DeliveryLocationPayload = {
@@ -60,9 +60,14 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
   if (!payload.sid || !activeSessionId || payload.sid !== activeSessionId) {
     throw new Error("Your account has been signed in on another device.");
   }
+  const rawClient = String(socket.handshake.auth?.client ?? "").toLowerCase();
+  const maintenanceApp: MaintenanceApp = rawClient === "tailor-app" ? "TAILOR_APP"
+    : rawClient === "delivery-app" ? "DELIVERY_APP"
+      : rawClient === "customer-web" ? "CUSTOMER_WEB"
+        : "CUSTOMER_APP";
   if (payload.role !== "ADMIN" && payload.role !== "SUPER_ADMIN") {
     const platformStatus = await getPlatformStatus();
-    if (platformStatus.maintenanceMode) throw new Error(platformStatus.title);
+    if (isAppUnderMaintenance(platformStatus, maintenanceApp)) throw new Error(platformStatus.title);
   }
 
   const [tailor, partner] = await Promise.all([
@@ -73,6 +78,7 @@ async function authenticateSocket(socket: Socket): Promise<SocketUser> {
   return {
     id: user.id,
     role: payload.role as Role,
+    maintenanceApp,
     tailorId: tailor?.id,
     deliveryPartnerId: partner?.id,
     deliveryVerified: partner?.verificationStatus === "VERIFIED"
@@ -362,10 +368,10 @@ export function emitToAdmins(event: string, payload: unknown) {
 
 export function publishPlatformStatus(status: PlatformStatus) {
   io?.emit("platform:status_changed", status);
-  if (!status.maintenanceMode || !io) return;
+  if (!io) return;
   for (const socket of io.sockets.sockets.values()) {
     const user = socket.data.user as SocketUser | undefined;
-    if (user && user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
+    if (user && user.role !== "ADMIN" && user.role !== "SUPER_ADMIN" && user.maintenanceApp && isAppUnderMaintenance(status, user.maintenanceApp)) {
       socket.disconnect(true);
     }
   }

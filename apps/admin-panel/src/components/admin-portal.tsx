@@ -9,7 +9,7 @@ import {
   normalizeCustomerWebsiteSlider,
   type CustomerWebsiteSlider
 } from "../../../../shared/src/customer-website-slider";
-import { defaultPlatformStatus, type PlatformStatus } from "../../../../shared/src/platform-status";
+import { defaultPlatformStatus, type MaintenanceApp, type PlatformStatus } from "../../../../shared/src/platform-status";
 import { defaultServiceAreaConfig, type ServiceAreaConfig } from "../../../../shared/src/service-area";
 import { allowedOrderStatusTransitions, orderStatuses } from "../../../../shared/src/order-statuses";
 import { GARMENTS_BY_GENDER, GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../shared/src/cloth-details";
@@ -336,6 +336,13 @@ type DeliveryBatchSettingsDraft = {
   maxOrdersPerBatch: number;
 };
 
+type SettingsPage = "service-area" | "tutorial" | "delivery" | "development";
+
+type MapPartnerFocus = {
+  partnerId: string;
+  requestId: number;
+};
+
 type DashboardMetrics = {
   averageOrderValue: number;
   cancellationRate: number;
@@ -597,6 +604,10 @@ export function AdminPortal() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const urlSectionSyncReadyRef = useRef(false);
   const [globalSearch, setGlobalSearch] = useState("");
+  const [tailorDirectorySearch, setTailorDirectorySearch] = useState("");
+  const [partnerDirectorySearch, setPartnerDirectorySearch] = useState("");
+  const [mapPartnerFocus, setMapPartnerFocus] = useState<MapPartnerFocus | null>(null);
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>("service-area");
   const [sessionRestoreDone, setSessionRestoreDone] = useState(false);
   const [dashboardDrilldown, setDashboardDrilldown] = useState<DashboardDrilldown | null>(null);
   const [financeDetailKind, setFinanceDetailKind] = useState<FinanceDetailKind | null>(null);
@@ -709,7 +720,6 @@ export function AdminPortal() {
   const [assignPickupPartnerId, setAssignPickupPartnerId] = useState("");
   const [assignDeliveryPartnerId, setAssignDeliveryPartnerId] = useState("");
   const [couponDraft, setCouponDraft] = useState<CouponFormDraft>(emptyCouponDraft);
-  const [settingsDrafts, setSettingsDrafts] = useState<Record<string, string>>({});
   const [batchSettingsDraft, setBatchSettingsDraft] = useState<DeliveryBatchSettingsDraft>({ lockMinutes: 45, maxOrdersPerBatch: 10 });
   const [platformStatusDraft, setPlatformStatusDraft] = useState<PlatformStatus>(defaultPlatformStatus);
   const [serviceAreaDraft, setServiceAreaDraft] = useState<ServiceAreaConfig>(defaultServiceAreaConfig);
@@ -969,11 +979,6 @@ export function AdminPortal() {
 
   useEffect(() => {
     if (settingsQuery.data) {
-      const nextDrafts = settingsQuery.data.reduce<Record<string, string>>((acc, item) => {
-        acc[item.key] = typeof item.value === "string" ? item.value : JSON.stringify(item.value, null, 2);
-        return acc;
-      }, {});
-      setSettingsDrafts(nextDrafts);
       const tutorialSetting = settingsQuery.data.find((item) => item.key === "tailor_tutorial_media");
       setTailorTutorialDraft(normalizeTailorTutorialDraft(tutorialSetting?.value));
       const batchSetting = settingsQuery.data.find((item) => item.key === "delivery_batch_settings");
@@ -1743,7 +1748,7 @@ export function AdminPortal() {
     );
   }
 
-  const { analytics, dashboardAnalytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets, settings } = dashboardData;
+  const { analytics, dashboardAnalytics, me, orders, tailoringRequests, deliveryRequests, deliveryBatches, tailors, partners, users, payments, coupons, tickets } = dashboardData;
   const measurementVisits = measurementVisitsQuery.data ?? [];
   
   const normalizedTailoringRequests: Order[] = tailoringRequests.map((request) => normalizeTailoringRequestForAdmin(request, partners));
@@ -2359,29 +2364,33 @@ export function AdminPortal() {
 
   const filteredTailors = tailors.filter((tailor) => {
     const status = tailor.verificationStatus ?? "NOT_SUBMITTED";
+    const directoryTerm = tailorDirectorySearch.trim().toLowerCase();
+    const searchableValues = [tailor.shopName, tailor.darjiTailorId, tailor.id, tailor.userId, tailor.user?.name, tailor.user?.phone, status, formatList(tailor.specialization)]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
     const matchesSearch =
       !searchTerm ||
-      [tailor.shopName, tailor.darjiTailorId, tailor.user?.name, tailor.user?.phone, status, formatList(tailor.specialization)]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(searchTerm);
+      searchableValues.includes(searchTerm);
+    const matchesDirectorySearch = !directoryTerm || searchableValues.includes(directoryTerm);
     const matchesDrilldown = dashboardDrilldown?.target !== "tailors" || drilldownIdSet.has(tailor.id);
-    return matchesSearch && matchesDrilldown;
+    return matchesSearch && matchesDirectorySearch && matchesDrilldown;
   });
   const rejectedTailors = filteredTailors.filter((tailor) => tailor.verificationStatus === "REJECTED");
 
   const filteredPartners = partners.filter((partner) => {
     const status = partner.verificationStatus ?? "NOT_SUBMITTED";
+    const directoryTerm = partnerDirectorySearch.trim().toLowerCase();
+    const searchableValues = [partner.darjiPartnerId, partner.id, partner.userId, partner.user?.name, partner.user?.phone, getPartnerVehicleNumber(partner), getPartnerRoleLabel(partner), status]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
     const matchesSearch =
       !searchTerm ||
-      [partner.darjiPartnerId, partner.user?.name, partner.user?.phone, getPartnerVehicleNumber(partner), getPartnerRoleLabel(partner), status]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(searchTerm);
+      searchableValues.includes(searchTerm);
+    const matchesDirectorySearch = !directoryTerm || searchableValues.includes(directoryTerm);
     const matchesDrilldown = dashboardDrilldown?.target !== "partners" || drilldownIdSet.has(partner.id);
-    return matchesSearch && matchesDrilldown;
+    return matchesSearch && matchesDirectorySearch && matchesDrilldown;
   });
 
   const filteredUsers = customerUsers.filter((user) => {
@@ -2647,6 +2656,14 @@ export function AdminPortal() {
     pendingDelete: accountDeleteMutation.isPending
   });
   const partnerColumns = getPartnerColumns({
+    onLocate: (partner) => {
+      const coordinates = partner.currentLocation?.coordinates;
+      if (!coordinates || coordinates.length < 2) {
+        toast.info(`${getPartnerDisplayName(partner)} has not shared a phone GPS location yet.`);
+        return;
+      }
+      setMapPartnerFocus({ partnerId: partner.id, requestId: Date.now() });
+    },
     onOpen: setPartnerDetail,
     onReview: (partnerId, status) => partnerReviewMutation.mutate({ partnerId, status }),
     onDelete: (partner) => {
@@ -3136,6 +3153,20 @@ export function AdminPortal() {
                 </div>
               }
             />
+            <Panel className="p-4">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={17} />
+                <input
+                  aria-label="Search tailor partners"
+                  className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-10 pr-10 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+                  onChange={(event) => setTailorDirectorySearch(event.target.value)}
+                  placeholder="Search by tailor name, tailor ID or phone number"
+                  value={tailorDirectorySearch}
+                />
+                {tailorDirectorySearch ? <button aria-label="Clear tailor search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[var(--muted)] hover:bg-slate-100" onClick={() => setTailorDirectorySearch("")} type="button"><X size={15} /></button> : null}
+              </label>
+              <p className="mt-2 text-xs text-[var(--muted)]">Showing {filteredTailors.length} of {tailors.length} submitted tailor records.</p>
+            </Panel>
             <PartnerProximitySearch customers={users.filter((user) => String(user.role).toUpperCase() === "CUSTOMER")} role="TAILOR" onOpen={(profile) => setTailorDetail(profile as TailorProfile)} />
             <div className="space-y-3">
               <div>
@@ -3172,8 +3203,22 @@ export function AdminPortal() {
                 </div>
               }
             />
+            <Panel className="p-4">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={17} />
+                <input
+                  aria-label="Search delivery partners"
+                  className="h-11 w-full rounded-xl border border-[var(--panel-border)] bg-white pl-10 pr-10 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+                  onChange={(event) => setPartnerDirectorySearch(event.target.value)}
+                  placeholder="Search by delivery partner name, partner ID or phone number"
+                  value={partnerDirectorySearch}
+                />
+                {partnerDirectorySearch ? <button aria-label="Clear delivery partner search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[var(--muted)] hover:bg-slate-100" onClick={() => setPartnerDirectorySearch("")} type="button"><X size={15} /></button> : null}
+              </label>
+              <p className="mt-2 text-xs text-[var(--muted)]">Showing {filteredPartners.length} of {partners.length} submitted delivery partner records. Select a partner below to locate their latest phone GPS.</p>
+            </Panel>
             <PartnerProximitySearch customers={users.filter((user) => String(user.role).toUpperCase() === "CUSTOMER")} role="DELIVERY_PARTNER" onOpen={(profile) => setPartnerDetail(profile as DeliveryPartnerProfile)} />
-            <RiderLiveMap partners={filteredPartners} token={token} />
+            <RiderLiveMap focusPartnerId={mapPartnerFocus?.partnerId ?? null} focusRequestId={mapPartnerFocus?.requestId ?? 0} partners={filteredPartners} token={token} />
             <DataTable
               columns={partnerColumns}
               data={filteredPartners}
@@ -3481,90 +3526,52 @@ export function AdminPortal() {
         {activeSection === "settings" ? (
           <div className="space-y-6">
             <SectionIntro
-              title="Platform settings"
-              description="Editable operational settings already persisted through the backend settings endpoints."
+              title="Operational settings"
+              description="Open one settings page at a time. Raw platform and delivery-round JSON are intentionally not exposed here."
             />
-            <ServiceAreaSettingsCard
-              draft={serviceAreaDraft}
-              interests={serviceAreaInterestsQuery.data}
-              pending={serviceAreaMutation.isPending}
-              onChange={setServiceAreaDraft}
-              onSave={(value) => serviceAreaMutation.mutate(value)}
-            />
-            <TailorTutorialMediaCard
-              draft={tailorTutorialDraft}
-              onChange={setTailorTutorialDraft}
-              onSave={() => settingMutation.mutate({ key: "tailor_tutorial_media", value: tailorTutorialDraft })}
-              onUpload={handleTutorialMediaUpload}
-              pending={settingMutation.isPending}
-              uploading={uploadingTutorialMedia}
-            />
-            <Panel>
-              <h3 className="text-lg font-semibold">Delivery pricing policy</h3>
-              <p className="mt-1 text-sm text-[var(--muted)]">Delivery prices and partner payouts are currently enforced by the backend distance-pricing engine. They are shown here as read-only so this panel cannot save values the live workflow would ignore.</p>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <DetailBox label="Standard" value="₹49 base" note="₹0.50 per 100 m round-trip" />
-                <DetailBox label="Express" value="₹59 base" note="₹0.50 per 100 m round-trip" />
-                <DetailBox label="Instant" value="₹69 base" note="₹1.00 per 100 m round-trip" />
-              </div>
-            </Panel>
-            <BatchSettingsCard
-              draft={batchSettingsDraft}
-              pending={settingMutation.isPending}
-              onChange={setBatchSettingsDraft}
-              onSave={(value) => {
-                const batchSettingsRecord = settingsQuery.data?.find((item) => item.key === "delivery_batch_settings");
-                const existingValue = batchSettingsRecord?.value && typeof batchSettingsRecord.value === "object" ? (batchSettingsRecord.value as Record<string, unknown>) : {};
-                settingMutation.mutate({
-                  key: "delivery_batch_settings",
-                  value: {
-                    ...existingValue,
-                    lockMinutes: value.lockMinutes,
-                    maxOrdersPerBatch: value.maxOrdersPerBatch
-                  }
-                });
-              }}
-            />
-            <DevelopmentResetCard
-              ordersPending={resetOrdersMutation.isPending}
-              everythingPending={resetEverythingMutation.isPending}
-              onResetOrders={() => resetOrdersMutation.mutate()}
-              onResetEverything={() => resetEverythingMutation.mutate()}
-            />
-            <div className="grid gap-4 xl:grid-cols-2">
-              {settings.filter((setting) => !["delivery_batch_settings", "delivery_fare_settings", "platform_status", "service_area_config", "enable_area_filtering", "tailor_tutorial_media", CUSTOMER_WEBSITE_SLIDER_SETTING_KEY].includes(setting.key)).map((setting) => (
-                <Panel key={setting.id}>
-                  <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-semibold">{setting.key}</h3>
-                      <p className="text-sm text-[var(--muted)]">Last updated {formatDate(setting.updatedAt, true)}</p>
-                    </div>
-                    <Badge tone="slate">{typeof setting.value === "string" ? "Text" : "JSON"}</Badge>
-                  </div>
-                  <textarea
-                    className="h-48 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 font-mono text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
-                    value={settingsDrafts[setting.key] ?? ""}
-                    onChange={(event) => setSettingsDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
-                  />
-                  <div className="mt-4 flex justify-end">
-                    <ActionButton
-                      onClick={() => {
-                        const raw = settingsDrafts[setting.key] ?? "";
-                        let value: unknown = raw;
-                        try {
-                          value = JSON.parse(raw);
-                        } catch {
-                          value = raw;
-                        }
-                        settingMutation.mutate({ key: setting.key, value });
-                      }}
-                    >
-                      Save setting
-                    </ActionButton>
-                  </div>
-                </Panel>
+            <div className="grid gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-2 sm:grid-cols-2 xl:grid-cols-4">
+              {([
+                { id: "service-area", label: "Service Areas", description: "Coverage and requests" },
+                { id: "tutorial", label: "Tailor Tutorial", description: "Training media" },
+                { id: "delivery", label: "Delivery", description: "Pricing and batches" },
+                { id: "development", label: "Development", description: "Reset tools" }
+              ] as Array<{ id: SettingsPage; label: string; description: string }>).map((page) => (
+                <button aria-current={settingsPage === page.id ? "page" : undefined} className={cn("rounded-xl border px-4 py-3 text-left transition", settingsPage === page.id ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--foreground)] shadow-sm" : "border-transparent text-[var(--muted)] hover:border-[var(--panel-border)] hover:bg-black/5")} key={page.id} onClick={() => setSettingsPage(page.id)} type="button">
+                  <span className="block text-sm font-bold">{page.label}</span>
+                  <span className="mt-0.5 block text-xs">{page.description}</span>
+                </button>
               ))}
             </div>
+
+            {settingsPage === "service-area" ? <ServiceAreaSettingsCard draft={serviceAreaDraft} interests={serviceAreaInterestsQuery.data} pending={serviceAreaMutation.isPending} onChange={setServiceAreaDraft} onSave={(value) => serviceAreaMutation.mutate(value)} /> : null}
+
+            {settingsPage === "tutorial" ? <TailorTutorialMediaCard draft={tailorTutorialDraft} onChange={setTailorTutorialDraft} onSave={() => settingMutation.mutate({ key: "tailor_tutorial_media", value: tailorTutorialDraft })} onUpload={handleTutorialMediaUpload} pending={settingMutation.isPending} uploading={uploadingTutorialMedia} /> : null}
+
+            {settingsPage === "delivery" ? (
+              <div className="space-y-6">
+                <Panel>
+                  <h3 className="text-lg font-semibold">Delivery pricing policy</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)]">Delivery prices and partner payouts are enforced by the backend distance-pricing engine. They remain read-only here so the admin cannot save values the live workflow would ignore.</p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <DetailBox label="Standard" value="₹49 base" note="₹0.50 per 100 m round-trip" />
+                    <DetailBox label="Express" value="₹59 base" note="₹0.50 per 100 m round-trip" />
+                    <DetailBox label="Instant" value="₹69 base" note="₹1.00 per 100 m round-trip" />
+                  </div>
+                </Panel>
+                <BatchSettingsCard
+                  draft={batchSettingsDraft}
+                  pending={settingMutation.isPending}
+                  onChange={setBatchSettingsDraft}
+                  onSave={(value) => {
+                    const batchSettingsRecord = settingsQuery.data?.find((item) => item.key === "delivery_batch_settings");
+                    const existingValue = batchSettingsRecord?.value && typeof batchSettingsRecord.value === "object" ? (batchSettingsRecord.value as Record<string, unknown>) : {};
+                    settingMutation.mutate({ key: "delivery_batch_settings", value: { ...existingValue, lockMinutes: value.lockMinutes, maxOrdersPerBatch: value.maxOrdersPerBatch } });
+                  }}
+                />
+              </div>
+            ) : null}
+
+            {settingsPage === "development" ? <DevelopmentResetCard ordersPending={resetOrdersMutation.isPending} everythingPending={resetEverythingMutation.isPending} onResetOrders={() => resetOrdersMutation.mutate()} onResetEverything={() => resetEverythingMutation.mutate()} /> : null}
           </div>
         ) : null}
       </PortalFrame>
@@ -7836,9 +7843,26 @@ function PlatformStatusCard({
   onSave: (value: PlatformStatus) => void;
 }) {
   const valid = draft.title.trim().length >= 2 && draft.description.trim().length >= 2;
+  const targetApps: Array<{ id: MaintenanceApp; label: string; description: string }> = [
+    { id: "CUSTOMER_APP", label: "Customer app", description: "Darji mobile app for customers" },
+    { id: "TAILOR_APP", label: "Tailor app", description: "Tailor workspace and requests" },
+    { id: "DELIVERY_APP", label: "Delivery app", description: "Delivery partner operations" },
+    { id: "CUSTOMER_WEB", label: "Website", description: "Customer web experience" }
+  ];
+  // The production API can briefly return the pre-targeting setting shape
+  // during a rolling deployment. Treat the omitted field as no selection.
+  const maintenanceApps = draft.maintenanceApps ?? [];
+  const maintenanceActive = draft.maintenanceMode && maintenanceApps.length > 0;
+  const toggleTarget = (app: MaintenanceApp) => {
+    const nextMaintenanceApps = maintenanceApps.includes(app)
+      ? maintenanceApps.filter((item) => item !== app)
+      : [...maintenanceApps, app];
+    onChange({ ...draft, maintenanceApps: nextMaintenanceApps, maintenanceMode: nextMaintenanceApps.length ? draft.maintenanceMode : false, allowAdminAccess: true });
+  };
   const toggleMode = () => {
     if (!valid || pending) return;
-    const next = { ...draft, maintenanceMode: !draft.maintenanceMode, allowAdminAccess: true as const };
+    if (!maintenanceApps.length) return;
+    const next = { ...draft, maintenanceMode: !maintenanceActive, allowAdminAccess: true as const };
     onChange(next);
     onSave(next);
   };
@@ -7846,32 +7870,40 @@ function PlatformStatusCard({
   return (
     <Panel>
       <div className="flex flex-col gap-5">
-        <div className={cn("rounded-3xl border p-5", draft.maintenanceMode ? "border-rose-300 bg-rose-50" : "border-emerald-300 bg-emerald-50")}>
+        <div className={cn("rounded-3xl border p-5", maintenanceActive ? "border-rose-300 bg-rose-50" : "border-emerald-300 bg-emerald-50")}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <span className={cn("h-3 w-3 rounded-full", draft.maintenanceMode ? "bg-rose-600" : "bg-emerald-600")} />
-                <h3 className={cn("text-xl font-bold", draft.maintenanceMode ? "text-rose-900" : "text-emerald-900")}>
-                  {draft.maintenanceMode ? "Maintenance Mode" : "Platform Live"}
+                <span className={cn("h-3 w-3 rounded-full", maintenanceActive ? "bg-rose-600" : "bg-emerald-600")} />
+                <h3 className={cn("text-xl font-bold", maintenanceActive ? "text-rose-900" : "text-emerald-900")}>
+                  {maintenanceActive ? "Targeted Maintenance" : "Platform Live"}
                 </h3>
               </div>
-              <p className={cn("mt-2 text-sm", draft.maintenanceMode ? "text-rose-700" : "text-emerald-700")}>
-                {draft.maintenanceMode
-                  ? "Customer, tailor, and delivery workflows are paused."
+              <p className={cn("mt-2 text-sm", maintenanceActive ? "text-rose-700" : "text-emerald-700")}>
+                {maintenanceActive
+                  ? `${maintenanceApps.length} selected experience${maintenanceApps.length === 1 ? " is" : "s are"} currently paused.`
                   : "All Darji customer and partner workflows are available."}
               </p>
             </div>
             <button
               type="button"
-              aria-pressed={draft.maintenanceMode}
-              className={cn("inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60", draft.maintenanceMode ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700")}
-              disabled={pending || !valid}
+              aria-pressed={maintenanceActive}
+              className={cn("inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60", maintenanceActive ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700")}
+              disabled={pending || !valid || (!maintenanceActive && !maintenanceApps.length)}
               onClick={toggleMode}
             >
-              {pending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : draft.maintenanceMode ? <ToggleLeft size={22} /> : <ToggleRight size={22} />}
-              {draft.maintenanceMode ? "Set Platform Live" : "Enable Maintenance"}
+              {pending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : maintenanceActive ? <ToggleLeft size={22} /> : <ToggleRight size={22} />}
+              {maintenanceActive ? "Set Selected Apps Live" : "Enable selected apps"}
             </button>
           </div>
+        </div>
+
+        <div>
+          <div className="mb-3"><h4 className="font-bold">Apps under maintenance</h4><p className="mt-1 text-sm text-[var(--muted)]">Only selected experiences show the maintenance page. Admin access always remains available.</p></div>
+          <div className="grid gap-3 md:grid-cols-2">{targetApps.map((app) => {
+            const selected = maintenanceApps.includes(app.id);
+            return <button className={cn("flex items-start justify-between rounded-2xl border p-4 text-left transition", selected ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--panel-border)] bg-[var(--panel)] hover:border-[var(--accent)]")} key={app.id} onClick={() => toggleTarget(app.id)} type="button"><span><span className="block font-semibold">{app.label}</span><span className="mt-1 block text-xs text-[var(--muted)]">{app.description}</span></span>{selected ? <ToggleRight className="shrink-0 text-emerald-600" /> : <ToggleLeft className="shrink-0 text-[var(--muted)]" />}</button>;
+          })}</div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -13338,11 +13370,13 @@ function getTailorColumns({
 
 function getPartnerColumns({
   onDelete,
+  onLocate,
   onOpen,
   onReview,
   pendingDelete
 }: {
   onDelete: (partner: DeliveryPartnerProfile) => void;
+  onLocate: (partner: DeliveryPartnerProfile) => void;
   onOpen: (partner: DeliveryPartnerProfile) => void;
   onReview: (partnerId: string, status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED") => void;
   pendingDelete: boolean;
@@ -13354,13 +13388,14 @@ function getPartnerColumns({
       accessorFn: (row) => row.user?.name ?? "",
       cell: ({ row }) => (
         <div>
-          <p className="flex flex-wrap items-center gap-2 font-medium">
+          <button className="flex flex-wrap items-center gap-2 text-left font-medium transition hover:text-orange-600" onClick={() => onLocate(row.original)} type="button">
+            <MapPin size={15} />
             <span>{getPartnerDisplayName(row.original)}</span>
             {row.original.darjiPartnerId ? (
               <span className="text-xs font-semibold text-orange-500">({row.original.darjiPartnerId})</span>
             ) : null}
             <DeliveryRoleBadge partner={row.original} />
-          </p>
+          </button>
           <p className="text-xs text-[var(--muted)]">{row.original.user?.phone ?? "No phone"}</p>
         </div>
       )
@@ -13427,6 +13462,9 @@ function getPartnerColumns({
       enableSorting: false,
       cell: ({ row }) => (
         <div className="flex flex-wrap gap-2">
+          <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onLocate(row.original)}>
+            <MapPin size={14} /> Locate
+          </ActionButton>
           <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onOpen(row.original)}>
             View
           </ActionButton>

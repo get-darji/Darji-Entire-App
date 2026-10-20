@@ -4,6 +4,7 @@ import { UserModel } from "../models.js";
 import { AppError } from "./error.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 import { getPlatformStatus } from "../services/platform-status.service.js";
+import { isAppUnderMaintenance, type MaintenanceApp } from "@darji/shared";
 
 declare global {
   namespace Express {
@@ -73,7 +74,12 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     const isProfileBootstrap = req.method === "GET" && req.path === "/auth/me";
     if (!isAdmin && !isProfileBootstrap) {
       const platformStatus = await getPlatformStatus();
-      if (platformStatus.maintenanceMode) {
+      const client = String(req.get("x-darji-client") ?? "").trim().toLowerCase();
+      const maintenanceApp: MaintenanceApp = client === "tailor-app" ? "TAILOR_APP"
+        : client === "delivery-app" ? "DELIVERY_APP"
+          : client === "customer-web" ? "CUSTOMER_WEB"
+            : "CUSTOMER_APP";
+      if (isAppUnderMaintenance(platformStatus, maintenanceApp)) {
         return next(new AppError(503, platformStatus.title));
       }
     }

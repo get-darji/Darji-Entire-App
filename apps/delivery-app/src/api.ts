@@ -120,6 +120,7 @@ async function requestJsonAt<T>(apiUrl: string, path: string, options: ApiReques
       headers: {
         "Content-Type": "application/json",
         "ngrok-skip-browser-warning": "true",
+        "x-darji-client": "delivery-app",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...fetchOptions.headers
       }

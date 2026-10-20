@@ -15,7 +15,8 @@ export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL === RETIRED_API_URL
 export const apiClient = axios.create({
   baseURL: apiBaseUrl,
   headers: {
-    "ngrok-skip-browser-warning": "true"
+    "ngrok-skip-browser-warning": "true",
+    "x-darji-client": "customer-web"
   }
 });
 
