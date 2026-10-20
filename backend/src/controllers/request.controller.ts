@@ -440,6 +440,89 @@ function requestClothingLabel(request: any) {
   return count === 1 ? `${request.workType} requested for ${request.clothType}` : `New Order - ${count} Clothing Items`;
 }
 
+type RequestTimelineEvent = {
+  status: string;
+  description?: string;
+  timestamp: Date | string;
+  userId?: string;
+  userName?: string;
+};
+
+function actorTimelineFields(req?: Request) {
+  return req?.user ? { userId: req.user.id, userName: req.user.role } : { userName: "System" };
+}
+
+function mergeTimelineEvents(stored: unknown, derived: RequestTimelineEvent[]) {
+  const storedEvents = (Array.isArray(stored) ? stored as RequestTimelineEvent[] : [])
+    .filter((event) => event?.status && event?.timestamp && !Number.isNaN(new Date(event.timestamp).getTime()));
+  const inferredEvents = derived.filter((event) => !storedEvents.some((storedEvent) =>
+    String(storedEvent.status).toUpperCase() === String(event.status).toUpperCase()
+    && Math.abs(new Date(storedEvent.timestamp).getTime() - new Date(event.timestamp).getTime()) < 5 * 60_000
+  ));
+  const events = [...storedEvents, ...inferredEvents]
+    .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    const timestamp = new Date(event.timestamp).toISOString();
+    const key = `${String(event.status).toUpperCase()}|${timestamp}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function derivedDeliveryTimeline(task: Record<string, any>) {
+  const events: RequestTimelineEvent[] = [];
+  const add = (status: string, description: string, timestamp?: unknown, userName = "System (reconstructed)") => {
+    if (!timestamp) return;
+    const date = new Date(timestamp as string | number | Date);
+    if (Number.isNaN(date.getTime())) return;
+    events.push({ status, description, timestamp: date, userName });
+  };
+  add("TASK_CREATED", "Delivery task created", task.createdAt);
+  add("PARTNERS_NOTIFIED", "Eligible delivery partners were notified", task.notificationSentAt);
+  add("ACCEPTED", "Delivery partner accepted the task", task.acceptedAt);
+  add("PICKUP_OTP_VERIFIED", "Pickup handoff OTP verified", task.pickupOtpVerifiedAt);
+  add("PICKED_UP", task.type === "customer_to_tailor" ? "Clothes picked up from customer" : "Finished clothes picked up from tailor", task.pickedUpAt);
+  add("DROP_OTP_VERIFIED", "Final handoff OTP verified", task.dropOtpVerifiedAt);
+  add("COD_COLLECTED", "Cash on delivery collection confirmed", task.cashCollectedAt);
+  for (const failure of Array.isArray(task.failureHistory) ? task.failureHistory : []) {
+    add(String(failure.action ?? "DELIVERY_FAILED").toUpperCase(), failure.note ? `${failure.reason}: ${failure.note}` : String(failure.reason ?? "Delivery failure recorded"), failure.failedAt);
+  }
+  if (!task.failureHistory?.length) add("DELIVERY_FAILED", String(task.lastFailureReason ?? "Delivery failure recorded"), task.lastFailureAt);
+  add("DELIVERED", "Delivery task completed", task.deliveredAt);
+  if (task.taskStatus === "cancelled" && !task.deliveredAt) add("CANCELLED", task.lastFailureReason ? `Task cancelled: ${task.lastFailureReason}` : "Delivery task cancelled", task.lastFailureAt ?? task.updatedAt);
+  return mergeTimelineEvents(task.timelineEvents, events);
+}
+
+function deliveryPayloadWithTimeline(input: unknown): Record<string, any> {
+  const payload = typeof (input as { toJSON?: unknown })?.toJSON === "function"
+    ? (input as { toJSON: () => Record<string, any> }).toJSON()
+    : input as Record<string, any>;
+  return { ...payload, timelineEvents: derivedDeliveryTimeline(payload) };
+}
+
+function derivedTailoringTimeline(request: Record<string, any>, selectedQuote?: Record<string, any> | null, milestones?: DeliveryMilestones) {
+  const events: RequestTimelineEvent[] = [];
+  const add = (status: string, description: string, timestamp?: unknown, userName = "System (reconstructed)") => {
+    if (!timestamp) return;
+    const date = new Date(timestamp as string | number | Date);
+    if (Number.isNaN(date.getTime())) return;
+    events.push({ status, description, timestamp: date, userName });
+  };
+  add("REQUEST_CREATED", "Tailoring request created", request.createdAt);
+  if (selectedQuote) add("QUOTE_SELECTED", "Customer selected a tailor quote", selectedQuote.updatedAt ?? selectedQuote.createdAt);
+  add(request.paymentStatus === "PAID" ? "PAYMENT_CONFIRMED" : "ORDER_CONFIRMED", request.paymentStatus === "PAID" ? "Payment confirmed and order placed" : "Order confirmed", request.confirmedAt);
+  add("PICKED_UP_FROM_CUSTOMER", "Clothes picked up from customer", milestones?.customerToTailor?.pickedUpAt);
+  add("RECEIVED_BY_TAILOR", "Clothes delivered to tailor", milestones?.customerToTailor?.deliveredAt);
+  if (request.workStatus === "WORKING") add("STITCHING_STARTED", "Tailor started stitching", request.updatedAt);
+  if (request.workStatus === "READY") add("READY_FOR_DELIVERY", "Tailoring completed and clothes marked ready", request.updatedAt);
+  add("OUT_FOR_DELIVERY", "Finished clothes picked up from tailor", milestones?.tailorToCustomer?.pickedUpAt);
+  add("COMPLETED", "Finished clothes delivered to customer", milestones?.tailorToCustomer?.deliveredAt);
+  add("CANCELLED", request.cancellationReason ? `Request cancelled: ${request.cancellationReason}` : "Tailoring request cancelled", request.cancelledAt);
+  return mergeTimelineEvents(request.timelineEvents, events);
+}
+
 function taskOtp(taskId: string, stage: "pickup" | "drop"): string {
   const digest = createHmac("sha256", env.JWT_ACCESS_SECRET).update(`delivery:${taskId}:${stage}`).digest();
   const otp = String(digest.readUInt32BE(0) % 10000).padStart(4, "0");
@@ -718,9 +801,13 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
   const reviewByKind = new Map(reviews.map((review) => [String(review.kind), review]));
   const tailorReview = reviewByKind.get("tailor");
   const deliveryReview = reviewByKind.get("delivery");
+  const selectedQuoteJson = selectedQuoteDoc
+    ? (typeof selectedQuoteDoc.toJSON === "function" ? selectedQuoteDoc.toJSON() : selectedQuoteDoc as unknown as Record<string, any>)
+    : null;
 
   return {
     ...request,
+    timelineEvents: derivedTailoringTimeline(request, selectedQuoteJson, deliveryMilestones),
     ...(deliveryMilestones ? { deliveryMilestones } : {}),
     customer: customer ? {
       ...customer.toJSON(),
@@ -875,7 +962,13 @@ async function createDeliveryRequestForTailoringRequest(requestId: string, type:
         sampleProvided,
         sampleMedia,
         acceptedAt: undefined,
-        deadlineAt: undefined
+        deadlineAt: undefined,
+        timelineEvents: [{
+          status: "TASK_CREATED",
+          description: type === "customer_to_tailor" ? "Customer pickup task created" : "Final customer delivery task created",
+          timestamp: new Date(),
+          userName: "System"
+        }]
       });
     } else {
       deliveryRequest = await DeliveryRequestModel.findByIdAndUpdate(
@@ -1034,7 +1127,15 @@ async function finalizeTailoringRequestConfirmation(
       ...(breakdown?.additionalItems ? { additionalItems: breakdown.additionalItems } : {}),
       totalAmount: breakdown?.totalAmount ?? request.totalAmount ?? quote.price,
       orderStatus: "tailor_accepted",
-      confirmedAt: new Date()
+      confirmedAt: new Date(),
+      $push: {
+        timelineEvents: {
+          status: paymentStatus === "PAID" ? "PAYMENT_CONFIRMED" : "ORDER_CONFIRMED",
+          description: paymentStatus === "PAID" ? "Payment confirmed and tailor selected" : "Order confirmed and tailor selected",
+          timestamp: new Date(),
+          userName: "System"
+        }
+      }
     },
     { returnDocument: "after" }
   );
@@ -1108,7 +1209,7 @@ async function finalizeTailoringRequestConfirmation(
   };
 }
 
-async function cancelTailoringRequestAndTasks(requestId: string, reason?: string) {
+async function cancelTailoringRequestAndTasks(requestId: string, reason?: string, actor?: { userId?: string; userName?: string }) {
   const request = await TailoringRequestModel.findById(requestId);
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (request.status === "CANCELLED") return request;
@@ -1140,7 +1241,8 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
       orderStatus: "cancelled",
       cancelledAt: new Date(),
       cancellationFee,
-      cancellationReason: reason
+      cancellationReason: reason,
+      $push: { timelineEvents: { status: "CANCELLED", description: reason ? `Request cancelled: ${reason}` : "Tailoring request cancelled", timestamp: new Date(), ...(actor ?? { userName: "System" }) } }
     },
     { returnDocument: "after" }
   );
@@ -1159,7 +1261,13 @@ async function cancelTailoringRequestAndTasks(requestId: string, reason?: string
     await resolveOperationalAlert(`MEASUREMENT_VISIT_UNASSIGNED:${cancelledVisit.id}`);
   }
   const tasks = deliveryTasks.filter((task) => ["pending", "accepted", "picked_up"].includes(String(task.taskStatus)));
-  await DeliveryRequestModel.updateMany({ orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } }, { taskStatus: "cancelled" });
+  await DeliveryRequestModel.updateMany(
+    { orderId: request.id, taskStatus: { $in: ["pending", "accepted", "picked_up"] } },
+    {
+      taskStatus: "cancelled",
+      $push: { timelineEvents: { status: "CANCELLED", description: reason ? `Task cancelled with order: ${reason}` : "Task cancelled with tailoring request", timestamp: new Date(), ...(actor ?? { userName: "System" }) } }
+    }
+  );
 
   emitToCustomer(request.customerId, "customer:order_status_updated", { requestId: request.id, status: "CANCELLED" });
   const acceptedQuote = await findSelectedQuote(request.id, request.selectedQuoteId);
@@ -1274,7 +1382,7 @@ export async function listDeliveryRequestsController(req: Request, res: Response
   };
   res.json({
     data: requests.map((request) => {
-      const payload = typeof request.toJSON === "function" ? request.toJSON() : request;
+      const payload = deliveryPayloadWithTimeline(request);
       const batch = request.batchId ? batchById.get(String(request.batchId)) : undefined;
       if (!batch) return redactUnassignedPartnerContacts(payload);
       return redactUnassignedPartnerContacts({
@@ -1300,7 +1408,7 @@ export async function getDeliveryRequestController(req: Request, res: Response) 
   }
   const request = await DeliveryRequestModel.findById(String(req.params.id));
   if (!request) throw new AppError(404, "Delivery request not found");
-  const payload = typeof request.toJSON === "function" ? request.toJSON() : request;
+  const payload = deliveryPayloadWithTimeline(request);
   if (req.user!.role === "DELIVERY_PARTNER" && partner) {
     const assignedPartnerId = String(payload.assignedDeliveryPartnerId ?? "");
     const isAssignedToMe = assignedPartnerId === String(partner._id);
@@ -1359,7 +1467,11 @@ export async function rescheduleDeliveryTaskController(req: Request, res: Respon
   if (!selected) throw new AppError(400, "Choose one of the available delivery slots");
   const batch = await moveTaskToScheduledBatch(String(req.params.id), selected);
   if (!batch) throw new AppError(500, "Could not reschedule delivery batch");
-  const task = await DeliveryRequestModel.findById(String(req.params.id));
+  const task = await DeliveryRequestModel.findByIdAndUpdate(
+    String(req.params.id),
+    { $push: { timelineEvents: { status: "RESCHEDULED", description: `Delivery rescheduled to ${deliverySlotLabel(selected).label}`, timestamp: new Date(), ...actorTimelineFields(req) } } },
+    { returnDocument: "after" }
+  );
   if (!task) throw new AppError(404, "Delivery request not found");
 
   emitToCustomer(task.customerId, "customer:delivery_status_updated", {
@@ -1406,6 +1518,10 @@ export async function acceptDeliveryRequestController(req: Request, res: Respons
   const request = claim?.request;
   if (!request) throw new AppError(409, "Delivery request is no longer available");
   const acceptedTasks = claim.acceptedTasks?.length ? claim.acceptedTasks : [request];
+  await DeliveryRequestModel.updateMany(
+    { _id: { $in: acceptedTasks.map((task) => task.id) } },
+    { $push: { timelineEvents: { status: "ACCEPTED", description: "Delivery partner accepted the task", timestamp: new Date(), ...actorTimelineFields(req) } } }
+  );
 
   emitDeliveryEvent({ type: "DELIVERY_REQUEST_ACCEPTED", requestId: request.id, deliveryPartnerId: partner.id });
   emitToDeliveryPartners("delivery:task_accepted", { taskId: request.id, deliveryPartnerId: partner.id });
@@ -1572,6 +1688,12 @@ export async function failDeliveryTaskController(req: Request, res: Response) {
           nextScheduledBatch: roundAt,
           deliveryRound,
           actorId: req.user!.id
+        },
+        timelineEvents: {
+          status: isCancelled ? "CANCELLED" : needsAdmin ? "ACTION_REQUIRED" : "RETRY_SCHEDULED",
+          description: input.note ? `${input.reason}: ${input.note}` : input.reason,
+          timestamp: failedAt,
+          ...actorTimelineFields(req)
         }
       }
     },
@@ -1652,7 +1774,8 @@ export async function retryDeliveryTaskNowController(req: Request, res: Response
           nextScheduledBatch: roundAt,
           deliveryRound,
           actorId: req.user!.id
-        }
+        },
+        timelineEvents: { status: "RETRY_SCHEDULED", description: `Administrator scheduled a retry for ${deliveryRound}`, timestamp: now, ...actorTimelineFields(req) }
       }
     },
     { returnDocument: "after" }
@@ -1675,7 +1798,8 @@ export async function resolveDeliveryRetryController(req: Request, res: Response
           failedAt: new Date(),
           action: "resolved",
           actorId: req.user!.id
-        }
+        },
+        timelineEvents: { status: "RETRY_RESOLVED", description: "Administrator resolved the delivery exception", timestamp: new Date(), ...actorTimelineFields(req) }
       }
     },
     { returnDocument: "after" }
@@ -1696,7 +1820,8 @@ export async function cancelDeliveryRetryController(req: Request, res: Response)
           failedAt: new Date(),
           action: "cancelled",
           actorId: req.user!.id
-        }
+        },
+        timelineEvents: { status: "CANCELLED", description: "Administrator cancelled the delivery retry", timestamp: new Date(), ...actorTimelineFields(req) }
       }
     },
     { returnDocument: "after" }
@@ -1751,7 +1876,17 @@ export async function updateDeliveryTaskStatusController(req: Request, res: Resp
     { _id: String(req.params.id), assignedDeliveryPartnerId: partner.id, taskStatus: expectedStatus },
     {
       taskStatus: input.status,
-      ...(input.status === "picked_up" ? { pickedUpAt: new Date() } : { deliveredAt: new Date() })
+      ...(input.status === "picked_up" ? { pickedUpAt: new Date() } : { deliveredAt: new Date() }),
+      $push: {
+        timelineEvents: {
+          status: input.status.toUpperCase(),
+          description: input.status === "picked_up"
+            ? (existingTask.type === "customer_to_tailor" ? "Clothes picked up from customer" : "Finished clothes picked up from tailor")
+            : (existingTask.type === "customer_to_tailor" ? "Clothes delivered to tailor" : "Finished clothes delivered to customer"),
+          timestamp: new Date(),
+          ...actorTimelineFields(req)
+        }
+      }
     },
     { returnDocument: "after" }
   );
@@ -1887,7 +2022,10 @@ export async function verifyDeliveryTaskOtpController(req: Request, res: Respons
   if (!otpMatches(input.otp, expectedOtp)) throw new AppError(400, "Incorrect OTP. Ask the recipient to check and try again.");
 
   const timestampField = input.stage === "pickup" ? "pickupOtpVerifiedAt" : "dropOtpVerifiedAt";
-  const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, { [timestampField]: new Date() }, { returnDocument: "after" });
+  const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, {
+    [timestampField]: new Date(),
+    $push: { timelineEvents: { status: input.stage === "pickup" ? "PICKUP_OTP_VERIFIED" : "DROP_OTP_VERIFIED", description: `${input.stage === "pickup" ? "Pickup" : "Final handoff"} OTP verified`, timestamp: new Date(), ...actorTimelineFields(req) } }
+  }, { returnDocument: "after" });
   if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
   if (updated) {
     const realtimeStatus =
@@ -1951,7 +2089,10 @@ export async function saveDeliveryTaskPhotosController(req: Request, res: Respon
   }
 
   const field = input.kind === "cloth" ? "clothPhotos" : input.kind === "sample" ? "samplePhotos" : "deliveryPhotos";
-  const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, { [field]: input.photos }, { returnDocument: "after" });
+  const updated = await DeliveryRequestModel.findByIdAndUpdate(task.id, {
+    [field]: input.photos,
+    $push: { timelineEvents: { status: `${input.kind.toUpperCase()}_PROOFS_UPDATED`, description: `${input.photos.length} ${input.kind} proof photo(s) saved`, timestamp: new Date(), ...actorTimelineFields(req) } }
+  }, { returnDocument: "after" });
   if (updated) emitToDeliveryPartner(partner.id, "delivery:task_updated", updated.toJSON());
   res.json({ data: updated });
 }
@@ -1977,7 +2118,12 @@ export async function confirmDeliveryCashCollectionController(req: Request, res:
 
   const updated = await DeliveryRequestModel.findByIdAndUpdate(
     task.id,
-    { cashCollected: true, cashCollectedAt: new Date(), paymentStatus: "PAID" },
+    {
+      cashCollected: true,
+      cashCollectedAt: new Date(),
+      paymentStatus: "PAID",
+      $push: { timelineEvents: { status: "COD_COLLECTED", description: "Cash on delivery collection confirmed", timestamp: new Date(), ...actorTimelineFields(req) } }
+    },
     { returnDocument: "after" }
   );
   await TailoringRequestModel.findByIdAndUpdate(task.orderId, { paymentStatus: "PAID" });
@@ -2150,7 +2296,10 @@ export async function uploadTailoringAuditMediaController(req: Request, res: Res
   );
 
   const field = input.stage === "RECEIVED" ? "receivedMedia" : "stitchedMedia";
-  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, { [field]: [...currentMedia, ...uploaded] }, { returnDocument: "after" });
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    [field]: [...currentMedia, ...uploaded],
+    $push: { timelineEvents: { status: `${input.stage}_PROOFS_UPLOADED`, description: `${uploaded.length} ${input.stage === "RECEIVED" ? "received-clothes" : "stitched-clothes"} proof photo(s) uploaded`, timestamp: new Date(), ...actorTimelineFields(req) } }
+  }, { returnDocument: "after" });
   res.status(201).json({ data: await hydrateTailoringRequest(updatedRequest, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
 }
 
@@ -2172,7 +2321,10 @@ export async function deleteTailoringAuditMediaController(req: Request, res: Res
   const currentMedia = (stage === "RECEIVED" ? requestJson.receivedMedia : requestJson.stitchedMedia) ?? [];
   const updatedMedia = currentMedia.filter((media: any) => media.url !== url);
 
-  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, { [field]: updatedMedia }, { returnDocument: "after" });
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    [field]: updatedMedia,
+    $push: { timelineEvents: { status: `${stage}_PROOF_REMOVED`, description: `${stage === "RECEIVED" ? "Received-clothes" : "Stitched-clothes"} proof photo removed`, timestamp: new Date(), ...actorTimelineFields(req) } }
+  }, { returnDocument: "after" });
   res.status(200).json({ data: await hydrateTailoringRequest(updatedRequest, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
 }
 
@@ -2199,7 +2351,10 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
     if (stitchedPhotoCount < requiredPhotos) throw new AppError(409, `Upload stitched-clothes photo for item ${stitchedPhotoCount + 1} of ${requiredPhotos} first`);
   }
 
-  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, { workStatus: input.status }, { returnDocument: "after" });
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    workStatus: input.status,
+    $push: { timelineEvents: { status: input.status === "READY" ? "READY_FOR_DELIVERY" : "STITCHING_STARTED", description: input.status === "READY" ? "Tailoring completed and clothes marked ready" : "Tailor started stitching", timestamp: new Date(), ...actorTimelineFields(req) } }
+  }, { returnDocument: "after" });
   const acceptedQuote = await TailorQuoteModel.findOne({ requestId: request.id, status: "ACCEPTED" });
   if (updatedRequest) {
     const status = input.status === "READY" ? "READY_FOR_DELIVERY" : "STITCHING_STARTED";
@@ -2306,7 +2461,13 @@ export async function createTailoringRequestController(req: Request, res: Respon
     designMedia: primary.designMedia,
     items,
     itemCount: items.length,
-    customerId
+    customerId,
+    timelineEvents: [{
+      status: "REQUEST_CREATED",
+      description: "Tailoring request created",
+      timestamp: new Date(),
+      ...actorTimelineFields(req)
+    }]
   });
 
   emitTailoringEvent({ type: "REQUEST_CREATED", requestId: request.id });
@@ -2458,6 +2619,9 @@ export async function createTailorQuoteController(req: Request, res: Response) {
   });
 
   const hydratedQuote = await hydrateTailorQuote(quote);
+  await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    $push: { timelineEvents: { status: "QUOTE_RECEIVED", description: `${tailor.shopName} submitted a quote`, timestamp: new Date(), ...actorTimelineFields(req) } }
+  });
   emitToCustomer(request.customerId, "customer:quote_received", { requestId: request.id, quote: hydratedQuote });
   emitToAdmins("tailoring:quote_received", { requestId: request.id, quote: hydratedQuote });
   await resolveOperationalAlert(`NO_QUOTE:${request.id}`);
@@ -2642,7 +2806,15 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
     itemCount,
     additionalItems: input.additionalItems,
     totalAmount: payableAmount,
-    orderStatus: input.paymentMethod === "COD" ? "tailor_accepted" : "payment_pending"
+    orderStatus: input.paymentMethod === "COD" ? "tailor_accepted" : "payment_pending",
+    $push: {
+      timelineEvents: {
+        status: input.paymentMethod === "COD" ? "ORDER_CONFIRMING" : "PAYMENT_PENDING",
+        description: input.paymentMethod === "COD" ? "COD order confirmation started" : "Tailor quote selected and payment started",
+        timestamp: new Date(),
+        ...actorTimelineFields(req)
+      }
+    }
   });
 
   if (input.paymentMethod === "COD") {
@@ -2924,7 +3096,7 @@ export async function cancelTailoringRequestController(req: Request, res: Respon
   if (!request) throw new AppError(404, "Tailoring request not found");
   if (req.user!.role === "CUSTOMER" && request.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
 
-  const updated = await cancelTailoringRequestAndTasks(request.id, input.reason);
+  const updated = await cancelTailoringRequestAndTasks(request.id, input.reason, actorTimelineFields(req));
   res.json({ data: await hydrateTailoringRequest(updated) });
 }
 
@@ -2960,7 +3132,8 @@ export async function selectTailorQuoteController(req: Request, res: Response) {
       deliveryFee: deliveryEstimate.deliveryFee,
       customerToTailorDistanceMeters: deliveryEstimate.oneWayDistanceMeters,
       totalChargeableDistanceMeters: deliveryEstimate.totalChargeableDistanceMeters,
-      deliveryFeeLockedAt: new Date()
+      deliveryFeeLockedAt: new Date(),
+      $push: { timelineEvents: { status: "QUOTE_SELECTED", description: `Quote selected from ${selectedTailor.shopName}`, timestamp: new Date(), ...actorTimelineFields(req) } }
     },
     { returnDocument: "after" }
   );
