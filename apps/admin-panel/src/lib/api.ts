@@ -395,6 +395,11 @@ export async function updateAdminDeliveryProfile(payload: { partnerId: string; u
   return unwrap<DeliveryPartnerProfile>(api.patch(`/admin/delivery-partners/${payload.partnerId}`, payload.updates));
 }
 
+export async function getAdminPartnerProfileChangeLog(payload: { profileId: string; role: "TAILOR" | "DELIVERY_PARTNER" }) {
+  const path = payload.role === "TAILOR" ? "tailors" : "delivery-partners";
+  return unwrap<AdminActivityLog[]>(api.get(`/admin/${path}/${payload.profileId}/change-log`));
+}
+
 export async function getSystemHealth() {
   return unwrap<SystemHealth>(api.get("/admin/system-health"));
 }

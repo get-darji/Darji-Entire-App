@@ -290,6 +290,8 @@ const tailorSchema = new Schema(
     verificationLastRejectedAt: Date,
     verification: { type: Schema.Types.Mixed },
     verificationDraft: { type: Schema.Types.Mixed },
+    registrationSnapshot: { type: Schema.Types.Mixed },
+    registrationSnapshotCapturedAt: Date,
     sampleGallery: { type: [tailorSampleSchema], default: [] },
     earnings: { type: Number, default: 0 }
   },
@@ -320,6 +322,8 @@ const deliveryPartnerSchema = new Schema(
     verificationRejectionReason: String,
     verification: { type: Schema.Types.Mixed },
     verificationDraft: { type: Schema.Types.Mixed },
+    registrationSnapshot: { type: Schema.Types.Mixed },
+    registrationSnapshotCapturedAt: Date,
     // Live location tracking (optional, backward-compatible)
     currentLocation: {
       type: new Schema(

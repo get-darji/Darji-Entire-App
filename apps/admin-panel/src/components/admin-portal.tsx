@@ -192,6 +192,7 @@ import {
   reportAdminOrderIssue,
   updateAdminTailorProfile,
   updateAdminDeliveryProfile,
+  getAdminPartnerProfileChangeLog,
   getSystemHealth,
   getMarketingSignups,
   updateAdminProfile,
@@ -209,7 +210,8 @@ import {
   selectAdminTailorQuote,
   type UploadedTailoringMedia,
   type AdminReview,
-  type AdminPartnerProfileUpdate
+  type AdminPartnerProfileUpdate,
+  type AdminAssignmentCandidate
 } from "@/src/lib/api";
 import {
   cn,
@@ -1354,7 +1356,7 @@ export function AdminPortal() {
     mutationFn: reviewTailorVerification,
     onSuccess: async (_, variables) => {
       toast.success(`Tailor marked ${formatStatus(variables.status).toLowerCase()}`);
-      await refreshData();
+      await Promise.all([refreshData(), queryClient.invalidateQueries({ queryKey: ["admin", "partner-profile-change-log", "TAILOR", variables.tailorId] })]);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1372,7 +1374,7 @@ export function AdminPortal() {
     mutationFn: reviewDeliveryVerification,
     onSuccess: async (_, variables) => {
       toast.success(`Delivery partner marked ${formatStatus(variables.status).toLowerCase()}`);
-      await refreshData();
+      await Promise.all([refreshData(), queryClient.invalidateQueries({ queryKey: ["admin", "partner-profile-change-log", "DELIVERY_PARTNER", variables.partnerId] })]);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1382,7 +1384,10 @@ export function AdminPortal() {
     onSuccess: async (profile) => {
       setTailorDetail(profile);
       toast.success("Tailor profile updated");
-      await queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "tailors"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "partner-profile-change-log", "TAILOR", profile.id] })
+      ]);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -1392,7 +1397,10 @@ export function AdminPortal() {
     onSuccess: async (profile) => {
       setPartnerDetail(profile);
       toast.success("Delivery partner profile updated");
-      await queryClient.invalidateQueries({ queryKey: ["admin", "partners"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "partners"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "partner-profile-change-log", "DELIVERY_PARTNER", profile.id] })
+      ]);
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -3697,6 +3705,14 @@ export function AdminPortal() {
         setAssignPickupPartnerId={setAssignPickupPartnerId}
         setAssignTailorId={setAssignTailorId}
         tailors={tailors}
+        onOpenTailor={(tailor) => {
+          setAssignOrderTarget(null);
+          setTailorDetail(tailor);
+        }}
+        onOpenPartner={(partner) => {
+          setAssignOrderTarget(null);
+          setPartnerDetail(partner);
+        }}
         values={{
           deliveryPartnerId: assignDeliveryPartnerId,
           pickupPartnerId: assignPickupPartnerId,
@@ -10352,9 +10368,57 @@ function flattenAdminRecord(value: unknown, prefix = ""): Array<{ label: string;
   return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
     const label = prefix ? `${prefix} / ${formatStatus(key)}` : formatStatus(key);
     if (item && typeof item === "object" && !Array.isArray(item)) return flattenAdminRecord(item, label);
-    if (Array.isArray(item) && item.some((entry) => entry && typeof entry === "object")) return [{ label, value: `${item.length} uploaded record${item.length === 1 ? "" : "s"}` }];
+    if (Array.isArray(item)) return item.length ? item.flatMap((entry, index) => entry && typeof entry === "object" ? flattenAdminRecord({ [`Item ${index + 1}`]: entry }, label) : [{ label: `${label} / Item ${index + 1}`, value: formatAdminValue(entry) }]) : [{ label, value: "Not provided" }];
     return [{ label, value: formatAdminValue(item) }];
   });
+}
+
+type EditableVerificationField = { path: string[]; label: string; value: string | number | boolean | null };
+
+const protectedVerificationFieldKeys = new Set(["status", "verificationstatus", "ocrstatus", "facedetectionstatus", "reviewstatus", "approvalstatus", "submittedat", "reviewedat", "approvedat", "rejectedat", "savedat", "createdat", "updatedat", "reviewedby", "approvedby", "rejectedby", "lat", "lng", "latitude", "longitude", "coordinates"]);
+
+function isProtectedVerificationField(path: string[]) {
+  return path.some((part) => protectedVerificationFieldKeys.has(part.replace(/[^a-z0-9]/gi, "").toLowerCase()))
+    || /(url|photo|image|media|resourcetype|originalname)$/i.test(path[path.length - 1]?.replace(/[^a-z0-9]/gi, "") ?? "");
+}
+
+function isDocumentRegistrationField(path: string[]) {
+  const value = path.join(" ").toLowerCase();
+  return /(aadhaar|aadhar|pan|identity|id number|idnumber|licen[cs]e|driving|rc number|rcnumber|registration number|registrationnumber|vehicle.*number|document)/.test(value);
+}
+
+function flattenEditableVerification(value: unknown, path: string[] = [], filter?: (path: string[]) => boolean): EditableVerificationField[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+    const nextPath = [...path, key];
+    if (item && typeof item === "object" && !Array.isArray(item)) return flattenEditableVerification(item, nextPath, filter);
+    if (Array.isArray(item) || isProtectedVerificationField(nextPath) || (filter && !filter(nextPath))) return [];
+    return [{ path: nextPath, label: nextPath.map(humanizeFieldLabel).join(" / "), value: item as string | number | boolean | null }];
+  });
+}
+
+function updateVerificationField(json: string, field: EditableVerificationField, nextValue: string | boolean) {
+  const record = JSON.parse(json) as Record<string, any>;
+  const next = structuredClone(record);
+  let cursor: Record<string, any> = next;
+  field.path.slice(0, -1).forEach((key) => { cursor = cursor[key] as Record<string, any>; });
+  const key = field.path[field.path.length - 1];
+  cursor[key] = typeof field.value === "boolean" ? Boolean(nextValue) : typeof field.value === "number" && nextValue !== "" ? Number(nextValue) : nextValue;
+  return JSON.stringify(next, null, 2);
+}
+
+function VerificationRecordEditor({ json, onChange, documentsOnly = false }: { json: string; onChange: (json: string) => void; documentsOnly?: boolean }) {
+  let record: Record<string, unknown> = {};
+  let parseError = "";
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Registration record must be a JSON object");
+    record = parsed as Record<string, unknown>;
+  } catch (error) {
+    parseError = error instanceof Error ? error.message : "Invalid registration record";
+  }
+  const fields = flattenEditableVerification(record, [], documentsOnly ? isDocumentRegistrationField : undefined);
+  return <div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2">{fields.map((field) => <Field key={field.path.join(".")} label={field.label}>{typeof field.value === "boolean" ? <select className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3" value={field.value ? "true" : "false"} onChange={(event) => onChange(updateVerificationField(json, field, event.target.value === "true"))}><option value="true">Yes</option><option value="false">No</option></select> : <input className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3" type={typeof field.value === "number" ? "number" : "text"} value={field.value == null ? "" : String(field.value)} onChange={(event) => onChange(updateVerificationField(json, field, event.target.value))} />}</Field>)}</div>{!fields.length && !parseError ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No editable document or identity numbers were submitted.</p> : null}{parseError ? <p className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-700">{parseError}</p> : null}</div>;
 }
 
 function PaymentDetailDialog({ open, onOpenCustomer, onOpenOrder, payment, setOpen }: { open: boolean; onOpenCustomer: () => void; onOpenOrder: () => void; payment: Payment | null; setOpen: (open: boolean) => void }) {
@@ -10516,7 +10580,7 @@ function ProfileDialog({
   const [assignedArea, setAssignedArea] = useState<string>("unassigned");
   const [reviewReason, setReviewReason] = useState("");
   const [selectedReuploadFields, setSelectedReuploadFields] = useState<string[]>(["aadhaarFront", "aadhaarBack", "facePhoto"]);
-  const [profileTab, setProfileTab] = useState<"personal" | "business" | "bank" | "documents" | "review" | "activity">("personal");
+  const [profileTab, setProfileTab] = useState<"personal" | "business" | "bank" | "documents" | "registration" | "change-log" | "review" | "activity">("personal");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editDraft, setEditDraft] = useState({ name: "", phone: "", email: "", avatarUrl: "", shopName: "", specialization: "", address: "", shopAddress: "", vehicleNumber: "", vehicleModel: "", accountHolder: "", accountNumber: "", ifsc: "", upi: "" });
   const [draftBeforeEdit, setDraftBeforeEdit] = useState(editDraft);
@@ -10565,6 +10629,7 @@ function ProfileDialog({
   }, [profile]);
 
   const isDelivery = profile ? !isTailorProfile(profile) : false;
+  const verificationLocked = profile?.verificationStatus === "VERIFIED";
   const submittedMedia = collectVerificationMedia(profile?.verification);
   const draftMedia = collectVerificationMedia(profile?.verificationDraft);
   const profileOrders = profile
@@ -10579,6 +10644,12 @@ function ProfileDialog({
   const profileDeliveryRequests = profile && isDelivery
     ? deliveryRequests.filter((request) => request.assignedDeliveryPartnerId === profile.id)
     : [];
+  const profileChangeLogQuery = useQuery({
+    queryKey: ["admin", "partner-profile-change-log", isDelivery ? "DELIVERY_PARTNER" : "TAILOR", profile?.id],
+    queryFn: () => getAdminPartnerProfileChangeLog({ profileId: profile!.id, role: isDelivery ? "DELIVERY_PARTNER" : "TAILOR" }),
+    enabled: open && Boolean(profile?.id) && profileTab === "change-log",
+    staleTime: 15_000
+  });
   const displayName = profile
     ? isDelivery
       ? getPartnerDisplayName(profile as DeliveryPartnerProfile)
@@ -10597,6 +10668,20 @@ function ProfileDialog({
       : `${(profile as TailorProfile).shopName ?? "Tailor shop"} - ${formatList((profile as TailorProfile).specialization)}`
     : subtitle;
   const updateDraft = (field: keyof typeof editDraft, value: string) => setEditDraft((current) => ({ ...current, [field]: value }));
+  const beginEditing = () => {
+    setDraftBeforeEdit(editDraft);
+    setVerificationJsonBeforeEdit(verificationJson);
+    setDeliveryTypeBeforeEdit(deliveryType);
+    setAssignedAreaBeforeEdit(assignedArea);
+    setIsEditing(true);
+  };
+  const cancelEditing = () => {
+    setEditDraft(draftBeforeEdit);
+    setVerificationJson(verificationJsonBeforeEdit);
+    setDeliveryType(deliveryTypeBeforeEdit);
+    setAssignedArea(assignedAreaBeforeEdit);
+    setIsEditing(false);
+  };
   const saveProfile = () => {
     if (!profile) return;
     let verification: Record<string, any>;
@@ -10656,7 +10741,7 @@ function ProfileDialog({
                       <span>Joined {formatDate(profile.createdAt, true)}</span>
                     </div>
                     <p className="mt-2 text-xs text-[var(--muted)]">For verified partners, this photo is the submitted face verification selfie.</p>
-                    <div className="mt-4 flex flex-wrap gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={onOpenWallet}><ReceiptIndianRupee size={14} />Wallet &amp; payouts</ActionButton>{!isEditing ? <ActionButton className="px-3 py-2 text-xs" onClick={() => { setDraftBeforeEdit(editDraft); setVerificationJsonBeforeEdit(verificationJson); setDeliveryTypeBeforeEdit(deliveryType); setAssignedAreaBeforeEdit(assignedArea); setIsEditing(true); }}><PencilLine size={14} />Edit profile</ActionButton> : null}</div>
+                    <div className="mt-4 flex flex-wrap gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={onOpenWallet}><ReceiptIndianRupee size={14} />Wallet &amp; payouts</ActionButton>{!isEditing ? <ActionButton className="px-3 py-2 text-xs" onClick={beginEditing}><PencilLine size={14} />Edit profile</ActionButton> : null}</div>
                   </div>
                 </div>
               </div>
@@ -10668,18 +10753,23 @@ function ProfileDialog({
                       ["business", isDelivery ? "Vehicle details" : "Shop details"],
                       ["bank", "Bank details"],
                       ["documents", "Documents & images"],
+                      ["registration", "Original registration"],
+                      ["change-log", "Change log"],
                       ["review", "Verification review"],
                       ["activity", "Orders & activity"]
                     ] as const).map(([id, label]) => <button className={cn("shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition", profileTab === id ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100")} key={id} onClick={() => setProfileTab(id)} type="button">{label}</button>)}
                   </div>
-                  <fieldset className="border-t border-slate-100 p-4 disabled:opacity-75" disabled={!isEditing && ["personal", "business", "bank", "documents"].includes(profileTab)}>
+                  <fieldset className="border-t border-slate-100 p-4 disabled:opacity-75" disabled={!isEditing && ["personal", "business", "bank"].includes(profileTab)}>
                     {profileTab === "personal" ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Full name"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field><Field label="Phone"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.phone} onChange={(event) => updateDraft("phone", event.target.value)} /></Field><Field label="Email"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" type="email" value={editDraft.email} onChange={(event) => updateDraft("email", event.target.value)} /></Field><Field label="Profile photo"><div className="flex gap-2"><input className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 px-3" value={editDraft.avatarUrl} onChange={(event) => updateDraft("avatarUrl", event.target.value)} /><label className="inline-flex h-11 cursor-pointer items-center rounded-xl border border-slate-300 px-3 text-xs font-semibold hover:bg-slate-50">{uploadingAvatar ? "Uploading..." : "Upload"}<input accept="image/*" className="hidden" disabled={uploadingAvatar} type="file" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setUploadingAvatar(true); try { const uploaded = await uploadAdminMedia(file); updateDraft("avatarUrl", uploaded.url); toast.success("Profile photo uploaded. Save changes to apply it."); } catch (error) { toast.error(extractError(error)); } finally { setUploadingAvatar(false); event.target.value = ""; } }} /></label></div></Field><div className="sm:col-span-2"><Field label="Home address"><textarea className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2" value={editDraft.address} onChange={(event) => updateDraft("address", event.target.value)} /></Field></div></div> : null}
                     {profileTab === "business" ? isDelivery ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Vehicle number"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.vehicleNumber} onChange={(event) => updateDraft("vehicleNumber", event.target.value)} /></Field><Field label="Vehicle model"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.vehicleModel} onChange={(event) => updateDraft("vehicleModel", event.target.value)} /></Field><Field label="Delivery role"><select className="h-11 w-full rounded-xl border border-slate-200 px-3" value={deliveryType} onChange={(event) => setDeliveryType(event.target.value as "PICKUP" | "DROP")}><option value="PICKUP">Pickup</option><option value="DROP">Drop</option></select></Field><Field label="Assigned area"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={assignedArea} onChange={(event) => setAssignedArea(event.target.value)} /></Field></div> : <div className="grid gap-4 sm:grid-cols-2"><Field label="Shop name"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.shopName} onChange={(event) => updateDraft("shopName", event.target.value)} /></Field><Field label="Specializations"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" placeholder="Shirt, Kurta, Blouse" value={editDraft.specialization} onChange={(event) => updateDraft("specialization", event.target.value)} /></Field><div className="sm:col-span-2"><Field label="Shop address"><textarea className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2" value={editDraft.shopAddress} onChange={(event) => updateDraft("shopAddress", event.target.value)} /></Field></div></div> : null}
                     {profileTab === "bank" ? <div className="grid gap-4 sm:grid-cols-2"><Field label="Account holder"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.accountHolder} onChange={(event) => updateDraft("accountHolder", event.target.value)} /></Field><Field label="Account number"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.accountNumber} onChange={(event) => updateDraft("accountNumber", event.target.value)} /></Field><Field label="IFSC"><input className="h-11 w-full rounded-xl border border-slate-200 px-3 uppercase" value={editDraft.ifsc} onChange={(event) => updateDraft("ifsc", event.target.value.toUpperCase())} /></Field><Field label="UPI ID"><input className="h-11 w-full rounded-xl border border-slate-200 px-3" value={editDraft.upi} onChange={(event) => updateDraft("upi", event.target.value)} /></Field></div> : null}
-                    {profileTab === "documents" ? <div><p className="text-sm text-slate-600">Complete registration record and every uploaded verification image.</p><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{[...submittedMedia, ...draftMedia].map((item, index) => <a className="overflow-hidden rounded-xl border border-slate-200" href={item.url} key={`${item.url}-${index}`} rel="noreferrer" target="_blank"><img alt={item.label} className="aspect-square w-full object-cover" src={item.url} /><p className="truncate px-2 py-1.5 text-[10px] font-semibold text-slate-600">{item.label}</p></a>)}</div><div className="mt-5 grid gap-3 sm:grid-cols-2">{flattenAdminRecord(profile.verification).map((item) => <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" key={item.label}><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{item.value}</p></div>)}</div></div> : null}
-                    {profileTab === "documents" && isEditing ? <div className="mt-5 border-t border-slate-200 pt-5"><Field label="Advanced registration record"><textarea className="min-h-64 w-full rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 font-mono text-xs leading-5 text-slate-100 outline-none focus:border-orange-400" spellCheck={false} value={verificationJson} onChange={(event) => setVerificationJson(event.target.value)} /></Field><p className="mt-2 text-xs text-slate-500">This record exposes every uncommon registration field. Keep valid JSON; the named forms in the other tabs remain the easiest way to edit standard details.</p></div> : null}
+                    {profileTab === "documents" ? <div><div><h4 className="font-bold text-slate-950">Uploaded verification documents</h4><p className="mt-1 text-sm text-slate-600">Aadhaar, PAN, licence, RC, face, shop, and other submitted images are shown with their exact labels.</p></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{[...submittedMedia, ...draftMedia].map((item, index) => <a className="overflow-hidden rounded-xl border border-slate-200" href={item.url} key={`${item.url}-${index}`} rel="noreferrer" target="_blank"><img alt={item.label} className="aspect-square w-full object-cover" src={item.url} /><p className="truncate px-2 py-1.5 text-[10px] font-semibold text-slate-600">{item.label}</p></a>)}</div>{![...submittedMedia, ...draftMedia].length ? <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No uploaded verification images.</p> : null}{!isEditing ? <div className="mt-5 grid gap-3 sm:grid-cols-2">{flattenEditableVerification(profile.verification, [], isDocumentRegistrationField).map((item) => <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" key={item.path.join(".")}><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{formatAdminValue(item.value)}</p></div>)}</div> : null}</div> : null}
+                    {profileTab === "registration" ? <div><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 shrink-0 text-emerald-700" size={20} /><div><h4 className="font-bold text-emerald-950">Original registration — read only</h4><p className="mt-1 text-sm text-emerald-800">This preserves the earliest available registration submission and is never changed by profile edits.</p><p className="mt-2 text-xs font-semibold text-emerald-700">Captured {formatDate(profile.registrationSnapshotCapturedAt ?? profile.verificationSubmittedAt, true)}</p>{!profile.registrationSnapshot ? <p className="mt-2 text-xs text-amber-700">Legacy profile: the current submitted registration is shown as the earliest available baseline. It will be locked when the updated backend records its first snapshot.</p> : null}</div></div></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{flattenAdminRecord(profile.registrationSnapshot ?? profile.verification).map((item) => <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" key={`original-${item.label}`}><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{item.value}</p></div>)}</div></div> : null}
+                    {profileTab === "change-log" ? <div><div><h4 className="font-bold text-slate-950">Profile change log</h4><p className="mt-1 text-sm text-slate-600">Every admin profile edit records who changed it, when it changed, and the before/after values.</p></div>{profileChangeLogQuery.isLoading ? <div className="grid min-h-40 place-items-center"><LoaderCircle className="h-6 w-6 animate-spin text-orange-500" /></div> : null}{profileChangeLogQuery.isError ? <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{extractError(profileChangeLogQuery.error)}</p> : null}<div className="mt-4 space-y-3">{(profileChangeLogQuery.data ?? []).map((log) => <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4" key={log.id}><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-slate-950">{log.actorName || "Admin"}</p><p className="text-xs text-slate-500">{formatStatus(log.actorRole)} · {log.summary}</p></div><p className="text-xs font-semibold text-slate-600">{formatDate(log.createdAt, true)}</p></div><div className="mt-3 space-y-2">{(log.metadata?.changes ?? []).map((change, index) => <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-[180px_1fr_24px_1fr] md:items-center" key={`${change.field}-${index}`}><p className="text-xs font-bold text-slate-700">{change.field.split(".").map(humanizeFieldLabel).join(" / ")}</p><p className="break-words text-xs text-rose-700">{formatAdminValue(change.before)}</p><ArrowRight className="hidden text-slate-400 md:block" size={15} /><p className="break-words text-xs font-semibold text-emerald-700">{formatAdminValue(change.after)}</p></div>)}</div></div>)}{!profileChangeLogQuery.isLoading && !profileChangeLogQuery.data?.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No recorded admin changes yet. New changes will appear here after the backend update is deployed.</p> : null}</div></div> : null}
+                    {profileTab === "documents" && !isEditing ? <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4"><div><p className="text-sm font-bold text-orange-950">Need to correct ID or document details?</p><p className="mt-1 text-xs text-orange-800">Edit Aadhaar, PAN, licence, verification fields, and stored document information.</p></div><ActionButton className="shrink-0 px-3 py-2 text-xs" onClick={beginEditing}><PencilLine size={14} />Edit documents</ActionButton></div> : null}
+                    {profileTab === "documents" && isEditing ? <div className="mt-5 border-t border-slate-200 pt-5"><div className="sticky top-0 z-10 mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-bold text-slate-950">Edit document details</h4><p className="mt-1 text-xs text-slate-500">Only registration-entered identity and document numbers are editable. Verification and system statuses stay protected.</p></div><div className="flex shrink-0 gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={cancelEditing}>Cancel</ActionButton><ActionButton className="px-3 py-2 text-xs" disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={14} />}Save documents</ActionButton></div></div><VerificationRecordEditor documentsOnly json={verificationJson} onChange={setVerificationJson} /></div> : null}
                     {profileTab === "activity" ? <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-4"><ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-"} /></div>{isDelivery && profileDeliveryRequests.length ? <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent delivery assignments</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{profileDeliveryRequests.slice(0, 6).map((request) => <button className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={request.id} onClick={() => onOpenDeliveryTask(request)} type="button"><span><span className="block text-sm font-bold">{request.taskId ?? request.darjiId ?? request.id}</span><span className="text-[10px] text-slate-500">{formatStatus(request.type)}</span></span><StatusBadge value={request.taskStatus} /></button>)}</div></div> : null}<div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent orders</p><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">{profileOrders.slice(0, 12).map((profileOrder) => <button className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={profileOrder.id} onClick={() => onOpenOrder(profileOrder)} type="button"><span><span className="block text-sm font-bold">{getOrderDisplayNumber(profileOrder)}</span><span className="text-[10px] text-slate-500">{getCustomerDisplayName(profileOrder.customer)}</span></span><StatusBadge value={profileOrder.status} /></button>)}{!profileOrders.length ? <p className="text-sm text-slate-500">No associated orders.</p> : null}</div></div></div> : null}
-                    {isEditing && ["personal", "business", "bank", "documents"].includes(profileTab) ? <div className="mt-5 flex justify-end gap-2"><ActionButton variant="secondary" onClick={() => { setEditDraft(draftBeforeEdit); setVerificationJson(verificationJsonBeforeEdit); setDeliveryType(deliveryTypeBeforeEdit); setAssignedArea(assignedAreaBeforeEdit); setIsEditing(false); }}>Cancel</ActionButton><ActionButton disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save profile changes</ActionButton></div> : null}
+                    {isEditing && ["personal", "business", "bank"].includes(profileTab) ? <div className="mt-5 flex justify-end gap-2"><ActionButton variant="secondary" onClick={cancelEditing}>Cancel</ActionButton><ActionButton disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save profile changes</ActionButton></div> : null}
                   </fieldset>
                   {profileTab === "personal" ? (
                     <div className="mt-5 grid gap-3 border-t border-slate-200 pt-5 sm:grid-cols-3">
@@ -10692,9 +10782,11 @@ function ProfileDialog({
                 {profileTab === "review" && onReview ? (
                   <Panel>
                     <h4 className="text-lg font-semibold text-[var(--foreground)]">Review action</h4>
+                    {verificationLocked ? <div className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><ShieldCheck className="mt-0.5 shrink-0" size={17} /><p><strong>Verification locked.</strong> This profile is verified, so its verification status cannot be rewritten or downgraded.</p></div> : null}
                     <textarea
                       className="mt-3 min-h-24 w-full rounded-2xl border border-[var(--panel-border)] bg-black/5 px-4 py-3 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)] dark:bg-white/5"
                       value={reviewReason}
+                      disabled={verificationLocked}
                       onChange={(event) => setReviewReason(event.target.value)}
                       placeholder="Admin feedback or rejection reason..."
                     />
@@ -10714,6 +10806,7 @@ function ProfileDialog({
                               <label key={field} className="flex items-center gap-2 rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-3 py-2 text-sm dark:bg-white/5">
                                 <input
                                   checked={checked}
+                                  disabled={verificationLocked}
                                   onChange={() =>
                                     setSelectedReuploadFields((current) =>
                                       checked ? current.filter((item) => item !== field) : [...current, field]
@@ -10729,18 +10822,18 @@ function ProfileDialog({
                       </div>
                     ) : null}
                     <div className="mt-4 flex flex-wrap gap-3">
-                      <ActionButton disabled={pending} onClick={() => onReview({ status: "VERIFIED", deliveryType, assignedArea, reason: reviewReason.trim() || undefined })}>
+                      <ActionButton disabled={pending || verificationLocked} onClick={() => onReview({ status: "VERIFIED", deliveryType, assignedArea, reason: reviewReason.trim() || undefined })}>
                         {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                         Approve
                       </ActionButton>
                       <ActionButton
-                        disabled={pending || (!isDelivery && selectedReuploadFields.length === 0)}
+                        disabled={pending || verificationLocked || (!isDelivery && selectedReuploadFields.length === 0)}
                         variant="secondary"
                         onClick={() => onReview({ status: "REUPLOAD_REQUIRED", reason: reviewReason.trim() || "Please upload clearer documents.", reuploadFields: selectedReuploadFields })}
                       >
                         Request reupload
                       </ActionButton>
-                      <ActionButton disabled={pending} variant="danger" onClick={() => onReview({ status: "REJECTED", reason: reviewReason.trim() || "Verification documents were not approved." })}>
+                      <ActionButton disabled={pending || verificationLocked} variant="danger" onClick={() => onReview({ status: "REJECTED", reason: reviewReason.trim() || "Verification documents were not approved." })}>
                         Reject
                       </ActionButton>
                     </div>
@@ -11956,6 +12049,8 @@ function PartnerProximitySearch({ customers, onOpen, role }: { customers: AdminU
 }
 
 function AssignOrderDialog({
+  onOpenPartner,
+  onOpenTailor,
   onSubmit,
   open,
   order,
@@ -11968,6 +12063,8 @@ function AssignOrderDialog({
   tailors,
   values
 }: {
+  onOpenPartner: (profile: DeliveryPartnerProfile) => void;
+  onOpenTailor: (profile: TailorProfile) => void;
   onSubmit: () => void;
   open: boolean;
   order: Order | null;
@@ -11996,60 +12093,36 @@ function AssignOrderDialog({
     enabled: open && Boolean(order?.id),
     staleTime: 60_000
   });
-  const sortedTailors = tailorCandidatesQuery.data?.candidates.map((candidate) => candidate.profile) ?? tailors;
-  const sortedPartners = partnerCandidatesQuery.data?.candidates.map((candidate) => candidate.profile) ?? partners;
-  const tailorDistance = new Map((tailorCandidatesQuery.data?.candidates ?? []).map((candidate) => [candidate.profile.id, candidate.distanceMeters]));
-  const partnerDistance = new Map((partnerCandidatesQuery.data?.candidates ?? []).map((candidate) => [candidate.profile.id, candidate.distanceMeters]));
-  const distanceLabel = (meters?: number | null) => meters == null ? "distance unavailable" : meters < 1000 ? `${meters} m away` : `${(meters / 1000).toFixed(1)} km away`;
+  const profileLocation = (profile: TailorProfile | DeliveryPartnerProfile) => {
+    const verification = (profile.verification ?? profile.verificationDraft ?? {}) as Record<string, any>;
+    const value = verification.shop?.shopAddress ?? verification.shop?.address ?? verification.personal?.address ?? verification.address ?? ("assignedArea" in profile ? profile.assignedArea : undefined);
+    if (typeof value === "string" && value.trim()) return value;
+    if (value && typeof value === "object") return [value.addressLine, value.line1, value.line2, value.area, value.city, value.state, value.pincode].filter(Boolean).join(", ");
+    return "Address unavailable";
+  };
+  const tailorCandidates: Array<AdminAssignmentCandidate<TailorProfile>> = tailorCandidatesQuery.data?.candidates
+    ?? tailors.map((profile) => ({ profile, distanceMeters: null, locationLabel: profileLocation(profile) }));
+  const partnerCandidates: Array<AdminAssignmentCandidate<DeliveryPartnerProfile>> = partnerCandidatesQuery.data?.candidates
+    ?? partners.map((profile) => ({ profile, distanceMeters: null, locationLabel: profileLocation(profile) }));
   return (
     <Dialog.Root onOpenChange={setOpen} open={open}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(96vw,760px)] -translate-x-1/2 -translate-y-1/2 rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
-          <Dialog.Title className="text-2xl font-semibold">Assign order</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-[var(--muted)]">
-            Update tailor, pickup partner, and delivery partner assignments using existing backend endpoints.
-          </Dialog.Description>
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[92vh] w-[min(97vw,1180px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[32px] border border-[var(--panel-border)] bg-[var(--panel-strong)] p-6 shadow-[var(--shadow)]">
+          <div className="shrink-0 pr-12"><Dialog.Title className="text-2xl font-semibold">Assign order</Dialog.Title><Dialog.Description className="mt-2 text-sm text-[var(--muted)]">Compare nearby partners visually, open their full profile, then select the best assignment.</Dialog.Description></div>
+          <Dialog.Close asChild><button aria-label="Close assignment" className="absolute right-5 top-5 grid h-10 w-10 place-items-center rounded-xl border border-[var(--panel-border)] bg-white text-slate-600 hover:bg-slate-50" type="button"><X size={18} /></button></Dialog.Close>
           {order ? (
-            <div className="mt-6 space-y-4">
+            <div className="mt-5 flex min-h-0 flex-1 flex-col gap-4">
               <div className="rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 py-3 text-sm">
-                <p className="font-medium">{getOrderDisplayNumber(order)}</p>
-                <p className="mt-1 text-[var(--muted)]">{getCustomerDisplayName(order.customer)}</p>
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-orange-700"><MapPin size={13} />Distances from {tailorCandidatesQuery.data?.originLabel ?? partnerCandidatesQuery.data?.originLabel ?? order.address?.line1 ?? "the customer address"}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold">{getOrderDisplayNumber(order)}</p><p className="mt-0.5 text-[var(--muted)]">Customer: {getCustomerDisplayName(order.customer)}</p></div><p className="flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700"><MapPin size={13} />Distance from customer</p></div>
+                <p className="mt-2 text-xs text-[var(--muted)]">{tailorCandidatesQuery.data?.originLabel ?? partnerCandidatesQuery.data?.originLabel ?? order.address?.line1 ?? "Customer address"}</p>
               </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <Field label="Tailor">
-                  <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={values.tailorId} onChange={(event) => setAssignTailorId(event.target.value)}>
-                    <option value="">Unassigned</option>
-                    {sortedTailors.map((tailor) => (
-                      <option key={tailor.id} value={tailor.id}>
-                        {getTailorDisplayName(tailor)} · {distanceLabel(tailorDistance.get(tailor.id))} ({tailor.darjiTailorId ?? "Darji ID pending"})
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Pickup partner">
-                  <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={values.pickupPartnerId} onChange={(event) => setAssignPickupPartnerId(event.target.value)}>
-                    <option value="">Unassigned</option>
-                    {sortedPartners.map((partner) => (
-                      <option key={partner.id} value={partner.id}>
-                        {getPartnerDisplayName(partner)} · {distanceLabel(partnerDistance.get(partner.id))} · {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Delivery partner">
-                  <select className="h-12 w-full rounded-2xl border border-[var(--panel-border)] bg-[#fbfdff] px-4 outline-none" value={values.deliveryPartnerId} onChange={(event) => setAssignDeliveryPartnerId(event.target.value)}>
-                    <option value="">Unassigned</option>
-                    {sortedPartners.map((partner) => (
-                      <option key={partner.id} value={partner.id}>
-                        {getPartnerDisplayName(partner)} · {distanceLabel(partnerDistance.get(partner.id))} · {getPartnerRoleLabel(partner)} ({partner.darjiPartnerId ?? "Darji ID pending"})
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+              <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-3 lg:overflow-hidden">
+                <AssignmentCandidateColumn candidates={tailorCandidates} loading={tailorCandidatesQuery.isLoading} onSelect={setAssignTailorId} onViewProfile={onOpenTailor} role="TAILOR" selectedId={values.tailorId} title="Tailor" />
+                <AssignmentCandidateColumn candidates={partnerCandidates} loading={partnerCandidatesQuery.isLoading} onSelect={setAssignPickupPartnerId} onViewProfile={onOpenPartner} role="DELIVERY_PARTNER" selectedId={values.pickupPartnerId} title="Pickup partner" />
+                <AssignmentCandidateColumn candidates={partnerCandidates} loading={partnerCandidatesQuery.isLoading} onSelect={setAssignDeliveryPartnerId} onViewProfile={onOpenPartner} role="DELIVERY_PARTNER" selectedId={values.deliveryPartnerId} title="Delivery partner" />
               </div>
-              <div className="flex justify-end gap-3">
+              <div className="flex shrink-0 justify-end gap-3 border-t border-[var(--panel-border)] pt-4">
                 <Dialog.Close asChild>
                   <ActionButton variant="secondary">Cancel</ActionButton>
                 </Dialog.Close>
@@ -12063,6 +12136,35 @@ function AssignOrderDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function AssignmentCandidateColumn<T extends TailorProfile | DeliveryPartnerProfile>({ candidates, loading, onSelect, onViewProfile, role, selectedId, title }: { candidates: Array<AdminAssignmentCandidate<T>>; loading: boolean; onSelect: (id: string) => void; onViewProfile: (profile: T) => void; role: "TAILOR" | "DELIVERY_PARTNER"; selectedId: string; title: string }) {
+  const distanceLabel = (meters: number | null) => meters == null ? "Distance unavailable" : meters < 1000 ? `${meters} m away` : `${(meters / 1000).toFixed(1)} km away`;
+  return (
+    <section className="flex min-h-[420px] flex-col overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[#f8fafc]">
+      <div className="flex items-center justify-between border-b border-[var(--panel-border)] bg-white px-4 py-3"><div><h3 className="font-bold text-[var(--deep)]">{title}</h3><p className="text-[10px] text-[var(--muted)]">Nearest shown first</p></div>{loading ? <LoaderCircle className="h-4 w-4 animate-spin text-orange-500" /> : <Badge tone="slate">{candidates.length}</Badge>}</div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        <button className={cn("w-full rounded-xl border px-3 py-3 text-left text-sm font-semibold transition", !selectedId ? "border-orange-400 bg-orange-50 text-orange-800 ring-2 ring-orange-100" : "border-slate-200 bg-white text-slate-600 hover:border-orange-300")} onClick={() => onSelect("")} type="button">Unassigned</button>
+        {candidates.map(({ profile, distanceMeters, locationLabel }) => {
+          const isTailor = role === "TAILOR";
+          const name = isTailor ? getTailorDisplayName(profile as TailorProfile) : getPartnerDisplayName(profile as DeliveryPartnerProfile);
+          const publicId = isTailor ? (profile as TailorProfile).darjiTailorId : (profile as DeliveryPartnerProfile).darjiPartnerId;
+          const selected = selectedId === profile.id;
+          const avatar = profile.user?.avatarUrl || getDefaultAvatarUrl(profile.user?.name ?? profile.user?.phone ?? name);
+          return (
+            <div className={cn("rounded-2xl border bg-white p-3 transition", selected ? "border-orange-500 ring-2 ring-orange-100 shadow-sm" : "border-slate-200 hover:border-orange-300")} key={profile.id}>
+              <button className="w-full text-left" onClick={() => onSelect(profile.id)} type="button">
+                <div className="flex items-start gap-3"><img alt={`${name} profile`} className="h-12 w-12 shrink-0 rounded-xl border border-slate-200 object-cover" src={avatar} /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-950">{name}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-500">{publicId ?? "Darji ID pending"}</p></div><span className={cn("mt-0.5 h-4 w-4 shrink-0 rounded-full border-2", selected ? "border-orange-500 bg-orange-500 ring-2 ring-orange-100" : "border-slate-300")} /></div><p className="mt-2 line-clamp-2 text-xs leading-4 text-slate-600">{locationLabel}</p></div></div>
+                <div className="mt-3 flex flex-wrap items-center gap-2"><span className={cn("rounded-full px-2.5 py-1 text-[11px] font-extrabold", distanceMeters == null ? "bg-slate-100 text-slate-600" : "bg-orange-100 text-orange-800")}><MapPin className="mr-1 inline h-3 w-3" />{distanceLabel(distanceMeters)}</span><span className={cn("rounded-full px-2 py-1 text-[10px] font-bold", profile.isAvailable ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")}>{profile.isAvailable ? "Available" : "Offline"}</span>{!isTailor ? <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700">{getPartnerRoleLabel(profile as DeliveryPartnerProfile)}</span> : null}</div>
+              </button>
+              <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2"><span className="text-[10px] text-slate-500">Rating {typeof profile.rating === "number" ? profile.rating.toFixed(1) : "not rated"}</span><button className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-bold text-orange-700 hover:bg-orange-50" onClick={() => onViewProfile(profile)} type="button"><Eye size={13} />View profile</button></div>
+            </div>
+          );
+        })}
+        {!loading && !candidates.length ? <p className="rounded-xl bg-white p-4 text-center text-sm text-slate-500">No profiles available.</p> : null}
+      </div>
+    </section>
   );
 }
 

@@ -623,6 +623,8 @@ export async function reviewTailorVerificationController(req: Request, res: Resp
   const input = verificationReviewSchema.parse(req.body);
   const tailor = await TailorModel.findById(String(req.params.id));
   if (!tailor) throw new AppError(404, "Tailor profile not found");
+  if (tailor.verificationStatus === "VERIFIED" && input.status !== "VERIFIED") throw new AppError(409, "A verified tailor status is locked");
+  const beforeReview = tailor.toObject();
 
   const now = new Date();
   tailor.verificationStatus = input.status;
@@ -645,6 +647,7 @@ export async function reviewTailorVerificationController(req: Request, res: Resp
   }
 
   await tailor.save();
+  await recordAdminPartnerChanges(req, "TAILOR", String(tailor.id), "Tailor verification review updated", profileChanges({ profile: beforeReview }, { profile: tailor.toObject() }).filter((change) => !change.field.startsWith("profile.updatedAt")));
   res.json({ data: await withUser(tailor) });
 }
 
@@ -681,7 +684,7 @@ export async function updateTailorProfileController(req: Request, res: Response)
 export async function submitTailorVerificationController(req: Request, res: Response) {
   const input = tailorVerificationSchema.parse(req.body);
   const specialization = input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
-  const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("darjiTailorId verificationStatus verificationRejectedUntil");
+  const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("darjiTailorId verificationStatus verificationRejectedUntil verification verificationSubmittedAt registrationSnapshot");
   if (
     existingTailor?.verificationStatus === "REJECTED" &&
     existingTailor.verificationRejectedUntil &&
@@ -711,7 +714,8 @@ export async function submitTailorVerificationController(req: Request, res: Resp
           verificationStatus: "PENDING",
           verificationSubmittedAt: new Date(),
           verificationReuploadFields: [],
-          verification: input
+          verification: input,
+          ...(!existingTailor?.registrationSnapshot ? { registrationSnapshot: existingTailor?.verification ?? input, registrationSnapshotCapturedAt: existingTailor?.verificationSubmittedAt ?? new Date() } : {})
         },
         $unset: {
           verificationReviewedAt: "",
@@ -1011,6 +1015,9 @@ export async function notifyDeliveryBatchController(req: Request, res: Response)
 
 export async function reviewDeliveryVerificationController(req: Request, res: Response) {
   const input = verificationReviewSchema.parse(req.body);
+  const beforeReview = await DeliveryPartnerModel.findById(String(req.params.id)).lean();
+  if (!beforeReview) throw new AppError(404, "Delivery partner profile not found");
+  if (beforeReview.verificationStatus === "VERIFIED" && input.status !== "VERIFIED") throw new AppError(409, "A verified delivery partner status is locked");
   const partner = await DeliveryPartnerModel.findByIdAndUpdate(
     String(req.params.id),
     {
@@ -1029,6 +1036,7 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
   if (refreshedPartner.isAvailable && refreshedPartner.verificationStatus === "VERIFIED") {
     await assignPendingTasksToPartner(refreshedPartner);
   }
+  await recordAdminPartnerChanges(req, "DELIVERY_PARTNER", String(refreshedPartner.id), "Delivery partner verification review updated", profileChanges({ profile: beforeReview }, { profile: refreshedPartner.toObject() }).filter((change) => !change.field.startsWith("profile.updatedAt")));
   res.json({ data: await withUser(refreshedPartner) });
 }
 
@@ -1414,6 +1422,10 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
       radius: input.preferences.radius,
       instantDeliveries: input.preferences.instantDeliveries
     };
+    if (!partner.registrationSnapshot) {
+      partner.registrationSnapshot = partner.verification ?? input;
+      partner.registrationSnapshotCapturedAt = partner.verificationSubmittedAt ?? new Date();
+    }
     partner.verificationStatus = "PENDING";
     partner.verificationSubmittedAt = new Date();
     partner.verification = input;
@@ -3820,12 +3832,67 @@ const adminProfileUpdateSchema = z.object({
   verification: z.record(z.string(), z.unknown()).optional()
 });
 
+const protectedRegistrationKeys = new Set([
+  "status", "verificationstatus", "ocrstatus", "facedetectionstatus", "reviewstatus", "approvalstatus",
+  "submittedat", "reviewedat", "approvedat", "rejectedat", "savedat", "createdat", "updatedat",
+  "reviewedby", "approvedby", "rejectedby", "lat", "lng", "latitude", "longitude", "coordinates"
+]);
+
+function mergeAdminRegistrationFields(current: unknown, incoming: unknown): unknown {
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return incoming;
+  const base = current && typeof current === "object" && !Array.isArray(current)
+    ? structuredClone(current as Record<string, unknown>)
+    : {};
+  Object.entries(incoming as Record<string, unknown>).forEach(([key, value]) => {
+    const normalizedKey = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (protectedRegistrationKeys.has(normalizedKey) || /(url|photo|image|media|resourcetype|originalname)$/.test(normalizedKey)) return;
+    (base as Record<string, unknown>)[key] = value && typeof value === "object" && !Array.isArray(value)
+      ? mergeAdminRegistrationFields((base as Record<string, unknown>)[key], value)
+      : value;
+  });
+  return base;
+}
+
+type AdminProfileChange = { field: string; before: unknown; after: unknown };
+
+function profileChanges(before: unknown, after: unknown, prefix = ""): AdminProfileChange[] {
+  const beforeObject = before && typeof before === "object" && !Array.isArray(before) ? before as Record<string, unknown> : null;
+  const afterObject = after && typeof after === "object" && !Array.isArray(after) ? after as Record<string, unknown> : null;
+  if (beforeObject && afterObject) {
+    return [...new Set([...Object.keys(beforeObject), ...Object.keys(afterObject)])].flatMap((key) => profileChanges(beforeObject[key], afterObject[key], prefix ? `${prefix}.${key}` : key));
+  }
+  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  return [{ field: prefix || "profile", before: before ?? null, after: after ?? null }];
+}
+
+async function recordAdminPartnerChanges(req: Request, role: "TAILOR" | "DELIVERY_PARTNER", profileId: string, summary: string, changes: AdminProfileChange[]) {
+  if (!changes.length) return;
+  const actor = await UserModel.findById(req.user!.id).select("name phone").lean();
+  await AdminAuditLogModel.create({
+    actorId: req.user!.id,
+    actorRole: req.user!.role,
+    actorName: actor?.name || actor?.phone || "Admin",
+    method: req.method,
+    path: req.originalUrl.split("?")[0],
+    statusCode: 200,
+    entityType: role === "TAILOR" ? "TAILOR_PROFILE" : "DELIVERY_PARTNER_PROFILE",
+    entityId: profileId,
+    summary,
+    metadata: { changes: changes.slice(0, 250) }
+  });
+}
+
 async function updateAdminPartnerProfile(req: Request, res: Response, role: "TAILOR" | "DELIVERY_PARTNER") {
   const input = adminProfileUpdateSchema.parse(req.body);
   const profile = role === "TAILOR"
     ? await TailorModel.findById(String(req.params.id))
     : await DeliveryPartnerModel.findById(String(req.params.id));
   if (!profile) throw new AppError(404, `${role === "TAILOR" ? "Tailor" : "Delivery partner"} profile not found`);
+  const existingUser = await UserModel.findById(profile.userId).lean();
+  const before = {
+    user: { name: existingUser?.name, phone: existingUser?.phone, email: existingUser?.email, avatarUrl: existingUser?.avatarUrl },
+    profile: profile.toObject()
+  };
   const userUpdate = Object.fromEntries(Object.entries({ name: input.name, phone: input.phone, email: input.email || undefined, avatarUrl: input.avatarUrl || undefined }).filter(([, value]) => value !== undefined));
   if (Object.keys(userUpdate).length) await UserModel.findByIdAndUpdate(profile.userId, { $set: userUpdate });
   const profileUpdate = { ...input } as Record<string, unknown>;
@@ -3833,12 +3900,29 @@ async function updateAdminPartnerProfile(req: Request, res: Response, role: "TAI
   delete profileUpdate.phone;
   delete profileUpdate.email;
   delete profileUpdate.avatarUrl;
+  if (input.verification) profileUpdate.verification = mergeAdminRegistrationFields(profile.verification, input.verification);
+  if (!profile.registrationSnapshot && profile.verification) {
+    profileUpdate.registrationSnapshot = structuredClone(profile.verification);
+    profileUpdate.registrationSnapshotCapturedAt = profile.verificationSubmittedAt ?? new Date();
+  }
   if (Object.keys(profileUpdate).length) {
     if (role === "TAILOR") await TailorModel.findByIdAndUpdate(profile.id, { $set: profileUpdate });
     else await DeliveryPartnerModel.findByIdAndUpdate(profile.id, { $set: profileUpdate });
   }
   const updated = role === "TAILOR" ? await TailorModel.findById(profile.id) : await DeliveryPartnerModel.findById(profile.id);
+  const updatedUser = await UserModel.findById(profile.userId).lean();
+  const changes = profileChanges(before, {
+    user: { name: updatedUser?.name, phone: updatedUser?.phone, email: updatedUser?.email, avatarUrl: updatedUser?.avatarUrl },
+    profile: updated?.toObject()
+  }).filter((change) => !change.field.startsWith("profile.updatedAt") && !change.field.startsWith("profile.registrationSnapshot"));
+  await recordAdminPartnerChanges(req, role, String(profile.id), `${role === "TAILOR" ? "Tailor" : "Delivery partner"} profile updated`, changes);
   res.json({ data: await withUser(updated!) });
+}
+
+export async function listAdminPartnerProfileChangeLogController(req: Request, res: Response) {
+  const role = req.originalUrl.includes("/delivery-partners/") ? "DELIVERY_PARTNER" : "TAILOR";
+  const logs = await AdminAuditLogModel.find({ entityType: role === "TAILOR" ? "TAILOR_PROFILE" : "DELIVERY_PARTNER_PROFILE", entityId: String(req.params.id) }).sort({ createdAt: -1 }).limit(250).lean();
+  res.json({ data: logs.map((log: any) => ({ ...log, id: String(log._id), _id: undefined })) });
 }
 
 export async function updateAdminTailorProfileController(req: Request, res: Response) {

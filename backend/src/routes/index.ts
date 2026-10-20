@@ -17,6 +17,7 @@ import {
   deleteAdminOrderController,
   updateAdminTailorProfileController,
   updateAdminDeliveryProfileController,
+  listAdminPartnerProfileChangeLogController,
   systemHealthController,
   assignOrderController,
   catalogController,
@@ -291,6 +292,7 @@ router.get("/tailors", requireAuth, listTailorsController);
 router.get("/tailors/tutorial-media", requireAuth, requireRole("TAILOR", "ADMIN", "SUPER_ADMIN"), getTailorTutorialMediaController);
 router.patch("/tailors/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewTailorVerificationController);
 router.patch("/admin/tailors/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminTailorProfileController);
+router.get("/admin/tailors/:id/change-log", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminPartnerProfileChangeLogController);
 router.patch("/tailors/me/availability", requireAuth, requireRole("TAILOR"), updateTailorAvailabilityController);
 router.patch("/tailors/me/profile", requireAuth, requireRole("TAILOR"), updateTailorProfileController);
 router.patch("/tailors/me/verification-draft", requireAuth, requireRole("TAILOR"), saveTailorVerificationDraftController);
@@ -304,6 +306,7 @@ router.patch("/tailors/:tailorId/samples/:sampleId", requireAuth, requireRole("A
 router.get("/delivery-partners", requireAuth, listDeliveryPartnersController);
 router.patch("/delivery-partners/:id/verification-review", requireAuth, requireRole("ADMIN"), reviewDeliveryVerificationController);
 router.patch("/admin/delivery-partners/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminDeliveryProfileController);
+router.get("/admin/delivery-partners/:id/change-log", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listAdminPartnerProfileChangeLogController);
 router.patch("/delivery-partners/me/availability", requireAuth, requireRole("DELIVERY_PARTNER"), updateDeliveryAvailabilityController);
 router.patch("/delivery-partners/me/location", requireAuth, requireRole("DELIVERY_PARTNER"), updateRiderLocationController);
 router.get("/location/reverse-geocode", requireAuth, reverseGeocodeController);

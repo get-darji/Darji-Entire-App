@@ -106,6 +106,8 @@ export type TailorProfile = {
   verificationLastRejectedAt?: string;
   verification?: Record<string, unknown>;
   verificationDraft?: Record<string, unknown>;
+  registrationSnapshot?: Record<string, unknown>;
+  registrationSnapshotCapturedAt?: string;
   sampleGallery?: TailorSample[];
   earnings?: number;
   user?: BasicUser;
@@ -384,6 +386,8 @@ export type DeliveryPartnerProfile = {
   verificationRejectionReason?: string;
   verification?: Record<string, unknown>;
   verificationDraft?: Record<string, unknown>;
+  registrationSnapshot?: Record<string, unknown>;
+  registrationSnapshotCapturedAt?: string;
   // Live location fields (optional — only present if rider has sent a heartbeat)
   currentLocation?: { type: string; coordinates: [number, number] } | null;
   lastLocationAccuracy?: number | null;
@@ -983,6 +987,10 @@ export type AdminActivityLog = {
   entityType?: string;
   entityId?: string;
   summary: string;
+  metadata?: {
+    changes?: Array<{ field: string; before: unknown; after: unknown }>;
+    [key: string]: unknown;
+  };
   createdAt: string;
 };
 
