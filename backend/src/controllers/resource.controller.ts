@@ -1517,11 +1517,12 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
 
   const rows = await Promise.all(profiles.map(async (profile: any) => {
     const user = await UserModel.findById(profile.userId).select("name phone");
-    const [wallet, transactions, lastPayment] = await Promise.all([
-      WalletModel.findOne({ userId: profile.userId, userType }),
-      WalletTransactionModel.find({ userId: profile.userId, userType }).sort({ createdAt: -1 }),
-      PaymentHistoryModel.findOne({ userId: profile.userId, userType }).sort({ paidAt: -1, createdAt: -1 })
-    ]);
+    const summary = await walletSummary(profile.userId, userType as WalletUserType);
+    const transactions = await WalletTransactionModel.find({
+      userId: profile.userId,
+      userType,
+      createdAt: { $gte: weekStartValue, $lt: weekEndValue }
+    }).select("transactionType category amount createdAt").lean();
     const currentWeekEarnings = transactions.reduce((sum: number, transaction: any) => {
       const createdAt = new Date(transaction.createdAt ?? 0);
       if (transaction.transactionType !== "CREDIT" || transaction.category !== "ORDER_EARNING") return sum;
@@ -1539,12 +1540,15 @@ export async function adminWalletPayoutsController(req: Request, res: Response) 
       payoutKind,
       name: user?.name ?? profile.shopName ?? "Unnamed",
       phone: user?.phone ?? "",
-      walletBalance: Number(wallet?.balance ?? 0),
+      walletBalance: summary.balance,
       currentWeekEarnings,
       periodPendingAmount: Math.max(0, Number((currentWeekEarnings - payoutsInPeriod).toFixed(2))),
-      pendingAmount: Number(wallet?.balance ?? 0),
-      lastPayment,
-      status: Number(wallet?.balance ?? 0) > 0 ? "DUE" : "SETTLED"
+      pendingAmount: summary.pendingAmount,
+      pendingBreakdown: summary.pendingBreakdown,
+      unpaidItemCount: summary.unpaidItemCount,
+      oldestUnpaidAt: summary.oldestUnpaidAt,
+      lastPayment: summary.lastPayment,
+      status: summary.pendingAmount > 0 ? "DUE" : "SETTLED"
     };
   }));
 
@@ -1575,7 +1579,114 @@ export async function adminCreatePayoutController(req: Request, res: Response) {
     weekEnd: input.weekEnd ? new Date(input.weekEnd) : undefined,
     referenceNumber: input.referenceNumber
   });
+  const actor = await UserModel.findById(req.user!.id).select("name phone").lean();
+  await AdminAuditLogModel.create({
+    actorId: req.user!.id,
+    actorRole: req.user!.role,
+    actorName: actor?.name || actor?.phone || "Admin",
+    method: req.method,
+    path: req.originalUrl.split("?")[0],
+    statusCode: 201,
+    entityType: "PARTNER_PAYOUT",
+    entityId: history.id,
+    summary: `Recorded ${input.userType === "TAILOR" ? "tailor" : "delivery partner"} weekly payout`,
+    metadata: { userId: input.userId, amount: input.amount, referenceNumber: input.referenceNumber, allocationCount: history.allocations?.length ?? 0 }
+  }).catch(() => undefined);
   res.status(201).json({ data: history });
+}
+
+export async function adminFinancialLedgerController(_req: Request, res: Response) {
+  const [payments, payoutHistory, earningTransactions] = await Promise.all([
+    PaymentModel.find().sort({ createdAt: -1 }).lean(),
+    PaymentHistoryModel.find({ status: "PAID" }).sort({ paidAt: -1, createdAt: -1 }).lean(),
+    WalletTransactionModel.find({ transactionType: "CREDIT", category: { $in: ["ORDER_EARNING", "BONUS", "ADJUSTMENT"] } }).sort({ createdAt: -1 }).lean()
+  ]);
+  const orderIds = [...new Set(payments.map((payment: any) => String(payment.orderId)).filter(Boolean))];
+  const userIds = [...new Set([
+    ...payoutHistory.map((payout: any) => String(payout.userId)),
+    ...earningTransactions.map((transaction: any) => String(transaction.userId))
+  ])];
+  const [orders, requests, users] = await Promise.all([
+    OrderModel.find({ _id: { $in: orderIds } }).select("_id orderNumber").lean(),
+    TailoringRequestModel.find({ _id: { $in: orderIds } }).select("_id").lean(),
+    UserModel.find({ _id: { $in: userIds } }).select("_id name phone").lean()
+  ]);
+  const orderLabels = new Map<string, string>([
+    ...orders.map((order: any) => [String(order._id), order.orderNumber || `ORD-${String(order._id).slice(0, 8).toUpperCase()}`] as [string, string]),
+    ...requests.map((request: any) => [String(request._id), `TR-${String(request._id).slice(0, 8).toUpperCase()}`] as [string, string])
+  ]);
+  const usersById = new Map(users.map((user: any) => [String(user._id), user]));
+  const entries = [
+    ...payments.flatMap((payment: any) => {
+      const refunded = String(payment.status).toUpperCase() === "REFUNDED";
+      const collection = {
+        id: String(payment._id),
+        darjiId: payment.darjiId,
+        occurredAt: payment.paidAt ?? payment.createdAt,
+        entryType: "CUSTOMER_PAYMENT",
+        direction: "IN",
+        accountingType: "CASH",
+        category: "Customer payment",
+        amount: Number(payment.amount ?? 0),
+        status: refunded ? "PAID" : payment.status,
+        method: payment.method,
+        referenceNumber: payment.providerRef,
+        sourceId: String(payment.orderId),
+        sourceLabel: orderLabels.get(String(payment.orderId)) ?? String(payment.orderId)
+      };
+      return refunded ? [collection, {
+        ...collection,
+        id: `${String(payment._id)}-refund`,
+        occurredAt: payment.refundedAt ?? payment.updatedAt ?? payment.createdAt,
+        entryType: "REFUND",
+        direction: "OUT",
+        category: "Customer refund",
+        status: "REFUNDED"
+      }] : [collection];
+    }),
+    ...payoutHistory.map((payout: any) => {
+      const user: any = usersById.get(String(payout.userId));
+      return {
+        id: String(payout._id),
+        occurredAt: payout.paidAt ?? payout.createdAt,
+        entryType: "PARTNER_PAYOUT",
+        direction: "OUT",
+        accountingType: "CASH",
+        category: payout.userType === "TAILOR" ? "Tailor payout" : "Delivery payout",
+        amount: Number(payout.amount ?? 0),
+        status: payout.status,
+        method: "BANK / UPI",
+        referenceNumber: payout.referenceNumber,
+        partyId: String(payout.userId),
+        partyType: payout.userType,
+        partyName: user?.name || user?.phone || "Partner",
+        receiptUrl: payout.receiptUrl
+      };
+    }),
+    ...earningTransactions.map((transaction: any) => {
+      const user: any = usersById.get(String(transaction.userId));
+      const remarks = String(transaction.remarks ?? "");
+      const measurement = /measurement visit/i.test(remarks);
+      const delivery = transaction.userType === "DELIVERY_PARTNER";
+      return {
+        id: String(transaction._id),
+        darjiId: transaction.darjiId,
+        occurredAt: transaction.createdAt,
+        entryType: "PARTNER_EARNING",
+        direction: "ACCRUAL",
+        accountingType: "LIABILITY",
+        category: measurement ? "Measurement earning" : delivery ? (/batch/i.test(remarks) ? "Delivery batch earning" : "Delivery task earning") : transaction.category === "BONUS" ? "Partner bonus" : transaction.category === "ADJUSTMENT" ? "Partner adjustment" : "Stitching earning",
+        amount: Number(transaction.amount ?? 0),
+        status: "ACCRUED",
+        sourceId: transaction.orderId ? String(transaction.orderId) : undefined,
+        sourceLabel: remarks || transaction.orderId,
+        partyId: String(transaction.userId),
+        partyType: transaction.userType,
+        partyName: user?.name || user?.phone || "Partner"
+      };
+    })
+  ].sort((left, right) => new Date(right.occurredAt ?? 0).getTime() - new Date(left.occurredAt ?? 0).getTime());
+  res.json({ data: entries });
 }
 
 export async function getDeliveryFareSettingsController(_req: Request, res: Response) {

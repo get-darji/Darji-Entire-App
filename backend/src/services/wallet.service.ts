@@ -7,10 +7,22 @@ import {
   WalletModel,
   WalletTransactionModel
 } from "../models.js";
+import { AppError } from "../middleware/error.js";
 
 export type WalletUserType = "TAILOR" | "DELIVERY_PARTNER";
 export type WalletTransactionType = "CREDIT" | "DEBIT";
 export type WalletCategory = "ORDER_EARNING" | "WEEKLY_PAYOUT" | "BONUS" | "PENALTY" | "ADJUSTMENT";
+export type PayoutSourceType = "STITCHING" | "MEASUREMENT" | "DELIVERY_TASK" | "DELIVERY_BATCH" | "BONUS" | "ADJUSTMENT";
+
+export type PayoutAllocationSnapshot = {
+  earningTransactionId: string;
+  sourceId?: string;
+  sourceType: PayoutSourceType;
+  amount: number;
+  originalAmount: number;
+  label: string;
+  earnedAt?: Date;
+};
 
 export type WalletTransactionInput = {
   userId: string;
@@ -115,6 +127,98 @@ export async function creditOrderEarning(input: {
   });
 }
 
+function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function sourceTypeForTransaction(transaction: any): PayoutSourceType {
+  const remarks = String(transaction.remarks ?? "").toLowerCase();
+  if (transaction.category === "BONUS") return "BONUS";
+  if (transaction.category === "ADJUSTMENT") return "ADJUSTMENT";
+  if (transaction.userType === "DELIVERY_PARTNER") {
+    return remarks.includes("batch") ? "DELIVERY_BATCH" : "DELIVERY_TASK";
+  }
+  return remarks.includes("measurement visit") ? "MEASUREMENT" : "STITCHING";
+}
+
+function allocationFor(transaction: any, amount: number): PayoutAllocationSnapshot {
+  const sourceType = sourceTypeForTransaction(transaction);
+  const fallbackLabels: Record<PayoutSourceType, string> = {
+    STITCHING: "Stitching earning",
+    MEASUREMENT: "Measurement visit earning",
+    DELIVERY_TASK: "Delivery task earning",
+    DELIVERY_BATCH: "Delivery batch earning",
+    BONUS: "Bonus",
+    ADJUSTMENT: "Wallet adjustment"
+  };
+  return {
+    earningTransactionId: String(transaction._id ?? transaction.id),
+    sourceId: transaction.orderId ? String(transaction.orderId) : undefined,
+    sourceType,
+    amount: roundMoney(amount),
+    originalAmount: roundMoney(Number(transaction.amount ?? 0)),
+    label: String(transaction.remarks || fallbackLabels[sourceType]),
+    earnedAt: transaction.createdAt ? new Date(transaction.createdAt) : undefined
+  };
+}
+
+/**
+ * Replays the wallet chronologically. Every debit consumes the oldest credit,
+ * while weekly payout debits additionally retain the source allocation. This
+ * keeps legacy payouts explainable without rewriting their original records.
+ */
+export function replayWalletAllocations(transactions: any[]) {
+  const creditQueue: Array<{ transaction: any; remaining: number }> = [];
+  const allocationsByPayoutTransactionId = new Map<string, PayoutAllocationSnapshot[]>();
+  const ordered = [...transactions].sort((left, right) => {
+    const dateDiff = new Date(left.createdAt ?? 0).getTime() - new Date(right.createdAt ?? 0).getTime();
+    return dateDiff || String(left._id ?? left.id).localeCompare(String(right._id ?? right.id));
+  });
+
+  for (const transaction of ordered) {
+    if (transaction.transactionType === "CREDIT") {
+      creditQueue.push({ transaction, remaining: roundMoney(Number(transaction.amount ?? 0)) });
+      continue;
+    }
+    if (transaction.transactionType !== "DEBIT") continue;
+    let debitRemaining = roundMoney(Number(transaction.amount ?? 0));
+    const payoutAllocations: PayoutAllocationSnapshot[] = [];
+    for (const credit of creditQueue) {
+      if (debitRemaining <= 0) break;
+      if (credit.remaining <= 0) continue;
+      const consumed = roundMoney(Math.min(credit.remaining, debitRemaining));
+      credit.remaining = roundMoney(credit.remaining - consumed);
+      debitRemaining = roundMoney(debitRemaining - consumed);
+      if (transaction.category === "WEEKLY_PAYOUT") payoutAllocations.push(allocationFor(credit.transaction, consumed));
+    }
+    if (transaction.category === "WEEKLY_PAYOUT") {
+      allocationsByPayoutTransactionId.set(String(transaction._id ?? transaction.id), payoutAllocations);
+    }
+  }
+
+  return {
+    allocationsByPayoutTransactionId,
+    outstanding: creditQueue.filter((credit) => credit.remaining > 0).map((credit) => allocationFor(credit.transaction, credit.remaining))
+  };
+}
+
+export function payoutBreakdown(allocations: PayoutAllocationSnapshot[]) {
+  return allocations.reduce<Record<PayoutSourceType, number>>((totals, allocation) => {
+    totals[allocation.sourceType] = roundMoney(totals[allocation.sourceType] + allocation.amount);
+    return totals;
+  }, { STITCHING: 0, MEASUREMENT: 0, DELIVERY_TASK: 0, DELIVERY_BATCH: 0, BONUS: 0, ADJUSTMENT: 0 });
+}
+
+function serializePaymentHistory(payment: any, reconstructed: PayoutAllocationSnapshot[]) {
+  const value = typeof payment.toJSON === "function" ? payment.toJSON() : { ...payment, id: payment._id ?? payment.id };
+  const exact = Array.isArray(value.allocations) && value.allocations.length > 0;
+  return {
+    ...value,
+    allocations: exact ? value.allocations : reconstructed,
+    allocationMode: exact ? "EXACT" : "RECONSTRUCTED"
+  };
+}
+
 async function reconcileTailorOrderEarnings(userId: string) {
   const tailor = await TailorModel.findOne({ userId }).select("_id");
   if (!tailor) return;
@@ -199,34 +303,70 @@ export async function createWeeklyPayout(input: {
 }) {
   const weekStart = input.weekStart ?? startOfWeek();
   const weekEnd = input.weekEnd ?? endOfWeek(weekStart);
-  const transaction = await createWalletTransaction({
-    userId: input.userId,
-    userType: input.userType,
-    transactionType: "DEBIT",
-    category: "WEEKLY_PAYOUT",
-    amount: input.amount,
-    remarks: input.notes,
-    receiptUrl: input.receiptUrl,
-    referenceNumber: input.referenceNumber,
-    weekStart,
-    weekEnd,
-    createdBy: input.paidBy
-  });
-  if (!transaction) throw new Error("Unable to create payout transaction");
+  const amount = roundMoney(input.amount);
+  const wallet = await ensureWallet(input.userId, input.userType);
+  const walletBalance = roundMoney(Number(wallet.balance ?? 0));
+  if (walletBalance <= 0) throw new AppError(409, "This partner has no pending balance to pay");
+  if (amount !== walletBalance) {
+    throw new AppError(409, `The wallet balance changed. Refresh and pay the full pending balance of ${walletBalance.toFixed(2)}`);
+  }
 
-  return PaymentHistoryModel.create({
-    userId: input.userId,
-    userType: input.userType,
-    walletTransactionId: transaction.id,
-    amount: input.amount,
-    receiptUrl: input.receiptUrl,
-    notes: input.notes,
-    paidBy: input.paidBy,
-    weekStart,
-    weekEnd,
-    referenceNumber: input.referenceNumber,
-    status: "PAID"
-  });
+  const existingTransactions = await WalletTransactionModel.find({ userId: input.userId, userType: input.userType }).sort({ createdAt: 1 }).lean();
+  const { outstanding } = replayWalletAllocations(existingTransactions);
+  const allocations: PayoutAllocationSnapshot[] = [];
+  let remaining = amount;
+  for (const credit of outstanding) {
+    if (remaining <= 0) break;
+    const allocated = roundMoney(Math.min(credit.amount, remaining));
+    allocations.push({ ...credit, amount: allocated });
+    remaining = roundMoney(remaining - allocated);
+  }
+  if (remaining > 0.001) throw new AppError(409, "The wallet ledger is out of balance. Refresh the partner wallet before paying");
+
+  const updatedWallet = await WalletModel.findOneAndUpdate(
+    { _id: wallet.id, userId: input.userId, userType: input.userType, balance: { $gte: amount - 0.001, $lte: amount + 0.001 } },
+    { $set: { balance: 0 } },
+    { returnDocument: "after" }
+  );
+  if (!updatedWallet) throw new AppError(409, "The wallet balance changed while this payout was being recorded. Refresh and try again");
+
+  let transaction: any;
+  try {
+    transaction = await WalletTransactionModel.create({
+      walletId: wallet.id,
+      userId: input.userId,
+      userType: input.userType,
+      transactionType: "DEBIT",
+      category: "WEEKLY_PAYOUT",
+      amount,
+      balanceAfterTransaction: 0,
+      remarks: input.notes,
+      receiptUrl: input.receiptUrl,
+      referenceNumber: input.referenceNumber,
+      weekStart,
+      weekEnd,
+      createdBy: input.paidBy
+    });
+    return await PaymentHistoryModel.create({
+      userId: input.userId,
+      userType: input.userType,
+      walletTransactionId: transaction.id,
+      amount,
+      receiptUrl: input.receiptUrl,
+      notes: input.notes,
+      paidBy: input.paidBy,
+      weekStart,
+      weekEnd,
+      referenceNumber: input.referenceNumber,
+      allocations,
+      allocationMode: "EXACT",
+      status: "PAID"
+    });
+  } catch (error) {
+    if (transaction?.id) await WalletTransactionModel.findByIdAndDelete(transaction.id).catch(() => undefined);
+    await WalletModel.findByIdAndUpdate(wallet.id, { $inc: { balance: amount } }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function walletSummary(userId: string, userType: WalletUserType) {
@@ -235,7 +375,7 @@ export async function walletSummary(userId: string, userType: WalletUserType) {
   const weekStart = startOfWeek();
   const weekEnd = endOfWeek(weekStart);
   const [transactions, payments] = await Promise.all([
-    WalletTransactionModel.find({ userId, userType }).sort({ createdAt: -1 }).limit(200),
+    WalletTransactionModel.find({ userId, userType }).sort({ createdAt: 1 }),
     PaymentHistoryModel.find({ userId, userType }).sort({ paidAt: -1, createdAt: -1 }).limit(100)
   ]);
 
@@ -245,13 +385,22 @@ export async function walletSummary(userId: string, userType: WalletUserType) {
     return createdAt >= weekStart && createdAt <= weekEnd ? sum + Number(transaction.amount ?? 0) : sum;
   }, 0);
 
+  const replay = replayWalletAllocations(transactions);
+  const serializedPayments = payments.map((payment: any) => serializePaymentHistory(
+    payment,
+    replay.allocationsByPayoutTransactionId.get(String(payment.walletTransactionId)) ?? []
+  ));
   return {
     wallet,
     balance: Number(wallet.balance ?? 0),
     currentWeekEarnings,
     pendingAmount: Number(wallet.balance ?? 0),
-    lastPayment: payments[0] ?? null,
-    transactions,
-    payments
+    pendingBreakdown: payoutBreakdown(replay.outstanding),
+    unpaidItemCount: replay.outstanding.length,
+    oldestUnpaidAt: replay.outstanding[0]?.earnedAt ?? null,
+    outstandingAllocations: replay.outstanding,
+    lastPayment: serializedPayments[0] ?? null,
+    transactions: [...transactions].reverse().slice(0, 200),
+    payments: serializedPayments
   };
 }

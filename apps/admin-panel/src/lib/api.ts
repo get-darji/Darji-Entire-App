@@ -30,6 +30,7 @@ import type {
   SupportStats,
   WalletPayoutRow,
   WalletDetail,
+  FinancialLedgerEntry,
   DeliveryFareSettings,
   OperationalAlert,
   AdminActivityLog,
@@ -539,8 +540,12 @@ export async function getWalletPayouts(userType: "TAILOR" | "DELIVERY_PARTNER", 
   return unwrap<WalletPayoutRow[]>(api.get("/admin/wallet-payouts", { params: { userType, ...period } }));
 }
 
-export async function getWalletDetail(userId: string) {
-  return unwrap<WalletDetail>(api.get(`/admin/wallets/${userId}`));
+export async function getFinancialLedger() {
+  return unwrap<FinancialLedgerEntry[]>(api.get("/admin/financial-ledger"));
+}
+
+export async function getWalletDetail(userId: string, userType: "TAILOR" | "DELIVERY_PARTNER") {
+  return unwrap<WalletDetail>(api.get(`/admin/wallets/${userId}`, { params: { userType } }));
 }
 
 export async function createWalletPayout(payload: {

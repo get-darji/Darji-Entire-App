@@ -53,6 +53,7 @@ import {
   addBugReportMessageController,
   addChangeRequestMessageController,
   adminCreatePayoutController,
+  adminFinancialLedgerController,
   adminWalletDetailController,
   adminWalletPayoutsController,
   listAdminDeliveryBatchesController,
@@ -332,6 +333,7 @@ router.delete("/admin/reviews/:id", requireAuth, requireRole("ADMIN", "SUPER_ADM
 router.get("/wallet", requireAuth, walletController);
 router.get("/transactions", requireAuth, transactionsController);
 router.get("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletPayoutsController);
+router.get("/admin/financial-ledger", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminFinancialLedgerController);
 router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminWalletDetailController);
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
 router.delete("/admin/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);

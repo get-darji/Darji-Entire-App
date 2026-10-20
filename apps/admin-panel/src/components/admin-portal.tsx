@@ -136,6 +136,7 @@ import {
   getServiceAreaInterests,
   geocodeServiceArea,
   getWalletPayouts,
+  getFinancialLedger,
   getWalletDetail,
   createWalletPayout,
   getOperationalAlerts,
@@ -259,6 +260,7 @@ import type {
   SupportStats,
   WalletPayoutRow,
   WalletDetail,
+  FinancialLedgerEntry,
   DeliveryFareSettings,
   OperationalAlert,
   AdminActivityLog,
@@ -608,7 +610,7 @@ export function AdminPortal() {
   const [orderTailorFilter, setOrderTailorFilter] = useState("");
   const [orderPaymentStatusFilter, setOrderPaymentStatusFilter] = useState("");
   const [orderDateFilter, setOrderDateFilter] = useState("");
-  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery" | "earnings" | "payouts">("ledger");
+  const [paymentsSubTab, setPaymentsSubTab] = useState<"ledger" | "tailors" | "delivery">("ledger");
   const [walletDetailTarget, setWalletDetailTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutTarget, setPayoutTarget] = useState<WalletPayoutRow | null>(null);
   const [payoutDraft, setPayoutDraft] = useState({ amount: "", receiptUrl: "", notes: "", referenceNumber: "" });
@@ -773,6 +775,11 @@ export function AdminPortal() {
     queryFn: getPayments,
     enabled: needsSection("dashboard", "alerts", "payments", "analytics", "activity", "exports")
   });
+  const financialLedgerQuery = useQuery({
+    queryKey: ["admin", "financial-ledger"],
+    queryFn: getFinancialLedger,
+    enabled: needsSection("payments", "exports")
+  });
   const tailorPayoutsQuery = useQuery({
     queryKey: ["admin", "wallet-payouts", "tailors", payoutPeriodParams.weekStart, payoutPeriodParams.weekEnd],
     queryFn: () => getWalletPayouts("TAILOR", payoutPeriodParams),
@@ -784,8 +791,8 @@ export function AdminPortal() {
     enabled: needsSection("dashboard", "payments")
   });
   const walletDetailQuery = useQuery({
-    queryKey: ["admin", "wallet-detail", walletDetailTarget?.userId],
-    queryFn: () => getWalletDetail(walletDetailTarget!.userId),
+    queryKey: ["admin", "wallet-detail", walletDetailTarget?.userId, walletDetailTarget?.userType],
+    queryFn: () => getWalletDetail(walletDetailTarget!.userId, walletDetailTarget!.userType),
     enabled: isAuthed && Boolean(walletDetailTarget)
   });
   const couponsQuery = useQuery({
@@ -1055,6 +1062,7 @@ export function AdminPortal() {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "customer-profile"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "payments"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin", "financial-ledger"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "wallet-payouts"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "wallet-detail"] }),
       queryClient.invalidateQueries({ queryKey: ["admin", "delivery-fare-settings"] }),
@@ -1971,8 +1979,8 @@ export function AdminPortal() {
       setPaymentFilter("PAID");
       setPaymentsSubTab("ledger");
     }
-    if (drilldown.key === "partner_cost") setPaymentsSubTab("earnings");
-    if (drilldown.key === "pending_payouts") setPaymentsSubTab("payouts");
+    if (drilldown.key === "partner_cost") setPaymentsSubTab("ledger");
+    if (drilldown.key === "pending_payouts") setPaymentsSubTab("tailors");
     setActiveSection(drilldown.target);
   };
   const changeOrderStatusFilter = (value: string) => {
@@ -2373,6 +2381,14 @@ export function AdminPortal() {
     const matchesDrilldown = dashboardDrilldown?.target !== "payments" || dashboardDrilldown.key !== "payments_paid" || drilldownIdSet.has(payment.id);
     const orderCompleted = ["DELIVERED", "COMPLETED"].includes(String(payment.order?.status ?? "").toUpperCase());
     return orderCompleted && (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || payment.status === paymentFilter) && matchesDrilldown;
+  });
+  const financialLedger = financialLedgerQuery.data ?? [];
+  const filteredFinancialLedger = financialLedger.filter((entry) => {
+    const content = [entry.darjiId, entry.category, entry.partyName, entry.partyType, entry.sourceId, entry.sourceLabel, entry.referenceNumber, entry.method, entry.status]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return (!searchTerm || content.includes(searchTerm)) && (!paymentFilter || entry.status === paymentFilter);
   });
   const tailorPayoutRows = tailorPayoutsQuery.data ?? [];
   const deliveryPayoutRows = deliveryPayoutsQuery.data ?? [];
@@ -3156,8 +3172,8 @@ export function AdminPortal() {
           <div className="space-y-6">
             {dashboardDrilldown?.target === "payments" ? <KpiDrilldownNotice count={dashboardDrilldown.key === "payments_paid" ? filteredPayments.length : activePayoutRows.filter((row) => dashboardDrilldown.key === "partner_cost" ? row.currentWeekEarnings > 0 : row.pendingAmount > 0).length} label={dashboardDrilldown.label} onClear={clearDashboardDrilldown} periodLabel={dashboardDrilldown.periodScoped ? dateRangeLabel : "Current records"} /> : null}
             <SectionIntro
-              title="Payments and collections"
-              description="Payment ledger reconciled against net customer collections, completed-order partner obligations, successful payouts, and the ₹16 operational allowance."
+              title="Payments"
+              description="A clean financial ledger and weekly, partner-level payouts with permanent task-to-payout history."
               action={
                 <div className="flex items-center gap-2">
                   <FilterSelect
@@ -3168,10 +3184,11 @@ export function AdminPortal() {
                       { label: "Pending", value: "PENDING" },
                       { label: "Paid", value: "PAID" },
                       { label: "Failed", value: "FAILED" },
-                      { label: "Refunded", value: "REFUNDED" }
+                      { label: "Refunded", value: "REFUNDED" },
+                      { label: "Accrued", value: "ACCRUED" }
                     ]}
                   />
-                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-payments.csv", filteredPayments.map(paymentToCsv))}>
+                  <ActionButton variant="secondary" onClick={() => downloadCsv("darji-financial-ledger.csv", filteredFinancialLedger.map(financialLedgerToCsv))}>
                     Export CSV
                   </ActionButton>
                 </div>
@@ -3179,16 +3196,14 @@ export function AdminPortal() {
             />
             <div className="flex flex-wrap gap-2">
               {[
-                { id: "ledger", label: "Ledger" },
-                { id: "tailors", label: "Tailors" },
-                { id: "delivery", label: "Delivery Partners" },
-                { id: "earnings", label: "Partner Earnings" },
-                { id: "payouts", label: "All Payouts" }
+                { id: "ledger", label: "Financial Ledger", description: "Every collection, refund, earning, and payout" },
+                { id: "tailors", label: "Tailor Payouts", description: "Weekly stitching and measurement settlement" },
+                { id: "delivery", label: "Delivery Payouts", description: "Weekly task and batch settlement" }
               ].map((tab) => (
                 <button
                   key={tab.id}
                   className={cn(
-                    "rounded-2xl border px-4 py-2 text-sm font-semibold transition",
+                    "min-w-[220px] rounded-2xl border px-4 py-3 text-left transition",
                     paymentsSubTab === tab.id
                       ? "border-[var(--accent)] bg-[var(--accent)] text-black"
                       : "border-[var(--panel-border)] bg-[var(--panel)] text-[var(--foreground)] hover:border-[var(--accent)]"
@@ -3196,29 +3211,37 @@ export function AdminPortal() {
                   onClick={() => setPaymentsSubTab(tab.id as typeof paymentsSubTab)}
                   type="button"
                 >
-                  {tab.label}
+                  <span className="block text-sm font-semibold">{tab.label}</span>
+                  <span className={cn("mt-1 block text-xs", paymentsSubTab === tab.id ? "text-black/65" : "text-[var(--muted)]")}>{tab.description}</span>
                 </button>
               ))}
             </div>
             {paymentsSubTab === "ledger" ? (
-              <>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                  <FinanceStatCard label="Gross paid" value={formatCurrency(dashboardAnalytics.finance.grossPaid)} note={`${dashboardAnalytics.finance.paidOrders} paid orders in period`} tone="emerald" />
-                  <FinanceStatCard label="Tailor due" value={formatCurrency(totalPendingTailorPayments)} note="Wallet balance due" tone="amber" />
-                  <FinanceStatCard label="Delivery due" value={formatCurrency(totalPendingDeliveryPayments)} note="Delivery wallet due" tone="sky" />
-                  <FinanceStatCard label="Realized net revenue" value={formatCurrency(dashboardAnalytics.finance.netRevenue)} note={`${dashboardAnalytics.finance.realizedCompletedOrders} fully reconciled delivered orders`} tone="violet" />
-                  <FinanceStatCard label="Wallet liabilities" value={formatCurrency(walletLiabilities)} note="All unpaid wallets" tone="rose" />
-                </div>
-                <DataTable columns={paymentColumns} data={filteredPayments} emptyMessage="No payment records match the current filters." />
-              </>
-            ) : paymentsSubTab === "earnings" ? (
-              <PartnerEarningsWorkspace
-                rows={activePayoutRows.filter((row) => row.currentWeekEarnings > 0)}
-                onDetails={setWalletDetailTarget}
-                periodLabel={dateRangeLabel}
+              <FinancialLedgerWorkspace
+                entries={filteredFinancialLedger}
+                loading={financialLedgerQuery.isLoading}
+                tailorDue={totalPendingTailorPayments}
+                deliveryDue={totalPendingDeliveryPayments}
+                walletLiabilities={walletLiabilities}
+                onOpenPartner={(entry) => {
+                  if (entry.partyType === "TAILOR") {
+                    const profile = tailors.find((tailor) => tailor.userId === entry.partyId);
+                    if (profile) setTailorDetail(profile);
+                  } else {
+                    const profile = partners.find((partner) => partner.userId === entry.partyId);
+                    if (profile) setPartnerDetail(profile);
+                  }
+                }}
+                onOpenSource={(entry) => {
+                  const order = allOrders.find((candidate) => [candidate.id, candidate.orderNumber, candidate.darjiId].filter(Boolean).includes(entry.sourceId ?? ""));
+                  if (order) return openOrderDetail(order, "overview");
+                  const request = tailoringRequests.find((candidate) => candidate.id === entry.sourceId || candidate.darjiId === entry.sourceId);
+                  if (request) setTailoringDetail(request);
+                }}
               />
             ) : (
               <PayoutWorkspace
+                kind={paymentsSubTab === "tailors" ? "TAILOR" : "DELIVERY_PARTNER"}
                 rows={activePayoutRows}
                 loading={tailorPayoutsQuery.isLoading || deliveryPayoutsQuery.isLoading}
                 payingUserId={walletPayoutMutation.isPending ? payoutTarget?.userId : undefined}
@@ -3499,7 +3522,7 @@ export function AdminPortal() {
         }}
         onOpenPayouts={() => {
           setFinanceDetailKind(null);
-          setPaymentsSubTab("payouts");
+          setPaymentsSubTab("tailors");
           setActiveSection("payments");
         }}
         onOpenOrder={(orderId) => {
@@ -6385,13 +6408,87 @@ function PartnerEarningsWorkspace({ onDetails, periodLabel, rows }: { onDetails:
   );
 }
 
+function FinancialLedgerWorkspace({
+  deliveryDue,
+  entries,
+  loading,
+  onOpenPartner,
+  onOpenSource,
+  tailorDue,
+  walletLiabilities
+}: {
+  deliveryDue: number;
+  entries: FinancialLedgerEntry[];
+  loading: boolean;
+  onOpenPartner: (entry: FinancialLedgerEntry) => void;
+  onOpenSource: (entry: FinancialLedgerEntry) => void;
+  tailorDue: number;
+  walletLiabilities: number;
+}) {
+  if (loading) return <LoadingDashboard />;
+  const cashIn = entries.filter((entry) => entry.direction === "IN" && entry.status === "PAID").reduce((sum, entry) => sum + entry.amount, 0);
+  const cashOut = entries.filter((entry) => entry.direction === "OUT" && ["PAID", "REFUNDED"].includes(entry.status)).reduce((sum, entry) => sum + entry.amount, 0);
+  const accrued = entries.filter((entry) => entry.direction === "ACCRUAL").reduce((sum, entry) => sum + entry.amount, 0);
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <FinanceStatCard label="Cash received" value={formatCurrency(cashIn)} note="Successful customer collections" tone="emerald" />
+        <FinanceStatCard label="Cash paid out" value={formatCurrency(cashOut)} note="Refunds and partner payouts" tone="rose" />
+        <FinanceStatCard label="Partner earnings" value={formatCurrency(accrued)} note="Accrued liabilities, not cash movement" tone="violet" />
+        <FinanceStatCard label="Tailor due" value={formatCurrency(tailorDue)} note="Stitching and measurement" tone="amber" />
+        <FinanceStatCard label="Delivery due" value={formatCurrency(deliveryDue)} note={`${formatCurrency(walletLiabilities)} total wallet liability`} tone="sky" />
+      </div>
+      <Panel className="overflow-hidden p-0">
+        <div className="border-b border-[var(--panel-border)] px-5 py-4">
+          <h3 className="font-semibold">Complete ledger</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">Cash movements and partner liabilities are separated so accrued earnings are never mistaken for money already paid.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-4 font-semibold">Date & time</th>
+                <th className="px-4 py-4 font-semibold">Entry</th>
+                <th className="px-4 py-4 font-semibold">Party / source</th>
+                <th className="px-4 py-4 font-semibold">Movement</th>
+                <th className="px-4 py-4 font-semibold">Amount</th>
+                <th className="px-4 py-4 font-semibold">Reference</th>
+                <th className="px-4 py-4 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.length === 0 ? <tr><td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={7}>No financial entries match the current filters.</td></tr> : null}
+              {entries.map((entry) => (
+                <tr className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]" key={`${entry.entryType}-${entry.id}`}>
+                  <td className="whitespace-nowrap px-4 py-4 text-[var(--muted)]">{formatDate(entry.occurredAt, true)}</td>
+                  <td className="px-4 py-4"><p className="font-semibold">{entry.category}</p><p className="text-xs text-[var(--muted)]">{entry.accountingType === "CASH" ? "Cash movement" : "Liability accrued"}</p></td>
+                  <td className="px-4 py-4">
+                    {entry.partyId ? <button className="block max-w-[280px] text-left font-semibold underline decoration-transparent underline-offset-4 transition hover:text-[var(--accent)] hover:decoration-current" onClick={() => onOpenPartner(entry)} type="button">{entry.partyName ?? "Partner"}</button> : <p className="font-semibold">{entry.partyName ?? entry.sourceLabel ?? "Darji"}</p>}
+                    {entry.sourceId ? <button className="block max-w-[280px] truncate text-left text-xs text-[var(--muted)] underline decoration-transparent underline-offset-2 hover:text-[var(--accent)] hover:decoration-current" onClick={() => onOpenSource(entry)} type="button">{entry.sourceLabel ?? entry.sourceId}</button> : <p className="max-w-[280px] truncate text-xs text-[var(--muted)]">{entry.partyType ?? "-"}</p>}
+                  </td>
+                  <td className="px-4 py-4"><Badge tone={entry.direction === "IN" ? "emerald" : entry.direction === "OUT" ? "rose" : "violet"}>{entry.direction === "IN" ? "Money in" : entry.direction === "OUT" ? "Money out" : "Accrued"}</Badge></td>
+                  <td className={cn("px-4 py-4 font-semibold tabular-nums", entry.direction === "IN" ? "text-emerald-600" : entry.direction === "OUT" ? "text-rose-600" : "text-violet-700")}>{entry.direction === "IN" ? "+" : entry.direction === "OUT" ? "-" : ""}{formatCurrency(entry.amount)}</td>
+                  <td className="px-4 py-4 text-[var(--muted)]">{entry.referenceNumber ?? entry.method ?? entry.darjiId ?? "-"}</td>
+                  <td className="px-4 py-4"><StatusBadge value={entry.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
 function PayoutWorkspace({
+  kind,
   loading,
   onDetails,
   onPay,
   payingUserId,
   rows
 }: {
+  kind: "TAILOR" | "DELIVERY_PARTNER";
   loading: boolean;
   onDetails: (row: WalletPayoutRow) => void;
   onPay: (row: WalletPayoutRow) => void;
@@ -6400,24 +6497,34 @@ function PayoutWorkspace({
 }) {
   if (loading) return <LoadingDashboard />;
   const pendingRows = rows.filter((row) => Number(row.pendingAmount ?? 0) > 0);
-  const paidRows = rows.filter((row) => Number(row.pendingAmount ?? 0) <= 0 && row.lastPayment);
+  const paidRows = rows.filter((row) => row.lastPayment);
+  const totalDue = pendingRows.reduce((sum, row) => sum + Number(row.pendingAmount ?? 0), 0);
+  const isTailor = kind === "TAILOR";
+  const primaryDue = pendingRows.reduce((sum, row) => sum + Number(isTailor ? row.pendingBreakdown?.STITCHING : row.pendingBreakdown?.DELIVERY_TASK), 0);
+  const secondaryDue = pendingRows.reduce((sum, row) => sum + Number(isTailor ? row.pendingBreakdown?.MEASUREMENT : row.pendingBreakdown?.DELIVERY_BATCH), 0);
 
   return (
     <div className="space-y-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <FinanceStatCard label="Total due" value={formatCurrency(totalDue)} note={`${pendingRows.length} partner${pendingRows.length === 1 ? "" : "s"} awaiting payout`} tone="rose" />
+        <FinanceStatCard label={isTailor ? "Stitching due" : "Task due"} value={formatCurrency(primaryDue)} note={isTailor ? "Completed stitching earnings" : "Completed individual deliveries"} tone="amber" />
+        <FinanceStatCard label={isTailor ? "Measurement due" : "Batch due"} value={formatCurrency(secondaryDue)} note={isTailor ? "Completed measurement visits" : "Completed delivery batches"} tone="violet" />
+        <FinanceStatCard label="Payout frequency" value="Weekly" note="One consolidated transfer per partner" tone="sky" />
+      </div>
       <Panel className="p-0">
         <div className="border-b border-[var(--panel-border)] px-4 py-4">
-          <h3 className="font-semibold text-[var(--foreground)]">Pending Bills</h3>
-          <p className="text-sm text-[var(--muted)]">Only unpaid wallet balances appear here.</p>
+          <h3 className="font-semibold text-[var(--foreground)]">{isTailor ? "Tailors awaiting payout" : "Delivery partners awaiting payout"}</h3>
+          <p className="text-sm text-[var(--muted)]">One consolidated balance per partner. Open details to verify every included earning.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-[var(--panel-border)] bg-[var(--panel)] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-4 font-semibold">S. No.</th>
-                <th className="px-4 py-4 font-semibold">Name</th>
-                <th className="px-4 py-4 font-semibold">Phone</th>
-                <th className="px-4 py-4 font-semibold">Wallet Balance</th>
-                <th className="px-4 py-4 font-semibold">Current Week</th>
+                <th className="px-4 py-4 font-semibold">Partner</th>
+                <th className="px-4 py-4 font-semibold">Earning breakdown</th>
+                <th className="px-4 py-4 font-semibold">Total due</th>
+                <th className="px-4 py-4 font-semibold">Unpaid items</th>
                 <th className="px-4 py-4 font-semibold">Last Payment</th>
                 <th className="px-4 py-4 font-semibold">Status</th>
                 <th className="px-4 py-4 font-semibold">Actions</th>
@@ -6436,10 +6543,10 @@ function PayoutWorkspace({
                 return (
                 <tr key={row.userId} className="border-b border-[var(--panel-border)] transition hover:bg-[var(--accent-soft)]">
                   <td className="px-4 py-4 font-semibold tabular-nums text-[var(--muted)]">{rowIndex + 1}</td>
-                  <td className="px-4 py-4 font-semibold text-[var(--foreground)]">{row.name}</td>
-                  <td className="px-4 py-4 text-[var(--muted)]">{row.phone || "-"}</td>
-                  <td className="px-4 py-4 font-semibold">{formatCurrency(row.walletBalance)}</td>
-                  <td className="px-4 py-4">{formatCurrency(row.currentWeekEarnings)}</td>
+                  <td className="px-4 py-4"><p className="font-semibold text-[var(--foreground)]">{row.name}</p><p className="text-xs text-[var(--muted)]">{row.profileId} - {row.phone || "No phone"}</p></td>
+                  <td className="px-4 py-4"><div className="flex flex-wrap gap-1.5"><Badge tone="amber">{isTailor ? "Stitching" : "Tasks"} {formatCurrency(isTailor ? row.pendingBreakdown?.STITCHING ?? 0 : row.pendingBreakdown?.DELIVERY_TASK ?? 0)}</Badge><Badge tone="violet">{isTailor ? "Measurement" : "Batches"} {formatCurrency(isTailor ? row.pendingBreakdown?.MEASUREMENT ?? 0 : row.pendingBreakdown?.DELIVERY_BATCH ?? 0)}</Badge></div></td>
+                  <td className="px-4 py-4 font-bold tabular-nums">{formatCurrency(row.walletBalance)}</td>
+                  <td className="px-4 py-4"><p className="font-semibold">{row.unpaidItemCount ?? 0}</p><p className="text-xs text-[var(--muted)]">{row.oldestUnpaidAt ? `Oldest ${formatDate(row.oldestUnpaidAt)}` : "No dated items"}</p></td>
                   <td className="px-4 py-4 text-[var(--muted)]">{row.lastPayment ? formatDate(row.lastPayment.paidAt, true) : "-"}</td>
                   <td className="px-4 py-4"><StatusBadge value="DUE" /></td>
                   <td className="px-4 py-4">
@@ -6447,7 +6554,7 @@ function PayoutWorkspace({
                       <ActionButton className="px-3 py-2" variant="secondary" onClick={() => onDetails(row)}>Details</ActionButton>
                       <ActionButton className="px-3 py-2" disabled={Boolean(payingUserId)} onClick={() => onPay(row)}>
                         {paying ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-                        {paying ? "Paying" : "Pay"}
+                        {paying ? "Paying" : "Create weekly payout"}
                       </ActionButton>
                     </div>
                   </td>
@@ -6461,8 +6568,8 @@ function PayoutWorkspace({
 
       <Panel className="p-0">
         <div className="border-b border-[var(--panel-border)] px-4 py-4">
-          <h3 className="font-semibold text-emerald-600">Paid Bills</h3>
-          <p className="text-sm text-[var(--muted)]">Settled payouts stay here with their uploaded proof.</p>
+          <h3 className="font-semibold text-emerald-600">Recent payout statements</h3>
+          <p className="text-sm text-[var(--muted)]">Open partner details for the complete history and the tasks included in every transfer.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
@@ -7048,6 +7155,21 @@ function WalletDetailDialog({
                 <FinanceStatCard label="Last Payment" value={detail?.lastPayment ? formatCurrency(detail.lastPayment.amount) : "-"} note={detail?.lastPayment ? formatDate(detail.lastPayment.paidAt, true) : "No payout yet"} tone="sky" />
               </div>
               <Panel>
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div><h4 className="font-semibold">Pending earning items</h4><p className="text-xs text-[var(--muted)]">These items make up the current payable balance.</p></div>
+                  <Badge tone="amber">{detail?.unpaidItemCount ?? 0} unpaid</Badge>
+                </div>
+                <div className="space-y-2">
+                  {(detail?.outstandingAllocations ?? []).map((allocation) => (
+                    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--panel-border)] p-3" key={allocation.earningTransactionId}>
+                      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-semibold">{allocation.label}</p><Badge tone={allocation.sourceType === "MEASUREMENT" ? "violet" : allocation.sourceType.startsWith("DELIVERY") ? "sky" : "amber"}>{formatStatus(allocation.sourceType)}</Badge></div><p className="mt-1 text-xs text-[var(--muted)]">{allocation.sourceId ?? allocation.earningTransactionId} · {formatDate(allocation.earnedAt, true)}</p></div>
+                      <p className="shrink-0 font-bold tabular-nums">{formatCurrency(allocation.amount)}</p>
+                    </div>
+                  ))}
+                  {!(detail?.outstandingAllocations?.length) ? <EmptyState message="No unpaid earning items." /> : null}
+                </div>
+              </Panel>
+              <Panel>
                 <h4 className="mb-3 font-semibold">Wallet Transactions</h4>
                 <div className="space-y-2">
                   {(detail?.transactions ?? []).map((transaction) => (
@@ -7079,10 +7201,19 @@ function WalletDetailDialog({
                     <a key={payment.id} className="block rounded-2xl border border-[var(--panel-border)] p-3 hover:border-[var(--accent)]" href={payment.receiptUrl} target="_blank" rel="noreferrer">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="font-semibold">{formatCurrency(payment.amount)}</p>
+                          <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{formatCurrency(payment.amount)}</p><Badge tone={payment.allocationMode === "EXACT" ? "emerald" : "amber"}>{payment.allocationMode === "EXACT" ? "Exact statement" : "Reconstructed"}</Badge></div>
                           <p className="text-xs text-[var(--muted)]">{payment.notes ?? payment.referenceNumber ?? "Weekly payout"}</p>
                         </div>
                         <p className="text-xs text-[var(--muted)]">{formatDate(payment.paidAt, true)}</p>
+                      </div>
+                      <div className="mt-3 space-y-1.5 border-t border-[var(--panel-border)] pt-3">
+                        {(payment.allocations ?? []).map((allocation) => (
+                          <div className="flex items-start justify-between gap-3 text-xs" key={`${payment.id}-${allocation.earningTransactionId}-${allocation.amount}`}>
+                            <div className="min-w-0"><p className="truncate font-semibold text-[var(--foreground)]">{allocation.label}</p><p className="truncate text-[var(--muted)]">{formatStatus(allocation.sourceType)} · {allocation.sourceId ?? "Wallet credit"}</p></div>
+                            <span className="shrink-0 font-semibold tabular-nums">{formatCurrency(allocation.amount)}</span>
+                          </div>
+                        ))}
+                        {!(payment.allocations?.length) ? <p className="text-xs text-[var(--muted)]">No source items could be reconstructed for this legacy payout.</p> : null}
                       </div>
                       {payment.receiptUrl?.startsWith("data:image") || /\.(png|jpe?g|webp)$/i.test(payment.receiptUrl) ? (
                         <img alt="Payment proof" className="mt-3 max-h-48 rounded-2xl border border-[var(--panel-border)] object-contain" src={payment.receiptUrl} />
@@ -7171,6 +7302,15 @@ function PayoutDialog({
                   <p className="font-bold">{formatCurrency(row?.currentWeekEarnings ?? 0)}</p>
                 </div>
               </div>
+              <div className="mt-3 space-y-2 border-t border-[var(--panel-border)] pt-3 text-sm">
+                {row?.userType === "TAILOR" ? (
+                  <><PayoutPreviewLine label="Stitching" value={row.pendingBreakdown?.STITCHING ?? 0} /><PayoutPreviewLine label="Measurement visits" value={row.pendingBreakdown?.MEASUREMENT ?? 0} /></>
+                ) : (
+                  <><PayoutPreviewLine label="Delivery tasks" value={row?.pendingBreakdown?.DELIVERY_TASK ?? 0} /><PayoutPreviewLine label="Delivery batches" value={row?.pendingBreakdown?.DELIVERY_BATCH ?? 0} /></>
+                )}
+                <PayoutPreviewLine label="Bonus / adjustment" value={(row?.pendingBreakdown?.BONUS ?? 0) + (row?.pendingBreakdown?.ADJUSTMENT ?? 0)} />
+                <p className="pt-1 text-xs text-[var(--muted)]">This payout will permanently record {row?.unpaidItemCount ?? 0} included earning item{row?.unpaidItemCount === 1 ? "" : "s"}.</p>
+              </div>
             </div>
             <Field label="Payout amount">
               <input className="w-full cursor-not-allowed rounded-2xl border border-[var(--panel-border)] bg-slate-100 px-4 py-3 font-semibold text-[var(--foreground)]" value={draft.amount} readOnly />
@@ -7205,6 +7345,10 @@ function PayoutDialog({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+function PayoutPreviewLine({ label, value }: { label: string; value: number }) {
+  return <div className="flex items-center justify-between gap-3"><span className="text-[var(--muted)]">{label}</span><span className="font-semibold tabular-nums">{formatCurrency(value)}</span></div>;
 }
 
 export function getNextTwoBatches(now: Date = new Date()) {
@@ -14339,6 +14483,22 @@ function paymentToCsv(payment: Payment) {
     amount: payment.amount,
     providerRef: payment.providerRef ?? "",
     createdAt: payment.createdAt ?? ""
+  };
+}
+
+function financialLedgerToCsv(entry: FinancialLedgerEntry) {
+  return {
+    date: entry.occurredAt ?? "",
+    entry: entry.category,
+    accountingType: entry.accountingType,
+    direction: entry.direction,
+    party: entry.partyName ?? "",
+    partyType: entry.partyType ?? "",
+    source: entry.sourceLabel ?? entry.sourceId ?? "",
+    amount: entry.amount,
+    method: entry.method ?? "",
+    reference: entry.referenceNumber ?? "",
+    status: entry.status
   };
 }
 

@@ -669,8 +669,22 @@ export type PaymentHistory = {
   weekStart?: string;
   weekEnd?: string;
   referenceNumber?: string;
+  allocations?: PayoutAllocation[];
+  allocationMode?: "EXACT" | "RECONSTRUCTED";
   status: "PAID" | "VOID";
 };
+
+export type PayoutAllocation = {
+  earningTransactionId: string;
+  sourceId?: string;
+  sourceType: "STITCHING" | "MEASUREMENT" | "DELIVERY_TASK" | "DELIVERY_BATCH" | "BONUS" | "ADJUSTMENT";
+  amount: number;
+  originalAmount: number;
+  label: string;
+  earnedAt?: string;
+};
+
+export type PayoutBreakdown = Record<PayoutAllocation["sourceType"], number>;
 
 export type WalletPayoutRow = {
   userId: string;
@@ -683,6 +697,9 @@ export type WalletPayoutRow = {
   currentWeekEarnings: number;
   periodPendingAmount?: number;
   pendingAmount: number;
+  pendingBreakdown?: PayoutBreakdown;
+  unpaidItemCount?: number;
+  oldestUnpaidAt?: string | null;
   lastPayment?: PaymentHistory | null;
   status: "DUE" | "SETTLED";
 };
@@ -692,9 +709,33 @@ export type WalletDetail = {
   balance: number;
   currentWeekEarnings: number;
   pendingAmount: number;
+  pendingBreakdown: PayoutBreakdown;
+  unpaidItemCount: number;
+  oldestUnpaidAt?: string | null;
+  outstandingAllocations: PayoutAllocation[];
   lastPayment?: PaymentHistory | null;
   transactions: WalletTransaction[];
   payments: PaymentHistory[];
+};
+
+export type FinancialLedgerEntry = {
+  id: string;
+  darjiId?: string;
+  occurredAt?: string;
+  entryType: "CUSTOMER_PAYMENT" | "REFUND" | "PARTNER_PAYOUT" | "PARTNER_EARNING";
+  direction: "IN" | "OUT" | "ACCRUAL";
+  accountingType: "CASH" | "LIABILITY";
+  category: string;
+  amount: number;
+  status: string;
+  method?: string;
+  referenceNumber?: string;
+  sourceId?: string;
+  sourceLabel?: string;
+  partyId?: string;
+  partyType?: "TAILOR" | "DELIVERY_PARTNER";
+  partyName?: string;
+  receiptUrl?: string;
 };
 
 export type DeliveryFareOption = {

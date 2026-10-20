@@ -580,11 +580,34 @@ const paymentHistorySchema = new Schema(
     weekStart: Date,
     weekEnd: Date,
     referenceNumber: String,
+    allocations: {
+      type: [
+        new Schema(
+          {
+            earningTransactionId: { type: String, required: true, index: true },
+            sourceId: { type: String, index: true },
+            sourceType: {
+              type: String,
+              enum: ["STITCHING", "MEASUREMENT", "DELIVERY_TASK", "DELIVERY_BATCH", "BONUS", "ADJUSTMENT"],
+              required: true
+            },
+            amount: { type: Number, required: true },
+            originalAmount: { type: Number, required: true },
+            label: { type: String, required: true },
+            earnedAt: Date
+          },
+          { _id: false }
+        )
+      ],
+      default: []
+    },
+    allocationMode: { type: String, enum: ["EXACT", "RECONSTRUCTED"], default: "EXACT" },
     status: { type: String, enum: ["PAID", "VOID"], default: "PAID", index: true },
     paidAt: { type: Date, default: Date.now }
   },
   baseOptions
 );
+paymentHistorySchema.index({ "allocations.sourceId": 1, userType: 1 });
 
 const transactionSchema = new Schema(
   {
