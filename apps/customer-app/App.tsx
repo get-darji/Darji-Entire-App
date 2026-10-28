@@ -130,6 +130,11 @@ import { ClothDetailsSelectionView } from "./src/features/cloth-details/ClothDet
 const SUPPORT_PHONE_DISPLAY = "+91 96259 17902";
 const SUPPORT_PHONE_URL = "tel:+919625917902";
 
+function displayIndianPhone(phone?: string) {
+  const digits = String(phone ?? "").replace(/\D/g, "").slice(-10);
+  return digits.length === 10 ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}` : phone ?? "";
+}
+
 function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   const language = useAppStore((state) => state.language);
   return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
@@ -545,7 +550,15 @@ type HandoffOtp = {
   batchLockAt?: string;
 };
 type DeliveryRescheduleOption = { deliveryRound: "ONE_PM" | "SIX_PM"; roundAt: string; lockAt: string; label: string };
-type MeasurementVisitOtp = { visitId: string; requestId: string; otp: string; status: string; scheduledAt?: string; preferredMeasurementSlot?: string };
+type MeasurementVisitOtp = {
+  visitId: string;
+  requestId: string;
+  otp: string;
+  status: string;
+  scheduledAt?: string;
+  preferredMeasurementSlot?: string;
+  assignedTailor?: { id: string; name: string; phone?: string };
+};
 
 const MEASUREMENT_VISIT_TIME_SLOTS = [
   "08:00 AM - 10:00 AM",
@@ -2271,8 +2284,7 @@ function AuthScreen() {
   const otpRef = useRef("");
   const [verificationPhone, setVerificationPhone] = useState("");
   const verifyPendingRef = useRef(false);
-  const [requestingMode, setRequestingMode] = useState<"default" | "twofactor" | undefined>();
-  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
+  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [dialog, setDialog] = useState<AppDialogState | undefined>();
   const setSession = useAppStore((state) => state.setSession);
@@ -2287,16 +2299,15 @@ function AuthScreen() {
     return () => clearInterval(timer);
   }, [otpRequested]);
 
-  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+  async function requestOtp(values: RequestOtpForm) {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
-      setRequestingMode(mode);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      setIsRequestingOtp(true);
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
-      setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
@@ -2305,7 +2316,7 @@ function AuthScreen() {
       setDialog(dialogFromNativeAlert(connectionFailed ? localize(language, "Connection problem", "कनेक्शन में समस्या") : localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message));
     } finally {
       requestPendingRef.current = false;
-      setRequestingMode(undefined);
+      setIsRequestingOtp(false);
     }
   }
 
@@ -2359,19 +2370,14 @@ function AuthScreen() {
             {!otpRequested ? (
               <>
                 <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} />} />
-                <AuthButton label={t(language, "sendOtp")} loading={requestingMode === "default"} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
-                {__DEV__ ? (
-                  <Pressable style={styles.editPhoneButton} disabled={!!requestingMode} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))}>
-                    {requestingMode === "twofactor" ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={styles.orangeSmall}>{localize(language, "Use real SMS OTP", "असली SMS ओटीपी भेजें")}</Text>}
-                  </Pressable>
-                ) : null}
+                <AuthButton label={t(language, "sendOtp")} loading={isRequestingOtp} disabled={isRequestingOtp} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog(dialogFromNativeAlert(t(language, "invalidMobileNumber"))))} />
               </>
             ) : (
               <>
                 <OtpField value={otp} disabled={isVerifyingOtp} onChange={(digits) => { otpRef.current = digits; setOtp(digits); }} />
                 <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
-                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || !!requestingMode || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
-                  {requestingMode ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
+                <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || isRequestingOtp || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
+                  {isRequestingOtp ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
                 </Pressable>
                 <Pressable style={styles.editPhoneButton} disabled={isVerifyingOtp} onPress={() => setOtpRequested(false)}>
                   <Text style={styles.orangeSmall}>{t(language, "changeNumber")}</Text>
@@ -2819,6 +2825,24 @@ function HomeScreen({
           </View>
           <Ionicons name={activeOrder ? "cube-outline" : "add-circle-outline"} size={25} color={BRAND_ORANGE} />
         </Pressable>
+
+        <View style={styles.homeCallSupportCard}>
+          <View style={styles.homeCallSupportIcon}>
+            <Ionicons name="call-outline" size={22} color="#111111" />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.homeCallSupportTitle}>Need something special?</Text>
+            <Text style={styles.homeCallSupportCopy}>Talk to Darji for custom requests or quick help.</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Call Darji support at ${SUPPORT_PHONE_DISPLAY}`}
+            style={styles.homeCallSupportButton}
+            onPress={() => Linking.openURL(SUPPORT_PHONE_URL).catch(() => undefined)}
+          >
+            <Text style={styles.homeCallSupportButtonText}>Call us</Text>
+          </Pressable>
+        </View>
 
         <View style={styles.customRequestSection}>
           <Text style={styles.customRequestEyebrow} maxFontSizeMultiplier={1.15}>EXPLORE</Text>
@@ -8272,6 +8296,7 @@ function ProfileScreen({
         <View style={profileStyles.whiteCard}>
           <ProfileRow icon="help-circle-outline" label={t(language, "helpCenter")} value={t(language, "faqWorkflows")} onPress={() => setScreen("helpCenter")} styles={profileStyles} noBorder />
           <ProfileRow icon="chatbubble-ellipses-outline" label={t(language, "contactSupport")} value={t(language, "chatWithSupportTeam")} onPress={() => setScreen("contactSupport")} styles={profileStyles} />
+          <ProfileRow icon="call-outline" label="Call Support" value={SUPPORT_PHONE_DISPLAY} onPress={() => Linking.openURL(SUPPORT_PHONE_URL).catch(() => undefined)} styles={profileStyles} />
           <ProfileRow icon="bug-outline" label={t(language, "reportBug")} value={t(language, "submitBugReport")} onPress={() => setScreen("reportBug")} styles={profileStyles} />
         </View>
 
@@ -11601,19 +11626,48 @@ function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderI
       });
   }, [onVisitLoaded, orderId, status, token]);
 
-  if (!visit || ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)) return null;
+  if (!visit || ["CANCELLED", "EXPIRED"].includes(visit.status)) return null;
   const preferredSlot = visit.preferredMeasurementSlot?.trim();
+  const assignedTailor = visit.assignedTailor;
+  const tailorPhone = assignedTailor?.phone?.replace(/\D/g, "").slice(-10);
+  const submitted = visit.status === "SUBMITTED";
   return (
     <View style={[styles.whiteCard, styles.measurementOtpCard]}>
-      <Text style={styles.cardLabel}>MEASUREMENT VISIT OTP</Text>
-      <View style={styles.handoffOtpRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.addressTitle}>Share this only at your home visit</Text>
-          {preferredSlot ? <Text style={styles.customerMeasurementSlotValue}>Preferred visit: {preferredSlot}</Text> : null}
-          <Text style={styles.mutedSmall}>{preferredSlot ? "" : "The selected time slot is unavailable. "}The visiting tailor needs this OTP to submit your measurements.</Text>
+      <Text style={styles.cardLabel}>MEASUREMENT VISIT</Text>
+      {assignedTailor ? (
+        <View style={styles.measurementTailorRow}>
+          <View style={styles.measurementTailorIcon}>
+            <Ionicons name="person-outline" size={21} color="#111111" />
+          </View>
+          <View style={styles.profileRowText}>
+            <Text style={styles.addressTitle}>{assignedTailor.name}</Text>
+            <Text style={styles.mutedSmall}>{tailorPhone ? displayIndianPhone(tailorPhone) : "Phone number unavailable"}</Text>
+            <Text style={styles.measurementTailorStatus}>{submitted ? "Measurements submitted" : "Your visiting measurement tailor"}</Text>
+          </View>
+          {tailorPhone ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Call measurement tailor ${assignedTailor.name}`}
+              style={styles.measurementTailorCallButton}
+              onPress={() => Linking.openURL(`tel:+91${tailorPhone}`).catch(() => undefined)}
+            >
+              <Ionicons name="call-outline" size={18} color="#ffffff" />
+            </Pressable>
+          ) : null}
         </View>
-        <Text style={styles.handoffOtpCode}>{visit.otp}</Text>
-      </View>
+      ) : (
+        <Text style={styles.mutedSmall}>We will show the visiting tailor's name and phone number here as soon as a tailor accepts the visit.</Text>
+      )}
+      {!submitted ? (
+        <View style={styles.handoffOtpRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.addressTitle}>Share this only at your home visit</Text>
+            {preferredSlot ? <Text style={styles.customerMeasurementSlotValue}>Preferred visit: {preferredSlot}</Text> : null}
+            <Text style={styles.mutedSmall}>{preferredSlot ? "" : "The selected time slot is unavailable. "}The visiting tailor needs this OTP to submit your measurements.</Text>
+          </View>
+          <Text style={styles.handoffOtpCode}>{visit.otp}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -13583,6 +13637,12 @@ function createStyles(isDark = false) {
   featureButton: { marginTop: 18, height: 46, minWidth: 150, alignSelf: "flex-start", borderRadius: 23, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   featureButtonText: { color: "#111111", fontWeight: "900", fontSize: 15 },
   homeOrderPreview: { minHeight: 78, borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, marginBottom: 20 },
+  homeCallSupportCard: { minHeight: 84, borderRadius: 18, borderWidth: 1.5, borderColor: "#111111", backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginBottom: 24 },
+  homeCallSupportIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.56)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  homeCallSupportTitle: { color: "#111111", fontSize: 15, lineHeight: 19, fontWeight: "900" },
+  homeCallSupportCopy: { color: "#4c3511", fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 3 },
+  homeCallSupportButton: { minHeight: 40, borderRadius: 20, backgroundColor: "#111111", alignItems: "center", justifyContent: "center", paddingHorizontal: 15, flexShrink: 0 },
+  homeCallSupportButtonText: { color: "#ffffff", fontSize: 12, fontWeight: "900" },
   customRequestSection: { marginBottom: 26, paddingTop: 4 },
   customRequestEyebrow: { color: muted, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 2.8, marginBottom: 8 },
   customRequestHeading: { color: text, fontSize: 31, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
@@ -14313,6 +14373,10 @@ function createStyles(isDark = false) {
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },
   measurementOtpCard: { backgroundColor: "#f8fafc", borderColor: "#111111" },
+  measurementTailorRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 14, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: "#d8dee8" },
+  measurementTailorIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  measurementTailorStatus: { color: "#047857", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 3 },
+  measurementTailorCallButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#047857", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   etaAlertCard: { borderColor: "#ef4444", borderWidth: 2, backgroundColor: "#fff1f2" },
   etaAlertLabel: { color: "#b91c1c", fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginBottom: 10 },
   etaAlertTitle: { color: "#7f1d1d", fontSize: 16, fontWeight: "900" },

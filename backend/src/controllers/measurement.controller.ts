@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { MeasurementVisitModel, TailorModel } from "../models.js";
+import { MeasurementVisitModel, TailorModel, UserModel } from "../models.js";
 import { AppError } from "../middleware/error.js";
 import {
   assignMeasurementVisit,
@@ -57,6 +57,31 @@ async function currentTailor(req: Request) {
   return tailor;
 }
 
+async function customerMeasurementVisitData(visit: any) {
+  const data: Record<string, unknown> = {
+    visitId: visit.id,
+    requestId: visit.requestId,
+    otp: measurementVisitOtp(visit.id),
+    status: visit.status,
+    scheduledAt: visit.scheduledAt,
+    preferredMeasurementSlot: visit.preferredMeasurementSlot
+  };
+  if (!visit.assignedTailorId) return data;
+
+  const tailor = await TailorModel.findById(String(visit.assignedTailorId))
+    .select("userId displayName shopName verification.personal.name")
+    .lean();
+  if (!tailor) return data;
+  const user = await UserModel.findById(String(tailor.userId)).select("name phone").lean();
+  const verification = tailor.verification as { personal?: { name?: string } } | undefined;
+  data.assignedTailor = {
+    id: String(tailor._id),
+    name: tailor.displayName || verification?.personal?.name || tailor.shopName || user?.name || "Measurement tailor",
+    phone: user?.phone
+  };
+  return data;
+}
+
 export async function listMeasurementVisitsController(req: Request, res: Response) {
   if (req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN") {
     const visits = await MeasurementVisitModel.find({}).sort({ updatedAt: -1, createdAt: -1 }).limit(200);
@@ -97,14 +122,14 @@ export async function getMeasurementVisitOtpController(req: Request, res: Respon
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   if (req.user!.role === "CUSTOMER" && visit.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
-  res.json({ data: { visitId: visit.id, requestId: visit.requestId, otp: measurementVisitOtp(visit.id), status: visit.status, scheduledAt: visit.scheduledAt, preferredMeasurementSlot: visit.preferredMeasurementSlot } });
+  res.json({ data: await customerMeasurementVisitData(visit) });
 }
 
 export async function getMeasurementVisitOtpForRequestController(req: Request, res: Response) {
   const visit = await MeasurementVisitModel.findOne({ requestId: String(req.params.requestId) });
   if (!visit) throw new AppError(404, "Measurement visit not found");
   if (req.user!.role === "CUSTOMER" && visit.customerId !== req.user!.id) throw new AppError(403, "Forbidden");
-  res.json({ data: { visitId: visit.id, requestId: visit.requestId, otp: measurementVisitOtp(visit.id), status: visit.status, scheduledAt: visit.scheduledAt, preferredMeasurementSlot: visit.preferredMeasurementSlot } });
+  res.json({ data: await customerMeasurementVisitData(visit) });
 }
 
 export async function acceptMeasurementVisitController(req: Request, res: Response) {

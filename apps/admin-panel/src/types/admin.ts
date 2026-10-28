@@ -243,6 +243,7 @@ export type DashboardAnalytics = {
     };
   };
   partners: { activeTailors: number; activeDeliveryPartners: number };
+  otp?: { successfulSends: number; lastSentAt: string | null };
   growth: { newCustomers: number; newTailors: number; newDeliveryPartners: number };
   drilldowns?: {
     orders: {

@@ -21,19 +21,8 @@ For a backend still running the older code, set that Railway variable to exactly
 The old `twofactor` mode remains accepted for older clients. Both modes send SMS.
 Cooldown: 60 seconds. Expiry: 10 minutes. Maximum incorrect attempts: 5.
 Provider failures do not silently create a development OTP session.
-
-Optional temporary customer test access requires all of:
-
-```dotenv
-OTP_DEV_FALLBACK_ENABLED=true
-OTP_DEV_CODE=123456
-OTP_TEST_CUSTOMER_PHONES=<comma-separated test customer phone numbers>
-OTP_TEST_EXPIRES_AT=<future ISO timestamp with timezone>
-```
-
-Leave the last two empty to disable it. An active SMS OTP request is still required.
-Admin login and accounts with ADMIN/SUPER_ADMIN roles cannot use this bypass.
-Remove these settings when testing finishes. Never use a public universal OTP.
+There is no local or universal verification code. Customer, tailor, delivery-partner,
+admin, and super-admin login all require the OTP verified by TwoFactor.
 
 ## Backend selection
 

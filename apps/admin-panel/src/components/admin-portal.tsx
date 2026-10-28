@@ -2209,6 +2209,17 @@ export function AdminPortal() {
       target: "tailors" as SectionId,
       drilldownKey: "active_tailors" as DashboardDrilldownKey,
       periodScoped: false
+    },
+    {
+      icon: MessageSquareText,
+      label: "SMS OTPs Sent",
+      note: dashboardAnalytics.otp?.lastSentAt ? `Last sent ${formatDate(dashboardAnalytics.otp.lastSentAt, true)}` : "Counting starts with the updated backend",
+      tone: "violet" as const,
+      value: (dashboardAnalytics.otp?.successfulSends ?? 0).toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "roles" as SectionId,
+      periodScoped: false
     }
   ];
   const miniTrendCards = [

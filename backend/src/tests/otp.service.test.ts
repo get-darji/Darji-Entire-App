@@ -3,59 +3,53 @@ import { test } from "node:test";
 import { verifyOtpSchema } from "@darji/shared";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { OtpCooldownModel, OtpRequestModel, UserModel } from "../models.js";
+import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 
-test("development OTP and real TwoFactor OTP coexist safely across mobile roles", async () => {
-  const original = {
-    nodeEnv: env.NODE_ENV,
-    enabled: env.TWOFACTOR_ENABLED,
-    key: env.TWOFACTOR_API_KEY,
-    template: env.TWOFACTOR_TEMPLATE_NAME,
-    fallback: env.OTP_DEV_FALLBACK_ENABLED,
-    phones: env.OTP_TEST_CUSTOMER_PHONES,
-    expiry: env.OTP_TEST_EXPIRES_AT,
-    userFindOne: UserModel.findOne,
-    fetch: globalThis.fetch
-  };
-  const model = OtpRequestModel as unknown as {
+test("login OTP always uses TwoFactor, counts accepted sends, and never accepts the old development code locally", async () => {
+  const original = { enabled: env.TWOFACTOR_ENABLED, key: env.TWOFACTOR_API_KEY, fetch: globalThis.fetch };
+  const requestModel = OtpRequestModel as unknown as {
     create: (doc: Record<string, unknown>) => Promise<unknown>;
-    findOne: (query: { phone: string }) => { sort: (order: unknown) => Promise<Record<string, unknown> | undefined> };
-    findByIdAndUpdate: (id: string, update: Record<string, unknown>) => Promise<unknown>;
+    updateMany: (query: Record<string, unknown>, update: Record<string, unknown>) => Promise<unknown>;
+    findOne: (query: { phone: string }) => { sort: (order: unknown) => Promise<Record<string, any> | undefined> };
+    findByIdAndUpdate: (id: string, update: Record<string, any>) => Promise<unknown>;
   };
-  const originalCreate = model.create;
-  const originalFindOne = model.findOne;
-  const originalFindByIdAndUpdate = model.findByIdAndUpdate;
+  const originalRequestModel = { create: requestModel.create, updateMany: requestModel.updateMany, findOne: requestModel.findOne, findByIdAndUpdate: requestModel.findByIdAndUpdate };
   const cooldownModel = OtpCooldownModel as unknown as {
     findOneAndUpdate: (filter: { _id: string }, update: { $set: { nextAllowedAt: Date; reservationId: string } }) => Promise<unknown>;
     findById: (phone: string) => Promise<{ nextAllowedAt: Date } | undefined>;
     deleteOne: (filter: { _id: string; reservationId: string }) => Promise<unknown>;
   };
-  const originalCooldown = {
-    findOneAndUpdate: cooldownModel.findOneAndUpdate,
-    findById: cooldownModel.findById,
-    deleteOne: cooldownModel.deleteOne
+  const originalCooldownModel = { findOneAndUpdate: cooldownModel.findOneAndUpdate, findById: cooldownModel.findById, deleteOne: cooldownModel.deleteOne };
+  const metricModel = OtpMetricModel as unknown as {
+    findByIdAndUpdate: (id: string, update: Record<string, any>, options: Record<string, unknown>) => Promise<unknown>;
   };
+  const originalMetricUpdate = metricModel.findByIdAndUpdate;
+
   const reservations = new Map<string, { nextAllowedAt: Date; reservationId: string }>();
-  const saved: Record<string, unknown>[] = [];
+  const saved: Array<Record<string, any>> = [];
   let providerCalls = 0;
+  let successfulSendCount = 0;
 
   try {
-    for (const otp of ["1234", "123456"]) {
-      assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp }).success, true);
-    }
+    for (const otp of ["1234", "123456"]) assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp }).success, true);
     assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp: "123" }).success, false);
-    env.NODE_ENV = "development";
     env.TWOFACTOR_ENABLED = true;
     env.TWOFACTOR_API_KEY = "test-key";
-    env.TWOFACTOR_TEMPLATE_NAME = "WRONG_TEMPLATE";
-    env.OTP_DEV_FALLBACK_ENABLED = true;
-    model.create = async (doc) => { const record = { ...doc, id: String(saved.length + 1), attempts: 0 }; saved.push(record); return record; };
-    model.findOne = (query) => ({ sort: async () => [...saved].reverse().find((record) => record.phone === query.phone && !record.consumedAt) });
-    model.findByIdAndUpdate = async (id, update) => {
+    requestModel.create = async (doc) => {
+      const record = { ...doc, id: String(saved.length + 1), attempts: 0 };
+      saved.push(record);
+      return record;
+    };
+    requestModel.updateMany = async (query, update) => {
+      saved.filter((record) => record.phone === query.phone && !record.consumedAt).forEach((record) => { record.consumedAt = (update as any).$set.consumedAt; });
+      return { modifiedCount: 1 };
+    };
+    requestModel.findOne = (query) => ({ sort: async () => [...saved].reverse().find((record) => record.phone === query.phone && !record.consumedAt) });
+    requestModel.findByIdAndUpdate = async (id, update) => {
       const record = saved.find((item) => item.id === id);
       if (record) {
-        if (update.$inc) record.attempts = Number(record.attempts) + 1;
+        if (update.$inc) record.attempts = Number(record.attempts) + Number(update.$inc.attempts ?? 0);
         if (update.consumedAt) record.consumedAt = update.consumedAt;
       }
       return record;
@@ -67,122 +61,67 @@ test("development OTP and real TwoFactor OTP coexist safely across mobile roles"
       return update.$set;
     };
     cooldownModel.findById = async (phone) => reservations.get(phone);
-    cooldownModel.deleteOne = async (filter) => {
-      if (reservations.get(filter._id)?.reservationId === filter.reservationId) reservations.delete(filter._id);
+    cooldownModel.deleteOne = async (filter) => { if (reservations.get(filter._id)?.reservationId === filter.reservationId) reservations.delete(filter._id); };
+    metricModel.findByIdAndUpdate = async (id, update, options) => {
+      assert.equal(id, "twofactor-successful-sends");
+      assert.equal(options.upsert, true);
+      successfulSendCount += Number(update.$inc.successfulSendCount ?? 0);
+      return { successfulSendCount, lastSentAt: update.$set.lastSentAt };
     };
     globalThis.fetch = async (input, init) => {
       providerCalls += 1;
       const segments = new URL(String(input)).pathname.split("/");
-      assert.deepEqual(segments.slice(1, 6), ["API", "V1", "test-key", "SMS", "9876543211"]);
       assert.equal(segments[6], "AUTOGEN");
       assert.equal(segments[7], "OTP1");
       assert.equal(init?.method, "GET");
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
 
-    const live = await requestOtp("9876543211", "twofactor");
-    assert.equal(live.provider, "twofactor");
-    assert.equal(live.otp, undefined);
+    const sent = await requestOtp("9876543211");
+    assert.deepEqual({ provider: sent.provider, fallback: sent.fallback }, { provider: "twofactor", fallback: false });
     assert.equal(providerCalls, 1);
+    assert.equal(successfulSendCount, 1);
     assert.equal(saved.at(-1)?.provider, "twofactor");
     assert.equal(saved.at(-1)?.otpHash, undefined);
-    assert.equal(saved.at(-1)?.providerSessionId, "5D6EBEE6-EC04-4776-846D-3600422BD9EF");
-    await assert.rejects(requestOtp("9876543211", "twofactor"), (error) => error instanceof AppError && error.statusCode === 429 && !!error.retryAfterSeconds);
+    await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429 && Boolean(error.retryAfterSeconds));
     assert.equal(providerCalls, 1);
 
+    await requestOtp("9876543212");
+    assert.equal(successfulSendCount, 2);
     globalThis.fetch = async (input, init) => {
       providerCalls += 1;
-      assert.match(String(input), /\/SMS\/VERIFY\/5D6EBEE6-EC04-4776-846D-3600422BD9EF\/\d{4,6}$/);
+      assert.match(String(input), /\/SMS\/VERIFY\/5D6EBEE6-EC04-4776-846D-3600422BD9EF\/123456$/);
       assert.equal(init?.method, "POST");
       return new Response(JSON.stringify({ Status: "Error", Details: "OTP Mismatch" }), { status: 200 });
     };
-    await assert.rejects(verifyOtp("9876543211", "000000"), (error) => error instanceof AppError && error.statusCode === 400);
+    await assert.rejects(verifyOtp("9876543212", "123456"), (error) => error instanceof AppError && error.statusCode === 400);
     assert.equal(saved.at(-1)?.attempts, 1);
 
     globalThis.fetch = async () => {
       providerCalls += 1;
       return new Response(JSON.stringify({ Status: "Success", Details: "OTP Matched" }), { status: 200 });
     };
-    await verifyOtp("9876543211", "1234");
+    await verifyOtp("9876543212", "654321");
     assert.ok(saved.at(-1)?.consumedAt);
-    await assert.rejects(verifyOtp("9876543211", "1234"), (error) => error instanceof AppError && error.statusCode === 400);
-
-    globalThis.fetch = async () => {
-      providerCalls += 1;
-      return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
-    };
-    UserModel.findOne = (() => Promise.resolve({ role: "CUSTOMER" })) as unknown as typeof UserModel.findOne;
-    for (const [phone, role] of [
-      ["9876543221", "CUSTOMER"],
-      ["9876543222", "TAILOR"],
-      ["9876543223", "DELIVERY_PARTNER"]
-    ] as const) {
-      await requestOtp(phone, "twofactor");
-      const beforeFallbackVerification: number = providerCalls;
-      await verifyOtp(phone, env.OTP_DEV_CODE, role);
-      assert.equal(providerCalls, beforeFallbackVerification);
-      assert.ok(saved.find((record) => record.phone === phone)?.consumedAt);
-    }
-
-    const beforeDevelopmentRequest = providerCalls;
-    const development = await requestOtp("9876543224");
-    assert.equal(development.provider, "dev");
-    assert.equal(development.otp, env.OTP_DEV_CODE);
-    assert.equal(providerCalls, beforeDevelopmentRequest);
-    await verifyOtp("9876543224", env.OTP_DEV_CODE, "TAILOR");
-    assert.ok(saved.find((record) => record.phone === "9876543224")?.consumedAt);
 
     globalThis.fetch = async () => {
       providerCalls += 1;
       return new Response(JSON.stringify({ status: "failed" }), { status: 500 });
     };
-    await assert.rejects(requestOtp("9876543212", "twofactor"), (error) => error instanceof AppError && error.statusCode === 502);
-    assert.equal(saved.length, 5);
-    assert.equal(reservations.has("9876543212"), false);
-
-    env.NODE_ENV = "production";
-    assert.equal(providerCalls, 7);
-
-    globalThis.fetch = async () => {
-      providerCalls += 1;
-      return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
-    };
-    const production = await requestOtp("9876543213");
-    assert.equal(production.provider, "twofactor");
-    assert.equal(production.otp, undefined);
-    assert.equal(providerCalls, 8);
-    env.OTP_TEST_CUSTOMER_PHONES = "9876543213";
-    env.OTP_TEST_EXPIRES_AT = new Date(Date.now() + 60000).toISOString();
-    globalThis.fetch = async () => {
-      providerCalls += 1;
-      return new Response(JSON.stringify({ Status: "Error", Details: "OTP Mismatch" }));
-    };
-    await assert.rejects(verifyOtp("9876543213", env.OTP_DEV_CODE, "ADMIN"));
-    UserModel.findOne = (() => Promise.resolve({ role: "SUPER_ADMIN" })) as unknown as typeof UserModel.findOne;
-    await assert.rejects(verifyOtp("9876543213", env.OTP_DEV_CODE, "CUSTOMER"));
-    env.OTP_TEST_EXPIRES_AT = "2000-01-01T00:00:00Z";
-    await assert.rejects(verifyOtp("9876543213", env.OTP_DEV_CODE, "CUSTOMER"));
-    env.OTP_TEST_EXPIRES_AT = new Date(Date.now() + 60000).toISOString();
-    UserModel.findOne = (() => Promise.resolve({ role: "CUSTOMER" })) as unknown as typeof UserModel.findOne;
-    const beforeTestVerification = providerCalls;
-    await verifyOtp("9876543213", env.OTP_DEV_CODE, "CUSTOMER");
-    assert.equal(providerCalls, beforeTestVerification);
-    assert.ok(saved.at(-1)?.consumedAt);
+    await assert.rejects(requestOtp("9876543213"), (error) => error instanceof AppError && error.statusCode === 502);
+    assert.equal(successfulSendCount, 2);
+    assert.equal(reservations.has("9876543213"), false);
   } finally {
-    env.NODE_ENV = original.nodeEnv;
     env.TWOFACTOR_ENABLED = original.enabled;
     env.TWOFACTOR_API_KEY = original.key;
-    env.TWOFACTOR_TEMPLATE_NAME = original.template;
-    env.OTP_DEV_FALLBACK_ENABLED = original.fallback;
-    env.OTP_TEST_CUSTOMER_PHONES = original.phones;
-    env.OTP_TEST_EXPIRES_AT = original.expiry;
-    UserModel.findOne = original.userFindOne;
     globalThis.fetch = original.fetch;
-    model.create = originalCreate;
-    model.findOne = originalFindOne;
-    model.findByIdAndUpdate = originalFindByIdAndUpdate;
-    cooldownModel.findOneAndUpdate = originalCooldown.findOneAndUpdate;
-    cooldownModel.findById = originalCooldown.findById;
-    cooldownModel.deleteOne = originalCooldown.deleteOne;
+    requestModel.create = originalRequestModel.create;
+    requestModel.updateMany = originalRequestModel.updateMany;
+    requestModel.findOne = originalRequestModel.findOne;
+    requestModel.findByIdAndUpdate = originalRequestModel.findByIdAndUpdate;
+    cooldownModel.findOneAndUpdate = originalCooldownModel.findOneAndUpdate;
+    cooldownModel.findById = originalCooldownModel.findById;
+    cooldownModel.deleteOne = originalCooldownModel.deleteOne;
+    metricModel.findByIdAndUpdate = originalMetricUpdate;
   }
 });

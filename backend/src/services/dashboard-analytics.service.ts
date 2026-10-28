@@ -3,6 +3,7 @@ import {
   DeliveryPartnerModel,
   DeliveryRequestModel,
   MeasurementVisitModel,
+  OtpMetricModel,
   OrderModel,
   PaymentModel,
   PaymentHistoryModel,
@@ -266,7 +267,7 @@ function buildSeries(
 
 export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown, lifetime = false) {
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
-  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits] = await Promise.all([
+  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, otpMetric] = await Promise.all([
     OrderModel.find().select("_id orderNumber customerId tailorId status totalAmount createdAt timelineEvents").lean(),
     TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId method amount status providerRef paidAt refundedAt createdAt updatedAt").lean(),
@@ -278,7 +279,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     DeliveryPartnerModel.find({ verificationStatus: { $in: ["PENDING", "VERIFIED", "REJECTED", "REUPLOAD_REQUIRED"] } }).select("_id userId isAvailable verificationStatus verification.personal.gender verification.identity.facePhotoUrl rating createdAt").lean(),
     DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt").lean(),
     DeliveryBatchModel.find().select("batchId deliveryPartnerId status finalPayout").lean(),
-    MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean()
+    MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean(),
+    OtpMetricModel.findById("twofactor-successful-sends").lean()
   ]);
 
   const completionByOrder = new Map<string, Date>();
@@ -776,6 +778,10 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       }
     },
     partners: { activeTailors, activeDeliveryPartners },
+    otp: {
+      successfulSends: Number(otpMetric?.successfulSendCount ?? 0),
+      lastSentAt: otpMetric?.lastSentAt ? new Date(otpMetric.lastSentAt).toISOString() : null
+    },
     growth: { newCustomers, newTailors: currentTailors, newDeliveryPartners: currentPartners },
     drilldowns: {
       orders: {

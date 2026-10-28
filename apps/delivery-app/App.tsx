@@ -1262,7 +1262,6 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
   const [timer, setTimer] = useState(60);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [otp, setOtp] = useState("");
   const otpRef = useRef("");
   const [verificationPhone, setVerificationPhone] = useState("");
@@ -1279,16 +1278,15 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
     return () => clearInterval(id);
   }, [step, timer]);
 
-  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+  async function requestOtp(values: RequestOtpForm) {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
       setIsRequesting(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
-      setOtpMode(mode);
       setTimer(60);
       setStep("otp");
     } catch (error) {
@@ -1372,18 +1370,13 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
                 )}
               />
               <PrimaryButton icon="chevron-forward" label={t(language, "sendOtp")} loading={isRequesting} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
-              {__DEV__ ? (
-                <Pressable style={styles.textButton} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => showDialog({ title: localize(language, "Invalid number", "गलत मोबाइल नंबर"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
-                  <Text style={styles.linkText}>{localize(language, "Use real SMS OTP", "असली SMS ओटीपी भेजें")}</Text>
-                </Pressable>
-              ) : null}
             </>
           ) : (
             <>
               <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
               <TextInput style={styles.otpInput} autoFocus editable={!isVerifying} keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder="000000" placeholderTextColor="#9aa6b8" value={otp} />
               <PrimaryButton icon="shield-checkmark-outline" label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} disabled={isVerifying} onPress={() => { void verify(); }} />
-              <Pressable style={styles.textButton} disabled={timer > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+              <Pressable style={styles.textButton} disabled={timer > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
                 {isRequesting ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.linkText, timer > 0 && styles.mutedText]}>{timer > 0 ? localize(language, `Resend OTP in ${timer}s`, `${timer} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
               </Pressable>
               <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => setStep("login")}>

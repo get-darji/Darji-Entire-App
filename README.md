@@ -49,7 +49,8 @@ Monorepo for the Darji customer app, tailor app, delivery partner app, admin pan
 
 ## Test Accounts
 
-The seed script creates these phone numbers. In local development the OTP is `123456`.
+The seed script creates these phone numbers. Login requires a real SMS OTP from the
+configured TwoFactor service, including during local development.
 
 - Admin: `9999999999`
 - Customer: `9876543210`

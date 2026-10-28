@@ -817,7 +817,6 @@ function AuthScreen() {
   const verifyPendingRef = useRef(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [otpMode, setOtpMode] = useState<"default" | "twofactor">("default");
   const [dialog, setDialog] = useState<DialogState>();
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
@@ -830,16 +829,15 @@ function AuthScreen() {
     return () => clearInterval(timer);
   }, [otpRequested]);
 
-  async function requestOtp(values: RequestOtpForm, mode: "default" | "twofactor" = "default") {
+  async function requestOtp(values: RequestOtpForm) {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
       setIsRequesting(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, mode }) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
-      setOtpMode(mode);
       setResendSeconds(60);
       setOtpRequested(true);
     } catch (error) {
@@ -897,18 +895,13 @@ function AuthScreen() {
             <Text style={styles.formLabel}>{t(language, "login")}</Text>
             <Controller control={requestForm.control} name="phone" render={({ field }) => <PhoneField value={field.value} onChange={field.onChange} placeholder={localize(language, "Enter tailor mobile number", "दर्जी का मोबाइल नंबर दर्ज करें")} />} />
             <AuthButton label={t(language, "sendOtp")} loading={isRequesting} loadingLabel={localize(language, "Sending OTP...", "ओटीपी भेजा जा रहा है...")} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))} />
-            {__DEV__ ? (
-              <Pressable style={styles.textButton} disabled={isRequesting} onPress={requestForm.handleSubmit((values) => requestOtp(values, "twofactor"), () => setDialog({ title: localize(language, "Check phone number", "मोबाइल नंबर जाँचें"), message: t(language, "invalidMobileNumber"), icon: "call-outline" }))}>
-                <Text style={styles.textButtonText}>{localize(language, "Use real SMS OTP", "असली SMS ओटीपी भेजें")}</Text>
-              </Pressable>
-            ) : null}
           </>
         ) : (
           <>
             <Text style={styles.formLabel}>{t(language, "verifyOtp")}</Text>
             <TextInput style={styles.input} autoFocus editable={!isVerifying} value={otp} onChangeText={(text) => { const digits = text.replace(/[०-९]/g, (digit) => String(digit.charCodeAt(0) - 0x0966)).replace(/\D/g, "").slice(0, 6); otpRef.current = digits; setOtp(digits); }} placeholder={t(language, "enterOtp")} placeholderTextColor="#9aa6b8" keyboardType="number-pad" autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"} textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined} />
             <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifying} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
-            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values, otpMode))()}>
+            <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
               {isRequesting ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
             </Pressable>
             <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => setOtpRequested(false)}>

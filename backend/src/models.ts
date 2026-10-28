@@ -671,6 +671,15 @@ const otpCooldownSchema = new Schema({
   reservationId: { type: String, required: true }
 });
 
+const otpMetricSchema = new Schema(
+  {
+    _id: { type: String, required: true },
+    successfulSendCount: { type: Number, default: 0, min: 0 },
+    lastSentAt: Date
+  },
+  { timestamps: true, versionKey: false }
+);
+
 const supportMessageSchema = new Schema(
   {
     sender: { type: String, enum: ["client", "admin", "system", "internal"], required: true },
@@ -1171,6 +1180,7 @@ export const PaymentHistoryModel = mongoose.model("PaymentHistory", paymentHisto
 export const TransactionModel = mongoose.model("Transaction", transactionSchema);
 export const OtpRequestModel = mongoose.model("OtpRequest", otpRequestSchema);
 export const OtpCooldownModel = mongoose.model("OtpCooldown", otpCooldownSchema);
+export const OtpMetricModel = mongoose.model("OtpMetric", otpMetricSchema, "otp_metrics");
 export const SupportTicketModel = mongoose.model("SupportTicket", supportTicketSchema);
 export const BugReportModel = mongoose.model("BugReport", bugReportSchema);
 export const AccountChangeRequestModel = mongoose.model("AccountChangeRequest", accountChangeRequestSchema);
