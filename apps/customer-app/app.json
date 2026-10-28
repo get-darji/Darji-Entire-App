@@ -35,7 +35,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Darji uses your phone location to show your current pickup location and calculate routes for your orders."
+          "locationWhenInUsePermission": "Darji uses foreground location for pickup serviceability and routes, saves your latest location, and lets authorized administrators see live updates while the app is open. Location updates stop when the app is in the background."
         }
       ],
       "expo-font",

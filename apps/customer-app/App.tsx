@@ -4050,7 +4050,7 @@ function NewRequestScreen({
       setLocating(true);
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("Permission needed", "Allow location access to select your current pickup address. Your location is safe with Darji and is used only for pickup and delivery.");
+        Alert.alert("Permission needed", "Allow foreground location to set your pickup address. Darji saves your latest location and shares live updates with authorized administrators while the app is open; updates stop in the background.");
         return;
       }
       const lastKnown = await Location.getLastKnownPositionAsync({ requiredAccuracy: 40, maxAge: 15000 }).catch(() => null);
@@ -8938,7 +8938,7 @@ function AddAddressScreen({
   async function useCurrentLocation() {
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Allow location access to save your current address. Your location is safe with Darji and is used only for pickup and delivery.");
+      Alert.alert("Permission needed", "Allow foreground location to set your address. Darji saves your latest location and shares live updates with authorized administrators while the app is open; updates stop in the background.");
       return;
     }
     setLocating(true);
@@ -10586,7 +10586,7 @@ function PolicyScreen({ title, setScreen }: { title: string; setScreen: (screen:
         <Text style={styles.cardLabel}>{isPrivacy ? "PRIVACY & DATA" : "TERMS"}</Text>
         <Text style={styles.infoCopy}>
           {isPrivacy
-            ? "Darji uses your phone number for login, uploaded media to prepare tailoring quotes, and location/address details for pickup and delivery. You can edit profile details and control app permissions from Settings."
+            ? "Darji uses your phone number for login, uploaded media to prepare tailoring quotes, and location/address details for pickup and delivery. When you grant foreground location access, your latest location is saved and authorized administrators can see live updates while the app is open. Location updates stop in the background. You can control app permissions from Settings."
             : "By using Darji, you agree to provide accurate request details, confirm pickup addresses, and pay for confirmed orders. Tailor quotes and delivery timelines may vary based on garment condition and service availability."}
         </Text>
       </View>
@@ -12878,6 +12878,61 @@ function AppContent() {
     });
     return () => subscription.remove();
   }, [token, hasLoadedCustomerData]);
+
+  useEffect(() => {
+    if (!token || !user?.id || !hasLoadedCustomerData || !customerData.hasCapturedCurrentAddress) return undefined;
+    let disposed = false;
+    let starting = false;
+    let lastUploadAt = 0;
+    let locationSubscription: Location.LocationSubscription | undefined;
+
+    const stopWatching = () => {
+      locationSubscription?.remove();
+      locationSubscription = undefined;
+    };
+
+    const startWatching = async () => {
+      if (disposed || starting || locationSubscription || AppState.currentState !== "active") return;
+      starting = true;
+      try {
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (!permission.granted || disposed || AppState.currentState !== "active") return;
+        const subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 30000, distanceInterval: 50 },
+          (position) => {
+            if (disposed || AppState.currentState !== "active" || Date.now() - lastUploadAt < 25000) return;
+            lastUploadAt = Date.now();
+            api<{ updatedAt: string }>("/customers/me/location", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy ?? undefined
+              })
+            }, token).catch(() => undefined);
+          }
+        );
+        if (disposed || AppState.currentState !== "active") subscription.remove();
+        else locationSubscription = subscription;
+      } catch {
+        // The saved last location remains available if foreground updates fail.
+      } finally {
+        starting = false;
+      }
+    };
+
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void startWatching();
+      else stopWatching();
+    });
+    void startWatching();
+    return () => {
+      disposed = true;
+      appStateSubscription.remove();
+      stopWatching();
+    };
+  }, [token, user?.id, hasLoadedCustomerData, customerData.hasCapturedCurrentAddress]);
 
   useEffect(() => {
     if (!token) return undefined;
