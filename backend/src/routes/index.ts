@@ -156,6 +156,7 @@ import {
   rejectDeliveryRequestController,
   alertNoQuoteWaitController,
   createTailorQuoteController,
+  deleteOwnTailorQuoteController,
   getTailoringRequestController,
   listTailorQuotesController,
   listTailoringRequestsController,
@@ -168,6 +169,7 @@ import {
   verifyDeliveryTaskOtpController,
   verifyTailoringCheckoutController,
   updateTailoringWorkStatusController,
+  updateTailoringMeasurementBypassController,
   uploadTailoringMedia,
   uploadTailoringAuditMediaController,
   deleteTailoringAuditMediaController,
@@ -235,7 +237,9 @@ router.post("/tailoring-requests/:id/decline", requireAuth, requireRole("TAILOR"
 router.post("/tailoring-requests/:id/no-quote-alert", requireAuth, requireRole("CUSTOMER", "ADMIN"), alertNoQuoteWaitController);
 router.get("/tailoring-requests/:id/quotes", requireAuth, requireRole("CUSTOMER", "TAILOR", "ADMIN"), listTailorQuotesController);
 router.post("/tailoring-requests/:id/quotes", requireAuth, requireRole("TAILOR", "ADMIN"), createTailorQuoteController);
+router.delete("/tailoring-requests/:id/quotes/:quoteId", requireAuth, requireRole("TAILOR"), deleteOwnTailorQuoteController);
 router.post("/tailoring-requests/:id/quotes/:quoteId/select", requireAuth, requireRole("CUSTOMER", "ADMIN"), selectTailorQuoteController);
+router.patch("/admin/tailoring-requests/:id/measurement-bypass", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateTailoringMeasurementBypassController);
 
 router.get("/measurement-visits", requireAuth, requireRole("TAILOR", "ADMIN", "SUPER_ADMIN"), listMeasurementVisitsController);
 router.get("/measurement-visits/:id/otp", requireAuth, requireRole("CUSTOMER", "ADMIN", "SUPER_ADMIN"), getMeasurementVisitOtpController);

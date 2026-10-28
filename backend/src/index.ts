@@ -15,6 +15,7 @@ import { getPlatformStatus } from "./services/platform-status.service.js";
 import { monitorNoQuoteRequests } from "./services/operational-alert.service.js";
 import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
 import { allMaintenanceApps } from "@darji/shared";
+import { releaseExpiredMeasurementVisitOffers } from "./services/measurement-visit.service.js";
 
 const app = express();
 // Railway forwards client addresses through one proxy. Express only trusts that
@@ -83,8 +84,18 @@ const batchLockTimer = setInterval(() => {
 }, 60 * 1000);
 batchLockTimer.unref?.();
 
+const measurementOfferTimer = setInterval(() => {
+  void releaseExpiredMeasurementVisitOffers().catch((error) => {
+    console.error("Failed to release expired measurement visit offers", error);
+  });
+}, 10 * 1000);
+measurementOfferTimer.unref?.();
+
 void processDueDeliveryBatches().catch((error) => {
   console.error("Failed to process due delivery batches", error);
+});
+void releaseExpiredMeasurementVisitOffers().catch((error) => {
+  console.error("Failed to recover expired measurement visit offers", error);
 });
 
 const server = app.listen(env.PORT, () => {
@@ -94,6 +105,7 @@ setupSocketServer(server);
 
 process.on("SIGINT", async () => {
   clearInterval(batchLockTimer);
+  clearInterval(measurementOfferTimer);
   server.close();
   await disconnectDatabase();
   process.exit(0);

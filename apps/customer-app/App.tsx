@@ -12720,6 +12720,9 @@ function AppContent() {
         )
       );
     });
+    socket.on("customer:quote_withdrawn", ({ requestId }: { requestId?: string }) => {
+      if (requestId) void refreshCustomerOrder(requestId);
+    });
     return () => {
       socket.disconnect();
       socketRef.current = null;

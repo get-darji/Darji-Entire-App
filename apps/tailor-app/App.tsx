@@ -289,6 +289,9 @@ type TailoringRequest = {
   customer?: Customer;
   ownQuote?: TailorQuote | null;
   quoteCount?: number;
+  allowTailoringWithoutMeasurementVisit?: boolean;
+  measurementBypassAllowedAt?: string;
+  measurementBypassReason?: string;
   createdAt: string;
 };
 type OrderItem = {
@@ -651,6 +654,42 @@ function requestItemCount(request: TailoringRequest) {
 function requestSummary(request: TailoringRequest) {
   const count = requestItemCount(request);
   return count === 1 ? `${request.clothType} - ${request.workType}` : `${count} Clothing Items`;
+}
+
+function requestMatchesSearch(request: TailoringRequest, query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    request.id,
+    `REQ-${request.id.slice(0, 8)}`,
+    request.clothType,
+    request.workType,
+    request.description,
+    request.urgency,
+    request.status,
+    request.ownQuote?.status,
+    request.ownQuote?.price,
+    request.items?.map((item) => [item.clothType, item.workType, item.description].filter(Boolean).join(" ")).join(" ")
+  ].filter((value) => value != null).join(" ").toLowerCase().includes(normalized);
+}
+
+function measurementVisitMatchesSearch(visit: MeasurementVisit, query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    visit.id,
+    visit.requestId,
+    `REQ-${visit.requestId.slice(0, 8)}`,
+    visit.customerName,
+    visit.pickupAddress,
+    visit.garmentSummary,
+    visit.status,
+    visit.preferredMeasurementSlot
+  ].filter(Boolean).join(" ").toLowerCase().includes(normalized);
+}
+
+function requestNeedsHomeMeasurement(request?: TailoringRequest) {
+  return Boolean(request?.homeMeasurementBooked || request?.items?.some((item) => item.homeMeasurementBooked));
 }
 
 function measurementStatus(item: TailoringRequestItem) {
@@ -1488,6 +1527,7 @@ function RequestsScreen({
   const [tab, setTab] = useState<"stitching" | "measurement">(initialTab ?? "stitching");
   const [measurementVisitTab, setMeasurementVisitTab] = useState<"incoming" | "accepted" | "history">(initialMeasurementVisitTab ?? "incoming");
   const [filter, setFilter] = useState<"QUOTE_REQUESTED" | "QUOTED">("QUOTE_REQUESTED");
+  const [searchQuery, setSearchQuery] = useState("");
   const [savingVisitId, setSavingVisitId] = useState<string>();
   const [activeVisit, setActiveVisit] = useState<MeasurementVisit>();
   const [activeVisitRequest, setActiveVisitRequest] = useState<TailoringRequest>();
@@ -1497,12 +1537,15 @@ function RequestsScreen({
   const [fields, setFields] = useState<Record<string, Record<string, string>>>({});
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
-  const filteredRequests = requests.filter((request) => (filter === "QUOTED" ? Boolean(request.ownQuote) : request.status === "QUOTE_REQUESTED" && !request.ownQuote));
+  const filteredRequests = requests
+    .filter((request) => (filter === "QUOTED" ? Boolean(request.ownQuote) : request.status === "QUOTE_REQUESTED" && !request.ownQuote))
+    .filter((request) => requestMatchesSearch(request, searchQuery));
   const isSent = filter === "QUOTED";
   const actionableVisits = measurementVisits.filter(isActionableMeasurementVisit);
-  const incomingMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter(isActionableMeasurementVisit));
-  const acceptedMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)));
-  const historyMeasurementVisits = sortedMeasurementVisits(measurementVisits.filter((visit) => ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)));
+  const matchingMeasurementVisits = measurementVisits.filter((visit) => measurementVisitMatchesSearch(visit, searchQuery));
+  const incomingMeasurementVisits = sortedMeasurementVisits(matchingMeasurementVisits.filter(isActionableMeasurementVisit));
+  const acceptedMeasurementVisits = sortedMeasurementVisits(matchingMeasurementVisits.filter((visit) => ["ACCEPTED", "IN_PROGRESS"].includes(visit.status)));
+  const historyMeasurementVisits = sortedMeasurementVisits(matchingMeasurementVisits.filter((visit) => ["SUBMITTED", "CANCELLED", "EXPIRED"].includes(visit.status)));
   const visibleMeasurementVisits = measurementVisitTab === "incoming"
     ? incomingMeasurementVisits
     : measurementVisitTab === "accepted"
@@ -1677,6 +1720,23 @@ function RequestsScreen({
           <Text style={[styles.requestTypeTabText, tab === "measurement" && styles.requestTypeTabTextActive]}>Measurement Visits</Text>
           <Text style={[styles.requestTypeCount, tab === "measurement" && styles.requestTypeCountActive]}>{actionableVisits.length}</Text>
         </Pressable>
+      </View>
+      <View style={styles.requestSearchBox}>
+        <Ionicons name="search-outline" size={19} color={MUTED} />
+        <TextInput
+          style={styles.requestSearchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder={tab === "stitching" ? "Search request ID, garment, work or status" : "Search visit, request, customer or address"}
+          placeholderTextColor="#94a3b8"
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
+        {searchQuery ? (
+          <Pressable onPress={() => setSearchQuery("")} accessibilityRole="button" accessibilityLabel="Clear request search">
+            <Ionicons name="close-circle" size={20} color={MUTED} />
+          </Pressable>
+        ) : null}
       </View>
       {tab === "stitching" ? (
         <>
@@ -2056,14 +2116,18 @@ function GridTile({
 
 function RequestDetailsScreen({
   request,
+  token,
   setScreen,
   showDialog,
-  onDecline
+  onDecline,
+  onQuoteDeleted
 }: {
   request: TailoringRequest;
+  token?: string;
   setScreen: (screen: Screen, options?: { resetStack?: boolean; replace?: boolean }) => void;
   showDialog: (dialog: DialogState) => void;
   onDecline?: (request: TailoringRequest) => void;
+  onQuoteDeleted?: (request: TailoringRequest) => void;
 }) {
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | MediaViewerState | undefined>();
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
@@ -2071,6 +2135,7 @@ function RequestDetailsScreen({
   const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | undefined>();
   const [voicePlaybackPaused, setVoicePlaybackPaused] = useState(false);
   const [voicePlaybackStatus, setVoicePlaybackStatus] = useState({ currentTime: 0, duration: 0 });
+  const [deletingQuote, setDeletingQuote] = useState(false);
   const voicePlayerRef = useRef<AudioPlayer | undefined>(undefined);
   const voiceStatusSubscriptionRef = useRef<{ remove: () => void } | undefined>(undefined);
   const voiceWaveProgress = useRef(new Animated.Value(0)).current;
@@ -2084,6 +2149,22 @@ function RequestDetailsScreen({
   const measurementNote = cleanCustomerNote(request.measurementNotes);
   const selectedGender = selectedItem?.gender || request.gender;
   const selectedGenderDetail = genderDetail(selectedGender);
+  const quoteCanBeDeleted = request.status === "QUOTE_REQUESTED" && request.ownQuote?.status === "SUBMITTED";
+
+  async function deleteSubmittedQuote() {
+    if (!token || !request.ownQuote || deletingQuote) return;
+    try {
+      setDeletingQuote(true);
+      await api(`/tailoring-requests/${request.id}/quotes/${request.ownQuote.id}`, { method: "DELETE" }, token);
+      const updated = { ...request, ownQuote: null };
+      onQuoteDeleted?.(updated);
+      showDialog({ title: "Quote deleted", message: "Your submitted quote was removed. You can send a new quote while this request remains open.", icon: "trash-outline" });
+    } catch (error) {
+      showDialog({ title: "Could not delete quote", message: error instanceof Error ? error.message : "Please try again.", icon: "alert-circle-outline" });
+    } finally {
+      setDeletingQuote(false);
+    }
+  }
   const openTileDetails = (details: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap; iconBg: string; iconColor: string }) => {
     setTileDetail(details);
   };
@@ -2496,6 +2577,24 @@ function RequestDetailsScreen({
                 <Ionicons name="chatbox-ellipses-outline" size={18} color={BRAND_ORANGE} />
                 <Text style={styles.quoteMessageText}>{request.ownQuote.message}</Text>
               </View>
+            ) : null}
+            {quoteCanBeDeleted ? (
+              <Pressable
+                style={[styles.deleteQuoteButton, deletingQuote && { opacity: 0.55 }]}
+                disabled={deletingQuote}
+                onPress={() => showDialog({
+                  title: "Delete submitted quote?",
+                  message: "The customer will no longer see this quote. You can submit a new price while the request remains open.",
+                  icon: "trash-outline",
+                  actions: [
+                    { label: "Keep Quote", variant: "secondary" },
+                    { label: "Delete Quote", onPress: () => void deleteSubmittedQuote() }
+                  ]
+                })}
+              >
+                {deletingQuote ? <ActivityIndicator color="#b91c1c" /> : <Ionicons name="trash-outline" size={17} color="#b91c1c" />}
+                <Text style={styles.deleteQuoteButtonText}>Delete Quote</Text>
+              </Pressable>
             ) : null}
           </View>
         ) : request.status === "QUOTE_REQUESTED" ? (
@@ -3329,6 +3428,14 @@ function OrderDetailsScreen({
 
   async function updateStatus(status: string) {
     if (!token) return;
+    if (status === "WORKING" && acceptedRequest && !measurementReadyForWork) {
+      showDialog({
+        title: "Measurements required",
+        message: "The home measurement visit must be submitted before stitching can start. An admin can allow an exception from the order details.",
+        icon: "resize-outline"
+      });
+      return;
+    }
     if (status === "WORKING" && acceptedRequest && !receivedProofComplete) {
       showDialog({
         title: "Received photos required",
@@ -3445,6 +3552,10 @@ function OrderDetailsScreen({
   const submittedMeasurementNote = selectedDetailItem?.measurementNotes?.trim();
   const submittedVisitNote = selectedDetailItem?.visitMeasurementNotes?.trim();
   const hasSubmittedMeasurementInfo = Object.entries(submittedMeasurementFields).length > 0 || Boolean(submittedMeasurementNote || submittedVisitNote);
+  const measurementReadyForWork = !requestNeedsHomeMeasurement(acceptedRequest)
+    || measurementVisitSubmitted
+    || hasSubmittedMeasurementInfo
+    || Boolean(acceptedRequest?.allowTailoringWithoutMeasurementVisit);
   const firstReferenceImage = [...clothMedia, ...designMedia, ...sampleMedia].find((item) => item.resourceType === "image");
   const detailTextLines = (detailTextSheet?.value || "")
     .split(/\r?\n|,/)
@@ -3806,9 +3917,9 @@ function OrderDetailsScreen({
                     style={[
                       styles.primaryButton,
                       { marginTop: 15 },
-                      (!receivedProofComplete || savingStatus === "WORKING") && { opacity: 0.5 }
+                      (!receivedProofComplete || !measurementReadyForWork || savingStatus === "WORKING") && { opacity: 0.5 }
                     ]}
-                    disabled={!receivedProofComplete || Boolean(savingStatus)}
+                    disabled={!receivedProofComplete || !measurementReadyForWork || Boolean(savingStatus)}
                     onPress={() => updateStatus("WORKING")}
                   >
                     {savingStatus === "WORKING" ? (
@@ -3817,6 +3928,17 @@ function OrderDetailsScreen({
                       <Text style={styles.primaryButtonText}>Submit Images & Start Stitching</Text>
                     )}
                   </Pressable>
+                  {!measurementReadyForWork ? (
+                    <View style={styles.measurementWorkGate}>
+                      <Ionicons name="lock-closed-outline" size={17} color="#b45309" />
+                      <Text style={styles.measurementWorkGateText}>Waiting for the measurement visit to be submitted. Admin approval is required to bypass this step.</Text>
+                    </View>
+                  ) : acceptedRequest.allowTailoringWithoutMeasurementVisit && !measurementVisitSubmitted ? (
+                    <View style={styles.measurementBypassNotice}>
+                      <Ionicons name="shield-checkmark-outline" size={17} color="#047857" />
+                      <Text style={styles.measurementBypassNoticeText}>Admin allowed tailoring without a submitted measurement visit.</Text>
+                    </View>
+                  ) : null}
                 </>
               )}
 
@@ -6922,6 +7044,9 @@ function AppContent() {
     socket.on("tailoring:work_status_updated", () => {
       void refreshWorkspace();
     });
+    socket.on("tailoring:measurement_bypass_updated", () => {
+      void refreshWorkspace();
+    });
     socket.on("tailoring:delivery_status_updated", () => {
       void refreshWorkspace();
     });
@@ -7104,9 +7229,14 @@ function AppContent() {
     });
   };
 
-  if (screen === "requestDetails" && activeRequest) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
+  const handleQuoteDeleted = (updated: TailoringRequest) => {
+    setActiveRequest(updated);
+    setRequests((current) => current.map((item) => item.id === updated.id ? updated : item));
+    void refreshWorkspace();
+  };
+  if (screen === "requestDetails" && activeRequest) body = <RequestDetailsScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} onQuoteDeleted={handleQuoteDeleted} />;
   if (screen === "quote" && activeRequest && activeRequest.status === "QUOTE_REQUESTED" && !activeRequest.ownQuote) body = <QuoteScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onDone={(quote) => { setActiveRequest({ ...activeRequest, ownQuote: quote }); setRequests((current) => current.map((item) => item.id === activeRequest.id ? { ...item, ownQuote: quote } : item)); void refreshWorkspace(); setScreen("requestDetails", { replace: true }); }} />;
-  if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} />;
+  if (screen === "quote" && activeRequest && (activeRequest.status !== "QUOTE_REQUESTED" || activeRequest.ownQuote)) body = <RequestDetailsScreen request={activeRequest} token={token} setScreen={setScreen} showDialog={setDialog} onDecline={declineActiveRequest} onQuoteDeleted={handleQuoteDeleted} />;
   if (screen === "orders") body = <OrdersScreen orders={orders} setScreen={setScreen} setActiveOrder={setActiveOrder} />;
   if (screen === "orderDetails" && activeOrder) body = <OrderDetailsScreen order={activeOrder} token={token} measurementVisitSubmitted={measurementVisits.some((visit) => visit.requestId === activeOrder.request?.id && visit.status === "SUBMITTED")} setScreen={setScreen} showDialog={setDialog} onSessionExpired={handleSessionExpired} onUpdated={() => void refreshWorkspace()} />;
   if (screen === "measurementVisits") body = <MeasurementVisitsScreen me={me} token={token} initialVisits={measurementVisits} setScreen={setScreen} showDialog={setDialog} measurementPartnerEnabled={measurementPartnerEnabled} onToggleMeasurementPartner={toggleMeasurementPartner} changingMeasurementPartner={changingMeasurementPartner} onVisitsChanged={setMeasurementVisits} />;
@@ -7498,6 +7628,8 @@ const styles = StyleSheet.create({
   requestAcceptButtonText: { color: "#ffffff", fontSize: 14, lineHeight: 20, fontWeight: "900", textAlign: "center" },
   // -- Price Submitted Card --
   quoteSubmittedCard: { borderRadius: 20, borderWidth: 1, borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", padding: 16, marginBottom: 14 },
+  deleteQuoteButton: { marginTop: 14, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fff7f7", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  deleteQuoteButtonText: { color: "#b91c1c", fontWeight: "800", fontSize: 14 },
   quoteSubmittedHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   quoteSubmittedIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: "#dcfce7", alignItems: "center", justifyContent: "center" },
   quoteSubmittedLabel: { color: BRAND_DEEP, fontSize: 18, lineHeight: 24, fontWeight: "900" },
@@ -7513,6 +7645,8 @@ const styles = StyleSheet.create({
   quoteMessageText: { flex: 1, color: BRAND_DEEP, fontSize: 13, lineHeight: 19, fontWeight: "800" },
   requestsPageContent: { paddingTop: 48 },
   requestsHeader: { marginBottom: 16 },
+  requestSearchBox: { minHeight: 50, borderRadius: 16, borderWidth: 1, borderColor: BORDER, backgroundColor: "#ffffff", paddingHorizontal: 14, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 10 },
+  requestSearchInput: { flex: 1, color: BRAND_DEEP, fontSize: 14, paddingVertical: 10 },
   requestsTitle: { color: BRAND_DEEP, fontSize: 22, lineHeight: 29, fontWeight: "900" },
   requestsSubtitle: { color: MUTED, fontSize: 13, lineHeight: 18, fontWeight: "800", marginTop: 4 },
   dashboardPageContent: { paddingTop: 18 },
@@ -7569,6 +7703,10 @@ const styles = StyleSheet.create({
   requestCardTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   requestChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12, marginLeft: 60 },
   filterRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  measurementWorkGate: { marginTop: 12, borderRadius: 13, backgroundColor: "#fffbeb", borderWidth: 1, borderColor: "#fde68a", padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  measurementWorkGateText: { flex: 1, color: "#92400e", fontSize: 12, lineHeight: 18, fontWeight: "700" },
+  measurementBypassNotice: { marginTop: 12, borderRadius: 13, backgroundColor: "#ecfdf5", borderWidth: 1, borderColor: "#a7f3d0", padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  measurementBypassNoticeText: { flex: 1, color: "#047857", fontSize: 12, lineHeight: 18, fontWeight: "700" },
   filterChip: { flex: 1, minHeight: 46, borderRadius: 10, borderWidth: 1.2, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center", flexDirection: "row", paddingHorizontal: 10, gap: 7 },
   filterChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff5df" },
   filterChipText: { color: MUTED, fontSize: 12, lineHeight: 16, fontWeight: "900", textAlign: "center" },

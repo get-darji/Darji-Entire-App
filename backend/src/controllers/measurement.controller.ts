@@ -136,6 +136,7 @@ export async function declineMeasurementVisitController(req: Request, res: Respo
   const canDeclinePool = visit.status === "POOL" && !alreadyDeclined && canMeasure;
   if (!tailorReferences.includes(String(visit.offeredTailorId ?? "")) && !tailorReferences.includes(String(visit.assignedTailorId ?? "")) && !canDeclineOwnCustomer && !canDeclinePool) throw new AppError(403, "This measurement visit is not assigned to you");
   const updated = await moveMeasurementVisitToPool(visit.id, tailor.id, "tailor_declined");
+  if (!updated) throw new AppError(409, "Measurement visit is no longer available");
   res.json({ data: updated });
 }
 
@@ -164,7 +165,7 @@ export async function verifyMeasurementVisitOtpController(req: Request, res: Res
 
 export async function adminAssignMeasurementVisitController(req: Request, res: Response) {
   const input = assignSchema.parse(req.body);
-  const visit = await assignMeasurementVisit(String(req.params.id), input.tailorId, req.user!.id);
+  const visit = await assignMeasurementVisit(String(req.params.id), input.tailorId, req.user!.id, true);
   if (!visit) throw new AppError(404, "Measurement visit not found");
   res.json({ data: visit });
 }

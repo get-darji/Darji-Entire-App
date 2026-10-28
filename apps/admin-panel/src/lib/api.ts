@@ -639,6 +639,10 @@ export async function updateTailoringWorkStatus(requestId: string, status: "WORK
   return unwrap<TailoringRequest>(api.patch(`/tailoring-requests/${requestId}/work-status`, { status }));
 }
 
+export async function updateTailoringMeasurementBypass(requestId: string, allowed: boolean, reason?: string) {
+  return unwrap<TailoringRequest>(api.patch(`/admin/tailoring-requests/${requestId}/measurement-bypass`, { allowed, reason }));
+}
+
 export async function cancelTailoringRequest(requestId: string) {
   return unwrap<TailoringRequest>(api.post(`/tailoring-requests/${requestId}/cancel`, { reason: "Cancelled by admin" }));
 }

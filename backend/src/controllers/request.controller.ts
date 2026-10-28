@@ -36,6 +36,9 @@ import { customerDeliveryCharge, deliveryModeFromUrgency, extractTailorShopPoint
 import { getPlatformFee, getSmallOrderFee, measurementVisitFee } from "@darji/shared";
 import { checkServiceAvailability, getServiceAreaConfig } from "../services/service-area.service.js";
 import { assertFreshDeliveryLocation } from "../services/delivery-location.service.js";
+import { tailoringRequestCustomerFilter } from "../utils/customer-access.js";
+import { hasHomeMeasurementRequest, mayStartTailoring } from "../utils/measurement-workflow.js";
+import { mayDeleteOwnTailorQuote } from "../utils/quote-workflow.js";
 
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
@@ -329,6 +332,11 @@ const verifyCheckoutSchema = z.object({
 
 const cancelTailoringRequestSchema = z.object({
   reason: z.string().trim().max(300).optional()
+});
+
+const measurementBypassSchema = z.object({
+  allowed: z.boolean(),
+  reason: z.string().trim().max(500).optional()
 });
 
 const cashCollectionSchema = z.object({
@@ -2340,6 +2348,13 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
     if (!acceptedQuote) throw new AppError(403, "Only the accepted tailor can update this order");
   }
 
+  if (["WORKING", "READY"].includes(input.status) && hasHomeMeasurementRequest(request)) {
+    const measurementVisit = await MeasurementVisitModel.findOne({ requestId: request.id }).select("status").lean();
+    if (!mayStartTailoring(request, measurementVisit?.status)) {
+      throw new AppError(409, "Measurements must be submitted before tailoring can start. Ask an admin to allow tailoring without the measurement visit if an exception is required.");
+    }
+  }
+
   const requiredPhotos = requestItemCount(request);
   const receivedPhotoCount = request.receivedMedia?.length ?? 0;
   const stitchedPhotoCount = request.stitchedMedia?.length ?? 0;
@@ -2400,12 +2415,55 @@ export async function updateTailoringWorkStatusController(req: Request, res: Res
   res.json({ data: await hydrateTailoringRequest(updatedRequest, req.user!.role === "TAILOR" ? req.user!.id : undefined) });
 }
 
+export async function updateTailoringMeasurementBypassController(req: Request, res: Response) {
+  const input = measurementBypassSchema.parse(req.body);
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (!hasHomeMeasurementRequest(request)) throw new AppError(409, "This order does not require a home measurement visit");
+  if (request.workStatus !== "ACCEPTED") throw new AppError(409, "Measurement bypass can only be changed before tailoring starts");
+
+  const updatedRequest = await TailoringRequestModel.findByIdAndUpdate(
+    request.id,
+    {
+      $set: {
+        allowTailoringWithoutMeasurementVisit: input.allowed,
+        ...(input.allowed ? {
+          measurementBypassAllowedAt: new Date(),
+          measurementBypassAllowedBy: req.user!.id,
+          measurementBypassReason: input.reason || "Allowed by admin"
+        } : {})
+      },
+      ...(!input.allowed ? { $unset: { measurementBypassAllowedAt: "", measurementBypassAllowedBy: "", measurementBypassReason: "" } } : {}),
+      $push: {
+        timelineEvents: {
+          status: input.allowed ? "MEASUREMENT_BYPASS_ALLOWED" : "MEASUREMENT_BYPASS_REVOKED",
+          description: input.allowed ? "Admin allowed tailoring without a submitted measurement visit" : "Admin restored the submitted-measurement requirement",
+          timestamp: new Date(),
+          ...actorTimelineFields(req)
+        }
+      }
+    },
+    { returnDocument: "after" }
+  );
+  if (!updatedRequest) throw new AppError(404, "Tailoring request not found");
+  const acceptedQuote = await TailorQuoteModel.findOne({ requestId: request.id, status: "ACCEPTED" }).select("tailorId");
+  if (acceptedQuote?.tailorId) {
+    emitToTailor(acceptedQuote.tailorId, "tailoring:measurement_bypass_updated", {
+      requestId: request.id,
+      allowed: input.allowed,
+      request: await hydrateTailoringRequest(updatedRequest)
+    });
+  }
+  emitToAdmins("tailoring:measurement_bypass_updated", { requestId: request.id, allowed: input.allowed });
+  res.json({ data: await hydrateTailoringRequest(updatedRequest) });
+}
+
 export async function createTailoringRequestController(req: Request, res: Response) {
   const input = createTailoringRequestSchema.parse(req.body);
   const isAdmin = req.user!.role === "ADMIN" || req.user!.role === "SUPER_ADMIN";
   const customerId = isAdmin && input.customerId ? input.customerId : req.user!.id;
   if (input.customerId && !isAdmin) throw new AppError(403, "Only an admin can create a request for another customer");
-  const customer = await UserModel.findOne({ _id: customerId, role: "CUSTOMER" }).select("_id");
+  const customer = await UserModel.findOne(tailoringRequestCustomerFilter(req.user!.role, customerId)).select("_id");
   if (!customer) throw new AppError(404, "Customer not found");
   await ensureDarjiCustomerId(customerId);
   const { customerId: _requestedCustomerId, ...requestInput } = input;
@@ -2642,6 +2700,26 @@ export async function listTailorQuotesController(req: Request, res: Response) {
 
   const quotes = await TailorQuoteModel.find(where).sort({ price: 1, createdAt: 1 });
   res.json({ data: await Promise.all(quotes.map((quote) => hydrateTailorQuote(quote))) });
+}
+
+export async function deleteOwnTailorQuoteController(req: Request, res: Response) {
+  const request = await TailoringRequestModel.findById(String(req.params.id));
+  if (!request) throw new AppError(404, "Tailoring request not found");
+  if (request.status !== "QUOTE_REQUESTED") throw new AppError(409, "Quotes cannot be deleted after the customer starts selecting or confirming an order");
+  const tailor = await TailorModel.findOne({ userId: req.user!.id }).select("_id shopName");
+  if (!tailor) throw new AppError(404, "Tailor profile not found");
+  const quote = await TailorQuoteModel.findOne({ _id: String(req.params.quoteId), requestId: request.id, tailorId: tailor.id });
+  if (!quote) throw new AppError(404, "Quote not found");
+  if (!mayDeleteOwnTailorQuote(request.status, quote.status)) throw new AppError(409, "Only a submitted quote that has not been selected can be deleted");
+
+  const deleted = await TailorQuoteModel.deleteOne({ _id: quote.id, status: "SUBMITTED" });
+  if (deleted.deletedCount !== 1) throw new AppError(409, "This quote was selected or changed before it could be deleted");
+  await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    $push: { timelineEvents: { status: "QUOTE_WITHDRAWN", description: `${tailor.shopName} withdrew a submitted quote`, timestamp: new Date(), ...actorTimelineFields(req) } }
+  });
+  emitToCustomer(request.customerId, "customer:quote_withdrawn", { requestId: request.id, quoteId: quote.id });
+  emitToAdmins("tailoring:quote_withdrawn", { requestId: request.id, quoteId: quote.id, tailorId: tailor.id });
+  res.json({ data: { deleted: true, requestId: request.id, quoteId: quote.id } });
 }
 
 export async function alertNoQuoteWaitController(req: Request, res: Response) {

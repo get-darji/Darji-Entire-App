@@ -7,6 +7,7 @@ import { upsertOperationalAlert, resolveOperationalAlert } from "./operational-a
 import { extractTailorShopPoint, geocodeAddress, pointFrom, roadDistanceMeters } from "./delivery-pricing.service.js";
 import { measurementVisitPayout as calculateMeasurementVisitPayout } from "@darji/shared";
 import { creditOrderEarning } from "./wallet.service.js";
+import { measurementOfferExpiresAt, measurementVisitAssignableStatuses } from "../utils/measurement-workflow.js";
 
 const DEFAULT_VISIT_PAYOUT = 30;
 
@@ -150,6 +151,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         stitchingTailorId: quote.tailorId,
         ...(stitchingTailorCanMeasure ? { offeredTailorId: quote.tailorId } : {}),
         status: stitchingTailorCanMeasure ? "OFFERED_TO_STITCHING_TAILOR" : "POOL",
+        ...(stitchingTailorCanMeasure ? { offerExpiresAt: measurementOfferExpiresAt() } : { poolOpenedAt: new Date() }),
         scheduledAt: resolveScheduledAt(preferredSlot),
         preferredMeasurementSlot: preferredSlot,
         visitPayout: calculatedPayout.visitPayout,
@@ -188,6 +190,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
       targetApps: ["tailor"]
     });
     emitToTailor(quote.tailorId, "measurement:visit_offered", { visit: visit.toJSON() });
+    scheduleMeasurementVisitPoolRelease(visit.id, visit.offerExpiresAt);
   } else {
     await moveMeasurementVisitToPool(visit.id, undefined, "stitching_tailor_measurement_disabled");
   }
@@ -197,15 +200,21 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
 
 export async function moveMeasurementVisitToPool(visitId: string, tailorId?: string, reason = "declined") {
   const visit = await MeasurementVisitModel.findByIdAndUpdate(
-    visitId,
+    { _id: visitId, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] } },
     {
       $set: { status: "POOL", poolOpenedAt: new Date() },
-      $unset: { offeredTailorId: "", assignedTailorId: "", acceptedAt: "" },
+      $unset: { offeredTailorId: "", assignedTailorId: "", acceptedAt: "", offerExpiresAt: "" },
       ...(tailorId ? { $addToSet: { declinedTailorIds: tailorId } } : {})
     },
     { returnDocument: "after" }
   );
   if (!visit) return null;
+
+  await notifyMeasurementVisitPool(visit, reason);
+  return visit;
+}
+
+async function notifyMeasurementVisitPool(visit: any, reason: string) {
 
   await upsertOperationalAlert({
     type: "MEASUREMENT_VISIT_UNASSIGNED",
@@ -257,10 +266,52 @@ export async function moveMeasurementVisitToPool(visitId: string, tailorId?: str
     emitToTailor(tailor.id, "measurement:visit_pool", { visit: withMeasurementPayout(visit, payout) });
   }));
   emitToAdmins("measurement:visit_pool", { visit: visit.toJSON() });
+}
+
+async function releaseMeasurementVisitOfferToPool(visitId: string, reason = "offer_timeout") {
+  const visit = await MeasurementVisitModel.findOneAndUpdate(
+    {
+      _id: visitId,
+      status: "OFFERED_TO_STITCHING_TAILOR",
+      offerExpiresAt: { $lte: new Date() }
+    },
+    {
+      $set: { status: "POOL", poolOpenedAt: new Date() },
+      $unset: { offeredTailorId: "", assignedTailorId: "", acceptedAt: "", offerExpiresAt: "" }
+    },
+    { returnDocument: "after" }
+  );
+  if (!visit) return null;
+  await notifyMeasurementVisitPool(visit, reason);
   return visit;
 }
 
-export async function assignMeasurementVisit(visitId: string, tailorId: string, actorId?: string) {
+function scheduleMeasurementVisitPoolRelease(visitId: string, expiresAt?: Date | string | null) {
+  if (!expiresAt) return;
+  const delay = Math.max(0, new Date(expiresAt).getTime() - Date.now());
+  const timer = setTimeout(() => {
+    void releaseMeasurementVisitOfferToPool(visitId).catch((error) => {
+      console.error(`Failed to release measurement visit ${visitId} after offer timeout`, error);
+    });
+  }, delay);
+  timer.unref?.();
+}
+
+export async function releaseExpiredMeasurementVisitOffers(limit = 100) {
+  let released = 0;
+  for (let index = 0; index < limit; index += 1) {
+    const candidate = await MeasurementVisitModel.findOne({
+      status: "OFFERED_TO_STITCHING_TAILOR",
+      offerExpiresAt: { $lte: new Date() }
+    }).select("_id");
+    if (!candidate) break;
+    const visit = await releaseMeasurementVisitOfferToPool(candidate.id);
+    if (visit) released += 1;
+  }
+  return released;
+}
+
+export async function assignMeasurementVisit(visitId: string, tailorId: string, actorId?: string, allowReassignment = false) {
   const tailor = await TailorModel.findOne({
     $or: [{ _id: tailorId }, { userId: tailorId }, { darjiTailorId: tailorId }]
   }).select("userId verificationStatus darjiTailorId verification verificationDraft shopName");
@@ -271,7 +322,7 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
     ? await measurementVisitPayoutForTailor(existingVisit, tailor.toJSON() as Record<string, unknown>)
     : { visitPayout: DEFAULT_VISIT_PAYOUT, measurementDistanceMeters: 0 };
   const visit = await MeasurementVisitModel.findOneAndUpdate(
-    { _id: visitId, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL", "ACCEPTED", "IN_PROGRESS"] } },
+    { _id: visitId, status: { $in: measurementVisitAssignableStatuses(allowReassignment) } },
     {
       $set: {
         assignedTailorId: canonicalTailorId,

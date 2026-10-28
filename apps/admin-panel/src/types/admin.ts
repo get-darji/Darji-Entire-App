@@ -848,6 +848,10 @@ export type TailoringRequest = {
   discountAmount?: number;
   homeMeasurementBooked?: boolean;
   preferredMeasurementSlot?: string;
+  allowTailoringWithoutMeasurementVisit?: boolean;
+  measurementBypassAllowedAt?: string;
+  measurementBypassAllowedBy?: string;
+  measurementBypassReason?: string;
   itemCount?: number;
   totalAmount?: number;
   confirmedAt?: string;
