@@ -120,7 +120,7 @@ import { translateStaticChildren, translateStaticText } from "../../shared/src/s
 import { measurementVisitFee } from "../../shared/src";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
 import { useFestivalTheme } from "./src/hooks/useFestivalTheme";
-import { DiwaliCardCorner, DiwaliGreetingDiya, DiwaliHeaderDecor, DiwaliHeroDecor, useDiwaliMotion } from "./src/features/festival/DiwaliDecor";
+import { DiwaliAppSurface, DiwaliCardCorner, DiwaliGreetingDiya, DiwaliHeaderDecor, DiwaliHeroDecor, DiwaliPatternLayer, useDiwaliMotion } from "./src/features/festival/DiwaliDecor";
 import {
   GENDER_FIT_OPTIONS,
   SERVICE_CATEGORIES,
@@ -132,6 +132,7 @@ import { ClothDetailsSelectionView } from "./src/features/cloth-details/ClothDet
 
 const SUPPORT_PHONE_DISPLAY = "+91 96259 17902";
 const SUPPORT_PHONE_URL = "tel:+919625917902";
+const FestivalThemeContext = createContext<FestivalThemeState | undefined>(undefined);
 
 function displayIndianPhone(phone?: string) {
   const digits = String(phone ?? "").replace(/\D/g, "").slice(-10);
@@ -2467,6 +2468,10 @@ function BottomTabs({
   const insets = useSafeAreaInsets();
   const bottomInset = Platform.OS === "ios" ? insets.bottom : CUSTOMER_TAB_BOTTOM_INSET;
   const language = useAppStore((state) => state.language);
+  const festivalTheme = useContext(FestivalThemeContext);
+  const festivalActive = Boolean(festivalTheme?.active && festivalTheme.themeId === "diwali");
+  const tabAccent = festivalActive ? festivalTheme!.palette.accent : BRAND_ORANGE;
+  const tabInactive = festivalActive ? festivalTheme!.palette.hero : "#151b27";
   const items: { key: Screen; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "home", label: t(language, "home"), icon: "home-outline" },
     { key: "search", label: t(language, "search"), icon: "search-outline" },
@@ -2493,13 +2498,13 @@ function BottomTabs({
             }}
           >
             <View style={isCreate ? styles.createTabButton : undefined}>
-              <Ionicons name={item.icon} size={isCreate ? 23 : 20} color={isCreate ? "#111111" : selected ? BRAND_ORANGE : "#151b27"} />
+              <Ionicons name={item.icon} size={isCreate ? 23 : 20} color={isCreate ? "#111111" : selected ? tabAccent : tabInactive} />
             </View>
             <Text
               numberOfLines={1}
               adjustsFontSizeToFit={isCreate}
               minimumFontScale={0.82}
-              style={[styles.tabText, isCreate && styles.createTabText, selected && styles.activeTabText]}
+              style={[styles.tabText, isCreate && styles.createTabText, selected && styles.activeTabText, selected && festivalActive && { color: tabAccent }]}
             >
               {item.label}
             </Text>
@@ -2747,8 +2752,8 @@ function HomeScreen({
   const diwaliMotion = useDiwaliMotion(diwaliActive);
   const firstName = profile.name?.trim().split(/\s+/)[0] || "there";
   const festiveGreeting = language === "hi"
-    ? `शुभ दीपावली, ${firstName}!`
-    : festivalGreeting(festivalTheme, profile.name);
+    ? `शुभ दीपावली,\n${firstName}!`
+    : festivalGreeting(festivalTheme, profile.name).replace(`, ${firstName}`, `,\n${firstName}`);
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
@@ -2777,10 +2782,10 @@ function HomeScreen({
     { title: "Custom Stitching", text: "Stitch from scratch", image: homeCustomStitchingImage }
   ] as const;
   return (
-    <SafeAreaView style={[styles.safe, diwaliActive && styles.festivalSafe, diwaliActive && { backgroundColor: festivalTheme.palette.page }]}>
+    <SafeAreaView style={[styles.safe, diwaliActive && styles.festivalSafe]}>
       <ScrollView
         ref={scrollViewRef}
-        contentContainerStyle={[styles.homeContent, diwaliActive && styles.festivalHomeContent, diwaliActive && { backgroundColor: festivalTheme.palette.page }]}
+        contentContainerStyle={[styles.homeContent, diwaliActive && styles.festivalHomeContent]}
         showsVerticalScrollIndicator={false}
         contentOffset={{ x: 0, y: initialScrollOffset }}
         onScroll={(event) => onScrollOffsetChange(event.nativeEvent.contentOffset.y)}
@@ -2832,10 +2837,10 @@ function HomeScreen({
 
         <View style={[styles.featureCard, diwaliActive && styles.festivalFeatureCard, diwaliActive && { backgroundColor: festivalTheme.palette.hero, borderColor: festivalTheme.palette.accent }]}>
           {diwaliActive ? <DiwaliHeroDecor motion={diwaliMotion} /> : <View style={styles.featureOrb} />}
-          <Text style={[styles.featureLabel, diwaliActive && styles.festivalHeroContent]}>{diwaliActive ? "FESTIVE SEASON" : "TAILORING REQUEST"}</Text>
-          <Text style={[styles.featureTitle, diwaliActive && styles.festivalHeroContent]}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
+          <Text style={[styles.featureLabel, diwaliActive && styles.festivalHeroContent, diwaliActive && styles.festivalFeatureLabel]}>{diwaliActive ? "✺   FESTIVE SEASON" : "TAILORING REQUEST"}</Text>
+          <Text style={[styles.featureTitle, diwaliActive && styles.festivalHeroContent, diwaliActive && styles.festivalFeatureTitle]}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
           <Text style={[styles.featureSub, diwaliActive && styles.festivalHeroContent, diwaliActive && styles.festivalFeatureSub]}>Upload photos, share your needs, and get started in minutes.</Text>
-          <Pressable style={[styles.featureButton, diwaliActive && styles.festivalHeroContent, diwaliActive && { backgroundColor: festivalTheme.palette.accent }]} onPress={() => onStartRequest(requestPresetForService("Custom Stitching"))}>
+          <Pressable style={[styles.featureButton, diwaliActive && styles.festivalHeroContent, diwaliActive && styles.festivalFeatureButton, diwaliActive && { backgroundColor: festivalTheme.palette.accent }]} onPress={() => onStartRequest(requestPresetForService("Custom Stitching"))}>
             <Ionicons name="cut-outline" size={16} color="#111111" />
             <Text style={styles.featureButtonText}>Stitch It Now</Text>
           </Pressable>
@@ -3132,7 +3137,9 @@ function HomeScreen({
               
               {/* White card container */}
               <View style={{
-                backgroundColor: "#ffffff",
+                backgroundColor: diwaliActive ? "#FFFCF5" : "#ffffff",
+                borderWidth: diwaliActive ? 1 : 0,
+                borderColor: diwaliActive ? festivalTheme.palette.accent : "transparent",
                 borderRadius: 18,
                 padding: 16,
                 shadowColor: "#000",
@@ -4416,6 +4423,8 @@ function SizeChartModal({ visible, clothType, guide, onClose }: { visible: boole
 }
 
 function ClothGuideModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const festivalTheme = useContext(FestivalThemeContext);
+  const festivalActive = Boolean(festivalTheme?.active && festivalTheme.themeId === "diwali");
   const [activeTab, setActiveTab] = useState<"Men" | "Women" | "Kids">("Men");
 
   const menData = {
@@ -4600,7 +4609,8 @@ function ClothGuideModal({ visible, onClose }: { visible: boolean; onClose: () =
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: festivalActive ? festivalTheme!.palette.page : "#ffffff" }}>
+        {festivalActive ? <DiwaliPatternLayer /> : null}
         {/* Header */}
         <View style={styles.guideHeader}>
           <Pressable style={styles.guideBackButton} onPress={onClose}>
@@ -6181,18 +6191,20 @@ function ServiceUnavailableScreen({
   onChangeAddress: () => void;
   onRetryLocation: () => void;
 }) {
+  const festivalTheme = useContext(FestivalThemeContext);
+  const festivalActive = Boolean(festivalTheme?.active && festivalTheme.themeId === "diwali");
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: "#fffaf2" }]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: festivalActive ? "transparent" : "#fffaf2" }]}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 22 }}>
-        <View style={{ overflow: "hidden", borderRadius: 30, backgroundColor: "#ffffff", borderWidth: 1, borderColor: "#f2dfbd", padding: 24 }}>
+        <View style={{ overflow: "hidden", borderRadius: 30, backgroundColor: festivalActive ? "#FFFCF5" : "#ffffff", borderWidth: 1, borderColor: festivalActive ? festivalTheme!.palette.accent : "#f2dfbd", padding: 24 }}>
           <View style={{ position: "absolute", width: 210, height: 210, borderRadius: 105, backgroundColor: "#fff1cf", right: -90, top: -90 }} />
           <View style={{ width: 72, height: 72, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "#fff0cc", borderWidth: 1, borderColor: "#f8cf75" }}>
             <Ionicons name="location-outline" size={36} color="#c66b00" />
           </View>
           <Text style={{ color: BRAND_DEEP, fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 22 }}>{state.availability?.title ?? "Darji is not here yet"}</Text>
           <Text style={{ color: "#617087", fontSize: 15, lineHeight: 23, marginTop: 10 }}>{state.availability?.message ?? "We are launching area by area. Choose another pickup address or request Darji here."}</Text>
-          <View style={{ marginTop: 22, borderRadius: 18, borderWidth: 1, borderColor: "#e5eaf1", backgroundColor: "#f8fafc", padding: 15, flexDirection: "row", gap: 12, alignItems: "center" }}>
-            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" }}>
+          <View style={{ marginTop: 22, borderRadius: 18, borderWidth: 1, borderColor: festivalActive ? festivalTheme!.palette.accent : "#e5eaf1", backgroundColor: festivalActive ? "#FFF7E8" : "#f8fafc", padding: 15, flexDirection: "row", gap: 12, alignItems: "center" }}>
+            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: festivalActive ? "#FFFCF5" : "#ffffff", alignItems: "center", justifyContent: "center" }}>
               <Ionicons name="navigate-outline" size={20} color={BRAND_ORANGE} />
             </View>
             <View style={{ flex: 1 }}>
@@ -8256,7 +8268,8 @@ function ProfileScreen({
 }) {
   const scrollViewRef = useRef<RNScrollView>(null);
   const { user, signOut, favoriteTailorIds = [] } = useAppStore();
-  const profileStyles = createStyles(settings.darkMode);
+  const festivalTheme = useContext(FestivalThemeContext);
+  const profileStyles = createStyles(settings.darkMode, festivalTheme);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const token = useAppStore((state) => state.token);
   const [localizedName, setLocalizedName] = useState<{ original: string; value: string }>();
@@ -8363,7 +8376,7 @@ function ProfileScreen({
       {/* Custom Logout Confirmation Modal */}
       <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
         <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }} onPress={() => setShowLogoutModal(false)}>
-          <Pressable style={{ backgroundColor: "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40 }}>
+          <Pressable style={{ backgroundColor: festivalTheme?.active ? "#FFFCF5" : "#ffffff", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 28, paddingBottom: 40, borderWidth: festivalTheme?.active ? 1 : 0, borderColor: festivalTheme?.palette.accent }}>
             <View style={{ alignItems: "center", marginBottom: 20 }}>
               <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff1f0", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                 <Ionicons name="log-out-outline" size={28} color="#ef4444" />
@@ -9333,12 +9346,14 @@ function ContactSupportScreen({ setScreen, isBugReport, isDark, orders, socket }
 
   const scrollViewRef = useRef<RNScrollView>(null);
   const insets = useSafeAreaInsets();
+  const festivalTheme = useContext(FestivalThemeContext);
+  const festivalActive = Boolean(festivalTheme?.active && festivalTheme.themeId === "diwali");
 
-  const bg = isDark ? "#000000" : "#f7faff";
-  const cardBg = isDark ? "#121212" : "#ffffff";
-  const border = isDark ? "#222222" : "#dce2ea";
-  const text = isDark ? "#ffffff" : "#0b2241";
-  const mutedText = isDark ? "#94a3b8" : "#65748a";
+  const bg = festivalActive ? "transparent" : isDark ? "#000000" : "#f7faff";
+  const cardBg = festivalActive ? "#FFFCF5" : isDark ? "#121212" : "#ffffff";
+  const border = festivalActive ? `${festivalTheme!.palette.accent}78` : isDark ? "#222222" : "#dce2ea";
+  const text = festivalActive ? festivalTheme!.palette.hero : isDark ? "#ffffff" : "#0b2241";
+  const mutedText = festivalActive ? "#61697A" : isDark ? "#94a3b8" : "#65748a";
   const placeholderText = isDark ? "#64748b" : "#a9b4c5";
 
   const loadTickets = useCallback(async () => {
@@ -10589,7 +10604,8 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
 }
 
 function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) => void; isDark: boolean }) {
-  const profileStyles = createStyles(isDark);
+  const festivalTheme = useContext(FestivalThemeContext);
+  const profileStyles = createStyles(isDark, festivalTheme);
   const promises = [["shield-checkmark-outline", "Verified Tailors"], ["home-outline", "Doorstep Service"], ["card-outline", "Transparent Pricing"], ["headset-outline", "Dedicated Support"]] as const;
   return (
     <ProfileSubPage title={t(useAppStore.getState().language, "aboutDarji")} setScreen={setScreen} styles={profileStyles}>
@@ -10640,8 +10656,11 @@ function AboutDarjiScreen({ setScreen, isDark }: { setScreen: (screen: Screen) =
 
 function ProfileSubPage({ title, setScreen, children, backScreen = "profile", styles: propStyles }: { title: string; setScreen: (screen: Screen) => void; children: React.ReactNode; backScreen?: Screen; styles?: any }) {
   const currentStyles = propStyles || styles;
+  const festivalTheme = useContext(FestivalThemeContext);
+  const festivalActive = Boolean(festivalTheme?.active && festivalTheme.themeId === "diwali");
   return (
-    <SafeAreaView style={currentStyles.safe}>
+    <SafeAreaView style={[currentStyles.safe, festivalActive && { backgroundColor: festivalTheme!.palette.page }]}>
+      {festivalActive ? <DiwaliPatternLayer /> : null}
       <ScrollView contentContainerStyle={currentStyles.pageContent}>
         <Header title={title} onBack={() => setScreen(backScreen)} />
         {children}
@@ -12464,11 +12483,28 @@ function AppContent() {
     });
   }
 
+  function withFestivalOnly(node: ReactNode) {
+    const festivalActive = festival.state.active && festival.state.themeId === "diwali";
+    styles = createStyles(settings.darkMode, festival.state);
+    return (
+      <FestivalThemeContext.Provider value={festival.state}>
+        <DiwaliAppSurface enabled={festivalActive} pageColor={festival.state.palette.page}>
+          {festivalActive ? <StatusBar barStyle="dark-content" backgroundColor={festival.state.palette.page} translucent /> : null}
+          {node}
+        </DiwaliAppSurface>
+      </FestivalThemeContext.Provider>
+    );
+  }
+
   function withAppChrome(node: ReactNode) {
-    styles = createStyles(settings.darkMode);
+    const festivalActive = festival.state.active && festival.state.themeId === "diwali";
+    styles = createStyles(settings.darkMode, festival.state);
 
     return (
       <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, refreshSignal, onRefresh: () => void refreshVisibleCustomerScreen() }}>
+      <FestivalThemeContext.Provider value={festival.state}>
+      <DiwaliAppSurface enabled={festivalActive} pageColor={festival.state.palette.page}>
+      {festivalActive ? <StatusBar barStyle="dark-content" backgroundColor={festival.state.palette.page} translucent /> : null}
       <NotificationProvider
         app="customer"
         onNavigate={(destination) => {
@@ -12538,7 +12574,8 @@ function AppContent() {
             );
           }}
         >
-          <SafeAreaView style={styles.safe}>
+          <SafeAreaView style={[styles.safe, festivalActive && { backgroundColor: festival.state.palette.page }]}>
+            {festivalActive ? <DiwaliPatternLayer /> : null}
             <View style={[styles.rowBetween, { paddingHorizontal: 20, paddingTop: 12 }]}>
               <Text style={styles.sectionTitle}>{verifyingPayment ? "Confirming payment" : "Complete Payment"}</Text>
               {verifyingPayment ? (
@@ -12680,6 +12717,8 @@ function AppContent() {
           </SafeAreaView>
         </Modal>
       </NotificationProvider>
+      </DiwaliAppSurface>
+      </FestivalThemeContext.Provider>
       </PullToRefreshContext.Provider>
     );
   }
@@ -13318,7 +13357,7 @@ function AppContent() {
   }
 
   if (isAppUnderMaintenance(platform.status, "CUSTOMER_APP")) {
-    return (
+    return withFestivalOnly(
       <PlatformMaintenanceScreen
         language={language}
         status={platform.status}
@@ -13331,7 +13370,7 @@ function AppContent() {
     );
   }
   if (!sessionHydrated) return withAppChrome(<LocationFetchingScreen title="Checking account" message="Loading your saved Darji session." />);
-  if (!token) return <AuthScreen />;
+  if (!token) return withAppChrome(<AuthScreen />);
   if (!hasLoadedCustomerData) return withAppChrome(<LocationFetchingScreen title="Loading your profile" message="Fetching your saved Darji profile for this phone number." />);
   if (!profile.hasCompletedOnboarding) return withAppChrome(<OnboardingScreen profile={profile} setProfile={setCustomerProfile} language={language} setLanguagePreference={setLanguagePreference} />);
   const choosingServiceAddress = screen === "savedAddresses" || screen === "addAddress";
@@ -13522,18 +13561,20 @@ export default function App() {
   return <SafeAreaProvider><StatusBar barStyle="dark-content" backgroundColor={SCREEN_BG} translucent /><AppContent /></SafeAreaProvider>;
 }
 
-function createStyles(isDark = false) {
-  const pageBg = isDark ? "#000000" : SCREEN_BG;
-  const surface = isDark ? "#121212" : "#ffffff";
-  const surfaceAlt = isDark ? "#1a1a1a" : "#fffaf0";
-  const inputSurface = isDark ? "#0d0d0d" : "#ffffff";
-  const text = isDark ? "#ffffff" : BRAND_DEEP;
-  const muted = isDark ? "#94a3b8" : "#65748a";
-  const subtle = isDark ? "#64748b" : "#637086";
-  const border = isDark ? "#222222" : "#dce2ea";
-  const iconBg = isDark ? "#2a1d0a" : "#fff4dc";
-  const tabBg = isDark ? "#0b1320" : "#ffffff";
-  const darkCard = isDark ? "#0d1421" : "#2b1503";
+function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
+  const festivalActive = Boolean(festivalTheme?.active && festivalTheme.themeId === "diwali");
+  const festivalPalette = festivalTheme?.palette;
+  const pageBg = festivalActive ? "transparent" : isDark ? "#000000" : SCREEN_BG;
+  const surface = festivalActive ? "#FFFCF5" : isDark ? "#121212" : "#ffffff";
+  const surfaceAlt = festivalActive ? "#FFF7E8" : isDark ? "#1a1a1a" : "#fffaf0";
+  const inputSurface = festivalActive ? "#FFFEFA" : isDark ? "#0d0d0d" : "#ffffff";
+  const text = festivalActive ? festivalPalette!.hero : isDark ? "#ffffff" : BRAND_DEEP;
+  const muted = festivalActive ? "#61697A" : isDark ? "#94a3b8" : "#65748a";
+  const subtle = festivalActive ? "#596477" : isDark ? "#64748b" : "#637086";
+  const border = festivalActive ? `${festivalPalette!.accent}78` : isDark ? "#222222" : "#dce2ea";
+  const iconBg = festivalActive ? "#FFF0CE" : isDark ? "#2a1d0a" : "#fff4dc";
+  const tabBg = festivalActive ? "#FFFCF5" : isDark ? "#0b1320" : "#ffffff";
+  const darkCard = festivalActive ? festivalPalette!.hero : isDark ? "#0d1421" : "#2b1503";
 
   return StyleSheet.create({
   flex: { flex: 1 },
@@ -13626,7 +13667,7 @@ function createStyles(isDark = false) {
   onboardingTitle: { color: text, fontSize: 24, fontWeight: "900", marginTop: 34, marginBottom: 8 },
   locationLoadingContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 34 },
   locationLoadingIcon: { width: 74, height: 74, borderRadius: 24, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  serviceCheckSafe: { backgroundColor: "#f8fafc" },
+  serviceCheckSafe: { backgroundColor: festivalActive ? "transparent" : "#f8fafc" },
   serviceCheckSimpleContent: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 36, paddingBottom: 28 },
   serviceCheckLogo: { width: 148, height: 78, marginBottom: 26 },
   serviceCheckSimpleTitle: { color: BRAND_DEEP, fontSize: 25, lineHeight: 31, fontWeight: "900", textAlign: "center" },
@@ -13637,7 +13678,7 @@ function createStyles(isDark = false) {
   serviceCheckButtonPressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
   serviceCheckButtonDisabled: { opacity: 0.72 },
   serviceCheckPrimaryText: { color: "#111111", fontSize: 14, fontWeight: "900" },
-  serviceCheckSecondaryButton: { minHeight: 49, borderRadius: 16, borderWidth: 1, borderColor: "#dce3ec", backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  serviceCheckSecondaryButton: { minHeight: 49, borderRadius: 16, borderWidth: 1, borderColor: festivalActive ? border : "#dce3ec", backgroundColor: festivalActive ? surface : "#ffffff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
   serviceCheckSecondaryText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900" },
   dialogOverlay: { flex: 1, backgroundColor: "rgba(8, 17, 31, 0.52)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   dialogCard: { width: "100%", maxWidth: 360, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.16, shadowRadius: 28, elevation: 8 },
@@ -13651,15 +13692,15 @@ function createStyles(isDark = false) {
   dialogDestructiveText: { color: "#c24141" },
   pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
   homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
-  festivalSafe: { backgroundColor: "#FFF9EE" },
-  festivalHomeContent: { backgroundColor: "#FFF9EE" },
+  festivalSafe: { backgroundColor: "transparent" },
+  festivalHomeContent: { backgroundColor: "transparent" },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
-  festivalHomeTop: { minHeight: 92, alignItems: "flex-end", marginBottom: 12, overflow: "visible" },
+  festivalHomeTop: { minHeight: 126, alignItems: "flex-end", marginBottom: 12, overflow: "visible" },
   festivalHeaderContent: { flex: 1, zIndex: 2 },
   festivalHeaderActions: { zIndex: 3, alignSelf: "center" },
-  festivalGreetingRow: { minHeight: 58, flexDirection: "row", alignItems: "center", paddingTop: 24, paddingLeft: 35, paddingRight: 4 },
-  festivalGreeting: { flexShrink: 1, color: "#6B1016", fontSize: 20, lineHeight: 25, fontWeight: "900" },
+  festivalGreetingRow: { minHeight: 78, flexDirection: "row", alignItems: "center", paddingTop: 42, paddingLeft: 16, paddingRight: 4 },
+  festivalGreeting: { flexShrink: 1, color: "#6B1016", fontSize: 27, lineHeight: 32, fontWeight: "900", fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
   mutedSmall: { color: subtle, fontSize: 12 },
   userName: { color: text, fontSize: 20, fontWeight: "900", marginTop: 6 },
   homeActions: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -13668,23 +13709,26 @@ function createStyles(isDark = false) {
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   avatarImage: { width: 42, height: 42, borderRadius: 21, backgroundColor: surface },
   avatarText: { color: "#111111", fontSize: 13, fontWeight: "900" },
-  searchBar: { height: 48, borderRadius: 16, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 12, marginBottom: 16 },
+  searchBar: { height: festivalActive ? 60 : 48, borderRadius: festivalActive ? 24 : 16, backgroundColor: surface, borderWidth: festivalActive ? 1.2 : 0, borderColor: border, flexDirection: "row", alignItems: "center", paddingHorizontal: festivalActive ? 20 : 16, gap: 12, marginBottom: 16 },
   festivalCard: { borderWidth: 1, borderColor: "#E8C57A", overflow: "hidden", backgroundColor: "#FFFCF5" },
   searchPlaceholder: { color: muted, fontSize: 14, fontWeight: "700" },
   animatedSearchWord: { color: text, fontWeight: "900" },
   searchCursor: { color: BRAND_ORANGE, fontWeight: "900" },
-  homeAddressCard: { minHeight: 62, borderRadius: 17, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 16 },
+  homeAddressCard: { minHeight: festivalActive ? 76 : 62, borderRadius: festivalActive ? 24 : 17, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: festivalActive ? 16 : 12, marginBottom: 16 },
   featureCard: { minHeight: 176, borderRadius: 22, backgroundColor: darkCard, padding: 22, overflow: "hidden", marginBottom: 24 },
-  festivalFeatureCard: { minHeight: 210, backgroundColor: "#2C1708", borderWidth: 1.5, borderColor: "#D99820", shadowColor: "#6B1016", shadowOpacity: 0.2, shadowRadius: 12, elevation: 5 },
-  festivalHeroContent: { zIndex: 3, maxWidth: "72%" },
-  festivalFeatureSub: { color: "#F0D9B8" },
+  festivalFeatureCard: { minHeight: 310, backgroundColor: "#2C1708", borderWidth: 1.5, borderColor: "#D99820", padding: 24, shadowColor: "#6B1016", shadowOpacity: 0.2, shadowRadius: 12, elevation: 5 },
+  festivalHeroContent: { zIndex: 3, maxWidth: "76%" },
+  festivalFeatureLabel: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#F6A500", borderRadius: 16, paddingHorizontal: 13, paddingVertical: 6, overflow: "hidden" },
+  festivalFeatureTitle: { fontSize: 27, lineHeight: 33, marginTop: 18, textShadowColor: "rgba(0,0,0,0.38)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 3 },
+  festivalFeatureSub: { color: "#F0D9B8", fontSize: 13, lineHeight: 20, maxWidth: "69%", marginTop: 16 },
+  festivalFeatureButton: { minWidth: 220, height: 54, borderRadius: 27, marginTop: 26, shadowColor: "#000000", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   featureOrb: { position: "absolute", right: -12, top: -24, width: 98, height: 98, borderRadius: 49, backgroundColor: "#5b3608" },
   featureLabel: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.7 },
   featureTitle: { color: "#f2f6ff", fontSize: 22, lineHeight: 27, fontWeight: "900", marginTop: 8 },
   featureSub: { color: "#6d7b8d", fontSize: 11, marginTop: 8 },
   featureButton: { marginTop: 18, height: 46, minWidth: 150, alignSelf: "flex-start", borderRadius: 23, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   featureButtonText: { color: "#111111", fontWeight: "900", fontSize: 15 },
-  homeOrderPreview: { minHeight: 78, borderRadius: 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, marginBottom: 20 },
+  homeOrderPreview: { minHeight: festivalActive ? 104 : 78, borderRadius: festivalActive ? 24 : 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: festivalActive ? border : "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: festivalActive ? 20 : 16, marginBottom: 20 },
   homeCallSupportCard: { minHeight: 84, borderRadius: 18, borderWidth: 1.5, borderColor: "#111111", backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginBottom: 24 },
   homeCallSupportIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.56)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   homeCallSupportTitle: { color: "#111111", fontSize: 15, lineHeight: 19, fontWeight: "900" },
@@ -13696,21 +13740,21 @@ function createStyles(isDark = false) {
   customRequestHeading: { color: text, fontSize: 31, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
   customRequestIntro: { color: muted, fontSize: 13, lineHeight: 19, fontWeight: "600", maxWidth: 310, marginTop: 10, marginBottom: 20 },
   customRequestGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 12 },
-  customRequestCard: { width: "48.4%", height: 270, borderRadius: 8, borderWidth: 1.5, borderColor: "#111111", backgroundColor: "#ffffff", overflow: "hidden", shadowColor: "#111827", shadowOffset: { width: 0, height: 6 }, shadowOpacity: isDark ? 0.34 : 0.16, shadowRadius: 10, elevation: 6 },
+  customRequestCard: { width: "48.4%", height: 270, borderRadius: 8, borderWidth: 1.5, borderColor: festivalActive ? border : "#111111", backgroundColor: festivalActive ? surface : "#ffffff", overflow: "hidden", shadowColor: "#111827", shadowOffset: { width: 0, height: 6 }, shadowOpacity: isDark ? 0.34 : 0.16, shadowRadius: 10, elevation: 6 },
   customRequestCardWide: { width: "100%", height: 190, minHeight: 190, flexDirection: "row-reverse", flexShrink: 0 },
-  customRequestTone0: { backgroundColor: "#ffffff" },
-  customRequestTone1: { backgroundColor: "#ffffff" },
-  customRequestTone2: { backgroundColor: "#ffffff" },
-  customRequestTone3: { backgroundColor: "#ffffff" },
-  customRequestTone4: { backgroundColor: "#ffffff" },
-  customRequestTone5: { backgroundColor: "#ffffff" },
-  customRequestTone6: { backgroundColor: "#ffffff" },
-  customRequestTone7: { backgroundColor: "#ffffff" },
-  customRequestTone8: { backgroundColor: "#ffffff" },
+  customRequestTone0: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone1: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone2: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone3: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone4: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone5: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone6: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone7: { backgroundColor: festivalActive ? surface : "#ffffff" },
+  customRequestTone8: { backgroundColor: festivalActive ? surface : "#ffffff" },
   customRequestImageWrap: { width: "100%", height: 126, flexShrink: 0, overflow: "hidden", paddingHorizontal: 8, paddingTop: 10 },
   customRequestImageWrapWide: { width: "54%", height: 190, paddingHorizontal: 8, paddingVertical: 10, flexShrink: 0 },
   customRequestImageGlow: { position: "absolute", width: 138, height: 118, borderRadius: 52, right: -12, top: 8, backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.58)" },
-  customRequestImageFrame: { flex: 1, borderRadius: 5, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: "#ffffff", padding: 2, overflow: "hidden" },
+  customRequestImageFrame: { flex: 1, borderRadius: 5, borderWidth: 1, borderColor: festivalActive ? border : "#d1d5db", backgroundColor: festivalActive ? surface : "#ffffff", padding: 2, overflow: "hidden" },
   customRequestImage: { width: "100%", height: "100%" },
   customRequestCardBody: { flex: 1, minWidth: 0, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12 },
   customRequestCardBodyWide: { paddingLeft: 16, paddingRight: 10, paddingVertical: 16 },
@@ -13865,14 +13909,14 @@ function createStyles(isDark = false) {
   workflowItem: { minHeight: 70, flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 6 },
   workflowImage: { width: 58, height: 58, borderRadius: 13, backgroundColor: iconBg },
   workflowText: { color: text, fontSize: 13, fontWeight: "900" },
-  tabs: { position: "absolute", left: 0, right: 0, bottom: 0, height: CUSTOMER_TAB_BAR_HEIGHT, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 0, paddingHorizontal: 4, zIndex: 20, elevation: 20 },
+  tabs: { position: "absolute", left: 0, right: 0, bottom: 0, height: CUSTOMER_TAB_BAR_HEIGHT, borderTopWidth: 1, borderTopColor: border, backgroundColor: tabBg, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingBottom: 0, paddingHorizontal: 4, zIndex: 20, elevation: 20, shadowColor: festivalActive ? festivalPalette!.accent : "#0b2241", shadowOffset: { width: 0, height: -6 }, shadowOpacity: festivalActive ? 0.12 : 0, shadowRadius: 14 },
   tabItem: { alignItems: "center", justifyContent: "center", flex: 1 },
-  tabText: { marginTop: 2, minHeight: 18, fontSize: 10, color: isDark ? "#e5edf7" : "#151b27", fontWeight: "700", lineHeight: 16, textAlign: "center", includeFontPadding: true },
+  tabText: { marginTop: 2, minHeight: 18, fontSize: 10, color: festivalActive ? festivalPalette!.hero : isDark ? "#e5edf7" : "#151b27", fontWeight: "700", lineHeight: 16, textAlign: "center", includeFontPadding: true },
   activeTabText: { color: BRAND_ORANGE },
   createTabItem: { marginTop: -10 },
-  createTabButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.22, shadowRadius: 9, elevation: 5 },
+  createTabButton: { width: festivalActive ? 50 : 44, height: festivalActive ? 50 : 44, borderRadius: festivalActive ? 25 : 22, backgroundColor: festivalActive ? festivalPalette!.accent : BRAND_ORANGE, alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: tabBg, shadowColor: "#c47a00", shadowOpacity: 0.22, shadowRadius: 9, elevation: 5 },
   createTabText: { width: 88, minHeight: 18, marginTop: 2, fontSize: 9, lineHeight: 13 },
-  header: { height: 52, flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  header: { height: festivalActive ? 60 : 52, flexDirection: "row", alignItems: "center", marginBottom: 14, borderBottomWidth: festivalActive ? 1 : 0, borderBottomColor: border, paddingBottom: festivalActive ? 8 : 0 },
   headerTitle: { flex: 1, minWidth: 0, color: text, fontSize: 22, fontWeight: "900", marginLeft: 12 },
   headerSpacer: { width: 40 },
   roundIconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: surface, alignItems: "center", justifyContent: "center" },
@@ -13979,7 +14023,7 @@ function createStyles(isDark = false) {
   addPhotoButton: { height: 42, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: "#efbd65", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 14 },
   addPhotoText: { color: BRAND_ORANGE, fontSize: 13, fontWeight: "900" },
   previewRow: { gap: 10, paddingTop: 12, paddingBottom: 2 },
-  previewBox: { width: 76, height: 58, borderRadius: 12, borderWidth: 1, borderColor: "#efbd65", overflow: "hidden", backgroundColor: "#ffffff" },
+  previewBox: { width: 76, height: 58, borderRadius: 12, borderWidth: 1, borderColor: festivalActive ? border : "#efbd65", overflow: "hidden", backgroundColor: festivalActive ? surface : "#ffffff" },
   previewImage: { width: "100%", height: "100%" },
   videoBadge: { position: "absolute", left: 5, bottom: 5, width: 18, height: 18, borderRadius: 9, backgroundColor: "rgba(0,0,0,0.58)", alignItems: "center", justifyContent: "center" },
   removePreview: { position: "absolute", right: 4, top: 4, width: 18, height: 18, borderRadius: 9, backgroundColor: "rgba(0,0,0,0.58)", alignItems: "center", justifyContent: "center" },
@@ -14155,14 +14199,14 @@ function createStyles(isDark = false) {
   chartCloseButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   sizeChartHelp: { color: muted, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 12, marginBottom: 14 },
   sizeChartSectionTitle: { color: text, fontSize: 13, fontWeight: "900", marginTop: 4, marginBottom: 10 },
-  measurementImageCard: { borderRadius: 18, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 8, marginBottom: 16, overflow: "hidden", alignItems: "center" },
+  measurementImageCard: { borderRadius: 18, borderWidth: 1, borderColor: festivalActive ? border : "#efcf92", backgroundColor: festivalActive ? surfaceAlt : "#fffaf0", padding: 8, marginBottom: 16, overflow: "hidden", alignItems: "center" },
   measurementImageCardCompact: { marginBottom: 12 },
   measurementGenderTabs: { width: "100%", flexDirection: "row", gap: 8, padding: 4, marginBottom: 8, borderRadius: 14, backgroundColor: "#f1f5f9" },
   measurementGenderTab: { flex: 1, minHeight: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   measurementGenderTabActive: { backgroundColor: BRAND_DEEP },
   measurementGenderTabText: { color: muted, fontSize: 13, fontWeight: "900" },
   measurementGenderTabTextActive: { color: "#ffffff" },
-  measurementGuideViewport: { overflow: "hidden", borderRadius: 12, backgroundColor: "#ffffff" },
+  measurementGuideViewport: { overflow: "hidden", borderRadius: 12, backgroundColor: festivalActive ? surface : "#ffffff" },
   measurementSwipeHint: { color: muted, fontSize: 10, fontWeight: "800", textAlign: "center", marginTop: 4, marginBottom: 4 },
   measurementGuideImage: { width: "100%", height: 360 },
   measurementGuideImageCompact: { height: 240 },
@@ -14172,7 +14216,7 @@ function createStyles(isDark = false) {
   imageZoomTitle: { color: text, fontSize: 18, fontWeight: "900" },
   imageZoomHorizontalContent: { flexGrow: 1 },
   imageZoomVerticalContent: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", paddingVertical: 16 },
-  zoomedMeasurementImage: { backgroundColor: "#fffaf0" },
+  zoomedMeasurementImage: { backgroundColor: festivalActive ? surfaceAlt : "#fffaf0" },
   imageZoomControls: { minHeight: 62, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, borderTopWidth: 1, borderTopColor: border, backgroundColor: surface },
   zoomButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, alignItems: "center", justifyContent: "center" },
   zoomValue: { color: text, fontSize: 14, fontWeight: "900", minWidth: 52, textAlign: "center" },
@@ -14420,7 +14464,7 @@ function createStyles(isDark = false) {
   handoffOtpRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, marginTop: 10 },
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },
-  measurementOtpCard: { backgroundColor: "#f8fafc", borderColor: "#111111" },
+  measurementOtpCard: { backgroundColor: festivalActive ? surface : "#f8fafc", borderColor: festivalActive ? border : "#111111" },
   measurementTailorRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 14, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: "#d8dee8" },
   measurementTailorIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   measurementTailorAvatar: { width: 44, height: 44, borderRadius: 14 },
@@ -14433,7 +14477,7 @@ function createStyles(isDark = false) {
   etaAlertTime: { color: "#dc2626", fontSize: 17, lineHeight: 23, fontWeight: "900", marginTop: 4 },
   etaAlertIssue: { color: "#991b1b", fontSize: 12, lineHeight: 18, fontWeight: "800", marginTop: 4 },
   etaQueueBadge: { overflow: "hidden", borderRadius: 16, backgroundColor: "#dc2626", color: "#ffffff", paddingHorizontal: 12, paddingVertical: 8, fontSize: 16, fontWeight: "900" },
-  deliveryRescheduleCard: { backgroundColor: "#fffaf0", borderColor: "#fde68a" },
+  deliveryRescheduleCard: { backgroundColor: festivalActive ? surfaceAlt : "#fffaf0", borderColor: festivalActive ? border : "#fde68a" },
   deliverySlotRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 },
   deliverySlotButton: { minHeight: 44, flexGrow: 1, flexBasis: "46%", alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: BRAND_ORANGE, paddingHorizontal: 12, paddingVertical: 10 },
   deliverySlotText: { color: "#111111", fontSize: 13, fontWeight: "900", textAlign: "center" },
@@ -14486,7 +14530,7 @@ function createStyles(isDark = false) {
   checkoutInfoBand: { minHeight: 66, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 13, paddingVertical: 11, marginBottom: 10 },
   checkoutEtaBand: { borderColor: "#c4b5fd", backgroundColor: "#f5f3ff" },
   checkoutPickupBand: { borderColor: "#a7f3d0", backgroundColor: "#ecfdf5" },
-  checkoutBandIcon: { width: 36, height: 36, borderRadius: 13, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  checkoutBandIcon: { width: 36, height: 36, borderRadius: 13, backgroundColor: festivalActive ? surface : "#ffffff", alignItems: "center", justifyContent: "center" },
   checkoutBandText: { flex: 1, minWidth: 0 },
   checkoutBandLabel: { color: muted, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   checkoutEtaValue: { color: "#6d28d9", fontSize: 17, fontWeight: "900", marginTop: 3 },
@@ -14496,7 +14540,7 @@ function createStyles(isDark = false) {
   checkoutGrid: { flexDirection: "row", gap: 10, marginTop: 12 },
   checkoutMiniInput: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, fontWeight: "700" },
   checkoutInput: { minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: surfaceAlt, color: text, paddingHorizontal: 12, paddingVertical: 10, fontWeight: "700", marginTop: 10 },
-  checkoutItemCard: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 10 },
+  checkoutItemCard: { borderRadius: 16, borderWidth: 1, borderColor: festivalActive ? border : "#efcf92", backgroundColor: festivalActive ? surfaceAlt : "#fffaf0", padding: 12, marginTop: 10 },
   orderSummaryItemCard: { borderRadius: 18, borderWidth: 1, borderColor: border, backgroundColor: surface, padding: 14, marginBottom: 12 },
   orderSummaryItemTop: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   orderSummaryThumb: { width: 74, height: 74, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 },
@@ -14681,7 +14725,7 @@ function createStyles(isDark = false) {
   couponActionPill: { minWidth: 74, color: BRAND_ORANGE, backgroundColor: "#fff2d8", overflow: "hidden", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, fontSize: 13, fontWeight: "900", textAlign: "center" },
   appliedCouponPill: { color: "#15803d", backgroundColor: "#dcfce7" },
   couponDetails: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#efcf92" },
-  inactiveCoupon: { opacity: 0.62, backgroundColor: "#ffffff" },
+  inactiveCoupon: { opacity: 0.62, backgroundColor: festivalActive ? surface : "#ffffff" },
   couponCode: { color: text, fontSize: 17, fontWeight: "900" },
   couponValueText: { color: BRAND_ORANGE, fontSize: 14, fontWeight: "900", marginTop: 4 },
   couponDescriptionText: { color: text, fontSize: 13, fontWeight: "800", lineHeight: 19, marginTop: 6 },

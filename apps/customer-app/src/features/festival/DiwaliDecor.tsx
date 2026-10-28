@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, AppState, Image, StyleSheet, View } from "react-native";
 
 const headerLights = require("../../../assets/Darji_Diwali_Assets/header_marigold_lights.png");
@@ -63,6 +63,35 @@ export function useDiwaliMotion(enabled: boolean) {
 
 type Motion = ReturnType<typeof useDiwaliMotion>;
 
+export function DiwaliAppSurface({
+  enabled,
+  pageColor,
+  children
+}: {
+  enabled: boolean;
+  pageColor: string;
+  children: ReactNode;
+}) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <View style={[styles.appSurface, { backgroundColor: pageColor }]}>
+      <DiwaliPatternLayer />
+      <View style={styles.appContent}>{children}</View>
+    </View>
+  );
+}
+
+export function DiwaliPatternLayer() {
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Image source={rangoli} resizeMode="contain" style={[styles.appPattern, styles.appPatternTop]} />
+      <Image source={rangoli} resizeMode="contain" style={[styles.appPattern, styles.appPatternMiddle]} />
+      <Image source={rangoli} resizeMode="contain" style={[styles.appPattern, styles.appPatternBottom]} />
+      <Image source={heroSparkles} resizeMode="cover" style={styles.appSparkles} />
+    </View>
+  );
+}
+
 export function DiwaliHeaderDecor({ motion }: { motion: Motion }) {
   const rotate = motion.sway.interpolate({ inputRange: [-1, 1], outputRange: ["-3deg", "3deg"] });
   return (
@@ -70,6 +99,7 @@ export function DiwaliHeaderDecor({ motion }: { motion: Motion }) {
       <Animated.Image source={headerLights} resizeMode="stretch" style={[styles.headerLights, { opacity: motion.lights }]} />
       <Animated.Image source={lantern} resizeMode="contain" style={[styles.lanternLeft, { transform: [{ rotate }] }]} />
       <Animated.Image source={lantern} resizeMode="contain" style={[styles.lanternRight, { transform: [{ rotate }] }]} />
+      <Image source={rangoli} resizeMode="contain" style={styles.headerWatermark} />
       <Animated.View style={[styles.twinkle, styles.twinkleOne, { opacity: motion.lights }]} />
       <Animated.View style={[styles.twinkle, styles.twinkleTwo, { opacity: motion.sparkle }]} />
     </View>
@@ -107,18 +137,26 @@ export function DiwaliCardCorner({ placement = "right" }: { placement?: "left" |
 }
 
 const styles = StyleSheet.create({
-  headerLayer: { position: "absolute", left: -20, right: -20, top: -18, height: 104, overflow: "visible", zIndex: 0 },
-  headerLights: { position: "absolute", left: 0, right: 0, top: 0, width: "100%", height: 54 },
-  lanternLeft: { position: "absolute", left: 12, top: 24, width: 31, height: 55 },
-  lanternRight: { position: "absolute", right: 74, top: 19, width: 25, height: 48 },
+  appSurface: { flex: 1, overflow: "hidden" },
+  appContent: { flex: 1, zIndex: 1 },
+  appPattern: { position: "absolute", width: 230, height: 230, opacity: 0.055, tintColor: "#C98400" },
+  appPatternTop: { top: 88, right: -92, transform: [{ rotate: "-18deg" }] },
+  appPatternMiddle: { top: "42%", left: -118, transform: [{ rotate: "155deg" }] },
+  appPatternBottom: { bottom: 54, right: -100, transform: [{ rotate: "22deg" }] },
+  appSparkles: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, opacity: 0.035 },
+  headerLayer: { position: "absolute", left: -20, right: -20, top: -18, height: 136, overflow: "visible", zIndex: 0 },
+  headerLights: { position: "absolute", left: 0, right: 0, top: 0, width: "100%", height: 64 },
+  lanternLeft: { position: "absolute", left: 10, top: 30, width: 36, height: 68 },
+  lanternRight: { position: "absolute", right: 70, top: 25, width: 31, height: 60 },
+  headerWatermark: { position: "absolute", left: "32%", top: 50, width: 142, height: 96, opacity: 0.1, tintColor: "#D99A18" },
   twinkle: { position: "absolute", width: 5, height: 5, borderRadius: 3, backgroundColor: "#FFE8A3", shadowColor: "#F6A500", shadowOpacity: 0.9, shadowRadius: 5, elevation: 3 },
   twinkleOne: { left: "36%", top: 22 },
   twinkleTwo: { right: "28%", top: 32 },
-  greetingDiya: { width: 58, height: 42, marginLeft: 7, marginTop: -4 },
-  heroFabric: { position: "absolute", right: -18, top: -44, width: 150, height: 205, opacity: 0.8 },
+  greetingDiya: { width: 82, height: 60, marginLeft: 4, marginTop: 8 },
+  heroFabric: { position: "absolute", right: -22, top: -26, width: 188, height: 292, opacity: 0.92 },
   heroFill: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
-  heroDivider: { position: "absolute", left: 20, top: 66, width: 155, height: 35, opacity: 0.88 },
-  heroDiyas: { position: "absolute", right: -6, bottom: -8, width: 143, height: 84, opacity: 0.95 },
+  heroDivider: { position: "absolute", left: 22, top: 151, width: 205, height: 38, opacity: 0.9 },
+  heroDiyas: { position: "absolute", right: -7, bottom: -8, width: 183, height: 113, opacity: 0.98 },
   cardCorner: { position: "absolute", width: 68, height: 68, opacity: 0.16 },
   cardCornerImage: { width: "100%", height: "100%" },
   cardCornerRight: { right: -15, bottom: -17 },
