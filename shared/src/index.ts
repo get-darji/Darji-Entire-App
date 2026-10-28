@@ -151,8 +151,10 @@ export const bugReportSchema = z.object({
 export const accountChangeRequestSchema = z.object({
   type: z.enum([
     "ShopName",
+    "ShopDetails",
     "BankAccount",
     "UPI",
+    "PaymentDetails",
     "Address",
     "ContactNumber",
     "Vehicle",

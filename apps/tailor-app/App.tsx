@@ -393,10 +393,13 @@ type FaceLivenessState = "idle" | "aligning" | "aligned" | "blink-detected" | "c
 type VerificationDraft = {
   step: number;
   personal: { name: string; address: string; addressLine?: string; area?: string; city?: string; state?: string; pincode?: string; dob: string; email: string; location?: { lat: number; lng: number } };
-  shop: { workFromHome: boolean; shopName: string; shopAddress: string; shopAddressLine?: string; shopArea?: string; shopCity?: string; shopState?: string; shopPincode?: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery: string[]; shopPhotos: VerificationMediaDraft[] };
+  shop: { workFromHome: boolean; shopName: string; shopAddress: string; shopAddressLine?: string; shopArea?: string; shopCity?: string; shopState?: string; shopPincode?: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery?: string[]; shopPhotos: VerificationMediaDraft[] };
+  bank?: { accountHolder: string; accountNumber: string; ifsc: string; upi: string };
   category: "Men" | "Women" | "Both";
   rows: SpecializationRow[];
   confirmedRows: boolean;
+  specialties: string[];
+  otherSpecialty: string;
   idType: TailorIdType;
   idNumber: string;
   aadhaarFront?: VerificationMediaDraft;
@@ -410,8 +413,10 @@ type VerificationDraft = {
 };
 type TailorVerificationPayload = {
   personal: { name: string; address: string; dob: string; email?: string; location?: { lat: number; lng: number } };
-  shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; machinery: string[]; shopPhotos: string[] };
+  shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; shopPhotos: string[] };
+  bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; upi?: string };
   specializationRows: Array<{ gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: number }>;
+  specialties?: string[];
   idVerification: {
     idType: TailorIdType;
     idNumber: string;
@@ -4247,10 +4252,10 @@ const clothTypeOptions = [
 ];
 
 const stitchingTypeOptions = ["New Stitching", "Alteration", "Repair", "Hemming", "Embroidery", "Fall Pico", "Lining", "Zip Change", "Custom Design", "Other"];
+const verificationSpecialtyOptions = ["Alteration", "Blouse Design", "Embroidery", "Men's Wear", "Women's Wear", "Suits & Blazers", "Sherwani", "Uniforms", "Custom Tailoring", "Other"];
 const menClothTypeOptions = ["Shirt", "Pant", "Trouser", "Jeans", "Kurta", "Kurta Pajama", "Sherwani", "Blazer", "Suit", "Waistcoat", "Coat", "Nehru Jacket", "Pathani Suit", "Safari Suit", "Dhoti Kurta", "Other"];
 const womenClothTypeOptions = ["Blouse", "Kurti", "Salwar Suit", "Lehenga", "Gown", "Saree Fall Pico", "Petticoat", "Palazzo", "Sharara", "Anarkali Suit", "Night Suit", "Top", "Skirt", "Dress", "Other"];
 const detailedStitchingTypeOptions = ["New Stitching", "Side Fitting", "Sleeve Adjustment", "Waist Adjustment", "Hip Fitting", "Length Adjustment", "Narrowing", "Loose Fitting", "Collar Change", "Zip Change", "Button Replacement", "Repair Work", "Fall Pico", "Elastic Change", "Other"];
-const machineryOptions = ["Single Needle Machine", "Overlock Machine", "Interlock Machine", "Button Machine", "Embroidery Machine", "Cutting Machine", "Pico Machine", "Fall Stitch Machine", "Steam Press", "Industrial Sewing Machine"];
 const tutorialSlides = [
   ["Welcome to Darji", "Manage tailoring work from request to delivery.", "sparkles-outline"],
   ["Receiving Orders", "New customer requests appear with photos, measurements, and urgency.", "notifications-outline"],
@@ -4330,10 +4335,13 @@ function makeVerificationDraft(me?: MeResponse): VerificationDraft {
   return {
     step: 1,
     personal: { name: me?.name ?? "", address: "", addressLine: "", area: "", city: "", state: "", pincode: "", dob: "", email: "" },
-    shop: { workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [], shopPhotos: [] },
+    shop: { workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", shopPhotos: [] },
+    bank: { accountHolder: "", accountNumber: "", ifsc: "", upi: "" },
     category: "Both",
     rows: [newSpecializationRow()],
     confirmedRows: false,
+    specialties: [],
+    otherSpecialty: "",
     idType: "Aadhaar",
     idNumber: "",
     ocrStatus: "Not run",
@@ -4444,10 +4452,13 @@ function TailorVerificationFlow({
   const [showDobPicker, setShowDobPicker] = useState(false);
   const [showShopPhotoSheet, setShowShopPhotoSheet] = useState(false);
   const [personal, setPersonal] = useState({ name: me?.name ?? "", address: "", addressLine: "", area: "", city: "", state: "", pincode: "", dob: "", email: "", location: undefined as { lat: number; lng: number } | undefined });
-  const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", machinery: [] as string[], shopPhotos: [] as VerificationMediaDraft[] });
+  const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", shopPhotos: [] as VerificationMediaDraft[] });
+  const [verificationBank, setVerificationBank] = useState({ accountHolder: "", accountNumber: "", ifsc: "", upi: "" });
   const [category, setCategory] = useState<"Men" | "Women" | "Both">("Both");
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
+  const [specialties, setSpecialties] = useState<string[]>([]);
+  const [otherSpecialty, setOtherSpecialty] = useState("");
   const [idType, setIdType] = useState<TailorIdType>("Aadhaar");
   const [idNumber, setIdNumber] = useState("");
   const [aadhaarFront, setAadhaarFront] = useState<VerificationMediaDraft>();
@@ -4476,9 +4487,12 @@ function TailorVerificationFlow({
       step,
       personal,
       shop,
+      bank: verificationBank,
       category,
       rows,
       confirmedRows,
+      specialties,
+      otherSpecialty,
       idType,
       idNumber,
       aadhaarFront,
@@ -4496,10 +4510,13 @@ function TailorVerificationFlow({
     if (!draft) return;
     if (draft.step && status !== "PENDING" && status !== "REJECTED" && status !== "REUPLOAD_REQUIRED") setStep(Math.min(Math.max(draft.step, 1), VERIFICATION_FORM_STEPS));
     if (draft.personal) setPersonal((current) => ({ ...current, ...draft.personal, location: draft.personal?.location ?? current.location }));
-    if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, machinery: draft.shop?.machinery ?? current.machinery, shopPhotos: draft.shop?.shopPhotos ?? current.shopPhotos }));
+    if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, shopPhotos: draft.shop?.shopPhotos ?? current.shopPhotos }));
+    if (draft.bank) setVerificationBank((current) => ({ ...current, ...draft.bank }));
     if (draft.category) setCategory(draft.category);
     if (draft.rows?.length) setRows(draft.rows);
     if (typeof draft.confirmedRows === "boolean") setConfirmedRows(draft.confirmedRows);
+    if (draft.specialties) setSpecialties(draft.specialties);
+    if (typeof draft.otherSpecialty === "string") setOtherSpecialty(draft.otherSpecialty);
     if (draft.idType) setIdType(draft.idType === "License" ? "PAN" : draft.idType);
     if (draft.idNumber) setIdNumber(draft.idNumber);
     if (draft.aadhaarFront) setAadhaarFront(draft.aadhaarFront);
@@ -4536,9 +4553,9 @@ function TailorVerificationFlow({
       gstNumber: verification.shop.gstNumber ?? "",
       employeeCount: String(verification.shop.employeeCount ?? "1"),
       yearsExperience: String(verification.shop.yearsExperience ?? ""),
-      machinery: verification.shop.machinery ?? [],
       shopPhotos: (verification.shop.shopPhotos ?? []).map((url, index) => ({ uri: url, name: `Shop photo ${index + 1}`, uploadedUrl: url }))
     });
+    setVerificationBank({ accountHolder: verification.bank?.accountHolder ?? "", accountNumber: verification.bank?.accountNumber ?? "", ifsc: verification.bank?.ifsc ?? "", upi: verification.bank?.upi ?? "" });
     if (verification.specializationRows?.length) {
       setRows(
         verification.specializationRows.map((row, index) => ({
@@ -4551,6 +4568,15 @@ function TailorVerificationFlow({
       );
       setCategory(verification.specializationRows[0]?.gender ?? "Both");
       setConfirmedRows(true);
+    }
+    if (verification.specialties?.length) {
+      const knownOptions = verificationSpecialtyOptions.filter((item) => item !== "Other");
+      setSpecialties(verification.specialties.filter((item) => knownOptions.includes(item) || item === "Other"));
+      const custom = verification.specialties.find((item) => !knownOptions.includes(item) && item !== "Other");
+      if (custom) {
+        setSpecialties((current) => current.includes("Other") ? current : [...current, "Other"]);
+        setOtherSpecialty(custom);
+      }
     }
     setIdType(verification.idVerification.idType === "License" ? "PAN" : verification.idVerification.idType);
     setIdNumber(verification.idVerification.idNumber ?? "");
@@ -4598,7 +4624,7 @@ function TailorVerificationFlow({
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [hasLoadedDraft, step, personal, shop, category, rows, confirmedRows, idType, idNumber, aadhaarFront, aadhaarBack, panPhoto, facePhoto, ocrStatus, faceDetectionStatus, extractedDetails, tutorialWatched, token, status]);
+  }, [hasLoadedDraft, step, personal, shop, verificationBank, category, rows, confirmedRows, specialties, otherSpecialty, idType, idNumber, aadhaarFront, aadhaarBack, panPhoto, facePhoto, ocrStatus, faceDetectionStatus, extractedDetails, tutorialWatched, token, status]);
 
   useEffect(() => {
     if (!token) return;
@@ -5006,6 +5032,10 @@ function TailorVerificationFlow({
 
   async function submitVerification() {
     const validationMessage = fullValidationMessage();
+    if (specialties.includes("Other") && !otherSpecialty.trim()) {
+      showDialog({ title: localize(language, "Add your specialty", "अपनी विशेषता जोड़ें"), message: localize(language, "Write your specialty in the Other field before continuing.", "आगे बढ़ने से पहले अन्य फ़ील्ड में अपनी विशेषता लिखें।"), icon: "alert-circle-outline" });
+      return;
+    }
     if (!token || validationMessage) {
       if (validationMessage) showDialog({ title: localize(language, "Verification incomplete", "सत्यापन अधूरा है"), message: validationMessage, icon: "alert-circle-outline" });
       return;
@@ -5038,12 +5068,21 @@ function TailorVerificationFlow({
           gstNumber: shop.gstNumber.trim() || undefined,
           employeeCount: Number(shop.employeeCount),
           yearsExperience: Number(shop.yearsExperience),
-          machinery: shop.machinery,
           shopPhotos: uploadedShopPhotos.length ? uploadedShopPhotos : existingShopPhotoUrls
         },
+        bank: Object.values(verificationBank).some((value) => value.trim()) ? {
+          ...(verificationBank.accountHolder.trim() ? { accountHolder: verificationBank.accountHolder.trim() } : {}),
+          ...(verificationBank.accountNumber.trim() ? { accountNumber: verificationBank.accountNumber.trim() } : {}),
+          ...(verificationBank.ifsc.trim() ? { ifsc: verificationBank.ifsc.trim() } : {}),
+          ...(verificationBank.upi.trim() ? { upi: verificationBank.upi.trim() } : {})
+        } : undefined,
         specializationRows: specializationRows.length
           ? specializationRows
           : [{ gender: "Both", clothType: "Kurta", stitchingType: "New Stitching", price: 0 }],
+        specialties: [
+          ...specialties.filter((item) => item !== "Other"),
+          ...(specialties.includes("Other") && otherSpecialty.trim() ? [otherSpecialty.trim()] : [])
+        ],
         idVerification: {
           idType,
           idNumber: idNumber.trim(),
@@ -5392,17 +5431,40 @@ function TailorVerificationFlow({
                 <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.yearsExperience} onChangeText={(yearsExperience) => !isLocked && setShop((current) => ({ ...current, yearsExperience }))} keyboardType="number-pad" placeholder="5" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               </View>
             </View>
-            <Text style={styles.formLabel}>{localize(language, "Machinery", "मशीनें")}</Text>
+            <Text style={styles.formLabel}>{localize(language, "Your specialties", "आपकी विशेषताएँ")}</Text>
+            <Text style={styles.cardMeta}>{localize(language, "Choose what you are experienced in. Customers will see these on your tailor profile.", "अपने अनुभव के अनुसार चुनें। ग्राहक इन्हें आपकी दर्जी प्रोफ़ाइल पर देखेंगे।")}</Text>
             <View style={styles.chipWrap}>
-              {machineryOptions.map((item) => {
-                const selected = shop.machinery.includes(item);
+              {verificationSpecialtyOptions.map((item) => {
+                const selected = specialties.includes(item);
                 return (
-                  <Pressable key={item} style={[styles.suggestionChip, selected && styles.suggestionChipActive, isLocked && styles.inputReadOnly]} onPress={() => !isLocked && setShop((current) => ({ ...current, machinery: selected ? current.machinery.filter((value) => value !== item) : [...current.machinery, item] }))} disabled={isLocked}>
+                  <Pressable
+                    key={item}
+                    style={[styles.suggestionChip, selected && styles.suggestionChipActive, isLocked && styles.inputReadOnly]}
+                    onPress={() => !isLocked && setSpecialties((current) => selected ? current.filter((value) => value !== item) : [...current, item])}
+                    disabled={isLocked}
+                  >
                     <Text style={[styles.suggestionChipText, selected && styles.suggestionChipTextActive]}>{item}</Text>
                   </Pressable>
                 );
               })}
             </View>
+            {specialties.includes("Other") ? (
+              <TextInput
+                style={[styles.input, isLocked && styles.inputReadOnly]}
+                value={otherSpecialty}
+                onChangeText={setOtherSpecialty}
+                placeholder={localize(language, "Write your specialty", "अपनी विशेषता लिखें")}
+                placeholderTextColor="#9aa6b8"
+                maxLength={80}
+                editable={!isLocked}
+              />
+            ) : null}
+            <Text style={styles.formLabel}>Payout details (bank, UPI, or both)</Text>
+            <Text style={styles.cardMeta}>These details are saved with verification. Request a change later if needed.</Text>
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.accountHolder} onChangeText={(accountHolder) => setVerificationBank((current) => ({ ...current, accountHolder }))} placeholder="Bank account holder (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.accountNumber} onChangeText={(accountNumber) => setVerificationBank((current) => ({ ...current, accountNumber: accountNumber.replace(/\s/g, "").slice(0, 30) }))} placeholder="Bank account number (optional)" placeholderTextColor="#9aa6b8" keyboardType="number-pad" editable={!isLocked} />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.ifsc} onChangeText={(ifsc) => setVerificationBank((current) => ({ ...current, ifsc: ifsc.toUpperCase().slice(0, 20) }))} placeholder="IFSC code (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="characters" editable={!isLocked} />
+            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.upi} onChangeText={(upi) => setVerificationBank((current) => ({ ...current, upi: upi.slice(0, 80) }))} placeholder="UPI ID (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="none" editable={!isLocked} />
             <View style={styles.rowBetween}>
               <Text style={styles.formLabel}>{localize(language, "Shop Photos", "दुकान की फोटो")}</Text>
               <Text style={styles.cardMeta}>{shop.shopPhotos.length}/3</Text>
@@ -8177,4 +8239,3 @@ const styles = StyleSheet.create({
   walletClearDate: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
   walletResultCount: { color: MUTED, fontSize: 11, fontWeight: "800", marginBottom: 10 }
 });
-

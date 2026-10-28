@@ -126,8 +126,7 @@ function supportChannel(role: string) {
 const tailorProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   email: z.string().trim().email().optional().or(z.literal("")),
-  shopName: z.string().trim().min(2).max(100).optional(),
-  specialization: z.array(z.string().trim().min(2).max(40)).max(8).optional(),
+  address: z.string().trim().min(8).max(500).optional(),
   workingHours: z.object({ from: z.string().trim().max(10).optional(), to: z.string().trim().max(10).optional() }).optional(),
   settings: z
     .object({
@@ -156,9 +155,20 @@ const tailorVerificationSchema = z.object({
     gstNumber: z.string().trim().max(30).optional().or(z.literal("")),
     employeeCount: z.number().int().min(0).max(500),
     yearsExperience: z.number().int().min(0).max(80),
-    machinery: z.array(z.string().trim().min(2).max(60)).max(20),
     shopPhotos: z.array(z.string().url()).min(1).max(3)
   }),
+  bank: z.object({
+    accountHolder: z.string().trim().min(2).max(80).optional(),
+    accountNumber: z.string().trim().min(6).max(30).optional(),
+    ifsc: z.string().trim().min(4).max(20).optional(),
+    upi: z.string().trim().max(80).optional().or(z.literal(""))
+  }).optional().default({}).superRefine((bank, ctx) => {
+    const hasBankEntry = Boolean(bank.accountHolder || bank.accountNumber || bank.ifsc);
+    if (hasBankEntry && !(bank.accountHolder && bank.accountNumber && bank.ifsc)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Add account holder, account number, and IFSC together" });
+    }
+  }),
+  specialties: z.array(z.string().trim().min(2).max(80)).max(12).optional(),
   specializationRows: z
     .array(
       z.object({
@@ -209,6 +219,7 @@ const tailorVerificationDraftSchema = z.object({
 const deliveryProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   email: z.string().trim().email().optional().or(z.literal("")),
+  address: z.string().trim().min(8).max(500).optional(),
   workingHours: z.string().trim().max(80).optional(),
   deliveryType: z.enum(deliveryTypes).optional(),
   assignedArea: z.string().trim().min(1).max(100).optional(),
@@ -672,8 +683,7 @@ export async function updateTailorProfileController(req: Request, res: Response)
       { userId: req.user!.id },
       {
         ...(input.name ? { displayName: input.name } : {}),
-        ...(input.shopName ? { shopName: input.shopName } : {}),
-        ...(input.specialization ? { specialization: input.specialization } : {}),
+        ...(input.address ? { "verification.personal.address": input.address } : {}),
         ...(input.workingHours ? { workingHours: input.workingHours } : {}),
         ...(input.settings ? { settings: input.settings } : {})
       },
@@ -686,7 +696,9 @@ export async function updateTailorProfileController(req: Request, res: Response)
 
 export async function submitTailorVerificationController(req: Request, res: Response) {
   const input = tailorVerificationSchema.parse(req.body);
-  const specialization = input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
+  const specialization = input.specialties?.length
+    ? [...new Set(input.specialties.map((item) => item.trim()).filter(Boolean))]
+    : input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
   const existingTailor = await TailorModel.findOne({ userId: req.user!.id }).select("darjiTailorId verificationStatus verificationRejectedUntil verification verificationSubmittedAt registrationSnapshot");
   if (
     existingTailor?.verificationStatus === "REJECTED" &&
@@ -1392,6 +1404,7 @@ export async function updateDeliveryProfileController(req: Request, res: Respons
       { userId: req.user!.id },
       {
         ...(input.name ? { displayName: input.name } : {}),
+        ...(input.address ? { "verification.personal.address": input.address } : {}),
         ...(input.workingHours ? { workingHours: input.workingHours } : {}),
         ...(input.deliveryType ? { deliveryType: input.deliveryType } : {}),
         ...(input.assignedArea ? { assignedArea: input.assignedArea } : {}),

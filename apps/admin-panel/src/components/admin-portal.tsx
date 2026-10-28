@@ -14320,6 +14320,40 @@ function buildLiveAlerts({
       });
     });
 
+  tailoringRequests
+    .filter((request) => request.status === "QUOTE_REQUESTED" && Boolean(request.lastQuoteSentAt) && minutesAgo(request.lastQuoteSentAt) >= 120)
+    .forEach((request) => {
+      const quoteSentAt = request.lastQuoteSentAt ?? request.updatedAt;
+      alerts.push({
+        createdAt: quoteSentAt,
+        detail: `${request.darjiId ?? `TRQ-${request.id.slice(0, 8).toUpperCase()}`} has a tailor quote awaiting customer confirmation for over 2 hours.`,
+        id: `quote-awaiting-confirmation-${request.id}`,
+        onOpen: () => {
+          setTailoringDetail(request);
+          setActiveSection("tailoring");
+        },
+        title: "Quote awaiting confirmation",
+        tone: "amber"
+      });
+    });
+
+  tailoringRequests
+    .filter((request) => request.status === "PAYMENT_PENDING" && request.paymentStatus !== "PAID" && minutesAgo(request.paymentPendingAt ?? request.updatedAt ?? request.createdAt) >= 120)
+    .forEach((request) => {
+      const pendingSince = request.paymentPendingAt ?? request.updatedAt ?? request.createdAt;
+      alerts.push({
+        createdAt: pendingSince,
+        detail: `${request.darjiId ?? `TRQ-${request.id.slice(0, 8).toUpperCase()}`} has a selected tailor quote awaiting customer payment for over 2 hours.`,
+        id: `quote-payment-overdue-${request.id}`,
+        onOpen: () => {
+          setTailoringDetail(request);
+          setActiveSection("tailoring");
+        },
+        title: "Quote awaiting payment",
+        tone: "rose"
+      });
+    });
+
   orders
     .filter((order) => ["ORDER_PLACED", "CONFIRMED", "AT_TAILOR", "STITCHING_STARTED"].includes(order.status) && minutesAgo(order.updatedAt ?? order.createdAt) >= 24 * 60)
     .forEach((order) => {

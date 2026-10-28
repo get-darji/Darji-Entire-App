@@ -251,6 +251,7 @@ type BackendTailorProfile = {
       address?: string;
       area?: string;
       city?: string;
+      yearsExperience?: number;
     };
     personal?: {
       address?: string;
@@ -299,6 +300,7 @@ type TailorProfileSummary = {
   shopAddress?: string;
   specialty: string;
   specializations: string[];
+  yearsExperience?: number;
   avatarUrl?: string;
   isAvailable?: boolean;
   verificationStatus?: string;
@@ -6149,6 +6151,9 @@ function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorP
     shopAddress: address?.trim() || undefined,
     specialty: specializations.length ? specializations.join(", ") : "General tailoring",
     specializations,
+    yearsExperience: Number.isFinite(Number(tailor.verification?.shop?.yearsExperience))
+      ? Number(tailor.verification?.shop?.yearsExperience)
+      : undefined,
     avatarUrl: tailor.user?.avatarUrl,
     isAvailable: tailor.isAvailable,
     verificationStatus: tailor.verificationStatus,
@@ -6292,18 +6297,15 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
                   </View>
                 </View>
               </View>
-              <View style={styles.tailorProfileInfoGrid}>
-                <View style={styles.tailorProfileInfoCard}>
-                  <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
-                  <Text style={styles.tailorProfileInfoLabel}>Shop Address</Text>
-                  <Text style={styles.tailorProfileInfoValue}>{profile.shopAddress || profile.area}</Text>
+              {typeof profile.yearsExperience === "number" ? (
+                <View style={styles.tailorExperienceCard}>
+                  <View style={styles.tailorExperienceIcon}><Ionicons name="ribbon-outline" size={19} color={BRAND_ORANGE} /></View>
+                  <View style={styles.profileRowTextNoMargin}>
+                    <Text style={styles.tailorExperienceLabel}>EXPERIENCE</Text>
+                    <Text style={styles.tailorExperienceValue}>{profile.yearsExperience === 1 ? "1 year" : `${profile.yearsExperience} years`} in tailoring</Text>
+                  </View>
                 </View>
-                <View style={styles.tailorProfileInfoCard}>
-                  <Ionicons name={profile.isAvailable === false ? "time-outline" : "checkmark-circle-outline"} size={18} color={BRAND_ORANGE} />
-                  <Text style={styles.tailorProfileInfoLabel}>Availability</Text>
-                  <Text style={styles.tailorProfileInfoValue}>{profile.isAvailable === false ? "Unavailable" : "Available"}</Text>
-                </View>
-              </View>
+              ) : null}
               <Text style={styles.cardLabel}>SPECIALIZES IN</Text>
               <View style={styles.tailorSpecialtyWrap}>
                 {(profile.specializations.length ? profile.specializations : [profile.specialty]).map((item) => (
@@ -6312,7 +6314,7 @@ function TailorProfileModal({ profile, onClose }: { profile?: TailorProfileSumma
               </View>
               {profile.samples?.length ? (
                 <>
-                  <Text style={styles.cardLabel}>SAMPLE WORK</Text>
+                  <Text style={styles.cardLabel}>PREVIOUS WORK</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tailorSampleRow}>
                     {profile.samples.map((sample, index) => (
                       <Image key={sample.id ?? sample.url} source={{ uri: sample.url }} style={styles.tailorSampleImage} resizeMode="cover" accessibilityLabel={`Tailor sample ${index + 1}`} />
@@ -14492,6 +14494,10 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   tailorProfileRating: { color: text, fontSize: 13, lineHeight: 18, fontWeight: "900" },
   tailorProfileReviews: { color: muted, fontSize: 11, lineHeight: 16, fontWeight: "700" },
   tailorProfileInfoGrid: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  tailorExperienceCard: { minHeight: 66, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 10 },
+  tailorExperienceIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: iconBg, alignItems: "center", justifyContent: "center" },
+  tailorExperienceLabel: { color: muted, fontSize: 10, fontWeight: "900", letterSpacing: 0.4 },
+  tailorExperienceValue: { color: text, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 2 },
   tailorProfileInfoCard: { flex: 1, minHeight: 78, borderRadius: 14, borderWidth: 1, borderColor: border, backgroundColor: inputSurface, padding: 12 },
   tailorProfileInfoLabel: { color: muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase", marginTop: 7 },
   tailorProfileInfoValue: { color: text, fontSize: 13, fontWeight: "900", lineHeight: 18, marginTop: 3 },

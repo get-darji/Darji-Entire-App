@@ -841,6 +841,8 @@ const tailoringRequestSchema = new Schema(
     selectedQuoteId: { type: String, index: true },
     paymentMethod: { type: String, enum: paymentMethods },
     paymentStatus: { type: String, enum: paymentStatuses, default: "PENDING", index: true },
+    paymentPendingAt: { type: Date, index: true },
+    lastQuoteSentAt: { type: Date, index: true },
     quoteAmount: Number,
     deliveryFee: Number,
     deliveryMode: { type: String, enum: ["STANDARD", "EXPRESS", "INSTANT"], index: true },

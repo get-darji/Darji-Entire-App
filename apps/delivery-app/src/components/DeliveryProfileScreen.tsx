@@ -205,6 +205,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [editing, setEditing] = useState(false);
   const [showVehicleDetails, setShowVehicleDetails] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(false);
+  const [showDocuments, setShowDocuments] = useState(false);
   const [vehicleChangeRequest, setVehicleChangeRequest] = useState("");
   const [submittingVehicleChange, setSubmittingVehicleChange] = useState(false);
   const [bankChangeRequest, setBankChangeRequest] = useState("");
@@ -219,6 +220,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
   const [submittingDeletion, setSubmittingDeletion] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [name, setName] = useState(registeredName);
+  const [address, setAddress] = useState(registeredAddress);
   const [email, setEmail] = useState(me?.email ?? "");
   const [vehicleNumber, setVehicleNumber] = useState(profile?.vehicleNumber ?? "");
   const [available, setAvailable] = useState(Boolean(profile?.isAvailable ?? false));
@@ -246,6 +248,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
 
   useEffect(() => {
     setName(registeredName);
+    setAddress(registeredAddress);
     setEmail(me?.email ?? "");
     setVehicleNumber(profile?.vehicleNumber ?? "");
     setAvailable(Boolean(profile?.isAvailable ?? false));
@@ -258,7 +261,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       radius: settings.radius ?? "5 km",
       availability: settings.availability ?? "Full time"
     });
-  }, [registeredName, me?.email, profile?.isAvailable, profile?.vehicleNumber, settings]);
+  }, [registeredName, registeredAddress, me?.email, profile?.isAvailable, profile?.vehicleNumber, settings]);
 
   useEffect(() => {
     if (initialSupportScreen === "support_center") {
@@ -293,6 +296,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
           method: "PATCH",
           body: JSON.stringify({
             name: name.trim(),
+            address: address.trim() || undefined,
             email: email.trim(),
             settings: {
               notifications: preferences.notifications,
@@ -330,11 +334,11 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     if (!token) return;
     try {
       setSubmittingVehicleChange(true);
-      await api("/support", {
+      await api("/support/change-requests", {
         method: "POST",
         body: JSON.stringify({
-          subject: "Vehicle Details Change Request",
-          message: `[Vehicle: ${vehicleNumber}] Request: ${vehicleChangeRequest.trim()}`
+          type: "Vehicle",
+          requestedValues: { currentVehicleNumber: vehicleNumber, request: vehicleChangeRequest.trim() }
         })
       }, token);
       setVehicleChangeRequest("");
@@ -355,11 +359,11 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
     if (!token) return;
     try {
       setSubmittingBankChange(true);
-      await api("/support", {
+      await api("/support/change-requests", {
         method: "POST",
         body: JSON.stringify({
-          subject: "Bank Details Change Request",
-          message: `Request: ${bankChangeRequest.trim()}`
+          type: "PaymentDetails",
+          requestedValues: { currentPaymentDetails: ((profile?.verification as { bank?: Record<string, unknown> } | undefined)?.bank ?? {}), request: bankChangeRequest.trim() }
         })
       }, token);
       setBankChangeRequest("");
@@ -437,31 +441,10 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               <Text style={[styles.title, styles.profileNameText]} numberOfLines={2}>{name || "Darji Delivery"}</Text>
               <Ionicons name="chevron-forward" size={22} color={BRAND_ORANGE} />
             </View>
-            <Text style={styles.profileTapHint}>Tap to view partner details</Text>
+            <Text style={styles.profileTapHint}>{profile?.darjiPartnerId ?? "Delivery ID pending"}</Text>
           </Pressable>
         </View>
         <View style={styles.profileInfoList}>
-          <Pressable accessibilityRole="button" accessibilityLabel="View phone details" style={styles.profileInfoRow} onPress={() => setShowIdentityDetails(true)}>
-            <View style={styles.profileInfoIcon}><Ionicons name="call-outline" size={20} color={BRAND_ORANGE} /></View>
-            <Text style={styles.profileInfoLabel}>Phone</Text>
-            <View style={styles.profileInfoValueWrap}>
-              <Text style={styles.profileInfoValue} numberOfLines={1}>{displayPhone}</Text>
-              {avatarLocked ? <Text style={styles.profileInfoNote}>Verification photo locked</Text> : null}
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Edit email" style={styles.profileInfoRow} onPress={() => setEditing(true)}>
-            <View style={styles.profileInfoIcon}><Ionicons name="mail-outline" size={20} color={BRAND_ORANGE} /></View>
-            <Text style={styles.profileInfoLabel}>Email</Text>
-            <Text style={[styles.profileInfoValue, styles.profileInfoValueWrap]} numberOfLines={2}>{email || "Email not added"}</Text>
-            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="View registered address" style={styles.profileInfoRow} onPress={() => setShowIdentityDetails(true)}>
-            <View style={styles.profileInfoIcon}><Ionicons name="location-outline" size={20} color={BRAND_ORANGE} /></View>
-            <Text style={styles.profileInfoLabel}>Address</Text>
-            <Text style={[styles.profileInfoValue, styles.profileInfoValueWrap]} numberOfLines={2}>{registeredAddress || "Not added"}</Text>
-            <Ionicons name="chevron-forward" size={18} color={palette.subtext} />
-          </Pressable>
           <View style={styles.profileCompletedBand}>
             <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
             <Text style={styles.completedText}>{completedJobs} completed jobs</Text>
@@ -547,10 +530,36 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       </Modal>
 
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
-        <InfoRow icon="create-outline" title="Edit Profile" value="Update name and email" styles={styles} onPress={() => setEditing(true)} noBorder />
+        <InfoRow icon="person-circle-outline" title="Profile" value="Personal details and account information" styles={styles} onPress={() => setEditing(true)} noBorder />
+        <InfoRow icon="document-text-outline" title="Documents" value="Submitted identity and license details" styles={styles} onPress={() => setShowDocuments(true)} />
         <InfoRow icon="car-outline" title="Vehicle Details" value={vehicleNumber || "No vehicle details registered"} styles={styles} onPress={() => setShowVehicleDetails(true)} />
+        <InfoRow icon="card-outline" title="Payment Details" value="View payout details or request a change" styles={styles} onPress={() => setShowBankDetails(true)} />
 
       </Section>
+
+      <Modal visible={showDocuments} onRequestClose={() => setShowDocuments(false)} animationType="slide">
+        <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.background }}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.detailHeader}><Pressable style={styles.backButton} onPress={() => setShowDocuments(false)}><Ionicons name="chevron-back" size={22} color={palette.text} /></Pressable><View style={styles.rowMain}><Text style={styles.title}>Documents</Text><Text style={styles.meta}>Submitted document types and numbers</Text></View></View>
+            <View style={styles.section}>
+              {(() => {
+                const verification = (profile?.verification ?? {}) as { identity?: { identityType?: string; aadhaarNumber?: string; panNumber?: string }; license?: { licenseNumber?: string } };
+                const identity = verification.identity ?? {};
+                const rows = identity.identityType === "Aadhaar"
+                  ? [{ label: "Aadhaar", value: identity.aadhaarNumber }]
+                  : identity.identityType === "PAN"
+                    ? [{ label: "PAN", value: identity.panNumber }]
+                    : [{ label: "Aadhaar", value: identity.aadhaarNumber }, { label: "PAN", value: identity.panNumber }].filter((item) => item.value);
+                return <>
+                  {rows.map((item) => <InfoRow key={item.label} icon="id-card-outline" title={item.label} value={item.value || "Not submitted"} styles={styles} />)}
+                  <InfoRow icon="card-outline" title="Driving license" value={verification.license?.licenseNumber || "Not submitted"} styles={styles} />
+                </>;
+              })()}
+              <Text style={{ color: palette.subtext, fontSize: 12, lineHeight: 18, marginTop: 8 }}>Document photos are kept for verification and are not displayed here.</Text>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal visible={editing} onRequestClose={() => setEditing(false)} animationType="slide">
         <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.background }}>
@@ -560,12 +569,14 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                 <Ionicons name="chevron-back" size={22} color={palette.text} />
               </Pressable>
               <View style={styles.rowMain}>
-                <Text style={styles.title}>Edit Profile</Text>
+                <Text style={styles.title}>Profile · Personal Details</Text>
                 <Text style={styles.meta}>Update name and email</Text>
               </View>
             </View>
             <View style={styles.section}>
               <Input label="Full Name" value={name} onChangeText={setName} styles={styles} />
+              <InfoRow icon="call-outline" title="Phone number" value={me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available"} styles={styles} />
+              <Input label="Address" value={address} onChangeText={setAddress} styles={styles} />
               <Input label="Email" value={email} onChangeText={setEmail} styles={styles} />
               <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
                 {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
@@ -593,7 +604,15 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                 <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
                 <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>CURRENT CONFIGURATION</Text>
               </View>
-              <InfoRow icon="car-outline" title="Vehicle Number" value={vehicleNumber || "Not registered"} styles={styles} />
+              {(() => {
+                const vehicle = ((profile?.verification as { vehicle?: { vehicleType?: string; vehicleNumber?: string; vehicleModel?: string; rcPhotoUrl?: string } } | undefined)?.vehicle ?? {});
+                return <>
+                  <InfoRow icon="car-outline" title="Vehicle Type" value={vehicle.vehicleType || "Not provided"} styles={styles} />
+                  <InfoRow icon="car-outline" title="Vehicle Number" value={vehicle.vehicleNumber || vehicleNumber || "Not registered"} styles={styles} />
+                  <InfoRow icon="construct-outline" title="Vehicle Model" value={vehicle.vehicleModel || "Not provided"} styles={styles} />
+                  <InfoRow icon="document-text-outline" title="RC Document" value={vehicle.rcPhotoUrl ? "Submitted" : "Not submitted"} styles={styles} />
+                </>;
+              })()}
               <InfoRow icon="shield-checkmark-outline" title="Verification Status" value={profile?.verificationStatus || "NOT_SUBMITTED"} styles={styles} />
             </View>
 
@@ -650,10 +669,16 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                 <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
                 <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>CURRENT BANKING</Text>
               </View>
-              <InfoRow icon="card-outline" title="Payout Option" value="Bank Transfer (Weekly Payout)" styles={styles} />
-              <InfoRow icon="business-outline" title="Bank Name" value="Registered Partner Bank" styles={styles} />
-              <InfoRow icon="person-circle-outline" title="Account Holder" value={name || "Delivery Partner"} styles={styles} />
-              <InfoRow icon="wallet-outline" title="Payout Status" value="Active" styles={styles} />
+              {(() => {
+                const bank = ((profile?.verification as { bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; upi?: string } } | undefined)?.bank ?? {});
+                return <>
+                  <InfoRow icon="card-outline" title="Payout Option" value={bank.upi ? (bank.accountNumber ? "Bank transfer and UPI" : "UPI") : bank.accountNumber ? "Bank transfer" : "Not added"} styles={styles} />
+                  <InfoRow icon="business-outline" title="Bank Account" value={bank.accountNumber ? `••••${bank.accountNumber.slice(-4)} · ${bank.ifsc || "IFSC not available"}` : "Not added"} styles={styles} />
+                  <InfoRow icon="person-circle-outline" title="Account Holder" value={bank.accountHolder || "Not added"} styles={styles} />
+                  <InfoRow icon="wallet-outline" title="UPI ID" value={bank.upi || "Not added"} styles={styles} />
+                </>;
+              })()}
+              <InfoRow icon="wallet-outline" title="Payout Status" value={((profile?.verification as { bank?: { accountNumber?: string; upi?: string } } | undefined)?.bank?.accountNumber || (profile?.verification as { bank?: { upi?: string } } | undefined)?.bank?.upi) ? "Details saved" : "Details not added"} styles={styles} />
             </View>
 
             <View style={styles.requestCard}>
@@ -664,7 +689,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
                   <Text style={styles.requestSubtitle}>Finance verification required</Text>
                 </View>
               </View>
-              <Text style={styles.requestCopy}>Enter the new account holder name, bank name, account number and IFSC. The current payout account stays active until approval.</Text>
+              <Text style={styles.requestCopy}>Current payout information comes from verification. Changes require admin approval; include the updated bank or UPI details in your request.</Text>
               <View style={styles.inputBlock}>
                 <TextInput
                   style={[styles.input, styles.requestInput]}

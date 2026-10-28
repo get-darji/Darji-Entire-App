@@ -580,7 +580,7 @@ export type AccountChangeRequest = {
   darjiId?: string;
   userId: string;
   userRole?: "CUSTOMER" | "TAILOR" | "DELIVERY_PARTNER";
-  type: "ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "Vehicle" | "RC" | "DrivingLicense" | "AccountDeletion";
+  type: "ShopName" | "ShopDetails" | "BankAccount" | "PaymentDetails" | "UPI" | "Address" | "ContactNumber" | "Vehicle" | "RC" | "DrivingLicense" | "IdentityDocument" | "AccountDeletion";
   currentValues?: Record<string, any>;
   requestedValues: Record<string, any>;
   documents?: string[];
@@ -836,6 +836,8 @@ export type TailoringRequest = {
   quoteCount?: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  paymentPendingAt?: string;
+  lastQuoteSentAt?: string;
   quoteAmount?: number;
   deliveryFee?: number;
   deliveryMode?: "STANDARD" | "EXPRESS" | "INSTANT" | string;

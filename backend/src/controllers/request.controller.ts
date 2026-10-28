@@ -2678,6 +2678,7 @@ export async function createTailorQuoteController(req: Request, res: Response) {
 
   const hydratedQuote = await hydrateTailorQuote(quote);
   await TailoringRequestModel.findByIdAndUpdate(request.id, {
+    lastQuoteSentAt: new Date(),
     $push: { timelineEvents: { status: "QUOTE_RECEIVED", description: `${tailor.shopName} submitted a quote`, timestamp: new Date(), ...actorTimelineFields(req) } }
   });
   emitToCustomer(request.customerId, "customer:quote_received", { requestId: request.id, quote: hydratedQuote });
@@ -2891,6 +2892,7 @@ export async function startTailoringCheckoutController(req: Request, res: Respon
 
   await TailoringRequestModel.findByIdAndUpdate(request.id, {
     status: input.paymentMethod === "COD" ? "TAILOR_SELECTED" : "PAYMENT_PENDING",
+    ...(input.paymentMethod === "COD" ? { $unset: { paymentPendingAt: 1 } } : { paymentPendingAt: new Date() }),
     selectedQuoteId: quote.id,
     paymentMethod: input.paymentMethod,
     paymentStatus: "PENDING",
@@ -3230,6 +3232,7 @@ export async function selectTailorQuoteController(req: Request, res: Response) {
     request.id,
     {
       status: "PAYMENT_PENDING",
+      paymentPendingAt: new Date(),
       selectedQuoteId: quote.id,
       paymentStatus: "PENDING",
       orderStatus: "payment_pending",
