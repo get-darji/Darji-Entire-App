@@ -561,7 +561,7 @@ type MeasurementVisitOtp = {
   status: string;
   scheduledAt?: string;
   preferredMeasurementSlot?: string;
-  assignedTailor?: { id: string; name: string; phone?: string; avatarUrl?: string };
+  assignedTailor?: { id: string; name: string; phone?: string; avatarUrl?: string; profile?: BackendTailorProfile };
 };
 
 const MEASUREMENT_VISIT_TIME_SLOTS = [
@@ -2754,6 +2754,7 @@ function HomeScreen({
   const festiveGreeting = language === "hi"
     ? `शुभ दीपावली,\n${firstName}!`
     : festivalGreeting(festivalTheme, profile.name).replace(`, ${firstName}`, `,\n${firstName}`);
+  const [festiveGreetingLine, festiveNameLine = `${firstName}!`] = festiveGreeting.split("\n");
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
@@ -2774,6 +2775,15 @@ function HomeScreen({
   useEffect(() => {
     if (refreshSignal > 0) loadHomeExtras();
   }, [loadHomeExtras, refreshSignal]);
+
+  useEffect(() => {
+    if (!diwaliActive) return;
+    const frame = requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      onScrollOffsetChange(0);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [diwaliActive]);
 
   const needs = [
     { title: "Alteration", text: "Fit and size changes", image: homeAlterationImage },
@@ -2796,7 +2806,10 @@ function HomeScreen({
           <View style={diwaliActive ? styles.festivalHeaderContent : undefined}>
             {diwaliActive ? (
               <View style={styles.festivalGreetingRow}>
-                <Text style={[styles.festivalGreeting, { color: festivalTheme.palette.fabric }]} maxFontSizeMultiplier={1.2}>{festiveGreeting}</Text>
+                <View style={styles.festivalGreetingCopy}>
+                  <Text style={[styles.festivalGreetingLine, { color: festivalTheme.palette.fabric }]} maxFontSizeMultiplier={1.1}>{festiveGreetingLine}</Text>
+                  <Text style={styles.festivalGreetingName} maxFontSizeMultiplier={1.1}>{festiveNameLine}</Text>
+                </View>
                 <DiwaliGreetingDiya motion={diwaliMotion} />
               </View>
             ) : (
@@ -11653,6 +11666,7 @@ function CustomerEtaCard({ orderId, status }: { orderId?: string; status: string
 function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderId?: string; status: string; onVisitLoaded?: (visit?: MeasurementVisitOtp) => void }) {
   const token = useAppStore((state) => state.token);
   const [visit, setVisit] = useState<MeasurementVisitOtp | undefined>();
+  const [profileTailor, setProfileTailor] = useState<TailorProfileSummary | undefined>();
 
   useEffect(() => {
     if (!token || !orderId) {
@@ -11675,54 +11689,93 @@ function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderI
   const assignedTailor = visit.assignedTailor;
   const tailorPhone = assignedTailor?.phone?.replace(/\D/g, "").slice(-10);
   const submitted = visit.status === "SUBMITTED";
+  const openMeasurementTailorProfile = () => {
+    if (!assignedTailor) return;
+    const fallbackProfile: TailorProfileSummary = {
+      id: assignedTailor.id,
+      initials: initialsFor(assignedTailor.name),
+      shopName: assignedTailor.profile?.shopName?.trim() || assignedTailor.name,
+      displayName: assignedTailor.name,
+      rating: "New",
+      reviews: 0,
+      area: "Area not added",
+      specialty: "General tailoring",
+      specializations: [],
+      avatarUrl: assignedTailor.avatarUrl
+    };
+    const embeddedProfile = tailorProfileFromBackend(assignedTailor.profile);
+    setProfileTailor(embeddedProfile ?? fallbackProfile);
+    if (embeddedProfile || !token) return;
+    void api<BackendTailorProfile[]>("/tailors", {}, token)
+      .then((tailors) => {
+        const fullProfile = tailorProfileFromBackend(tailors.find((tailor) => tailor.id === assignedTailor.id));
+        if (fullProfile) setProfileTailor(fullProfile);
+      })
+      .catch(() => undefined);
+  };
   return (
-    <View style={[styles.whiteCard, styles.measurementOtpCard]}>
-      <Text style={styles.cardLabel}>MEASUREMENT VISIT</Text>
-      {assignedTailor ? (
-        <View style={styles.measurementTailorRow}>
-          <View style={styles.measurementTailorIcon}>
-            {assignedTailor.avatarUrl ? (
-              <Image source={{ uri: assignedTailor.avatarUrl }} style={styles.measurementTailorAvatar} />
-            ) : (
-              <Ionicons name="person-outline" size={21} color="#111111" />
-            )}
-          </View>
-          <View style={styles.profileRowText}>
-            <Text style={styles.addressTitle}>{assignedTailor.name}</Text>
-            <Text style={styles.mutedSmall}>{tailorPhone ? displayIndianPhone(tailorPhone) : "Phone number unavailable"}</Text>
-            <Text style={styles.measurementTailorStatus}>{submitted ? "Measurements submitted" : "Your visiting measurement tailor"}</Text>
-          </View>
-          {tailorPhone ? (
+    <>
+      <View style={[styles.whiteCard, styles.measurementOtpCard]}>
+        <Text style={styles.cardLabel}>MEASUREMENT VISIT</Text>
+        {assignedTailor ? (
+          <View style={styles.measurementTailorAssigned}>
+            <View style={styles.measurementTailorRow}>
+              <View style={styles.measurementTailorIcon}>
+                {assignedTailor.avatarUrl ? (
+                  <Image source={{ uri: assignedTailor.avatarUrl }} style={styles.measurementTailorAvatar} />
+                ) : (
+                  <Text style={styles.measurementTailorInitials}>{initialsFor(assignedTailor.name)}</Text>
+                )}
+              </View>
+              <View style={styles.profileRowText}>
+                <Text style={styles.addressTitle}>{assignedTailor.name}</Text>
+                <Text style={styles.mutedSmall}>{tailorPhone ? displayIndianPhone(tailorPhone) : "Phone number unavailable"}</Text>
+                <Text style={styles.measurementTailorStatus}>{submitted ? "Measurements submitted" : "Your visiting measurement tailor"}</Text>
+              </View>
+              {tailorPhone ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Call measurement tailor ${assignedTailor.name}`}
+                  style={styles.measurementTailorCallButton}
+                  onPress={() => Linking.openURL(`tel:+91${tailorPhone}`).catch(() => undefined)}
+                >
+                  <Ionicons name="call-outline" size={18} color="#ffffff" />
+                </Pressable>
+              ) : null}
+            </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Call measurement tailor ${assignedTailor.name}`}
-              style={styles.measurementTailorCallButton}
-              onPress={() => Linking.openURL(`tel:+91${tailorPhone}`).catch(() => undefined)}
+              accessibilityLabel={`View profile for ${assignedTailor.name}`}
+              style={styles.measurementTailorProfileButton}
+              onPress={openMeasurementTailorProfile}
             >
-              <Ionicons name="call-outline" size={18} color="#ffffff" />
+              <Ionicons name="person-circle-outline" size={18} color={BRAND_DEEP} />
+              <Text style={styles.measurementTailorProfileButtonText}>View Profile</Text>
+              <Ionicons name="chevron-forward" size={16} color={BRAND_DEEP} />
             </Pressable>
-          ) : null}
-        </View>
-      ) : (
-        <View style={styles.measurementTailorPending}>
-          <Ionicons name="time-outline" size={20} color="#b45309" />
-          <View style={styles.profileRowText}>
-            <Text style={styles.addressTitle}>Measurement tailor not assigned yet</Text>
-            <Text style={styles.mutedSmall}>We are finding a tailor for your home measurement visit. Their profile and phone number will appear here after they accept.</Text>
           </View>
-        </View>
-      )}
-      {!submitted ? (
-        <View style={styles.handoffOtpRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.addressTitle}>Share this only at your home visit</Text>
-            {preferredSlot ? <Text style={styles.customerMeasurementSlotValue}>Preferred visit: {preferredSlot}</Text> : null}
-            <Text style={styles.mutedSmall}>{preferredSlot ? "" : "The selected time slot is unavailable. "}The visiting tailor needs this OTP to submit your measurements.</Text>
+        ) : (
+          <View style={styles.measurementTailorPending}>
+            <Ionicons name="time-outline" size={20} color="#b45309" />
+            <View style={styles.profileRowText}>
+              <Text style={styles.addressTitle}>Measurement tailor not assigned yet</Text>
+              <Text style={styles.mutedSmall}>We are finding a tailor for your home measurement visit. Their profile and phone number will appear here after they accept.</Text>
+            </View>
           </View>
-          <Text style={styles.handoffOtpCode}>{visit.otp}</Text>
-        </View>
-      ) : null}
-    </View>
+        )}
+        {!submitted ? (
+          <View style={styles.handoffOtpRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.addressTitle}>Share this only at your home visit</Text>
+              {preferredSlot ? <Text style={styles.customerMeasurementSlotValue}>Preferred visit: {preferredSlot}</Text> : null}
+              <Text style={styles.mutedSmall}>{preferredSlot ? "" : "The selected time slot is unavailable. "}The visiting tailor needs this OTP to submit your measurements.</Text>
+            </View>
+            <Text style={styles.handoffOtpCode}>{visit.otp}</Text>
+          </View>
+        ) : null}
+      </View>
+      <TailorProfileModal profile={profileTailor} onClose={() => setProfileTailor(undefined)} />
+    </>
   );
 }
 
@@ -12503,7 +12556,7 @@ function AppContent() {
     return (
       <PullToRefreshContext.Provider value={{ refreshing: pullRefreshing, refreshSignal, onRefresh: () => void refreshVisibleCustomerScreen() }}>
       <FestivalThemeContext.Provider value={festival.state}>
-      <DiwaliAppSurface enabled={festivalActive} pageColor={festival.state.palette.page}>
+      <DiwaliAppSurface enabled={festivalActive} pageColor={festival.state.palette.page} showGarland={screen === "home"}>
       {festivalActive ? <StatusBar barStyle="dark-content" backgroundColor={festival.state.palette.page} translucent /> : null}
       <NotificationProvider
         app="customer"
@@ -13691,16 +13744,18 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   dialogButtonText: { color: "#111111", fontSize: 15, fontWeight: "900" },
   dialogDestructiveText: { color: "#c24141" },
   pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
-  homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
+  homeContent: { paddingHorizontal: festivalActive ? 18 : 20, paddingTop: festivalActive ? 12 : 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
   festivalSafe: { backgroundColor: "transparent" },
   festivalHomeContent: { backgroundColor: "transparent" },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
-  festivalHomeTop: { minHeight: 126, alignItems: "flex-end", marginBottom: 12, overflow: "visible" },
+  festivalHomeTop: { minHeight: 77, alignItems: "flex-end", marginBottom: 12, overflow: "visible" },
   festivalHeaderContent: { flex: 1, zIndex: 2 },
   festivalHeaderActions: { zIndex: 3, alignSelf: "center" },
-  festivalGreetingRow: { minHeight: 78, flexDirection: "row", alignItems: "center", paddingTop: 42, paddingLeft: 16, paddingRight: 4 },
-  festivalGreeting: { flexShrink: 1, color: "#6B1016", fontSize: 27, lineHeight: 32, fontWeight: "900", fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
+  festivalGreetingRow: { minHeight: 64, flexDirection: "row", alignItems: "center", paddingTop: 13, paddingLeft: 4, paddingRight: 4, transform: [{ translateY: -7 }] },
+  festivalGreetingCopy: { flexShrink: 1, zIndex: 2 },
+  festivalGreetingLine: { fontSize: 18, lineHeight: 22, fontWeight: "800", fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
+  festivalGreetingName: { color: BRAND_DEEP, fontSize: 24, lineHeight: 28, fontWeight: "900", fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
   mutedSmall: { color: subtle, fontSize: 12 },
   userName: { color: text, fontSize: 20, fontWeight: "900", marginTop: 6 },
   homeActions: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -13709,26 +13764,26 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center" },
   avatarImage: { width: 42, height: 42, borderRadius: 21, backgroundColor: surface },
   avatarText: { color: "#111111", fontSize: 13, fontWeight: "900" },
-  searchBar: { height: festivalActive ? 60 : 48, borderRadius: festivalActive ? 24 : 16, backgroundColor: surface, borderWidth: festivalActive ? 1.2 : 0, borderColor: border, flexDirection: "row", alignItems: "center", paddingHorizontal: festivalActive ? 20 : 16, gap: 12, marginBottom: 16 },
+  searchBar: { height: festivalActive ? 48 : 48, borderRadius: festivalActive ? 18 : 16, backgroundColor: surface, borderWidth: festivalActive ? 1.2 : 0, borderColor: border, flexDirection: "row", alignItems: "center", paddingHorizontal: festivalActive ? 18 : 16, gap: 12, marginBottom: 16 },
   festivalCard: { borderWidth: 1, borderColor: "#E8C57A", overflow: "hidden", backgroundColor: "#FFFCF5" },
   searchPlaceholder: { color: muted, fontSize: 14, fontWeight: "700" },
   animatedSearchWord: { color: text, fontWeight: "900" },
   searchCursor: { color: BRAND_ORANGE, fontWeight: "900" },
-  homeAddressCard: { minHeight: festivalActive ? 76 : 62, borderRadius: festivalActive ? 24 : 17, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: festivalActive ? 16 : 12, marginBottom: 16 },
+  homeAddressCard: { minHeight: festivalActive ? 60 : 62, borderRadius: festivalActive ? 18 : 17, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: festivalActive ? 6 : 12, marginBottom: 16 },
   featureCard: { minHeight: 176, borderRadius: 22, backgroundColor: darkCard, padding: 22, overflow: "hidden", marginBottom: 24 },
-  festivalFeatureCard: { minHeight: 310, backgroundColor: "#2C1708", borderWidth: 1.5, borderColor: "#D99820", padding: 24, shadowColor: "#6B1016", shadowOpacity: 0.2, shadowRadius: 12, elevation: 5 },
-  festivalHeroContent: { zIndex: 3, maxWidth: "76%" },
-  festivalFeatureLabel: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#F6A500", borderRadius: 16, paddingHorizontal: 13, paddingVertical: 6, overflow: "hidden" },
-  festivalFeatureTitle: { fontSize: 27, lineHeight: 33, marginTop: 18, textShadowColor: "rgba(0,0,0,0.38)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 3 },
-  festivalFeatureSub: { color: "#F0D9B8", fontSize: 13, lineHeight: 20, maxWidth: "69%", marginTop: 16 },
-  festivalFeatureButton: { minWidth: 220, height: 54, borderRadius: 27, marginTop: 26, shadowColor: "#000000", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
+  festivalFeatureCard: { minHeight: 228, borderRadius: 15, backgroundColor: "#2C1708", borderWidth: 1.5, borderColor: "#D99820", paddingHorizontal: 18, paddingTop: 17, paddingBottom: 10, marginHorizontal: -2, marginBottom: 18, shadowColor: "#6B1016", shadowOpacity: 0.2, shadowRadius: 12, elevation: 5 },
+  festivalHeroContent: { zIndex: 3, maxWidth: "100%" },
+  festivalFeatureLabel: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#F6A500", borderRadius: 14, paddingHorizontal: 9, paddingVertical: 4, overflow: "hidden", fontSize: 10 },
+  festivalFeatureTitle: { fontSize: 24, lineHeight: 28, letterSpacing: -0.4, marginTop: 10, textShadowColor: "rgba(0,0,0,0.38)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 3 },
+  festivalFeatureSub: { color: "#F0D9B8", fontSize: 11, lineHeight: 16, maxWidth: "94%", marginTop: 12 },
+  festivalFeatureButton: { minWidth: 152, height: 44, borderRadius: 22, marginTop: 12, shadowColor: "#000000", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 5 },
   featureOrb: { position: "absolute", right: -12, top: -24, width: 98, height: 98, borderRadius: 49, backgroundColor: "#5b3608" },
   featureLabel: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.7 },
   featureTitle: { color: "#f2f6ff", fontSize: 22, lineHeight: 27, fontWeight: "900", marginTop: 8 },
   featureSub: { color: "#6d7b8d", fontSize: 11, marginTop: 8 },
   featureButton: { marginTop: 18, height: 46, minWidth: 150, alignSelf: "flex-start", borderRadius: 23, backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   featureButtonText: { color: "#111111", fontWeight: "900", fontSize: 15 },
-  homeOrderPreview: { minHeight: festivalActive ? 104 : 78, borderRadius: festivalActive ? 24 : 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: festivalActive ? border : "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: festivalActive ? 20 : 16, marginBottom: 20 },
+  homeOrderPreview: { minHeight: festivalActive ? 104 : 78, borderRadius: festivalActive ? 24 : 18, backgroundColor: surfaceAlt, borderWidth: 1, borderColor: festivalActive ? border : "#efcf92", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: festivalActive ? 17 : 16, paddingVertical: festivalActive ? 14 : 16, marginBottom: 20 },
   homeCallSupportCard: { minHeight: 84, borderRadius: 18, borderWidth: 1.5, borderColor: "#111111", backgroundColor: BRAND_ORANGE, flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginBottom: 24 },
   homeCallSupportIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.56)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   homeCallSupportTitle: { color: "#111111", fontSize: 15, lineHeight: 19, fontWeight: "900" },
@@ -14465,11 +14520,15 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   handoffOtpCode: { minWidth: 82, borderRadius: 14, overflow: "hidden", backgroundColor: "#111111", color: BRAND_ORANGE, fontSize: 24, fontWeight: "900", letterSpacing: 4, textAlign: "center", paddingVertical: 12 },
   handoffOtpVerified: { color: "#15803d", backgroundColor: "#dcfce7" },
   measurementOtpCard: { backgroundColor: festivalActive ? surface : "#f8fafc", borderColor: festivalActive ? border : "#111111" },
-  measurementTailorRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 14, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: "#d8dee8" },
+  measurementTailorAssigned: { paddingBottom: 14, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: "#d8dee8" },
+  measurementTailorRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   measurementTailorIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   measurementTailorAvatar: { width: 44, height: 44, borderRadius: 14 },
+  measurementTailorInitials: { color: "#111111", fontSize: 15, fontWeight: "900" },
   measurementTailorStatus: { color: "#047857", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 3 },
   measurementTailorCallButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#047857", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  measurementTailorProfileButton: { minHeight: 42, marginTop: 12, borderRadius: 13, borderWidth: 1, borderColor: BRAND_ORANGE, backgroundColor: "#fff8e8", paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  measurementTailorProfileButtonText: { flex: 1, color: BRAND_DEEP, fontSize: 13, fontWeight: "900", textAlign: "center" },
   measurementTailorPending: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 14, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", padding: 12, marginBottom: 4 },
   etaAlertCard: { borderColor: "#ef4444", borderWidth: 2, backgroundColor: "#fff1f2" },
   etaAlertLabel: { color: "#b91c1c", fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginBottom: 10 },

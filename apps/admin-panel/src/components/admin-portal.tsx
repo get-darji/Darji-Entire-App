@@ -1655,9 +1655,9 @@ export function AdminPortal() {
         onRequestOtp={async (phone) => {
           try {
             const result = await requestOtpMutation.mutateAsync(phone);
-            return result.otp;
+            return { success: true, otp: result.otp };
           } catch {
-            return undefined;
+            return { success: false };
           }
         }}
         onVerifyOtp={(phone, otp) => verifyOtpMutation.mutate({ phone, otp })}
@@ -4057,7 +4057,7 @@ function LoginPanel({
 }: {
   isRequesting: boolean;
   isVerifying: boolean;
-  onRequestOtp: (phone: string) => Promise<string | undefined>;
+  onRequestOtp: (phone: string) => Promise<{ success: boolean; otp?: string }>;
   onVerifyOtp: (phone: string, otp: string) => void;
   returnedOtp?: string;
 }) {
@@ -4186,9 +4186,9 @@ function LoginPanel({
                         toast.error("Enter a valid 10 digit mobile number");
                         return;
                       }
-                      const nextOtp = await onRequestOtp(phone.trim());
-                      if (nextOtp) {
-                        setOtp(nextOtp.replace(/\D/g, "").slice(0, 6));
+                      const result = await onRequestOtp(phone.trim());
+                      if (result.success) {
+                        if (result.otp) setOtp(result.otp.replace(/\D/g, "").slice(0, 6));
                         setRequested(true);
                       }
                       return;
