@@ -1027,6 +1027,9 @@ export type CustomerProfileActivity = {
 export type CustomerProfile = {
   customer: AdminUser & {
     preferredLanguage?: "en" | "hi";
+    currentLocation?: { type: "Point"; coordinates: [number, number] } | null;
+    locationAccuracy?: number | null;
+    locationUpdatedAt?: string | null;
   };
   stats: {
     totalOrders: number;

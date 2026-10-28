@@ -116,6 +116,7 @@ import {
   walletController,
   reverseGeocodeController,
   updateRiderLocationController,
+  updateCustomerCurrentLocationController,
   serviceAvailabilityController,
   forwardGeocodeController,
   createServiceAreaInterestController,
@@ -207,6 +208,7 @@ router.post("/auth/refresh", refreshController);
 router.post("/auth/logout", requireAuth, logoutController);
 router.get("/auth/me", requireAuth, meController);
 router.patch("/auth/me", requireAuth, updateMeController);
+router.patch("/customers/me/location", requireAuth, requireRole("CUSTOMER"), updateCustomerCurrentLocationController);
 router.post("/service-area-interests", requireAuth, rateLimit({ keyPrefix: "service-area-interest", windowMs: 60 * 60 * 1000, max: 10 }), createServiceAreaInterestController);
 router.post(
   "/translation/translate",

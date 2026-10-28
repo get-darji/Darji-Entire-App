@@ -1050,6 +1050,26 @@ export async function listUsersController(_req: Request, res: Response) {
   res.json({ data: await attachProfilesToUsers(users.map((user) => user.toJSON())) });
 }
 
+export async function updateCustomerCurrentLocationController(req: Request, res: Response) {
+  if (req.user?.role !== "CUSTOMER") throw new AppError(403, "Customer account required");
+  const { latitude, longitude, accuracy } = z.object({
+    latitude: z.number().finite().min(-90).max(90),
+    longitude: z.number().finite().min(-180).max(180),
+    accuracy: z.number().finite().nonnegative().optional()
+  }).parse(req.body ?? {});
+  const updatedAt = new Date();
+  const user = await UserModel.findByIdAndUpdate(req.user.id, {
+    $set: {
+      customerCurrentLocation: { type: "Point", coordinates: [longitude, latitude] },
+      customerLocationAccuracy: accuracy,
+      customerLocationUpdatedAt: updatedAt
+    }
+  }, { returnDocument: "after", select: "_id customerLocationUpdatedAt" });
+  if (!user) throw new AppError(404, "Customer not found");
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: { updatedAt: user.customerLocationUpdatedAt } });
+}
+
 export async function getAdminCustomerProfileController(req: Request, res: Response) {
   const identifier = String(req.params.id);
   const user = await UserModel.findOne({
@@ -1213,6 +1233,9 @@ export async function getAdminCustomerProfileController(req: Request, res: Respo
         moderationReason: refreshedUser.moderationReason,
         moderatedAt: refreshedUser.moderatedAt,
         preferredLanguage: refreshedUser.preferredLanguage,
+        currentLocation: refreshedUser.customerCurrentLocation,
+        locationAccuracy: refreshedUser.customerLocationAccuracy,
+        locationUpdatedAt: refreshedUser.customerLocationUpdatedAt,
         createdAt: refreshedUser.createdAt,
         updatedAt: refreshedUser.updatedAt
       },

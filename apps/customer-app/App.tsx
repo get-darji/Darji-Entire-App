@@ -12976,7 +12976,16 @@ function AppContent() {
             ),
             10000,
             "The Darji service-area check timed out."
-          )
+          ),
+          promiseWithTimeout(
+            api<{ updatedAt: string }>("/customers/me/location", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ latitude, longitude, accuracy: current.coords.accuracy ?? undefined })
+            }, token),
+            10000,
+            "Location sync timed out"
+          ).catch(() => undefined)
         ]);
         const resolvedAddress = geo?.formattedAddress ?? checkedAddress;
         checkedAddress = resolvedAddress;

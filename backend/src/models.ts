@@ -104,7 +104,13 @@ const userSchema = new Schema(
         receivingNotifications: { type: Boolean, default: true }
       }
     },
-    devicePermissions: { type: Schema.Types.Mixed, default: {} }
+    devicePermissions: { type: Schema.Types.Mixed, default: {} },
+    customerCurrentLocation: {
+      type: { type: String, enum: ["Point"] },
+      coordinates: { type: [Number] }
+    },
+    customerLocationAccuracy: Number,
+    customerLocationUpdatedAt: Date
   },
   baseOptions
 );
