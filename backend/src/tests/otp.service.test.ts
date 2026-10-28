@@ -6,8 +6,14 @@ import { AppError } from "../middleware/error.js";
 import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 
-test("login OTP always uses TwoFactor, counts accepted sends, and never accepts the old development code locally", async () => {
-  const original = { enabled: env.TWOFACTOR_ENABLED, key: env.TWOFACTOR_API_KEY, fetch: globalThis.fetch };
+test("login OTP supports the temporary universal development code and preserves the real TwoFactor path", async () => {
+  const original = {
+    devEnabled: env.OTP_DEV_FALLBACK_ENABLED,
+    devCode: env.OTP_DEV_CODE,
+    enabled: env.TWOFACTOR_ENABLED,
+    key: env.TWOFACTOR_API_KEY,
+    fetch: globalThis.fetch
+  };
   const requestModel = OtpRequestModel as unknown as {
     create: (doc: Record<string, unknown>) => Promise<unknown>;
     updateMany: (query: Record<string, unknown>, update: Record<string, unknown>) => Promise<unknown>;
@@ -34,8 +40,6 @@ test("login OTP always uses TwoFactor, counts accepted sends, and never accepts 
   try {
     for (const otp of ["1234", "123456"]) assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp }).success, true);
     assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp: "123" }).success, false);
-    env.TWOFACTOR_ENABLED = true;
-    env.TWOFACTOR_API_KEY = "test-key";
     requestModel.create = async (doc) => {
       const record = { ...doc, id: String(saved.length + 1), attempts: 0 };
       saved.push(record);
@@ -68,6 +72,20 @@ test("login OTP always uses TwoFactor, counts accepted sends, and never accepts 
       successfulSendCount += Number(update.$inc.successfulSendCount ?? 0);
       return { successfulSendCount, lastSentAt: update.$set.lastSentAt };
     };
+
+    env.OTP_DEV_FALLBACK_ENABLED = true;
+    env.OTP_DEV_CODE = "123456";
+    const developmentRequest = await requestOtp("9876543210");
+    assert.deepEqual({ provider: developmentRequest.provider, fallback: developmentRequest.fallback }, { provider: "dev", fallback: true });
+    assert.equal(providerCalls, 0);
+    assert.equal(successfulSendCount, 0);
+    await assert.rejects(verifyOtp("9876543210", "654321"), (error) => error instanceof AppError && error.statusCode === 400);
+    await verifyOtp("9876543210", "123456");
+    assert.ok(saved.at(-1)?.consumedAt);
+
+    env.OTP_DEV_FALLBACK_ENABLED = false;
+    env.TWOFACTOR_ENABLED = true;
+    env.TWOFACTOR_API_KEY = "test-key";
     globalThis.fetch = async (input, init) => {
       providerCalls += 1;
       const segments = new URL(String(input)).pathname.split("/");
@@ -112,6 +130,8 @@ test("login OTP always uses TwoFactor, counts accepted sends, and never accepts 
     assert.equal(successfulSendCount, 2);
     assert.equal(reservations.has("9876543213"), false);
   } finally {
+    env.OTP_DEV_FALLBACK_ENABLED = original.devEnabled;
+    env.OTP_DEV_CODE = original.devCode;
     env.TWOFACTOR_ENABLED = original.enabled;
     env.TWOFACTOR_API_KEY = original.key;
     globalThis.fetch = original.fetch;

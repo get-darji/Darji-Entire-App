@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
@@ -9,8 +9,8 @@ const MAX_VERIFY_ATTEMPTS = 5;
 
 type OtpRequestResult = {
   expiresAt: Date;
-  provider: "twofactor";
-  fallback: false;
+  provider: "twofactor" | "dev";
+  fallback: boolean;
 };
 
 const SUCCESSFUL_SEND_METRIC_ID = "twofactor-successful-sends";
@@ -102,6 +102,24 @@ async function createOtpRequest(phone: string, providerSessionId: string): Promi
   };
 }
 
+async function createDevelopmentOtpRequest(phone: string): Promise<OtpRequestResult> {
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+
+  await OtpRequestModel.updateMany(
+    { phone, consumedAt: { $exists: false } },
+    { $set: { consumedAt: new Date() } }
+  );
+  await OtpRequestModel.create({ phone, expiresAt, provider: "dev", fallback: true });
+
+  return { expiresAt, provider: "dev", fallback: true };
+}
+
+function developmentOtpMatches(otp: string) {
+  const actual = Buffer.from(otp);
+  const expected = Buffer.from(env.OTP_DEV_CODE);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
 async function reserveOtpRequest(phone: string) {
   const now = new Date();
   const reservationId = randomUUID();
@@ -125,6 +143,11 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
 }
 
 export async function requestOtp(phone: string) {
+  if (env.OTP_DEV_FALLBACK_ENABLED) {
+    await reserveOtpRequest(phone);
+    return createDevelopmentOtpRequest(phone);
+  }
+
   if (!env.TWOFACTOR_ENABLED || !env.TWOFACTOR_API_KEY) {
     throw new AppError(503, "2Factor OTP is not configured");
   }
@@ -160,7 +183,9 @@ export async function verifyOtp(phone: string, otp: string) {
   }
 
   let matches = false;
-  if (request.provider === "twofactor") {
+  if (request.provider === "dev") {
+    matches = developmentOtpMatches(otp);
+  } else if (request.provider === "twofactor") {
     if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");
     try {
       const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
