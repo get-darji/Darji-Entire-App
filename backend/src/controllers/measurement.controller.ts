@@ -9,6 +9,7 @@ import {
   moveMeasurementVisitToPool,
   submitMeasurementVisit
 } from "../services/measurement-visit.service.js";
+import { isExclusiveStitchingTailorOffer } from "../utils/measurement-workflow.js";
 
 const measurementMediaSchema = z.object({
   url: z.string().url(),
@@ -69,15 +70,16 @@ async function customerMeasurementVisitData(visit: any) {
   if (!visit.assignedTailorId) return data;
 
   const tailor = await TailorModel.findById(String(visit.assignedTailorId))
-    .select("userId displayName shopName verification.personal.name")
+    .select("userId displayName shopName verification.personal.name verification.idVerification.facePhotoUrl")
     .lean();
   if (!tailor) return data;
-  const user = await UserModel.findById(String(tailor.userId)).select("name phone").lean();
-  const verification = tailor.verification as { personal?: { name?: string } } | undefined;
+  const user = await UserModel.findById(String(tailor.userId)).select("name phone avatarUrl").lean();
+  const verification = tailor.verification as { personal?: { name?: string }; idVerification?: { facePhotoUrl?: string } } | undefined;
   data.assignedTailor = {
     id: String(tailor._id),
     name: tailor.displayName || verification?.personal?.name || tailor.shopName || user?.name || "Measurement tailor",
-    phone: user?.phone
+    phone: user?.phone,
+    avatarUrl: user?.avatarUrl || verification?.idVerification?.facePhotoUrl
   };
   return data;
 }
@@ -97,8 +99,15 @@ export async function listMeasurementVisitsController(req: Request, res: Respons
       { assignedTailorId: { $in: tailorReferences }, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED", "CANCELLED", "EXPIRED"] } }
     ]
   };
+  if (tailor.isAvailable) {
+    (where.$or as unknown[]).push({
+      stitchingTailorId: { $in: tailorReferences },
+      offeredTailorId: { $in: tailorReferences },
+      status: "OFFERED_TO_STITCHING_TAILOR",
+      declinedTailorIds: { $nin: tailorReferences }
+    });
+  }
   if (tailor.isAvailable && canMeasure) {
-    (where.$or as unknown[]).push({ stitchingTailorId: { $in: tailorReferences }, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] }, declinedTailorIds: { $nin: tailorReferences } });
     (where.$or as unknown[]).push({ status: "POOL", declinedTailorIds: { $nin: tailorReferences }, stitchingTailorId: { $nin: tailorReferences } });
   }
   const visits = await MeasurementVisitModel.find(where).sort({ updatedAt: -1, createdAt: -1 }).limit(100);
@@ -138,12 +147,11 @@ export async function acceptMeasurementVisitController(req: Request, res: Respon
   const visit = await MeasurementVisitModel.findById(String(req.params.id));
   if (!visit) throw new AppError(404, "Measurement visit not found");
   const tailorReferences = [tailor.id, tailor.userId, tailor.darjiTailorId].filter((value): value is string => typeof value === "string" && value.length > 0);
-  const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));
   const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
-  const isOfferedTailor = canMeasure && tailorReferences.includes(String(visit.offeredTailorId ?? ""));
-  const isOwnCustomer = canMeasure && tailorReferences.includes(String(visit.stitchingTailorId ?? "")) && !tailorReferences.some((id) => declinedTailorIds.includes(id)) && ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(String(visit.status));
+  const isOwnStitchingOffer = isExclusiveStitchingTailorOffer(visit, tailorReferences);
+  const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));
   const isPool = visit.status === "POOL" && canMeasure && !tailorReferences.some((id) => declinedTailorIds.includes(id));
-  if (!isOfferedTailor && !isOwnCustomer && !isPool) throw new AppError(403, "This measurement visit is not available to you");
+  if (!isOwnStitchingOffer && !isPool) throw new AppError(403, "This measurement visit is not available to you");
   const updated = await assignMeasurementVisit(visit.id, tailor.id, req.user!.id);
   if (!updated) throw new AppError(409, "Measurement visit is no longer available");
   res.json({ data: updated });
@@ -157,9 +165,9 @@ export async function declineMeasurementVisitController(req: Request, res: Respo
   const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));
   const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
   const alreadyDeclined = tailorReferences.some((id) => declinedTailorIds.includes(id));
-  const canDeclineOwnCustomer = canMeasure && tailorReferences.includes(String(visit.stitchingTailorId ?? "")) && !alreadyDeclined && ["OFFERED_TO_STITCHING_TAILOR", "POOL"].includes(String(visit.status));
+  const canDeclineOwnOffer = isExclusiveStitchingTailorOffer(visit, tailorReferences);
   const canDeclinePool = visit.status === "POOL" && !alreadyDeclined && canMeasure;
-  if (!tailorReferences.includes(String(visit.offeredTailorId ?? "")) && !tailorReferences.includes(String(visit.assignedTailorId ?? "")) && !canDeclineOwnCustomer && !canDeclinePool) throw new AppError(403, "This measurement visit is not assigned to you");
+  if (!canDeclineOwnOffer && !canDeclinePool) throw new AppError(403, "This measurement visit is not assigned to you");
   const updated = await moveMeasurementVisitToPool(visit.id, tailor.id, "tailor_declined");
   if (!updated) throw new AppError(409, "Measurement visit is no longer available");
   res.json({ data: updated });
@@ -213,12 +221,5 @@ export async function updateTailorMeasurementCapabilitiesController(req: Request
     },
     { returnDocument: "after" }
   );
-  if (!input.measurementPartner) {
-    const pendingVisits = await MeasurementVisitModel.find({
-      offeredTailorId: tailor.id,
-      status: "OFFERED_TO_STITCHING_TAILOR"
-    }).select("_id");
-    await Promise.all(pendingVisits.map((visit) => moveMeasurementVisitToPool(visit.id, undefined, "measurement_partner_disabled")));
-  }
   res.json({ data: updated });
 }

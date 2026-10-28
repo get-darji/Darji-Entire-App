@@ -130,12 +130,10 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     TailorModel.findById(quote.tailorId).select("userId isAvailable measurementPartner tailorRoles verification verificationDraft shopName")
   ]);
 
-  const stitchingTailorCanMeasure = Boolean(
-    stitchingTailor?.isAvailable
-      && stitchingTailor.measurementPartner?.isEnabled
-      && Array.isArray(stitchingTailor.tailorRoles)
-      && stitchingTailor.tailorRoles.includes("MEASUREMENT_PARTNER")
-  );
+  // The tailor selected for the stitching order always gets the first,
+  // exclusive measurement offer. Their measurement-partner preference only
+  // controls whether they receive other tailors' pooled visits.
+  const hasStitchingTailorRecipient = Boolean(stitchingTailor?.userId);
 
   const preferredSlot = selectedMeasurementSlot(request);
   const calculatedPayout = await measurementVisitPayoutForTailor(
@@ -149,9 +147,9 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
         requestId: request.id,
         customerId: request.customerId,
         stitchingTailorId: quote.tailorId,
-        ...(stitchingTailorCanMeasure ? { offeredTailorId: quote.tailorId } : {}),
-        status: stitchingTailorCanMeasure ? "OFFERED_TO_STITCHING_TAILOR" : "POOL",
-        ...(stitchingTailorCanMeasure ? { offerExpiresAt: measurementOfferExpiresAt() } : { poolOpenedAt: new Date() }),
+        ...(hasStitchingTailorRecipient ? { offeredTailorId: quote.tailorId } : {}),
+        status: hasStitchingTailorRecipient ? "OFFERED_TO_STITCHING_TAILOR" : "POOL",
+        ...(hasStitchingTailorRecipient ? { offerExpiresAt: measurementOfferExpiresAt() } : { poolOpenedAt: new Date() }),
         scheduledAt: resolveScheduledAt(preferredSlot),
         preferredMeasurementSlot: preferredSlot,
         visitPayout: calculatedPayout.visitPayout,
@@ -166,7 +164,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     { upsert: true, returnDocument: "after" }
   );
 
-  if (stitchingTailor?.userId && stitchingTailorCanMeasure) {
+  if (stitchingTailor?.userId && hasStitchingTailorRecipient) {
     const distanceLabel = measurementDistanceLabel(visit.measurementDistanceMeters);
     await sendPushToUsers([stitchingTailor.userId], {
       title: "Measurement visit requested",
@@ -192,7 +190,7 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     emitToTailor(quote.tailorId, "measurement:visit_offered", { visit: visit.toJSON() });
     scheduleMeasurementVisitPoolRelease(visit.id, visit.offerExpiresAt);
   } else {
-    await moveMeasurementVisitToPool(visit.id, undefined, "stitching_tailor_measurement_disabled");
+    await moveMeasurementVisitToPool(visit.id, undefined, "stitching_tailor_unavailable");
   }
   emitToAdmins("measurement:visit_created", { visit: visit.toJSON() });
   return visit;

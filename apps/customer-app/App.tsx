@@ -557,7 +557,7 @@ type MeasurementVisitOtp = {
   status: string;
   scheduledAt?: string;
   preferredMeasurementSlot?: string;
-  assignedTailor?: { id: string; name: string; phone?: string };
+  assignedTailor?: { id: string; name: string; phone?: string; avatarUrl?: string };
 };
 
 const MEASUREMENT_VISIT_TIME_SLOTS = [
@@ -11637,7 +11637,11 @@ function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderI
       {assignedTailor ? (
         <View style={styles.measurementTailorRow}>
           <View style={styles.measurementTailorIcon}>
-            <Ionicons name="person-outline" size={21} color="#111111" />
+            {assignedTailor.avatarUrl ? (
+              <Image source={{ uri: assignedTailor.avatarUrl }} style={styles.measurementTailorAvatar} />
+            ) : (
+              <Ionicons name="person-outline" size={21} color="#111111" />
+            )}
           </View>
           <View style={styles.profileRowText}>
             <Text style={styles.addressTitle}>{assignedTailor.name}</Text>
@@ -11656,7 +11660,13 @@ function CustomerMeasurementOtpCard({ orderId, status, onVisitLoaded }: { orderI
           ) : null}
         </View>
       ) : (
-        <Text style={styles.mutedSmall}>We will show the visiting tailor's name and phone number here as soon as a tailor accepts the visit.</Text>
+        <View style={styles.measurementTailorPending}>
+          <Ionicons name="time-outline" size={20} color="#b45309" />
+          <View style={styles.profileRowText}>
+            <Text style={styles.addressTitle}>Measurement tailor not assigned yet</Text>
+            <Text style={styles.mutedSmall}>We are finding a tailor for your home measurement visit. Their profile and phone number will appear here after they accept.</Text>
+          </View>
+        </View>
       )}
       {!submitted ? (
         <View style={styles.handoffOtpRow}>
@@ -14375,8 +14385,10 @@ function createStyles(isDark = false) {
   measurementOtpCard: { backgroundColor: "#f8fafc", borderColor: "#111111" },
   measurementTailorRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 14, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: "#d8dee8" },
   measurementTailorIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  measurementTailorAvatar: { width: 44, height: 44, borderRadius: 14 },
   measurementTailorStatus: { color: "#047857", fontSize: 11, lineHeight: 15, fontWeight: "800", marginTop: 3 },
   measurementTailorCallButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#047857", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  measurementTailorPending: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 14, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", padding: 12, marginBottom: 4 },
   etaAlertCard: { borderColor: "#ef4444", borderWidth: 2, backgroundColor: "#fff1f2" },
   etaAlertLabel: { color: "#b91c1c", fontSize: 12, fontWeight: "900", letterSpacing: 0.6, marginBottom: 10 },
   etaAlertTitle: { color: "#7f1d1d", fontSize: 16, fontWeight: "900" },

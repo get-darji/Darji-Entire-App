@@ -3897,7 +3897,7 @@ function OrderDetailsScreen({
               {proofPhase === "RECEIVED" && (
                 <>
                   <ProofBlock
-                    title="Received clothes"
+                    title="Before stitching"
                     copy={`Required before starting work: ${receivedProofCount}/${requiredProofCount} item photos.`}
                     media={acceptedRequest.receivedMedia ?? []}
                     limitText={`${receivedProofCount}/${requiredProofCount} items`}
@@ -3924,7 +3924,7 @@ function OrderDetailsScreen({
                   {!measurementReadyForWork ? (
                     <View style={styles.measurementWorkGate}>
                       <Ionicons name="lock-closed-outline" size={17} color="#b45309" />
-                      <Text style={styles.measurementWorkGateText}>Waiting for the measurement visit to be submitted. Admin approval is required to bypass this step.</Text>
+                      <Text style={styles.measurementWorkGateText}>Measurements have not been submitted yet. Ask the measurement tailor to submit them before you start stitching.</Text>
                     </View>
                   ) : acceptedRequest.allowTailoringWithoutMeasurementVisit && !measurementVisitSubmitted ? (
                     <View style={styles.measurementBypassNotice}>
@@ -3970,7 +3970,7 @@ function OrderDetailsScreen({
               {proofPhase === "READ_ONLY" && (
                 <>
                   <ProofBlock
-                    title="Received clothes"
+                    title="Before stitching"
                     copy={`${receivedProofCount} photos submitted.`}
                     media={acceptedRequest.receivedMedia ?? []}
                     limitText={`${receivedProofCount}/${requiredProofCount} items`}
@@ -3991,24 +3991,16 @@ function OrderDetailsScreen({
             </View>
           ) : null}
         </>
-      ) : (measurementVisitSubmitted || hasSubmittedMeasurementInfo) && acceptedRequest ? (
-        <View style={styles.whiteCard}>
-          <Text style={styles.cardLabel}>ORDER PHOTO PROOF</Text>
-          <ProofBlock
-            title="Cloth photos from measurement visit"
-            copy={`Add one live cloth photo per item now. Stitching can start after rider handover: ${receivedProofCount}/${requiredProofCount}.`}
-            media={acceptedRequest.receivedMedia ?? []}
-            limitText={`${receivedProofCount}/${requiredProofCount} items`}
-            loadingCamera={uploadingProof?.stage === "RECEIVED"}
-            onCamera={() => uploadProof("RECEIVED")}
-            onOpen={setSelectedMedia}
-            onDelete={(item) => deleteProof("RECEIVED", item)}
-          />
-        </View>
       ) : (
         <View style={styles.whiteCard}>
           <Text style={styles.cardLabel}>WAITING FOR PACKAGE</Text>
-          <Text style={styles.helperText}>Submit the visit measurements first. Then you can add live cloth photos before the delivery partner hands over the package.</Text>
+          <Text style={styles.helperText}>The delivery partner has not handed over the clothes yet. Before-stitching photos will be available after package receipt.</Text>
+          {!measurementReadyForWork ? (
+            <View style={styles.measurementWorkGate}>
+              <Ionicons name="lock-closed-outline" size={17} color="#b45309" />
+              <Text style={styles.measurementWorkGateText}>Measurements have not been submitted yet. Stitching will stay locked until the measurement visit is completed.</Text>
+            </View>
+          ) : null}
         </View>
       )}
       <Modal transparent visible={Boolean(detailTextSheet)} animationType="fade" onRequestClose={() => setDetailTextSheet(undefined)}>
@@ -6062,7 +6054,7 @@ function MeasurementVisitsScreen({ me, token, initialVisits, setScreen, showDial
             </View>
             <View style={styles.cardMain}>
               <Text style={styles.cardTitle}>Measurement partner</Text>
-              <Text style={styles.cardMeta}>{changingMeasurementPartner ? "Saving availability..." : "Accept home measurement visits when selected tailors decline."}</Text>
+              <Text style={styles.cardMeta}>{changingMeasurementPartner ? "Saving availability..." : "Receive pooled home visits after another order's tailor declines or times out."}</Text>
             </View>
             <Switch
               value={measurementPartnerEnabled}
@@ -6509,7 +6501,7 @@ function AppContent() {
   useRegisterPushNotifications({ authToken: token, app: "tailor", userId: sessionUser?.id });
   const hasLoadedWorkspaceRef = useRef(false);
   const newRequestNotificationsEnabled = tailorOnline && me?.tailorProfile?.settings?.notifications !== false;
-  const measurementRequestNotificationsEnabled = tailorOnline && measurementPartnerEnabled;
+  const measurementRequestNotificationsEnabled = tailorOnline && me?.tailorProfile?.settings?.notifications !== false;
   const soundAlertsEnabled = me?.tailorProfile?.settings?.soundAlerts !== false;
 
   useEffect(() => {
@@ -6804,7 +6796,16 @@ function AppContent() {
     if (!measurementRequestNotificationsEnabled) return;
     if (!visit?.id || alertedMeasurementVisitIdsRef.current.has(visit.id)) return;
     if (!isActionableMeasurementVisit(visit)) return;
+    const isOwnStitchingOffer = visit.status === "OFFERED_TO_STITCHING_TAILOR"
+      && visit.stitchingTailorId === me?.tailorProfile?.id;
+    if (!isOwnStitchingOffer && !measurementPartnerEnabled) return;
     alertedMeasurementVisitIdsRef.current.add(visit.id);
+    setMeasurementVisitPopup(visit);
+    void playTailorAlert(
+      "Measurement visit requested",
+      `${visit.customerName ?? "Customer"} - ${visit.garmentSummary ?? "Home measurement"}`,
+      soundAlertsEnabled
+    );
   }
 
   async function respondToMeasurementVisit(
@@ -6888,9 +6889,9 @@ function AppContent() {
       }
     } : current);
     if (!value) {
-      setMeasurementVisitPopup(undefined);
-      setMeasurementVisits((current) => current.filter((visit) => !isActionableMeasurementVisit(visit)));
-      stopMeasurementVisitAlert();
+      if (measurementVisitPopup?.status === "POOL") stopMeasurementVisitAlert(measurementVisitPopup);
+      setMeasurementVisitPopup((current) => current?.status === "POOL" ? undefined : current);
+      setMeasurementVisits((current) => current.filter((visit) => visit.status !== "POOL"));
     }
     try {
       const updated = await api<TailorProfile>("/tailors/me/measurement-capabilities", {
@@ -7044,11 +7045,11 @@ function AppContent() {
       void refreshWorkspace();
     });
     socket.on("measurement:visit_offered", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (measurementRequestNotificationsEnabled && visit) showMeasurementVisitPopup(visit);
+      if (visit) showMeasurementVisitPopup(visit);
       void refreshWorkspace();
     });
     socket.on("measurement:visit_pool", ({ visit }: { visit?: MeasurementVisit }) => {
-      if (measurementRequestNotificationsEnabled && visit) showMeasurementVisitPopup(visit);
+      if (visit) showMeasurementVisitPopup(visit);
       void refreshWorkspace();
     });
     socket.on("measurement:visit_cancelled", ({ visit, requestId }: { visit?: MeasurementVisit; requestId?: string }) => {

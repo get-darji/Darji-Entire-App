@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   hasHomeMeasurementRequest,
+  isExclusiveStitchingTailorOffer,
   mayStartTailoring,
   measurementOfferExpiresAt,
   measurementVisitAssignableStatuses,
@@ -11,6 +12,19 @@ import {
 test("measurement offers reserve the first sixty seconds for the selected tailor", () => {
   const now = new Date("2026-10-26T10:00:00.000Z");
   assert.equal(measurementOfferExpiresAt(now).getTime() - now.getTime(), MEASUREMENT_OFFER_WINDOW_MS);
+});
+
+test("the selected stitching tailor can act on the exclusive offer without pooled-visit eligibility", () => {
+  const visit = {
+    status: "OFFERED_TO_STITCHING_TAILOR",
+    stitchingTailorId: "tailor-a",
+    offeredTailorId: "tailor-a",
+    declinedTailorIds: []
+  };
+  assert.equal(isExclusiveStitchingTailorOffer(visit, ["tailor-a"]), true);
+  assert.equal(isExclusiveStitchingTailorOffer({ ...visit, status: "POOL" }, ["tailor-a"]), false);
+  assert.equal(isExclusiveStitchingTailorOffer({ ...visit, declinedTailorIds: ["tailor-a"] }, ["tailor-a"]), false);
+  assert.equal(isExclusiveStitchingTailorOffer(visit, ["tailor-b"]), false);
 });
 
 test("home measurement is detected at request and item level", () => {

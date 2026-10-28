@@ -33,3 +33,14 @@ export function measurementVisitAssignableStatuses(allowReassignment = false) {
     ? ["OFFERED_TO_STITCHING_TAILOR", "POOL", "ACCEPTED", "IN_PROGRESS"] as const
     : ["OFFERED_TO_STITCHING_TAILOR", "POOL"] as const;
 }
+
+export function isExclusiveStitchingTailorOffer(
+  visit: { status?: string | null; stitchingTailorId?: unknown; offeredTailorId?: unknown; declinedTailorIds?: unknown[] | null },
+  tailorReferences: string[]
+) {
+  const declinedTailorIds = (visit.declinedTailorIds ?? []).map(String);
+  return visit.status === "OFFERED_TO_STITCHING_TAILOR"
+    && tailorReferences.includes(String(visit.stitchingTailorId ?? ""))
+    && tailorReferences.includes(String(visit.offeredTailorId ?? ""))
+    && !tailorReferences.some((id) => declinedTailorIds.includes(id));
+}
