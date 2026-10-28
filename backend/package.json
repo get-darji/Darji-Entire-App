@@ -17,6 +17,7 @@
     "test:customer-access": "tsx --test src/tests/customer-access.test.ts",
     "test:measurement-workflow": "tsx --test src/tests/measurement-workflow.test.ts",
     "test:quote-workflow": "tsx --test src/tests/quote-workflow.test.ts",
+    "test:festival-theme": "tsx --test src/tests/festival-theme.test.ts",
     "test:wallet-scope": "tsx src/tests/role-wallet-migration.smoke.ts",
     "clear:orders": "tsx src/clear-dev-data.ts",
     "db:seed": "tsx src/seed.ts",

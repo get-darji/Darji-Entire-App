@@ -63,9 +63,10 @@ import { nextDarjiId } from "../utils/darji-id.js";
 import { sendPaymentSuccessNotification } from "../services/notificationService.js";
 import { assignPendingTasksToPartner } from "./request.controller.js";
 import { ensureDeliveryBatchesFromRequests, notifyScheduledBatchNow, recalculateBatchTotals } from "../services/hybrid-delivery.service.js";
-import { emitToCustomer, emitToAdmins, emitToUserRole, publishPlatformStatus } from "../services/socket.service.js";
+import { emitToCustomer, emitToAdmins, emitToUserRole, publishFestivalTheme, publishPlatformStatus } from "../services/socket.service.js";
 import { createWeeklyPayout, endOfWeek, startOfWeek, walletSummary, type WalletUserType } from "../services/wallet.service.js";
 import { getPlatformStatus, savePlatformStatus } from "../services/platform-status.service.js";
+import { getFestivalThemeState, saveFestivalTheme } from "../services/festival-theme.service.js";
 import { getDashboardAnalytics } from "../services/dashboard-analytics.service.js";
 import { OPERATIONAL_ALLOWANCE_PER_ORDER, allocateAmountExactly, paymentDedupeKey } from "../services/financial-reporting.logic.js";
 import { assertFreshDeliveryLocation, markStaleDeliveryPartnersOffline } from "../services/delivery-location.service.js";
@@ -2523,6 +2524,18 @@ export async function updatePlatformStatusController(req: Request, res: Response
   const status = await savePlatformStatus(req.body);
   publishPlatformStatus(status);
   res.json({ data: status });
+}
+
+export async function festivalThemeController(_req: Request, res: Response) {
+  const theme = await getFestivalThemeState();
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: theme });
+}
+
+export async function updateFestivalThemeController(req: Request, res: Response) {
+  const theme = await saveFestivalTheme(req.body, req.user!.id);
+  publishFestivalTheme(theme);
+  res.json({ data: theme });
 }
 
 export async function updateSettingController(req: Request, res: Response) {

@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAppStore } from "./store";
 import { apiUrl } from "./api-base";
 import type { PlatformStatus } from "../../../shared/src/platform-status";
+import type { FestivalThemeState } from "../../../shared/src/festival-theme";
 import type { AppLanguage } from "../../../shared/src/localization";
 
 type RefreshResponse = { accessToken: string; refreshToken: string };
@@ -55,6 +56,19 @@ export async function getPlatformStatus() {
     return await requestJson<PlatformStatus>("/platform-status", { signal: controller.signal }, undefined);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw new Error("Platform status check timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getFestivalTheme() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    return await requestJson<FestivalThemeState>("/festival-theme", { signal: controller.signal }, undefined);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error("Festival theme check timed out");
     throw error;
   } finally {
     clearTimeout(timeout);

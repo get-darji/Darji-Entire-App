@@ -10,6 +10,7 @@ import {
   type CustomerWebsiteSlider
 } from "../../../../shared/src/customer-website-slider";
 import { defaultPlatformStatus, type MaintenanceApp, type PlatformStatus } from "../../../../shared/src/platform-status";
+import { defaultFestivalTheme, festivalThemeStatus, type FestivalThemeConfig, type FestivalThemeState } from "../../../../shared/src/festival-theme";
 import { defaultServiceAreaConfig, type ServiceAreaConfig } from "../../../../shared/src/service-area";
 import { allowedOrderStatusTransitions, orderStatuses } from "../../../../shared/src/order-statuses";
 import { GARMENTS_BY_GENDER, GENDER_FIT_OPTIONS, SERVICE_CATEGORIES, getGarmentsForGender, getServiceCategory } from "../../../../shared/src/cloth-details";
@@ -101,7 +102,8 @@ import {
   Hourglass,
   MapPin,
   Mic,
-  Square
+  Square,
+  Sparkles
 } from "lucide-react";
 import { forwardRef, useEffect, useMemo, useState, useRef, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
@@ -133,6 +135,7 @@ import {
   getOrders,
   getPayments,
   getPlatformStatus,
+  getFestivalTheme,
   getServiceAreaConfig,
   getServiceAreaInterests,
   geocodeServiceArea,
@@ -163,6 +166,7 @@ import {
   updateTailoringWorkStatus,
   updateTailoringMeasurementBypass,
   updatePlatformStatus,
+  updateFestivalTheme,
   updateServiceAreaConfig,
   updateSetting,
   verifyOtp,
@@ -337,7 +341,7 @@ type DeliveryBatchSettingsDraft = {
   maxOrdersPerBatch: number;
 };
 
-type SettingsPage = "service-area" | "tutorial" | "delivery" | "development";
+type SettingsPage = "festival" | "service-area" | "tutorial" | "delivery" | "development";
 
 type MapPartnerFocus = {
   partnerId: string;
@@ -723,6 +727,7 @@ export function AdminPortal() {
   const [couponDraft, setCouponDraft] = useState<CouponFormDraft>(emptyCouponDraft);
   const [batchSettingsDraft, setBatchSettingsDraft] = useState<DeliveryBatchSettingsDraft>({ lockMinutes: 45, maxOrdersPerBatch: 10 });
   const [platformStatusDraft, setPlatformStatusDraft] = useState<PlatformStatus>(defaultPlatformStatus);
+  const [festivalThemeDraft, setFestivalThemeDraft] = useState<FestivalThemeConfig>(defaultFestivalTheme);
   const [serviceAreaDraft, setServiceAreaDraft] = useState<ServiceAreaConfig>(defaultServiceAreaConfig);
   const [tailorTutorialDraft, setTailorTutorialDraft] = useState<TailorTutorialMediaDraft>(() => defaultTailorTutorialMediaDraft());
   const [uploadingTutorialMedia, setUploadingTutorialMedia] = useState<"video" | "thumbnail" | "image" | null>(null);
@@ -871,6 +876,12 @@ export function AdminPortal() {
     enabled: needsSection("platform", "dashboard"),
     refetchInterval: 60_000
   });
+  const festivalThemeQuery = useQuery({
+    queryKey: ["admin", "festival-theme"],
+    queryFn: getFestivalTheme,
+    enabled: needsSection("settings", "dashboard"),
+    refetchInterval: 60_000
+  });
   const supportStatsQuery = useQuery({
     queryKey: ["admin", "support-stats"],
     queryFn: getSupportStats,
@@ -992,6 +1003,10 @@ export function AdminPortal() {
   useEffect(() => {
     if (platformStatusQuery.data) setPlatformStatusDraft(platformStatusQuery.data);
   }, [platformStatusQuery.data]);
+
+  useEffect(() => {
+    if (festivalThemeQuery.data) setFestivalThemeDraft(festivalThemeQuery.data);
+  }, [festivalThemeQuery.data]);
 
   useEffect(() => {
     if (serviceAreaQuery.data) setServiceAreaDraft(serviceAreaQuery.data);
@@ -1201,6 +1216,16 @@ export function AdminPortal() {
       toast.success(status.maintenanceMode ? "Maintenance mode enabled" : "Darji is live");
       await queryClient.invalidateQueries({ queryKey: ["admin", "platform-status"] });
       await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  const festivalThemeMutation = useMutation({
+    mutationFn: updateFestivalTheme,
+    onSuccess: async (theme) => {
+      setFestivalThemeDraft(theme);
+      toast.success(theme.active ? "Festival theme is active" : theme.status === "Scheduled" ? "Festival theme scheduled" : "Normal customer theme restored");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "festival-theme"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -3541,8 +3566,9 @@ export function AdminPortal() {
               title="Operational settings"
               description="Open one settings page at a time. Raw platform and delivery-round JSON are intentionally not exposed here."
             />
-            <div className="grid gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-2 sm:grid-cols-2 xl:grid-cols-5">
               {([
+                { id: "festival", label: "Festival Themes", description: "Seasonal customer app" },
                 { id: "service-area", label: "Service Areas", description: "Coverage and requests" },
                 { id: "tutorial", label: "Tailor Tutorial", description: "Training media" },
                 { id: "delivery", label: "Delivery", description: "Pricing and batches" },
@@ -3554,6 +3580,16 @@ export function AdminPortal() {
                 </button>
               ))}
             </div>
+
+            {settingsPage === "festival" ? (
+              <FestivalThemeCard
+                draft={festivalThemeDraft}
+                serverState={festivalThemeQuery.data}
+                pending={festivalThemeMutation.isPending || festivalThemeQuery.isLoading}
+                onChange={setFestivalThemeDraft}
+                onSave={(value) => festivalThemeMutation.mutate(value)}
+              />
+            ) : null}
 
             {settingsPage === "service-area" ? <ServiceAreaSettingsCard draft={serviceAreaDraft} interests={serviceAreaInterestsQuery.data} pending={serviceAreaMutation.isPending} onChange={setServiceAreaDraft} onSave={(value) => serviceAreaMutation.mutate(value)} /> : null}
 
@@ -7599,6 +7635,123 @@ function PendingRetryOrdersPanel({
       ) : (
         <div className="rounded-2xl border border-dashed border-[var(--panel-border)] p-5 text-sm text-[var(--muted)]">No retry orders need attention.</div>
       )}
+    </Panel>
+  );
+}
+
+function isoToIstLocalInput(value?: string | null) {
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
+function istLocalInputToIso(value: string) {
+  return value ? new Date(`${value}:00+05:30`).toISOString() : null;
+}
+
+function FestivalThemeCard({ draft, serverState, pending, onChange, onSave }: {
+  draft: FestivalThemeConfig;
+  serverState?: FestivalThemeState;
+  pending: boolean;
+  onChange: (value: FestivalThemeConfig) => void;
+  onSave: (value: FestivalThemeConfig) => void;
+}) {
+  const status = festivalThemeStatus(draft);
+  const datesValid = !draft.startAt || !draft.endAt || new Date(draft.startAt).getTime() < new Date(draft.endAt).getTime();
+  const statusTone = status === "Active" ? "bg-emerald-100 text-emerald-800" : status === "Scheduled" ? "bg-amber-100 text-amber-800" : status === "Expired" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700";
+  const update = (patch: Partial<FestivalThemeConfig>) => onChange({ ...draft, ...patch });
+  return (
+    <Panel className="overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2"><Sparkles className="text-amber-500" size={22} /><h3 className="text-lg font-semibold">Festival Theme Manager</h3></div>
+          <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Publish a centrally controlled customer-app theme. Times are entered and evaluated in Asia/Kolkata.</p>
+        </div>
+        <span className={cn("rounded-full px-3 py-1 text-xs font-bold", statusTone)}>{status}</span>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <Field label="Festival">
+          <select className="w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5" value={draft.themeId} onChange={(event) => update({ themeId: event.target.value })}>
+            <option value="diwali">Diwali Darji Edition</option>
+          </select>
+        </Field>
+        <Field label="Asset version">
+          <input className="w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5" value={draft.assetVersion} onChange={(event) => update({ assetVersion: event.target.value })} />
+        </Field>
+        <Field label="Display title">
+          <input className="w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5" value={draft.title} onChange={(event) => update({ title: event.target.value })} />
+        </Field>
+        <Field label="Greeting template">
+          <input className="w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5" value={draft.greetingTemplate} onChange={(event) => update({ greetingTemplate: event.target.value })} />
+          <span className="mt-1 block text-xs text-[var(--muted)]">Use {"{firstName}"} for the signed-in customer.</span>
+        </Field>
+        <Field label="Starts at (IST, optional)">
+          <input type="datetime-local" className="w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5" value={isoToIstLocalInput(draft.startAt)} onChange={(event) => update({ startAt: istLocalInputToIso(event.target.value) })} />
+        </Field>
+        <Field label="Ends at (IST, optional)">
+          <input type="datetime-local" className="w-full rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2.5" value={isoToIstLocalInput(draft.endAt)} onChange={(event) => update({ endAt: istLocalInputToIso(event.target.value) })} />
+          {!datesValid ? <span className="mt-1 block text-xs font-semibold text-rose-600">End time must be after start time.</span> : null}
+        </Field>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {([
+          ["page", "Page"],
+          ["hero", "Hero"],
+          ["accent", "Accent"],
+          ["fabric", "Fabric"]
+        ] as const).map(([key, label]) => (
+          <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2">
+            <span className="text-sm font-semibold">{label}</span>
+            <input
+              type="color"
+              aria-label={`${label} color`}
+              className="h-8 w-12 cursor-pointer rounded border-0 bg-transparent"
+              value={draft.palette[key]}
+              onChange={(event) => update({ palette: { ...draft.palette, [key]: event.target.value.toUpperCase() } })}
+            />
+          </label>
+        ))}
+      </div>
+
+      <button type="button" aria-pressed={draft.enabled} onClick={() => update({ enabled: !draft.enabled })} className={cn("mt-5 flex w-full items-center justify-between rounded-2xl border p-4 text-left transition", draft.enabled ? "border-emerald-400 bg-emerald-50" : "border-[var(--panel-border)] bg-[var(--panel)]")}>
+        <span><span className="block font-bold">{draft.enabled ? "Festival theme enabled" : "Festival theme disabled"}</span><span className="mt-1 block text-xs text-[var(--muted)]">When enabled, the schedule determines whether customers see the festive design.</span></span>
+        {draft.enabled ? <ToggleRight className="text-emerald-600" size={30} /> : <ToggleLeft className="text-slate-500" size={30} />}
+      </button>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-[var(--panel-border)] bg-[#f7f9fc] p-4 text-slate-900">
+          <p className="text-xs font-black tracking-wider text-slate-500">NORMAL PREVIEW</p>
+          <p className="mt-4 text-sm font-semibold text-slate-500">Good morning</p><p className="text-lg font-black">Customer</p>
+          <div className="mt-4 rounded-2xl bg-[#2b1503] p-4 text-white"><p className="text-xs font-black text-amber-500">TAILORING REQUEST</p><p className="mt-2 font-black">Get Tailoring Done<br />at Your Doorstep</p></div>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl border p-4" style={{ backgroundColor: draft.palette.page, borderColor: draft.palette.accent, color: draft.palette.hero }}>
+          <div className="absolute -right-5 -top-5 h-24 w-24 rounded-full opacity-15" style={{ backgroundColor: draft.palette.fabric }} />
+          <p className="text-xs font-black tracking-wider" style={{ color: draft.palette.fabric }}>DIWALI PREVIEW</p>
+          <p className="mt-4 text-lg font-black" style={{ color: draft.palette.fabric }}>{draft.greetingTemplate.replace("{firstName}", "Customer")} 🪔</p>
+          <div className="mt-4 rounded-2xl border p-4 text-white" style={{ backgroundColor: draft.palette.hero, borderColor: draft.palette.accent }}><p className="text-xs font-black" style={{ color: draft.palette.accent }}>FESTIVE SEASON</p><p className="mt-2 font-black">Get Tailoring Done<br />at Your Doorstep</p><div className="mt-3 h-1 w-24 rounded opacity-70" style={{ backgroundColor: draft.palette.accent }} /></div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <ActionButton disabled={pending || !datesValid} onClick={() => onSave(draft)}>
+          {pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Save / Publish
+        </ActionButton>
+        <ActionButton variant="secondary" disabled={pending || !draft.enabled} onClick={() => onSave({ ...draft, enabled: false, startAt: null, endAt: null })}>
+          <RotateCcw className="h-4 w-4" />Turn Off / Restore Normal
+        </ActionButton>
+        {serverState?.updatedAt ? <span className="text-xs text-[var(--muted)]">Last published {formatDate(serverState.updatedAt, true)}</span> : null}
+      </div>
     </Panel>
   );
 }

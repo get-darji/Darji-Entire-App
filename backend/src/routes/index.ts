@@ -77,6 +77,7 @@ import {
   moderateUserController,
   deleteAdminAccountController,
   paymentsController,
+  festivalThemeController,
   platformStatusController,
   reassignDeliveryBatchTaskController,
   reviewDeliveryVerificationController,
@@ -93,6 +94,7 @@ import {
   updateDeliveryProfileController,
   updateOrderStatusController,
   updatePlatformStatusController,
+  updateFestivalThemeController,
   updateSettingController,
   updateTailorAvailabilityController,
   updateTailorProfileController,
@@ -190,6 +192,7 @@ router.get("/health", (_req, res) => res.json({
   }
 }));
 router.get("/platform-status", platformStatusController);
+router.get("/festival-theme", festivalThemeController);
 router.get("/service-availability", serviceAvailabilityController);
 router.get("/location/geocode", requireAuth, forwardGeocodeController);
 router.get("/settings/customer-website-slider", customerWebsiteSliderController);
@@ -343,6 +346,7 @@ router.get("/admin/wallets/:userId", requireAuth, requireRole("ADMIN", "SUPER_AD
 router.post("/admin/wallet-payouts", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), adminCreatePayoutController);
 router.delete("/admin/users/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), deleteAdminAccountController);
 router.put("/admin/platform-status", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updatePlatformStatusController);
+router.put("/admin/festival-theme", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateFestivalThemeController);
 router.get("/admin/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), serviceAreaConfigController);
 router.put("/admin/service-areas", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateServiceAreaConfigController);
 router.get("/admin/service-area-interests", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), listServiceAreaInterestsController);

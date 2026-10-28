@@ -43,7 +43,7 @@ import {
   TouchableOpacity
 } from "react-native";
 import { z } from "zod";
-import { api, getPlatformStatus, refreshAccessToken, savePreferredLanguage, translateDynamicText, uploadMedia, type UploadedMedia } from "./src/api";
+import { api, getFestivalTheme, getPlatformStatus, refreshAccessToken, savePreferredLanguage, translateDynamicText, uploadMedia, type UploadedMedia } from "./src/api";
 
 // Backend reverse geocoding — replaces Expo's OS-level reverseGeocodeAsync
 // Calls GET /api/location/reverse-geocode which uses Google Geocoding API server-side
@@ -115,9 +115,12 @@ import { BottomSnackbar } from "../../shared/src/bottom-snackbar";
 import { userFacingMessage } from "../../shared/src/user-facing-error";
 import { PlatformMaintenanceScreen } from "../../shared/src/platform-maintenance-screen";
 import { isAppUnderMaintenance } from "../../shared/src/platform-status";
+import { festivalGreeting, type FestivalThemeState } from "../../shared/src/festival-theme";
 import { translateStaticChildren, translateStaticText } from "../../shared/src/static-translations";
 import { measurementVisitFee } from "../../shared/src";
 import { usePlatformStatus } from "../../shared/src/use-platform-status";
+import { useFestivalTheme } from "./src/hooks/useFestivalTheme";
+import { DiwaliCardCorner, DiwaliGreetingDiya, DiwaliHeaderDecor, DiwaliHeroDecor, useDiwaliMotion } from "./src/features/festival/DiwaliDecor";
 import {
   GENDER_FIT_OPTIONS,
   SERVICE_CATEGORIES,
@@ -2719,7 +2722,8 @@ function HomeScreen({
   orders,
   appReviews,
   initialScrollOffset,
-  onScrollOffsetChange
+  onScrollOffsetChange,
+  festivalTheme
 }: {
   setScreen: (screen: Screen) => void;
   onStartRequest: (preset?: RequestPreset) => void;
@@ -2730,6 +2734,7 @@ function HomeScreen({
   appReviews: AppReviewDraft[];
   initialScrollOffset: number;
   onScrollOffsetChange: (offset: number) => void;
+  festivalTheme: FestivalThemeState;
 }) {
   const scrollViewRef = useRef<RNScrollView>(null);
   const token = useAppStore((state) => state.token);
@@ -2737,6 +2742,13 @@ function HomeScreen({
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [featuredStories, setFeaturedStories] = useState<CustomerStory[]>([]);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
+  const language = useAppStore((state) => state.language);
+  const diwaliActive = festivalTheme.active && festivalTheme.themeId === "diwali";
+  const diwaliMotion = useDiwaliMotion(diwaliActive);
+  const firstName = profile.name?.trim().split(/\s+/)[0] || "there";
+  const festiveGreeting = language === "hi"
+    ? `शुभ दीपावली, ${firstName}!`
+    : festivalGreeting(festivalTheme, profile.name);
   const activeOrder = orders.find((order) => !["Delivered", "Cancelled"].includes(order.status));
   const incompleteOrders = orders.filter((order) => ["Pending", "Awaiting Payment"].includes(order.status));
   const activeCoupons = coupons.filter((coupon) => !couponUnavailableReason(coupon, 0)).slice(0, 2);
@@ -2765,21 +2777,31 @@ function HomeScreen({
     { title: "Custom Stitching", text: "Stitch from scratch", image: homeCustomStitchingImage }
   ] as const;
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, diwaliActive && styles.festivalSafe, diwaliActive && { backgroundColor: festivalTheme.palette.page }]}>
       <ScrollView
         ref={scrollViewRef}
-        contentContainerStyle={styles.homeContent}
+        contentContainerStyle={[styles.homeContent, diwaliActive && styles.festivalHomeContent, diwaliActive && { backgroundColor: festivalTheme.palette.page }]}
         showsVerticalScrollIndicator={false}
         contentOffset={{ x: 0, y: initialScrollOffset }}
         onScroll={(event) => onScrollOffsetChange(event.nativeEvent.contentOffset.y)}
         scrollEventThrottle={32}
       >
-        <View style={styles.homeTop}>
-          <View>
-            <Text style={styles.homeGreeting}>{greetingForNow()}</Text>
-            <Text style={styles.userName}>{profile.name}</Text>
+        <View style={[styles.homeTop, diwaliActive && styles.festivalHomeTop]}>
+          {diwaliActive ? <DiwaliHeaderDecor motion={diwaliMotion} /> : null}
+          <View style={diwaliActive ? styles.festivalHeaderContent : undefined}>
+            {diwaliActive ? (
+              <View style={styles.festivalGreetingRow}>
+                <Text style={[styles.festivalGreeting, { color: festivalTheme.palette.fabric }]} maxFontSizeMultiplier={1.2}>{festiveGreeting}</Text>
+                <DiwaliGreetingDiya motion={diwaliMotion} />
+              </View>
+            ) : (
+              <>
+                <Text style={styles.homeGreeting}>{greetingForNow()}</Text>
+                <Text style={styles.userName}>{profile.name}</Text>
+              </>
+            )}
           </View>
-          <View style={styles.homeActions}>
+          <View style={[styles.homeActions, diwaliActive && styles.festivalHeaderActions]}>
             <Pressable style={styles.notificationButton} onPress={() => setScreen("notifications")}>
               <Ionicons name="notifications-outline" size={19} color={BRAND_DEEP} />
               {unreadCount > 0 ? <View style={styles.notificationDot} /> : null}
@@ -2790,12 +2812,14 @@ function HomeScreen({
           </View>
         </View>
 
-        <Pressable style={styles.searchBar} onPress={() => setScreen("search")}>
+        <Pressable style={[styles.searchBar, diwaliActive && styles.festivalCard, diwaliActive && { borderColor: festivalTheme.palette.accent }]} onPress={() => setScreen("search")}>
+          {diwaliActive ? <DiwaliCardCorner placement="right" /> : null}
           <Ionicons name="search-outline" size={18} color="#6a788d" />
           <AnimatedSearchPrompt />
         </Pressable>
 
-        <Pressable style={styles.homeAddressCard} onPress={() => setScreen("savedAddresses")}>
+        <Pressable style={[styles.homeAddressCard, diwaliActive && styles.festivalCard, diwaliActive && { borderColor: festivalTheme.palette.accent }]} onPress={() => setScreen("savedAddresses")}>
+          {diwaliActive ? <DiwaliCardCorner placement="left" /> : null}
           <View style={styles.profileRowIcon}>
             <Ionicons name="location-outline" size={18} color={BRAND_ORANGE} />
           </View>
@@ -2806,18 +2830,19 @@ function HomeScreen({
           <Ionicons name="chevron-forward" size={18} color="#6b7890" />
         </Pressable>
 
-        <View style={styles.featureCard}>
-          <View style={styles.featureOrb} />
-          <Text style={styles.featureLabel}>TAILORING REQUEST</Text>
-          <Text style={styles.featureTitle}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
-          <Text style={styles.featureSub}>Upload photos, share your needs, and get started in minutes.</Text>
-          <Pressable style={styles.featureButton} onPress={() => onStartRequest(requestPresetForService("Custom Stitching"))}>
+        <View style={[styles.featureCard, diwaliActive && styles.festivalFeatureCard, diwaliActive && { backgroundColor: festivalTheme.palette.hero, borderColor: festivalTheme.palette.accent }]}>
+          {diwaliActive ? <DiwaliHeroDecor motion={diwaliMotion} /> : <View style={styles.featureOrb} />}
+          <Text style={[styles.featureLabel, diwaliActive && styles.festivalHeroContent]}>{diwaliActive ? "FESTIVE SEASON" : "TAILORING REQUEST"}</Text>
+          <Text style={[styles.featureTitle, diwaliActive && styles.festivalHeroContent]}>Get Tailoring Done{"\n"}at Your Doorstep</Text>
+          <Text style={[styles.featureSub, diwaliActive && styles.festivalHeroContent, diwaliActive && styles.festivalFeatureSub]}>Upload photos, share your needs, and get started in minutes.</Text>
+          <Pressable style={[styles.featureButton, diwaliActive && styles.festivalHeroContent, diwaliActive && { backgroundColor: festivalTheme.palette.accent }]} onPress={() => onStartRequest(requestPresetForService("Custom Stitching"))}>
             <Ionicons name="cut-outline" size={16} color="#111111" />
             <Text style={styles.featureButtonText}>Stitch It Now</Text>
           </Pressable>
         </View>
 
-        <Pressable style={styles.homeOrderPreview} onPress={() => activeOrder ? setScreen("orders") : onStartRequest()}>
+        <Pressable style={[styles.homeOrderPreview, diwaliActive && styles.festivalCard, diwaliActive && { borderColor: festivalTheme.palette.accent }]} onPress={() => activeOrder ? setScreen("orders") : onStartRequest()}>
+          {diwaliActive ? <DiwaliCardCorner placement="right" /> : null}
           <View>
             <Text style={styles.cardLabel}>YOUR ORDERS</Text>
             <Text style={styles.addressTitle}>{activeOrder ? activeOrder.orderNumber : "No active orders"}</Text>
@@ -11813,6 +11838,7 @@ function AppContent() {
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const platform = usePlatformStatus(getPlatformStatus, token);
+  const festival = useFestivalTheme(getFestivalTheme, token);
   const [screen, setScreenState] = useState<Screen>("home");
   const [screenStack, setScreenStack] = useState<Screen[]>([]);
   const [customerDataByPhone, setCustomerDataByPhone] = useState<Record<string, CustomerData>>({});
@@ -12787,12 +12813,13 @@ function AppContent() {
     socket.on("customer:quote_withdrawn", ({ requestId }: { requestId?: string }) => {
       if (requestId) void refreshCustomerOrder(requestId);
     });
+    socket.on("festival:theme_changed", festival.applyRemoteTheme);
     return () => {
       socket.disconnect();
       socketRef.current = null;
       setConnectionStatus("Offline");
     };
-  }, [token]);
+  }, [festival.applyRemoteTheme, token]);
 
   useEffect(() => {
     if (!token || !user?.id || !hasLoadedCustomerData) return;
@@ -13341,7 +13368,7 @@ function AppContent() {
     );
   }
 
-  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} onStartRequest={startRequest} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} initialScrollOffset={homeScrollOffsetRef.current} onScrollOffsetChange={(offset) => { homeScrollOffsetRef.current = offset; }} />);
+  if (screen === "home") return withAppChrome(<HomeScreen setScreen={setScreen} onStartRequest={startRequest} profile={profile} unreadCount={unreadCount} defaultAddress={defaultAddress} orders={orders} appReviews={appReviews} initialScrollOffset={homeScrollOffsetRef.current} onScrollOffsetChange={(offset) => { homeScrollOffsetRef.current = offset; }} festivalTheme={festival.state} />);
   if (screen === "services") return withAppChrome(<ServicesScreen setScreen={setScreen} onStartRequest={startRequest} />);
   if (screen === "featureSoon") return withAppChrome(<FeatureSoonScreen setScreen={setScreen} onNotify={notifyForPressLaunch} />);
   if (screen === "notifications") return withAppChrome(<NotificationsScreen notifications={notifications} onMarkAllRead={markNotificationsRead} setScreen={setScreen} />);
@@ -13624,8 +13651,15 @@ function createStyles(isDark = false) {
   dialogDestructiveText: { color: "#c24141" },
   pageContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
   homeContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: CUSTOMER_TAB_CONTENT_BOTTOM_PADDING },
+  festivalSafe: { backgroundColor: "#FFF9EE" },
+  festivalHomeContent: { backgroundColor: "#FFF9EE" },
   homeGreeting: { color: subtle, fontSize: 14, fontWeight: "700" },
   homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 22 },
+  festivalHomeTop: { minHeight: 92, alignItems: "flex-end", marginBottom: 12, overflow: "visible" },
+  festivalHeaderContent: { flex: 1, zIndex: 2 },
+  festivalHeaderActions: { zIndex: 3, alignSelf: "center" },
+  festivalGreetingRow: { minHeight: 58, flexDirection: "row", alignItems: "center", paddingTop: 24, paddingLeft: 35, paddingRight: 4 },
+  festivalGreeting: { flexShrink: 1, color: "#6B1016", fontSize: 20, lineHeight: 25, fontWeight: "900" },
   mutedSmall: { color: subtle, fontSize: 12 },
   userName: { color: text, fontSize: 20, fontWeight: "900", marginTop: 6 },
   homeActions: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -13635,11 +13669,15 @@ function createStyles(isDark = false) {
   avatarImage: { width: 42, height: 42, borderRadius: 21, backgroundColor: surface },
   avatarText: { color: "#111111", fontSize: 13, fontWeight: "900" },
   searchBar: { height: 48, borderRadius: 16, backgroundColor: surface, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 12, marginBottom: 16 },
+  festivalCard: { borderWidth: 1, borderColor: "#E8C57A", overflow: "hidden", backgroundColor: "#FFFCF5" },
   searchPlaceholder: { color: muted, fontSize: 14, fontWeight: "700" },
   animatedSearchWord: { color: text, fontWeight: "900" },
   searchCursor: { color: BRAND_ORANGE, fontWeight: "900" },
   homeAddressCard: { minHeight: 62, borderRadius: 17, backgroundColor: surface, borderWidth: 1, borderColor: border, flexDirection: "row", alignItems: "center", padding: 12, marginBottom: 16 },
   featureCard: { minHeight: 176, borderRadius: 22, backgroundColor: darkCard, padding: 22, overflow: "hidden", marginBottom: 24 },
+  festivalFeatureCard: { minHeight: 210, backgroundColor: "#2C1708", borderWidth: 1.5, borderColor: "#D99820", shadowColor: "#6B1016", shadowOpacity: 0.2, shadowRadius: 12, elevation: 5 },
+  festivalHeroContent: { zIndex: 3, maxWidth: "72%" },
+  festivalFeatureSub: { color: "#F0D9B8" },
   featureOrb: { position: "absolute", right: -12, top: -24, width: 98, height: 98, borderRadius: 49, backgroundColor: "#5b3608" },
   featureLabel: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900", letterSpacing: 0.7 },
   featureTitle: { color: "#f2f6ff", fontSize: 22, lineHeight: 27, fontWeight: "900", marginTop: 8 },

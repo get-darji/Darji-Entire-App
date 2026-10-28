@@ -129,6 +129,26 @@ export async function seedDatabase() {
     { upsert: true }
   );
   await SettingModel.findOneAndUpdate(
+    { key: "festival_theme" },
+    {
+      $setOnInsert: {
+        key: "festival_theme",
+        value: {
+          themeId: "diwali",
+          enabled: false,
+          title: "Diwali Darji Edition",
+          greetingTemplate: "Happy Diwali, {firstName}!",
+          startAt: null,
+          endAt: null,
+          timezone: "Asia/Kolkata",
+          assetVersion: "diwali-v1",
+          palette: { page: "#FFF9EE", hero: "#2C1708", accent: "#F6A500", fabric: "#6B1016" }
+        }
+      }
+    },
+    { upsert: true }
+  );
+  await SettingModel.findOneAndUpdate(
     { key: "delivery_rounds" },
     {
       key: "delivery_rounds",

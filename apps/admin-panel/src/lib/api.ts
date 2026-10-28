@@ -4,6 +4,7 @@ import axios, { type AxiosRequestConfig } from "axios";
 import { useAdminStore } from "@/src/store/admin-store";
 import { getActiveApiUrl, markApiUrlReachable, nextApiUrlAfter, shouldTryApiFallback } from "@/src/lib/api-base";
 import type { PlatformStatus } from "../../../../shared/src/platform-status";
+import type { FestivalThemeConfig, FestivalThemeState } from "../../../../shared/src/festival-theme";
 import type { ServiceAreaConfig } from "../../../../shared/src/service-area";
 import type {
   AdminUser,
@@ -595,6 +596,14 @@ export async function getPlatformStatus() {
 
 export async function updatePlatformStatus(payload: PlatformStatus) {
   return unwrap<PlatformStatus>(api.put("/admin/platform-status", payload));
+}
+
+export async function getFestivalTheme() {
+  return unwrap<FestivalThemeState>(api.get("/festival-theme"));
+}
+
+export async function updateFestivalTheme(payload: FestivalThemeConfig) {
+  return unwrap<FestivalThemeState>(api.put("/admin/festival-theme", payload));
 }
 
 export async function assignOrder(payload: { orderId: string; tailorId?: string; deliveryPartnerId?: string; mode?: "pickup" | "delivery" }) {

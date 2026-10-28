@@ -366,6 +366,11 @@ export function emitToAdmins(event: string, payload: unknown) {
   io?.to(roleRoom("ADMIN")).emit(event, payload);
 }
 
+export function publishFestivalTheme(payload: unknown) {
+  io?.to(roleRoom("CUSTOMER")).emit("festival:theme_changed", payload);
+  io?.to(roleRoom("ADMIN")).emit("festival:theme_changed", payload);
+}
+
 export function publishPlatformStatus(status: PlatformStatus) {
   io?.emit("platform:status_changed", status);
   if (!io) return;
