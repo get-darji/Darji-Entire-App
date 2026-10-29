@@ -9,7 +9,7 @@ import {
   moveMeasurementVisitToPool,
   submitMeasurementVisit
 } from "../services/measurement-visit.service.js";
-import { isExclusiveStitchingTailorOffer } from "../utils/measurement-workflow.js";
+import { isExclusiveStitchingTailorOffer, isOriginalStitchingTailorPoolOffer } from "../utils/measurement-workflow.js";
 
 const measurementMediaSchema = z.object({
   url: z.string().url(),
@@ -116,14 +116,19 @@ export async function listMeasurementVisitsController(req: Request, res: Respons
       { assignedTailorId: { $in: tailorReferences }, status: { $in: ["ACCEPTED", "IN_PROGRESS", "SUBMITTED", "CANCELLED", "EXPIRED"] } }
     ]
   };
-  if (tailor.isAvailable) {
-    (where.$or as unknown[]).push({
-      stitchingTailorId: { $in: tailorReferences },
-      offeredTailorId: { $in: tailorReferences },
-      status: "OFFERED_TO_STITCHING_TAILOR",
-      declinedTailorIds: { $nin: tailorReferences }
-    });
-  }
+  (where.$or as unknown[]).push({
+    stitchingTailorId: { $in: tailorReferences },
+    offeredTailorId: { $in: tailorReferences },
+    status: "OFFERED_TO_STITCHING_TAILOR",
+    declinedTailorIds: { $nin: tailorReferences }
+  });
+  // Keep the original stitching tailor's request visible after the exclusive
+  // offer opens to the pool, even if they are not a general measurement partner.
+  (where.$or as unknown[]).push({
+    stitchingTailorId: { $in: tailorReferences },
+    status: "POOL",
+    declinedTailorIds: { $nin: tailorReferences }
+  });
   if (tailor.isAvailable && canMeasure) {
     (where.$or as unknown[]).push({ status: "POOL", declinedTailorIds: { $nin: tailorReferences }, stitchingTailorId: { $nin: tailorReferences } });
   }
@@ -166,9 +171,10 @@ export async function acceptMeasurementVisitController(req: Request, res: Respon
   const tailorReferences = [tailor.id, tailor.userId, tailor.darjiTailorId].filter((value): value is string => typeof value === "string" && value.length > 0);
   const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
   const isOwnStitchingOffer = isExclusiveStitchingTailorOffer(visit, tailorReferences);
+  const isOriginalStitchingTailorPool = isOriginalStitchingTailorPoolOffer(visit, tailorReferences);
   const declinedTailorIds = (visit.declinedTailorIds ?? []).map((id) => String(id));
   const isPool = visit.status === "POOL" && canMeasure && !tailorReferences.some((id) => declinedTailorIds.includes(id));
-  if (!isOwnStitchingOffer && !isPool) throw new AppError(403, "This measurement visit is not available to you");
+  if (!isOwnStitchingOffer && !isOriginalStitchingTailorPool && !isPool) throw new AppError(403, "This measurement visit is not available to you");
   const updated = await assignMeasurementVisit(visit.id, tailor.id, req.user!.id);
   if (!updated) throw new AppError(409, "Measurement visit is no longer available");
   res.json({ data: updated });
@@ -183,8 +189,9 @@ export async function declineMeasurementVisitController(req: Request, res: Respo
   const canMeasure = Array.isArray(tailor.tailorRoles) && tailor.tailorRoles.includes("MEASUREMENT_PARTNER") && tailor.measurementPartner?.isEnabled;
   const alreadyDeclined = tailorReferences.some((id) => declinedTailorIds.includes(id));
   const canDeclineOwnOffer = isExclusiveStitchingTailorOffer(visit, tailorReferences);
+  const canDeclineOriginalPoolOffer = isOriginalStitchingTailorPoolOffer(visit, tailorReferences);
   const canDeclinePool = visit.status === "POOL" && !alreadyDeclined && canMeasure;
-  if (!canDeclineOwnOffer && !canDeclinePool) throw new AppError(403, "This measurement visit is not assigned to you");
+  if (!canDeclineOwnOffer && !canDeclineOriginalPoolOffer && !canDeclinePool) throw new AppError(403, "This measurement visit is not assigned to you");
   const updated = await moveMeasurementVisitToPool(visit.id, tailor.id, "tailor_declined");
   if (!updated) throw new AppError(409, "Measurement visit is no longer available");
   res.json({ data: updated });

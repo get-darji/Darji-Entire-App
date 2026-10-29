@@ -44,3 +44,26 @@ export function isExclusiveStitchingTailorOffer(
     && tailorReferences.includes(String(visit.offeredTailorId ?? ""))
     && !tailorReferences.some((id) => declinedTailorIds.includes(id));
 }
+
+export function isOriginalStitchingTailorPoolOffer(
+  visit: { status?: string | null; stitchingTailorId?: unknown; declinedTailorIds?: unknown[] | null },
+  tailorReferences: string[]
+) {
+  const declinedTailorIds = (visit.declinedTailorIds ?? []).map(String);
+  return visit.status === "POOL"
+    && tailorReferences.includes(String(visit.stitchingTailorId ?? ""))
+    && !tailorReferences.some((id) => declinedTailorIds.includes(id));
+}
+
+export function measurementPoolNotificationExclusions(visit: { stitchingTailorId?: unknown; declinedTailorIds?: unknown[] | null }) {
+  return [...new Set([visit.stitchingTailorId, ...(visit.declinedTailorIds ?? [])]
+    .filter((id) => id !== undefined && id !== null && String(id).length > 0)
+    .map(String))];
+}
+
+export function shouldNotifyMeasurementPoolTailor(
+  tailorId: string,
+  visit: { stitchingTailorId?: unknown; declinedTailorIds?: unknown[] | null }
+) {
+  return !measurementPoolNotificationExclusions(visit).includes(String(tailorId));
+}

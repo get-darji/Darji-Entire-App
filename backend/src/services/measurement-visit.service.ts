@@ -7,7 +7,7 @@ import { upsertOperationalAlert, resolveOperationalAlert } from "./operational-a
 import { extractTailorShopPoint, geocodeAddress, pointFrom, roadDistanceMeters } from "./delivery-pricing.service.js";
 import { measurementVisitPayout as calculateMeasurementVisitPayout } from "@darji/shared";
 import { creditOrderEarning } from "./wallet.service.js";
-import { measurementOfferExpiresAt, measurementVisitAssignableStatuses } from "../utils/measurement-workflow.js";
+import { measurementOfferExpiresAt, measurementPoolNotificationExclusions, measurementVisitAssignableStatuses, shouldNotifyMeasurementPoolTailor } from "../utils/measurement-workflow.js";
 
 const DEFAULT_VISIT_PAYOUT = 30;
 
@@ -190,15 +190,24 @@ export async function createMeasurementVisitForConfirmedRequest(requestId: strin
     emitToTailor(quote.tailorId, "measurement:visit_offered", { visit: visit.toJSON() });
     scheduleMeasurementVisitPoolRelease(visit.id, visit.offerExpiresAt);
   } else {
-    await moveMeasurementVisitToPool(visit.id, undefined, "stitching_tailor_unavailable");
+    await notifyMeasurementVisitPool(visit, "stitching_tailor_unavailable");
   }
   emitToAdmins("measurement:visit_created", { visit: visit.toJSON() });
   return visit;
 }
 
 export async function moveMeasurementVisitToPool(visitId: string, tailorId?: string, reason = "declined") {
-  const visit = await MeasurementVisitModel.findByIdAndUpdate(
-    { _id: visitId, status: { $in: ["OFFERED_TO_STITCHING_TAILOR", "POOL"] } },
+  if (tailorId) {
+    const alreadyPooled = await MeasurementVisitModel.findOneAndUpdate(
+      { _id: visitId, status: "POOL" },
+      { $addToSet: { declinedTailorIds: tailorId } },
+      { returnDocument: "after" }
+    );
+    if (alreadyPooled) return alreadyPooled;
+  }
+
+  const visit = await MeasurementVisitModel.findOneAndUpdate(
+    { _id: visitId, status: "OFFERED_TO_STITCHING_TAILOR" },
     {
       $set: { status: "POOL", poolOpenedAt: new Date() },
       $unset: { offeredTailorId: "", assignedTailorId: "", acceptedAt: "", offerExpiresAt: "" },
@@ -234,10 +243,10 @@ async function notifyMeasurementVisitPool(visit: any, reason: string) {
     isAvailable: true,
     "measurementPartner.isEnabled": true,
     tailorRoles: "MEASUREMENT_PARTNER",
-    _id: { $nin: visit.declinedTailorIds ?? [] }
+    _id: { $nin: measurementPoolNotificationExclusions(visit) }
   }).select("userId verification verificationDraft shopName");
   await Promise.all(partnerTailors.map(async (tailor) => {
-    if (!tailor.userId) return;
+    if (!tailor.userId || !shouldNotifyMeasurementPoolTailor(tailor.id, visit)) return;
     const payout = await measurementVisitPayoutForTailor(visit, tailor.toJSON() as Record<string, unknown>);
     const distanceLabel = measurementDistanceLabel(payout.measurementDistanceMeters);
     await sendPushToUsers([tailor.userId], {
@@ -263,6 +272,13 @@ async function notifyMeasurementVisitPool(visit: any, reason: string) {
     });
     emitToTailor(tailor.id, "measurement:visit_pool", { visit: withMeasurementPayout(visit, payout) });
   }));
+  const stitchingTailorId = visit.stitchingTailorId ? String(visit.stitchingTailorId) : "";
+  const stitchingTailorDeclined = (visit.declinedTailorIds ?? []).some((id: unknown) => String(id) === stitchingTailorId);
+  if (stitchingTailorId && !stitchingTailorDeclined) {
+    // The original tailor's offer changes from exclusive to pooled, but they
+    // already received the one incoming alert. Update their request list quietly.
+    emitToTailor(stitchingTailorId, "measurement:visit_pool_released", { visit: visit.toJSON() });
+  }
   emitToAdmins("measurement:visit_pool", { visit: visit.toJSON() });
 }
 
@@ -320,7 +336,11 @@ export async function assignMeasurementVisit(visitId: string, tailorId: string, 
     ? await measurementVisitPayoutForTailor(existingVisit, tailor.toJSON() as Record<string, unknown>)
     : { visitPayout: DEFAULT_VISIT_PAYOUT, measurementDistanceMeters: 0 };
   const visit = await MeasurementVisitModel.findOneAndUpdate(
-    { _id: visitId, status: { $in: measurementVisitAssignableStatuses(allowReassignment) } },
+    {
+      _id: visitId,
+      status: { $in: measurementVisitAssignableStatuses(allowReassignment) },
+      ...(!allowReassignment ? { declinedTailorIds: { $nin: [canonicalTailorId] } } : {})
+    },
     {
       $set: {
         assignedTailorId: canonicalTailorId,

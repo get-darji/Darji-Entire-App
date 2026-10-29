@@ -7115,6 +7115,13 @@ function AppContent() {
       if (visit) showMeasurementVisitPopup(visit);
       void refreshWorkspace();
     });
+    socket.on("measurement:visit_pool_released", ({ visit }: { visit?: MeasurementVisit }) => {
+      if (!visit?.id) return;
+      stopMeasurementVisitAlert(visit);
+      setMeasurementVisits((current) => upsertMeasurementVisit(current, visit));
+      setMeasurementVisitPopup((current) => current?.id === visit.id ? visit : current);
+      void refreshWorkspace().then(() => setMeasurementVisits((current) => upsertMeasurementVisit(current, visit)));
+    });
     socket.on("measurement:visit_cancelled", ({ visit, requestId }: { visit?: MeasurementVisit; requestId?: string }) => {
       if (visit?.id) {
         stopMeasurementVisitAlert(visit);

@@ -3,9 +3,12 @@ import { test } from "node:test";
 import {
   hasHomeMeasurementRequest,
   isExclusiveStitchingTailorOffer,
+  isOriginalStitchingTailorPoolOffer,
+  measurementPoolNotificationExclusions,
   mayStartTailoring,
   measurementOfferExpiresAt,
   measurementVisitAssignableStatuses,
+  shouldNotifyMeasurementPoolTailor,
   MEASUREMENT_OFFER_WINDOW_MS
 } from "../utils/measurement-workflow.js";
 
@@ -25,6 +28,22 @@ test("the selected stitching tailor can act on the exclusive offer without poole
   assert.equal(isExclusiveStitchingTailorOffer({ ...visit, status: "POOL" }, ["tailor-a"]), false);
   assert.equal(isExclusiveStitchingTailorOffer({ ...visit, declinedTailorIds: ["tailor-a"] }, ["tailor-a"]), false);
   assert.equal(isExclusiveStitchingTailorOffer(visit, ["tailor-b"]), false);
+});
+
+test("the original stitching tailor keeps access after pool release without a second broadcast alert", () => {
+  const pooledVisit = {
+    status: "POOL",
+    stitchingTailorId: "tailor-a",
+    declinedTailorIds: ["tailor-b"]
+  };
+  assert.equal(isOriginalStitchingTailorPoolOffer(pooledVisit, ["tailor-a"]), true);
+  assert.equal(isOriginalStitchingTailorPoolOffer(pooledVisit, ["tailor-b"]), false);
+  assert.equal(isOriginalStitchingTailorPoolOffer({ ...pooledVisit, declinedTailorIds: ["tailor-a"] }, ["tailor-a"]), false);
+
+  assert.deepEqual(measurementPoolNotificationExclusions(pooledVisit), ["tailor-a", "tailor-b"]);
+  assert.equal(shouldNotifyMeasurementPoolTailor("tailor-a", pooledVisit), false);
+  assert.equal(shouldNotifyMeasurementPoolTailor("tailor-b", pooledVisit), false);
+  assert.equal(shouldNotifyMeasurementPoolTailor("tailor-c", pooledVisit), true);
 });
 
 test("home measurement is detected at request and item level", () => {

@@ -3,7 +3,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Application from "expo-application";
 import * as Updates from "expo-updates";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
+import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, useWindowDimensions, type ImageSourcePropType, type ScrollViewProps } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, deleteTailorSample, savePreferredLanguage, uploadTailorSamples, uploadTailorVerificationMedia } from "../api";
 import { useAppStore } from "../store";
@@ -240,6 +240,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const { signOut } = useAppStore();
   const language = useAppStore((state) => state.language);
   const insets = useSafeAreaInsets();
+  const windowSize = useWindowDimensions();
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   const profile = me?.tailorProfile;
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -290,6 +291,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
 
   const palette = general.darkMode ? darkPalette : lightPalette;
   const profileAccent = general.darkMode ? "#ffffff" : "#111111";
+  const identityCardHeight = Math.max(160, Math.min(720, windowSize.height - insets.top - insets.bottom - 36));
   const safeTopPadding = Math.max(insets.top + SCREEN_HEADER_SAFE_GAP, SCREEN_TOP_PADDING + SCREEN_HEADER_SAFE_GAP);
   const safeBottomPadding = Math.max(insets.bottom + 18, CHAT_BOTTOM_INSET);
   const styles = useMemo(() => createStyles(palette, safeTopPadding, safeBottomPadding), [palette, safeTopPadding, safeBottomPadding]);
@@ -561,8 +563,9 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </View>
 
       <Modal transparent visible={showIdentityDetails} animationType="fade" onRequestClose={() => setShowIdentityDetails(false)}>
-        <Pressable style={styles.identityBackdrop} onPress={() => setShowIdentityDetails(false)}>
-          <Pressable style={styles.identityCardShell} onPress={(event) => event.stopPropagation()}>
+        <View style={[styles.identityBackdrop, { paddingTop: Math.max(18, insets.top + 12), paddingBottom: Math.max(18, insets.bottom + 12) }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss tailor profile details" style={StyleSheet.absoluteFill} onPress={() => setShowIdentityDetails(false)} />
+          <View style={[styles.identityCardShell, { height: identityCardHeight }]}>
             <View style={styles.identityCard}>
               <View pointerEvents="none" style={styles.identityGlowPrimary} />
               <View pointerEvents="none" style={styles.identityGlowSecondary} />
@@ -579,6 +582,12 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
                 </Pressable>
               </View>
 
+              <RNScrollView
+                style={styles.identityScrollArea}
+                contentContainerStyle={styles.identityScrollContent}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+              >
               <View style={styles.identityHero}>
                 <View style={styles.identityAvatarFrame}>
                   <Image
@@ -636,9 +645,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
                   </View>
                 ))}
               </View>
+              </RNScrollView>
             </View>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
@@ -3027,9 +3037,11 @@ function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_
     bugDeviceCard: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 6, marginTop: 14, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
     accountRequestHeader: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, paddingTop: safeTopPadding, marginBottom: 14 },
     accountRequestContent: { gap: 16, paddingHorizontal: 18, paddingBottom: safeBottomPadding + 94 },
-    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.65)", justifyContent: "center", alignItems: "center", padding: 22 },
-    identityCardShell: { width: "100%", maxWidth: 370, borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
-    identityCard: { borderRadius: 16, overflow: "hidden", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 18 },
+    identityBackdrop: { flex: 1, backgroundColor: "rgba(4,11,23,0.65)", justifyContent: "center", alignItems: "center", paddingHorizontal: 18 },
+    identityCardShell: { width: "100%", maxWidth: 370, maxHeight: "100%", borderRadius: 16, shadowColor: "#020817", shadowOpacity: 0.26, shadowRadius: 8, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
+    identityCard: { flex: 1, borderRadius: 16, overflow: "hidden", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, padding: 16 },
+    identityScrollArea: { flex: 1 },
+    identityScrollContent: { paddingBottom: 4 },
     identityGlowPrimary: { position: "absolute", width: 150, height: 150, borderRadius: 75, top: -78, right: -52, backgroundColor: "rgba(246,163,19,0.08)" },
     identityGlowSecondary: { position: "absolute", width: 128, height: 128, borderRadius: 64, bottom: -76, left: -48, backgroundColor: "rgba(37,99,235,0.05)" },
     identityHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 18 },
