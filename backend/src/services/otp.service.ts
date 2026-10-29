@@ -120,9 +120,7 @@ function developmentOtpMatches(otp: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function canUseFallbackOtp(phone: string, role?: string) {
-  const isAppRole = role === "CUSTOMER" || role === "TAILOR" || role === "DELIVERY_PARTNER";
-  if (!isAppRole) return false;
+function canUseFallbackOtp(phone: string) {
   if (!env.OTP_STATIC_FALLBACK_ENABLED) return false;
   if (env.NODE_ENV !== "production") return true;
 
@@ -197,11 +195,10 @@ export async function verifyOtp(phone: string, otp: string, role?: string) {
   if (request.provider === "dev") {
     matches = env.NODE_ENV !== "production"
       && env.OTP_DEV_FALLBACK_ENABLED
-      && (!role || (role !== "ADMIN" && role !== "SUPER_ADMIN"))
       && developmentOtpMatches(otp);
   } else if (request.provider === "twofactor") {
     if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");
-    if (developmentOtpMatches(otp) && canUseFallbackOtp(phone, role)) {
+    if (developmentOtpMatches(otp) && canUseFallbackOtp(phone)) {
       matches = true;
     } else {
       try {
