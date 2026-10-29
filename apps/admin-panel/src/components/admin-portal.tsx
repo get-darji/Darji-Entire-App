@@ -789,7 +789,8 @@ export function AdminPortal() {
     // values from this payload even when another section is active. Treat it as
     // required boot data so restoring a non-dashboard section cannot render
     // with an undefined analytics object.
-    enabled: isAuthed
+    enabled: isAuthed,
+    refetchInterval: activeSection === "dashboard" ? 15_000 : false
   });
   const measurementVisitsQuery = useQuery({
     queryKey: ["admin", "measurement-visits"],
@@ -2237,8 +2238,8 @@ export function AdminPortal() {
     },
     {
       icon: MessageSquareText,
-      label: "SMS OTPs Sent",
-      note: dashboardAnalytics.otp?.lastSentAt ? `Last sent ${formatDate(dashboardAnalytics.otp.lastSentAt, true)}` : "Counting starts with the updated backend",
+      label: "SMS OTPs Sent (lifetime)",
+      note: dashboardAnalytics.otp?.lastSentAt ? `All-time total · last sent ${formatDate(dashboardAnalytics.otp.lastSentAt, true)}` : "All-time total · no successful sends yet",
       tone: "violet" as const,
       value: (dashboardAnalytics.otp?.successfulSends ?? 0).toLocaleString("en-IN"),
       change: "",
@@ -11462,7 +11463,7 @@ function ProfileDialog({
       setProfileTab("personal");
       setVerificationJson(JSON.stringify(verification, null, 2));
       setEditDraft({
-        name: personal.name ?? personal.fullName ?? profile.displayName ?? profile.user?.name ?? "",
+        name: personal.name ?? personal.fullName ?? (isTailorProfile(profile) ? profile.displayName : undefined) ?? profile.user?.name ?? "",
         phone: profile.user?.phone ?? "",
         email: profile.user?.email ?? personal.email ?? "",
         avatarUrl: profile.user?.profileUrl || profile.user?.avatarUrl || "",

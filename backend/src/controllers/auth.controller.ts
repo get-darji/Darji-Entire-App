@@ -151,7 +151,7 @@ export async function requestOtpController(req: Request, res: Response) {
 export async function verifyOtpController(req: Request, res: Response) {
   const input = verifyOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  await verifyOtp(input.phone, input.otp);
+  await verifyOtp(input.phone, input.otp, input.role);
 
   const requestedAdmin = input.role === "ADMIN" || input.role === "SUPER_ADMIN";
   const user = requestedAdmin

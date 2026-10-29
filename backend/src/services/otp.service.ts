@@ -120,6 +120,17 @@ function developmentOtpMatches(otp: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+function canUseFallbackOtp(phone: string, role?: string) {
+  const isAppRole = role === "CUSTOMER" || role === "TAILOR" || role === "DELIVERY_PARTNER";
+  if (!isAppRole) return false;
+  if (!env.OTP_STATIC_FALLBACK_ENABLED) return false;
+  if (env.NODE_ENV !== "production") return true;
+
+  const expiresAt = env.OTP_TEST_EXPIRES_AT ? Date.parse(env.OTP_TEST_EXPIRES_AT) : Number.NaN;
+  const allowedPhones = new Set((env.OTP_TEST_ALLOWED_PHONES ?? "").split(",").map((item) => item.replace(/\D/g, "")).filter(Boolean));
+  return Number.isFinite(expiresAt) && expiresAt > Date.now() && allowedPhones.has(phone.replace(/\D/g, ""));
+}
+
 async function reserveOtpRequest(phone: string) {
   const now = new Date();
   const reservationId = randomUUID();
@@ -143,7 +154,7 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
 }
 
 export async function requestOtp(phone: string) {
-  if (env.OTP_DEV_FALLBACK_ENABLED) {
+  if (env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production") {
     await reserveOtpRequest(phone);
     return createDevelopmentOtpRequest(phone);
   }
@@ -171,7 +182,7 @@ export async function requestOtp(phone: string) {
   return request;
 }
 
-export async function verifyOtp(phone: string, otp: string) {
+export async function verifyOtp(phone: string, otp: string, role?: string) {
   const request = await OtpRequestModel.findOne({ phone, consumedAt: { $exists: false }, expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 });
 
   if (!request) {
@@ -184,19 +195,26 @@ export async function verifyOtp(phone: string, otp: string) {
 
   let matches = false;
   if (request.provider === "dev") {
-    matches = developmentOtpMatches(otp);
+    matches = env.NODE_ENV !== "production"
+      && env.OTP_DEV_FALLBACK_ENABLED
+      && (!role || (role !== "ADMIN" && role !== "SUPER_ADMIN"))
+      && developmentOtpMatches(otp);
   } else if (request.provider === "twofactor") {
     if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");
-    try {
-      const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
-      const detail = String(payload.Details ?? payload.details ?? "").trim();
-      if (!isTwoFactorSuccess(payload) && !/otp.*(mismatch|not matched|invalid)|invalid.*otp/i.test(detail)) {
-        throw new Error(`TwoFactor OTP verify failed: ${detail.replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
+    if (developmentOtpMatches(otp) && canUseFallbackOtp(phone, role)) {
+      matches = true;
+    } else {
+      try {
+        const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
+        const detail = String(payload.Details ?? payload.details ?? "").trim();
+        if (!isTwoFactorSuccess(payload) && !/otp.*(mismatch|not matched|invalid)|invalid.*otp/i.test(detail)) {
+          throw new Error(`TwoFactor OTP verify failed: ${detail.replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
+        }
+        matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+        throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
       }
-      matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : error);
-      throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
     }
   }
   if (!matches) {
