@@ -168,7 +168,7 @@ const tailorVerificationSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Add account holder, account number, and IFSC together" });
     }
   }),
-  specialties: z.array(z.string().trim().min(2).max(80)).max(12).optional(),
+  specialties: z.array(z.string().trim().min(2).max(80)).max(50).optional(),
   specializationRows: z
     .array(
       z.object({

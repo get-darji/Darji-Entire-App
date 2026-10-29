@@ -10607,7 +10607,7 @@ function PolicyScreen({ title, setScreen }: { title: string; setScreen: (screen:
 
 function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
   return (
-    <ProfileSubPage title={t(useAppStore.getState().language, "appInfo")} setScreen={setScreen}>
+    <ProfileSubPage title={t(useAppStore.getState().language, "appVersion")} setScreen={setScreen}>
       <View style={[styles.whiteCard, { alignItems: "center", paddingVertical: 24 }]}>
         <Image source={customerAppIcon} style={{ width: 74, height: 74, borderRadius: 18 }} resizeMode="contain" />
         <Text style={[styles.profileName, { marginTop: 12 }]}>Darji</Text>
@@ -10615,7 +10615,7 @@ function AppInfoScreen({ setScreen }: { setScreen: (screen: Screen) => void }) {
       </View>
       <View style={styles.whiteCard}>
         <InfoRow label="Installed version" value={CUSTOMER_APP_VERSION} />
-        <InfoRow label="Updates" value="Installed automatically when the app restarts" />
+        <InfoRow label="Updates" value="The app checks for updates when it opens. Downloaded updates take effect the next time you reopen Darji." />
       </View>
       <Pressable style={styles.aboutInfoButton} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)}><Ionicons name="shield-checkmark-outline" size={18} color="#111111" /><Text style={styles.aboutInfoButtonText}>Privacy Policy</Text></Pressable>
       <Pressable style={styles.aboutInfoButton} onPress={() => openDarjiUrl(DARJI_TERMS_URL)}><Ionicons name="document-text-outline" size={18} color="#111111" /><Text style={styles.aboutInfoButtonText}>Terms of Service</Text></Pressable>

@@ -400,7 +400,9 @@ type VerificationDraft = {
   rows: SpecializationRow[];
   confirmedRows: boolean;
   specialties: string[];
-  otherSpecialty: string;
+  customSpecialties?: string[];
+  otherSpecialty?: string;
+  isAddingOtherSpecialty?: boolean;
   idType: TailorIdType;
   idNumber: string;
   aadhaarFront?: VerificationMediaDraft;
@@ -4342,7 +4344,9 @@ function makeVerificationDraft(me?: MeResponse): VerificationDraft {
     rows: [newSpecializationRow()],
     confirmedRows: false,
     specialties: [],
+    customSpecialties: [],
     otherSpecialty: "",
+    isAddingOtherSpecialty: false,
     idType: "Aadhaar",
     idNumber: "",
     ocrStatus: "Not run",
@@ -4459,7 +4463,9 @@ function TailorVerificationFlow({
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
   const [specialties, setSpecialties] = useState<string[]>([]);
+  const [customSpecialties, setCustomSpecialties] = useState<string[]>([]);
   const [otherSpecialty, setOtherSpecialty] = useState("");
+  const [isAddingOtherSpecialty, setIsAddingOtherSpecialty] = useState(false);
   const [idType, setIdType] = useState<TailorIdType>("Aadhaar");
   const [idNumber, setIdNumber] = useState("");
   const [aadhaarFront, setAadhaarFront] = useState<VerificationMediaDraft>();
@@ -4496,7 +4502,9 @@ function TailorVerificationFlow({
       rows,
       confirmedRows,
       specialties,
+      customSpecialties,
       otherSpecialty,
+      isAddingOtherSpecialty,
       idType,
       idNumber,
       aadhaarFront,
@@ -4519,8 +4527,10 @@ function TailorVerificationFlow({
     if (draft.category) setCategory(draft.category);
     if (draft.rows?.length) setRows(draft.rows);
     if (typeof draft.confirmedRows === "boolean") setConfirmedRows(draft.confirmedRows);
-    if (draft.specialties) setSpecialties(draft.specialties);
+    if (draft.specialties) setSpecialties(draft.specialties.filter((item) => item !== "Other"));
+    if (draft.customSpecialties) setCustomSpecialties(draft.customSpecialties);
     if (typeof draft.otherSpecialty === "string") setOtherSpecialty(draft.otherSpecialty);
+    setIsAddingOtherSpecialty(Boolean(draft.isAddingOtherSpecialty || draft.specialties?.includes("Other") || draft.otherSpecialty?.trim()));
     if (draft.idType) setIdType(draft.idType === "License" ? "PAN" : draft.idType);
     if (draft.idNumber) setIdNumber(draft.idNumber);
     if (draft.aadhaarFront) setAadhaarFront(draft.aadhaarFront);
@@ -4573,15 +4583,12 @@ function TailorVerificationFlow({
       setCategory(verification.specializationRows[0]?.gender ?? "Both");
       setConfirmedRows(true);
     }
-    if (verification.specialties?.length) {
-      const knownOptions = verificationSpecialtyOptions.filter((item) => item !== "Other");
-      setSpecialties(verification.specialties.filter((item) => knownOptions.includes(item) || item === "Other"));
-      const custom = verification.specialties.find((item) => !knownOptions.includes(item) && item !== "Other");
-      if (custom) {
-        setSpecialties((current) => current.includes("Other") ? current : [...current, "Other"]);
-        setOtherSpecialty(custom);
-      }
-    }
+    const knownOptions = verificationSpecialtyOptions.filter((item) => item !== "Other");
+    const submittedSpecialties = verification.specialties ?? [];
+    setSpecialties(submittedSpecialties.filter((item) => knownOptions.includes(item)));
+    setCustomSpecialties(submittedSpecialties.filter((item) => item !== "Other" && !knownOptions.includes(item)));
+    setOtherSpecialty("");
+    setIsAddingOtherSpecialty(false);
     setIdType(verification.idVerification.idType === "License" ? "PAN" : verification.idVerification.idType);
     setIdNumber(verification.idVerification.idNumber ?? "");
     setAadhaarFront(mediaDraftFromUrl(verification.idVerification.aadhaarFrontUrl, "Aadhaar front"));
@@ -4658,7 +4665,7 @@ function TailorVerificationFlow({
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [hasLoadedDraft, step, personal, shop, verificationBank, category, rows, confirmedRows, specialties, otherSpecialty, idType, idNumber, aadhaarFront, aadhaarBack, panPhoto, facePhoto, ocrStatus, faceDetectionStatus, extractedDetails, tutorialWatched, token, status]);
+  }, [hasLoadedDraft, step, personal, shop, verificationBank, category, rows, confirmedRows, specialties, customSpecialties, otherSpecialty, isAddingOtherSpecialty, idType, idNumber, aadhaarFront, aadhaarBack, panPhoto, facePhoto, ocrStatus, faceDetectionStatus, extractedDetails, tutorialWatched, token, status]);
 
   useEffect(() => {
     if (!token) return;
@@ -5050,6 +5057,29 @@ function TailorVerificationFlow({
     setConfirmedRows(false);
   }
 
+  function addCustomSpecialty() {
+    const value = otherSpecialty.trim();
+    if (value.length < 2) {
+      showDialog({ title: localize(language, "Add your specialty", "अपनी विशेषता जोड़ें"), message: localize(language, "Enter at least 2 characters before adding it.", "जोड़ने से पहले कम से कम 2 अक्षर लिखें।"), icon: "alert-circle-outline" });
+      return;
+    }
+    const normalized = value.toLocaleLowerCase();
+    const alreadyExists = specialties.some((item) => item.toLocaleLowerCase() === normalized)
+      || customSpecialties.some((item) => item.toLocaleLowerCase() === normalized)
+      || verificationSpecialtyOptions.some((item) => item !== "Other" && item.toLocaleLowerCase() === normalized);
+    if (alreadyExists) {
+      showDialog({ title: localize(language, "Already added", "पहले से जोड़ा गया"), message: localize(language, "That specialty is already listed.", "यह विशेषता पहले से सूची में है।"), icon: "alert-circle-outline" });
+      return;
+    }
+    if (specialties.length + customSpecialties.length >= 50) {
+      showDialog({ title: localize(language, "Specialty limit reached", "विशेषता सीमा पूरी हुई"), message: localize(language, "You can add up to 50 specialties.", "आप अधिकतम 50 विशेषताएँ जोड़ सकते हैं।"), icon: "alert-circle-outline" });
+      return;
+    }
+    setCustomSpecialties((current) => [...current, value]);
+    setOtherSpecialty("");
+    setIsAddingOtherSpecialty(false);
+  }
+
   async function uploadMissingPhotos() {
     type UploadMap = Partial<Record<"aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePhoto", string>> & { shopPhotos: string[] };
     const entries = [
@@ -5083,8 +5113,8 @@ function TailorVerificationFlow({
 
   async function submitVerification() {
     const validationMessage = fullValidationMessage();
-    if (specialties.includes("Other") && !otherSpecialty.trim()) {
-      showDialog({ title: localize(language, "Add your specialty", "अपनी विशेषता जोड़ें"), message: localize(language, "Write your specialty in the Other field before continuing.", "आगे बढ़ने से पहले अन्य फ़ील्ड में अपनी विशेषता लिखें।"), icon: "alert-circle-outline" });
+    if (otherSpecialty.trim()) {
+      showDialog({ title: localize(language, "Add your specialty", "अपनी विशेषता जोड़ें"), message: localize(language, "Tap Add specialty to save this entry before continuing.", "आगे बढ़ने से पहले इस प्रविष्टि को सहेजने के लिए विशेषता जोड़ें दबाएँ।"), icon: "alert-circle-outline" });
       return;
     }
     if (!token || validationMessage) {
@@ -5132,7 +5162,7 @@ function TailorVerificationFlow({
           : [{ gender: "Both", clothType: "Kurta", stitchingType: "New Stitching", price: 0 }],
         specialties: [
           ...specialties.filter((item) => item !== "Other"),
-          ...(specialties.includes("Other") && otherSpecialty.trim() ? [otherSpecialty.trim()] : [])
+          ...customSpecialties
         ],
         idVerification: {
           idType,
@@ -5492,12 +5522,26 @@ function TailorVerificationFlow({
               </View>
               <View style={[styles.chipWrap, styles.verificationSpecialtyGrid]}>
                 {verificationSpecialtyOptions.map((item) => {
-                  const selected = specialties.includes(item);
+                  const isOther = item === "Other";
+                  const selected = isOther ? isAddingOtherSpecialty : specialties.includes(item);
                   return (
                     <Pressable
                       key={item}
                       style={[styles.verificationSpecialtyChip, selected && styles.verificationSpecialtyChipActive, isLocked && styles.inputReadOnly]}
-                      onPress={() => !isLocked && setSpecialties((current) => selected ? current.filter((value) => value !== item) : [...current, item])}
+                      onPress={() => {
+                        if (isLocked) return;
+                        if (isOther) {
+                          setIsAddingOtherSpecialty((current) => !current);
+                          return;
+                        }
+                        if (selected) {
+                          setSpecialties((current) => current.filter((value) => value !== item));
+                        } else if (specialties.length + customSpecialties.length >= 50) {
+                          showDialog({ title: localize(language, "Specialty limit reached", "विशेषता सीमा पूरी हुई"), message: localize(language, "You can add up to 50 specialties.", "आप अधिकतम 50 विशेषताएँ जोड़ सकते हैं।"), icon: "alert-circle-outline" });
+                        } else {
+                          setSpecialties((current) => [...current, item]);
+                        }
+                      }}
                       disabled={isLocked}
                     >
                       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={[styles.verificationSpecialtyChipText, selected && styles.verificationSpecialtyChipTextActive]}>{item}</Text>
@@ -5505,7 +5549,21 @@ function TailorVerificationFlow({
                   );
                 })}
               </View>
-              {specialties.includes("Other") ? (
+              {customSpecialties.length ? (
+                <View style={styles.customSpecialtyList}>
+                  {customSpecialties.map((item) => (
+                    <View key={item} style={styles.customSpecialtyChip}>
+                      <Text style={styles.customSpecialtyText}>{item}</Text>
+                      {!isLocked ? (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item}`} onPress={() => setCustomSpecialties((current) => current.filter((value) => value !== item))} hitSlop={8}>
+                          <Ionicons name="close-circle" size={19} color="#667085" />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {isAddingOtherSpecialty ? (
                 <TextInput
                   style={[styles.input, styles.verificationOtherSpecialtyInput, isLocked && styles.inputReadOnly]}
                   value={otherSpecialty}
@@ -5515,6 +5573,12 @@ function TailorVerificationFlow({
                   maxLength={80}
                   editable={!isLocked}
                 />
+              ) : null}
+              {isAddingOtherSpecialty ? (
+                <Pressable style={[styles.otherSpecialtyAddButton, isLocked && styles.inputReadOnly]} onPress={addCustomSpecialty} disabled={isLocked}>
+                  <Ionicons name="add" size={18} color="#ffffff" />
+                  <Text style={styles.otherSpecialtyAddText}>{localize(language, "Add specialty", "विशेषता जोड़ें")}</Text>
+                </Pressable>
               ) : null}
             </View>
             <View style={styles.verificationSectionCard}>
@@ -8131,6 +8195,11 @@ const styles = StyleSheet.create({
   verificationSectionCopy: { color: "#667085", fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 3 },
   verificationSpecialtyGrid: { marginTop: 16 },
   verificationOtherSpecialtyInput: { minHeight: 54, borderRadius: 12, marginTop: 14, backgroundColor: "#ffffff" },
+  customSpecialtyList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  customSpecialtyChip: { minHeight: 36, maxWidth: "100%", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 18, borderWidth: 1, borderColor: "#efbd65", backgroundColor: "#fff4dc", paddingHorizontal: 11, paddingVertical: 6 },
+  customSpecialtyText: { color: "#111111", fontSize: 12, lineHeight: 17, fontWeight: "800", flexShrink: 1 },
+  otherSpecialtyAddButton: { minHeight: 44, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 12, backgroundColor: "#111111", paddingHorizontal: 14, marginTop: 10 },
+  otherSpecialtyAddText: { color: "#ffffff", fontSize: 13, fontWeight: "900" },
   verificationPayoutInput: { minHeight: 54, borderRadius: 12, marginTop: 12, backgroundColor: "#ffffff" },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   specializationEditor: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 12 },

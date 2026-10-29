@@ -1192,7 +1192,7 @@ function TailorAboutScreen({ styles, palette, onBack }: { styles: ReturnType<typ
 
 function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, openSupportCenter }: { screen: Exclude<SupportScreen, "support_center" | "requests" | "reviews" | "faqs">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; showDialog: (dialog: DialogState) => void; openSupportCenter: () => void }) {
   if (screen === "about") return <TailorAboutScreen styles={styles} palette={palette} onBack={onBack} />;
-  if (screen === "version") return <TailorVersionScreen styles={styles} palette={palette} onBack={onBack} />;
+  if (screen === "version") return <TailorVersionScreen styles={styles} palette={palette} onBack={onBack} openSupportCenter={openSupportCenter} />;
   const detail = supportDetails[screen];
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -1233,7 +1233,7 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, open
   );
 }
 
-function TailorVersionScreen({ styles, palette, onBack }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
+function TailorVersionScreen({ styles, palette, onBack, openSupportCenter }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; openSupportCenter: () => void }) {
   const installedVersion = Application.nativeApplicationVersion || TAILOR_APP_VERSION;
   const installedBuild = Application.nativeBuildVersion;
   const sourceLabel = Updates.isEmbeddedLaunch ? "Installed app release" : "Updated in app";
@@ -1261,6 +1261,11 @@ function TailorVersionScreen({ styles, palette, onBack }: { styles: ReturnType<t
         {installedBuild ? <InfoRow icon="construct-outline" title="Build" value={installedBuild} styles={styles} /> : null}
         <InfoRow icon="cloud-download-outline" title="Update source" value={sourceLabel} styles={styles} noBorder />
       </View>
+      <Section title="Policies & Support" icon="document-text-outline" styles={styles}>
+        <InfoRow icon="shield-checkmark-outline" title="Privacy Policy" value="How your personal data is handled" styles={styles} onPress={() => openDarjiUrl(DARJI_PRIVACY_URL)} noBorder />
+        <InfoRow icon="reader-outline" title="Terms of Service" value="Terms for using Darji Tailor Partner" styles={styles} onPress={() => openDarjiUrl(DARJI_TERMS_URL)} />
+        <InfoRow icon="chatbubble-outline" title="Help & Support" value="Contact Darji support or get help with the app" styles={styles} onPress={openSupportCenter} />
+      </Section>
       <Pressable style={styles.primaryButton} onPress={() => openDarjiUrl(TAILOR_PLAY_STORE_URL)}>
         <Ionicons name="logo-google-playstore" size={18} color="#111111" />
         <Text style={styles.primaryButtonText}>View in Google Play</Text>
