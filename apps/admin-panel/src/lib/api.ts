@@ -890,6 +890,7 @@ export type AdminReview = {
   user: {
     name?: string;
     phone: string;
+    profileUrl?: string;
     avatarUrl?: string;
   } | null;
 };

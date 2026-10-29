@@ -359,17 +359,24 @@ export async function meController(req: Request, res: Response) {
   if (userJson && req.user!.role === "CUSTOMER") {
     const hasPartnerProfile = Boolean(tailorProfile || deliveryProfile);
     userJson.name = userJson.customerName ?? (hasPartnerProfile ? undefined : userJson.name);
-    userJson.avatarUrl = userJson.customerAvatarUrl ?? (hasPartnerProfile ? undefined : userJson.avatarUrl);
+    userJson.profileUrl = userJson.profileUrl ?? userJson.customerAvatarUri ?? userJson.customerAvatarUrl ?? (hasPartnerProfile ? undefined : userJson.avatarUri ?? userJson.avatarUrl);
     userJson.avatarUri = userJson.customerAvatarUri ?? (hasPartnerProfile ? undefined : userJson.avatarUri);
     userJson.avatarPreset = userJson.customerAvatarPreset ?? (hasPartnerProfile ? undefined : userJson.avatarPreset);
   } else if (userJson && req.user!.role === "TAILOR" && hydratedTailorProfile) {
     const verification = hydratedTailorProfile.verification as { personal?: { name?: string }; idVerification?: { facePhotoUrl?: string } } | undefined;
     userJson.name = hydratedTailorProfile.displayName ?? verification?.personal?.name ?? userJson.name;
-    userJson.avatarUrl = verification?.idVerification?.facePhotoUrl ?? userJson.avatarUrl;
+    userJson.profileUrl = userJson.profileUrl ?? verification?.idVerification?.facePhotoUrl ?? userJson.avatarUrl;
   } else if (userJson && req.user!.role === "DELIVERY_PARTNER" && hydratedDeliveryProfile) {
     const verification = hydratedDeliveryProfile.verification as { personal?: { fullName?: string; name?: string }; identity?: { facePhotoUrl?: string } } | undefined;
     userJson.name = hydratedDeliveryProfile.displayName ?? verification?.personal?.fullName ?? verification?.personal?.name ?? userJson.name;
-    userJson.avatarUrl = verification?.identity?.facePhotoUrl ?? userJson.avatarUrl;
+    userJson.profileUrl = userJson.profileUrl ?? verification?.identity?.facePhotoUrl ?? userJson.avatarUrl;
+  }
+  if (userJson) {
+    userJson.profileUrl = userJson.profileUrl ?? userJson.avatarUrl;
+    userJson.avatarUrl = userJson.profileUrl;
+    if (userJson.profileUrl && !user?.get("profileUrl")) {
+      await UserModel.updateOne({ _id: req.user!.id, profileUrl: { $in: [null, ""] } }, { $set: { profileUrl: userJson.profileUrl } });
+    }
   }
   res.json({ data: { ...userJson, role: req.user!.role, wallet, tailorProfile: hydratedTailorProfile, deliveryProfile: hydratedDeliveryProfile } });
 }
@@ -395,6 +402,15 @@ export async function updateMeController(req: Request, res: Response) {
   const avatarPrefix = req.user!.role === "CUSTOMER" ? "customerAvatar" : "avatar";
   if (avatarPreset !== undefined) updateData[`${avatarPrefix}Preset`] = avatarPreset;
   if (avatarUri !== undefined) updateData[`${avatarPrefix}Uri`] = avatarUri;
+  const updateUnset: Record<string, 1> = {};
+  if (avatarUri !== undefined && req.user!.role === "CUSTOMER") {
+    if (avatarUri) updateData.profileUrl = avatarUri;
+    else {
+      updateUnset.profileUrl = 1;
+      updateUnset.customerAvatarUrl = 1;
+      updateUnset.avatarUrl = 1;
+    }
+  }
   if (preferredLanguage !== undefined) updateData.preferredLanguage = preferredLanguage;
 
   if (avatarUri) {
@@ -403,7 +419,7 @@ export async function updateMeController(req: Request, res: Response) {
 
   const user = await UserModel.findByIdAndUpdate(
     req.user!.id,
-    { $set: updateData },
+    { ...(Object.keys(updateData).length ? { $set: updateData } : {}), ...(Object.keys(updateUnset).length ? { $unset: updateUnset } : {}) },
     { returnDocument: "after" }
   );
   if (!user) {
@@ -412,7 +428,8 @@ export async function updateMeController(req: Request, res: Response) {
   const result = user.toJSON() as Record<string, any>;
   if (req.user!.role === "CUSTOMER") {
     result.name = result.customerName;
-    result.avatarUrl = result.customerAvatarUrl;
+    result.profileUrl = result.profileUrl ?? result.customerAvatarUri ?? result.customerAvatarUrl ?? result.avatarUri ?? result.avatarUrl;
+    result.avatarUrl = result.profileUrl;
     result.avatarUri = result.customerAvatarUri;
     result.avatarPreset = result.customerAvatarPreset;
   }

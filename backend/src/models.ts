@@ -56,6 +56,7 @@ const userSchema = new Schema(
     name: String,
     customerName: String,
     email: { type: String, sparse: true, unique: true },
+    profileUrl: String,
     avatarUrl: String,
     customerAvatarUrl: String,
     gender: String,

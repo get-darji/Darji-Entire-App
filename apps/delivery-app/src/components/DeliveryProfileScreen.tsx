@@ -158,6 +158,7 @@ type MeResponse = {
   phone: string;
   name?: string;
   email?: string;
+  profileUrl?: string;
   avatarUrl?: string;
   role: string;
   deliveryProfile?: DeliveryProfile;
@@ -429,7 +430,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
       <View style={styles.headerCard}>
         <View style={styles.profileHero}>
           <View style={styles.avatar}>
-            <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)} style={styles.avatarImage} />
+            <Image source={me?.profileUrl || verificationAvatarUrl || me?.avatarUrl ? { uri: me?.profileUrl || verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)} style={styles.avatarImage} />
           </View>
           <Pressable
             accessibilityRole="button"
@@ -474,7 +475,7 @@ export function DeliveryProfileScreen({ me, token, activeJobs, completedJobs, re
               <View style={styles.identityHero}>
                 <View style={styles.identityAvatarFrame}>
                   <Image
-                    source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)}
+                    source={me?.profileUrl || verificationAvatarUrl || me?.avatarUrl ? { uri: me?.profileUrl || verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name, verificationGender)}
                     style={styles.identityAvatarImage}
                   />
                   {profile?.verificationStatus === "VERIFIED" ? (

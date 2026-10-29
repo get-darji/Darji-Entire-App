@@ -5,7 +5,7 @@ import type { AppLanguage } from "../../../shared/src/localization";
 import { restoreLanguagePreference } from "../../../shared/src/language-preference";
 import type { ServiceItem } from "./shared";
 
-type User = { id: string; phone: string; name?: string; role: string; email?: string; gender?: string; dateOfBirth?: string; avatarUri?: string; avatarUrl?: string; avatarPreset?: string; preferredLanguage?: AppLanguage };
+type User = { id: string; phone: string; name?: string; role: string; email?: string; gender?: string; dateOfBirth?: string; profileUrl?: string; avatarUri?: string; avatarUrl?: string; avatarPreset?: string; preferredLanguage?: AppLanguage };
 type CartItem = { service: ServiceItem; quantity: number; instructions?: string };
 
 type Store = {

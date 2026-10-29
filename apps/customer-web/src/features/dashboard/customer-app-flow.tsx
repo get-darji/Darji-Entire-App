@@ -3070,7 +3070,7 @@ const avatarOptions = [
 ];
 
 function getUserAvatarUrl(user: any) {
-  if (user?.avatarUri) return user.avatarUri;
+  if (user?.profileUrl || user?.avatarUri) return user.profileUrl || user.avatarUri;
   const preset = avatarOptions.find((o) => o.key === user?.avatarPreset);
   return preset?.src || "/avatars/boy.png";
 }
@@ -3084,14 +3084,14 @@ function EditProfileScreen({ setScreen }: { setScreen: (s: CustomerScreen) => vo
   const [gender, setGender] = useState(user?.gender ?? "");
   const [dob, setDob] = useState(user?.dateOfBirth ?? "");
   const [avatarPreset, setAvatarPreset] = useState(user?.avatarPreset ?? "boy");
-  const [avatarUri, setAvatarUri] = useState(user?.avatarUri ?? "");
+  const [avatarUri, setAvatarUri] = useState(user?.profileUrl ?? user?.avatarUri ?? "");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateProfile = useMutation({
     mutationFn: (data: any) => customerApi.updateProfile(data),
     onSuccess: (updatedUser) => {
-      setUser({ ...user!, ...updatedUser });
+      setUser({ ...user!, ...updatedUser, profileUrl: updatedUser.profileUrl || updatedUser.avatarUri || user?.profileUrl });
       setScreen("profile");
     }
   });
@@ -4191,7 +4191,7 @@ function CustomerDashboardContent() {
 
   useEffect(() => {
     if (meQuery.data) {
-      setUser(meQuery.data);
+      setUser({ ...meQuery.data, profileUrl: meQuery.data.profileUrl || meQuery.data.avatarUri });
     }
   }, [meQuery.data, setUser]);
 

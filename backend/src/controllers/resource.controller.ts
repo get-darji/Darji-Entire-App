@@ -416,15 +416,19 @@ function normalizeTailorTutorialMedia(value: unknown) {
 }
 
 async function withUser<T extends { toJSON: () => Record<string, unknown>; userId: string }>(profile: T) {
-  const user = await UserModel.findById(profile.userId).select("name phone role email avatarUrl accountStatus suspendedUntil moderationReason moderatedAt");
+  const user = await UserModel.findById(profile.userId).select("name phone role email profileUrl avatarUrl accountStatus suspendedUntil moderationReason moderatedAt");
   const profileValue = profile.toJSON() as Record<string, any>;
   const userValue = user?.toJSON() as Record<string, unknown> | undefined;
-  const avatarUrl = userValue?.avatarUrl
+  const avatarUrl = userValue?.profileUrl
     || profileValue.verification?.idVerification?.facePhotoUrl
-    || profileValue.verification?.identity?.facePhotoUrl;
+    || profileValue.verification?.identity?.facePhotoUrl
+    || userValue?.avatarUrl;
+  if (avatarUrl && !user?.get("profileUrl")) {
+    await UserModel.updateOne({ _id: profile.userId, profileUrl: { $in: [null, ""] } }, { $set: { profileUrl: avatarUrl } });
+  }
   return {
     ...profileValue,
-    user: userValue ? { ...userValue, avatarUrl } : avatarUrl ? { avatarUrl } : undefined
+    user: userValue ? { ...userValue, profileUrl: avatarUrl, avatarUrl } : avatarUrl ? { profileUrl: avatarUrl, avatarUrl } : undefined
   };
 }
 
@@ -439,12 +443,14 @@ async function ensureDeliveryPartnerRoleId(partner: { id: string; deliveryType?:
 
 function normalizeUserForAdmin(user: Record<string, any>) {
   const isCustomer = String(user.role ?? "").toUpperCase() === "CUSTOMER";
+  const profileUrl = user.profileUrl || (isCustomer
+    ? user.customerAvatarUri || user.customerAvatarUrl || user.avatarUri || user.avatarUrl
+    : user.avatarUrl);
   return {
     ...user,
     name: isCustomer ? user.customerName || user.name : user.name,
-    avatarUrl: isCustomer
-      ? user.customerAvatarUri || user.customerAvatarUrl || user.avatarUri || user.avatarUrl
-      : user.avatarUrl,
+    profileUrl,
+    avatarUrl: profileUrl,
     avatarPreset: isCustomer ? user.customerAvatarPreset || user.avatarPreset : user.avatarPreset
   };
 }
@@ -461,10 +467,20 @@ async function attachProfilesToUsers(users: Array<Record<string, unknown>>) {
   const tailorMap = new Map(tailors.map((tailor) => [String(tailor.userId), tailor]));
   const partnerMap = new Map(partners.map((partner) => [String(partner.userId), partner]));
 
-  return users.map((user) => ({
-    ...normalizeUserForAdmin(user),
-    tailorProfile: tailorMap.get(String(user.id ?? user._id)) ?? null,
-    deliveryProfile: partnerMap.get(String(user.id ?? user._id)) ?? null
+  return Promise.all(users.map(async (user) => {
+    const userId = String(user.id ?? user._id);
+    const tailorProfile = tailorMap.get(userId);
+    const deliveryProfile = partnerMap.get(userId);
+    const normalized = normalizeUserForAdmin(user);
+    const profileUrl = user.profileUrl || (String(user.role).toUpperCase() === "TAILOR"
+      ? (tailorProfile as any)?.verification?.idVerification?.facePhotoUrl
+      : String(user.role).toUpperCase() === "DELIVERY_PARTNER"
+        ? (deliveryProfile as any)?.verification?.identity?.facePhotoUrl
+        : undefined) || normalized.profileUrl;
+    if (profileUrl && !user.profileUrl) {
+      await UserModel.updateOne({ _id: userId, profileUrl: { $in: [null, ""] } }, { $set: { profileUrl } });
+    }
+    return { ...normalized, profileUrl, avatarUrl: profileUrl, tailorProfile: tailorProfile ?? null, deliveryProfile: deliveryProfile ?? null };
   }));
 }
 
@@ -714,6 +730,7 @@ export async function submitTailorVerificationController(req: Request, res: Resp
       {
         name: input.personal.name,
         avatarUrl: input.idVerification.facePhotoUrl,
+        profileUrl: input.idVerification.facePhotoUrl,
         ...(input.personal.email ? { email: input.personal.email } : {})
       },
       { returnDocument: "after" }
@@ -1057,7 +1074,7 @@ export async function reviewDeliveryVerificationController(req: Request, res: Re
 
 export async function listUsersController(_req: Request, res: Response) {
   const users = await UserModel.find()
-    .select("phone darjiCustomerId darjiAdminId name customerName email avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
+    .select("phone darjiCustomerId darjiAdminId name customerName email profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth role accountStatus suspendedUntil moderationReason moderatedAt createdAt updatedAt")
     .sort({ createdAt: -1 });
   res.json({ data: await attachProfilesToUsers(users.map((user) => user.toJSON())) });
 }
@@ -1238,7 +1255,8 @@ export async function getAdminCustomerProfileController(req: Request, res: Respo
         name: refreshedUser.customerName || refreshedUser.name,
         phone: refreshedUser.phone,
         email: refreshedUser.email,
-        avatarUrl: refreshedUser.customerAvatarUri || refreshedUser.customerAvatarUrl || refreshedUser.avatarUri || refreshedUser.avatarUrl,
+        profileUrl: refreshedUser.profileUrl || refreshedUser.customerAvatarUri || refreshedUser.customerAvatarUrl || refreshedUser.avatarUri || refreshedUser.avatarUrl,
+        avatarUrl: refreshedUser.profileUrl || refreshedUser.customerAvatarUri || refreshedUser.customerAvatarUrl || refreshedUser.avatarUri || refreshedUser.avatarUrl,
         role: refreshedUser.role,
         accountStatus: refreshedUser.accountStatus,
         suspendedUntil: refreshedUser.suspendedUntil,
@@ -1442,7 +1460,7 @@ export async function submitDeliveryVerificationController(req: Request, res: Re
         name: input.personal.fullName,
         gender: input.personal.gender,
         ...(input.personal.email ? { email: input.personal.email } : {}),
-        ...(input.identity.facePhotoUrl ? { avatarUrl: input.identity.facePhotoUrl } : {})
+        ...(input.identity.facePhotoUrl ? { avatarUrl: input.identity.facePhotoUrl, profileUrl: input.identity.facePhotoUrl } : {})
       },
       { returnDocument: "after", runValidators: true }
     );
@@ -2031,7 +2049,7 @@ export async function listSupportTicketsController(req: Request, res: Response) 
     tickets.map(async (ticket) => {
       const ticketJson = ticket.toJSON() as any;
       const ticketUser = ticket.userId
-        ? await UserModel.findById(ticket.userId).select("phone name customerName role avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth")
+        ? await UserModel.findById(ticket.userId).select("phone name customerName role profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth")
         : null;
       if (!isAdmin && ticketJson.messages) {
         ticketJson.messages = ticketJson.messages.filter((m: any) => m.sender !== "internal");
@@ -3527,8 +3545,8 @@ async function reviewOrderContext(orderId: string, kind: string, customerId: str
     partnerId ? DeliveryPartnerModel.findById(partnerId).select("userId vehicleNumber darjiPartnerId deliveryType assignedArea") : null
   ]);
   const [tailorUser, partnerUser] = await Promise.all([
-    tailor?.userId ? UserModel.findById(tailor.userId).select("name phone avatarUrl") : null,
-    partner?.userId ? UserModel.findById(partner.userId).select("name phone avatarUrl") : null
+    tailor?.userId ? UserModel.findById(tailor.userId).select("name phone profileUrl avatarUrl") : null,
+    partner?.userId ? UserModel.findById(partner.userId).select("name phone profileUrl avatarUrl") : null
   ]);
   const customerAddress = tailoringRequest?.pickupAddress
     ? String(tailoringRequest.pickupAddress)
@@ -3549,7 +3567,7 @@ async function reviewOrderContext(orderId: string, kind: string, customerId: str
         ? tailor?.shopName || tailorUser?.name || "Tailor"
         : "Darji App",
     targetPhone: kind === "delivery" ? partnerUser?.phone : tailorUser?.phone,
-    targetAvatarUrl: kind === "delivery" ? partnerUser?.avatarUrl : tailorUser?.avatarUrl,
+    targetAvatarUrl: kind === "delivery" ? (partnerUser?.profileUrl || partnerUser?.avatarUrl) : (tailorUser?.profileUrl || tailorUser?.avatarUrl),
     targetVehicleNumber: kind === "delivery" ? partner?.vehicleNumber : undefined,
     targetRole: kind === "delivery" ? partner?.deliveryType : kind === "tailor" ? "STITCHING_TAILOR" : "DARJI_APP",
     targetArea: kind === "delivery" ? partner?.assignedArea : undefined
@@ -3560,7 +3578,7 @@ export async function listAdminReviewsController(req: Request, res: Response) {
   const reviews = await ReviewModel.find({}).sort({ createdAt: -1 });
   const populated = await Promise.all(
     reviews.map(async (review) => {
-      const user = await UserModel.findById(review.userId).select("name customerName phone role avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth");
+      const user = await UserModel.findById(review.userId).select("name customerName phone role profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth");
       const context = await reviewOrderContext(String(review.orderId), String(review.kind), String(review.userId));
       return {
         id: review.id,
@@ -3653,7 +3671,7 @@ export async function listFeaturedReviewsController(req: Request, res: Response)
   const reviews = await ReviewModel.find({ isFeatured: true, isHidden: { $ne: true } }).sort({ createdAt: -1 });
   const populated = await Promise.all(
     reviews.map(async (review) => {
-      const user = await UserModel.findById(review.userId).select("name phone avatarUrl");
+      const user = await UserModel.findById(review.userId).select("name phone profileUrl avatarUrl");
       const context = await reviewOrderContext(String(review.orderId), String(review.kind), String(review.userId));
       return {
         id: review.id,
@@ -4160,10 +4178,10 @@ async function updateAdminPartnerProfile(req: Request, res: Response, role: "TAI
   if (!profile) throw new AppError(404, `${role === "TAILOR" ? "Tailor" : "Delivery partner"} profile not found`);
   const existingUser = await UserModel.findById(profile.userId).lean();
   const before = {
-    user: { name: existingUser?.name, phone: existingUser?.phone, email: existingUser?.email, avatarUrl: existingUser?.avatarUrl },
+    user: { name: existingUser?.name, phone: existingUser?.phone, email: existingUser?.email, profileUrl: existingUser?.profileUrl, avatarUrl: existingUser?.avatarUrl },
     profile: profile.toObject()
   };
-  const userUpdate = Object.fromEntries(Object.entries({ name: input.name, phone: input.phone, email: input.email || undefined, avatarUrl: input.avatarUrl || undefined }).filter(([, value]) => value !== undefined));
+  const userUpdate = Object.fromEntries(Object.entries({ name: input.name, phone: input.phone, email: input.email || undefined, profileUrl: input.avatarUrl || undefined, avatarUrl: input.avatarUrl || undefined }).filter(([, value]) => value !== undefined));
   if (Object.keys(userUpdate).length) await UserModel.findByIdAndUpdate(profile.userId, { $set: userUpdate });
   const profileUpdate = { ...input } as Record<string, unknown>;
   delete profileUpdate.name;
@@ -4182,7 +4200,7 @@ async function updateAdminPartnerProfile(req: Request, res: Response, role: "TAI
   const updated = role === "TAILOR" ? await TailorModel.findById(profile.id) : await DeliveryPartnerModel.findById(profile.id);
   const updatedUser = await UserModel.findById(profile.userId).lean();
   const changes = profileChanges(before, {
-    user: { name: updatedUser?.name, phone: updatedUser?.phone, email: updatedUser?.email, avatarUrl: updatedUser?.avatarUrl },
+    user: { name: updatedUser?.name, phone: updatedUser?.phone, email: updatedUser?.email, profileUrl: updatedUser?.profileUrl, avatarUrl: updatedUser?.avatarUrl },
     profile: updated?.toObject()
   }).filter((change) => !change.field.startsWith("profile.updatedAt") && !change.field.startsWith("profile.registrationSnapshot"));
   await recordAdminPartnerChanges(req, role, String(profile.id), `${role === "TAILOR" ? "Tailor" : "Delivery partner"} profile updated`, changes);

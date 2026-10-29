@@ -11,6 +11,7 @@ export type CustomerUser = {
   role: string;
   gender?: string;
   dateOfBirth?: string;
+  profileUrl?: string;
   avatarUri?: string;
   avatarPreset?: string;
   wallet?: { balance?: number };

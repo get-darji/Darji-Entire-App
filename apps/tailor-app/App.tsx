@@ -377,6 +377,7 @@ type MeResponse = {
   id: string;
   phone: string;
   name?: string;
+  profileUrl?: string;
   avatarUrl?: string;
   role: string;
   tailorProfile?: TailorProfile;
@@ -5821,7 +5822,7 @@ function ProfileScreen({
       <Header title="Profile" subtitle={me?.phone ? `+91 ${me.phone}` : "Tailor account"} />
       <View style={styles.profileCard}>
         <View style={styles.avatar}>
-          <Image source={{ uri: me?.avatarUrl || getFallbackAvatar(me?.name || me?.tailorProfile?.shopName) }} style={styles.avatarImage} />
+          <Image source={{ uri: me?.profileUrl || me?.avatarUrl || getFallbackAvatar(me?.name || me?.tailorProfile?.shopName) }} style={styles.avatarImage} />
         </View>
         <View style={styles.cardMain}>
           <Text style={styles.bigTitle}>{me?.tailorProfile?.shopName ?? "Darji Tailor"}</Text>

@@ -18,6 +18,7 @@ export type BasicUser = {
   moderationReason?: string | null;
   moderatedAt?: string | null;
   email?: string;
+  profileUrl?: string;
   avatarUrl?: string;
   avatarPreset?: string;
   gender?: string;

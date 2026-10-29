@@ -360,7 +360,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     ...partners.map((partner: any) => String(partner.userId))
   ].filter(Boolean))];
   const financeUsers = financeUserIds.length
-    ? await UserModel.find({ _id: { $in: financeUserIds } }).select("_id name phone avatarUrl").lean()
+    ? await UserModel.find({ _id: { $in: financeUserIds } }).select("_id name phone profileUrl avatarUrl").lean()
     : [];
   const userMap = new Map(financeUsers.map((user: any) => [String(user._id), user]));
   normalizedOrders.forEach((order) => {
@@ -683,7 +683,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       profileId: String(tailor._id), userId: String(tailor.userId),
       name: tailor.shopName || user?.name || user?.phone || "Tailor",
       avatarSeed: user?.name || tailor.verification?.personal?.name || tailor.shopName || "Tailor",
-      avatarUrl: user?.avatarUrl || tailor.verification?.idVerification?.facePhotoUrl,
+      profileUrl: user?.profileUrl || tailor.verification?.idVerification?.facePhotoUrl || user?.avatarUrl,
+      avatarUrl: user?.profileUrl || tailor.verification?.idVerification?.facePhotoUrl || user?.avatarUrl,
       amount: Number((earning?.amount ?? 0).toFixed(2)),
       completedOrders: earning?.orderIds.size ?? 0, rating: Number(tailor.rating ?? 0)
     };
@@ -695,7 +696,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     return {
       profileId: String(partner._id), userId: String(partner.userId),
       name: user?.name || user?.phone || "Delivery partner",
-      avatarUrl: user?.avatarUrl || partner.verification?.identity?.facePhotoUrl,
+      profileUrl: user?.profileUrl || partner.verification?.identity?.facePhotoUrl || user?.avatarUrl,
+      avatarUrl: user?.profileUrl || partner.verification?.identity?.facePhotoUrl || user?.avatarUrl,
       avatarGender: partner.verification?.personal?.gender,
       amount: Number((earning?.amount ?? 0).toFixed(2)),
       completedDeliveries: completedDeliveries.get(String(partner._id)) ?? 0,

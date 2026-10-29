@@ -21,7 +21,7 @@ export const apiClient = axios.create({
 });
 
 type ApiEnvelope<T> = { data: T; message?: string };
-type AuthSession = { accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string; name?: string; email?: string } };
+type AuthSession = { accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string; name?: string; email?: string; profileUrl?: string; avatarUri?: string; avatarPreset?: string; gender?: string; dateOfBirth?: string } };
 type DynamicTranslation = {
   translatedText: string;
   cached: boolean;

@@ -39,7 +39,8 @@ function customerJson(doc: { toJSON?: () => unknown } | Record<string, unknown> 
   return {
     ...value,
     name: value.customerName || value.name,
-    avatarUrl: value.customerAvatarUri || value.customerAvatarUrl || value.avatarUri || value.avatarUrl,
+    profileUrl: value.profileUrl || value.customerAvatarUri || value.customerAvatarUrl || value.avatarUri || value.avatarUrl,
+    avatarUrl: value.profileUrl || value.customerAvatarUri || value.customerAvatarUrl || value.avatarUri || value.avatarUrl,
     avatarPreset: value.customerAvatarPreset || value.avatarPreset,
     gender: value.gender,
     dateOfBirth: value.dateOfBirth
@@ -53,15 +54,15 @@ function profileFacePhoto(profile: Record<string, any>) {
 
 function profileUserJson(user: unknown, profile: Record<string, any>) {
   const value = json(user as { toJSON?: () => unknown } | null | undefined) as Record<string, unknown> | null;
-  const avatarUrl = value?.avatarUrl || profileFacePhoto(profile);
-  return value ? { ...value, avatarUrl } : avatarUrl ? { avatarUrl } : null;
+  const profileUrl = value?.profileUrl || profileFacePhoto(profile) || value?.avatarUrl;
+  return value ? { ...value, profileUrl, avatarUrl: profileUrl } : profileUrl ? { profileUrl, avatarUrl: profileUrl } : null;
 }
 
 async function partnerWithUser(model: { findById: (id: string) => Promise<(JsonDoc & { userId: string }) | null> }, id?: string) {
   if (!id) return null;
   const profile = await model.findById(id);
   if (!profile) return null;
-  const user = await UserModel.findById(profile.userId).select("name phone role avatarUrl");
+  const user = await UserModel.findById(profile.userId).select("name phone role profileUrl avatarUrl");
   const profileValue = profile.toJSON();
   return { ...profileValue, user: profileUserJson(user, profileValue) };
 }
@@ -140,7 +141,7 @@ export async function hydrateOrder(orderInput: unknown) {
   const orderId = String(order.id ?? order._id);
   const [address, customer, tailor, pickupPartner, deliveryPartner, payments, reviews] = await Promise.all([
     AddressModel.findById(order.addressId),
-    UserModel.findById(order.customerId).select("name customerName phone email role darjiCustomerId avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth"),
+    UserModel.findById(order.customerId).select("name customerName phone email role darjiCustomerId profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth"),
     partnerWithUser(TailorModel, order.tailorId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.pickupPartnerId as string | undefined),
     partnerWithUser(DeliveryPartnerModel, order.deliveryPartnerId as string | undefined),
@@ -193,7 +194,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
 
   const [addresses, customers, tailors, partners, payments, reviews, services] = await Promise.all([
     AddressModel.find({ _id: { $in: ids("addressId") } }),
-    UserModel.find({ _id: { $in: ids("customerId") } }).select("name customerName phone email role darjiCustomerId avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth"),
+    UserModel.find({ _id: { $in: ids("customerId") } }).select("name customerName phone email role darjiCustomerId profileUrl avatarUrl avatarPreset avatarUri customerAvatarUrl customerAvatarPreset customerAvatarUri gender dateOfBirth"),
     TailorModel.find({ _id: { $in: ids("tailorId") } }),
     DeliveryPartnerModel.find({ _id: { $in: [...ids("pickupPartnerId"), ...ids("deliveryPartnerId")] } }),
     PaymentModel.find({ orderId: { $in: orderIds } }).sort({ createdAt: -1 }),
@@ -203,7 +204,7 @@ async function hydrateOrders(orderInputs: unknown[]) {
   const profileUserIds = [...new Set([...tailors, ...partners].map((profile) => String(profile.userId ?? "")).filter(Boolean))];
   const categoryIds = [...new Set(services.map((service) => String(service.categoryId ?? "")).filter(Boolean))];
   const [profileUsers, categories] = await Promise.all([
-    UserModel.find({ _id: { $in: profileUserIds } }).select("name phone role avatarUrl"),
+    UserModel.find({ _id: { $in: profileUserIds } }).select("name phone role profileUrl avatarUrl"),
     ServiceCategoryModel.find({ _id: { $in: categoryIds } })
   ]);
 

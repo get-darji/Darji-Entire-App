@@ -1,5 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as Application from "expo-application";
+import * as Updates from "expo-updates";
 import { createContext, forwardRef, useContext, useEffect, useMemo, useState, useRef, useCallback, type ComponentProps } from "react";
 import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView as RNScrollView, StyleSheet, Switch, Text as RNText, TextInput as RNTextInput, View, Alert, Modal, KeyboardAvoidingView, BackHandler, TouchableOpacity, type ImageSourcePropType, type ScrollViewProps } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +12,8 @@ import { CompactLanguageToggle } from "../../../../shared/src/compact-language-t
 import { translateStaticChildren, translateStaticText } from "../../../../shared/src/static-translations";
 
 const TAILOR_APP_VERSION = require("../../app.json").expo.version as string;
+const INSTALLED_TAILOR_APP_VERSION = Application.nativeApplicationVersion || TAILOR_APP_VERSION;
+const TAILOR_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.darji.tailor";
 const SUPPORT_PHONE_DISPLAY = "+91 96259 17902";
 const SUPPORT_PHONE_URL = "tel:+919625917902";
 
@@ -152,7 +156,7 @@ type TailorProfile = {
   settings?: TailorSettings;
   verificationStatus?: "NOT_SUBMITTED" | "PENDING" | "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED";
   verification?: {
-    personal?: { name?: string; email?: string; address?: string };
+    personal?: { name?: string; email?: string; address?: string; dob?: string; gender?: string };
     shop?: {
       workFromHome?: boolean;
       shopName?: string;
@@ -191,12 +195,16 @@ type MeResponse = {
   phone: string;
   name?: string;
   email?: string;
+  gender?: string;
+  dateOfBirth?: string;
+  profileUrl?: string;
   avatarUrl?: string;
   role: string;
   tailorProfile?: TailorProfile;
 };
 type Order = { id: string; status: string; totalAmount: number | string; createdAt?: string; tailorRating?: number; rating?: number; review?: { rating?: number } };
 type SupportScreen = "faqs" | "reviews" | "chat" | "call" | "email" | "complaint" | "bug" | "feature" | "privacy" | "terms" | "cancellation" | "version" | "about" | "support_center" | "requests";
+type AccountChangeType = "ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "IdentityDocument";
 
 type Props = {
   me?: MeResponse;
@@ -251,10 +259,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   const [showShopDetails, setShowShopDetails] = useState(false);
   const [showBankDetails, setShowBankDetails] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
-  const [shopChangeRequest, setShopChangeRequest] = useState("");
-  const [submittingShopChange, setSubmittingShopChange] = useState(false);
-  const [bankChangeRequest, setBankChangeRequest] = useState("");
-  const [submittingBankChange, setSubmittingBankChange] = useState(false);
+  const [requestedChangeType, setRequestedChangeType] = useState<AccountChangeType>("ShopName");
   const [showSampleWork, setShowSampleWork] = useState(false);
   const [sampleDrafts, setSampleDrafts] = useState<Array<{ uri: string; name: string }>>([]);
 
@@ -284,6 +289,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   });
 
   const palette = general.darkMode ? darkPalette : lightPalette;
+  const profileAccent = general.darkMode ? "#ffffff" : "#111111";
   const safeTopPadding = Math.max(insets.top + SCREEN_HEADER_SAFE_GAP, SCREEN_TOP_PADDING + SCREEN_HEADER_SAFE_GAP);
   const safeBottomPadding = Math.max(insets.bottom + 18, CHAT_BOTTOM_INSET);
   const styles = useMemo(() => createStyles(palette, safeTopPadding, safeBottomPadding), [palette, safeTopPadding, safeBottomPadding]);
@@ -327,6 +333,15 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   );
   const displayPhone = me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available";
 
+  function openAccountRequests(type: AccountChangeType = "ShopName") {
+    setRequestedChangeType(type);
+    setShowShopDetails(false);
+    setShowBankDetails(false);
+    setShowDocuments(false);
+    setEditing(false);
+    setSupportScreen("requests");
+  }
+
   function handleLanguageChange(nextLanguage: AppLanguage) {
     setLanguagePreference(nextLanguage);
     if (token) void savePreferredLanguage(nextLanguage, token).catch(() => undefined);
@@ -349,6 +364,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   }, [initialSupportScreen]);
 
   useEffect(() => {
+    if (editing) return;
     setName(registeredName);
     setAddress(registeredAddress);
     setShopName(profile?.shopName ?? "Darji Tailor");
@@ -356,7 +372,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     setAvailable(Boolean(profile?.isAvailable ?? true));
     setNotifications((current) => ({ ...current, newOrderAlerts: settingsFromServer.notifications ?? true, sound: settingsFromServer.soundAlerts ?? true }));
     setGeneral((current) => ({ ...current, darkMode: settingsFromServer.darkMode ?? false }));
-  }, [profile, registeredName, registeredAddress, serverEmail]);
+  }, [editing, profile, registeredName, registeredAddress, serverEmail]);
 
   async function updateAvailability(value: boolean) {
     setAvailable(value);
@@ -396,6 +412,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         token
       );
       setEmail(saved.email?.trim() || saved.tailorProfile?.verification?.personal?.email?.trim() || email.trim());
+      setName(saved.name?.trim() || name.trim());
       setEditing(false);
       showDialog({ title: "Profile saved", message: "Your profile and settings were updated.", icon: "checkmark-circle-outline" });
       refresh();
@@ -404,69 +421,6 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       showDialog({ title: "Save failed", message: error instanceof Error ? error.message : "Could not save profile.", icon: "alert-circle-outline" });
     } finally {
       setSavingProfile(false);
-    }
-  }
-
-  async function submitShopChangeRequest() {
-    if (shopChangeRequest.trim().length < 10) {
-      showDialog({
-        title: "Request too short",
-        message: "Please explain your shop details change request in at least 10 characters.",
-        icon: "create-outline"
-      });
-      return;
-    }
-    if (!token) return;
-    try {
-      setSubmittingShopChange(true);
-      await api("/support/change-requests", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "ShopDetails",
-          requestedValues: { currentShopName: shopName, request: shopChangeRequest.trim() }
-        })
-      }, token);
-      setShopChangeRequest("");
-      showDialog({
-        title: "Request Submitted!",
-        message: "Your shop details change request has been sent for approval.\n\nOur team will review it and get back to you soon.",
-        icon: "paper-plane-outline",
-        variant: "requestSuccess"
-      });
-      setShowShopDetails(false);
-    } catch (e) {
-      showDialog({ title: "Failed", message: "Could not submit request. Please try again.", icon: "alert-circle-outline" });
-    } finally {
-      setSubmittingShopChange(false);
-    }
-  }
-
-  async function submitBankChangeRequest() {
-    if (bankChangeRequest.trim().length < 10) {
-      showDialog({
-        title: "Request too short",
-        message: "Please explain your bank details change request in at least 10 characters.",
-        icon: "card-outline"
-      });
-      return;
-    }
-    if (!token) return;
-    try {
-      setSubmittingBankChange(true);
-      await api("/support/change-requests", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "PaymentDetails",
-          requestedValues: { currentPaymentDetails: profile?.verification?.bank ?? {}, request: bankChangeRequest.trim() }
-        })
-      }, token);
-      setBankChangeRequest("");
-      showDialog({ title: "Request Submitted", message: "Your bank account details change request has been sent for approval.", icon: "checkmark-circle-outline" });
-      setShowBankDetails(false);
-    } catch (e) {
-      showDialog({ title: "Failed", message: "Could not submit request. Please try again.", icon: "alert-circle-outline" });
-    } finally {
-      setSubmittingBankChange(false);
     }
   }
 
@@ -575,10 +529,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
   return withProfileRefresh(
     <View style={styles.root}>
       <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.headerCard}>
+      <View style={[styles.headerCard, styles.profileSummaryCard]}>
         <View style={styles.profileHero}>
           <View style={styles.avatar}>
-            <Image source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)} style={styles.avatarImage} />
+            <Image source={me?.profileUrl || verificationAvatarUrl || me?.avatarUrl ? { uri: me?.profileUrl || verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)} style={styles.avatarImage} />
             {avatarLocked ? (
               <View style={styles.avatarLockBadge}>
                 <Ionicons name="lock-closed" size={10} color={palette.surface} />
@@ -593,15 +547,15 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
           >
             <View style={styles.profileNameRow}>
               <Text style={[styles.title, styles.profileNameText]} numberOfLines={1}>{name || shopName || "Darji Tailor"}</Text>
-              <Ionicons name="chevron-forward" size={22} color={BRAND_ORANGE} />
+              <Ionicons name="chevron-forward" size={22} color={profileAccent} />
             </View>
-            <Text style={styles.profileTapHint}>{profile?.darjiTailorId ?? "Tailor ID pending"}</Text>
+            <Text style={[styles.profileTapHint, { color: palette.muted }]}>{profile?.darjiTailorId ?? "Tailor ID pending"}</Text>
           </Pressable>
         </View>
         <View style={styles.profileInfoList}>
           <View style={styles.profileCompletedBand}>
-            <Ionicons name="cube-outline" size={22} color={BRAND_ORANGE} />
-            <Text style={styles.completedText}>{completedOrders} completed jobs</Text>
+            <Ionicons name="cube-outline" size={18} color={profileAccent} />
+            <Text style={[styles.completedText, { color: palette.muted }]}>{completedOrders} completed jobs</Text>
           </View>
         </View>
       </View>
@@ -614,7 +568,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View pointerEvents="none" style={styles.identityGlowSecondary} />
               <View style={styles.identityHeader}>
                 <View style={styles.identityHeaderIcon}>
-                  <Ionicons name="shield-checkmark-outline" size={20} color={BRAND_ORANGE} />
+                  <Ionicons name="shield-checkmark-outline" size={20} color={profileAccent} />
                 </View>
                 <View style={styles.rowMain}>
                   <Text style={styles.identityTitle}>Darji profile</Text>
@@ -628,7 +582,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View style={styles.identityHero}>
                 <View style={styles.identityAvatarFrame}>
                   <Image
-                    source={verificationAvatarUrl || me?.avatarUrl ? { uri: verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)}
+                    source={me?.profileUrl || verificationAvatarUrl || me?.avatarUrl ? { uri: me?.profileUrl || verificationAvatarUrl || me?.avatarUrl } : getFallbackAvatar(name || shopName)}
                     style={styles.identityAvatarImage}
                   />
                   {profile?.verificationStatus === "VERIFIED" ? (
@@ -666,13 +620,15 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View style={styles.identityDetails}>
                 {[
                   { icon: "storefront-outline" as const, label: "Shop name", value: shopName || profile?.shopName || "Darji Tailor" },
-                  { icon: "location-outline" as const, label: "Personal address", value: registeredAddress || "Address not provided" },
+                  { icon: "location-outline" as const, label: "Residential address", value: registeredAddress || "Address not provided" },
+                  { icon: "person-outline" as const, label: "Gender", value: me?.gender?.trim() || profile?.verification?.personal?.gender?.trim() || "Not provided" },
+                  { icon: "calendar-outline" as const, label: "Date of birth", value: profile?.verification?.personal?.dob || me?.dateOfBirth || "Not provided" },
                   { icon: "call-outline" as const, label: "Phone number", value: me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available" },
                   { icon: "ribbon-outline" as const, label: "Experience", value: typeof profile?.verification?.shop?.yearsExperience === "number" ? `${profile.verification.shop.yearsExperience} years` : "Not provided" },
                   { icon: "people-outline" as const, label: "Employees", value: profile?.verification?.shop?.employeeCount != null ? String(profile.verification.shop.employeeCount) : "Not provided" }
                 ].map((item) => (
                   <View key={item.label} style={styles.identityRow}>
-                    <View style={styles.identityRowIcon}><Ionicons name={item.icon} size={17} color={BRAND_ORANGE} /></View>
+                    <View style={styles.identityRowIcon}><Ionicons name={item.icon} size={17} color={profileAccent} /></View>
                     <View style={styles.rowMain}>
                       <Text style={styles.identityLabel}>{item.label}</Text>
                       <Text style={styles.identityValue} selectable>{item.value}</Text>
@@ -686,7 +642,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Modal>
 
       <Section title={t(language, "account")} icon="person-outline" styles={styles}>
-        <InfoRow icon="person-circle-outline" title="Profile" value="Personal details and account information" styles={styles} onPress={() => setEditing(true)} noBorder />
+        <InfoRow icon="person-circle-outline" title="Profile" value="Personal details and account information" styles={styles} onPress={() => { setName(registeredName); setAddress(registeredAddress); setEmail(serverEmail); setEditing(true); }} noBorder />
         <InfoRow icon="document-text-outline" title="Documents" value="Submitted identity details" styles={styles} onPress={() => setShowDocuments(true)} />
         <InfoRow icon="storefront-outline" title="Shop Details" value={shopName} styles={styles} onPress={() => setShowShopDetails(true)} />
         <InfoRow icon="card-outline" title="Payment Details" value={profile?.verification?.bank?.upi || profile?.verification?.bank?.accountNumber ? "Saved payout method" : "No payout details added"} styles={styles} onPress={() => setShowBankDetails(true)} />
@@ -697,9 +653,10 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.detailHeader}><Pressable style={styles.backButton} onPress={() => setShowDocuments(false)}><Ionicons name="chevron-back" size={22} color={palette.text} /></Pressable><View style={styles.rowMain}><Text style={styles.title}>Documents</Text><Text style={styles.meta}>Submitted document types and numbers</Text></View></View>
-            <View style={styles.section}>
-              <InfoRow icon="id-card-outline" title={profile?.verification?.idVerification?.idType || "Identity document"} value={profile?.verification?.idVerification?.idNumber || "Not submitted"} styles={styles} />
-              <Text style={styles.sectionHint}>Document photos are kept for verification and are not displayed here.</Text>
+            <View style={[styles.section, styles.profileDetailCard]}>
+              <InfoRow accent={profileAccent} icon="id-card-outline" title={profile?.verification?.idVerification?.idType || "Aadhaar"} value={profile?.verification?.idVerification?.idNumber || "Not submitted"} styles={styles} />
+              <Text style={[styles.sectionHint, styles.profileDetailHint]}>Document photos are kept securely for verification.</Text>
+              <RequestChangesButton accent={profileAccent} styles={styles} onPress={() => openAccountRequests("IdentityDocument")} />
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -718,11 +675,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </View>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.sectionHint}>Add up to 5 sample photos. Customers will only see photos after approval.</Text>
-              <Pressable style={styles.sampleUploadButtonWide} onPress={pickSamplePhotos} disabled={uploadingSamples}>
-                <Ionicons name="images-outline" size={18} color="#111111" />
-                <Text style={styles.primaryButtonText}>Add Photos</Text>
+            <View style={[styles.section, styles.profileDetailCard]}>
+              <Text style={[styles.sectionHint, styles.profileDetailHint]}>Add up to 5 sample photos. Customers will see them after approval.</Text>
+              <Pressable style={[styles.sampleUploadButtonWide, styles.profileActionButton, { backgroundColor: profileAccent }]} onPress={pickSamplePhotos} disabled={uploadingSamples}>
+                <Ionicons name="images-outline" size={18} color={general.darkMode ? "#111111" : "#ffffff"} />
+                <Text style={[styles.primaryButtonText, { color: general.darkMode ? "#111111" : "#ffffff" }]}>Add Photos</Text>
               </Pressable>
               {sampleDrafts.length ? (
                 <View style={styles.sampleGrid}>
@@ -742,13 +699,13 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
                   <Text style={styles.emptyMiniText}>No new photos selected</Text>
                 </View>
               )}
-              <Pressable style={[styles.primaryButton, (!sampleDrafts.length || uploadingSamples) && styles.disabledButton]} onPress={submitSamplePhotos} disabled={!sampleDrafts.length || uploadingSamples}>
-                {uploadingSamples ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Photos for Verification</Text>}
+              <Pressable style={[styles.primaryButton, styles.profileActionButton, { backgroundColor: profileAccent }, (!sampleDrafts.length || uploadingSamples) && styles.disabledButton]} onPress={submitSamplePhotos} disabled={!sampleDrafts.length || uploadingSamples}>
+                {uploadingSamples ? <ActivityIndicator color={general.darkMode ? "#111111" : "#ffffff"} /> : <Text style={[styles.primaryButtonText, { color: general.darkMode ? "#111111" : "#ffffff" }]}>Submit for Verification</Text>}
               </Pressable>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Uploaded Photos</Text>
+            <View style={[styles.section, styles.profileDetailCard]}>
+              <Text style={[styles.sectionTitle, styles.profileDetailSectionTitle]}>Uploaded Photos</Text>
               {(profile?.sampleGallery ?? []).length ? (
                 <View style={styles.sampleGrid}>
                   {(profile?.sampleGallery ?? []).map((sample, index) => {
@@ -792,13 +749,16 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <Text style={styles.meta}>Update your personal details</Text>
               </View>
             </View>
-            <View style={styles.section}>
-              <Input icon="person-outline" label="Tailor Name" value={name} onChangeText={setName} placeholder="Enter tailor name" styles={styles} />
+            <View style={[styles.section, styles.profileEditSection]}>
+              <Input minimal accent={profileAccent} icon="person-outline" label="Name" value={name} onChangeText={setName} placeholder="Enter your name" styles={styles} />
               <InfoRow icon="call-outline" title="Phone number" value={me?.phone ? (me.phone.startsWith("+") ? me.phone : `+91 ${me.phone}`) : "Not available"} styles={styles} />
-              <Input icon="location-outline" label="Address" value={address} onChangeText={setAddress} placeholder="Enter your address" styles={styles} />
-              <Input icon="mail-outline" label="Email" value={email} onChangeText={setEmail} placeholder="Enter email address" keyboardType="email-address" styles={styles} />
-              <Pressable style={styles.primaryButton} onPress={saveProfile} disabled={savingProfile}>
-                {savingProfile ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Save Profile</Text>}
+              <InfoRow icon="person-outline" title="Gender" value={me?.gender?.trim() || profile?.verification?.personal?.gender?.trim() || "Not provided"} styles={styles} />
+              <InfoRow icon="calendar-outline" title="Date of birth" value={profile?.verification?.personal?.dob || me?.dateOfBirth || "Not provided"} styles={styles} />
+              <Input minimal accent={profileAccent} icon="location-outline" label="Residential Address" value={address} onChangeText={setAddress} placeholder="Enter your residential address" styles={styles} multiline numberOfLines={4} />
+              <Input minimal accent={profileAccent} icon="mail-outline" label="Email" value={email} onChangeText={setEmail} placeholder="Enter email address" keyboardType="email-address" styles={styles} multiline numberOfLines={2} />
+              <RequestChangesButton styles={styles} accent={profileAccent} title="Request a phone number change" onPress={() => openAccountRequests("ContactNumber")} />
+              <Pressable style={[styles.primaryButton, styles.profileEditSaveButton, { backgroundColor: profileAccent }]} onPress={saveProfile} disabled={savingProfile}>
+                {savingProfile ? <ActivityIndicator color={general.darkMode ? "#111111" : "#ffffff"} /> : <Text style={[styles.primaryButtonText, { color: general.darkMode ? "#111111" : "#ffffff" }]}>Save Profile</Text>}
               </Pressable>
             </View>
           </ScrollView>
@@ -818,50 +778,21 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </View>
             </View>
 
-            <View style={styles.section}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>SHOP CONFIGURATION</Text>
+            <View style={[styles.section, styles.profileDetailCard]}>
+              <View style={styles.profileDetailEyebrow}>
+                <Text style={[styles.profileDetailEyebrowText, { color: profileAccent }]}>SHOP DETAILS</Text>
               </View>
-              <InfoRow icon="storefront-outline" title="Shop Name" value={shopName} styles={styles} />
-              <InfoRow icon="location-outline" title="Shop Address" value={resolvedShopAddress || "Address not provided"} styles={styles} />
-              <InfoRow icon="document-text-outline" title="GST Number" value={profile?.verification?.shop?.gstNumber || "Not provided"} styles={styles} />
-              <InfoRow icon="people-outline" title="Employees" value={profile?.verification?.shop?.employeeCount != null ? String(profile.verification.shop.employeeCount) : "Not provided"} styles={styles} />
-              <InfoRow icon="ribbon-outline" title="Years of Experience" value={profile?.verification?.shop?.yearsExperience != null ? String(profile.verification.shop.yearsExperience) : "Not provided"} styles={styles} />
-              {profile?.verification?.shop?.shopPhotos?.[0] ? <Image source={{ uri: profile.verification.shop.shopPhotos[0] }} style={{ width: "100%", height: 170, borderRadius: 14, marginTop: 10 }} resizeMode="cover" accessibilityLabel="Registered shop photo" /> : null}
-              <InfoRow icon="time-outline" title="Active Work" value={`${activeOrders} orders in progress`} styles={styles} />
-              <InfoRow icon="ribbon-outline" title="Specializations" value={profile?.specialization?.join(", ") || "Custom tailoring"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="storefront-outline" title="Shop Name" value={shopName} styles={styles} />
+              <InfoRow accent={profileAccent} icon="location-outline" title="Shop Address" value={resolvedShopAddress || "Address not provided"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="document-text-outline" title="GST Number" value={profile?.verification?.shop?.gstNumber || "Not provided"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="people-outline" title="Employees" value={profile?.verification?.shop?.employeeCount != null ? String(profile.verification.shop.employeeCount) : "Not provided"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="ribbon-outline" title="Years of Experience" value={profile?.verification?.shop?.yearsExperience != null ? String(profile.verification.shop.yearsExperience) : "Not provided"} styles={styles} />
+              {profile?.verification?.shop?.shopPhotos?.[0] ? <Image source={{ uri: profile.verification.shop.shopPhotos[0] }} style={styles.profileDetailPhoto} resizeMode="cover" accessibilityLabel="Registered shop photo" /> : null}
+              <InfoRow accent={profileAccent} icon="time-outline" title="Active Work" value={`${activeOrders} orders in progress`} styles={styles} />
+              <InfoRow accent={profileAccent} icon="ribbon-outline" title="Specializations" value={profile?.specialization?.join(", ") || "Custom tailoring"} styles={styles} />
             </View>
 
-            <View style={styles.requestCard}>
-              <View style={styles.requestHero}>
-                <View style={styles.requestIcon}><Ionicons name="create-outline" size={22} color={BRAND_ORANGE} /></View>
-                <View style={styles.rowMain}>
-                  <Text style={styles.requestTitle}>Request Changes</Text>
-                  <Text style={styles.requestSubtitle}>We'll review and update it for you</Text>
-                </View>
-              </View>
-              <Text style={styles.requestCopy}>Need to make any changes to your shop details? Let us know—address, category, capacity, or any other information.</Text>
-              <Text style={styles.requestCopy}>You can track the request in Support Center.</Text>
-              <View style={styles.inputBlock}>
-                <TextInput
-                  style={[styles.input, styles.requestInput]}
-                  value={shopChangeRequest}
-                  onChangeText={setShopChangeRequest}
-                  placeholder="Write the changes you want to request..."
-                  placeholderTextColor="#9aa6b8"
-                  multiline
-                />
-              </View>
-              <Pressable style={styles.primaryButton} onPress={submitShopChangeRequest} disabled={submittingShopChange}>
-                {submittingShopChange ? <ActivityIndicator color="#111111" /> : (
-                  <>
-                    <Ionicons name="paper-plane-outline" size={17} color="#111111" />
-                    <Text style={styles.primaryButtonText}>Submit Request</Text>
-                  </>
-                )}
-              </Pressable>
-            </View>
+            <RequestChangesButton accent={profileAccent} styles={styles} onPress={() => openAccountRequests("ShopName")} />
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -879,41 +810,18 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               </View>
             </View>
 
-            <View style={styles.section}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-                <View style={{ width: 4, height: 16, backgroundColor: BRAND_ORANGE, borderRadius: 2, marginRight: 8 }} />
-                <Text style={{ color: BRAND_ORANGE, fontSize: 13, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 }}>CURRENT DETAILS</Text>
+            <View style={[styles.section, styles.profileDetailCard]}>
+              <View style={styles.profileDetailEyebrow}>
+                <Text style={[styles.profileDetailEyebrowText, { color: profileAccent }]}>CURRENT DETAILS</Text>
               </View>
-              <InfoRow icon="card-outline" title="Payout Option" value={profile?.verification?.bank?.upi ? (profile.verification.bank.accountNumber ? "Bank transfer and UPI" : "UPI") : profile?.verification?.bank?.accountNumber ? "Bank transfer" : "Not added"} styles={styles} />
-              <InfoRow icon="business-outline" title="Bank Account" value={profile?.verification?.bank?.accountNumber ? `••••${profile.verification.bank.accountNumber.slice(-4)} · ${profile.verification.bank.ifsc || "IFSC not available"}` : "Not added"} styles={styles} />
-              <InfoRow icon="person-circle-outline" title="Account Holder" value={profile?.verification?.bank?.accountHolder || "Not added"} styles={styles} />
-              <InfoRow icon="wallet-outline" title="UPI ID" value={profile?.verification?.bank?.upi || "Not added"} styles={styles} />
-              <InfoRow icon="wallet-outline" title="Status" value="Verified for weekly payouts" styles={styles} />
+              <InfoRow accent={profileAccent} icon="card-outline" title="Payout Option" value={profile?.verification?.bank?.upi ? (profile.verification.bank.accountNumber ? "Bank transfer and UPI" : "UPI") : profile?.verification?.bank?.accountNumber ? "Bank transfer" : "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="business-outline" title="Bank Account" value={profile?.verification?.bank?.accountNumber ? `••••${profile.verification.bank.accountNumber.slice(-4)} · ${profile.verification.bank.ifsc || "IFSC not available"}` : "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="person-circle-outline" title="Account Holder" value={profile?.verification?.bank?.accountHolder || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="wallet-outline" title="UPI ID" value={profile?.verification?.bank?.upi || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="wallet-outline" title="Status" value="Verified for weekly payouts" styles={styles} />
             </View>
 
-            <View style={styles.requestCard}>
-              <View style={styles.requestHero}>
-                <View style={styles.requestIcon}><Ionicons name="card-outline" size={22} color={BRAND_ORANGE} /></View>
-                <View style={styles.rowMain}>
-                  <Text style={styles.requestTitle}>Request payout update</Text>
-                  <Text style={styles.requestSubtitle}>Finance verification required</Text>
-                </View>
-              </View>
-              <Text style={styles.requestCopy}>Current payout information is read from verification. Changes require admin approval; include the updated bank or UPI details in your request.</Text>
-              <View style={styles.inputBlock}>
-                <TextInput
-                  style={[styles.input, styles.requestInput]}
-                  value={bankChangeRequest}
-                  onChangeText={setBankChangeRequest}
-                  placeholder="New bank name, IFSC, account number..."
-                  placeholderTextColor="#9aa6b8"
-                  multiline
-                />
-              </View>
-              <Pressable style={styles.primaryButton} onPress={submitBankChangeRequest} disabled={submittingBankChange}>
-                {submittingBankChange ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>Submit Request</Text>}
-              </Pressable>
-            </View>
+            <RequestChangesButton accent={profileAccent} styles={styles} onPress={() => openAccountRequests(profile?.verification?.bank?.accountNumber ? "BankAccount" : "UPI")} />
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -946,7 +854,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
       </Section>
 
       <Section title={t(language, "app")} icon="phone-portrait-outline" styles={styles}>
-        <InfoRow icon="phone-portrait-outline" title={t(language, "appVersion")} value={`${TAILOR_APP_VERSION} · Updates install automatically`} styles={styles} onPress={() => setSupportScreen("version")} noBorder />
+        <InfoRow icon="phone-portrait-outline" title={t(language, "appVersion")} value={`Installed version ${INSTALLED_TAILOR_APP_VERSION}`} styles={styles} onPress={() => setSupportScreen("version")} noBorder />
       </Section>
 
       <Section title={t(language, "accountSettings")} icon="settings-outline" styles={styles}>
@@ -962,11 +870,11 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
     </ScrollView>
     <Modal visible={Boolean(supportScreen)} onRequestClose={handleSupportBack} animationType="slide">
       {supportScreen === "support_center" ? (
-        <TailorSupportCenterScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
+        <TailorSupportCenterScreen setScreen={setSupportScreen} openRequests={() => openAccountRequests("ShopName")} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen === "chat" ? (
         <TailorSupportChatScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} socket={socket} />
       ) : supportScreen === "requests" ? (
-        <TailorAccountRequestsScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
+        <TailorAccountRequestsScreen initialType={requestedChangeType} setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen === "bug" ? (
         <TailorBugReportScreen setScreen={setSupportScreen} palette={palette} styles={styles} token={token} showDialog={showDialog} />
       ) : supportScreen === "reviews" ? (
@@ -1064,13 +972,13 @@ function Section({ title, icon, styles, children }: { title: string; icon: IconN
   );
 }
 
-function Input({ icon, label, value, onChangeText, placeholder, keyboardType, styles }: { icon?: IconName; label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; keyboardType?: "default" | "email-address"; styles: ReturnType<typeof createStyles> }) {
+function Input({ icon, label, value, onChangeText, placeholder, keyboardType, styles, multiline, numberOfLines, minimal, accent }: { icon?: IconName; label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; keyboardType?: "default" | "email-address"; styles: ReturnType<typeof createStyles>; multiline?: boolean; numberOfLines?: number; minimal?: boolean; accent?: string }) {
   return (
     <View style={styles.inputBlock}>
-      <Text style={styles.inputLabel}>{label}</Text>
-      <View style={styles.iconInputWrap}>
-        {icon ? <Ionicons name={icon} size={18} color={BRAND_ORANGE} /> : null}
-        <TextInput style={styles.iconInput} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#9aa6b8" keyboardType={keyboardType} />
+      <Text style={[styles.inputLabel, minimal ? styles.profileEditLabel : null]}>{label}</Text>
+      <View style={[styles.iconInputWrap, multiline ? styles.iconInputWrapMultiline : null, minimal ? styles.profileEditInputWrap : null]}>
+        {icon ? <Ionicons name={icon} size={18} color={accent || BRAND_ORANGE} /> : null}
+        <TextInput style={[styles.iconInput, multiline ? styles.iconInputMultiline : null, minimal ? styles.profileEditInput : null]} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#9aa6b8" keyboardType={keyboardType} multiline={multiline} numberOfLines={numberOfLines} textAlignVertical={multiline ? "top" : "center"} autoCapitalize={keyboardType === "email-address" ? "none" : undefined} />
       </View>
     </View>
   );
@@ -1118,15 +1026,25 @@ function ReadonlyMetric({ title, value, copy, styles, danger }: { title: string;
   );
 }
 
-function InfoRow({ icon, title, value, styles, onPress, danger, noBorder }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void; danger?: boolean; noBorder?: boolean }) {
+function InfoRow({ icon, title, value, styles, onPress, danger, noBorder, accent = BRAND_ORANGE }: { icon: IconName; title: string; value: string; styles: ReturnType<typeof createStyles>; onPress?: () => void; danger?: boolean; noBorder?: boolean; accent?: string }) {
   return (
     <Pressable style={[styles.row, noBorder ? { borderTopWidth: 0 } : null]} onPress={onPress} disabled={!onPress}>
-      <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : BRAND_ORANGE} /></View>
+      <View style={styles.smallIcon}><Ionicons name={icon} size={16} color={danger ? DANGER : accent} /></View>
       <View style={styles.rowMain}>
         <Text style={[styles.rowTitle, danger ? { color: DANGER } : null]}>{title}</Text>
         <Text style={styles.rowCopy}>{value}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={danger ? DANGER : MUTED} />
+      {onPress ? <Ionicons name="chevron-forward" size={18} color={danger ? DANGER : MUTED} /> : null}
+    </Pressable>
+  );
+}
+
+function RequestChangesButton({ styles, title = "Request changes", onPress, accent = BRAND_ORANGE }: { styles: ReturnType<typeof createStyles>; title?: string; onPress: () => void; accent?: string }) {
+  return (
+    <Pressable accessibilityRole="button" style={[styles.requestChangesButton, { borderColor: accent }]} onPress={onPress}>
+      <Ionicons name="create-outline" size={18} color={accent} />
+      <Text style={[styles.requestChangesButtonText, { color: accent }]}>{title}</Text>
+      <Ionicons name="arrow-forward" size={17} color={accent} />
     </Pressable>
   );
 }
@@ -1264,6 +1182,7 @@ function TailorAboutScreen({ styles, palette, onBack }: { styles: ReturnType<typ
 
 function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, openSupportCenter }: { screen: Exclude<SupportScreen, "support_center" | "requests" | "reviews" | "faqs">; styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void; showDialog: (dialog: DialogState) => void; openSupportCenter: () => void }) {
   if (screen === "about") return <TailorAboutScreen styles={styles} palette={palette} onBack={onBack} />;
+  if (screen === "version") return <TailorVersionScreen styles={styles} palette={palette} onBack={onBack} />;
   const detail = supportDetails[screen];
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -1300,6 +1219,43 @@ function SupportDetailScreen({ screen, styles, palette, onBack, showDialog, open
           </Pressable>
         ) : null}
       </View>
+    </ScrollView>
+  );
+}
+
+function TailorVersionScreen({ styles, palette, onBack }: { styles: ReturnType<typeof createStyles>; palette: any; onBack: () => void }) {
+  const installedVersion = Application.nativeApplicationVersion || TAILOR_APP_VERSION;
+  const installedBuild = Application.nativeBuildVersion;
+  const sourceLabel = Updates.isEmbeddedLaunch ? "Installed app release" : "Updated in app";
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.detailHeader}>
+        <Pressable style={styles.backButton} onPress={onBack}>
+          <Ionicons name="chevron-back" size={22} color={palette.text} />
+        </Pressable>
+        <View style={styles.rowMain}>
+          <Text style={styles.title}>App Version</Text>
+          <Text style={styles.meta}>Darji Tailor Partner</Text>
+        </View>
+      </View>
+      <View style={[styles.section, { alignItems: "center", paddingVertical: 26 }]}>
+        <Image source={tailorAppLogo} style={{ width: 76, height: 76, borderRadius: 20, marginBottom: 14 }} resizeMode="contain" />
+        <Text style={{ color: palette.text, fontSize: 28, fontWeight: "900" }}>Version {installedVersion}</Text>
+        <Text style={{ color: palette.muted, fontSize: 13, fontWeight: "700", marginTop: 6 }}>{sourceLabel}</Text>
+        <Text style={{ color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 12 }}>
+          This version is read from the app installed on this phone. After installing an update from Google Play, reopen this page to see the new version.
+        </Text>
+      </View>
+      <View style={styles.section}>
+        <InfoRow icon="phone-portrait-outline" title="Installed version" value={installedVersion} styles={styles} />
+        {installedBuild ? <InfoRow icon="construct-outline" title="Build" value={installedBuild} styles={styles} /> : null}
+        <InfoRow icon="cloud-download-outline" title="Update source" value={sourceLabel} styles={styles} noBorder />
+      </View>
+      <Pressable style={styles.primaryButton} onPress={() => openDarjiUrl(TAILOR_PLAY_STORE_URL)}>
+        <Ionicons name="logo-google-playstore" size={18} color="#111111" />
+        <Text style={styles.primaryButtonText}>View in Google Play</Text>
+        <Ionicons name="open-outline" size={16} color="#111111" />
+      </Pressable>
     </ScrollView>
   );
 }
@@ -2155,7 +2111,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
           description: description.trim(),
           screenshot: screenshotUrl,
           deviceInfo: deviceOsLabel,
-          appVersion: TAILOR_APP_VERSION
+          appVersion: INSTALLED_TAILOR_APP_VERSION
         })
       }, token);
       showDialog({ title: "Bug report submitted", message: "Thanks. Our team will review the issue and fix it as soon as possible.", icon: "checkmark-circle-outline" });
@@ -2217,7 +2173,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
         </View>
         <View style={styles.bugDeviceCard}>
           <InfoRow icon="phone-portrait-outline" title="Your device" value={deviceOsLabel} styles={styles} noBorder />
-          <InfoRow icon="information-circle-outline" title="App version" value={TAILOR_APP_VERSION} styles={styles} />
+          <InfoRow icon="information-circle-outline" title="App version" value={INSTALLED_TAILOR_APP_VERSION} styles={styles} />
         </View>
         <View style={[styles.bugSubmitButton, styles.safeFooterGap, submitting && styles.bugSubmitButtonDisabled]}>
           <TouchableOpacity
@@ -2244,7 +2200,7 @@ function TailorBugReportScreen({ setScreen, palette, styles, token, showDialog }
   );
 }
 
-function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
+function TailorSupportCenterScreen({ setScreen, openRequests, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; openRequests: () => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: palette.bg }}>
       <View style={styles.supportHeader}>
@@ -2286,7 +2242,7 @@ function TailorSupportCenterScreen({ setScreen, palette, styles, token, showDial
           badgeText="We'll review and get back to you within 24-48 hours"
           badgeTone="orange"
           styles={styles}
-          onPress={() => setScreen("requests")}
+          onPress={openRequests}
         />
       </ScrollView>
     </SafeAreaView>
@@ -2313,9 +2269,9 @@ function SupportCenterCard({ icon, title, copy, badgeIcon, badgeText, badgeTone,
   );
 }
 
-function TailorAccountRequestsScreen({ setScreen, palette, styles, token, showDialog }: { setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
+function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, token, showDialog }: { initialType: AccountChangeType; setScreen: (screen: SupportScreen | undefined) => void; palette: any; styles: any; token?: string; showDialog: (dialog: DialogState) => void }) {
   const maxDocuments = 5;
-  const [type, setType] = useState<"ShopName" | "BankAccount" | "UPI" | "Address" | "ContactNumber" | "IdentityDocument">("ShopName");
+  const [type, setType] = useState<AccountChangeType>(initialType);
   
   const [shopNameField, setShopNameField] = useState("");
   const [accountHolder, setAccountHolder] = useState("");
@@ -2859,7 +2815,7 @@ const supportDetails: Record<Exclude<SupportScreen, "support_center" | "requests
     title: "App Version",
     subtitle: "Darji Tailor App",
     icon: "information-circle-outline",
-    copy: `Installed version ${TAILOR_APP_VERSION}`,
+    copy: `Installed version ${INSTALLED_TAILOR_APP_VERSION}`,
     points: ["Official Darji Tailor Partner app.", "Manage customer requests, prices, stitching progress, and payouts.", "App improvements install automatically when the app restarts."]
   },
   about: {
@@ -2886,9 +2842,10 @@ function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_
     content: { padding: 18, paddingTop: safeTopPadding, paddingBottom: safeBottomPadding + 94 },
     bugReportContent: { paddingTop: safeTopPadding, paddingBottom: safeBottomPadding + 94 },
     headerCard: { borderRadius: 22, backgroundColor: palette.surface, borderWidth: 1, borderColor: "#efcf92", padding: 14, marginBottom: 18, shadowColor: "#0b2241", shadowOpacity: 0.05, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 2 },
-    profileHero: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 16 },
-    avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-    avatarImage: { width: "100%", height: "100%", borderRadius: 46 },
+    profileSummaryCard: { borderRadius: 16, borderColor: "#d1d5db", shadowOpacity: 0, elevation: 0, padding: 12 },
+    profileHero: { flexDirection: "row", alignItems: "center", gap: 13, marginBottom: 9 },
+    avatar: { width: 68, height: 68, borderRadius: 34, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+    avatarImage: { width: "100%", height: "100%", borderRadius: 34 },
     avatarLockBadge: { position: "absolute", right: -3, bottom: -3, width: 24, height: 24, borderRadius: 12, backgroundColor: "#7b8492", borderWidth: 3, borderColor: palette.surface, alignItems: "center", justifyContent: "center" },
     avatarText: { color: "#111111", fontSize: 21, fontWeight: "900" },
     avatarPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
@@ -2913,12 +2870,24 @@ function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_
     profileInfoValueWrap: { flex: 1, minWidth: 0 },
     profileInfoValue: { color: palette.text, fontSize: 13, lineHeight: 19, fontWeight: "700" },
     profileInfoNote: { color: palette.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
-    profileCompletedBand: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: palette.surfaceAlt, borderRadius: 8, paddingHorizontal: 14, marginTop: 2 },
+    profileCompletedBand: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "transparent", borderRadius: 8, paddingHorizontal: 0, marginTop: 0, borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingTop: 8 },
     completedPill: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
     completedText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "800" },
     editButton: { minHeight: 38, borderRadius: 14, backgroundColor: BRAND_ORANGE, justifyContent: "center", paddingHorizontal: 13 },
     editButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
     section: { borderRadius: 18, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 10, shadowColor: "#0b2241", shadowOpacity: 0.035, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+    profileEditSection: { borderRadius: 14, borderColor: "#d1d5db", shadowOpacity: 0, elevation: 0, paddingHorizontal: 14, paddingVertical: 12 },
+    profileEditLabel: { color: palette.text, fontSize: 12, letterSpacing: 0.1 },
+    profileEditInputWrap: { borderRadius: 12, backgroundColor: palette.surface, borderColor: "#d1d5db", gap: 9 },
+    profileEditInput: { color: palette.text, fontWeight: "600" },
+    profileEditSaveButton: { borderRadius: 12, marginTop: 16 },
+    profileDetailCard: { borderRadius: 14, borderColor: "#d1d5db", shadowOpacity: 0, elevation: 0, paddingHorizontal: 14, paddingVertical: 14 },
+    profileDetailHint: { marginBottom: 8, fontWeight: "500" },
+    profileDetailSectionTitle: { color: palette.text, marginBottom: 4 },
+    profileDetailEyebrow: { paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: "#e5e7eb", marginBottom: 2 },
+    profileDetailEyebrowText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.6 },
+    profileDetailPhoto: { width: "100%", height: 170, borderRadius: 12, marginTop: 12, marginBottom: 4 },
+    profileActionButton: { borderRadius: 12, elevation: 0 },
     sectionHeader: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
     sectionIcon: { width: 34, height: 34, borderRadius: 13, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     sectionTitle: { color: palette.text, fontSize: 16, fontWeight: "900" },
@@ -2929,10 +2898,10 @@ function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_
     sampleUploadButtonText: { color: "#111111", fontSize: 12, fontWeight: "900" },
     sampleGalleryRow: { gap: 10, paddingTop: 10, paddingBottom: 4 },
     sampleGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingTop: 14, paddingBottom: 12 },
-    sampleGalleryCard: { width: 116, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, overflow: "hidden" },
+    sampleGalleryCard: { width: 116, borderRadius: 12, borderWidth: 1, borderColor: "#d1d5db", backgroundColor: palette.surface, overflow: "hidden" },
     sampleGalleryImage: { width: "100%", height: 126, backgroundColor: palette.border },
-    sampleStatusPill: { position: "absolute", left: 7, top: 7, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.92)", paddingHorizontal: 7, paddingVertical: 3 },
-    sampleStatusText: { color: BRAND_DEEP, fontSize: 9, fontWeight: "900" },
+    sampleStatusPill: { position: "absolute", left: 7, top: 7, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.94)", paddingHorizontal: 7, paddingVertical: 3 },
+    sampleStatusText: { color: "#111111", fontSize: 9, fontWeight: "800" },
     sampleDeleteButton: { position: "absolute", right: 7, top: 7, width: 28, height: 28, borderRadius: 14, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
     sampleGalleryName: { color: palette.muted, fontSize: 10, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 8 },
     disabledButton: { opacity: 0.55 },
@@ -2953,11 +2922,15 @@ function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_
     requestSubtitle: { color: BRAND_ORANGE, fontSize: 10, fontWeight: "900", marginTop: 3 },
     requestCopy: { color: palette.muted, fontSize: 12, lineHeight: 18, fontWeight: "700", marginBottom: 3 },
     requestInput: { minHeight: 112, textAlignVertical: "top", paddingTop: 14, backgroundColor: "#fffaf0", borderColor: "#f4dfbc" },
+    requestChangesButton: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#f2d49e", backgroundColor: palette.surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, marginTop: 12 },
+    requestChangesButtonText: { flex: 1, color: palette.text, fontSize: 13, fontWeight: "900" },
     inputLabel: { color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 7 },
     inputHint: { color: palette.muted, fontSize: 10, fontWeight: "700", marginTop: -3, marginBottom: 8 },
     input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, color: palette.text, paddingHorizontal: 13, fontSize: 14, fontWeight: "700" },
     iconInputWrap: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surfaceAlt, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13 },
+    iconInputWrapMultiline: { minHeight: 94, alignItems: "flex-start", paddingVertical: 13 },
     iconInput: { flex: 1, color: palette.text, fontSize: 14, fontWeight: "700", paddingVertical: 0 },
+    iconInputMultiline: { minHeight: 66, paddingVertical: 0 },
     inlineInputs: { flexDirection: "row", gap: 10 },
     inlineInput: { flex: 1, minWidth: 0 },
     primaryButton: { minHeight: 50, borderRadius: 12, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 14 },
@@ -3078,7 +3051,7 @@ function createStyles(palette: typeof lightPalette, safeTopPadding = SCREEN_TOP_
     identityIdLabel: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "900", letterSpacing: 0.45 },
     identityIdValue: { color: palette.text, fontSize: 15, lineHeight: 20, fontWeight: "900", marginTop: 1 },
     identityDetails: { marginTop: 4 },
-    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 10 },
+    identityRow: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", gap: 11, borderTopWidth: 1, borderTopColor: palette.border, paddingVertical: 10 },
     identityRowIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: palette.surfaceAlt, alignItems: "center", justifyContent: "center" },
     identityLabel: { color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: "800" },
     identityValue: { color: palette.text, fontSize: 14, lineHeight: 19, fontWeight: "900", marginTop: 2 },

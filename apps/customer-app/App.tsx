@@ -280,12 +280,12 @@ type BackendTailorProfile = {
       pincode?: string;
     };
   };
-  user?: { name?: string; phone?: string; avatarUrl?: string };
+  user?: { name?: string; phone?: string; profileUrl?: string; avatarUrl?: string };
   sampleGallery?: Array<{ id?: string; _id?: string; url: string; status?: string; originalName?: string }>;
 };
 type DeliveryPartnerContact = {
   id?: string;
-  user?: { name?: string; phone?: string; avatarUrl?: string };
+  user?: { name?: string; phone?: string; profileUrl?: string; avatarUrl?: string };
   deliveryTaskId?: string;
   stitchedPickupVerifiedAt?: string;
 };
@@ -301,6 +301,7 @@ type TailorProfileSummary = {
   specialty: string;
   specializations: string[];
   yearsExperience?: number;
+  profileUrl?: string;
   avatarUrl?: string;
   isAvailable?: boolean;
   verificationStatus?: string;
@@ -6154,7 +6155,7 @@ function tailorProfileFromBackend(tailor?: BackendTailorProfile | null): TailorP
     yearsExperience: Number.isFinite(Number(tailor.verification?.shop?.yearsExperience))
       ? Number(tailor.verification?.shop?.yearsExperience)
       : undefined,
-    avatarUrl: tailor.user?.avatarUrl,
+    avatarUrl: tailor.user?.profileUrl || tailor.user?.avatarUrl,
     isAvailable: tailor.isAvailable,
     verificationStatus: tailor.verificationStatus,
     samples: (tailor.sampleGallery ?? [])
@@ -12859,7 +12860,7 @@ function AppContent() {
             phone: backendUser.phone || data.profile.phone,
             gender: (backendUser.gender as ProfileGender | undefined) ?? data.profile.gender,
             dateOfBirth: backendUser.dateOfBirth ?? data.profile.dateOfBirth,
-            avatarUri: backendUser.avatarUrl || backendUser.avatarUri || data.profile.avatarUri,
+            avatarUri: backendUser.profileUrl || backendUser.avatarUrl || backendUser.avatarUri || data.profile.avatarUri,
             avatarPreset: (backendUser.avatarPreset as AvatarPreset | undefined) ?? data.profile.avatarPreset,
             hasCompletedOnboarding: Boolean(backendUser.name?.trim()) || data.profile.hasCompletedOnboarding
           }

@@ -73,13 +73,14 @@ async function customerMeasurementVisitData(visit: any) {
     .select("userId displayName shopName darjiTailorId specialization rating isAvailable verificationStatus verification.shop verification.personal.name verification.idVerification.facePhotoUrl")
     .lean();
   if (!tailor) return data;
-  const user = await UserModel.findById(String(tailor.userId)).select("name phone avatarUrl").lean();
+  const user = await UserModel.findById(String(tailor.userId)).select("name phone profileUrl avatarUrl").lean();
   const verification = tailor.verification as { personal?: { name?: string }; idVerification?: { facePhotoUrl?: string } } | undefined;
   data.assignedTailor = {
     id: String(tailor._id),
     name: tailor.displayName || verification?.personal?.name || tailor.shopName || user?.name || "Measurement tailor",
     phone: user?.phone,
-    avatarUrl: user?.avatarUrl || verification?.idVerification?.facePhotoUrl,
+    profileUrl: user?.profileUrl || verification?.idVerification?.facePhotoUrl || user?.avatarUrl,
+    avatarUrl: user?.profileUrl || verification?.idVerification?.facePhotoUrl || user?.avatarUrl,
     profile: {
       id: String(tailor._id),
       shopName: tailor.shopName,
@@ -92,7 +93,8 @@ async function customerMeasurementVisitData(visit: any) {
       user: {
         name: tailor.displayName || verification?.personal?.name || user?.name,
         phone: user?.phone,
-        avatarUrl: user?.avatarUrl || verification?.idVerification?.facePhotoUrl
+        profileUrl: user?.profileUrl || verification?.idVerification?.facePhotoUrl || user?.avatarUrl,
+        avatarUrl: user?.profileUrl || verification?.idVerification?.facePhotoUrl || user?.avatarUrl
       }
     }
   };

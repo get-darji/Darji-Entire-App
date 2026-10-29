@@ -365,6 +365,7 @@ type MeResponse = {
   phone: string;
   name?: string;
   email?: string;
+  profileUrl?: string;
   avatarUrl?: string;
   role: string;
   deliveryProfile?: DeliveryProfile;

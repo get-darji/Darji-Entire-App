@@ -684,7 +684,7 @@ async function hydrateTailorQuote(quoteInput: unknown) {
   const tailor = await TailorModel.findById(quote.tailorId);
   const [user, tailorOrders] = tailor
     ? await Promise.all([
-        UserModel.findById(tailor.userId).select("name phone role avatarUrl"),
+        UserModel.findById(tailor.userId).select("name phone role profileUrl avatarUrl"),
         OrderModel.find({ tailorId: tailor.id }).select("_id").lean()
       ])
     : [null, []];
@@ -726,7 +726,7 @@ async function hydrateTailorQuote(quoteInput: unknown) {
           ...tailor.toJSON(),
           rating: ratingSummary ? Number(ratingSummary.averageRating.toFixed(1)) : Number(tailor.rating ?? 0),
           ratingCount: ratingSummary?.ratingCount ?? 0,
-          user: user?.toJSON()
+          user: user ? { ...user.toJSON(), profileUrl: user.get("profileUrl") || (tailor.verification as any)?.idVerification?.facePhotoUrl || user.get("avatarUrl"), avatarUrl: user.get("profileUrl") || (tailor.verification as any)?.idVerification?.facePhotoUrl || user.get("avatarUrl") } : undefined
         }
       : null
   };
@@ -743,10 +743,11 @@ async function verifiedDropDeliveryPartnerForRequest(requestId: string) {
 
   const partner = await DeliveryPartnerModel.findById(task.assignedDeliveryPartnerId);
   if (!partner) return null;
-  const user = await UserModel.findById(partner.userId).select("name phone role avatarUrl");
+  const user = await UserModel.findById(partner.userId).select("name phone role profileUrl avatarUrl");
+  const profileUrl = user?.get("profileUrl") || (partner.verification as any)?.identity?.facePhotoUrl || user?.get("avatarUrl");
   return {
     ...partner.toJSON(),
-    user: user?.toJSON(),
+    user: user ? { ...user.toJSON(), profileUrl, avatarUrl: profileUrl } : undefined,
     stitchedPickupVerifiedAt: task.pickupOtpVerifiedAt,
     deliveryTaskId: task.id
   };
@@ -798,7 +799,7 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
 
   const requestId = String(request.id ?? request._id);
   const [customer, tailor, deliveryPartner] = await Promise.all([
-    UserModel.findById(request.customerId).select("name customerName phone email role darjiCustomerId avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
+    UserModel.findById(request.customerId).select("name customerName phone email role darjiCustomerId profileUrl avatarUrl avatarUri customerAvatarUrl customerAvatarUri"),
     tailorUserId ? TailorModel.findOne({ userId: tailorUserId }) : null,
     verifiedDropDeliveryPartnerForRequest(requestId)
   ]);
@@ -820,7 +821,8 @@ async function hydrateTailoringRequest(requestInput: unknown, tailorUserId?: str
     customer: customer ? {
       ...customer.toJSON(),
       name: customer.customerName || customer.name,
-      avatarUrl: customer.customerAvatarUri || customer.customerAvatarUrl || customer.avatarUri || customer.avatarUrl
+      profileUrl: customer.profileUrl || customer.customerAvatarUri || customer.customerAvatarUrl || customer.avatarUri || customer.avatarUrl,
+      avatarUrl: customer.profileUrl || customer.customerAvatarUri || customer.customerAvatarUrl || customer.avatarUri || customer.avatarUrl
     } : null,
     ownQuote: ownQuote?.toJSON() ?? null,
     deliveryPartner,
