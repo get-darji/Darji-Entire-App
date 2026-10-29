@@ -9599,7 +9599,16 @@ function normalizeTailoringRequestForAdmin(request: TailoringRequest, partners: 
 }
 
 function getTailorDisplayName(tailor?: TailorProfile | null) {
-  return cleanText(tailor?.user?.name) ?? cleanText(tailor?.shopName) ?? cleanText(tailor?.user?.phone) ?? cleanText(tailor?.darjiTailorId) ?? "Tailor";
+  const personal = tailor?.verification?.personal as { name?: string; fullName?: string } | undefined;
+  const shopName = cleanText(tailor?.shopName);
+  const personalName = cleanText(personal?.name)
+    ?? cleanText(personal?.fullName)
+    ?? cleanText(tailor?.displayName)
+    ?? cleanText(tailor?.user?.name);
+  return (personalName && personalName !== shopName ? personalName : null)
+    ?? cleanText(tailor?.user?.phone)
+    ?? cleanText(tailor?.darjiTailorId)
+    ?? "Tailor";
 }
 
 function getPartnerRole(partner?: DeliveryPartnerProfile | null) {
@@ -11453,7 +11462,7 @@ function ProfileDialog({
       setProfileTab("personal");
       setVerificationJson(JSON.stringify(verification, null, 2));
       setEditDraft({
-        name: profile.user?.name ?? personal.name ?? personal.fullName ?? "",
+        name: personal.name ?? personal.fullName ?? profile.displayName ?? profile.user?.name ?? "",
         phone: profile.user?.phone ?? "",
         email: profile.user?.email ?? personal.email ?? "",
         avatarUrl: profile.user?.profileUrl || profile.user?.avatarUrl || "",
@@ -13497,7 +13506,7 @@ function getTailorColumns({
     {
       id: "tailor",
       header: "Tailor",
-      accessorFn: (row) => row.user?.name ?? row.shopName ?? "",
+      accessorFn: (row) => getTailorDisplayName(row),
       cell: ({ row }) => (
         <div>
           <p className="font-medium">{getTailorDisplayName(row.original)}</p>

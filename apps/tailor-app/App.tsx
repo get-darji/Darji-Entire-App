@@ -390,7 +390,7 @@ type TailorReuploadField = "aadhaarFront" | "aadhaarBack" | "panPhoto" | "facePh
 type TailorIdType = "Aadhaar" | "PAN" | "License";
 type SpecializationRow = { id: string; gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: string };
 type OcrDetails = { rawText?: string; name?: string; dob?: string; aadhaarLast4?: string; panNumber?: string; addressHint?: string };
-type FaceLivenessState = "idle" | "aligning" | "aligned" | "blink-detected" | "captured";
+
 type VerificationDraft = {
   step: number;
   personal: { name: string; address: string; addressLine?: string; area?: string; city?: string; state?: string; pincode?: string; dob: string; email: string; location?: { lat: number; lng: number } };
@@ -4470,7 +4470,10 @@ function TailorVerificationFlow({
   const [faceDetectionStatus, setFaceDetectionStatus] = useState("Not run");
   const [extractedDetails, setExtractedDetails] = useState<OcrDetails>({});
   const [faceModeOpen, setFaceModeOpen] = useState(false);
-  const [faceLiveness, setFaceLiveness] = useState<FaceLivenessState>("idle");
+
+  const [faceCameraReady, setFaceCameraReady] = useState(false);
+  const [capturingFace, setCapturingFace] = useState(false);
+  const [faceCaptureError, setFaceCaptureError] = useState("");
   const [tutorialIndex, setTutorialIndex] = useState(0);
   const [tutorialMedia, setTutorialMedia] = useState<TailorTutorialMedia>();
   const [tutorialWatched, setTutorialWatched] = useState(false);
@@ -4613,6 +4616,36 @@ function TailorVerificationFlow({
   }, [storageKey]);
 
   useEffect(() => {
+    if (!shop.workFromHome) return;
+    const parsedAddress = splitAddress(personal.address);
+    const addressLine = personal.addressLine || parsedAddress.addressLine;
+    const area = personal.area || parsedAddress.area;
+    const city = personal.city || parsedAddress.city;
+    const state = personal.state || parsedAddress.state;
+    const pincode = personal.pincode || parsedAddress.pincode;
+    const personalAddress = compactAddress([addressLine, area, city, state, pincode]) || personal.address;
+    setShop((current) => {
+      if (
+        current.shopAddressLine === addressLine &&
+        current.shopArea === area &&
+        current.shopCity === city &&
+        current.shopState === state &&
+        current.shopPincode === pincode &&
+        current.shopAddress === personalAddress
+      ) return current;
+      return {
+        ...current,
+        shopAddressLine: addressLine,
+        shopArea: area,
+        shopCity: city,
+        shopState: state,
+        shopPincode: pincode,
+        shopAddress: personalAddress
+      };
+    });
+  }, [shop.workFromHome, personal.address, personal.addressLine, personal.area, personal.city, personal.state, personal.pincode]);
+
+  useEffect(() => {
     if (!hasLoadedDraft || status === "PENDING" || status === "VERIFIED") return undefined;
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => {
@@ -4714,7 +4747,7 @@ function TailorVerificationFlow({
       setExtractedDetails((current) => ({ ...current, ...details, rawText: [current.rawText, details.rawText].filter(Boolean).join("\n\n") }));
       setOcrStatus(result.text.trim() ? "OCR extracted details" : "OCR found no readable text");
     } catch (error) {
-      setOcrStatus(error instanceof Error && /rebuilt|linked|managed workflow/i.test(error.message) ? "ML Kit needs native rebuild" : "OCR failed");
+      setOcrStatus("Manual document review required");
     } finally {
       setScanning(undefined);
     }
@@ -4727,13 +4760,13 @@ function TailorVerificationFlow({
       const faces = await FaceDetection.detect(media.uri, { performanceMode: "accurate", landmarkMode: "all", classificationMode: "all", minFaceSize: 0.15 });
       setFaceDetectionStatus(faces.length === 1 ? "1 face detected" : faces.length > 1 ? `${faces.length} faces detected` : "No face detected");
     } catch (error) {
-      setFaceDetectionStatus(error instanceof Error && /rebuilt|linked|managed workflow/i.test(error.message) ? "ML Kit needs native rebuild" : "Face check failed");
+      setFaceDetectionStatus("Photo queued for manual face review");
     } finally {
       setScanning(undefined);
     }
   }
 
-  async function captureFaceAfterBlink() {
+  async function startFaceVerification() {
     if (!cameraPermission?.granted) {
       const permission = await requestCameraPermission();
       if (!permission.granted) {
@@ -4745,23 +4778,33 @@ function TailorVerificationFlow({
         return;
       }
     }
+    setFaceCameraReady(false);
+    setFaceCaptureError("");
+    setFaceModeOpen(true);
+  }
+
+  async function captureFacePhoto() {
+    if (!faceCameraReady || !faceCameraRef.current) {
+      setFaceCaptureError("The camera is still starting. Please wait a moment.");
+      return;
+    }
     try {
-      setFaceLiveness("aligning");
-      await delay(700);
-      setFaceLiveness("aligned");
-      await delay(900);
-      setFaceLiveness("blink-detected");
-      await delay(350);
+      setCapturingFace(true);
+      setFaceCaptureError("");
       const photo = await faceCameraRef.current?.takePictureAsync({ quality: 0.86 });
-      if (!photo?.uri) return;
+      if (!photo?.uri) {
+        setFaceCaptureError("We couldn't capture the photo. Please try again.");
+        return;
+      }
       const media = { uri: photo.uri, name: `tailor-face-${Date.now()}.jpg` };
       setFacePhoto(media);
       setFaceModeOpen(false);
-      setFaceLiveness("captured");
+
       void runFaceDetection(media);
-    } catch (error) {
-      setFaceLiveness("idle");
-      showDialog({ title: "Face capture failed", message: error instanceof Error ? error.message : "Could not capture selfie.", icon: "alert-circle-outline" });
+    } catch {
+      setFaceCaptureError("We couldn't capture the photo. Check camera access and try again.");
+    } finally {
+      setCapturingFace(false);
     }
   }
 
@@ -4853,11 +4896,18 @@ function TailorVerificationFlow({
     }
     const result = source === "camera"
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.86, selectionLimit: 1 });
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.86,
+          allowsMultipleSelection: true,
+          selectionLimit: Math.max(1, 3 - shop.shopPhotos.length)
+        });
     if (result.canceled || !result.assets.length) return;
-    const asset = result.assets[0];
-    const media = { uri: asset.uri, name: asset.fileName ?? `tailor-shop-${Date.now()}.jpg` };
-    setShop((current) => ({ ...current, shopPhotos: [...current.shopPhotos, media].slice(0, 3) }));
+    const added = result.assets.map((asset, index) => ({
+      uri: asset.uri,
+      name: asset.fileName ?? `tailor-shop-${Date.now()}-${index + 1}.jpg`
+    }));
+    setShop((current) => ({ ...current, shopPhotos: [...current.shopPhotos, ...added].slice(0, 3) }));
   }
 
   function removeShopPhoto(index: number) {
@@ -5325,7 +5375,7 @@ function TailorVerificationFlow({
                   setStep(Math.min(targetStep, VERIFICATION_FORM_STEPS));
                 }}
               >
-                <Text style={[styles.verificationStepText, Math.min(step, VERIFICATION_TOTAL_STEPS) === targetStep && styles.verificationStepTextActive, locked && styles.verificationStepTextLocked]}>{label}</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.verificationStepText, Math.min(step, VERIFICATION_TOTAL_STEPS) === targetStep && styles.verificationStepTextActive, locked && styles.verificationStepTextLocked]}>{label}</Text>
               </Pressable>
             );
           })}
@@ -5393,8 +5443,8 @@ function TailorVerificationFlow({
         {step === 2 ? (
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>{localize(language, "SHOP DETAILS", "दुकान की जानकारी")}</Text>
-            <Pressable style={styles.toggleChoiceRow} onPress={() => !isLocked && setShop((current) => ({ ...current, workFromHome: !current.workFromHome, shopName: !current.workFromHome && !current.shopName ? "Home" : current.shopName }))} disabled={isLocked}>
-              <Ionicons name={shop.workFromHome ? "checkbox" : "square-outline"} size={21} color={isLocked ? "#9aa6b8" : BRAND_ORANGE} />
+            <Pressable style={[styles.toggleChoiceRow, styles.verificationHomeToggle]} onPress={() => !isLocked && setShop((current) => ({ ...current, workFromHome: !current.workFromHome, shopName: !current.workFromHome && !current.shopName ? "Home" : current.shopName }))} disabled={isLocked}>
+              <Ionicons name={shop.workFromHome ? "checkbox" : "square-outline"} size={21} color={isLocked ? "#9aa6b8" : "#111111"} />
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>{localize(language, "I work from home", "मैं घर से काम करता/करती हूँ")}</Text>
                 <Text style={styles.cardMeta}>{localize(language, "Use this if you do not have a separate shop.", "यदि आपकी अलग दुकान नहीं है तो इसे चुनें।")}</Text>
@@ -5432,40 +5482,54 @@ function TailorVerificationFlow({
                 <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={shop.yearsExperience} onChangeText={(yearsExperience) => !isLocked && setShop((current) => ({ ...current, yearsExperience }))} keyboardType="number-pad" placeholder="5" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               </View>
             </View>
-            <Text style={styles.formLabel}>{localize(language, "Your specialties", "आपकी विशेषताएँ")}</Text>
-            <Text style={styles.cardMeta}>{localize(language, "Choose what you are experienced in. Customers will see these on your tailor profile.", "अपने अनुभव के अनुसार चुनें। ग्राहक इन्हें आपकी दर्जी प्रोफ़ाइल पर देखेंगे।")}</Text>
-            <View style={styles.chipWrap}>
-              {verificationSpecialtyOptions.map((item) => {
-                const selected = specialties.includes(item);
-                return (
-                  <Pressable
-                    key={item}
-                    style={[styles.suggestionChip, selected && styles.suggestionChipActive, isLocked && styles.inputReadOnly]}
-                    onPress={() => !isLocked && setSpecialties((current) => selected ? current.filter((value) => value !== item) : [...current, item])}
-                    disabled={isLocked}
-                  >
-                    <Text style={[styles.suggestionChipText, selected && styles.suggestionChipTextActive]}>{item}</Text>
-                  </Pressable>
-                );
-              })}
+            <View style={styles.verificationSectionCard}>
+              <View style={styles.verificationSectionHeader}>
+                <View style={styles.verificationSectionIcon}><Ionicons name="star-outline" size={21} color="#ffffff" /></View>
+                <View style={styles.cardMain}>
+                  <Text style={styles.verificationSectionTitle}>{localize(language, "Your specialties", "आपकी विशेषताएँ")}</Text>
+                  <Text style={styles.verificationSectionCopy}>{localize(language, "Help customers find the work you do best.", "ग्राहकों को अपनी खासियतें बताएं।")}</Text>
+                </View>
+              </View>
+              <View style={[styles.chipWrap, styles.verificationSpecialtyGrid]}>
+                {verificationSpecialtyOptions.map((item) => {
+                  const selected = specialties.includes(item);
+                  return (
+                    <Pressable
+                      key={item}
+                      style={[styles.verificationSpecialtyChip, selected && styles.verificationSpecialtyChipActive, isLocked && styles.inputReadOnly]}
+                      onPress={() => !isLocked && setSpecialties((current) => selected ? current.filter((value) => value !== item) : [...current, item])}
+                      disabled={isLocked}
+                    >
+                      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={[styles.verificationSpecialtyChipText, selected && styles.verificationSpecialtyChipTextActive]}>{item}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {specialties.includes("Other") ? (
+                <TextInput
+                  style={[styles.input, styles.verificationOtherSpecialtyInput, isLocked && styles.inputReadOnly]}
+                  value={otherSpecialty}
+                  onChangeText={setOtherSpecialty}
+                  placeholder={localize(language, "Write your specialty", "अपनी विशेषता लिखें")}
+                  placeholderTextColor="#9aa6b8"
+                  maxLength={80}
+                  editable={!isLocked}
+                />
+              ) : null}
             </View>
-            {specialties.includes("Other") ? (
-              <TextInput
-                style={[styles.input, isLocked && styles.inputReadOnly]}
-                value={otherSpecialty}
-                onChangeText={setOtherSpecialty}
-                placeholder={localize(language, "Write your specialty", "अपनी विशेषता लिखें")}
-                placeholderTextColor="#9aa6b8"
-                maxLength={80}
-                editable={!isLocked}
-              />
-            ) : null}
-            <Text style={styles.formLabel}>Payout details (bank, UPI, or both)</Text>
-            <Text style={styles.cardMeta}>These details are saved with verification. Request a change later if needed.</Text>
-            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.accountHolder} onChangeText={(accountHolder) => setVerificationBank((current) => ({ ...current, accountHolder }))} placeholder="Bank account holder (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
-            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.accountNumber} onChangeText={(accountNumber) => setVerificationBank((current) => ({ ...current, accountNumber: accountNumber.replace(/\s/g, "").slice(0, 30) }))} placeholder="Bank account number (optional)" placeholderTextColor="#9aa6b8" keyboardType="number-pad" editable={!isLocked} />
-            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.ifsc} onChangeText={(ifsc) => setVerificationBank((current) => ({ ...current, ifsc: ifsc.toUpperCase().slice(0, 20) }))} placeholder="IFSC code (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="characters" editable={!isLocked} />
-            <TextInput style={[styles.input, isLocked && styles.inputReadOnly]} value={verificationBank.upi} onChangeText={(upi) => setVerificationBank((current) => ({ ...current, upi: upi.slice(0, 80) }))} placeholder="UPI ID (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="none" editable={!isLocked} />
+            <View style={styles.verificationSectionCard}>
+              <View style={styles.verificationSectionHeader}>
+                <View style={styles.verificationSectionIcon}><Ionicons name="wallet-outline" size={21} color="#ffffff" /></View>
+                <View style={styles.cardMain}>
+                  <Text style={styles.verificationSectionTitle}>{localize(language, "Payout details", "भुगतान और पेआउट विवरण")}</Text>
+                  <Text style={styles.verificationSectionCopy}>{localize(language, "Add a bank account, UPI ID, or both for your payouts.", "पेआउट पाने के लिए बैंक खाता, UPI ID या दोनों जोड़ें।")}</Text>
+                </View>
+              </View>
+              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountHolder} onChangeText={(accountHolder) => setVerificationBank((current) => ({ ...current, accountHolder }))} placeholder="Bank account holder (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountNumber} onChangeText={(accountNumber) => setVerificationBank((current) => ({ ...current, accountNumber: accountNumber.replace(/\s/g, "").slice(0, 30) }))} placeholder="Bank account number (optional)" placeholderTextColor="#9aa6b8" keyboardType="number-pad" editable={!isLocked} />
+              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.ifsc} onChangeText={(ifsc) => setVerificationBank((current) => ({ ...current, ifsc: ifsc.toUpperCase().slice(0, 20) }))} placeholder="IFSC code (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="characters" editable={!isLocked} />
+              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.upi} onChangeText={(upi) => setVerificationBank((current) => ({ ...current, upi: upi.slice(0, 80) }))} placeholder="UPI ID (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="none" editable={!isLocked} />
+            </View>
             <View style={styles.rowBetween}>
               <Text style={styles.formLabel}>{localize(language, "Shop Photos", "दुकान की फोटो")}</Text>
               <Text style={styles.cardMeta}>{shop.shopPhotos.length}/3</Text>
@@ -5576,54 +5640,50 @@ function TailorVerificationFlow({
               <VerificationDocBox label={localize(language, "PAN Card", "पैन कार्ड")} media={panPhoto} onCamera={() => !isLocked && showCameraPermissionIntro("document", () => void pickDoc(setPanPhoto, "ocr", "camera"))} onGallery={() => !isLocked && showGalleryPermissionIntro("document", () => void pickDoc(setPanPhoto, "ocr", "gallery"))} disabled={isLocked} />
             )}
             <View style={styles.faceVerificationPanel}>
-              <View style={[styles.faceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" || faceLiveness === "captured" ? styles.faceCircleReady : styles.faceCircleWaiting]}>
-                {facePhoto ? <Image source={{ uri: facePhoto.uri }} style={styles.facePreviewImage} /> : <Ionicons name="person-outline" size={42} color={faceLiveness === "aligned" || faceLiveness === "blink-detected" ? SUCCESS : "#b91c1c"} />}
+              <View style={[styles.faceCircle, facePhoto ? styles.faceCircleReady : styles.faceCircleWaiting]}>
+                {facePhoto ? <Image source={{ uri: facePhoto.uri }} style={styles.facePreviewImage} /> : <Ionicons name="person-outline" size={42} color="#111111" />}
               </View>
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>{localize(language, "Face Verification", "चेहरे का सत्यापन")}</Text>
-                <Text style={styles.cardMeta}>{localize(language, "Place your face inside the circle, wait for green, then blink. Photo captures automatically.", "चेहरा गोले के अंदर रखें, हरा होने की प्रतीक्षा करें, फिर पलक झपकाएँ। फोटो अपने आप ली जाएगी।")}</Text>
-                <Text style={styles.faceStatusText}>{faceLiveness === "idle" ? "Not started" : faceLiveness === "aligning" ? "Aligning face..." : faceLiveness === "aligned" ? "Green circle: blink now" : faceLiveness === "blink-detected" ? "Blink detected, capturing..." : "Selfie captured"}</Text>
+                <Text style={styles.cardMeta}>Take a clear, front-facing selfie to complete your identity check.</Text>
+                <Text style={styles.faceStatusText}>{facePhoto ? localize(language, "Face photo captured", "\u091a\u0947\u0939\u0930\u0947 \u0915\u0940 \u092b\u094b\u091f\u094b \u0932\u0940 \u0917\u0908") : localize(language, "Face photo required", "\u091a\u0947\u0939\u0930\u0947 \u0915\u0940 \u092b\u094b\u091f\u094b \u0906\u0935\u0936\u094d\u092f\u0915 \u0939\u0948")}</Text>
               </View>
             </View>
-            <Pressable style={styles.secondaryButton} onPress={() => confirmFaceProfilePhoto(() => showCameraPermissionIntro("face", () => setFaceModeOpen(true)))}>
-              <Ionicons name="camera-outline" size={18} color={BRAND_DEEP} />
-              <Text style={styles.secondaryButtonText}>{facePhoto ? localize(language, "Retake Face Verification", "चेहरे की फोटो दोबारा लें") : localize(language, "Start Face Verification", "चेहरा सत्यापन शुरू करें")}</Text>
+            <Pressable style={[styles.primaryButton, capturingFace && styles.disabledButton]} onPress={() => void startFaceVerification()} disabled={isLocked || capturingFace}>
+              <Ionicons name="person-circle-outline" size={19} color="#111111" />
+              <Text style={styles.primaryButtonText}>{facePhoto ? localize(language, "Retake Face Verification", "\u091a\u0947\u0939\u0930\u0947 \u0915\u093e \u0938\u0924\u094d\u092f\u093e\u092a\u0928 \u0926\u094b\u092c\u093e\u0930\u093e \u0915\u0930\u0947\u0902") : localize(language, "Start Face Verification", "\u091a\u0947\u0939\u0930\u0947 \u0915\u093e \u0938\u0924\u094d\u092f\u093e\u092a\u0928 \u0936\u0941\u0930\u0942 \u0915\u0930\u0947\u0902")}</Text>
             </Pressable>
-            <VerificationDocBox label={localize(language, "Take Face Photo", "चेहरे की फोटो लें")} media={facePhoto} onCamera={() => confirmFaceProfilePhoto(() => showCameraPermissionIntro("face", () => void pickDoc(setFacePhoto, "face", "camera")))} />
+
             {faceModeOpen ? (
               <Modal visible animationType="slide" onRequestClose={() => setFaceModeOpen(false)}>
                 <SafeAreaView style={styles.cameraSafe}>
                   <View style={{ alignSelf: "flex-end", padding: 12 }}>{languageToggle}</View>
-                  <CameraView ref={faceCameraRef} style={styles.faceCamera} facing="front" mirror>
+                  <CameraView
+                    ref={faceCameraRef}
+                    style={styles.faceCamera}
+                    facing="front"
+                    mirror
+                    onCameraReady={() => { setFaceCameraReady(true); setFaceCaptureError(""); }}
+                    onMountError={() => { setFaceCameraReady(false); setFaceCaptureError("The camera could not start. Please close this screen and try again."); }}
+                  >
                     <View style={styles.cameraOverlay}>
-                      <View style={[styles.cameraFaceCircle, faceLiveness === "aligned" || faceLiveness === "blink-detected" ? styles.cameraFaceCircleReady : styles.cameraFaceCircleWaiting]} />
-                      <Text style={styles.cameraInstruction}>Place your face inside the circle</Text>
-                      <Text style={styles.cameraInstructionSmall}>Wait for green, blink your eyes, and the photo will capture.</Text>
+                      <View style={styles.cameraFaceCircle} />
+                      <Text style={styles.cameraInstruction}>Center your face in the frame</Text>
+                      <Text style={styles.cameraInstructionSmall}>{faceCameraReady ? "Hold still, then capture your selfie." : "Starting camera..."}</Text>
                     </View>
                   </CameraView>
+                  {faceCaptureError ? <Text style={styles.cameraError}>{faceCaptureError}</Text> : null}
                   <View style={styles.cameraActions}>
-                    <Pressable style={styles.secondaryButton} onPress={() => setFaceModeOpen(false)}>
+                    <Pressable style={[styles.secondaryButton, styles.cameraActionButton]} onPress={() => setFaceModeOpen(false)} disabled={capturingFace}>
                       <Text style={styles.secondaryButtonText}>Cancel</Text>
                     </Pressable>
-                    <Pressable style={styles.primaryButton} onPress={captureFaceAfterBlink}>
-                      <Text style={styles.primaryButtonText}>I am ready to blink</Text>
+                    <Pressable style={[styles.primaryButton, styles.cameraActionButton, (!faceCameraReady || capturingFace) && styles.disabledButton]} onPress={() => void captureFacePhoto()} disabled={!faceCameraReady || capturingFace} accessibilityRole="button" accessibilityState={{ disabled: !faceCameraReady || capturingFace }}>
+                      {capturingFace ? <ActivityIndicator color="#111111" /> : <Text style={styles.primaryButtonText}>{faceCameraReady ? "Capture selfie" : "Starting camera..."}</Text>}
                     </Pressable>
                   </View>
                 </SafeAreaView>
               </Modal>
             ) : null}
-            <View style={styles.mlKitPanel}>
-              <Ionicons name="scan-outline" size={18} color={BRAND_ORANGE} />
-              <View style={styles.mlKitTextBlock}>
-                <Text style={styles.mlKitText}>OCR: {ocrStatus}</Text>
-                <Text style={styles.mlKitText}>Face: {faceDetectionStatus}</Text>
-                {extractedDetails.name || extractedDetails.dob || extractedDetails.aadhaarLast4 || extractedDetails.panNumber ? (
-                  <Text style={styles.mlKitExtractedText}>
-                    {[extractedDetails.name, extractedDetails.dob, extractedDetails.aadhaarLast4 ? `Aadhaar ****${extractedDetails.aadhaarLast4}` : undefined, extractedDetails.panNumber].filter(Boolean).join(" - ")}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
           </View>
         ) : null}
 
@@ -7990,6 +8050,7 @@ const styles = StyleSheet.create({
   videoViewerIcon: { width: 92, height: 92, borderRadius: 46, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", marginBottom: 14 },
   switchRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 16 },
   toggleChoiceRow: { minHeight: 70, borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginTop: 12 },
+  verificationHomeToggle: { borderRadius: 10, borderColor: "#111111", backgroundColor: "#f7f7f7" },
   itemBlock: { borderRadius: 16, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#efcf92", padding: 14, marginTop: 12 },
   requestWorkBlock: { gap: 8, marginTop: 12 },
   measureRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#f3dfb9", marginTop: 8 },
@@ -8013,12 +8074,12 @@ const styles = StyleSheet.create({
   avatarText: { color: "#111111", fontSize: 18, fontWeight: "900" },
   twoFieldRow: { flexDirection: "row", gap: 10 },
   twoFieldItem: { flex: 1, minWidth: 0 },
-  verificationSteps: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  verificationStepPill: { minHeight: 34, borderRadius: 14, borderWidth: 1, borderColor: BORDER, backgroundColor: SURFACE, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },
-  verificationStepPillActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
-  verificationStepPillLocked: { opacity: 0.45 },
-  verificationStepText: { color: MUTED, fontSize: 11, fontWeight: "900" },
-  verificationStepTextActive: { color: BRAND_ORANGE },
+  verificationSteps: { flexDirection: "row", flexWrap: "nowrap", gap: 6, marginBottom: 14 },
+  verificationStepPill: { flex: 1, minWidth: 0, minHeight: 44, borderRadius: 8, borderWidth: 1, borderColor: "#d7dbe0", backgroundColor: "#f8f8f8", paddingHorizontal: 2, alignItems: "center", justifyContent: "center" },
+  verificationStepPillActive: { borderColor: "#111111", backgroundColor: "#111111" },
+  verificationStepPillLocked: { opacity: 0.5 },
+  verificationStepText: { color: "#555b63", fontSize: 10, fontWeight: "900", textAlign: "center" },
+  verificationStepTextActive: { color: "#ffffff" },
   verificationStepTextLocked: { color: "#94a3b8" },
   verificationProgressTrack: { height: 6, borderRadius: 4, backgroundColor: "#e7edf5", overflow: "hidden", marginBottom: 16 },
   verificationProgressFill: { height: "100%", borderRadius: 4, backgroundColor: BRAND_ORANGE },
@@ -8059,6 +8120,18 @@ const styles = StyleSheet.create({
   suggestionChipActive: { borderColor: BRAND_ORANGE, backgroundColor: "#fff4dc" },
   suggestionChipText: { color: MUTED, fontSize: 12, fontWeight: "900" },
   suggestionChipTextActive: { color: BRAND_ORANGE },
+  verificationSpecialtyChip: { width: "48%", minHeight: 46, borderRadius: 9, borderWidth: 1, borderColor: "#cfd3d8", backgroundColor: "#f8f8f8", alignItems: "center", justifyContent: "center", paddingHorizontal: 9 },
+  verificationSpecialtyChipActive: { borderColor: "#111111", backgroundColor: "#111111" },
+  verificationSpecialtyChipText: { color: "#454b53", fontSize: 12, fontWeight: "800" },
+  verificationSpecialtyChipTextActive: { color: "#ffffff" },
+  verificationSectionCard: { borderRadius: 14, borderWidth: 1, borderColor: "#e1e4e8", backgroundColor: "#f8f9fa", padding: 14, marginTop: 20 },
+  verificationSectionHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  verificationSectionIcon: { width: 44, height: 44, borderRadius: 10, backgroundColor: "#111111", alignItems: "center", justifyContent: "center" },
+  verificationSectionTitle: { color: "#111111", fontSize: 18, lineHeight: 23, fontWeight: "900" },
+  verificationSectionCopy: { color: "#667085", fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 3 },
+  verificationSpecialtyGrid: { marginTop: 16 },
+  verificationOtherSpecialtyInput: { minHeight: 54, borderRadius: 12, marginTop: 14, backgroundColor: "#ffffff" },
+  verificationPayoutInput: { minHeight: 54, borderRadius: 12, marginTop: 12, backgroundColor: "#ffffff" },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   specializationEditor: { borderRadius: 16, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", padding: 12, marginTop: 12 },
   genderRow: { flexDirection: "row", gap: 8, marginTop: 12 },
@@ -8100,15 +8173,12 @@ const styles = StyleSheet.create({
   faceCamera: { flex: 1 },
   cameraOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "rgba(2, 6, 23, 0.2)" },
   cameraFaceCircle: { width: 230, height: 230, borderRadius: 115, borderWidth: 4, backgroundColor: "rgba(255,255,255,0.04)" },
-  cameraFaceCircleReady: { borderColor: "#22c55e" },
   cameraFaceCircleWaiting: { borderColor: "#fbbf24" },
   cameraInstruction: { color: "#ffffff", fontSize: 18, fontWeight: "900", textAlign: "center", marginTop: 22 },
+  cameraError: { color: "#fecaca", fontSize: 13, lineHeight: 19, fontWeight: "800", textAlign: "center", paddingHorizontal: 20, paddingVertical: 10 },
   cameraInstructionSmall: { color: "#d6deea", fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 6 },
-  cameraActions: { backgroundColor: SURFACE, borderTopWidth: 1, borderTopColor: BORDER, padding: 16, gap: 10 },
-  mlKitPanel: { minHeight: 62, borderRadius: 15, borderWidth: 1, borderColor: "#efcf92", backgroundColor: "#fffaf0", flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 12, marginTop: 14 },
-  mlKitTextBlock: { flex: 1, minWidth: 0 },
-  mlKitText: { color: MUTED, fontSize: 11, lineHeight: 17, fontWeight: "800" },
-  mlKitExtractedText: { color: BRAND_DEEP, fontSize: 11, lineHeight: 17, fontWeight: "900", marginTop: 4 },
+  cameraActions: { backgroundColor: SURFACE, borderTopWidth: 1, borderTopColor: BORDER, padding: 12, flexDirection: "row", gap: 10 },
+  cameraActionButton: { flex: 1, minWidth: 0, minHeight: 54, marginTop: 0, paddingHorizontal: 8 },
   docActionRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   docActionButton: { flex: 1, minHeight: 40, borderRadius: 14, borderWidth: 1, borderColor: "#efbd65", backgroundColor: SURFACE, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingHorizontal: 8 },
   docActionText: { color: BRAND_ORANGE, fontSize: 12, fontWeight: "900" },

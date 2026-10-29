@@ -419,6 +419,11 @@ async function withUser<T extends { toJSON: () => Record<string, unknown>; userI
   const user = await UserModel.findById(profile.userId).select("name phone role email profileUrl avatarUrl accountStatus suspendedUntil moderationReason moderatedAt");
   const profileValue = profile.toJSON() as Record<string, any>;
   const userValue = user?.toJSON() as Record<string, unknown> | undefined;
+  const personal = profileValue.verification?.personal as { name?: unknown; fullName?: unknown } | undefined;
+  const canonicalTailorName = "shopName" in profileValue
+    ? [personal?.name, personal?.fullName, profileValue.displayName]
+        .find((value) => typeof value === "string" && value.trim())
+    : undefined;
   const avatarUrl = userValue?.profileUrl
     || profileValue.verification?.idVerification?.facePhotoUrl
     || profileValue.verification?.identity?.facePhotoUrl
@@ -428,7 +433,7 @@ async function withUser<T extends { toJSON: () => Record<string, unknown>; userI
   }
   return {
     ...profileValue,
-    user: userValue ? { ...userValue, profileUrl: avatarUrl, avatarUrl } : avatarUrl ? { profileUrl: avatarUrl, avatarUrl } : undefined
+    user: userValue ? { ...userValue, ...(canonicalTailorName ? { name: canonicalTailorName } : {}), profileUrl: avatarUrl, avatarUrl } : avatarUrl ? { profileUrl: avatarUrl, avatarUrl } : undefined
   };
 }
 

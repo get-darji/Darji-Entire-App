@@ -681,7 +681,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     const user = userMap.get(String(tailor.userId));
     return {
       profileId: String(tailor._id), userId: String(tailor.userId),
-      name: tailor.shopName || user?.name || user?.phone || "Tailor",
+      name: tailor.verification?.personal?.name || tailor.verification?.personal?.fullName || tailor.displayName || user?.name || user?.phone || "Tailor",
       avatarSeed: user?.name || tailor.verification?.personal?.name || tailor.shopName || "Tailor",
       profileUrl: user?.profileUrl || tailor.verification?.idVerification?.facePhotoUrl || user?.avatarUrl,
       avatarUrl: user?.profileUrl || tailor.verification?.idVerification?.facePhotoUrl || user?.avatarUrl,

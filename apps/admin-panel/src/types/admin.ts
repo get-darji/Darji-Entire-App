@@ -90,6 +90,7 @@ export type TailorProfile = {
   darjiId?: string;
   userId: string;
   darjiTailorId?: string;
+  displayName?: string;
   shopName?: string;
   specialization?: string[];
   rating?: number;
