@@ -44,6 +44,7 @@ const envSchema = z.object({
   BHASHINI_TRANSLATION_SERVICE_ID: z.string().default("ai4bharat/indictrans-v2-all-gpu--t4"),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
   ENFORCE_CLIENT_CHECKOUT_TOTALS: z.coerce.boolean().default(false),
   CORS_ALLOWED_ORIGINS: z.string().optional()
 });

@@ -3131,7 +3131,7 @@ export async function recoverTailoringCheckoutController(req: Request, res: Resp
   const pendingPayment = await PaymentModel.findOne({
     orderId: request.id,
     method: request.paymentMethod,
-    status: "PENDING"
+    status: { $in: ["PENDING", "FAILED"] }
   }).sort({ createdAt: -1 });
 
   if (!pendingPayment?.providerRef) {
@@ -3161,9 +3161,29 @@ export async function recoverTailoringCheckoutController(req: Request, res: Resp
       ? { id: paymentLink!.id, status: "captured", captured: true, amount: paymentLink!.amount, currency: paymentLink!.currency }
       : undefined);
 
+  if (capturedPayment) {
+    const expectedAmountPaise = Math.round(Number(pendingPayment.amount) * 100);
+    const capturedAmount = Number(capturedPayment.amount);
+    const capturedCurrency = String(capturedPayment.currency ?? paymentLink?.currency ?? "INR").toUpperCase();
+    const capturedOrderId = "order_id" in capturedPayment ? capturedPayment.order_id : undefined;
+    const orderIdMatches = !capturedOrderId || capturedOrderId === pendingPayment.providerRef;
+    if (!orderIdMatches || !Number.isFinite(capturedAmount) || capturedAmount !== expectedAmountPaise || capturedCurrency !== "INR") {
+      console.error("[checkout] captured Razorpay payment does not match checkout", {
+        requestId: request.id,
+        providerOrderId: pendingPayment.providerRef,
+        expectedAmountPaise,
+        capturedAmount,
+        capturedCurrency,
+        orderIdMatches
+      });
+      res.json({ data: { status: "pending", message: "Razorpay reported a payment that does not match this order. Please contact support before retrying." } });
+      return;
+    }
+  }
+
   if (!capturedPayment) {
     const paymentLinkStatus = String(paymentLink?.status ?? "").toLowerCase();
-    const hasFailedPayment = providerPayments.some((payment) => String(payment.status ?? "").toLowerCase() === "failed")
+    const hasFailedPayment = (providerPayments.length > 0 && providerPayments.every((payment) => String(payment.status ?? "").toLowerCase() === "failed"))
       || paymentLinkStatus === "cancelled"
       || paymentLinkStatus === "expired";
     if (hasFailedPayment) await PaymentModel.findByIdAndUpdate(pendingPayment.id, { status: "FAILED" });
@@ -3197,6 +3217,146 @@ export async function recoverTailoringCheckoutController(req: Request, res: Resp
     }
   );
   res.json({ data: { status: "paid", ...result } });
+}
+
+export async function razorpayWebhookController(req: Request, res: Response) {
+  const secret = env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    console.error("[checkout] Razorpay webhook received but RAZORPAY_WEBHOOK_SECRET is not configured");
+    res.status(503).json({ message: "Razorpay webhook is not configured" });
+    return;
+  }
+
+  const signature = req.header("x-razorpay-signature") ?? "";
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : undefined;
+  if (!rawBody || !signature) {
+    res.status(400).json({ message: "Invalid Razorpay webhook request" });
+    return;
+  }
+  const expectedSignature = createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!otpMatches(signature, expectedSignature)) {
+    res.status(400).json({ message: "Invalid Razorpay webhook signature" });
+    return;
+  }
+
+  let event: {
+    event?: string;
+    payload?: {
+      payment?: { entity?: { id?: string; order_id?: string; status?: string; amount?: number; currency?: string } };
+      order?: { entity?: { id?: string; status?: string } };
+    };
+  };
+  try {
+    event = JSON.parse(rawBody.toString("utf8"));
+  } catch {
+    res.status(400).json({ message: "Invalid Razorpay webhook payload" });
+    return;
+  }
+
+  const paymentEvent = event.payload?.payment?.entity;
+  const eventName = String(event.event ?? "");
+  const supportedCapture = eventName === "payment.captured" || eventName === "order.paid";
+  if (supportedCapture && paymentEvent?.order_id) {
+    const paymentStatus = String(paymentEvent.status ?? "").toLowerCase();
+    if (paymentStatus && paymentStatus !== "captured") {
+      console.warn("[checkout] ignoring order.paid webhook without a captured payment", { event: eventName, orderId: paymentEvent.order_id });
+      res.json({ received: true });
+      return;
+    }
+
+    const payment = await PaymentModel.findOne({
+      providerRef: paymentEvent.order_id,
+      method: { $in: ["ONLINE", "UPI"] },
+      status: { $in: ["PENDING", "FAILED", "PAID"] }
+    }).sort({ createdAt: -1 });
+    if (!payment) {
+      console.error("[checkout] captured Razorpay payment has no matching pending record", {
+        paymentId: paymentEvent.id,
+        providerOrderId: paymentEvent.order_id
+      });
+      res.json({ received: true });
+      return;
+    }
+
+    const amountMatches = Number(paymentEvent.amount) === Math.round(Number(payment.amount) * 100);
+    const currencyMatches = String(paymentEvent.currency ?? "INR").toUpperCase() === "INR";
+    if (!amountMatches || !currencyMatches) {
+      console.error("[checkout] captured Razorpay webhook amount does not match checkout", {
+        paymentId: paymentEvent.id,
+        providerOrderId: paymentEvent.order_id,
+        expectedAmountPaise: Math.round(Number(payment.amount) * 100),
+        receivedAmountPaise: paymentEvent.amount,
+        receivedCurrency: paymentEvent.currency
+      });
+      res.json({ received: true });
+      return;
+    }
+
+    if (payment.status !== "PAID") {
+      const claimedPayment = await PaymentModel.findOneAndUpdate(
+        { _id: payment.id, status: { $in: ["PENDING", "FAILED"] } },
+        { status: "PAID", paidAt: new Date() },
+        { returnDocument: "after" }
+      );
+      if (!claimedPayment) {
+        res.json({ received: true });
+        return;
+      }
+    }
+
+    const request = await TailoringRequestModel.findById(payment.orderId);
+    if (!request) {
+      console.error("[checkout] captured Razorpay payment refers to a missing tailoring request", { requestId: payment.orderId, paymentId: paymentEvent.id });
+      res.json({ received: true });
+      return;
+    }
+    if (request.status === "CANCELLED") {
+      console.error("[checkout] captured Razorpay payment belongs to a cancelled request", { requestId: request.id, paymentId: paymentEvent.id });
+      res.json({ received: true });
+      return;
+    }
+    if (request.status === "TAILOR_SELECTED" && request.paymentStatus === "PAID") {
+      res.json({ received: true });
+      return;
+    }
+    if (!request.selectedQuoteId || !request.paymentMethod || !["ONLINE", "UPI"].includes(request.paymentMethod)) {
+      console.error("[checkout] captured Razorpay payment cannot be reconciled to an online tailoring request", { requestId: request.id, paymentId: paymentEvent.id });
+      res.json({ received: true });
+      return;
+    }
+
+    await finalizeTailoringRequestConfirmation(
+      request.id,
+      request.selectedQuoteId,
+      request.paymentMethod as "ONLINE" | "UPI",
+      "PAID",
+      {
+        deliveryFee: Number(request.deliveryFee ?? 0),
+        deliveryMode: request.deliveryMode ?? deliveryModeFromUrgency(request.urgency),
+        customerToTailorDistanceMeters: Number(request.customerToTailorDistanceMeters ?? 0),
+        totalChargeableDistanceMeters: Number(request.totalChargeableDistanceMeters ?? 0),
+        platformFee: Number(request.platformFee ?? 0),
+        smallOrderFee: Number(request.smallOrderFee ?? 0),
+        homeMeasurementFee: Number(request.homeMeasurementFee ?? 0),
+        additionalItems: Array.isArray(request.additionalItems) ? request.additionalItems : [],
+        couponCode: request.couponCode ?? undefined,
+        discountAmount: Number(request.discountAmount ?? 0),
+        totalAmount: Number(request.totalAmount ?? payment.amount)
+      }
+    );
+    res.json({ received: true });
+    return;
+  }
+
+  if (eventName === "payment.failed" && paymentEvent?.order_id) {
+    await PaymentModel.findOneAndUpdate(
+      { providerRef: paymentEvent.order_id, method: { $in: ["ONLINE", "UPI"] }, status: "PENDING" },
+      { status: "FAILED" },
+      { sort: { createdAt: -1 } }
+    );
+  }
+
+  res.json({ received: true });
 }
 
 export async function cancelTailoringRequestController(req: Request, res: Response) {

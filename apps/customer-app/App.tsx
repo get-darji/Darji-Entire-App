@@ -452,6 +452,7 @@ type BackendTailoringRequest = {
   quoteAmount?: number;
   deliveryFee?: number;
   platformFee?: number;
+  smallOrderFee?: number;
   homeMeasurementFee?: number;
   couponCode?: string;
   discountAmount?: number;
@@ -580,7 +581,7 @@ type SupportTicketDraft = { id: string; message: string; createdAt: string };
 type AppReviewDraft = { id: string; rating: number; review: string; createdAt: string };
 type CustomerStory = { id: string; name: string; location: string; rating: number; review: string; createdAt: string };
 type DialogAction = { label: string; onPress?: () => void; destructive?: boolean; cancel?: boolean };
-type AppDialogState = { title: string; message: string; actions: DialogAction[]; presentation?: "dialog" | "snackbar" };
+type AppDialogState = { title: string; message: string; actions: DialogAction[]; presentation?: "dialog" | "snackbar"; tone?: "success" | "warning" | "error" };
 type RequestPreset = Partial<Pick<RequestDraft, "gender" | "clothType" | "serviceCategory" | "workType" | "selectedWorkItems" | "otherWorkDescription">>;
 type CustomRequestCategory = {
   title: string;
@@ -3401,7 +3402,12 @@ function AppDialog({
   const action = actions.length === 1 ? actions[0] : undefined;
   const useSnackbar = dialog?.presentation === "snackbar";
   const message = userFacingMessage(dialog?.message, "Something went wrong. Please try again.");
-  const successDialog = /submitted|success|confirmed|complete|thank/i.test(`${dialog?.title ?? ""} ${message}`);
+  const dialogTitle = dialog?.title ?? "";
+  const successDialog = dialog?.tone
+    ? dialog.tone === "success"
+    : /submitted|success|confirmed|complete|thank/i.test(dialogTitle) && !/not confirmed|unconfirmed|failed|cancelled|canceled|error/i.test(dialogTitle);
+  const errorDialog = dialog?.tone === "error";
+  const warningDialog = dialog?.tone === "warning";
   const ratingDialog = /rating|review/i.test(`${dialog?.title ?? ""} ${message}`);
 
   if (useSnackbar) {
@@ -3424,8 +3430,8 @@ function AppDialog({
     <Modal transparent visible={Boolean(dialog)} animationType="fade" onRequestClose={onClose}>
       <View style={styles.dialogOverlay}>
         <View style={styles.dialogCard}>
-          <View style={styles.dialogIcon}>
-            <Ionicons name={ratingDialog ? "star" : successDialog ? "checkmark-circle" : "alert-circle-outline"} size={26} color={ratingDialog ? BRAND_ORANGE : successDialog ? "#15803d" : BRAND_ORANGE} />
+          <View style={[styles.dialogIcon, successDialog && styles.dialogSuccessIcon, errorDialog && styles.dialogErrorIcon]}>
+            <Ionicons name={ratingDialog ? "star" : successDialog ? "checkmark-circle" : errorDialog ? "close-circle" : "alert-circle-outline"} size={26} color={ratingDialog ? BRAND_ORANGE : successDialog ? "#15803d" : errorDialog ? "#dc2626" : warningDialog ? "#b45309" : BRAND_ORANGE} />
           </View>
           <Text style={styles.dialogTitle}>{dialog?.title}</Text>
           <Text style={styles.dialogMessage}>{message}</Text>
@@ -13265,16 +13271,41 @@ function AppContent() {
       }
 
       if (response.razorpay) {
-        if (response.request) storeConfirmedOrder(response.request, selectedQuote, orderDraft);
-        paymentMessageHandledRef.current = false;
-        paymentExternalOpenRef.current = false;
-        setPaymentSheet({
-          requestId: selectedQuote.backendRequestId,
-          quote: selectedQuote,
-          draft: orderDraft,
-          paymentMethod,
-          config: response.razorpay
-        });
+        const providerAmount = Number(response.razorpay.amount) / 100;
+        const roundedProviderAmount = Math.round(providerAmount * 100);
+        const serverTotal = Number(response.request?.totalAmount);
+        if (Number.isFinite(serverTotal) && Math.round(serverTotal * 100) !== roundedProviderAmount) {
+          throw new Error("The payment amount from Razorpay does not match the order total. Please retry or contact support.");
+        }
+        const launchPayment = () => {
+          if (response.request) storeConfirmedOrder(response.request, selectedQuote, orderDraft);
+          paymentMessageHandledRef.current = false;
+          paymentExternalOpenRef.current = false;
+          setPaymentSheet({
+            requestId: selectedQuote.backendRequestId!,
+            quote: selectedQuote,
+            draft: orderDraft,
+            paymentMethod,
+            config: response.razorpay!
+          });
+        };
+        if (roundedProviderAmount !== Math.round(totalAmount * 100)) {
+          const order = response.request;
+          const breakdown = order
+            ? `\n\nServer breakdown: quote Rs${Number(order.quoteAmount ?? selectedQuote.price)}, delivery Rs${Number(order.deliveryFee ?? 0)}, platform fee Rs${Number(order.platformFee ?? 0)}, small-order fee Rs${Number(order.smallOrderFee ?? 0)}, measurement Rs${Number(order.homeMeasurementFee ?? 0)}, discount -Rs${Number(order.discountAmount ?? 0)}.`
+            : "";
+          setDialog({
+            title: "Confirm updated payment amount",
+            message: `The checkout showed Rs${(Math.round(totalAmount * 100) / 100).toFixed(2)}, but the verified payable amount is Rs${(roundedProviderAmount / 100).toFixed(2)}.${breakdown}\n\nContinue only if you accept the updated total.`,
+            tone: "warning",
+            actions: [
+              { label: `Pay Rs${(roundedProviderAmount / 100).toFixed(2)}`, onPress: launchPayment },
+              { label: "Cancel" }
+            ]
+          });
+        } else {
+          launchPayment();
+        }
       }
     } catch (error) {
       const checkoutError = error instanceof Error ? error.message : "Could not start checkout.";
@@ -13355,6 +13386,7 @@ function AppContent() {
         setDialog({
           title: "Payment successful",
           message: `Order REQ-${result.request.id.slice(0, 8).toUpperCase()} is confirmed and the tailor has been notified.`,
+          tone: "success",
           actions: [{ label: "View Order" }]
         });
         void refreshCustomerOrders();
@@ -13368,6 +13400,7 @@ function AppContent() {
         setDialog({
           title: result.status === "failed" ? "Payment failed" : "Payment not confirmed yet",
           message: result.message ?? (result.status === "failed" ? "Razorpay reported this payment as failed." : "Razorpay has not confirmed this payment yet. If money was deducted, wait a moment and retry from this order."),
+          tone: result.status === "failed" ? "error" : "warning",
           actions: [{ label: "OK" }]
         });
       }
@@ -13380,6 +13413,7 @@ function AppContent() {
         setDialog({
           title: "Payment status unavailable",
           message: error instanceof Error ? error.message : "Could not confirm the payment status. Please retry after a moment.",
+          tone: "warning",
           actions: [{ label: "OK" }]
         });
       }
@@ -13407,6 +13441,7 @@ function AppContent() {
       setDialog({
         title: "Payment cancelled",
         message: "You can retry online payment or switch to COD.",
+        tone: "warning",
         actions: [{ label: "Retry Payment" }]
       });
       return;
@@ -13428,6 +13463,7 @@ function AppContent() {
       setDialog({
         title: "Payment failed",
         message: razorpayFailureMessage(payload.error),
+        tone: "error",
         actions: [{ label: "Try Again" }]
       });
       return;
@@ -13457,6 +13493,7 @@ function AppContent() {
         setDialog({
           title: "Payment successful",
           message: `Order REQ-${result.request.id.slice(0, 8).toUpperCase()} is confirmed and the tailor has been notified.`,
+          tone: "success",
           actions: [{ label: "View Order" }]
         });
         void refreshCustomerOrders();
@@ -13468,6 +13505,7 @@ function AppContent() {
       setDialog({
         title: "Payment verification failed",
         message: error instanceof Error ? error.message : "Could not verify payment.",
+        tone: "error",
         actions: [{ label: "OK" }]
       });
     } finally {
@@ -13803,6 +13841,8 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   dialogOverlay: { flex: 1, backgroundColor: "rgba(8, 17, 31, 0.52)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   dialogCard: { width: "100%", maxWidth: 360, borderRadius: 18, backgroundColor: surface, borderWidth: 1, borderColor: "#efcf92", padding: 22, alignItems: "center", shadowColor: "#0b2241", shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.16, shadowRadius: 28, elevation: 8 },
   dialogIcon: { width: 54, height: 54, borderRadius: 17, backgroundColor: "#fff4dc", alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  dialogSuccessIcon: { backgroundColor: "#ecfdf3" },
+  dialogErrorIcon: { backgroundColor: "#fef2f2" },
   dialogTitle: { color: text, fontSize: 19, lineHeight: 24, fontWeight: "900", textAlign: "center" },
   dialogMessage: { color: muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center", marginTop: 10 },
   dialogActions: { width: "100%", gap: 10, marginTop: 22 },

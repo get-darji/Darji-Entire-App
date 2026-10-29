@@ -54,6 +54,9 @@ app.use(cors({
     return callback(new Error(`Origin is not allowed by CORS: ${normalizedOrigin}`));
   }
 }));
+// Razorpay signs the exact webhook request bytes, so parse this endpoint before
+// the general JSON middleware changes the body representation.
+app.use("/api/payments/razorpay/webhook", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
 

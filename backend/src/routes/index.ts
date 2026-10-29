@@ -167,6 +167,7 @@ import {
   saveDeliveryTaskPhotosController,
   startTailoringCheckoutController,
   recoverTailoringCheckoutController,
+  razorpayWebhookController,
   updateDeliveryTaskStatusController,
   retryDeliveryTaskNowController,
   verifyDeliveryTaskOtpController,
@@ -183,12 +184,15 @@ import {
 
 export const router = Router();
 
+router.post("/payments/razorpay/webhook", razorpayWebhookController);
+
 router.get("/health", (_req, res) => res.json({
   data: {
     ok: true,
     service: "darji-backend",
-    checkoutBuild: "async-confirmation-v2",
+    checkoutBuild: "async-confirmation-v3",
     paymentMode: !env.RAZORPAY_KEY_ID ? "unconfigured" : env.RAZORPAY_KEY_ID.startsWith("rzp_test_") ? "test" : "live",
+    razorpayWebhookConfigured: Boolean(env.RAZORPAY_WEBHOOK_SECRET),
     push: pushRuntimeStatus()
   }
 }));
