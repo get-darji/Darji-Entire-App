@@ -2,7 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { recordOtpAccepted, recordOtpRequestFailure, safeOtpProviderError } from "./otp-delivery.service.js";
+import { otpDeliveryCallbackReady, recordOtpAccepted, recordOtpRequestFailure, safeOtpProviderError } from "./otp-delivery.service.js";
 
 const OTP_TTL_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -19,12 +19,12 @@ const SUCCESSFUL_SEND_METRIC_ID = "twofactor-successful-sends";
 
 export function otpRuntimeStatus() {
   return {
-    build: "real-sms-default-delivery-v1",
+    build: "real-sms-default-delivery-v2",
     defaultProvider: "twofactor",
     providerEnabled: env.TWOFACTOR_ENABLED,
     apiKeyConfigured: Boolean(env.TWOFACTOR_API_KEY?.trim()),
     developmentFallbackEnabled: env.NODE_ENV !== "production" && env.OTP_DEV_FALLBACK_ENABLED,
-    deliveryCallbackConfigured: Boolean(env.TWOFACTOR_DLR_WEBHOOK_SECRET)
+    deliveryCallbackConfigured: otpDeliveryCallbackReady()
   };
 }
 

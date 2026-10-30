@@ -1,10 +1,32 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "../env.js";
 import { OtpDeliveryModel } from "../models.js";
 import { AppError } from "../middleware/error.js";
 
 const RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 export const deliveryStatuses = ["PENDING", "DELIVERED", "FAILED", "REJECTED", "REQUEST_FAILED"] as const;
+
+function callbackSecret() {
+  if (env.TWOFACTOR_DLR_WEBHOOK_SECRET) return env.TWOFACTOR_DLR_WEBHOOK_SECRET;
+  // Domain-separated HMAC creates a stable callback credential without exposing
+  // the provider key or requiring another Railway variable. Key rotation changes
+  // the callback URL; a dedicated secret can be configured to decouple rotation.
+  return env.TWOFACTOR_API_KEY
+    ? createHmac("sha256", env.TWOFACTOR_API_KEY).update("darji:sms-otp-delivery-callback:v1").digest("hex")
+    : undefined;
+}
+
+export function otpDeliveryCallbackReady() {
+  return Boolean(callbackSecret());
+}
+
+export function getOtpDeliveryCallbackSetup() {
+  const token = callbackSecret();
+  if (!token) throw new AppError(503, "Configure the 2Factor API key before setting up delivery reports");
+  const url = new URL("https://darji-entire-app-production.up.railway.app/api/webhooks/2factor/otp");
+  url.searchParams.set("token", token);
+  return { url: url.toString() };
+}
 
 export function safeOtpProviderError(error: unknown) {
   const message = error instanceof Error ? error.message : "OTP provider request failed";
@@ -33,7 +55,7 @@ export async function recordOtpRequestFailure(id: string, phone: string, role: s
 }
 
 export function authorizeOtpDeliveryCallback(token: unknown) {
-  const secret = env.TWOFACTOR_DLR_WEBHOOK_SECRET;
+  const secret = callbackSecret();
   if (!secret) throw new AppError(503, "OTP delivery callbacks are not configured");
   const provided = Buffer.from(typeof token === "string" ? token : "");
   const expected = Buffer.from(secret);
@@ -79,7 +101,7 @@ export async function getOtpDeliveryHistory(phone?: string, status?: typeof deli
   ]);
   return {
     checkedAt: new Date().toISOString(),
-    callbackConfigured: Boolean(env.TWOFACTOR_DLR_WEBHOOK_SECRET),
+    callbackConfigured: otpDeliveryCallbackReady(),
     lastReportAt: latestReport?.reportedAt?.toISOString() ?? null,
     retentionDays: 90,
     counts: Object.fromEntries(deliveryStatuses.map((status) => [status, counts.find((row) => row._id === status)?.count ?? 0])),

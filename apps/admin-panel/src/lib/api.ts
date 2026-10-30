@@ -175,6 +175,10 @@ export function getOtpDeliveries(params: { phone?: string; status?: string }) {
   return unwrap<OtpDeliveryHistory>(api.get("/admin/otp-deliveries", { params }));
 }
 
+export function getOtpDeliveryCallbackSetup() {
+  return unwrap<{ url: string }>(api.get("/admin/otp-deliveries/callback-setup"));
+}
+
 export async function verifyOtp(phone: string, otp: string) {
   return unwrap<AuthSession>(api.post("/auth/verify-otp", { phone, otp, role: "ADMIN" }));
 }

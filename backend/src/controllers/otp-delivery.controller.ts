@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { authorizeOtpDeliveryCallback, deliveryStatuses, getOtpDeliveryHistory, receiveOtpDeliveryCallback } from "../services/otp-delivery.service.js";
+import { authorizeOtpDeliveryCallback, deliveryStatuses, getOtpDeliveryCallbackSetup, getOtpDeliveryHistory, receiveOtpDeliveryCallback } from "../services/otp-delivery.service.js";
 
 export async function otpDeliveryCallbackController(req: Request, res: Response) {
   authorizeOtpDeliveryCallback(req.query.token);
@@ -12,4 +12,9 @@ export async function otpDeliveryHistoryController(req: Request, res: Response) 
   const query = z.object({ phone: z.string().regex(/^\d{1,10}$/).optional(), status: z.enum(deliveryStatuses).optional() }).parse(req.query);
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.json({ data: await getOtpDeliveryHistory(query.phone, query.status) });
+}
+
+export function otpDeliveryCallbackSetupController(_req: Request, res: Response) {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({ data: getOtpDeliveryCallbackSetup() });
 }

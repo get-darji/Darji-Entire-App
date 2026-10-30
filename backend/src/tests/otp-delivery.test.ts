@@ -10,8 +10,8 @@ import { OtpDeliveryModel, UserModel } from "../models.js";
 import { AppError, errorHandler } from "../middleware/error.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { signAccessToken } from "../utils/tokens.js";
-import { otpDeliveryCallbackController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
-import { authorizeOtpDeliveryCallback, getOtpDeliveryHistory, parseOtpDeliveryCallback, receiveOtpDeliveryCallback, recordOtpAccepted, recordOtpRequestFailure } from "../services/otp-delivery.service.js";
+import { otpDeliveryCallbackController, otpDeliveryCallbackSetupController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
+import { authorizeOtpDeliveryCallback, getOtpDeliveryCallbackSetup, getOtpDeliveryHistory, parseOtpDeliveryCallback, receiveOtpDeliveryCallback, recordOtpAccepted, recordOtpRequestFailure } from "../services/otp-delivery.service.js";
 
 test("delivery reports authenticate, survive callback races, deduplicate, and never downgrade delivered SMS", async () => {
   const originalSecret = env.TWOFACTOR_DLR_WEBHOOK_SECRET;
@@ -51,6 +51,7 @@ test("delivery reports authenticate, survive callback races, deduplicate, and ne
     assert.equal(history.counts.PENDING, 1);
     assert.equal(history.counts.REQUEST_FAILED, 1);
     assert.ok(!JSON.stringify(history).includes("private-provider-key"));
+    assert.ok(!JSON.stringify(history).includes(env.TWOFACTOR_DLR_WEBHOOK_SECRET!));
     assert.equal((await getOtpDeliveryHistory("3210", "DELIVERED")).rows.length, 1);
     // Explicit delivery failure can later recover if a carrier retry delivers.
     const recovery = { ...report, SessionId: "pending-provider-session-12345", To: "9876543211" };
@@ -62,6 +63,7 @@ test("delivery reports authenticate, survive callback races, deduplicate, and ne
     app.use(express.json());
     app.post("/webhooks/2factor/otp", express.urlencoded({ extended: false }), otpDeliveryCallbackController);
     app.get("/admin/otp-deliveries", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), otpDeliveryHistoryController);
+    app.get("/admin/otp-deliveries/callback-setup", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), otpDeliveryCallbackSetupController);
     app.use(errorHandler);
     server = app.listen(0, "127.0.0.1");
     await new Promise<void>((resolve) => server!.once("listening", resolve));
@@ -73,17 +75,37 @@ test("delivery reports authenticate, survive callback races, deduplicate, and ne
     assert.equal(receipt.status, 204);
     assert.equal((await OtpDeliveryModel.findById("http-provider-session-12345").lean())?.status, "DELIVERED");
     assert.equal((await fetch(`${base}/admin/otp-deliveries`)).status, 401);
+    assert.equal((await fetch(`${base}/admin/otp-deliveries/callback-setup`)).status, 401);
     const admin = await UserModel.create({ phone: "9876543201", role: "ADMIN", activeSessionId: "admin-test-session" });
     const customer = await UserModel.create({ phone: "9876543202", role: "CUSTOMER", activeSessionId: "customer-test-session" });
     const adminToken = signAccessToken({ sub: admin.id, role: "ADMIN", sid: "admin-test-session" });
     const customerToken = signAccessToken({ sub: customer.id, role: "CUSTOMER", sid: "customer-test-session" });
     assert.equal((await fetch(`${base}/admin/otp-deliveries`, { headers: { authorization: `Bearer ${customerToken}` } })).status, 403);
+    assert.equal((await fetch(`${base}/admin/otp-deliveries/callback-setup`, { headers: { authorization: `Bearer ${customerToken}` } })).status, 403);
+    const setupResponse = await fetch(`${base}/admin/otp-deliveries/callback-setup`, { headers: { authorization: `Bearer ${adminToken}` } });
+    assert.equal(setupResponse.status, 200);
+    assert.equal(setupResponse.headers.get("cache-control"), "no-store, max-age=0");
+    const setup = (await setupResponse.json()).data;
+    assert.equal(new URL(setup.url).hostname, "darji-entire-app-production.up.railway.app");
+    authorizeOtpDeliveryCallback(new URL(setup.url).searchParams.get("token"));
     const adminHistory = await fetch(`${base}/admin/otp-deliveries`, { headers: { authorization: `Bearer ${adminToken}` } });
     assert.equal(adminHistory.status, 200);
     assert.equal(adminHistory.headers.get("cache-control"), "no-store, max-age=0");
     assert.ok((await adminHistory.json()).data.rows.some((row: { phone: string }) => row.phone === "9876543210"));
     env.TWOFACTOR_DLR_WEBHOOK_SECRET = undefined;
+    const derivedUrl = getOtpDeliveryCallbackSetup().url;
+    assert.equal(derivedUrl, getOtpDeliveryCallbackSetup().url);
+    const derivedToken = new URL(derivedUrl).searchParams.get("token");
+    assert.ok(derivedToken && derivedToken.length === 64);
+    assert.ok(!derivedUrl.includes(env.TWOFACTOR_API_KEY!));
+    authorizeOtpDeliveryCallback(derivedToken);
+    assert.ok(!JSON.stringify(await getOtpDeliveryHistory()).includes(derivedToken));
+    assert.throws(() => authorizeOtpDeliveryCallback(env.TWOFACTOR_API_KEY), (error) => error instanceof AppError && error.statusCode === 401);
+    env.TWOFACTOR_API_KEY = "rotated-provider-key";
+    assert.throws(() => authorizeOtpDeliveryCallback(derivedToken), (error) => error instanceof AppError && error.statusCode === 401);
+    env.TWOFACTOR_API_KEY = undefined;
     assert.throws(() => authorizeOtpDeliveryCallback("anything"), (error) => error instanceof AppError && error.statusCode === 503);
+    assert.throws(() => getOtpDeliveryCallbackSetup(), (error) => error instanceof AppError && error.statusCode === 503);
   } finally {
     env.TWOFACTOR_DLR_WEBHOOK_SECRET = originalSecret;
     env.TWOFACTOR_API_KEY = originalKey;

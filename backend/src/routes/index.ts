@@ -1,6 +1,6 @@
 import { Router, urlencoded } from "express";
 import { otpRuntimeStatus } from "../services/otp.service.js";
-import { otpDeliveryCallbackController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
+import { otpDeliveryCallbackController, otpDeliveryCallbackSetupController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
 import { env } from "../env.js";
 import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
@@ -189,6 +189,7 @@ export const router = Router();
 router.post("/payments/razorpay/webhook", razorpayWebhookController);
 router.post("/webhooks/2factor/otp", urlencoded({ extended: false, limit: "16kb" }), otpDeliveryCallbackController);
 router.get("/admin/otp-deliveries", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), otpDeliveryHistoryController);
+router.get("/admin/otp-deliveries/callback-setup", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), otpDeliveryCallbackSetupController);
 
 router.get("/health", (_req, res) => res.json({
   data: {

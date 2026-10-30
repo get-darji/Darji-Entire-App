@@ -1,8 +1,8 @@
 "use client";
 
 import { useDeferredValue, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { extractError, getOtpDeliveries, type OtpDeliveryStatus } from "../lib/api";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { extractError, getOtpDeliveries, getOtpDeliveryCallbackSetup, type OtpDeliveryStatus } from "../lib/api";
 
 const labels: Record<OtpDeliveryStatus, string> = {
   PENDING: "Awaiting delivery report",
@@ -19,6 +19,9 @@ function displayTime(value: string | null) {
 export function OtpDeliveryPanel() {
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const callbackSetup = useMutation({ mutationFn: getOtpDeliveryCallbackSetup, gcTime: 0, onSuccess: () => { setCopied(false); setCopyError(false); } });
   const searchPhone = useDeferredValue(phone);
   const history = useQuery({
     queryKey: ["admin", "otp-deliveries", searchPhone, status],
@@ -36,7 +39,16 @@ export function OtpDeliveryPanel() {
       <div className="mt-4 flex flex-wrap gap-3">
         <input aria-label="Search OTP destination number" className="h-10 rounded-xl border border-[var(--panel-border)] bg-transparent px-3 text-sm" placeholder="Search phone number" inputMode="numeric" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 10))} />
         <select aria-label="Filter OTP delivery status" className="h-10 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-3 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+        <button className="h-10 rounded-xl border border-[var(--panel-border)] px-3 text-sm disabled:opacity-50" disabled={callbackSetup.isPending} onClick={() => callbackSetup.mutate()}>{callbackSetup.isPending ? "Loading setup…" : "Set up delivery reports"}</button>
       </div>
+      {callbackSetup.data ? <div className="mt-4 rounded-xl border border-[var(--panel-border)] p-4">
+        <p className="text-sm font-medium">Connect your 2Factor delivery reports</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">Copy this private URL into the SMS OTP callback setting in your 2Factor account. Keep it private; it authenticates delivery reports.</p>
+        <div className="mt-3 flex flex-wrap gap-2"><input aria-label="2Factor SMS OTP callback URL" className="min-w-0 flex-1 rounded-lg border border-[var(--panel-border)] bg-transparent px-3 py-2 text-xs" value={callbackSetup.data.url} readOnly onFocus={(event) => event.currentTarget.select()} /><button className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-sm" onClick={async () => { if (!callbackSetup.data) return; try { await navigator.clipboard.writeText(callbackSetup.data.url); setCopied(true); setCopyError(false); } catch { setCopyError(true); } }}>{copied ? "Copied" : "Copy callback URL"}</button></div>
+        {copyError ? <p className="mt-2 text-xs text-[var(--muted)]">Select the URL above and copy it manually.</p> : null}
+        <p className="mt-2 text-xs text-[var(--muted)]">Register the copied URL in 2Factor to start receiving reports. Delivery is confirmed only when their report arrives.</p>
+      </div> : null}
+      {callbackSetup.isError ? <p className="mt-3 text-sm text-rose-700">Could not load callback setup: {extractError(callbackSetup.error)}</p> : null}
       {history.data ? <>
         {!history.data.callbackConfigured ? <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Delivery callback is not configured on the backend. Accepted requests will stay pending until 2Factor delivery reports are connected.</p> : null}
         <p className="mt-3 text-xs text-[var(--muted)]">{history.data.lastReportAt ? `Last provider delivery report received ${displayTime(history.data.lastReportAt)}.` : "No provider delivery report has arrived yet. The callback URL must also be registered in your 2Factor account."}</p>
