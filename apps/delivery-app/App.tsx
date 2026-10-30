@@ -1271,7 +1271,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
-  const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "DELIVERY_PARTNER" } });
+  const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "DELIVERY_PARTNER", mode: "twofactor" } });
 
   useEffect(() => {
     if (step !== "otp" || timer <= 0) return undefined;

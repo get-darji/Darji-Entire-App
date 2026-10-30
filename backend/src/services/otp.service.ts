@@ -152,8 +152,8 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
   await OtpCooldownModel.deleteOne({ _id: phone, reservationId });
 }
 
-export async function requestOtp(phone: string) {
-  if (env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production") {
+export async function requestOtp(phone: string, mode: "default" | "twofactor" = "default") {
+  if (mode !== "twofactor" && env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production") {
     await reserveOtpRequest(phone);
     return createDevelopmentOtpRequest(phone);
   }

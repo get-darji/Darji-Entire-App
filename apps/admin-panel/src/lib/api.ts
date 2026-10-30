@@ -158,7 +158,7 @@ export function extractError(error: unknown) {
 }
 
 export async function requestOtp(phone: string) {
-  return unwrap<{ otp?: string }>(api.post("/auth/request-otp", { phone, role: "ADMIN" }));
+  return unwrap<{ otp?: string }>(api.post("/auth/request-otp", { phone, role: "ADMIN", mode: "twofactor" }));
 }
 
 export async function verifyOtp(phone: string, otp: string) {

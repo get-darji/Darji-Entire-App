@@ -829,7 +829,7 @@ function AuthScreen() {
   const setSession = useAppStore((state) => state.setSession);
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
-  const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR" } });
+  const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR", mode: "twofactor" } });
 
   useEffect(() => {
     if (!otpRequested) return undefined;
