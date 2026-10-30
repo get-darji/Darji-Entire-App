@@ -98,7 +98,7 @@ test("login OTP supports the temporary universal development code and preserves 
       providerCalls += 1;
       const url = new URL(String(input));
       assert.equal(url.origin, "https://2factor.in");
-      assert.equal(url.pathname, "/API/V1/test-key/SMS/9876543214/AUTOGEN/OTP1");
+      assert.match(url.pathname, /^\/API\/V1\/test-key\/SMS\/987654321[45]\/AUTOGEN\/OTP1$/);
       assert.equal(init?.method, "GET");
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
@@ -106,6 +106,12 @@ test("login OTP supports the temporary universal development code and preserves 
     assert.deepEqual({ provider: forcedProviderRequest.provider, fallback: forcedProviderRequest.fallback }, { provider: "twofactor", fallback: false });
     assert.equal(providerCalls, 1);
     assert.equal(successfulSendCount, 1);
+
+    env.NODE_ENV = "production";
+    const productionRequest = await requestOtp("9876543215", "default");
+    assert.deepEqual({ provider: productionRequest.provider, fallback: productionRequest.fallback }, { provider: "twofactor", fallback: false });
+    assert.equal(providerCalls, 2);
+    assert.equal(successfulSendCount, 2);
 
     env.OTP_DEV_FALLBACK_ENABLED = false;
     env.TWOFACTOR_ENABLED = true;
@@ -121,17 +127,17 @@ test("login OTP supports the temporary universal development code and preserves 
 
     const sent = await requestOtp("9876543211");
     assert.deepEqual({ provider: sent.provider, fallback: sent.fallback }, { provider: "twofactor", fallback: false });
-    assert.equal(providerCalls, 2);
-    assert.equal(successfulSendCount, 2);
+    assert.equal(providerCalls, 3);
+    assert.equal(successfulSendCount, 3);
     assert.equal(saved.at(-1)?.provider, "twofactor");
     assert.equal(saved.at(-1)?.otpHash, undefined);
     assert.ok(reservations.has("9876543211"));
     assert.ok(reservations.get("9876543211")!.nextAllowedAt.getTime() > Date.now());
     await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429 && Boolean(error.retryAfterSeconds));
-    assert.equal(providerCalls, 2);
+    assert.equal(providerCalls, 3);
 
     await requestOtp("9876543212");
-    assert.equal(successfulSendCount, 3);
+    assert.equal(successfulSendCount, 4);
     globalThis.fetch = async (input, init) => {
       providerCalls += 1;
       assert.match(String(input), /\/SMS\/VERIFY\/5D6EBEE6-EC04-4776-846D-3600422BD9EF\/123456$/);
@@ -153,7 +159,7 @@ test("login OTP supports the temporary universal development code and preserves 
       return new Response(JSON.stringify({ status: "failed" }), { status: 500 });
     };
     await assert.rejects(requestOtp("9876543213"), (error) => error instanceof AppError && error.statusCode === 502);
-    assert.equal(successfulSendCount, 3);
+    assert.equal(successfulSendCount, 4);
     assert.equal(reservations.has("9876543213"), false);
   } finally {
     env.NODE_ENV = original.nodeEnv;

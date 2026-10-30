@@ -12,6 +12,12 @@ Check the response provider and the `[otp] Request completed` log. No API key or
 OTP code is logged. `/api/health` exposes the OTP build marker and non-secret
 configuration flags to distinguish old deployments from this version.
 
+The deployed `npm start` entrypoint explicitly sets `NODE_ENV=production` before
+loading backend configuration. This prevents a missing/stale Railway environment
+variable from enabling local development OTPs or development startup seeding.
+Use `npm run dev` for local development. Also set `OTP_DEV_FALLBACK_ENABLED=false`
+in the production host variables to keep the configured intent clear.
+
 ## Connect 2Factor delivery reports
 
 1. Generate a random callback secret (separate from the 2Factor API key):

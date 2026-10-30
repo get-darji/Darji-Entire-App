@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/backend/src/index.js",
+    "start": "node dist/backend/src/start-production.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:delivery-optimization": "tsx src/tests/delivery-optimization/run.ts",
     "test:financial-reporting": "tsx --test src/tests/financial-reporting.test.ts",
