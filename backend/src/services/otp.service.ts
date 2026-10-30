@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
@@ -11,19 +11,19 @@ const TWOFACTOR_API_URL = "https://2factor.in/API/V1";
 
 type OtpRequestResult = {
   expiresAt: Date;
-  provider: "twofactor" | "dev";
-  fallback: boolean;
+  provider: "twofactor";
 };
 
 const SUCCESSFUL_SEND_METRIC_ID = "twofactor-successful-sends";
 
 export function otpRuntimeStatus() {
   return {
-    build: "real-sms-default-delivery-v2",
+    build: "twofactor-only-v3",
     defaultProvider: "twofactor",
     providerEnabled: env.TWOFACTOR_ENABLED,
     apiKeyConfigured: Boolean(env.TWOFACTOR_API_KEY?.trim()),
-    developmentFallbackEnabled: env.NODE_ENV !== "production" && env.OTP_DEV_FALLBACK_ENABLED,
+    developmentFallbackEnabled: false,
+    fallbackSupported: false,
     deliveryCallbackConfigured: otpDeliveryCallbackReady()
   };
 }
@@ -106,40 +106,12 @@ async function createOtpRequest(phone: string, providerSessionId: string): Promi
     { phone, consumedAt: { $exists: false } },
     { $set: { consumedAt: new Date() } }
   );
-  await OtpRequestModel.create({ phone, providerSessionId, expiresAt, provider: "twofactor", fallback: false });
+  await OtpRequestModel.create({ phone, providerSessionId, expiresAt, provider: "twofactor" });
 
   return {
     expiresAt,
-    provider: "twofactor",
-    fallback: false
+    provider: "twofactor"
   };
-}
-
-async function createDevelopmentOtpRequest(phone: string): Promise<OtpRequestResult> {
-  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-
-  await OtpRequestModel.updateMany(
-    { phone, consumedAt: { $exists: false } },
-    { $set: { consumedAt: new Date() } }
-  );
-  await OtpRequestModel.create({ phone, expiresAt, provider: "dev", fallback: true });
-
-  return { expiresAt, provider: "dev", fallback: true };
-}
-
-function developmentOtpMatches(otp: string) {
-  const actual = Buffer.from(otp);
-  const expected = Buffer.from(env.OTP_DEV_CODE);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-function canUseFallbackOtp(phone: string) {
-  if (!env.OTP_STATIC_FALLBACK_ENABLED) return false;
-  if (env.NODE_ENV !== "production") return true;
-
-  const expiresAt = env.OTP_TEST_EXPIRES_AT ? Date.parse(env.OTP_TEST_EXPIRES_AT) : Number.NaN;
-  const allowedPhones = new Set((env.OTP_TEST_ALLOWED_PHONES ?? "").split(",").map((item) => item.replace(/\D/g, "")).filter(Boolean));
-  return Number.isFinite(expiresAt) && expiresAt > Date.now() && allowedPhones.has(phone.replace(/\D/g, ""));
 }
 
 async function reserveOtpRequest(phone: string) {
@@ -164,12 +136,7 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
   await OtpCooldownModel.deleteOne({ _id: phone, reservationId });
 }
 
-export async function requestOtp(phone: string, mode: "default" | "twofactor" = "twofactor", role?: string) {
-  if (mode !== "twofactor" && env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production") {
-    await reserveOtpRequest(phone);
-    return createDevelopmentOtpRequest(phone);
-  }
-
+export async function requestOtp(phone: string, role?: string) {
   if (!env.TWOFACTOR_ENABLED || !env.TWOFACTOR_API_KEY) {
     throw new AppError(503, "2Factor OTP is not configured");
   }
@@ -196,7 +163,7 @@ export async function requestOtp(phone: string, mode: "default" | "twofactor" = 
   return request;
 }
 
-export async function verifyOtp(phone: string, otp: string, role?: string) {
+export async function verifyOtp(phone: string, otp: string) {
   const request = await OtpRequestModel.findOne({ phone, consumedAt: { $exists: false }, expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 });
 
   if (!request) {
@@ -207,28 +174,20 @@ export async function verifyOtp(phone: string, otp: string, role?: string) {
     throw new AppError(429, "Too many incorrect OTP attempts. Request a new code.");
   }
 
+  if (request.provider !== "twofactor" || !request.providerSessionId) {
+    throw new AppError(400, "Request a new SMS OTP to continue");
+  }
   let matches = false;
-  if (request.provider === "dev") {
-    matches = env.NODE_ENV !== "production"
-      && env.OTP_DEV_FALLBACK_ENABLED
-      && developmentOtpMatches(otp);
-  } else if (request.provider === "twofactor") {
-    if (!request.providerSessionId) throw new AppError(400, "OTP expired or not requested. Request a new code.");
-    if (developmentOtpMatches(otp) && canUseFallbackOtp(phone)) {
-      matches = true;
-    } else {
-      try {
-        const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
-        const detail = String(payload.Details ?? payload.details ?? "").trim();
-        if (!isTwoFactorSuccess(payload) && !/otp.*(mismatch|not matched|invalid)|invalid.*otp/i.test(detail)) {
-          throw new Error(`TwoFactor OTP verify failed: ${detail.replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
-        }
-        matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
-      } catch (error) {
-        console.error(safeOtpProviderError(error));
-        throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
-      }
+  try {
+    const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
+    const detail = String(payload.Details ?? payload.details ?? "").trim();
+    if (!isTwoFactorSuccess(payload) && !/otp.*(mismatch|not matched|invalid)|invalid.*otp/i.test(detail)) {
+      throw new Error(`TwoFactor OTP verify failed: ${detail.replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
     }
+    matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
+  } catch (error) {
+    console.error(safeOtpProviderError(error));
+    throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
   }
   if (!matches) {
     await OtpRequestModel.findByIdAndUpdate(request.id, { $inc: { attempts: 1 } });

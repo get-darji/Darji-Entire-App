@@ -12,14 +12,6 @@ const envSchema = z.object({
   MONGODB_DB_NAME: z.string().trim().min(1).optional(),
   JWT_ACCESS_SECRET: z.string().min(16).default("dev-access-secret-change-me"),
   JWT_REFRESH_SECRET: z.string().min(16).default("dev-refresh-secret-change-me"),
-  OTP_DEV_FALLBACK_ENABLED: booleanString.default(false),
-  OTP_DEV_CODE: z.string().regex(/^\d{6}$/).default("123456"),
-  OTP_STATIC_FALLBACK_ENABLED: booleanString.default(false),
-  OTP_TEST_EXPIRES_AT: z.preprocess(
-    (value) => typeof value === "string" && !value.trim() ? undefined : value,
-    z.string().datetime({ offset: true }).optional()
-  ),
-  OTP_TEST_ALLOWED_PHONES: z.string().optional(),
   TWOFACTOR_ENABLED: booleanString.default(false),
   TWOFACTOR_API_KEY: z.string().trim().optional(),
   TWOFACTOR_TEMPLATE_NAME: z.string().default("OTP1"),

@@ -659,11 +659,9 @@ const otpRequestSchema = new Schema(
     _id: stringId,
     phone: { type: String, required: true, index: true },
     userId: String,
-    otpHash: String,
     providerSessionId: String,
     expiresAt: { type: Date, required: true },
-    provider: { type: String, enum: ["twofactor", "dev"], default: "dev", index: true },
-    fallback: { type: Boolean, default: false },
+    provider: { type: String, enum: ["twofactor"], default: "twofactor", index: true },
     consumedAt: Date,
     attempts: { type: Number, default: 0 }
   },

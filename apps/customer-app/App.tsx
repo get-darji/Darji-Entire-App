@@ -2299,7 +2299,7 @@ function AuthScreen() {
   const language = useAppStore((state) => state.language);
   const setLanguagePreference = useAppStore((state) => state.setLanguagePreference);
   useTranslatedAlerts(language);
-  const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER", mode: "twofactor" } });
+  const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "CUSTOMER" } });
 
   useEffect(() => {
     if (!otpRequested) return undefined;

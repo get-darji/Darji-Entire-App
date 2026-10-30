@@ -1,22 +1,18 @@
 # OTP SMS delivery setup
 
-Normal `/api/auth/request-otp` requests default to real 2Factor SMS, including
-older app versions that omit `mode`. The send URL remains
+All login requests use real 2Factor SMS. Development codes, static fallback
+acceptance, and provider-selection modes have been removed from every client and
+the backend. Old app requests carrying a `mode` field are safely ignored by the
+request schema. Legacy development OTP sessions cannot verify. Old fallback host
+variables are ignored because those settings no longer exist in backend config.
+
+The send URL is
 `https://2factor.in/API/V1/{API_KEY}/SMS/{PHONE}/AUTOGEN/OTP1` (GET).
-The explicit legacy `mode: "default"` can use the configured local development
-fallback outside production. Its response now says that no SMS was sent.
-
-The previous 103-byte success response matches `provider: "dev", fallback: true`
-with the old `OTP sent` message. A provider success means acceptance, not delivery.
-Check the response provider and the `[otp] Request completed` log. No API key or
-OTP code is logged. `/api/health` exposes the OTP build marker and non-secret
-configuration flags to distinguish old deployments from this version.
-
-The deployed `npm start` entrypoint explicitly sets `NODE_ENV=production` before
-loading backend configuration. This prevents a missing/stale Railway environment
-variable from enabling local development OTPs or development startup seeding.
-Use `npm run dev` for local development. Also set `OTP_DEV_FALLBACK_ENABLED=false`
-in the production host variables to keep the configured intent clear.
+A provider acceptance response is pending until a delivery receipt arrives.
+No API key or OTP code is logged. `/api/health` exposes the OTP build marker,
+`fallbackSupported: false`, and non-secret provider readiness flags.
+The deployed `npm start` entrypoint sets `NODE_ENV=production` before loading
+configuration. Local `npm run dev` also requires a configured real SMS provider.
 
 ## Connect 2Factor delivery reports
 

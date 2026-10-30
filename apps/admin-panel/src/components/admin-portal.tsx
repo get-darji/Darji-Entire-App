@@ -1657,14 +1657,13 @@ export function AdminPortal() {
         isVerifying={verifyOtpMutation.isPending}
         onRequestOtp={async (phone) => {
           try {
-            const result = await requestOtpMutation.mutateAsync(phone);
-            return { success: true, otp: result.otp };
+            await requestOtpMutation.mutateAsync(phone);
+            return { success: true };
           } catch {
             return { success: false };
           }
         }}
         onVerifyOtp={(phone, otp) => verifyOtpMutation.mutate({ phone, otp })}
-        returnedOtp={requestOtpMutation.data?.otp}
       />
     );
   }
@@ -4057,14 +4056,12 @@ function LoginPanel({
   isRequesting,
   isVerifying,
   onRequestOtp,
-  onVerifyOtp,
-  returnedOtp
+  onVerifyOtp
 }: {
   isRequesting: boolean;
   isVerifying: boolean;
-  onRequestOtp: (phone: string) => Promise<{ success: boolean; otp?: string }>;
+  onRequestOtp: (phone: string) => Promise<{ success: boolean }>;
   onVerifyOtp: (phone: string, otp: string) => void;
-  returnedOtp?: string;
 }) {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -4176,11 +4173,7 @@ function LoginPanel({
                   </a>
                 </div>
 
-                  {returnedOtp ? (
-                    <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                      Current test OTP: <span className="font-semibold">{returnedOtp}</span>
-                    </div>
-                  ) : null}
+
 
                 <ActionButton
                   className="h-[58px] w-full justify-center rounded-[18px] text-[1.05rem] font-semibold shadow-[0_18px_32px_rgba(246,163,19,0.22)]"
@@ -4193,7 +4186,6 @@ function LoginPanel({
                       }
                       const result = await onRequestOtp(phone.trim());
                       if (result.success) {
-                        if (result.otp) setOtp(result.otp.replace(/\D/g, "").slice(0, 6));
                         setRequested(true);
                       }
                       return;

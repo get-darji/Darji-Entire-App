@@ -144,16 +144,16 @@ function dateValue(value?: Date | string | null) {
 export async function requestOtpController(req: Request, res: Response) {
   const input = requestOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  const result = await requestOtp(input.phone, input.mode, input.role);
-  console.info("[otp] Request completed", { provider: result.provider, mode: input.mode, smsRequested: result.provider === "twofactor", destination: `******${input.phone.slice(-4)}` });
+  const result = await requestOtp(input.phone, input.role);
+  console.info("[otp] Request completed", { provider: result.provider, smsRequested: true, destination: `******${input.phone.slice(-4)}` });
   res.setHeader("Cache-Control", "no-store");
-  res.json({ data: result, message: result.provider === "twofactor" ? "OTP request accepted; SMS delivery is pending" : "Development OTP created; no SMS was sent" });
+  res.json({ data: result, message: "OTP request accepted; SMS delivery is pending" });
 }
 
 export async function verifyOtpController(req: Request, res: Response) {
   const input = verifyOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  await verifyOtp(input.phone, input.otp, input.role);
+  await verifyOtp(input.phone, input.otp);
 
   const requestedAdmin = input.role === "ADMIN" || input.role === "SUPER_ADMIN";
   const user = requestedAdmin

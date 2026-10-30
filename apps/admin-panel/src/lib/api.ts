@@ -158,7 +158,7 @@ export function extractError(error: unknown) {
 }
 
 export async function requestOtp(phone: string) {
-  return unwrap<{ otp?: string }>(api.post("/auth/request-otp", { phone, role: "ADMIN", mode: "twofactor" }));
+  return unwrap<{ expiresAt: string; provider: "twofactor" }>(api.post("/auth/request-otp", { phone, role: "ADMIN" }));
 }
 
 export type OtpDeliveryStatus = "PENDING" | "DELIVERED" | "FAILED" | "REJECTED" | "REQUEST_FAILED";

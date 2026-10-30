@@ -21,8 +21,7 @@ export const phoneSchema = z
 
 export const requestOtpSchema = z.object({
   phone: phoneSchema,
-  role: z.enum(roles).optional(),
-  mode: z.enum(["default", "twofactor"]).optional().default("twofactor")
+  role: z.enum(roles).optional()
 });
 
 export const verifyOtpSchema = z.object({

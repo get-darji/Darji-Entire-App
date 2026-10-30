@@ -622,8 +622,8 @@ function AuthPanel() {
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid phone");
       return customerApi.requestOtp(parsed.data);
     },
-    onSuccess: (data) => {
-      setNotice(data.otp ? `Development OTP: ${data.otp}` : "OTP sent to your phone.");
+    onSuccess: () => {
+      setNotice("OTP requested. Please check your phone.");
       setOtp("");
       setResendAt(Date.now() + 60000);
       setStep("otp");

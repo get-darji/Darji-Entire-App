@@ -6,12 +6,9 @@ import { AppError } from "../middleware/error.js";
 import { OtpCooldownModel, OtpDeliveryModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 
-test("login OTP supports the temporary universal development code and preserves the real TwoFactor path", async () => {
+test("login requires real TwoFactor verification in every environment and rejects legacy development sessions", async () => {
   const original = {
     nodeEnv: env.NODE_ENV,
-    staticFallback: env.OTP_STATIC_FALLBACK_ENABLED,
-    devEnabled: env.OTP_DEV_FALLBACK_ENABLED,
-    devCode: env.OTP_DEV_CODE,
     enabled: env.TWOFACTOR_ENABLED,
     key: env.TWOFACTOR_API_KEY,
     fetch: globalThis.fetch
@@ -43,10 +40,9 @@ test("login OTP supports the temporary universal development code and preserves 
 
   try {
     env.NODE_ENV = "development";
-    env.OTP_STATIC_FALLBACK_ENABLED = false;
     OtpDeliveryModel.updateOne = (async () => ({})) as any;
     OtpDeliveryModel.create = (async () => ({})) as any;
-    assert.equal(requestOtpSchema.parse({ phone: "9876543210" }).mode, "twofactor");
+    assert.equal("mode" in requestOtpSchema.parse({ phone: "9876543210", mode: "default" }), false);
     for (const otp of ["1234", "123456"]) assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp }).success, true);
     assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp: "123" }).success, false);
     requestModel.create = async (doc) => {
@@ -82,38 +78,12 @@ test("login OTP supports the temporary universal development code and preserves 
       return { successfulSendCount, lastSentAt: update.$set.lastSentAt };
     };
 
-    env.OTP_DEV_FALLBACK_ENABLED = true;
-    env.OTP_DEV_CODE = "123456";
-    const developmentRequest = await requestOtp("9876543210", "default");
-    assert.deepEqual({ provider: developmentRequest.provider, fallback: developmentRequest.fallback }, { provider: "dev", fallback: true });
+    saved.push({ id: "legacy-dev-session", phone: "9876543210", provider: "dev", attempts: 0 });
+    await assert.rejects(verifyOtp("9876543210", "123456"), (error) => error instanceof AppError && error.statusCode === 400);
     assert.equal(providerCalls, 0);
-    assert.equal(successfulSendCount, 0);
-    await assert.rejects(verifyOtp("9876543210", "654321"), (error) => error instanceof AppError && error.statusCode === 400);
-    await verifyOtp("9876543210", "123456");
-    assert.ok(saved.at(-1)?.consumedAt);
-
-    env.TWOFACTOR_ENABLED = true;
-    env.TWOFACTOR_API_KEY = "test-key";
-    globalThis.fetch = async (input, init) => {
-      providerCalls += 1;
-      const url = new URL(String(input));
-      assert.equal(url.origin, "https://2factor.in");
-      assert.match(url.pathname, /^\/API\/V1\/test-key\/SMS\/987654321[45]\/AUTOGEN\/OTP1$/);
-      assert.equal(init?.method, "GET");
-      return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
-    };
-    const forcedProviderRequest = await requestOtp("9876543214");
-    assert.deepEqual({ provider: forcedProviderRequest.provider, fallback: forcedProviderRequest.fallback }, { provider: "twofactor", fallback: false });
-    assert.equal(providerCalls, 1);
-    assert.equal(successfulSendCount, 1);
-
-    env.NODE_ENV = "production";
-    const productionRequest = await requestOtp("9876543215", "default");
-    assert.deepEqual({ provider: productionRequest.provider, fallback: productionRequest.fallback }, { provider: "twofactor", fallback: false });
-    assert.equal(providerCalls, 2);
-    assert.equal(successfulSendCount, 2);
-
-    env.OTP_DEV_FALLBACK_ENABLED = false;
+    env.TWOFACTOR_ENABLED = false;
+    env.TWOFACTOR_API_KEY = undefined;
+    await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 503);
     env.TWOFACTOR_ENABLED = true;
     env.TWOFACTOR_API_KEY = "test-key";
     globalThis.fetch = async (input, init) => {
@@ -124,20 +94,17 @@ test("login OTP supports the temporary universal development code and preserves 
       assert.equal(init?.method, "GET");
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
-
-    const sent = await requestOtp("9876543211");
-    assert.deepEqual({ provider: sent.provider, fallback: sent.fallback }, { provider: "twofactor", fallback: false });
-    assert.equal(providerCalls, 3);
-    assert.equal(successfulSendCount, 3);
-    assert.equal(saved.at(-1)?.provider, "twofactor");
+    const sent = await requestOtp("9876543211", "TAILOR");
+    assert.equal(sent.provider, "twofactor");
+    assert.equal("fallback" in sent, false);
+    assert.equal(providerCalls, 1);
+    assert.equal(successfulSendCount, 1);
     assert.equal(saved.at(-1)?.otpHash, undefined);
-    assert.ok(reservations.has("9876543211"));
-    assert.ok(reservations.get("9876543211")!.nextAllowedAt.getTime() > Date.now());
-    await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429 && Boolean(error.retryAfterSeconds));
-    assert.equal(providerCalls, 3);
-
-    await requestOtp("9876543212");
-    assert.equal(successfulSendCount, 4);
+    await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429);
+    assert.equal(providerCalls, 1);
+    env.NODE_ENV = "production";
+    await requestOtp("9876543212", "DELIVERY_PARTNER");
+    assert.equal(successfulSendCount, 2);
     globalThis.fetch = async (input, init) => {
       providerCalls += 1;
       assert.match(String(input), /\/SMS\/VERIFY\/5D6EBEE6-EC04-4776-846D-3600422BD9EF\/123456$/);
@@ -159,15 +126,12 @@ test("login OTP supports the temporary universal development code and preserves 
       return new Response(JSON.stringify({ status: "failed" }), { status: 500 });
     };
     await assert.rejects(requestOtp("9876543213"), (error) => error instanceof AppError && error.statusCode === 502);
-    assert.equal(successfulSendCount, 4);
+    assert.equal(successfulSendCount, 2);
     assert.equal(reservations.has("9876543213"), false);
   } finally {
     env.NODE_ENV = original.nodeEnv;
-    env.OTP_STATIC_FALLBACK_ENABLED = original.staticFallback;
     OtpDeliveryModel.updateOne = originalDeliveryUpdate;
     OtpDeliveryModel.create = originalDeliveryCreate;
-    env.OTP_DEV_FALLBACK_ENABLED = original.devEnabled;
-    env.OTP_DEV_CODE = original.devCode;
     env.TWOFACTOR_ENABLED = original.enabled;
     env.TWOFACTOR_API_KEY = original.key;
     globalThis.fetch = original.fetch;
