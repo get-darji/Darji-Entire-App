@@ -1,4 +1,6 @@
-import { Router } from "express";
+import { Router, urlencoded } from "express";
+import { otpRuntimeStatus } from "../services/otp.service.js";
+import { otpDeliveryCallbackController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
 import { env } from "../env.js";
 import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
@@ -185,11 +187,14 @@ import {
 export const router = Router();
 
 router.post("/payments/razorpay/webhook", razorpayWebhookController);
+router.post("/webhooks/2factor/otp", urlencoded({ extended: false, limit: "16kb" }), otpDeliveryCallbackController);
+router.get("/admin/otp-deliveries", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), otpDeliveryHistoryController);
 
 router.get("/health", (_req, res) => res.json({
   data: {
     ok: true,
     service: "darji-backend",
+    otp: otpRuntimeStatus(),
     checkoutBuild: "async-confirmation-v3",
     paymentMode: !env.RAZORPAY_KEY_ID ? "unconfigured" : env.RAZORPAY_KEY_ID.startsWith("rzp_test_") ? "test" : "live",
     razorpayWebhookConfigured: Boolean(env.RAZORPAY_WEBHOOK_SECRET),

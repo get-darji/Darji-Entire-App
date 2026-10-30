@@ -26,6 +26,7 @@ import {
   OperationalAlertModel,
   OrderModel,
   OtpRequestModel,
+  OtpDeliveryModel,
   PaymentModel,
   PaymentHistoryModel,
   ReviewModel,
@@ -506,7 +507,8 @@ async function deleteAccountByUserId(userId: string) {
     WalletModel.deleteMany({ userId }),
     WalletTransactionModel.deleteMany({ userId }),
     PaymentHistoryModel.deleteMany({ userId }),
-    OtpRequestModel.deleteMany({ $or: [{ userId }, { phone: user.phone }] })
+    OtpRequestModel.deleteMany({ $or: [{ userId }, { phone: user.phone }] }),
+    OtpDeliveryModel.deleteMany({ phone: user.phone })
   ]);
 
   return { userId, role: user.role };
@@ -2756,6 +2758,7 @@ export async function resetEverythingDataController(_req: Request, res: Response
     { label: "servicecategories", deleteMany: (filter = {}) => ServiceCategoryModel.deleteMany(filter) },
     { label: "services", deleteMany: (filter = {}) => ServiceModel.deleteMany(filter) },
     { label: "otprequests", deleteMany: (filter = {}) => OtpRequestModel.deleteMany(filter) },
+    { label: "otp_deliveries", deleteMany: (filter = {}) => OtpDeliveryModel.deleteMany(filter) },
     { label: "wallets", deleteMany: (filter = {}) => WalletModel.deleteMany(filter) },
     { label: "tailors", deleteMany: (filter = {}) => TailorModel.deleteMany(filter) },
     { label: "deliverypartners", deleteMany: (filter = {}) => DeliveryPartnerModel.deleteMany(filter) },

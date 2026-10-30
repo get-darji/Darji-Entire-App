@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import mongoose from "mongoose";
+import express from "express";
+import type { Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { MongoMemoryServer } from "mongodb-memory-server";
+import { env } from "../env.js";
+import { OtpDeliveryModel, UserModel } from "../models.js";
+import { AppError, errorHandler } from "../middleware/error.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import { signAccessToken } from "../utils/tokens.js";
+import { otpDeliveryCallbackController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
+import { authorizeOtpDeliveryCallback, getOtpDeliveryHistory, parseOtpDeliveryCallback, receiveOtpDeliveryCallback, recordOtpAccepted, recordOtpRequestFailure } from "../services/otp-delivery.service.js";
+
+test("delivery reports authenticate, survive callback races, deduplicate, and never downgrade delivered SMS", async () => {
+  const originalSecret = env.TWOFACTOR_DLR_WEBHOOK_SECRET;
+  const originalKey = env.TWOFACTOR_API_KEY;
+  env.TWOFACTOR_DLR_WEBHOOK_SECRET = "test-delivery-secret-at-least-32-characters";
+  env.TWOFACTOR_API_KEY = "private-provider-key";
+  let database: MongoMemoryServer | undefined;
+  let server: Server | undefined;
+  try {
+    authorizeOtpDeliveryCallback(env.TWOFACTOR_DLR_WEBHOOK_SECRET);
+    assert.throws(() => authorizeOtpDeliveryCallback("incorrect"), (error) => error instanceof AppError && error.statusCode === 401);
+    assert.throws(() => authorizeOtpDeliveryCallback(undefined), (error) => error instanceof AppError && error.statusCode === 401);
+    const report = { mode: "SMS_OTP", SessionId: "test-provider-session-12345", To: "+919876543210", Status: "DELIVERED" };
+    assert.equal(parseOtpDeliveryCallback(report).phone, "9876543210");
+    assert.throws(() => parseOtpDeliveryCallback({ ...report, Status: "SUCCESS" }));
+    assert.throws(() => parseOtpDeliveryCallback({ ...report, mode: "VOICE_OTP" }));
+
+    database = await MongoMemoryServer.create();
+    await mongoose.connect(database.getUri(), { dbName: "darji_otp_delivery_test" });
+    await OtpDeliveryModel.init();
+    // Receipt arrives before the send-response has finished saving its record.
+    await receiveOtpDeliveryCallback(report);
+    await recordOtpAccepted("9876543210", report.SessionId, "TAILOR", new Date());
+    await receiveOtpDeliveryCallback(report);
+    await receiveOtpDeliveryCallback({ ...report, Status: "FAILED" });
+    const delivered = await OtpDeliveryModel.findById(report.SessionId).lean();
+    assert.equal(delivered?.status, "DELIVERED");
+    assert.equal(delivered?.role, "TAILOR");
+    assert.ok(delivered?.acceptedAt);
+    assert.ok(delivered?.reportedAt);
+    await assert.rejects(receiveOtpDeliveryCallback({ ...report, To: "9876543211" }), (error) => error instanceof AppError && error.statusCode === 400);
+    await recordOtpAccepted("9876543211", "pending-provider-session-12345", "CUSTOMER", new Date());
+    await recordOtpRequestFailure("failed-request-12345", "9876543212", "ADMIN", new Date(), new Error("Invalid key private-provider-key for 9876543212"));
+    const history = await getOtpDeliveryHistory();
+    assert.equal(history.rows.length, 3);
+    assert.equal(history.counts.DELIVERED, 1);
+    assert.equal(history.counts.PENDING, 1);
+    assert.equal(history.counts.REQUEST_FAILED, 1);
+    assert.ok(!JSON.stringify(history).includes("private-provider-key"));
+    assert.equal((await getOtpDeliveryHistory("3210", "DELIVERED")).rows.length, 1);
+    // Explicit delivery failure can later recover if a carrier retry delivers.
+    const recovery = { ...report, SessionId: "pending-provider-session-12345", To: "9876543211" };
+    await receiveOtpDeliveryCallback({ ...recovery, Status: "REJECTED" });
+    await receiveOtpDeliveryCallback(recovery);
+    assert.equal((await OtpDeliveryModel.findById(recovery.SessionId).lean())?.status, "DELIVERED");
+
+    const app = express();
+    app.use(express.json());
+    app.post("/webhooks/2factor/otp", express.urlencoded({ extended: false }), otpDeliveryCallbackController);
+    app.get("/admin/otp-deliveries", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), otpDeliveryHistoryController);
+    app.use(errorHandler);
+    server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => server!.once("listening", resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const form = new URLSearchParams({ ...report, SessionId: "http-provider-session-12345" });
+    const denied = await fetch(`${base}/webhooks/2factor/otp?token=incorrect`, { method: "POST", body: form });
+    assert.equal(denied.status, 401);
+    const receipt = await fetch(`${base}/webhooks/2factor/otp?token=${env.TWOFACTOR_DLR_WEBHOOK_SECRET}`, { method: "POST", body: form });
+    assert.equal(receipt.status, 204);
+    assert.equal((await OtpDeliveryModel.findById("http-provider-session-12345").lean())?.status, "DELIVERED");
+    assert.equal((await fetch(`${base}/admin/otp-deliveries`)).status, 401);
+    const admin = await UserModel.create({ phone: "9876543201", role: "ADMIN", activeSessionId: "admin-test-session" });
+    const customer = await UserModel.create({ phone: "9876543202", role: "CUSTOMER", activeSessionId: "customer-test-session" });
+    const adminToken = signAccessToken({ sub: admin.id, role: "ADMIN", sid: "admin-test-session" });
+    const customerToken = signAccessToken({ sub: customer.id, role: "CUSTOMER", sid: "customer-test-session" });
+    assert.equal((await fetch(`${base}/admin/otp-deliveries`, { headers: { authorization: `Bearer ${customerToken}` } })).status, 403);
+    const adminHistory = await fetch(`${base}/admin/otp-deliveries`, { headers: { authorization: `Bearer ${adminToken}` } });
+    assert.equal(adminHistory.status, 200);
+    assert.equal(adminHistory.headers.get("cache-control"), "no-store, max-age=0");
+    assert.ok((await adminHistory.json()).data.rows.some((row: { phone: string }) => row.phone === "9876543210"));
+    env.TWOFACTOR_DLR_WEBHOOK_SECRET = undefined;
+    assert.throws(() => authorizeOtpDeliveryCallback("anything"), (error) => error instanceof AppError && error.statusCode === 503);
+  } finally {
+    env.TWOFACTOR_DLR_WEBHOOK_SECRET = originalSecret;
+    env.TWOFACTOR_API_KEY = originalKey;
+    if (server) { server.closeAllConnections(); await new Promise<void>((resolve) => server!.close(() => resolve())); }
+    await mongoose.disconnect();
+    await database?.stop();
+  }
+});

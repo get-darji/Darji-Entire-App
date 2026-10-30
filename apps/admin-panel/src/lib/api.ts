@@ -161,6 +161,20 @@ export async function requestOtp(phone: string) {
   return unwrap<{ otp?: string }>(api.post("/auth/request-otp", { phone, role: "ADMIN", mode: "twofactor" }));
 }
 
+export type OtpDeliveryStatus = "PENDING" | "DELIVERED" | "FAILED" | "REJECTED" | "REQUEST_FAILED";
+export type OtpDeliveryHistory = {
+  checkedAt: string;
+  callbackConfigured: boolean;
+  lastReportAt: string | null;
+  retentionDays: number;
+  counts: Record<OtpDeliveryStatus, number>;
+  rows: Array<{ id: string; phone: string; role: string | null; status: OtpDeliveryStatus; requestedAt: string; acceptedAt: string | null; reportedAt: string | null; failureReason: string | null }>;
+};
+
+export function getOtpDeliveries(params: { phone?: string; status?: string }) {
+  return unwrap<OtpDeliveryHistory>(api.get("/admin/otp-deliveries", { params }));
+}
+
 export async function verifyOtp(phone: string, otp: string) {
   return unwrap<AuthSession>(api.post("/auth/verify-otp", { phone, otp, role: "ADMIN" }));
 }

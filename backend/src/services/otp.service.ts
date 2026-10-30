@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
+import { recordOtpAccepted, recordOtpRequestFailure, safeOtpProviderError } from "./otp-delivery.service.js";
 
 const OTP_TTL_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -15,6 +16,17 @@ type OtpRequestResult = {
 };
 
 const SUCCESSFUL_SEND_METRIC_ID = "twofactor-successful-sends";
+
+export function otpRuntimeStatus() {
+  return {
+    build: "real-sms-default-delivery-v1",
+    defaultProvider: "twofactor",
+    providerEnabled: env.TWOFACTOR_ENABLED,
+    apiKeyConfigured: Boolean(env.TWOFACTOR_API_KEY?.trim()),
+    developmentFallbackEnabled: env.NODE_ENV !== "production" && env.OTP_DEV_FALLBACK_ENABLED,
+    deliveryCallbackConfigured: Boolean(env.TWOFACTOR_DLR_WEBHOOK_SECRET)
+  };
+}
 
 function isTwoFactorSuccess(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
@@ -152,7 +164,7 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
   await OtpCooldownModel.deleteOne({ _id: phone, reservationId });
 }
 
-export async function requestOtp(phone: string, mode: "default" | "twofactor" = "default") {
+export async function requestOtp(phone: string, mode: "default" | "twofactor" = "twofactor", role?: string) {
   if (mode !== "twofactor" && env.OTP_DEV_FALLBACK_ENABLED && env.NODE_ENV !== "production") {
     await reserveOtpRequest(phone);
     return createDevelopmentOtpRequest(phone);
@@ -163,6 +175,7 @@ export async function requestOtp(phone: string, mode: "default" | "twofactor" = 
   }
 
   const reservationId = await reserveOtpRequest(phone);
+  const requestedAt = new Date();
 
   let providerSessionId: string;
   const providerStartedAt = Date.now();
@@ -171,10 +184,12 @@ export async function requestOtp(phone: string, mode: "default" | "twofactor" = 
     console.info(`[otp] 2Factor accepted send request in ${Date.now() - providerStartedAt}ms`);
   } catch (error) {
     console.warn(`[otp] 2Factor send failed after ${Date.now() - providerStartedAt}ms`);
-    console.error(error instanceof Error ? error.message : error);
+    console.error(safeOtpProviderError(error));
+    await recordOtpRequestFailure(reservationId, phone, role, requestedAt, error).catch(() => console.error("[otp] Could not save failed SMS request history"));
     await releaseOtpReservation(phone, reservationId);
     throw new AppError(502, "Could not send OTP. Please try again.");
   }
+  await recordOtpAccepted(phone, providerSessionId, role, requestedAt).catch(() => console.error("[otp] Could not save accepted SMS request history"));
   await recordSuccessfulOtpSend();
   const request = await createOtpRequest(phone, providerSessionId);
   console.info(`[otp] 2Factor session stored in ${Date.now() - providerStartedAt}ms total`);
@@ -210,7 +225,7 @@ export async function verifyOtp(phone: string, otp: string, role?: string) {
         }
         matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
       } catch (error) {
-        console.error(error instanceof Error ? error.message : error);
+        console.error(safeOtpProviderError(error));
         throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
       }
     }

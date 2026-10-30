@@ -144,8 +144,10 @@ function dateValue(value?: Date | string | null) {
 export async function requestOtpController(req: Request, res: Response) {
   const input = requestOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  const result = await requestOtp(input.phone, input.mode);
-  res.json({ data: result, message: "OTP sent" });
+  const result = await requestOtp(input.phone, input.mode, input.role);
+  console.info("[otp] Request completed", { provider: result.provider, mode: input.mode, smsRequested: result.provider === "twofactor", destination: `******${input.phone.slice(-4)}` });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ data: result, message: result.provider === "twofactor" ? "OTP request accepted; SMS delivery is pending" : "Development OTP created; no SMS was sent" });
 }
 
 export async function verifyOtpController(req: Request, res: Response) {

@@ -1,5 +1,7 @@
 "use client";
 
+import { OtpDeliveryPanel } from "./otp-delivery-panel";
+
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -2238,8 +2240,8 @@ export function AdminPortal() {
     },
     {
       icon: MessageSquareText,
-      label: "SMS OTPs Sent (lifetime)",
-      note: dashboardAnalytics.otp?.lastSentAt ? `All-time total · last sent ${formatDate(dashboardAnalytics.otp.lastSentAt, true)}` : "All-time total · no successful sends yet",
+      label: "OTP Requests Accepted (lifetime)",
+      note: dashboardAnalytics.otp?.lastSentAt ? `Provider accepted · last request ${formatDate(dashboardAnalytics.otp.lastSentAt, true)}` : "No provider-accepted requests yet",
       tone: "violet" as const,
       value: (dashboardAnalytics.otp?.successfulSends ?? 0).toLocaleString("en-IN"),
       change: "",
@@ -2860,6 +2862,8 @@ export function AdminPortal() {
                 />
               ))}
             </div>
+
+            <OtpDeliveryPanel />
 
             <Panel className="overflow-hidden p-0">
               <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">

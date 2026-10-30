@@ -4816,7 +4816,7 @@ function AppContent() {
   const sessionNotice = useAppStore((state) => state.sessionNotice);
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
   const language = useAppStore((state) => state.language);
-  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
+  const { guide: incomingAlertPermissionGuide, canEnter: alertPermissionsGranted } = useIncomingAlertPermissionGuide(Boolean(token), "delivery");
   const platform = usePlatformStatus(getPlatformStatus, token);
   const [stage, setStage] = useState<AppStage>(token ? "loading" : "auth");
   const [me, setMe] = useState<MeResponse>();
@@ -4954,6 +4954,8 @@ function AppContent() {
       </>
     );
   }
+  if (!alertPermissionsGranted) return <View style={{ flex: 1 }}>{incomingAlertPermissionGuide}</View>;
+
   if (stage === "loading") {
     return (
       <>

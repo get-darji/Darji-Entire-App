@@ -16,6 +16,7 @@ import { monitorNoQuoteRequests } from "./services/operational-alert.service.js"
 import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
 import { allMaintenanceApps } from "@darji/shared";
 import { releaseExpiredMeasurementVisitOffers } from "./services/measurement-visit.service.js";
+import { otpRuntimeStatus } from "./services/otp.service.js";
 
 const app = express();
 // Railway forwards client addresses through one proxy. Express only trusts that
@@ -58,6 +59,9 @@ app.use(cors({
 // the general JSON middleware changes the body representation.
 app.use("/api/payments/razorpay/webhook", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json({ limit: "10mb" }));
+// The legacy OTP callback authenticates through a secret in its configured URL.
+// Keep that query string out of access logs.
+morgan.token("url", (req) => req.url?.split("?")[0] === "/api/webhooks/2factor/otp" ? "/api/webhooks/2factor/otp" : req.url ?? "");
 app.use(morgan("dev"));
 
 app.use("/api", router);
@@ -65,6 +69,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 await connectDatabase();
+console.info("[otp] Runtime configuration", otpRuntimeStatus());
 if (env.AUTO_SEED || env.NODE_ENV !== "production") {
   await seedDatabase();
 }

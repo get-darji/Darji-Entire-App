@@ -6625,7 +6625,7 @@ function AppContent() {
   const sessionNotice = useAppStore((state) => state.sessionNotice);
   const clearSessionNotice = useAppStore((state) => state.clearSessionNotice);
   const language = useAppStore((state) => state.language);
-  const incomingAlertPermissionGuide = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
+  const { guide: incomingAlertPermissionGuide, canEnter: alertPermissionsGranted } = useIncomingAlertPermissionGuide(Boolean(token), "tailor");
   useEffect(() => { void setIncomingAlertLanguage(language).catch(() => undefined); }, [language]);
   const platform = usePlatformStatus(getPlatformStatus, token);
   const [screen, setScreenState] = useState<Screen>("dashboard");
@@ -7347,6 +7347,8 @@ function AppContent() {
       </>
     );
   }
+  if (!alertPermissionsGranted) return <View style={{ flex: 1 }}>{incomingAlertPermissionGuide}</View>;
+
   if (!me) {
     return (
       <SafeAreaView style={styles.safe}>

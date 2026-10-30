@@ -6,7 +6,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "../notifications/expoNotifications";
 import { useEffect, useRef, useState } from "react";
-import { Animated, AppState, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
+import { ActivityIndicator, Animated, AppState, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import type { ComponentProps } from "react";
 import { useAppStore } from "../store";
 import { translateStaticChildren } from "../../../../shared/src/static-translations";
@@ -16,54 +16,59 @@ function Text({ children, ...props }: ComponentProps<typeof RNText>) {
   return <RNText {...props}>{translateStaticChildren(language, children)}</RNText>;
 }
 
-type PermissionIssue = "notifications" | "overlay" | "fullscreen" | null;
+import { requiredIncomingAlertPermission, type IncomingAlertPermissionIssue as PermissionIssue } from "../../../../shared/src/incoming-alert-permissions";
 
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
 const SCREEN_DIM = "rgba(7, 13, 24, 0.58)";
 
 export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" | "delivery") {
-  const checkingRef = useRef(false);
-  const dismissedIssueRef = useRef<PermissionIssue>(null);
   const continueToOverlayRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const guideProgress = useRef(new Animated.Value(0)).current;
   const [issue, setIssue] = useState<PermissionIssue>(null);
+  const [checkNonce, setCheckNonce] = useState(0);
+  const [checked, setChecked] = useState(false);
+  const [hasPassed, setHasPassed] = useState(false);
 
   useEffect(() => {
-    if (!enabled || Platform.OS !== "android") {
+    if (!enabled || Platform.OS === "web") {
       setIssue(null);
+      setHasPassed(false);
+      setChecked(false);
       return undefined;
     }
-
     let active = true;
+    let checking = false;
+    let checkAgain = false;
+    setChecked(false);
     async function checkPermissions() {
-      if (!active || checkingRef.current) return;
-      checkingRef.current = true;
+      if (!active) return;
+      if (checking) { checkAgain = true; return; }
+      checking = true;
       try {
-        const state = await getIncomingAlertPermissionState();
-        if (!active || !state) return;
-
-        const nextIssue: PermissionIssue = !state.notificationsEnabled
-          ? "notifications"
-          : !state.canDrawOverlays
-          ? "overlay"
-          : state.androidApiLevel >= 34 && !state.canUseFullScreenIntent
-            ? "fullscreen"
-            : null;
-        setIssue(dismissedIssueRef.current === nextIssue ? null : nextIssue);
+        const notificationPermission = await Notifications.getPermissionsAsync();
+        const state = Platform.OS === "android" ? await getIncomingAlertPermissionState() : null;
+        if (!active || appStateRef.current !== "active") return;
+        const nextIssue = requiredIncomingAlertPermission({ platform: Platform.OS, notificationsGranted: notificationPermission.status === Notifications.PermissionStatus.GRANTED, nativeState: state });
+        setIssue(nextIssue);
+        if (!nextIssue) setHasPassed(true);
+        setChecked(true);
+      } catch {
+        if (active) { setIssue("unavailable"); setChecked(true); }
       } finally {
-        checkingRef.current = false;
+        checking = false;
+        if (active && checkAgain) { checkAgain = false; void checkPermissions(); }
       }
     }
-
     void checkPermissions();
     let continueTimer: ReturnType<typeof setTimeout> | undefined;
     const subscription = AppState.addEventListener("change", (state) => {
       const previousState = appStateRef.current;
       appStateRef.current = state;
-      if (state === "active") {
-        dismissedIssueRef.current = null;
+      if (state !== "active") {
+        setChecked(false);
+      } else {
         if (continueToOverlayRef.current && previousState !== "active") {
           continueToOverlayRef.current = false;
           continueTimer = setTimeout(() => void openIncomingAlertOverlaySettings(), 450);
@@ -76,7 +81,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
       if (continueTimer) clearTimeout(continueTimer);
       subscription.remove();
     };
-  }, [enabled]);
+  }, [enabled, checkNonce]);
 
   useEffect(() => {
     if (issue !== "overlay") {
@@ -96,14 +101,28 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
     return () => animation.stop();
   }, [guideProgress, issue]);
 
-  if (!enabled || Platform.OS !== "android" || !issue) return null;
+  if (!enabled || Platform.OS === "web") return { canEnter: true, guide: null };
+  if (!checked || issue === "unavailable") {
+    return { canEnter: hasPassed, guide: (
+      <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => undefined}>
+      <View style={[styles.backdrop, { justifyContent: "center", padding: 24 }]}>
+        <View style={[styles.sheet, { padding: 24, borderRadius: 12 }]}>
+          <Text style={styles.title}>{!checked ? "Checking alert permissions" : "Alert permissions could not be checked"}</Text>
+          <Text style={styles.copy}>{!checked ? "Please wait while we check notification and incoming request access." : "Retry the check. If this continues, install the latest Darji app build and open it again."}</Text>
+          {!checked ? <ActivityIndicator color={BRAND_ORANGE} style={{ marginTop: 20 }} /> : <Pressable style={[styles.primaryButton, { marginTop: 20 }]} onPress={() => { setChecked(false); setCheckNonce((value) => value + 1); }}><Text style={styles.primaryText}>Check again</Text></Pressable>}
+        </View>
+      </View>
+      </Modal>
+    ) };
+  }
+  if (!issue) return { canEnter: true, guide: null };
 
   const isNotifications = issue === "notifications";
   const isOverlay = issue === "overlay";
   const appName = app === "tailor" ? "Darji Tailor" : "Darji Delivery";
 
-  return (
-    <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => setIssue(null)}>
+  return { canEnter: hasPassed, guide: (
+    <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => undefined}>
       <View style={styles.backdrop}>
         <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetContent} bounces={false}>
           <View style={styles.iconWrap}>
@@ -151,7 +170,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
                 <Ionicons name="lock-open-outline" size={17} color="#166534" />
                 <Text style={styles.demoMenuText}>Allow restricted settings</Text>
               </Animated.View>
-              <Text style={styles.demoHint}>Tap ⋮, allow restricted settings, then press Back.</Text>
+              <Text style={styles.demoHint}>Tap the three-dot menu, allow restricted settings, then press Back.</Text>
             </View>
           ) : null}
           <View style={styles.steps}>
@@ -166,7 +185,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
                   ? "Tap the three-dot menu and choose Allow restricted settings. If that option is absent, continue to the next step."
                   : isNotifications
                     ? "Approve app notifications. If no popup appears, notification settings will open."
-                    : "Allow full-screen alerts for this app."}
+                  : "Allow full-screen alerts for this app."}
               </Text>
             </View>
             {isOverlay ? (
@@ -178,15 +197,6 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
           </View>
           <View style={styles.actions}>
             <Pressable
-              style={styles.secondaryButton}
-              onPress={() => {
-                dismissedIssueRef.current = issue;
-                setIssue(null);
-              }}
-            >
-              <Text style={styles.secondaryText}>Not now</Text>
-            </Pressable>
-            <Pressable
               style={styles.primaryButton}
               onPress={() => {
                 if (isNotifications) {
@@ -195,6 +205,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
                       if (permission.status !== Notifications.PermissionStatus.GRANTED) {
                         await Linking.openSettings();
                       }
+                      setCheckNonce((value) => value + 1);
                     })
                     .catch(() => void Linking.openSettings());
                 } else if (isOverlay) {
@@ -215,7 +226,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
         </ScrollView>
       </View>
     </Modal>
-  );
+  ) };
 }
 
 const styles = StyleSheet.create({

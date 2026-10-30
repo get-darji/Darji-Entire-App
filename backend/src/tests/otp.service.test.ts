@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { verifyOtpSchema } from "@darji/shared";
+import { requestOtpSchema, verifyOtpSchema } from "@darji/shared";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
-import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
+import { OtpCooldownModel, OtpDeliveryModel, OtpMetricModel, OtpRequestModel } from "../models.js";
 import { requestOtp, verifyOtp } from "../services/otp.service.js";
 
 test("login OTP supports the temporary universal development code and preserves the real TwoFactor path", async () => {
   const original = {
+    nodeEnv: env.NODE_ENV,
+    staticFallback: env.OTP_STATIC_FALLBACK_ENABLED,
     devEnabled: env.OTP_DEV_FALLBACK_ENABLED,
     devCode: env.OTP_DEV_CODE,
     enabled: env.TWOFACTOR_ENABLED,
@@ -31,6 +33,8 @@ test("login OTP supports the temporary universal development code and preserves 
     findByIdAndUpdate: (id: string, update: Record<string, any>, options: Record<string, unknown>) => Promise<unknown>;
   };
   const originalMetricUpdate = metricModel.findByIdAndUpdate;
+  const originalDeliveryUpdate = OtpDeliveryModel.updateOne;
+  const originalDeliveryCreate = OtpDeliveryModel.create;
 
   const reservations = new Map<string, { nextAllowedAt: Date; reservationId: string }>();
   const saved: Array<Record<string, any>> = [];
@@ -38,6 +42,11 @@ test("login OTP supports the temporary universal development code and preserves 
   let successfulSendCount = 0;
 
   try {
+    env.NODE_ENV = "development";
+    env.OTP_STATIC_FALLBACK_ENABLED = false;
+    OtpDeliveryModel.updateOne = (async () => ({})) as any;
+    OtpDeliveryModel.create = (async () => ({})) as any;
+    assert.equal(requestOtpSchema.parse({ phone: "9876543210" }).mode, "twofactor");
     for (const otp of ["1234", "123456"]) assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp }).success, true);
     assert.equal(verifyOtpSchema.safeParse({ phone: "9876543211", otp: "123" }).success, false);
     requestModel.create = async (doc) => {
@@ -75,7 +84,7 @@ test("login OTP supports the temporary universal development code and preserves 
 
     env.OTP_DEV_FALLBACK_ENABLED = true;
     env.OTP_DEV_CODE = "123456";
-    const developmentRequest = await requestOtp("9876543210");
+    const developmentRequest = await requestOtp("9876543210", "default");
     assert.deepEqual({ provider: developmentRequest.provider, fallback: developmentRequest.fallback }, { provider: "dev", fallback: true });
     assert.equal(providerCalls, 0);
     assert.equal(successfulSendCount, 0);
@@ -93,7 +102,7 @@ test("login OTP supports the temporary universal development code and preserves 
       assert.equal(init?.method, "GET");
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
-    const forcedProviderRequest = await requestOtp("9876543214", "twofactor");
+    const forcedProviderRequest = await requestOtp("9876543214");
     assert.deepEqual({ provider: forcedProviderRequest.provider, fallback: forcedProviderRequest.fallback }, { provider: "twofactor", fallback: false });
     assert.equal(providerCalls, 1);
     assert.equal(successfulSendCount, 1);
@@ -147,6 +156,10 @@ test("login OTP supports the temporary universal development code and preserves 
     assert.equal(successfulSendCount, 3);
     assert.equal(reservations.has("9876543213"), false);
   } finally {
+    env.NODE_ENV = original.nodeEnv;
+    env.OTP_STATIC_FALLBACK_ENABLED = original.staticFallback;
+    OtpDeliveryModel.updateOne = originalDeliveryUpdate;
+    OtpDeliveryModel.create = originalDeliveryCreate;
     env.OTP_DEV_FALLBACK_ENABLED = original.devEnabled;
     env.OTP_DEV_CODE = original.devCode;
     env.TWOFACTOR_ENABLED = original.enabled;

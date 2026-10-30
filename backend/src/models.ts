@@ -687,6 +687,22 @@ const otpMetricSchema = new Schema(
   { timestamps: true, versionKey: false }
 );
 
+// Delivery history outlives the short-lived authentication session. No OTP code
+// is stored here. The provider session ID also deduplicates delivery callbacks.
+const otpDeliverySchema = new Schema({
+  _id: { type: String, required: true },
+  phone: { type: String, required: true, index: true },
+  role: String,
+  providerSessionId: { type: String, index: true },
+  status: { type: String, enum: ["PENDING", "DELIVERED", "FAILED", "REJECTED", "REQUEST_FAILED"], required: true },
+  requestedAt: { type: Date, required: true, index: true },
+  acceptedAt: Date,
+  reportedAt: Date,
+  failureReason: String,
+  expiresAt: { type: Date, required: true }
+}, { timestamps: true, versionKey: false });
+otpDeliverySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
 const supportMessageSchema = new Schema(
   {
     sender: { type: String, enum: ["client", "admin", "system", "internal"], required: true },
@@ -1190,6 +1206,7 @@ export const TransactionModel = mongoose.model("Transaction", transactionSchema)
 export const OtpRequestModel = mongoose.model("OtpRequest", otpRequestSchema);
 export const OtpCooldownModel = mongoose.model("OtpCooldown", otpCooldownSchema);
 export const OtpMetricModel = mongoose.model("OtpMetric", otpMetricSchema, "otp_metrics");
+export const OtpDeliveryModel = mongoose.model("OtpDelivery", otpDeliverySchema, "otp_deliveries");
 export const SupportTicketModel = mongoose.model("SupportTicket", supportTicketSchema);
 export const BugReportModel = mongoose.model("BugReport", bugReportSchema);
 export const AccountChangeRequestModel = mongoose.model("AccountChangeRequest", accountChangeRequestSchema);
