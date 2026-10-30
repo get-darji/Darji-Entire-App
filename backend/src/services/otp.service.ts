@@ -6,6 +6,7 @@ import { AppError } from "../middleware/error.js";
 const OTP_TTL_MINUTES = 10;
 const OTP_COOLDOWN_SECONDS = 60;
 const MAX_VERIFY_ATTEMPTS = 5;
+const TWOFACTOR_API_URL = "https://2factor.in/API/V1";
 
 type OtpRequestResult = {
   expiresAt: Date;
@@ -30,7 +31,7 @@ async function callTwoFactor(path: string, method: "GET" | "POST" = "POST") {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.TWOFACTOR_REQUEST_TIMEOUT_MS);
   try {
-    const url = `${env.TWOFACTOR_API_BASE_URL.replace(/\/$/, "")}/API/V1/${encodeURIComponent(env.TWOFACTOR_API_KEY)}/SMS/${path}`;
+    const url = `${TWOFACTOR_API_URL}/${encodeURIComponent(env.TWOFACTOR_API_KEY)}/SMS/${path}`;
     const response = await fetch(url, {
       method,
       signal: controller.signal

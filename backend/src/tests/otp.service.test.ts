@@ -88,9 +88,9 @@ test("login OTP supports the temporary universal development code and preserves 
     env.TWOFACTOR_API_KEY = "test-key";
     globalThis.fetch = async (input, init) => {
       providerCalls += 1;
-      const segments = new URL(String(input)).pathname.split("/");
-      assert.equal(segments[6], "AUTOGEN");
-      assert.equal(segments[7], "OTP1");
+      const url = new URL(String(input));
+      assert.equal(url.origin, "https://2factor.in");
+      assert.match(url.pathname, /^\/API\/V1\/test-key\/SMS\/987654321[12]\/AUTOGEN\/OTP1$/);
       assert.equal(init?.method, "GET");
       return new Response(JSON.stringify({ Status: "Success", Details: "5D6EBEE6-EC04-4776-846D-3600422BD9EF" }), { status: 200 });
     };
@@ -101,6 +101,8 @@ test("login OTP supports the temporary universal development code and preserves 
     assert.equal(successfulSendCount, 1);
     assert.equal(saved.at(-1)?.provider, "twofactor");
     assert.equal(saved.at(-1)?.otpHash, undefined);
+    assert.ok(reservations.has("9876543211"));
+    assert.ok(reservations.get("9876543211")!.nextAllowedAt.getTime() > Date.now());
     await assert.rejects(requestOtp("9876543211"), (error) => error instanceof AppError && error.statusCode === 429 && Boolean(error.retryAfterSeconds));
     assert.equal(providerCalls, 1);
 

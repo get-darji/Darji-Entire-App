@@ -23,7 +23,6 @@ const envSchema = z.object({
   TWOFACTOR_ENABLED: booleanString.default(false),
   TWOFACTOR_API_KEY: z.string().optional(),
   TWOFACTOR_TEMPLATE_NAME: z.string().default("OTP1"),
-  TWOFACTOR_API_BASE_URL: z.string().url().default("https://2factor.in"),
   TWOFACTOR_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   ADMIN_ALLOWED_PHONES: z.string().default("9999999999"),
   AUTO_SEED: z.coerce.boolean().default(false),
