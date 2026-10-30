@@ -159,9 +159,9 @@ const tailorVerificationSchema = z.object({
     shopPhotos: z.array(z.string().url()).min(1).max(3)
   }),
   bank: z.object({
-    accountHolder: z.string().trim().min(2).max(80).optional(),
-    accountNumber: z.string().trim().min(6).max(30).optional(),
-    ifsc: z.string().trim().min(4).max(20).optional(),
+    accountHolder: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(2).max(80).optional()),
+    accountNumber: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(6).max(30).optional()),
+    ifsc: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(4).max(20).optional()),
     upi: z.string().trim().max(80).optional().or(z.literal(""))
   }).optional().default({}).superRefine((bank, ctx) => {
     const hasBankEntry = Boolean(bank.accountHolder || bank.accountNumber || bank.ifsc);
@@ -718,7 +718,28 @@ export async function updateTailorProfileController(req: Request, res: Response)
 }
 
 export async function submitTailorVerificationController(req: Request, res: Response) {
-  const input = tailorVerificationSchema.parse(req.body);
+  const parsed = tailorVerificationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const field = issue.path.map(String).join(".");
+    const labels: Record<string, string> = {
+      "personal.name": "full name (2 to 80 characters)", "personal.address": "personal address (8 to 500 characters)",
+      "personal.dob": "date of birth", "personal.email": "email address", "personal.location": "saved location",
+      "shop.shopName": "workshop name (2 to 100 characters)", "shop.shopAddress": "workshop address (8 to 500 characters)",
+      "shop.gstNumber": "GST number", "shop.employeeCount": "employee count (a whole number from 0 to 500)",
+      "shop.yearsExperience": "years of experience (a whole number from 0 to 80)", "shop.shopPhotos": "workshop photos (1 to 3 uploaded photos)",
+      "bank.accountHolder": "bank account holder (2 to 80 characters)", "bank.accountNumber": "bank account number (6 to 30 characters)",
+      "bank.ifsc": "IFSC code (4 to 20 characters)", "bank.upi": "UPI ID (up to 80 characters)",
+      "idVerification.idNumber": "ID number", "idVerification.aadhaarFrontUrl": "Aadhaar front photo",
+      "idVerification.aadhaarBackUrl": "Aadhaar back photo", "idVerification.panUrl": "ID card photo", "idVerification.facePhotoUrl": "face verification photo"
+    };
+    const message = field === "bank" ? "Enter account holder, account number and IFSC together, or leave all three blank. UPI alone is also allowed."
+      : field.startsWith("specialties") ? "Choose up to 50 specialties, with 2 to 80 characters in each specialty."
+        : field.startsWith("specializationRows") ? "Check your stitching specialties and prices. Each price must be between 0 and 100000."
+          : `Please check your ${labels[field] ?? labels[issue.path.slice(0, 2).map(String).join(".")] ?? "registration details"} and submit again.`;
+    throw new AppError(400, message);
+  }
+  const input = parsed.data;
   const specialization = input.specialties?.length
     ? [...new Set(input.specialties.map((item) => item.trim()).filter(Boolean))]
     : input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
