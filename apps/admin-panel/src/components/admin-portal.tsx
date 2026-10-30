@@ -1,6 +1,8 @@
 "use client";
 
 import { OtpDeliveryPanel } from "./otp-delivery-panel";
+import { TailorActivityPanel } from "./tailor-activity-panel";
+import { getAdminMeasurementVisit, type TailorActivityLink } from "../lib/api";
 
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -494,6 +496,7 @@ const sidebarSections: SidebarSection[] = [
   { id: "support", icon: Bell, label: "Support", description: "Tickets and customer follow-up" },
   { id: "reviews", icon: MessageSquareText, label: "Reviews", description: "Customer and tailor reviews management" },
   { id: "notifications", icon: Send, label: "Notifications", description: "Push, SMS, email and in-app campaigns" },
+  { id: "otp", icon: MessageSquareText, label: "OTP SMS", description: "SMS analytics, destinations and delivery reports" },
   { id: "activity", icon: FileText, label: "Activity Logs", description: "Admin action audit trail" },
   { id: "roles", icon: ShieldCheck, label: "Accounts", description: "Approved admin phone access" },
   { id: "health", icon: AlertCircle, label: "System Health", description: "Technical service monitoring" },
@@ -508,7 +511,7 @@ const sidebarGroups: Array<{ label: string; sections: SectionId[] }> = [
   { label: "Operations", sections: ["orders", "tailoring", "delivery", "batches", "measurements"] },
   { label: "People", sections: ["users", "tailors", "partners", "samples"] },
   { label: "Money", sections: ["payments", "coupons", "exports"] },
-  { label: "Engagement", sections: ["support", "reviews", "notifications"] },
+  { label: "Engagement", sections: ["support", "reviews", "notifications", "otp"] },
   { label: "Administration", sections: ["activity", "roles", "health", "platform", "website", "settings"] }
 ];
 
@@ -2245,7 +2248,7 @@ export function AdminPortal() {
       value: (dashboardAnalytics.otp?.successfulSends ?? 0).toLocaleString("en-IN"),
       change: "",
       changeTone: "neutral" as const,
-      target: "roles" as SectionId,
+      target: "otp" as SectionId,
       periodScoped: false
     }
   ];
@@ -2862,8 +2865,6 @@ export function AdminPortal() {
               ))}
             </div>
 
-            <OtpDeliveryPanel />
-
             <Panel className="overflow-hidden p-0">
               <div className="grid gap-px bg-[var(--panel-border)] sm:grid-cols-2 xl:grid-cols-5">
                 <FinanceBreakdownItem label="Completed-order collections" value={dashboardAnalytics.finance.realizedGrossPaid} onClick={() => setFinanceDetailKind("realized_revenue")} />
@@ -3038,6 +3039,8 @@ export function AdminPortal() {
             onBack={() => setActiveSection("dashboard")}
           />
         ) : null}
+
+        {activeSection === "otp" ? <OtpDeliveryPanel /> : null}
 
         {activeSection === "orders" ? (
           <OrdersManagementView
@@ -3820,6 +3823,19 @@ export function AdminPortal() {
       <ProfileDialog
         deliveryRequests={deliveryRequests}
         orders={allOrders}
+        onOpenRecord={async (link) => {
+          if (link.source === "MEASUREMENT") {
+            const visit = await getAdminMeasurementVisit(link.id);
+            queryClient.setQueryData(["admin", "measurement-visit", visit.id], visit);
+            setTailorDetail(null);
+            setMeasurementVisitFocusId(visit.id);
+            setActiveSection("measurements");
+            return;
+          }
+          const detail = link.source === "ORDER" ? await getOrderById(link.id) : normalizeTailoringRequestForAdmin(await getTailoringRequestById(link.id), partners);
+          setTailorDetail(null);
+          openOrderDetail(detail, "overview");
+        }}
         onOpenBatch={(batch) => {
           setTailorDetail(null);
           setBatchFocus(batch);
@@ -3833,11 +3849,14 @@ export function AdminPortal() {
           setTailorDetail(null);
           openOrderDetail(order, "overview");
         }}
-        onOpenWallet={() => {
-          const row = activePayoutRows.find((candidate) => candidate.userId === tailorDetail?.userId);
-          if (!row) return toast.info("No wallet record is available for this tailor yet");
-          setTailorDetail(null);
-          setWalletDetailTarget(row);
+        onOpenWallet={async () => {
+          if (!tailorDetail) return;
+          try {
+            const detail = await getWalletDetail(tailorDetail.userId, "TAILOR");
+            queryClient.setQueryData(["admin", "wallet-detail", tailorDetail.userId, "TAILOR"], detail);
+            setWalletDetailTarget({ userId: tailorDetail.userId, profileId: tailorDetail.id, userType: "TAILOR", name: getTailorDisplayName(tailorDetail), phone: tailorDetail.user?.phone ?? "", walletBalance: detail.balance, currentWeekEarnings: detail.currentWeekEarnings, pendingAmount: detail.pendingAmount, status: detail.pendingAmount > 0 ? "DUE" : "SETTLED" });
+            setTailorDetail(null);
+          } catch (error) { toast.error(extractError(error)); }
         }}
         open={Boolean(tailorDetail)}
         profile={tailorDetail}
@@ -7022,6 +7041,7 @@ function MeasurementVisitsModule({
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selectedVisit, setSelectedVisit] = useState<MeasurementVisit | null>(null);
+  const focusedVisitQuery = useQuery({ queryKey: ["admin", "measurement-visit", focusVisitId], queryFn: () => getAdminMeasurementVisit(focusVisitId!), enabled: Boolean(focusVisitId), staleTime: 15000 });
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
   const sortedVisits = useMemo(
     () => [...visits].sort((a, b) => new Date(b.createdAt ?? b.scheduledAt ?? 0).getTime() - new Date(a.createdAt ?? a.scheduledAt ?? 0).getTime()),
@@ -7035,12 +7055,13 @@ function MeasurementVisitsModule({
   const capableTailors = [...tailors].sort((a, b) => getTailorDisplayName(a).localeCompare(getTailorDisplayName(b)));
   useEffect(() => {
     if (!focusVisitId) return;
-    const visit = visits.find((candidate) => candidate.id === focusVisitId || candidate.darjiId === focusVisitId);
+    const visit = visits.find((candidate) => candidate.id === focusVisitId || candidate.darjiId === focusVisitId) ?? focusedVisitQuery.data;
     if (visit) {
       setSelectedVisit(visit);
       onFocusVisitOpened();
     }
-  }, [focusVisitId, onFocusVisitOpened, visits]);
+    if (!visit && focusedVisitQuery.isError) { toast.error(extractError(focusedVisitQuery.error)); onFocusVisitOpened(); }
+  }, [focusVisitId, onFocusVisitOpened, visits, focusedVisitQuery.data, focusedVisitQuery.isError, focusedVisitQuery.error]);
 
   return (
     <div className="space-y-6">
@@ -11400,6 +11421,7 @@ function ProfileDialog({
   onOpenDeliveryTask,
   onOpenOrder,
   onOpenWallet,
+  onOpenRecord,
   onReview,
   onSave,
   onSampleReview,
@@ -11415,6 +11437,7 @@ function ProfileDialog({
   onOpenDeliveryTask: (request: DeliveryRequest) => void;
   onOpenOrder: (order: Order) => void;
   onOpenWallet: () => void;
+  onOpenRecord?: (link: TailorActivityLink) => Promise<void>;
   onReview?: (review: { status: "VERIFIED" | "REJECTED" | "REUPLOAD_REQUIRED"; deliveryType?: "PICKUP" | "DROP"; assignedArea?: string; reason?: string; reuploadFields?: string[] }) => void;
   onSave: (updates: AdminPartnerProfileUpdate) => void;
   onSampleReview?: (sampleId: string, status: "APPROVED" | "REJECTED") => void;
@@ -11456,7 +11479,7 @@ function ProfileDialog({
       const shop = (verification.shop ?? {}) as Record<string, any>;
       const vehicle = (verification.vehicle ?? {}) as Record<string, any>;
       const bank = (verification.bank ?? {}) as Record<string, any>;
-      setProfileTab("personal");
+      setProfileTab(isTailorProfile(profile) ? "activity" : "personal");
       setVerificationJson(JSON.stringify(verification, null, 2));
       setEditDraft({
         name: personal.name ?? personal.fullName ?? (isTailorProfile(profile) ? profile.displayName : undefined) ?? profile.user?.name ?? "",
@@ -11518,6 +11541,7 @@ function ProfileDialog({
     : subtitle;
   const updateDraft = (field: keyof typeof editDraft, value: string) => setEditDraft((current) => ({ ...current, [field]: value }));
   const beginEditing = () => {
+    setProfileTab("personal");
     setDraftBeforeEdit(editDraft);
     setVerificationJsonBeforeEdit(verificationJson);
     setDeliveryTypeBeforeEdit(deliveryType);
@@ -11617,7 +11641,8 @@ function ProfileDialog({
                     {profileTab === "change-log" ? <div><div><h4 className="font-bold text-slate-950">Profile change log</h4><p className="mt-1 text-sm text-slate-600">Every admin profile edit records who changed it, when it changed, and the before/after values.</p></div>{profileChangeLogQuery.isLoading ? <div className="grid min-h-40 place-items-center"><LoaderCircle className="h-6 w-6 animate-spin text-orange-500" /></div> : null}{profileChangeLogQuery.isError ? <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{extractError(profileChangeLogQuery.error)}</p> : null}<div className="mt-4 space-y-3">{(profileChangeLogQuery.data ?? []).map((log) => <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4" key={log.id}><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-slate-950">{log.actorName || "Admin"}</p><p className="text-xs text-slate-500">{formatStatus(log.actorRole)} · {log.summary}</p></div><p className="text-xs font-semibold text-slate-600">{formatDate(log.createdAt, true)}</p></div><div className="mt-3 space-y-2">{(log.metadata?.changes ?? []).map((change, index) => <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-[180px_1fr_24px_1fr] md:items-center" key={`${change.field}-${index}`}><p className="text-xs font-bold text-slate-700">{change.field.split(".").map(humanizeFieldLabel).join(" / ")}</p><p className="break-words text-xs text-rose-700">{formatAdminValue(change.before)}</p><ArrowRight className="hidden text-slate-400 md:block" size={15} /><p className="break-words text-xs font-semibold text-emerald-700">{formatAdminValue(change.after)}</p></div>)}</div></div>)}{!profileChangeLogQuery.isLoading && !profileChangeLogQuery.data?.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No recorded admin changes yet. New changes will appear here after the backend update is deployed.</p> : null}</div></div> : null}
                     {profileTab === "documents" && !isEditing ? <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4"><div><p className="text-sm font-bold text-orange-950">Need to correct ID or document details?</p><p className="mt-1 text-xs text-orange-800">Edit Aadhaar, PAN, licence, verification fields, and stored document information.</p></div><ActionButton className="shrink-0 px-3 py-2 text-xs" onClick={beginEditing}><PencilLine size={14} />Edit documents</ActionButton></div> : null}
                     {profileTab === "documents" && isEditing ? <div className="mt-5 border-t border-slate-200 pt-5"><div className="sticky top-0 z-10 mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-bold text-slate-950">Edit document details</h4><p className="mt-1 text-xs text-slate-500">Only registration-entered identity and document numbers are editable. Verification and system statuses stay protected.</p></div><div className="flex shrink-0 gap-2"><ActionButton className="px-3 py-2 text-xs" variant="secondary" onClick={cancelEditing}>Cancel</ActionButton><ActionButton className="px-3 py-2 text-xs" disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={14} />}Save documents</ActionButton></div></div><VerificationRecordEditor documentsOnly json={verificationJson} onChange={setVerificationJson} /></div> : null}
-                    {profileTab === "activity" ? <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-4"><ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-"} /></div>{isDelivery && profileDeliveryRequests.length ? <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent delivery assignments</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{profileDeliveryRequests.slice(0, 6).map((request) => <button className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={request.id} onClick={() => onOpenDeliveryTask(request)} type="button"><span><span className="block text-sm font-bold">{request.taskId ?? request.darjiId ?? request.id}</span><span className="text-[10px] text-slate-500">{formatStatus(request.type)}</span></span><StatusBadge value={request.taskStatus} /></button>)}</div></div> : null}<div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent orders</p><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">{profileOrders.slice(0, 12).map((profileOrder) => <button className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={profileOrder.id} onClick={() => onOpenOrder(profileOrder)} type="button"><span><span className="block text-sm font-bold">{getOrderDisplayNumber(profileOrder)}</span><span className="text-[10px] text-slate-500">{getCustomerDisplayName(profileOrder.customer)}</span></span><StatusBadge value={profileOrder.status} /></button>)}{!profileOrders.length ? <p className="text-sm text-slate-500">No associated orders.</p> : null}</div></div></div> : null}
+                    {profileTab === "activity" && !isDelivery && onOpenRecord ? <TailorActivityPanel key={profile.id} tailorId={profile.id} onOpenRecord={onOpenRecord} /> : null}
+                    {profileTab === "activity" && isDelivery ? <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-4"><ProfileMetric label="Total orders" value={profileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Active" value={activeProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Completed" value={completedProfileOrders.length.toLocaleString("en-IN")} /><ProfileMetric label="Rating" value={typeof profile.rating === "number" ? profile.rating.toFixed(1) : "-"} /></div>{isDelivery && profileDeliveryRequests.length ? <div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent delivery assignments</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{profileDeliveryRequests.slice(0, 6).map((request) => <button className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={request.id} onClick={() => onOpenDeliveryTask(request)} type="button"><span><span className="block text-sm font-bold">{request.taskId ?? request.darjiId ?? request.id}</span><span className="text-[10px] text-slate-500">{formatStatus(request.type)}</span></span><StatusBadge value={request.taskStatus} /></button>)}</div></div> : null}<div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recent orders</p><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">{profileOrders.slice(0, 12).map((profileOrder) => <button className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left" key={profileOrder.id} onClick={() => onOpenOrder(profileOrder)} type="button"><span><span className="block text-sm font-bold">{getOrderDisplayNumber(profileOrder)}</span><span className="text-[10px] text-slate-500">{getCustomerDisplayName(profileOrder.customer)}</span></span><StatusBadge value={profileOrder.status} /></button>)}{!profileOrders.length ? <p className="text-sm text-slate-500">No associated orders.</p> : null}</div></div></div> : null}
                     {isEditing && ["personal", "business", "bank"].includes(profileTab) ? <div className="mt-5 flex justify-end gap-2"><ActionButton variant="secondary" onClick={cancelEditing}>Cancel</ActionButton><ActionButton disabled={pending} onClick={saveProfile}>{pending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 size={15} />}Save profile changes</ActionButton></div> : null}
                   </fieldset>
                   {profileTab === "personal" ? (

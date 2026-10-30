@@ -696,10 +696,8 @@ const otpDeliverySchema = new Schema({
   requestedAt: { type: Date, required: true, index: true },
   acceptedAt: Date,
   reportedAt: Date,
-  failureReason: String,
-  expiresAt: { type: Date, required: true }
+  failureReason: String
 }, { timestamps: true, versionKey: false });
-otpDeliverySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const supportMessageSchema = new Schema(
   {

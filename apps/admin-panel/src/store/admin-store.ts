@@ -21,6 +21,7 @@ export type SectionId =
   | "support"
   | "reviews"
   | "notifications"
+  | "otp"
   | "analytics"
   | "activity"
   | "roles"

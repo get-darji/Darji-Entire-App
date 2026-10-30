@@ -46,7 +46,7 @@ test("delivery reports authenticate, survive callback races, deduplicate, and ne
     await recordOtpAccepted("9876543211", "pending-provider-session-12345", "CUSTOMER", new Date());
     await recordOtpRequestFailure("failed-request-12345", "9876543212", "ADMIN", new Date(), new Error("Invalid key private-provider-key for 9876543212"));
     const history = await getOtpDeliveryHistory();
-    assert.equal(history.rows.length, 3);
+    assert.equal(history.rows.length, 2);
     assert.equal(history.counts.DELIVERED, 1);
     assert.equal(history.counts.PENDING, 1);
     assert.equal(history.counts.REQUEST_FAILED, 1);
@@ -92,6 +92,8 @@ test("delivery reports authenticate, survive callback races, deduplicate, and ne
     assert.equal(adminHistory.status, 200);
     assert.equal(adminHistory.headers.get("cache-control"), "no-store, max-age=0");
     assert.ok((await adminHistory.json()).data.rows.some((row: { phone: string }) => row.phone === "9876543210"));
+    assert.equal((await fetch(`${base}/admin/otp-deliveries?period=invalid`, { headers: { authorization: `Bearer ${adminToken}` } })).status, 400);
+    assert.equal((await fetch(`${base}/admin/otp-deliveries?pageSize=101`, { headers: { authorization: `Bearer ${adminToken}` } })).status, 400);
     env.TWOFACTOR_DLR_WEBHOOK_SECRET = undefined;
     const derivedUrl = getOtpDeliveryCallbackSetup().url;
     assert.equal(derivedUrl, getOtpDeliveryCallbackSetup().url);

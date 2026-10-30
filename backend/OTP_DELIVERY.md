@@ -16,7 +16,7 @@ configuration. Local `npm run dev` also requires a configured real SMS provider.
 
 ## Connect 2Factor delivery reports
 
-1. Open **Admin -> Dashboard -> OTP SMS delivery -> Set up delivery reports**.
+1. Open **Admin -> OTP SMS -> Set up delivery reports**.
    The authenticated admin-only endpoint supplies a private callback URL. Copy it
    with **Copy callback URL**.
 
@@ -50,17 +50,21 @@ Provider reference: https://dial2verify.com/corp/support-system/tkt/knowledgebas
 ## Status and history
 
 - The lifetime KPI counts provider-accepted requests and is labelled accordingly.
-- The delivery panel lists up to 100 recent results, filters by phone/status, and
-  refreshes every five seconds while open. It only permits authenticated admins.
+- The OTP SMS page shows rolling 24-hour, 7-day, 30-day and lifetime accepted
+  counts. Selecting a card filters the destination table. Phone/status filters
+  and server pagination expose all tracked records. It refreshes every five
+  seconds and only permits authenticated admins.
 - Delivery logs retain destination phone, account role, request time, provider
-  acceptance and report times, and sanitized failures for 90 days. No OTP values
+  acceptance and report times, and sanitized failures for lifetime analytics. No OTP values
   are stored or returned by the delivery API.
 - Missing callbacks remain pending; after ten minutes the row says no report was
   received. Expiry or HTTP 200 never becomes an assumed delivery.
 - Receipt duplicates do not inflate totals. Callback-before-save races preserve
   the receipt, and delivery is never overwritten by a delayed failure.
-- History begins with this backend update; historical accepted totals cannot be
-  reconstructed as delivered SMS. Delivery reports confirm the provider's status,
+- Phone-level history begins with delivery logging; older aggregate accepted
+  totals cannot reconstruct destination numbers or delivery outcomes. The page
+  discloses that gap. Startup removes only the legacy delivery-log TTL index so
+  future phone history is preserved for lifetime views. Delivery reports confirm the provider's status,
   not that a person read the message.
 
 ## Partner app permission gate

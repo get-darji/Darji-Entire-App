@@ -77,7 +77,7 @@ export async function getFestivalTheme() {
 
 async function requestJson<T>(path: string, options: RequestInit, token?: string) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), path === "/auth/request-otp" ? 30000 : REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), path === "/auth/request-otp" || path === "/auth/verify-otp" ? 30000 : REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(`${apiUrl}${path}`, {
       ...options,

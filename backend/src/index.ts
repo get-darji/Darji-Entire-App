@@ -17,6 +17,7 @@ import { processDueNotificationCampaigns } from "./controllers/notificationContr
 import { allMaintenanceApps } from "@darji/shared";
 import { releaseExpiredMeasurementVisitOffers } from "./services/measurement-visit.service.js";
 import { otpRuntimeStatus } from "./services/otp.service.js";
+import { preserveOtpDeliveryHistory } from "./services/otp-delivery.service.js";
 
 const app = express();
 // Railway forwards client addresses through one proxy. Express only trusts that
@@ -69,6 +70,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 await connectDatabase();
+await preserveOtpDeliveryHistory();
 console.info("[otp] Runtime configuration", otpRuntimeStatus());
 if (env.AUTO_SEED || env.NODE_ENV !== "production") {
   await seedDatabase();

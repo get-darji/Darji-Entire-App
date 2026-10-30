@@ -2106,18 +2106,24 @@ function PhoneField({ value, onChange }: { value?: string; onChange: (value: str
   );
 }
 
-function OtpField({ value, disabled, onChange }: { value: string; disabled?: boolean; onChange: (value: string) => void }) {
+function OtpField({ value, disabled, onChange, onSubmit }: { value: string; disabled?: boolean; onChange: (value: string) => void; onSubmit: (value: string) => void }) {
   return (
     <TextInput
       style={styles.otpField}
       autoFocus
       editable={!disabled}
       keyboardType="number-pad"
-      autoComplete={Platform.OS === "android" ? "sms-otp" : "one-time-code"}
+      maxLength={6}
+      returnKeyType="done"
+      submitBehavior="submit"
+      importantForAutofill={Platform.OS === "android" ? "yes" : undefined}
+      autoComplete={Platform.OS === "android" ? "sms-otp" : undefined}
       textContentType={Platform.OS === "ios" ? "oneTimeCode" : undefined}
       placeholder="Enter OTP"
       placeholderTextColor="#8fa0b8"
       value={value}
+      onEndEditing={(event) => onChange(normalizeDigits(event.nativeEvent.text).slice(0, 6))}
+      onSubmitEditing={(event) => onSubmit(normalizeDigits(event.nativeEvent.text).slice(0, 6))}
       onChangeText={(text) => {
         const digits = normalizeDigits(text).slice(0, 6);
         onChange(digits);
@@ -2165,7 +2171,7 @@ function formatDobDisplay(value?: string) {
 
 function AuthButton({ label, loading, loadingLabel, disabled, onPress }: { label: string; loading: boolean; loadingLabel?: string; disabled?: boolean; onPress: () => void }) {
   return (
-    <Pressable disabled={loading || disabled} onPress={onPress} android_ripple={{ color: "#d88a05" }} style={[styles.authButton, (loading || disabled) && styles.buttonDisabled]}>
+    <TouchableOpacity accessibilityRole="button" accessibilityLabel={loading ? loadingLabel ?? label : label} accessibilityState={{ disabled: loading || Boolean(disabled), busy: loading }} activeOpacity={0.8} hitSlop={10} disabled={loading || disabled} onPress={onPress} style={[styles.authButton, (loading || disabled) && styles.buttonDisabled]}>
       {loading ? (
         <>
           <ActivityIndicator color="#111827" />
@@ -2177,7 +2183,7 @@ function AuthButton({ label, loading, loadingLabel, disabled, onPress }: { label
           <Ionicons name="chevron-forward" size={18} color="#111827" style={{ marginLeft: 8 }} />
         </>
       )}
-    </Pressable>
+    </TouchableOpacity>
   );
 }
 
@@ -2328,21 +2334,23 @@ function AuthScreen() {
     }
   }
 
-  async function verify() {
-    if (verifyPendingRef.current) return;
-    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "CUSTOMER" });
+  async function verify(submittedOtp?: string) {
+    if (verifyPendingRef.current || requestPendingRef.current) return;
+    const code = normalizeDigits(submittedOtp ?? otpRef.current).slice(0, 6);
+    otpRef.current = code;
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: code, role: "CUSTOMER" });
     if (!parsed.success) {
       setDialog(dialogFromNativeAlert(t(language, "enterOtp"), t(language, "otpRequired")));
       return;
     }
     verifyPendingRef.current = true;
-    Keyboard.dismiss();
     try {
       setIsVerifyingOtp(true);
       const session = await api<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; role: string } }>("/auth/verify-otp", {
         method: "POST",
         body: JSON.stringify(parsed.data)
       });
+      Keyboard.dismiss();
       setSession(session.accessToken, session.user, session.refreshToken);
     } catch (error) {
       setDialog(dialogFromNativeAlert(localize(language, "Login failed", "लॉगिन नहीं हो सका"), error instanceof Error ? error.message : localize(language, "Check OTP and try again", "ओटीपी जाँचकर दोबारा कोशिश करें")));
@@ -2360,7 +2368,7 @@ function AuthScreen() {
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView
           contentContainerStyle={styles.authLayout}
-          keyboardDismissMode="interactive"
+          keyboardDismissMode="none"
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
@@ -2382,7 +2390,7 @@ function AuthScreen() {
               </>
             ) : (
               <>
-                <OtpField value={otp} disabled={isVerifyingOtp} onChange={(digits) => { otpRef.current = digits; setOtp(digits); }} />
+                <OtpField value={otp} disabled={isVerifyingOtp} onChange={(digits) => { otpRef.current = digits; setOtp(digits); }} onSubmit={(digits) => { void verify(digits); }} />
                 <AuthButton label={t(language, "verifyOtpButton")} loading={isVerifyingOtp} loadingLabel={localize(language, "Verifying...", "सत्यापन जारी है...")} onPress={() => { void verify(); }} />
                 <Pressable style={styles.editPhoneButton} disabled={resendSeconds > 0 || isRequestingOtp || isVerifyingOtp} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
                   {isRequestingOtp ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.orangeSmall, resendSeconds > 0 && styles.disabledText]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}

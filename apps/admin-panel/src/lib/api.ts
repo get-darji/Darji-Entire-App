@@ -162,16 +162,21 @@ export async function requestOtp(phone: string) {
 }
 
 export type OtpDeliveryStatus = "PENDING" | "DELIVERED" | "FAILED" | "REJECTED" | "REQUEST_FAILED";
+export type OtpPeriod = "24h" | "7d" | "30d" | "lifetime";
 export type OtpDeliveryHistory = {
   checkedAt: string;
   callbackConfigured: boolean;
   lastReportAt: string | null;
-  retentionDays: number;
+  historyStartedAt: string | null;
+  legacyAcceptedWithoutDetails: number;
+  periodCounts: Record<OtpPeriod, number>;
+  window: { period: OtpPeriod; start: string | null; end: string };
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
   counts: Record<OtpDeliveryStatus, number>;
   rows: Array<{ id: string; phone: string; role: string | null; status: OtpDeliveryStatus; requestedAt: string; acceptedAt: string | null; reportedAt: string | null; failureReason: string | null }>;
 };
 
-export function getOtpDeliveries(params: { phone?: string; status?: string }) {
+export function getOtpDeliveries(params: { phone?: string; status?: string; period?: OtpPeriod; page?: number; pageSize?: number }) {
   return unwrap<OtpDeliveryHistory>(api.get("/admin/otp-deliveries", { params }));
 }
 
@@ -350,6 +355,23 @@ export async function getDashboardAnalytics(params: { start: string; endExclusiv
 
 export async function getMeasurementVisits() {
   return unwrap<MeasurementVisit[]>(api.get("/measurement-visits"));
+}
+
+export function getAdminMeasurementVisit(id: string) {
+  return unwrap<MeasurementVisit>(api.get(`/admin/measurement-visits/${encodeURIComponent(id)}`));
+}
+
+export type TailorActivityLink = { id: string; source: "ORDER" | "TAILORING_REQUEST" | "MEASUREMENT" };
+export type TailorActivity = {
+  checkedAt: string;
+  summary: { orders: number; completedOrders: number; activeOrders: number; cancelledOrders: number; measurementAssignments: number; completedMeasurements: number; recordedEarnings: number; paidOut: number; walletBalance: number };
+  orders: Array<{ id: string; source: "ORDER" | "TAILORING_REQUEST"; number: string; status: string; customerName: string; customerPhone: string | null; amount: number; createdAt: string | null }>;
+  measurementVisits: Array<{ id: string; number: string; requestId: string; customerName: string; status: string; scheduledAt: string | null; submittedAt: string | null; payout: number }>;
+  earnings: Array<{ id: string; category: string; direction: "CREDIT" | "DEBIT"; amount: number; remarks: string | null; createdAt: string | null; link: TailorActivityLink | null }>;
+};
+
+export function getAdminTailorActivity(id: string) {
+  return unwrap<TailorActivity>(api.get(`/admin/tailors/${encodeURIComponent(id)}/activity`));
 }
 
 export async function assignMeasurementVisit(payload: { visitId: string; tailorId: string }) {
