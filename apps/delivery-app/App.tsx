@@ -1284,7 +1284,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
     requestPendingRef.current = true;
     try {
       setIsRequesting(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, platform: "DELIVERY_APP" }) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
@@ -1300,7 +1300,7 @@ function AuthScreen({ onAuthenticated, showDialog }: { onAuthenticated: () => vo
 
   async function verify() {
     if (verifyPendingRef.current || requestPendingRef.current) return;
-    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "DELIVERY_PARTNER" });
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "DELIVERY_PARTNER", platform: "DELIVERY_APP" });
     if (!parsed.success) {
       showDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "shield-checkmark-outline" });
       return;

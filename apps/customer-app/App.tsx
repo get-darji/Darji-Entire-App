@@ -2318,7 +2318,7 @@ function AuthScreen() {
     requestPendingRef.current = true;
     try {
       setIsRequestingOtp(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, platform: "CUSTOMER_APP" }) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
@@ -2338,7 +2338,7 @@ function AuthScreen() {
     if (verifyPendingRef.current || requestPendingRef.current) return;
     const code = normalizeDigits(submittedOtp ?? otpRef.current).slice(0, 6);
     otpRef.current = code;
-    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: code, role: "CUSTOMER" });
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: code, role: "CUSTOMER", platform: "CUSTOMER_APP" });
     if (!parsed.success) {
       setDialog(dialogFromNativeAlert(t(language, "enterOtp"), t(language, "otpRequired")));
       return;

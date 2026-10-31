@@ -144,7 +144,7 @@ function dateValue(value?: Date | string | null) {
 export async function requestOtpController(req: Request, res: Response) {
   const input = requestOtpSchema.parse(req.body);
   await assertAdminPhoneAllowed(input.phone, input.role);
-  const result = await requestOtp(input.phone, input.role);
+  const result = await requestOtp(input.phone, input.role, input.platform);
   console.info("[otp] Request completed", { provider: result.provider, smsRequested: true, destination: `******${input.phone.slice(-4)}` });
   res.setHeader("Cache-Control", "no-store");
   res.json({ data: result, message: "OTP request accepted; SMS delivery is pending" });

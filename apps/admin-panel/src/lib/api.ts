@@ -158,7 +158,7 @@ export function extractError(error: unknown) {
 }
 
 export async function requestOtp(phone: string) {
-  return unwrap<{ expiresAt: string; provider: "twofactor" }>(api.post("/auth/request-otp", { phone, role: "ADMIN" }));
+  return unwrap<{ expiresAt: string; provider: "twofactor" }>(api.post("/auth/request-otp", { phone, role: "ADMIN", platform: "ADMIN_PANEL" }));
 }
 
 export type OtpDeliveryStatus = "PENDING" | "DELIVERED" | "FAILED" | "REJECTED" | "REQUEST_FAILED";
@@ -185,7 +185,7 @@ export function getOtpDeliveryCallbackSetup() {
 }
 
 export async function verifyOtp(phone: string, otp: string) {
-  return unwrap<AuthSession>(api.post("/auth/verify-otp", { phone, otp, role: "ADMIN" }));
+  return unwrap<AuthSession>(api.post("/auth/verify-otp", { phone, otp, role: "ADMIN", platform: "ADMIN_PANEL" }));
 }
 
 export async function getMe() {

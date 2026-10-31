@@ -21,13 +21,15 @@ export const phoneSchema = z
 
 export const requestOtpSchema = z.object({
   phone: phoneSchema,
-  role: z.enum(roles).optional()
+  role: z.enum(roles).optional(),
+  platform: z.enum(["CUSTOMER_APP", "CUSTOMER_WEB", "TAILOR_APP", "DELIVERY_APP", "ADMIN_PANEL"]).optional()
 });
 
 export const verifyOtpSchema = z.object({
   phone: phoneSchema,
   otp: z.string().regex(/^\d{4,6}$/),
-  role: z.enum(roles).default("CUSTOMER")
+  role: z.enum(roles).default("CUSTOMER"),
+  platform: z.enum(["CUSTOMER_APP", "CUSTOMER_WEB", "TAILOR_APP", "DELIVERY_APP", "ADMIN_PANEL"]).optional()
 });
 
 export const addressSchema = z.object({

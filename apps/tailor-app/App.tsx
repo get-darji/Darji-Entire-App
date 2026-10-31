@@ -395,7 +395,7 @@ type VerificationDraft = {
   step: number;
   personal: { name: string; address: string; addressLine?: string; area?: string; city?: string; state?: string; pincode?: string; dob: string; email: string; location?: { lat: number; lng: number } };
   shop: { workFromHome: boolean; shopName: string; shopAddress: string; shopAddressLine?: string; shopArea?: string; shopCity?: string; shopState?: string; shopPincode?: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery?: string[]; shopPhotos: VerificationMediaDraft[] };
-  bank?: { accountHolder: string; accountNumber: string; ifsc: string; upi: string };
+  bank?: { accountHolder: string; accountNumber: string; ifsc: string; bankName?: string; upi: string; payoutPhone?: string };
   category: "Men" | "Women" | "Both";
   rows: SpecializationRow[];
   confirmedRows: boolean;
@@ -417,7 +417,7 @@ type VerificationDraft = {
 type TailorVerificationPayload = {
   personal: { name: string; address: string; dob: string; email?: string; location?: { lat: number; lng: number } };
   shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; shopPhotos: string[] };
-  bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; upi?: string };
+  bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; bankName?: string; upi?: string; payoutPhone?: string };
   specializationRows: Array<{ gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: number }>;
   specialties?: string[];
   idVerification: {
@@ -818,6 +818,8 @@ function AuthScreen() {
   const insets = useSafeAreaInsets();
   const [otpRequested, setOtpRequested] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
+  const [otpSentAt, setOtpSentAt] = useState<number | null>(null);
+  const otpStateKey = "@darji/tailor-otp-request.v1";
   const [otp, setOtp] = useState("");
   const otpRef = useRef("");
   const [verificationPhone, setVerificationPhone] = useState("");
@@ -832,22 +834,44 @@ function AuthScreen() {
   const requestForm = useForm<RequestOtpForm>({ resolver: zodResolver(requestOtpSchema), defaultValues: { role: "TAILOR" } });
 
   useEffect(() => {
-    if (!otpRequested) return undefined;
-    const timer = setInterval(() => setResendSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    let active = true;
+    AsyncStorage.getItem(otpStateKey).then((value) => {
+      if (!active || !value) return;
+      const saved = JSON.parse(value) as { phone?: string; sentAt?: number };
+      if (saved.phone && saved.sentAt && Date.now() - saved.sentAt < 10 * 60 * 1000) {
+        setVerificationPhone(saved.phone);
+        requestForm.setValue("phone", saved.phone);
+        setOtpSentAt(saved.sentAt);
+        setOtpRequested(true);
+      } else {
+        void AsyncStorage.removeItem(otpStateKey);
+      }
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!otpSentAt) return undefined;
+    const updateRemaining = () => setResendSeconds(Math.max(0, Math.ceil((otpSentAt + 60_000 - Date.now()) / 1000)));
+    updateRemaining();
+    const timer = setInterval(updateRemaining, 500);
     return () => clearInterval(timer);
-  }, [otpRequested]);
+  }, [otpSentAt]);
 
   async function requestOtp(values: RequestOtpForm) {
     if (requestPendingRef.current) return;
     requestPendingRef.current = true;
     try {
       setIsRequesting(true);
-      await api("/auth/request-otp", { method: "POST", body: JSON.stringify(values) });
+      await api("/auth/request-otp", { method: "POST", body: JSON.stringify({ ...values, platform: "TAILOR_APP" }) });
       otpRef.current = "";
       setOtp("");
       setVerificationPhone(values.phone);
+      const sentAt = Date.now();
+      setOtpSentAt(sentAt);
       setResendSeconds(60);
       setOtpRequested(true);
+      await AsyncStorage.setItem(otpStateKey, JSON.stringify({ phone: values.phone, sentAt })).catch(() => undefined);
     } catch (error) {
       setDialog({ title: localize(language, "OTP failed", "ओटीपी भेजा नहीं जा सका"), message: error instanceof Error ? error.message : localize(language, "Check backend connection.", "इंटरनेट कनेक्शन जाँचें।"), icon: "alert-circle-outline" });
     } finally {
@@ -858,7 +882,7 @@ function AuthScreen() {
 
   async function verify() {
     if (verifyPendingRef.current || requestPendingRef.current) return;
-    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "TAILOR" });
+    const parsed = verifyOtpSchema.safeParse({ phone: verificationPhone, otp: otpRef.current, role: "TAILOR", platform: "TAILOR_APP" });
     if (!parsed.success) {
       setDialog({ title: t(language, "enterOtp"), message: t(language, "otpRequired"), icon: "keypad-outline" });
       return;
@@ -872,6 +896,7 @@ function AuthScreen() {
         body: JSON.stringify(parsed.data)
       });
       setSession(session.accessToken, session.user, session.refreshToken);
+      void AsyncStorage.removeItem(otpStateKey);
     } catch (error) {
       setDialog({ title: localize(language, "Login failed", "लॉगिन नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Check OTP and try again.", "ओटीपी जाँचकर दोबारा कोशिश करें।"), icon: "alert-circle-outline" });
     } finally {
@@ -912,7 +937,7 @@ function AuthScreen() {
             <Pressable style={styles.textButton} disabled={resendSeconds > 0 || isRequesting || isVerifying} onPress={() => requestForm.handleSubmit((values) => requestOtp(values))()}>
               {isRequesting ? <ActivityIndicator color={BRAND_ORANGE} /> : <Text style={[styles.textButtonText, resendSeconds > 0 && styles.textButtonDisabled]}>{resendSeconds > 0 ? localize(language, `Resend OTP in ${resendSeconds}s`, `${resendSeconds} सेकंड में ओटीपी दोबारा भेजें`) : localize(language, "Resend OTP", "ओटीपी दोबारा भेजें")}</Text>}
             </Pressable>
-            <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => setOtpRequested(false)}>
+            <Pressable style={styles.textButton} disabled={isVerifying || isRequesting} onPress={() => { setOtpRequested(false); setOtpSentAt(null); setResendSeconds(0); void AsyncStorage.removeItem(otpStateKey); }}>
               <Text style={styles.textButtonText}>{t(language, "changeNumber")}</Text>
             </Pressable>
           </>
@@ -4443,7 +4468,8 @@ function TailorVerificationFlow({
   showDialog: (dialog: DialogState) => void;
   onSessionExpired: () => void;
 }) {
-  const status = me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
+  const [submittedLocally, setSubmittedLocally] = useState(false);
+  const status = submittedLocally ? "PENDING" : me?.tailorProfile?.verificationStatus ?? "NOT_SUBMITTED";
   const isLocked = status === "PENDING" || status === "VERIFIED";
   const { signOut } = useAppStore();
   const language = useAppStore((state) => state.language);
@@ -4458,7 +4484,7 @@ function TailorVerificationFlow({
   const [showShopPhotoSheet, setShowShopPhotoSheet] = useState(false);
   const [personal, setPersonal] = useState({ name: me?.name ?? "", address: "", addressLine: "", area: "", city: "", state: "", pincode: "", dob: "", email: "", location: undefined as { lat: number; lng: number } | undefined });
   const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", shopPhotos: [] as VerificationMediaDraft[] });
-  const [verificationBank, setVerificationBank] = useState({ accountHolder: "", accountNumber: "", ifsc: "", upi: "" });
+  const [verificationBank, setVerificationBank] = useState({ accountHolder: "", accountNumber: "", ifsc: "", bankName: "", upi: "", payoutPhone: "" });
   const [category, setCategory] = useState<"Men" | "Women" | "Both">("Both");
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
@@ -4569,7 +4595,7 @@ function TailorVerificationFlow({
       yearsExperience: String(verification.shop.yearsExperience ?? ""),
       shopPhotos: (verification.shop.shopPhotos ?? []).map((url, index) => ({ uri: url, name: `Shop photo ${index + 1}`, uploadedUrl: url }))
     });
-    setVerificationBank({ accountHolder: verification.bank?.accountHolder ?? "", accountNumber: verification.bank?.accountNumber ?? "", ifsc: verification.bank?.ifsc ?? "", upi: verification.bank?.upi ?? "" });
+    setVerificationBank({ accountHolder: verification.bank?.accountHolder ?? "", accountNumber: verification.bank?.accountNumber ?? "", ifsc: verification.bank?.ifsc ?? "", bankName: verification.bank?.bankName ?? "", upi: verification.bank?.upi ?? "", payoutPhone: verification.bank?.payoutPhone ?? "" });
     if (verification.specializationRows?.length) {
       setRows(
         verification.specializationRows.map((row, index) => ({
@@ -4940,8 +4966,9 @@ function TailorVerificationFlow({
       if (!shop.employeeCount.trim() || !Number.isInteger(Number(shop.employeeCount)) || Number(shop.employeeCount) < 0 || Number(shop.employeeCount) > 500) return localize(language, "Enter the number of employees as a whole number from 0 to 500.", "कर्मचारियों की संख्या 0 से 500 के बीच पूर्ण अंक में दर्ज करें।");
       if (!shop.yearsExperience.trim() || !Number.isInteger(Number(shop.yearsExperience)) || Number(shop.yearsExperience) < 0 || Number(shop.yearsExperience) > 80) return localize(language, "Enter years of experience as a whole number from 0 to 80.", "अनुभव के वर्ष 0 से 80 के बीच पूर्ण अंक में दर्ज करें।");
       const bank = Object.fromEntries(Object.entries(verificationBank).map(([key, value]) => [key, value.trim()]));
-      if ((bank.accountHolder || bank.accountNumber || bank.ifsc) && !(bank.accountHolder && bank.accountNumber && bank.ifsc)) return localize(language, "Enter account holder, account number and IFSC together, or leave all three blank. UPI alone is also allowed.", "खाताधारक का नाम, खाता संख्या और IFSC तीनों भरें या तीनों खाली छोड़ें। केवल UPI भी दे सकते हैं।");
+      if ((bank.accountHolder || bank.accountNumber || bank.ifsc || bank.bankName) && !(bank.bankName && bank.accountNumber && bank.ifsc)) return localize(language, "Enter bank name, account number and IFSC together, or leave bank details blank. UPI and payout phone are optional.", "बैंक नाम, खाता संख्या और IFSC एक साथ भरें, या बैंक विवरण खाली छोड़ें। UPI और भुगतान फ़ोन वैकल्पिक हैं।");
       if ((bank.accountHolder && (bank.accountHolder.length < 2 || bank.accountHolder.length > 80)) || (bank.accountNumber && (bank.accountNumber.length < 6 || bank.accountNumber.length > 30)) || (bank.ifsc && (bank.ifsc.length < 4 || bank.ifsc.length > 20))) return localize(language, "Check your bank account holder, account number and IFSC before continuing.", "आगे बढ़ने से पहले खाताधारक का नाम, खाता संख्या और IFSC जाँचें।");
+      if ((bank.bankName && (bank.bankName.length < 2 || bank.bankName.length > 100)) || (bank.payoutPhone && !/^[6-9]\d{9}$/.test(bank.payoutPhone))) return localize(language, "Check your bank name and payout phone number.", "बैंक नाम और भुगतान फ़ोन नंबर जाँचें।");
       const selectedSpecialties = [...specialties.filter((item) => item !== "Other"), ...customSpecialties];
       if (selectedSpecialties.length > 50 || selectedSpecialties.some((item) => item.trim().length < 2 || item.trim().length > 80)) return localize(language, "Choose up to 50 specialties, with 2 to 80 characters in each specialty.", "अधिकतम 50 विशेषताएँ चुनें और हर विशेषता 2 से 80 अक्षरों में लिखें।");
       if (shop.shopPhotos.length < 1) return localize(language, "Upload at least 1 shop photo.", "दुकान की कम से कम 1 फोटो अपलोड करें।");
@@ -5160,7 +5187,9 @@ function TailorVerificationFlow({
           ...(verificationBank.accountHolder.trim() ? { accountHolder: verificationBank.accountHolder.trim() } : {}),
           ...(verificationBank.accountNumber.trim() ? { accountNumber: verificationBank.accountNumber.trim() } : {}),
           ...(verificationBank.ifsc.trim() ? { ifsc: verificationBank.ifsc.trim() } : {}),
-          ...(verificationBank.upi.trim() ? { upi: verificationBank.upi.trim() } : {})
+          ...(verificationBank.bankName.trim() ? { bankName: verificationBank.bankName.trim() } : {}),
+          ...(verificationBank.upi.trim() ? { upi: verificationBank.upi.trim() } : {}),
+          ...(verificationBank.payoutPhone.trim() ? { payoutPhone: verificationBank.payoutPhone.trim() } : {})
         } : undefined,
         specializationRows: specializationRows.length
           ? specializationRows
@@ -5183,9 +5212,10 @@ function TailorVerificationFlow({
       };
       await api("/tailors/me/verification", { method: "POST", body: JSON.stringify(payload) }, token);
       await AsyncStorage.removeItem(storageKey).catch(() => undefined);
-      showDialog({ title: localize(language, "Verification submitted", "सत्यापन जमा हो गया"), message: localize(language, "Your details reached the Darji team for review.", "आपकी जानकारी समीक्षा के लिए दर्जी टीम तक पहुँच गई है।"), icon: "checkmark-circle-outline" });
-      onRefresh();
+      setSubmittedLocally(true);
       setStep(VERIFICATION_STATUS_STEP);
+      showDialog({ title: localize(language, "Verification submitted", "सत्यापन जमा हो गया"), message: localize(language, "Your details reached the Darji team for review.", "आपकी जानकारी समीक्षा के लिए दर्जी टीम तक पहुँच गई है।"), icon: "checkmark-circle-outline" });
+      void onRefresh();
     } catch (error) {
       if (isSessionError(error)) return onSessionExpired();
       showDialog({ title: localize(language, "Submit failed", "जमा नहीं हो सका"), message: error instanceof Error ? error.message : localize(language, "Could not submit verification.", "सत्यापन जमा नहीं हो सका।"), icon: "alert-circle-outline" });
@@ -5595,9 +5625,11 @@ function TailorVerificationFlow({
                 </View>
               </View>
               <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountHolder} onChangeText={(accountHolder) => setVerificationBank((current) => ({ ...current, accountHolder }))} placeholder="Bank account holder (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.bankName} onChangeText={(bankName) => setVerificationBank((current) => ({ ...current, bankName }))} placeholder="Bank name (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
               <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountNumber} onChangeText={(accountNumber) => setVerificationBank((current) => ({ ...current, accountNumber: accountNumber.replace(/\s/g, "").slice(0, 30) }))} placeholder="Bank account number (optional)" placeholderTextColor="#9aa6b8" keyboardType="number-pad" editable={!isLocked} />
               <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.ifsc} onChangeText={(ifsc) => setVerificationBank((current) => ({ ...current, ifsc: ifsc.toUpperCase().slice(0, 20) }))} placeholder="IFSC code (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="characters" editable={!isLocked} />
               <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.upi} onChangeText={(upi) => setVerificationBank((current) => ({ ...current, upi: upi.slice(0, 80) }))} placeholder="UPI ID (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="none" editable={!isLocked} />
+              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.payoutPhone} onChangeText={(payoutPhone) => setVerificationBank((current) => ({ ...current, payoutPhone: payoutPhone.replace(/\D/g, "").slice(0, 10) }))} placeholder="Payout phone number (optional)" placeholderTextColor="#9aa6b8" keyboardType="phone-pad" editable={!isLocked} />
             </View>
             <View style={styles.rowBetween}>
               <Text style={styles.formLabel}>{localize(language, "Shop Photos", "दुकान की फोटो")}</Text>
@@ -7368,7 +7400,7 @@ function AppContent() {
   if (verificationStatus !== "VERIFIED") {
     return (
       <>
-        <TailorVerificationFlow me={me} token={token} onRefresh={() => refreshWorkspace(true)} showDialog={setDialog} onSessionExpired={handleSessionExpired} />
+        <TailorVerificationFlow me={me} token={token} onRefresh={() => refreshWorkspace(false)} showDialog={setDialog} onSessionExpired={handleSessionExpired} />
         <DesignedDialog dialog={dialog} onClose={() => setDialog(undefined)} />
         {incomingAlertPermissionGuide}
       </>

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { OtpCooldownModel, OtpMetricModel, OtpRequestModel } from "../models.js";
+import { OtpCooldownModel, OtpMetricModel, OtpRequestModel, SettingModel } from "../models.js";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { otpDeliveryCallbackReady, recordOtpAccepted, recordOtpRequestFailure, safeOtpProviderError } from "./otp-delivery.service.js";
@@ -18,12 +18,13 @@ const SUCCESSFUL_SEND_METRIC_ID = "twofactor-successful-sends";
 
 export function otpRuntimeStatus() {
   return {
-    build: "twofactor-only-v3",
+    build: "twofactor-admin-fallback-v1",
     defaultProvider: "twofactor",
     providerEnabled: env.TWOFACTOR_ENABLED,
     apiKeyConfigured: Boolean(env.TWOFACTOR_API_KEY?.trim()),
     developmentFallbackEnabled: false,
-    fallbackSupported: false,
+    fallbackSupported: true,
+    fallbackControlledByAdmin: true,
     deliveryCallbackConfigured: otpDeliveryCallbackReady()
   };
 }
@@ -99,14 +100,14 @@ async function recordSuccessfulOtpSend() {
   }
 }
 
-async function createOtpRequest(phone: string, providerSessionId: string): Promise<OtpRequestResult> {
+async function createOtpRequest(phone: string, providerSessionId: string, role?: string, platform?: string): Promise<OtpRequestResult> {
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
   await OtpRequestModel.updateMany(
     { phone, consumedAt: { $exists: false } },
     { $set: { consumedAt: new Date() } }
   );
-  await OtpRequestModel.create({ phone, providerSessionId, expiresAt, provider: "twofactor" });
+  await OtpRequestModel.create({ phone, providerSessionId, role, platform, expiresAt, provider: "twofactor" });
 
   return {
     expiresAt,
@@ -136,7 +137,7 @@ async function releaseOtpReservation(phone: string, reservationId: string) {
   await OtpCooldownModel.deleteOne({ _id: phone, reservationId });
 }
 
-export async function requestOtp(phone: string, role?: string) {
+export async function requestOtp(phone: string, role?: string, platform?: string) {
   if (!env.TWOFACTOR_ENABLED || !env.TWOFACTOR_API_KEY) {
     throw new AppError(503, "2Factor OTP is not configured");
   }
@@ -158,7 +159,7 @@ export async function requestOtp(phone: string, role?: string) {
   }
   await recordOtpAccepted(phone, providerSessionId, role, requestedAt).catch(() => console.error("[otp] Could not save accepted SMS request history"));
   await recordSuccessfulOtpSend();
-  const request = await createOtpRequest(phone, providerSessionId);
+  const request = await createOtpRequest(phone, providerSessionId, role, platform);
   console.info(`[otp] 2Factor session stored in ${Date.now() - providerStartedAt}ms total`);
   return request;
 }
@@ -174,6 +175,13 @@ export async function verifyOtp(phone: string, otp: string) {
     throw new AppError(429, "Too many incorrect OTP attempts. Request a new code.");
   }
 
+  const fallbackSetting = await SettingModel.findOne({ key: "otp_fallback_settings" }).select("value").lean();
+  const platform = request.platform ?? (request.role === "TAILOR" ? "TAILOR_APP" : request.role === "DELIVERY_PARTNER" ? "DELIVERY_APP" : request.role === "ADMIN" || request.role === "SUPER_ADMIN" ? "ADMIN_PANEL" : "CUSTOMER_APP");
+  const fallbackConfig = fallbackSetting?.value && typeof fallbackSetting.value === "object" ? fallbackSetting.value as Record<string, unknown> : {};
+  if (otp === "123456" && fallbackConfig[platform] === true) {
+    await OtpRequestModel.findByIdAndUpdate(request.id, { consumedAt: new Date() });
+    return;
+  }
   if (request.provider !== "twofactor" || !request.providerSessionId) {
     throw new AppError(400, "Request a new SMS OTP to continue");
   }
@@ -181,17 +189,17 @@ export async function verifyOtp(phone: string, otp: string) {
   try {
     const payload = await callTwoFactor(`VERIFY/${encodeURIComponent(request.providerSessionId)}/${encodeURIComponent(otp)}`);
     const detail = String(payload.Details ?? payload.details ?? "").trim();
-    if (!isTwoFactorSuccess(payload) && !/otp.*(mismatch|not matched|invalid)|invalid.*otp/i.test(detail)) {
+    if (!isTwoFactorSuccess(payload) && !/(otp.*(mismatch|not matched|not match|does not match|invalid|incorrect|wrong)|(?:incorrect|wrong|invalid).{0,20}otp)/i.test(detail)) {
       throw new Error(`TwoFactor OTP verify failed: ${detail.replace(/\b\d{6,10}\b/g, "[redacted]").slice(0, 200)}`);
     }
     matches = isTwoFactorSuccess(payload) && detail.toLowerCase() === "otp matched";
   } catch (error) {
     console.error(safeOtpProviderError(error));
-    throw new AppError(502, "Could not verify OTP with 2Factor. Please try again.");
+    throw new AppError(502, "Could not verify the code right now. Please try again.");
   }
   if (!matches) {
     await OtpRequestModel.findByIdAndUpdate(request.id, { $inc: { attempts: 1 } });
-    throw new AppError(400, "Invalid OTP");
+    throw new AppError(400, "Incorrect OTP. Check the code and try again.");
   }
 
   await OtpRequestModel.findByIdAndUpdate(request.id, { consumedAt: new Date() });

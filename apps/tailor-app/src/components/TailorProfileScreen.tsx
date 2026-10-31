@@ -171,7 +171,7 @@ type TailorProfile = {
       yearsExperience?: number;
       shopPhotos?: string[];
     };
-    bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; upi?: string };
+    bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; bankName?: string; upi?: string; payoutPhone?: string };
     idVerification?: { idType?: string; idNumber?: string; facePhotoUrl?: string };
   };
   verificationDraft?: {
@@ -655,7 +655,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         <InfoRow icon="person-circle-outline" title="Profile" value="Personal details and account information" styles={styles} onPress={() => { setName(registeredName); setAddress(registeredAddress); setEmail(serverEmail); setEditing(true); }} noBorder />
         <InfoRow icon="document-text-outline" title="Documents" value="Submitted identity details" styles={styles} onPress={() => setShowDocuments(true)} />
         <InfoRow icon="storefront-outline" title="Shop Details" value={shopName} styles={styles} onPress={() => setShowShopDetails(true)} />
-        <InfoRow icon="card-outline" title="Payment Details" value={profile?.verification?.bank?.upi || profile?.verification?.bank?.accountNumber ? "Saved payout method" : "No payout details added"} styles={styles} onPress={() => setShowBankDetails(true)} />
+        <InfoRow icon="card-outline" title="Payment Details" value={profile?.verification?.bank?.upi || profile?.verification?.bank?.accountNumber || profile?.verification?.bank?.payoutPhone ? "Saved payout method" : "No payout details added"} styles={styles} onPress={() => setShowBankDetails(true)} />
         <InfoRow icon="images-outline" title="Sample Photos" value={`${(profile?.sampleGallery ?? []).length} uploaded, ${sampleDrafts.length} ready to submit`} styles={styles} onPress={() => setShowSampleWork(true)} />
       </Section>
 
@@ -824,10 +824,16 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View style={styles.profileDetailEyebrow}>
                 <Text style={[styles.profileDetailEyebrowText, { color: profileAccent }]}>CURRENT DETAILS</Text>
               </View>
-              <InfoRow accent={profileAccent} icon="card-outline" title="Payout Option" value={profile?.verification?.bank?.upi ? (profile.verification.bank.accountNumber ? "Bank transfer and UPI" : "UPI") : profile?.verification?.bank?.accountNumber ? "Bank transfer" : "Not added"} styles={styles} />
-              <InfoRow accent={profileAccent} icon="business-outline" title="Bank Account" value={profile?.verification?.bank?.accountNumber ? `••••${profile.verification.bank.accountNumber.slice(-4)} · ${profile.verification.bank.ifsc || "IFSC not available"}` : "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="card-outline" title="Payout Option" value={[
+                profile?.verification?.bank?.accountNumber ? "Bank transfer" : "",
+                profile?.verification?.bank?.upi ? "UPI" : "",
+                profile?.verification?.bank?.payoutPhone ? "Phone payout" : ""
+              ].filter(Boolean).join(" + ") || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="business-outline" title="Bank Account" value={profile?.verification?.bank?.accountNumber ? `••••${profile.verification.bank.accountNumber.slice(-4)} · ${profile.verification.bank.bankName || profile.verification.bank.ifsc || "Bank details saved"}` : "Not added"} styles={styles} />
               <InfoRow accent={profileAccent} icon="person-circle-outline" title="Account Holder" value={profile?.verification?.bank?.accountHolder || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="business-outline" title="Bank Name" value={profile?.verification?.bank?.bankName || "Not added"} styles={styles} />
               <InfoRow accent={profileAccent} icon="wallet-outline" title="UPI ID" value={profile?.verification?.bank?.upi || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="call-outline" title="Payout Phone" value={profile?.verification?.bank?.payoutPhone || "Not added"} styles={styles} />
               <InfoRow accent={profileAccent} icon="wallet-outline" title="Status" value="Verified for weekly payouts" styles={styles} />
             </View>
 
@@ -2292,7 +2298,9 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
   const [accountHolder, setAccountHolder] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
+  const [bankName, setBankName] = useState("");
   const [upiId, setUpiId] = useState("");
+  const [payoutPhone, setPayoutPhone] = useState("");
   const [addressField, setAddressField] = useState("");
   const [phoneField, setPhoneField] = useState("");
   const [identityType, setIdentityType] = useState<"Aadhaar" | "PAN">("Aadhaar");
@@ -2381,13 +2389,13 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
         Alert.alert("Invalid Input", "Please enter valid bank account details.");
         return;
       }
-      requestedValues = { accountHolder: accountHolder.trim(), accountNumber: accountNumber.trim(), ifsc: ifsc.trim() };
+      requestedValues = { accountHolder: accountHolder.trim(), accountNumber: accountNumber.trim(), ifsc: ifsc.trim(), ...(bankName.trim() ? { bankName: bankName.trim() } : {}) };
     } else if (type === "UPI") {
-      if (upiId.trim().length < 3 || !upiId.includes("@")) {
-        Alert.alert("Invalid Input", "Please enter a valid UPI ID.");
+      if ((upiId.trim() && (upiId.trim().length < 3 || !upiId.includes("@"))) || (payoutPhone.trim() && !/^[6-9]\d{9}$/.test(payoutPhone.trim())) || (!upiId.trim() && !payoutPhone.trim())) {
+        Alert.alert("Invalid Input", "Enter a valid UPI ID or a 10 digit payout phone number.");
         return;
       }
-      requestedValues = { upi: upiId.trim() };
+      requestedValues = { ...(upiId.trim() ? { upi: upiId.trim() } : {}), ...(payoutPhone.trim() ? { payoutPhone: payoutPhone.trim() } : {}) };
     } else if (type === "Address") {
       if (addressField.trim().length < 8) {
         Alert.alert("Invalid Input", "Please enter a valid shop address (min 8 characters).");
@@ -2432,7 +2440,9 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
       setAccountHolder("");
       setAccountNumber("");
       setIfsc("");
+      setBankName("");
       setUpiId("");
+      setPayoutPhone("");
       setAddressField("");
       setPhoneField("");
       setIdNumber("");
@@ -2520,6 +2530,10 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
                   />
                 </View>
                 <View>
+                  <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Bank Name</Text>
+                  <TextInput style={[styles.input, { backgroundColor: palette.bg }]} value={bankName} onChangeText={setBankName} placeholder="Bank name..." placeholderTextColor={palette.muted} />
+                </View>
+                <View>
                   <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Account Number</Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: palette.bg }]}
@@ -2545,16 +2559,15 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
             )}
 
             {type === "UPI" && (
-              <View>
-                <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>New UPI ID</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: palette.bg }]}
-                  value={upiId}
-                  onChangeText={setUpiId}
-                  placeholder="username@bank..."
-                  placeholderTextColor={palette.muted}
-                  autoCapitalize="none"
-                />
+              <View style={{ gap: 12 }}>
+                <View>
+                  <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>New UPI ID (optional)</Text>
+                  <TextInput style={[styles.input, { backgroundColor: palette.bg }]} value={upiId} onChangeText={setUpiId} placeholder="username@bank..." placeholderTextColor={palette.muted} autoCapitalize="none" />
+                </View>
+                <View>
+                  <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Payout phone number (optional)</Text>
+                  <TextInput style={[styles.input, { backgroundColor: palette.bg }]} value={payoutPhone} onChangeText={(value) => setPayoutPhone(value.replace(/\D/g, "").slice(0, 10))} placeholder="10 digit phone number..." placeholderTextColor={palette.muted} keyboardType="phone-pad" />
+                </View>
               </View>
             )}
 

@@ -345,7 +345,7 @@ type DeliveryBatchSettingsDraft = {
   maxOrdersPerBatch: number;
 };
 
-type SettingsPage = "festival" | "service-area" | "tutorial" | "delivery" | "development";
+type SettingsPage = "festival" | "service-area" | "tutorial" | "delivery" | "otp" | "development";
 
 type MapPartnerFocus = {
   partnerId: string;
@@ -3579,6 +3579,7 @@ export function AdminPortal() {
                 { id: "service-area", label: "Service Areas", description: "Coverage and requests" },
                 { id: "tutorial", label: "Tailor Tutorial", description: "Training media" },
                 { id: "delivery", label: "Delivery", description: "Pricing and batches" },
+                { id: "otp", label: "OTP Fallback", description: "Optional 123456 verification" },
                 { id: "development", label: "Development", description: "Reset tools" }
               ] as Array<{ id: SettingsPage; label: string; description: string }>).map((page) => (
                 <button aria-current={settingsPage === page.id ? "page" : undefined} className={cn("rounded-xl border px-4 py-3 text-left transition", settingsPage === page.id ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--foreground)] shadow-sm" : "border-transparent text-[var(--muted)] hover:border-[var(--panel-border)] hover:bg-black/5")} key={page.id} onClick={() => setSettingsPage(page.id)} type="button">
@@ -3624,6 +3625,14 @@ export function AdminPortal() {
                   }}
                 />
               </div>
+            ) : null}
+
+            {settingsPage === "otp" ? (
+              <OtpFallbackSettingsCard
+                setting={settingsQuery.data?.find((item) => item.key === "otp_fallback_settings")}
+                pending={settingMutation.isPending}
+                onSave={(value) => settingMutation.mutate({ key: "otp_fallback_settings", value })}
+              />
             ) : null}
 
             {settingsPage === "development" ? <DevelopmentResetCard ordersPending={resetOrdersMutation.isPending} everythingPending={resetEverythingMutation.isPending} onResetOrders={() => resetOrdersMutation.mutate()} onResetEverything={() => resetEverythingMutation.mutate()} /> : null}
@@ -8680,6 +8689,49 @@ function DeliveryFareSettingsCard({
             </Field>
           </div>
         ))}
+      </div>
+    </Panel>
+  );
+}
+
+function OtpFallbackSettingsCard({
+  setting,
+  pending,
+  onSave
+}: {
+  setting?: SettingRecord;
+  pending: boolean;
+  onSave: (value: Record<string, boolean>) => void;
+}) {
+  const raw = setting?.value && typeof setting.value === "object" ? setting.value as Record<string, unknown> : {};
+  const platforms = [
+    ["CUSTOMER_APP", "Customer app", "Customer mobile app sign-in"],
+    ["CUSTOMER_WEB", "Customer website", "Customer website sign-in"],
+    ["TAILOR_APP", "Tailor app", "Tailor sign-in"],
+    ["DELIVERY_APP", "Delivery app", "Delivery partner sign-in"],
+    ["ADMIN_PANEL", "Admin panel", "Admin sign-in"]
+  ] as const;
+  const current = Object.fromEntries(platforms.map(([key]) => [key, raw[key] === true])) as Record<string, boolean>;
+  return (
+    <Panel>
+      <div className="max-w-3xl">
+        <h3 className="text-lg font-semibold">Fallback OTP · 123456</h3>
+        <p className="mt-1 text-sm text-[var(--muted)]">Choose where the fallback code can verify sign-in. Real SMS OTP requests continue to be sent and remain valid when fallback is enabled.</p>
+        <div className="mt-5 divide-y divide-[var(--panel-border)] rounded-2xl border border-[var(--panel-border)]">
+          {platforms.map(([key, label, description]) => (
+            <label className="flex cursor-pointer items-center justify-between gap-4 p-4" key={key}>
+              <span><span className="block text-sm font-semibold">{label}</span><span className="mt-0.5 block text-xs text-[var(--muted)]">{description}</span></span>
+              <input
+                aria-label={`Enable fallback OTP for ${label}`}
+                checked={current[key]}
+                className="h-5 w-5 accent-[var(--accent)]"
+                disabled={pending}
+                onChange={(event) => onSave({ ...current, [key]: event.target.checked })}
+                type="checkbox"
+              />
+            </label>
+          ))}
+        </div>
       </div>
     </Panel>
   );

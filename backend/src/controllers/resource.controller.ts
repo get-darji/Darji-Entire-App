@@ -162,11 +162,13 @@ const tailorVerificationSchema = z.object({
     accountHolder: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(2).max(80).optional()),
     accountNumber: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(6).max(30).optional()),
     ifsc: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(4).max(20).optional()),
-    upi: z.string().trim().max(80).optional().or(z.literal(""))
+    bankName: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(2).max(100).optional()),
+    upi: z.string().trim().max(80).optional().or(z.literal("")),
+    payoutPhone: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().regex(/^[6-9]\d{9}$/).optional())
   }).optional().default({}).superRefine((bank, ctx) => {
-    const hasBankEntry = Boolean(bank.accountHolder || bank.accountNumber || bank.ifsc);
-    if (hasBankEntry && !(bank.accountHolder && bank.accountNumber && bank.ifsc)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Add account holder, account number, and IFSC together" });
+    const hasBankEntry = Boolean(bank.accountHolder || bank.accountNumber || bank.ifsc || bank.bankName);
+    if (hasBankEntry && !(bank.accountNumber && bank.ifsc && bank.bankName)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Add bank name, account number, and IFSC together" });
     }
   }),
   specialties: z.array(z.string().trim().min(2).max(80)).max(50).optional(),
@@ -729,11 +731,11 @@ export async function submitTailorVerificationController(req: Request, res: Resp
       "shop.gstNumber": "GST number", "shop.employeeCount": "employee count (a whole number from 0 to 500)",
       "shop.yearsExperience": "years of experience (a whole number from 0 to 80)", "shop.shopPhotos": "workshop photos (1 to 3 uploaded photos)",
       "bank.accountHolder": "bank account holder (2 to 80 characters)", "bank.accountNumber": "bank account number (6 to 30 characters)",
-      "bank.ifsc": "IFSC code (4 to 20 characters)", "bank.upi": "UPI ID (up to 80 characters)",
+      "bank.ifsc": "IFSC code (4 to 20 characters)", "bank.bankName": "bank name", "bank.upi": "UPI ID (up to 80 characters)", "bank.payoutPhone": "payout phone number (10 digits)",
       "idVerification.idNumber": "ID number", "idVerification.aadhaarFrontUrl": "Aadhaar front photo",
       "idVerification.aadhaarBackUrl": "Aadhaar back photo", "idVerification.panUrl": "ID card photo", "idVerification.facePhotoUrl": "face verification photo"
     };
-    const message = field === "bank" ? "Enter account holder, account number and IFSC together, or leave all three blank. UPI alone is also allowed."
+    const message = field === "bank" ? "Enter bank name, account number and IFSC together, or leave bank details blank. UPI and payout phone are optional."
       : field.startsWith("specialties") ? "Choose up to 50 specialties, with 2 to 80 characters in each specialty."
         : field.startsWith("specializationRows") ? "Check your stitching specialties and prices. Each price must be between 0 and 100000."
           : `Please check your ${labels[field] ?? labels[issue.path.slice(0, 2).map(String).join(".")] ?? "registration details"} and submit again.`;
@@ -2625,7 +2627,9 @@ export async function updateSettingController(req: Request, res: Response) {
   if (key === "delivery_fare_settings") throw new AppError(409, "Delivery pricing is code-controlled and cannot be changed from the admin panel");
   const value = key === CUSTOMER_WEBSITE_SLIDER_SETTING_KEY
     ? customerWebsiteSliderSchema.parse(req.body.value)
-    : req.body.value;
+    : key === "otp_fallback_settings"
+      ? z.object({ CUSTOMER_APP: z.boolean(), CUSTOMER_WEB: z.boolean(), TAILOR_APP: z.boolean(), DELIVERY_APP: z.boolean(), ADMIN_PANEL: z.boolean() }).strict().parse(req.body.value)
+      : req.body.value;
   const setting = await SettingModel.findOneAndUpdate({ key }, { key, value }, { upsert: true, returnDocument: "after" });
   res.json({ data: setting });
 }
@@ -2955,11 +2959,13 @@ export async function listAccountChangeRequestsController(req: Request, res: Res
               currentValues = {
                 accountHolder: bank.accountHolder || "",
                 accountNumber: bank.accountNumber || "",
-                ifsc: bank.ifsc || ""
+                ifsc: bank.ifsc || "",
+                bankName: bank.bankName || ""
               };
             } else if (request.type === "UPI") {
               currentValues = {
-                upi: verification.bank?.upi || ""
+                upi: verification.bank?.upi || "",
+                payoutPhone: verification.bank?.payoutPhone || ""
               };
             } else if (request.type === "Address") {
               currentValues = {
@@ -3069,9 +3075,11 @@ export async function approveAccountChangeRequestController(req: Request, res: R
         verification.bank.accountHolder = vals.accountHolder;
         verification.bank.accountNumber = vals.accountNumber;
         verification.bank.ifsc = vals.ifsc;
+        if (vals.bankName) verification.bank.bankName = vals.bankName;
       } else if (request.type === "UPI") {
         if (!verification.bank) verification.bank = {};
-        verification.bank.upi = vals.upi;
+        if (vals.upi) verification.bank.upi = vals.upi;
+        if (vals.payoutPhone) verification.bank.payoutPhone = vals.payoutPhone;
       } else if (request.type === "Address") {
         if (!verification.shop) verification.shop = {};
         verification.shop.shopAddress = vals.shopAddress;
