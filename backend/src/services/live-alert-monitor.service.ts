@@ -8,9 +8,9 @@ import {
 } from "../models.js";
 import { operationalAlertCategory, sendOperationalAlertEmails, type LiveAlertEmailInput } from "./email-alert.service.js";
 
-const ACTIVE_DELIVERY_STATUSES = ["delivered", "completed", "cancelled", "CANCELLED"];
-const LIVE_ORDER_STATUSES = ["ORDER_PLACED", "CONFIRMED", "AT_TAILOR", "STITCHING_STARTED"];
-const UNRESOLVED_TICKET_STATUSES = ["RESOLVED", "CLOSED"];
+const ACTIVE_DELIVERY_STATUSES = ["delivered", "cancelled"] as const;
+const LIVE_ORDER_STATUSES = ["ORDER_PLACED", "AT_TAILOR", "STITCHING_STARTED"] as const;
+const UNRESOLVED_TICKET_STATUSES = ["RESOLVED", "CLOSED"] as const;
 
 function asDate(value: unknown) {
   if (!value) return undefined;
@@ -50,22 +50,22 @@ export async function monitorAdminLiveAlerts(now = new Date()) {
   const days = (value: number) => new Date(now.getTime() - value * 24 * 60 * 60_000);
   const [operationalAlerts, quotePending, unassignedDeliveries, delayedDeliveries, failedDeliveries, failedPayments, pendingPayments, quotesAwaitingConfirmation, quotePaymentsOverdue, stalledOrders, priorityTickets] = await Promise.all([
     OperationalAlertModel.find({ status: "OPEN" }).select("_id type severity title message createdAt").lean(),
-    TailoringRequestModel.find({ status: "QUOTE_REQUESTED", createdAt: dateFilterBefore(minutes(1.5)) }).select("_id darjiId createdAt").lean(),
+    TailoringRequestModel.find({ status: "QUOTE_REQUESTED", createdAt: dateFilterBefore(minutes(1.5)) }).select("_id createdAt").lean(),
     DeliveryRequestModel.find({ ...isOpenDeliveryFilter(), assignedDeliveryPartnerId: { $in: [null, ""] }, createdAt: dateFilterBefore(minutes(10)) }).select("_id taskId createdAt").lean(),
     DeliveryRequestModel.find({ ...isOpenDeliveryFilter(), deadlineAt: { $lt: now, $exists: true } }).select("_id taskId type deadlineAt createdAt").lean(),
     DeliveryRequestModel.find({ ...isOpenDeliveryFilter(), lastFailureReason: { $exists: true, $nin: [null, ""] } }).select("_id taskId lastFailureReason updatedAt createdAt").lean(),
-    PaymentModel.find({ status: "FAILED" }).select("_id darjiId orderId status amount createdAt").lean(),
-    PaymentModel.find({ status: "PENDING", createdAt: dateFilterBefore(minutes(15)) }).select("_id darjiId orderId status amount createdAt").lean(),
-    TailoringRequestModel.find({ status: "QUOTE_REQUESTED", lastQuoteSentAt: dateFilterBefore(hours(2)) }).select("_id darjiId lastQuoteSentAt updatedAt").lean(),
+    PaymentModel.find({ status: "FAILED" }).select("_id orderId status amount createdAt").lean(),
+    PaymentModel.find({ status: "PENDING", createdAt: dateFilterBefore(minutes(15)) }).select("_id orderId status amount createdAt").lean(),
+    TailoringRequestModel.find({ status: "QUOTE_REQUESTED", lastQuoteSentAt: dateFilterBefore(hours(2)) }).select("_id lastQuoteSentAt updatedAt").lean(),
     TailoringRequestModel.find({ status: "PAYMENT_PENDING", paymentStatus: { $ne: "PAID" }, $or: [
       { paymentPendingAt: dateFilterBefore(hours(2)) },
       { paymentPendingAt: { $exists: false }, updatedAt: dateFilterBefore(hours(2)) },
       { paymentPendingAt: { $exists: false }, updatedAt: { $exists: false }, createdAt: dateFilterBefore(hours(2)) }
-    ] }).select("_id darjiId paymentPendingAt updatedAt createdAt").lean(),
-    OrderModel.find({ status: { $in: LIVE_ORDER_STATUSES }, $or: [
+    ] }).select("_id paymentPendingAt updatedAt createdAt").lean(),
+    OrderModel.find({ status: { $in: [...LIVE_ORDER_STATUSES] }, $or: [
       { updatedAt: dateFilterBefore(days(1)) },
       { updatedAt: { $exists: false }, createdAt: dateFilterBefore(days(1)) }
-    ] }).select("_id darjiId orderNumber status createdAt updatedAt").lean(),
+    ] }).select("_id orderNumber status createdAt updatedAt").lean(),
     SupportTicketModel.find({ priority: { $in: ["HIGH", "URGENT"] }, status: { $nin: UNRESOLVED_TICKET_STATUSES } }).select("_id subject userId priority status createdAt").lean()
   ]);
 
@@ -85,7 +85,7 @@ export async function monitorAdminLiveAlerts(now = new Date()) {
 
   for (const item of quotePending) {
     const id = String(item._id);
-    add({ incidentKey: `tailoring-wait-${id}`, categoryInput: "tailoring", title: "Quote pending", description: `${item.darjiId ?? `REQ-${id.slice(0, 8).toUpperCase()}`} has been waiting for tailor quotes.`, severity: "warning", detectedAt: asDate(item.createdAt)?.toISOString() });
+    add({ incidentKey: `tailoring-wait-${id}`, categoryInput: "tailoring", title: "Quote pending", description: `REQ-${id.slice(0, 8).toUpperCase()} has been waiting for tailor quotes.`, severity: "warning", detectedAt: asDate(item.createdAt)?.toISOString() });
   }
 
   for (const item of unassignedDeliveries) {
@@ -101,24 +101,24 @@ export async function monitorAdminLiveAlerts(now = new Date()) {
   }
 
   for (const item of failedPayments) {
-    add({ incidentKey: `payment-failed-${String(item._id)}`, categoryInput: "payment", title: "Payment failed", description: `${item.darjiId ?? item.orderId} failed for ${formatCurrency(item.amount)}.`, severity: "warning", detectedAt: asDate(item.createdAt)?.toISOString() });
+    add({ incidentKey: `payment-failed-${String(item._id)}`, categoryInput: "payment", title: "Payment failed", description: `${item.orderId} failed for ${formatCurrency(item.amount)}.`, severity: "warning", detectedAt: asDate(item.createdAt)?.toISOString() });
   }
 
   for (const item of pendingPayments) {
-    add({ incidentKey: `payment-pending-${String(item._id)}`, categoryInput: "payment", title: "Payment pending", description: `${item.darjiId ?? item.orderId} is still awaiting ${formatCurrency(item.amount)}.`, severity: "warning", detectedAt: asDate(item.createdAt)?.toISOString() });
+    add({ incidentKey: `payment-pending-${String(item._id)}`, categoryInput: "payment", title: "Payment pending", description: `${item.orderId} is still awaiting ${formatCurrency(item.amount)}.`, severity: "warning", detectedAt: asDate(item.createdAt)?.toISOString() });
   }
 
   for (const item of quotesAwaitingConfirmation) {
-    add({ incidentKey: `quote-awaiting-confirmation-${String(item._id)}`, categoryInput: "tailoring", title: "Quote awaiting confirmation", description: `${item.darjiId ?? `TRQ-${String(item._id).slice(0, 8).toUpperCase()}`} has a tailor quote awaiting customer confirmation for over 2 hours.`, severity: "warning", detectedAt: asDate(item.lastQuoteSentAt ?? item.updatedAt)?.toISOString() });
+    add({ incidentKey: `quote-awaiting-confirmation-${String(item._id)}`, categoryInput: "tailoring", title: "Quote awaiting confirmation", description: `TRQ-${String(item._id).slice(0, 8).toUpperCase()} has a tailor quote awaiting customer confirmation for over 2 hours.`, severity: "warning", detectedAt: asDate(item.lastQuoteSentAt ?? item.updatedAt)?.toISOString() });
   }
 
   for (const item of quotePaymentsOverdue) {
-    add({ incidentKey: `quote-payment-overdue-${String(item._id)}`, categoryInput: "tailoring", title: "Quote awaiting payment", description: `${item.darjiId ?? `TRQ-${String(item._id).slice(0, 8).toUpperCase()}`} has a selected tailor quote awaiting customer payment for over 2 hours.`, severity: "warning", detectedAt: asDate(item.paymentPendingAt ?? item.updatedAt ?? item.createdAt)?.toISOString() });
+    add({ incidentKey: `quote-payment-overdue-${String(item._id)}`, categoryInput: "tailoring", title: "Quote awaiting payment", description: `TRQ-${String(item._id).slice(0, 8).toUpperCase()} has a selected tailor quote awaiting customer payment for over 2 hours.`, severity: "warning", detectedAt: asDate(item.paymentPendingAt ?? item.updatedAt ?? item.createdAt)?.toISOString() });
   }
 
   for (const item of stalledOrders) {
     const title = ["AT_TAILOR", "STITCHING_STARTED"].includes(String(item.status).toUpperCase()) ? "Tailor delay" : "Order delayed";
-    const identifier = item.orderNumber ?? item.darjiId ?? String(item._id);
+    const identifier = item.orderNumber ?? String(item._id);
     add({ incidentKey: `order-stalled-${String(item._id)}`, categoryInput: title, title, description: `${identifier} has not moved for more than 24 hours.`, severity: "warning", detectedAt: asDate(item.updatedAt ?? item.createdAt)?.toISOString() });
   }
 
