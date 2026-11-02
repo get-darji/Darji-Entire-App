@@ -152,6 +152,7 @@ import {
   getSettings,
   getLiveAlertEmailSettings,
   updateLiveAlertEmailSettings,
+  sendLiveAlertEmailTest,
   resetEverythingDevelopment,
   resetOrdersRequestsBatches,
   getSupportTickets,
@@ -1236,6 +1237,19 @@ export function AdminPortal() {
       toast.success("Alert email recipients saved");
       queryClient.setQueryData(["admin", "live-alert-email-settings"], value);
       await queryClient.invalidateQueries({ queryKey: ["admin", "live-alert-email-settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+  const liveAlertEmailTestMutation = useMutation({
+    mutationFn: sendLiveAlertEmailTest,
+    onSuccess: async ({ delivery }) => {
+      await queryClient.invalidateQueries({ queryKey: ["admin", "operational-alerts"] });
+      if (delivery.failed > 0) {
+        toast.error(`Test alert email accepted for ${delivery.sent} of ${delivery.recipients} recipients; ${delivery.failed} failed.`);
+      } else {
+        toast.success(`Test alert email accepted for ${delivery.sent} recipient${delivery.sent === 1 ? "" : "s"}.`);
+      }
+      setActiveSection("alerts");
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -3665,6 +3679,9 @@ export function AdminPortal() {
               <LiveAlertEmailSettingsCard
                 settings={liveAlertEmailSettingsQuery.data}
                 pending={liveAlertEmailSettingsMutation.isPending || liveAlertEmailSettingsQuery.isLoading}
+                testPending={liveAlertEmailTestMutation.isPending}
+                canSendTest={Boolean(liveAlertEmailSettingsQuery.data?.recipients.length)}
+                onTest={() => liveAlertEmailTestMutation.mutate()}
                 onSave={(value) => liveAlertEmailSettingsMutation.mutate(value)}
               />
             ) : null}
@@ -8774,10 +8791,16 @@ function OtpFallbackSettingsCard({
 function LiveAlertEmailSettingsCard({
   settings,
   pending,
+  testPending,
+  canSendTest,
+  onTest,
   onSave
 }: {
   settings?: LiveAlertEmailSettings;
   pending: boolean;
+  testPending: boolean;
+  canSendTest: boolean;
+  onTest: () => void;
   onSave: (value: LiveAlertEmailSettings) => void;
 }) {
   const [draft, setDraft] = useState<LiveAlertEmailRecipient[]>([]);
@@ -8892,11 +8915,16 @@ function LiveAlertEmailSettingsCard({
           </div>
         ) : <EmptyState message="No recipients yet. Add an email address to begin routing live alerts." />}
         {hasInvalidRecipient || hasDuplicateRecipients ? <p className="text-sm font-semibold text-rose-700">Correct invalid, duplicate, or empty alert assignments before saving.</p> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--panel-border)] pt-4">
-          <p className="max-w-2xl text-xs leading-5 text-[var(--muted)]">Email delivery requires the backend alert email webhook to be configured. Category assignments are saved on the server and apply to new alert incidents.</p>
-          <ActionButton disabled={pending || hasInvalidRecipient || hasDuplicateRecipients} onClick={() => onSave({ recipients: draft.map((recipient) => ({ ...recipient, email: recipient.email.trim().toLowerCase() })) })}>
-            <Mail className="mr-1 inline h-4 w-4" /> Save recipients
-          </ActionButton>
+        <div className="flex flex-col gap-3 border-t border-[var(--panel-border)] pt-4">
+          <p className="max-w-2xl text-xs leading-5 text-[var(--muted)]">Email delivery requires the backend alert email webhook to be configured. Category assignments are saved on the server and apply to new alert incidents. The test sends to each saved email address and creates a clearly labeled test alert without using an order or customer.</p>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ActionButton disabled={pending || testPending || !canSendTest} onClick={onTest}>
+              <Mail className="mr-1 inline h-4 w-4" /> {testPending ? "Sending test..." : "Create test alert and email"}
+            </ActionButton>
+            <ActionButton disabled={pending || testPending || hasInvalidRecipient || hasDuplicateRecipients} onClick={() => onSave({ recipients: draft.map((recipient) => ({ ...recipient, email: recipient.email.trim().toLowerCase() })) })}>
+              <Mail className="mr-1 inline h-4 w-4" /> Save recipients
+            </ActionButton>
+          </div>
         </div>
       </div>
     </Panel>

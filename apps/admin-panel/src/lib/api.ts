@@ -639,6 +639,13 @@ export async function updateLiveAlertEmailSettings(settings: LiveAlertEmailSetti
   return unwrap<LiveAlertEmailSettings>(api.put("/admin/live-alert-email-settings", settings));
 }
 
+export async function sendLiveAlertEmailTest() {
+  return unwrap<{
+    alert: OperationalAlert & { emailSentAt?: string };
+    delivery: { sent: number; failed: number; recipients: number; skipped: boolean };
+  }>(api.post("/admin/live-alert-email-test", {}));
+}
+
 export async function getPlatformStatus() {
   return unwrap<PlatformStatus>(api.get("/platform-status"));
 }

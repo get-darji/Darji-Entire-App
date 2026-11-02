@@ -1,11 +1,15 @@
 import type { Request, Response } from "express";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { env } from "../env.js";
-import { SettingModel } from "../models.js";
+import { AppError } from "../middleware/error.js";
+import { OperationalAlertModel, SettingModel } from "../models.js";
 import {
   LIVE_ALERT_CATEGORIES,
-  OPERATIONAL_ALERT_EMAIL_SETTINGS_KEY
+  OPERATIONAL_ALERT_EMAIL_SETTINGS_KEY,
+  sendOperationalAlertEmailTest
 } from "../services/email-alert.service.js";
+import { emitToAdmins } from "../services/socket.service.js";
 
 const settingsSchema = z.object({
   recipients: z.array(z.object({
@@ -46,4 +50,54 @@ export async function updateAdminLiveAlertEmailSettingsController(req: Request, 
     { upsert: true, returnDocument: "after" }
   );
   res.json({ data: setting.value });
+}
+
+export async function createAdminLiveAlertEmailTestController(_req: Request, res: Response) {
+  if (!env.ALERT_EMAIL_WEBHOOK_URL) {
+    throw new AppError(503, "Alert email delivery is not configured on the backend");
+  }
+
+  const testToken = randomUUID();
+  const title = "TEST: Live alert email verification";
+  const description = "This synthetic alert was created from Admin Settings to verify Darji live alert email delivery. It is not linked to a customer or order.";
+  const alert = await OperationalAlertModel.create({
+    type: "EMAIL_TEST",
+    status: "OPEN",
+    severity: "INFO",
+    title,
+    message: description,
+    dedupeKey: `EMAIL_TEST:${testToken}`,
+    entityType: "system_test",
+    entityId: testToken,
+    metadata: { test: true, source: "admin_panel_alert_email_settings" }
+  });
+
+  const delivery = await sendOperationalAlertEmailTest({
+    incidentKey: `operational-${alert.id}`,
+    category: "other",
+    title,
+    description,
+    severity: "info",
+    source: "Admin Panel Email Test",
+    detectedAt: new Date(alert.createdAt ?? Date.now()).toISOString()
+  });
+
+  if (delivery.sent === 0) {
+    await OperationalAlertModel.updateOne(
+      { _id: alert.id },
+      { $set: { status: "RESOLVED", emailError: delivery.failed ? "The email provider rejected the test message" : "No configured email recipients" } }
+    );
+    if (delivery.recipients === 0) {
+      throw new AppError(409, "No alert email recipients are configured. Add a recipient in Alert Emails and try again.");
+    }
+    throw new AppError(502, "The email provider did not accept the test message. Check the backend webhook and try again.");
+  }
+
+  await OperationalAlertModel.updateOne(
+    { _id: alert.id },
+    { $set: { emailSentAt: new Date() }, $unset: { emailError: 1 } }
+  );
+  const savedAlert = await OperationalAlertModel.findById(alert.id).lean();
+  emitToAdmins("operational_alert:new", savedAlert);
+  res.status(202).json({ data: { alert: savedAlert, delivery } });
 }

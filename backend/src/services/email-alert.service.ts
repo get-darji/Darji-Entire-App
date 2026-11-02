@@ -157,3 +157,24 @@ export async function sendOperationalAlertEmails(inputs: LiveAlertEmailInput[]) 
 export async function sendOperationalAlertEmail(input: LiveAlertEmailInput) {
   return sendOperationalAlertEmails([input]);
 }
+
+export async function sendOperationalAlertEmailTest(input: LiveAlertEmailInput) {
+  if (!env.ALERT_EMAIL_WEBHOOK_URL) {
+    if (!warnedMissingAlertWebhook) console.warn("[alerts] ALERT_EMAIL_WEBHOOK_URL is not configured; skipping live alert email tests");
+    warnedMissingAlertWebhook = true;
+    return { skipped: true, sent: 0, failed: 0, recipients: 0 };
+  }
+
+  const recipients = [...new Set((await configuredRecipients()).map((recipient) => recipient.email))];
+  let sent = 0;
+  let failed = 0;
+  for (const recipient of recipients) {
+    try {
+      if (await dispatchToRecipient(input, recipient)) sent += 1;
+    } catch (error) {
+      failed += 1;
+      console.error("[alerts] Failed to send test alert email", input.incidentKey, recipient, error instanceof Error ? error.message : "Unknown email failure");
+    }
+  }
+  return { skipped: sent === 0 && failed === 0, sent, failed, recipients: recipients.length };
+}
