@@ -193,9 +193,12 @@ function AppleStoreLogo({ className }: { className?: string }) {
   );
 }
 
-function StoreButton({ type, onClick }: { type: StoreTarget; onClick: () => void }) {
+function StoreButton({ type }: { type: StoreTarget }) {
   const isPlay = type === "play";
   const Logo = isPlay ? PlayStoreLogo : AppleStoreLogo;
+  const href = isPlay
+    ? "https://play.google.com/store/apps/details?id=com.darji.customer"
+    : "https://www.getdarji.in/applestore";
 
   return (
     <BorderGlow
@@ -209,13 +212,13 @@ function StoreButton({ type, onClick }: { type: StoreTarget; onClick: () => void
       coneSpread={22}
       colors={isPlay ? ["#34a853", "#fbbc05", "#ea4335", "#4285f4"] : ["#ffffff", "#cccccc", "#888888"]}
     >
-      <button className="store-button" type="button" onClick={onClick} aria-label={isPlay ? "Get it on Google Play" : "Download on the App Store"}>
+      <a className="store-button" href={href} aria-label={isPlay ? "Get it on Google Play" : "Download on the App Store"}>
         <Logo className="h-6 w-6 object-contain" />
         <span className="store-button-copy">
           <span className="store-button-kicker">{isPlay ? "GET IT ON" : "Download on the"}</span>
           <strong className="store-button-name">{isPlay ? "Google Play" : "App Store"}</strong>
         </span>
-      </button>
+      </a>
     </BorderGlow>
   );
 }
@@ -474,8 +477,8 @@ export function LandingPage() {
                   <span className="hidden sm:inline">Book pickups, track progress, chat with your tailor, and reorder your favorite services without leaving the app.</span>
                 </p>
                 <div className="mt-5 flex flex-nowrap gap-2 sm:mt-8 sm:flex-wrap sm:gap-4">
-                  <StoreButton type="play" onClick={() => openLaunchSoon("play")} />
-                  <StoreButton type="apple" onClick={() => openLaunchSoon("apple")} />
+                  <StoreButton type="play" />
+                  <StoreButton type="apple" />
                 </div>
               </div>
 
