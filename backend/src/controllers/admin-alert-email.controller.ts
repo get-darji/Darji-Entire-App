@@ -4,8 +4,7 @@ import { env } from "../env.js";
 import { SettingModel } from "../models.js";
 import {
   LIVE_ALERT_CATEGORIES,
-  OPERATIONAL_ALERT_EMAIL_SETTINGS_KEY,
-  sendOperationalAlertEmails
+  OPERATIONAL_ALERT_EMAIL_SETTINGS_KEY
 } from "../services/email-alert.service.js";
 
 const settingsSchema = z.object({
@@ -24,18 +23,6 @@ const settingsSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["recipients"], message: "Recipient emails must be unique" });
   }
 });
-
-const reportSchema = z.object({
-  alerts: z.array(z.object({
-    incidentKey: z.string().trim().min(1).max(240),
-    category: z.enum(LIVE_ALERT_CATEGORIES),
-    title: z.string().trim().min(1).max(180),
-    description: z.string().trim().max(2000),
-    severity: z.enum(["critical", "warning", "info"]),
-    source: z.string().trim().max(120).optional(),
-    detectedAt: z.string().datetime().optional()
-  }).strict()).max(100)
-}).strict();
 
 export async function getAdminLiveAlertEmailSettingsController(_req: Request, res: Response) {
   const setting = await SettingModel.findOne({ key: OPERATIONAL_ALERT_EMAIL_SETTINGS_KEY }).select("value").lean();
@@ -59,12 +46,4 @@ export async function updateAdminLiveAlertEmailSettingsController(req: Request, 
     { upsert: true, returnDocument: "after" }
   );
   res.json({ data: setting.value });
-}
-
-export async function reportAdminLiveAlertsController(req: Request, res: Response) {
-  const input = reportSchema.parse(req.body);
-  void sendOperationalAlertEmails(input.alerts).catch((error) => {
-    console.error("[alerts] Failed to route live alert emails", error instanceof Error ? error.message : "Unknown email failure");
-  });
-  res.status(202).json({ data: { accepted: input.alerts.length } });
 }

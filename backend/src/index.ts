@@ -13,6 +13,7 @@ import { setupSocketServer } from "./services/socket.service.js";
 import { lockAndDispatchDueBatches } from "./services/hybrid-delivery.service.js";
 import { getPlatformStatus } from "./services/platform-status.service.js";
 import { monitorNoQuoteRequests } from "./services/operational-alert.service.js";
+import { monitorAdminLiveAlerts } from "./services/live-alert-monitor.service.js";
 import { processDueNotificationCampaigns } from "./controllers/notificationController.js";
 import { allMaintenanceApps } from "@darji/shared";
 import { releaseExpiredMeasurementVisitOffers } from "./services/measurement-visit.service.js";
@@ -101,11 +102,21 @@ const measurementOfferTimer = setInterval(() => {
 }, 10 * 1000);
 measurementOfferTimer.unref?.();
 
+const liveAlertEmailTimer = setInterval(() => {
+  void monitorAdminLiveAlerts().catch((error) => {
+    console.error("Failed to scan Admin Live Alerts for email", error);
+  });
+}, 60 * 1000);
+liveAlertEmailTimer.unref?.();
+
 void processDueDeliveryBatches().catch((error) => {
   console.error("Failed to process due delivery batches", error);
 });
 void releaseExpiredMeasurementVisitOffers().catch((error) => {
   console.error("Failed to recover expired measurement visit offers", error);
+});
+void monitorAdminLiveAlerts().catch((error) => {
+  console.error("Failed to scan Admin Live Alerts for email", error);
 });
 
 const server = app.listen(env.PORT, () => {
@@ -116,6 +127,7 @@ setupSocketServer(server);
 process.on("SIGINT", async () => {
   clearInterval(batchLockTimer);
   clearInterval(measurementOfferTimer);
+  clearInterval(liveAlertEmailTimer);
   server.close();
   await disconnectDatabase();
   process.exit(0);

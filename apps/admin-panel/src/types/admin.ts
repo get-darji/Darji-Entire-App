@@ -675,15 +675,6 @@ export type LiveAlertEmailRecipient = {
   categories: LiveAlertEmailCategory[];
 };
 export type LiveAlertEmailSettings = { recipients: LiveAlertEmailRecipient[] };
-export type LiveAlertEmailReport = {
-  incidentKey: string;
-  category: LiveAlertEmailCategory;
-  title: string;
-  description: string;
-  severity: "critical" | "warning" | "info";
-  source?: string;
-  detectedAt?: string;
-};
 
 export type WalletTransaction = {
   id: string;

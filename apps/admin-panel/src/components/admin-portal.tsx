@@ -152,7 +152,6 @@ import {
   getSettings,
   getLiveAlertEmailSettings,
   updateLiveAlertEmailSettings,
-  reportLiveAlertsForEmail,
   resetEverythingDevelopment,
   resetOrdersRequestsBatches,
   getSupportTickets,
@@ -284,8 +283,7 @@ import type {
   CouponRedemption,
   LiveAlertEmailCategory,
   LiveAlertEmailRecipient,
-  LiveAlertEmailSettings,
-  LiveAlertEmailReport
+  LiveAlertEmailSettings
 } from "@/src/types/admin";
 import { LIVE_ALERT_EMAIL_CATEGORIES } from "@/src/types/admin";
 import dynamic from "next/dynamic";
@@ -620,7 +618,6 @@ export function AdminPortal() {
   const sessionNotice = useAdminStore((state) => state.sessionNotice);
   const clearSessionNotice = useAdminStore((state) => state.clearSessionNotice);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const reportedAlertEmailSnapshotsRef = useRef(new Set<string>());
   const urlSectionSyncReadyRef = useRef(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [tailorDirectorySearch, setTailorDirectorySearch] = useState("");
@@ -2120,44 +2117,6 @@ export function AdminPortal() {
     tailoringRequests,
     tickets
   });
-  const liveAlertEmailReportJson = JSON.stringify(liveAlerts.map((alert) => ({
-    incidentKey: alert.id,
-    category: getAlertCategory(alert),
-    title: alert.title,
-    description: alert.detail,
-    severity: getAlertSeverity(alert),
-    source: "Admin Live Alerts",
-    detectedAt: alert.createdAt
-  })).sort((left, right) => left.incidentKey.localeCompare(right.incidentKey)));
-  const liveAlertEmailSettingsJson = JSON.stringify(liveAlertEmailSettingsQuery.data ?? null);
-  const liveAlertEmailReportSignature = `${liveAlertEmailReportJson}\n${liveAlertEmailSettingsJson}`;
-  useEffect(() => {
-    if (!isAuthed || !["dashboard", "alerts"].includes(activeSection)) return undefined;
-    if (![ordersQuery, tailoringQuery, deliveryQuery, paymentsQuery, supportQuery, operationalAlertsQuery].every((query) => query.isSuccess)) return undefined;
-
-    let active = true;
-    const report = (retry = false) => {
-      if (!active || (!retry && reportedAlertEmailSnapshotsRef.current.has(liveAlertEmailReportSignature))) return;
-      const alerts = JSON.parse(liveAlertEmailReportJson) as LiveAlertEmailReport[];
-      if (!alerts.length) return;
-      void (async () => {
-        for (let offset = 0; offset < alerts.length; offset += 25) {
-          await reportLiveAlertsForEmail(alerts.slice(offset, offset + 25));
-        }
-      })().then(() => {
-        reportedAlertEmailSnapshotsRef.current.add(liveAlertEmailReportSignature);
-      }).catch((error) => {
-          reportedAlertEmailSnapshotsRef.current.delete(liveAlertEmailReportSignature);
-          console.warn("Could not route current Live Alerts to email", error);
-        });
-    };
-    report();
-    const interval = window.setInterval(() => report(true), 60_000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [activeSection, isAuthed, liveAlertEmailReportJson, liveAlertEmailReportSignature, ordersQuery.isSuccess, tailoringQuery.isSuccess, deliveryQuery.isSuccess, paymentsQuery.isSuccess, supportQuery.isSuccess, operationalAlertsQuery.isSuccess]);
   const todayOperations = buildTodayOperationsSummary({
     deliveryBatches: deliveryBatches.filter((batch) => isDateInDashboardPeriod(batch.roundAt, dashboardPeriodBounds)),
     deliveryRequests: dashboardDeliveryRequestsForPeriod,

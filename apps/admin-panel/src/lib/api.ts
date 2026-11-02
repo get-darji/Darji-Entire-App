@@ -23,7 +23,6 @@ import type {
   Payment,
   SettingRecord,
   LiveAlertEmailSettings,
-  LiveAlertEmailReport,
   SupportTicket,
   TailorProfile,
   TailorQuote,
@@ -638,10 +637,6 @@ export async function getLiveAlertEmailSettings() {
 
 export async function updateLiveAlertEmailSettings(settings: LiveAlertEmailSettings) {
   return unwrap<LiveAlertEmailSettings>(api.put("/admin/live-alert-email-settings", settings));
-}
-
-export async function reportLiveAlertsForEmail(alerts: LiveAlertEmailReport[]) {
-  return unwrap<{ accepted: number }>(api.post("/admin/live-alerts/email-report", { alerts }));
 }
 
 export async function getPlatformStatus() {
