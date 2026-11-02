@@ -150,6 +150,9 @@ import {
   getOperationalAlerts,
   updateOperationalAlert,
   getSettings,
+  getLiveAlertEmailSettings,
+  updateLiveAlertEmailSettings,
+  reportLiveAlertsForEmail,
   resetEverythingDevelopment,
   resetOrdersRequestsBatches,
   getSupportTickets,
@@ -278,8 +281,13 @@ import type {
   NotificationCampaign,
   MarketingAudienceSummary,
   CustomerProfileOrder,
-  CouponRedemption
+  CouponRedemption,
+  LiveAlertEmailCategory,
+  LiveAlertEmailRecipient,
+  LiveAlertEmailSettings,
+  LiveAlertEmailReport
 } from "@/src/types/admin";
+import { LIVE_ALERT_EMAIL_CATEGORIES } from "@/src/types/admin";
 import dynamic from "next/dynamic";
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), { ssr: false });
 const ServiceAreaMap = dynamic(() => import("./ServiceAreaMap"), {
@@ -345,7 +353,7 @@ type DeliveryBatchSettingsDraft = {
   maxOrdersPerBatch: number;
 };
 
-type SettingsPage = "festival" | "service-area" | "tutorial" | "delivery" | "otp" | "development";
+type SettingsPage = "festival" | "service-area" | "tutorial" | "delivery" | "otp" | "alert-email" | "development";
 
 type MapPartnerFocus = {
   partnerId: string;
@@ -612,6 +620,7 @@ export function AdminPortal() {
   const sessionNotice = useAdminStore((state) => state.sessionNotice);
   const clearSessionNotice = useAdminStore((state) => state.clearSessionNotice);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const reportedAlertEmailSnapshotsRef = useRef(new Set<string>());
   const urlSectionSyncReadyRef = useRef(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [tailorDirectorySearch, setTailorDirectorySearch] = useState("");
@@ -757,7 +766,8 @@ export function AdminPortal() {
   const ordersQuery = useQuery({
     queryKey: ["admin", "orders"],
     queryFn: () => getOrders({ limit: 1000 }),
-    enabled: needsSection("dashboard", "alerts", "orders", "analytics", "activity", "exports")
+    enabled: needsSection("dashboard", "alerts", "orders", "analytics", "activity", "exports"),
+    refetchInterval: ["dashboard", "alerts"].includes(activeSection) ? 60_000 : false
   });
   const [couponEditTarget, setCouponEditTarget] = useState<Coupon | null>(null);
   const [couponHistoryTarget, setCouponHistoryTarget] = useState<Coupon | null>(null);
@@ -769,12 +779,14 @@ export function AdminPortal() {
   const tailoringQuery = useQuery({
     queryKey: ["admin", "tailoring-requests"],
     queryFn: getTailoringRequests,
-    enabled: needsSection("dashboard", "alerts", "orders", "tailoring", "measurements", "payments", "analytics", "exports")
+    enabled: needsSection("dashboard", "alerts", "orders", "tailoring", "measurements", "payments", "analytics", "exports"),
+    refetchInterval: ["dashboard", "alerts"].includes(activeSection) ? 60_000 : false
   });
   const deliveryQuery = useQuery({
     queryKey: ["admin", "delivery-requests"],
     queryFn: getDeliveryRequests,
-    enabled: needsSection("dashboard", "alerts", "orders", "delivery", "batches", "payments", "analytics", "exports")
+    enabled: needsSection("dashboard", "alerts", "orders", "delivery", "batches", "payments", "analytics", "exports"),
+    refetchInterval: ["dashboard", "alerts"].includes(activeSection) ? 60_000 : false
   });
   const deliveryRetriesQuery = useQuery({
     queryKey: ["admin", "delivery-retries"],
@@ -828,7 +840,8 @@ export function AdminPortal() {
   const paymentsQuery = useQuery({
     queryKey: ["admin", "payments"],
     queryFn: getPayments,
-    enabled: needsSection("dashboard", "alerts", "payments", "analytics", "activity", "exports")
+    enabled: needsSection("dashboard", "alerts", "payments", "analytics", "activity", "exports"),
+    refetchInterval: ["dashboard", "alerts"].includes(activeSection) ? 60_000 : false
   });
   const financialLedgerQuery = useQuery({
     queryKey: ["admin", "financial-ledger"],
@@ -863,12 +876,18 @@ export function AdminPortal() {
   const supportQuery = useQuery({
     queryKey: ["admin", "support"],
     queryFn: getSupportTickets,
-    enabled: needsSection("support", "dashboard", "alerts", "activity", "exports")
+    enabled: needsSection("support", "dashboard", "alerts", "activity", "exports"),
+    refetchInterval: ["dashboard", "alerts"].includes(activeSection) ? 60_000 : false
   });
   const settingsQuery = useQuery({
     queryKey: ["admin", "settings"],
     queryFn: getSettings,
     enabled: needsSection("settings", "platform", "website", "batches", "tailors")
+  });
+  const liveAlertEmailSettingsQuery = useQuery({
+    queryKey: ["admin", "live-alert-email-settings"],
+    queryFn: getLiveAlertEmailSettings,
+    enabled: needsSection("settings")
   });
   const marketingSignupsQuery = useQuery({
     queryKey: ["admin", "marketing-signups"],
@@ -1211,6 +1230,15 @@ export function AdminPortal() {
     onSuccess: async () => {
       toast.success("Setting saved");
       await queryClient.invalidateQueries({ queryKey: ["admin", "settings"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+  const liveAlertEmailSettingsMutation = useMutation({
+    mutationFn: updateLiveAlertEmailSettings,
+    onSuccess: async (value) => {
+      toast.success("Alert email recipients saved");
+      queryClient.setQueryData(["admin", "live-alert-email-settings"], value);
+      await queryClient.invalidateQueries({ queryKey: ["admin", "live-alert-email-settings"] });
     },
     onError: (error) => toast.error(extractError(error))
   });
@@ -2092,6 +2120,44 @@ export function AdminPortal() {
     tailoringRequests,
     tickets
   });
+  const liveAlertEmailReportJson = JSON.stringify(liveAlerts.map((alert) => ({
+    incidentKey: alert.id,
+    category: getAlertCategory(alert),
+    title: alert.title,
+    description: alert.detail,
+    severity: getAlertSeverity(alert),
+    source: "Admin Live Alerts",
+    detectedAt: alert.createdAt
+  })).sort((left, right) => left.incidentKey.localeCompare(right.incidentKey)));
+  const liveAlertEmailSettingsJson = JSON.stringify(liveAlertEmailSettingsQuery.data ?? null);
+  const liveAlertEmailReportSignature = `${liveAlertEmailReportJson}\n${liveAlertEmailSettingsJson}`;
+  useEffect(() => {
+    if (!isAuthed || !["dashboard", "alerts"].includes(activeSection)) return undefined;
+    if (![ordersQuery, tailoringQuery, deliveryQuery, paymentsQuery, supportQuery, operationalAlertsQuery].every((query) => query.isSuccess)) return undefined;
+
+    let active = true;
+    const report = (retry = false) => {
+      if (!active || (!retry && reportedAlertEmailSnapshotsRef.current.has(liveAlertEmailReportSignature))) return;
+      const alerts = JSON.parse(liveAlertEmailReportJson) as LiveAlertEmailReport[];
+      if (!alerts.length) return;
+      void (async () => {
+        for (let offset = 0; offset < alerts.length; offset += 25) {
+          await reportLiveAlertsForEmail(alerts.slice(offset, offset + 25));
+        }
+      })().then(() => {
+        reportedAlertEmailSnapshotsRef.current.add(liveAlertEmailReportSignature);
+      }).catch((error) => {
+          reportedAlertEmailSnapshotsRef.current.delete(liveAlertEmailReportSignature);
+          console.warn("Could not route current Live Alerts to email", error);
+        });
+    };
+    report();
+    const interval = window.setInterval(() => report(true), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [activeSection, isAuthed, liveAlertEmailReportJson, liveAlertEmailReportSignature, ordersQuery.isSuccess, tailoringQuery.isSuccess, deliveryQuery.isSuccess, paymentsQuery.isSuccess, supportQuery.isSuccess, operationalAlertsQuery.isSuccess]);
   const todayOperations = buildTodayOperationsSummary({
     deliveryBatches: deliveryBatches.filter((batch) => isDateInDashboardPeriod(batch.roundAt, dashboardPeriodBounds)),
     deliveryRequests: dashboardDeliveryRequestsForPeriod,
@@ -3573,13 +3639,14 @@ export function AdminPortal() {
               title="Operational settings"
               description="Open one settings page at a time. Raw platform and delivery-round JSON are intentionally not exposed here."
             />
-            <div className="grid gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-2 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-2 sm:grid-cols-2 xl:grid-cols-4">
               {([
                 { id: "festival", label: "Festival Themes", description: "Seasonal customer app" },
                 { id: "service-area", label: "Service Areas", description: "Coverage and requests" },
                 { id: "tutorial", label: "Tailor Tutorial", description: "Training media" },
                 { id: "delivery", label: "Delivery", description: "Pricing and batches" },
                 { id: "otp", label: "OTP Fallback", description: "Optional 123456 verification" },
+                { id: "alert-email", label: "Alert Emails", description: "Recipients and alert routing" },
                 { id: "development", label: "Development", description: "Reset tools" }
               ] as Array<{ id: SettingsPage; label: string; description: string }>).map((page) => (
                 <button aria-current={settingsPage === page.id ? "page" : undefined} className={cn("rounded-xl border px-4 py-3 text-left transition", settingsPage === page.id ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--foreground)] shadow-sm" : "border-transparent text-[var(--muted)] hover:border-[var(--panel-border)] hover:bg-black/5")} key={page.id} onClick={() => setSettingsPage(page.id)} type="button">
@@ -3632,6 +3699,14 @@ export function AdminPortal() {
                 setting={settingsQuery.data?.find((item) => item.key === "otp_fallback_settings")}
                 pending={settingMutation.isPending}
                 onSave={(value) => settingMutation.mutate({ key: "otp_fallback_settings", value })}
+              />
+            ) : null}
+
+            {settingsPage === "alert-email" ? (
+              <LiveAlertEmailSettingsCard
+                settings={liveAlertEmailSettingsQuery.data}
+                pending={liveAlertEmailSettingsMutation.isPending || liveAlertEmailSettingsQuery.isLoading}
+                onSave={(value) => liveAlertEmailSettingsMutation.mutate(value)}
               />
             ) : null}
 
@@ -8731,6 +8806,138 @@ function OtpFallbackSettingsCard({
               />
             </label>
           ))}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function LiveAlertEmailSettingsCard({
+  settings,
+  pending,
+  onSave
+}: {
+  settings?: LiveAlertEmailSettings;
+  pending: boolean;
+  onSave: (value: LiveAlertEmailSettings) => void;
+}) {
+  const [draft, setDraft] = useState<LiveAlertEmailRecipient[]>([]);
+  const [newEmail, setNewEmail] = useState("");
+  const settingsJson = JSON.stringify(settings ?? { recipients: [] });
+  useEffect(() => {
+    try {
+      const value = JSON.parse(settingsJson) as Partial<LiveAlertEmailSettings>;
+      setDraft(Array.isArray(value.recipients) ? value.recipients.filter((recipient) => recipient && typeof recipient.email === "string").map((recipient) => ({
+        email: recipient.email,
+        mode: recipient.mode === "SELECTED" ? "SELECTED" : "ALL",
+        categories: Array.isArray(recipient.categories) ? recipient.categories.filter((category): category is LiveAlertEmailCategory => LIVE_ALERT_EMAIL_CATEGORIES.includes(category)) : [...LIVE_ALERT_EMAIL_CATEGORIES]
+      })) : []);
+    } catch {
+      setDraft([]);
+    }
+  }, [settingsJson]);
+
+  const categoryLabels: Record<LiveAlertEmailCategory, string> = {
+    delivery: "Delivery operations",
+    order: "Order operations",
+    payment: "Payments",
+    support: "Priority support",
+    tailoring: "Tailoring and quotes",
+    other: "Other system alerts"
+  };
+  const emailIsValid = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const normalizedEmails = draft.map((recipient) => recipient.email.trim().toLowerCase());
+  const hasInvalidRecipient = draft.some((recipient) => !emailIsValid(recipient.email) || (recipient.mode === "SELECTED" && !recipient.categories.length));
+  const hasDuplicateRecipients = new Set(normalizedEmails).size !== normalizedEmails.length;
+  const addRecipient = () => {
+    const email = newEmail.trim().toLowerCase();
+    if (!emailIsValid(email)) {
+      toast.error("Enter a valid recipient email address");
+      return;
+    }
+    if (normalizedEmails.includes(email)) {
+      toast.error("That email is already in the recipient list");
+      return;
+    }
+    if (draft.length >= 50) {
+      toast.error("You can add up to 50 email recipients");
+      return;
+    }
+    setDraft((current) => [...current, { email, mode: "ALL", categories: [...LIVE_ALERT_EMAIL_CATEGORIES] }]);
+    setNewEmail("");
+  };
+
+  return (
+    <Panel>
+      <div className="max-w-5xl space-y-5">
+        <div>
+          <h3 className="text-lg font-semibold">Live alert email recipients</h3>
+          <p className="mt-1 text-sm text-[var(--muted)]">Add multiple recipients and choose which alert categories each address receives. New incidents are emailed once per recipient; the same open alert is not resent on each refresh.</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            aria-label="New alert email recipient"
+            className="min-w-0 flex-1 rounded-xl border border-[var(--panel-border)] bg-[var(--panel)] px-4 py-3 outline-none focus:border-[var(--accent)]"
+            disabled={pending}
+            onChange={(event) => setNewEmail(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addRecipient(); } }}
+            placeholder="operations@example.com"
+            type="email"
+            value={newEmail}
+          />
+          <ActionButton disabled={pending || !newEmail.trim()} onClick={addRecipient}>
+            <Plus className="mr-1 inline h-4 w-4" /> Add recipient
+          </ActionButton>
+        </div>
+        {draft.length ? (
+          <div className="space-y-3">
+            {draft.map((recipient, index) => (
+              <div className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-4" key={`${recipient.email}-${index}`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="break-all text-sm font-bold">{recipient.email}</div>
+                    <div className="mt-1 text-xs text-[var(--muted)]">{recipient.mode === "ALL" ? "Receives every Live Alerts category" : `Receives ${recipient.categories.length} selected ${recipient.categories.length === 1 ? "category" : "categories"}`}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label={`Alert assignment for ${recipient.email}`}
+                      className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2 text-sm"
+                      disabled={pending}
+                      onChange={(event) => setDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, mode: event.target.value === "SELECTED" ? "SELECTED" : "ALL", categories: item.categories.length ? item.categories : [...LIVE_ALERT_EMAIL_CATEGORIES] } : item))}
+                      value={recipient.mode}
+                    >
+                      <option value="ALL">All alerts</option>
+                      <option value="SELECTED">Choose categories</option>
+                    </select>
+                    <button aria-label={`Remove ${recipient.email}`} className="rounded-lg p-2 text-[var(--muted)] hover:bg-rose-50 hover:text-rose-700" disabled={pending} onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} type="button"><X className="h-4 w-4" /></button>
+                  </div>
+                </div>
+                {recipient.mode === "SELECTED" ? (
+                  <div className="mt-4 grid gap-2 border-t border-[var(--panel-border)] pt-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {LIVE_ALERT_EMAIL_CATEGORIES.map((category) => (
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-black/5" key={category}>
+                        <input
+                          checked={recipient.categories.includes(category)}
+                          className="h-4 w-4 accent-[var(--accent)]"
+                          disabled={pending}
+                          onChange={(event) => setDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, categories: event.target.checked ? [...new Set([...item.categories, category])] : item.categories.filter((value) => value !== category) } : item))}
+                          type="checkbox"
+                        />
+                        {categoryLabels[category]}
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : <EmptyState message="No recipients yet. Add an email address to begin routing live alerts." />}
+        {hasInvalidRecipient || hasDuplicateRecipients ? <p className="text-sm font-semibold text-rose-700">Correct invalid, duplicate, or empty alert assignments before saving.</p> : null}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--panel-border)] pt-4">
+          <p className="max-w-2xl text-xs leading-5 text-[var(--muted)]">Email delivery requires the backend alert email webhook to be configured. Category assignments are saved on the server and apply to new alert incidents.</p>
+          <ActionButton disabled={pending || hasInvalidRecipient || hasDuplicateRecipients} onClick={() => onSave({ recipients: draft.map((recipient) => ({ ...recipient, email: recipient.email.trim().toLowerCase() })) })}>
+            <Mail className="mr-1 inline h-4 w-4" /> Save recipients
+          </ActionButton>
         </div>
       </div>
     </Panel>

@@ -22,6 +22,8 @@ import type {
   Order,
   Payment,
   SettingRecord,
+  LiveAlertEmailSettings,
+  LiveAlertEmailReport,
   SupportTicket,
   TailorProfile,
   TailorQuote,
@@ -628,6 +630,18 @@ export async function getSupportTickets() {
 
 export async function getSettings() {
   return unwrap<SettingRecord[]>(api.get("/settings"));
+}
+
+export async function getLiveAlertEmailSettings() {
+  return unwrap<LiveAlertEmailSettings>(api.get("/admin/live-alert-email-settings"));
+}
+
+export async function updateLiveAlertEmailSettings(settings: LiveAlertEmailSettings) {
+  return unwrap<LiveAlertEmailSettings>(api.put("/admin/live-alert-email-settings", settings));
+}
+
+export async function reportLiveAlertsForEmail(alerts: LiveAlertEmailReport[]) {
+  return unwrap<{ accepted: number }>(api.post("/admin/live-alerts/email-report", { alerts }));
 }
 
 export async function getPlatformStatus() {

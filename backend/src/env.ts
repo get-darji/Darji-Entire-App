@@ -28,6 +28,7 @@ const envSchema = z.object({
   FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   ALERT_EMAIL_WEBHOOK_URL: z.string().url().optional(),
   ADMIN_ALERT_EMAILS: z.string().optional(),
+  ADMIN_PANEL_URL: z.string().url().default("https://darji-entire-app-admin-panel-xi.vercel.app/?section=alerts"),
   NO_QUOTE_ALERT_MINUTES: z.coerce.number().default(2),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
   GOOGLE_TRANSLATE_API_KEY: z.string().optional(),

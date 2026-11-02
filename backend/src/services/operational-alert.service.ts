@@ -1,6 +1,6 @@
 import { env } from "../env.js";
 import { OperationalAlertModel, TailorQuoteModel, TailoringRequestModel, UserModel } from "../models.js";
-import { sendOperationalAlertEmail } from "./email-alert.service.js";
+import { operationalAlertCategory, sendOperationalAlertEmail } from "./email-alert.service.js";
 
 type AlertInput = {
   type: string;
@@ -39,14 +39,18 @@ export async function upsertOperationalAlert(input: AlertInput) {
     { upsert: true, returnDocument: "after" }
   );
 
-  if (input.sendEmail && alert && !alert.emailSentAt) {
+  if (alert && !alert.emailSentAt) {
     try {
-      await sendOperationalAlertEmail({
-        subject: input.title,
-        text: `${input.message}\n\nEntity: ${input.entityType ?? "unknown"} ${input.entityId ?? ""}`,
-        metadata: input.metadata
+      const delivery = await sendOperationalAlertEmail({
+        incidentKey: `operational-${alert.id}`,
+        category: operationalAlertCategory(`operational-${alert.id}`, input.title),
+        title: input.title,
+        description: `${input.message}${input.entityType ? `\n\nSource: ${input.entityType}${input.entityId ? ` ${input.entityId}` : ""}` : ""}`,
+        severity: input.severity === "CRITICAL" ? "critical" : input.severity === "INFO" ? "info" : "warning",
+        source: input.entityType ?? "Operational Alert Monitor",
+        detectedAt: new Date(alert.createdAt ?? Date.now()).toISOString()
       });
-      await OperationalAlertModel.updateOne({ _id: alert.id }, { $set: { emailSentAt: new Date() }, $unset: { emailError: 1 } });
+      if (delivery.sent > 0) await OperationalAlertModel.updateOne({ _id: alert.id }, { $set: { emailSentAt: new Date() }, $unset: { emailError: 1 } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown email failure";
       console.error("[alerts] Failed to send alert email", message);

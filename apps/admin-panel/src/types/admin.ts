@@ -667,6 +667,24 @@ export type SettingRecord = {
   updatedAt?: string;
 };
 
+export const LIVE_ALERT_EMAIL_CATEGORIES = ["delivery", "order", "payment", "support", "tailoring", "other"] as const;
+export type LiveAlertEmailCategory = typeof LIVE_ALERT_EMAIL_CATEGORIES[number];
+export type LiveAlertEmailRecipient = {
+  email: string;
+  mode: "ALL" | "SELECTED";
+  categories: LiveAlertEmailCategory[];
+};
+export type LiveAlertEmailSettings = { recipients: LiveAlertEmailRecipient[] };
+export type LiveAlertEmailReport = {
+  incidentKey: string;
+  category: LiveAlertEmailCategory;
+  title: string;
+  description: string;
+  severity: "critical" | "warning" | "info";
+  source?: string;
+  detectedAt?: string;
+};
+
 export type WalletTransaction = {
   id: string;
   darjiId?: string;

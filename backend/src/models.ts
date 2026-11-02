@@ -454,7 +454,7 @@ const operationalAlertSchema = new Schema(
     severity: { type: String, enum: ["INFO", "WARNING", "CRITICAL"], default: "WARNING", index: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
-    dedupeKey: { type: String, required: true, unique: true, index: true },
+    dedupeKey: { type: String, required: true, unique: true },
     entityType: String,
     entityId: String,
     customerId: String,
@@ -471,6 +471,23 @@ const operationalAlertSchema = new Schema(
   baseOptions
 );
 attachDarjiIdPlugin(operationalAlertSchema, { field: "darjiId", prefix: "ALT" });
+
+const operationalAlertEmailDispatchSchema = new Schema(
+  {
+    dedupeKey: { type: String, required: true, unique: true, index: true },
+    incidentKey: { type: String, required: true, index: true },
+    recipient: { type: String, required: true, index: true },
+    category: { type: String, required: true },
+    title: { type: String, required: true },
+    status: { type: String, enum: ["PENDING", "SENT", "ERROR"], default: "PENDING", index: true },
+    attemptedAt: Date,
+    sentAt: Date,
+    leaseToken: String,
+    leaseUntil: Date,
+    lastError: String
+  },
+  baseOptions
+);
 
 const measurementVisitMediaSchema = new Schema(
   {
@@ -1195,6 +1212,7 @@ export const CouponModel = mongoose.model("Coupon", couponSchema);
 export const CouponRedemptionModel = mongoose.model("CouponRedemption", couponRedemptionSchema, "coupon_redemptions");
 export const NotificationModel = mongoose.model("Notification", notificationSchema);
 export const OperationalAlertModel = mongoose.model("OperationalAlert", operationalAlertSchema, "operational_alerts");
+export const OperationalAlertEmailDispatchModel = mongoose.model("OperationalAlertEmailDispatch", operationalAlertEmailDispatchSchema, "operational_alert_email_dispatches");
 export const MeasurementVisitModel = mongoose.model("MeasurementVisit", measurementVisitSchema, "measurement_visits");
 export const ReviewModel = mongoose.model("Review", reviewSchema);
 export const WalletModel = mongoose.model("Wallet", walletSchema);
