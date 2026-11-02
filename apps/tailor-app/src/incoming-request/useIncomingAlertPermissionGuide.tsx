@@ -4,6 +4,7 @@ import {
   openIncomingAlertOverlaySettings
 } from "@darji/incoming-alert";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "../notifications/expoNotifications";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, AppState, Easing, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
@@ -21,6 +22,12 @@ import { requiredIncomingAlertPermission, type IncomingAlertPermissionIssue as P
 const BRAND_ORANGE = "#f6a313";
 const BRAND_DEEP = "#0b2241";
 const SCREEN_DIM = "rgba(7, 13, 24, 0.58)";
+const OPTIONAL_ALERTS_PHONE = "8882365282";
+
+function normalizePhone(value?: string) {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  return digits.length > 10 && digits.startsWith("91") ? digits.slice(-10) : digits;
+}
 
 export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" | "delivery") {
   const continueToOverlayRef = useRef(false);
@@ -30,6 +37,24 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
   const [checkNonce, setCheckNonce] = useState(0);
   const [checked, setChecked] = useState(false);
   const [hasPassed, setHasPassed] = useState(false);
+  const [alertsSkipped, setAlertsSkipped] = useState(false);
+  const userPhone = useAppStore((state) => state.user?.phone);
+  const optionalAlertsAccount = app === "tailor" && normalizePhone(userPhone) === OPTIONAL_ALERTS_PHONE;
+
+  useEffect(() => {
+    let active = true;
+    setAlertsSkipped(false);
+    if (!optionalAlertsAccount) return () => { active = false; };
+    void AsyncStorage.getItem(`darji-tailor-alert-permissions-skipped.${OPTIONAL_ALERTS_PHONE}`)
+      .then((value) => {
+        if (active && value === "true") {
+          setAlertsSkipped(true);
+          setHasPassed(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [optionalAlertsAccount]);
 
   useEffect(() => {
     if (!enabled || Platform.OS === "web") {
@@ -101,7 +126,7 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
     return () => animation.stop();
   }, [guideProgress, issue]);
 
-  if (!enabled || Platform.OS === "web") return { canEnter: true, guide: null };
+  if (!enabled || Platform.OS === "web" || (optionalAlertsAccount && alertsSkipped)) return { canEnter: true, guide: null };
   if (!checked || issue === "unavailable") {
     return { canEnter: hasPassed, guide: (
       <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => undefined}>
@@ -110,6 +135,19 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
           <Text style={styles.title}>{!checked ? "Checking alert permissions" : "Alert permissions could not be checked"}</Text>
           <Text style={styles.copy}>{!checked ? "Please wait while we check notification and incoming request access." : "Retry the check. If this continues, install the latest Darji app build and open it again."}</Text>
           {!checked ? <ActivityIndicator color={BRAND_ORANGE} style={{ marginTop: 20 }} /> : <Pressable style={[styles.primaryButton, { marginTop: 20 }]} onPress={() => { setChecked(false); setCheckNonce((value) => value + 1); }}><Text style={styles.primaryText}>Check again</Text></Pressable>}
+          {checked && optionalAlertsAccount ? (
+            <Pressable
+              accessibilityRole="button"
+              style={styles.skipButton}
+              onPress={() => {
+                setAlertsSkipped(true);
+                setHasPassed(true);
+                void AsyncStorage.setItem(`darji-tailor-alert-permissions-skipped.${OPTIONAL_ALERTS_PHONE}`, "true").catch(() => undefined);
+              }}
+            >
+              <Text style={styles.skipText}>Continue without alert permissions</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
       </Modal>
@@ -223,6 +261,19 @@ export function useIncomingAlertPermissionGuide(enabled: boolean, app: "tailor" 
               <Ionicons name="arrow-forward" size={18} color="#111111" />
             </Pressable>
           </View>
+          {optionalAlertsAccount ? (
+            <Pressable
+              accessibilityRole="button"
+              style={styles.skipButton}
+              onPress={() => {
+                setAlertsSkipped(true);
+                setHasPassed(true);
+                void AsyncStorage.setItem(`darji-tailor-alert-permissions-skipped.${OPTIONAL_ALERTS_PHONE}`, "true").catch(() => undefined);
+              }}
+            >
+              <Text style={styles.skipText}>Continue without alert permissions</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
       </View>
     </Modal>
@@ -254,5 +305,7 @@ const styles = StyleSheet.create({
   secondaryButton: { flex: 1, minHeight: 52, borderRadius: 8, borderWidth: 1, borderColor: "#dbe2ec", alignItems: "center", justifyContent: "center" },
   secondaryText: { color: BRAND_DEEP, fontSize: 14, fontWeight: "900" },
   primaryButton: { flex: 1.2, minHeight: 52, borderRadius: 8, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
-  primaryText: { color: "#111111", fontSize: 14, fontWeight: "900" }
+  primaryText: { color: "#111111", fontSize: 14, fontWeight: "900" },
+  skipButton: { minHeight: 48, marginTop: 8, alignItems: "center", justifyContent: "center" },
+  skipText: { color: "#526174", fontSize: 13, fontWeight: "800", textDecorationLine: "underline" }
 });

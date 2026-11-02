@@ -171,7 +171,7 @@ type TailorProfile = {
       yearsExperience?: number;
       shopPhotos?: string[];
     };
-    bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; bankName?: string; upi?: string; payoutPhone?: string };
+    bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; upi?: string; payoutPhone?: string };
     idVerification?: { idType?: string; idNumber?: string; facePhotoUrl?: string };
   };
   verificationDraft?: {
@@ -655,7 +655,7 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
         <InfoRow icon="person-circle-outline" title="Profile" value="Personal details and account information" styles={styles} onPress={() => { setName(registeredName); setAddress(registeredAddress); setEmail(serverEmail); setEditing(true); }} noBorder />
         <InfoRow icon="document-text-outline" title="Documents" value="Submitted identity details" styles={styles} onPress={() => setShowDocuments(true)} />
         <InfoRow icon="storefront-outline" title="Shop Details" value={shopName} styles={styles} onPress={() => setShowShopDetails(true)} />
-        <InfoRow icon="card-outline" title="Payment Details" value={profile?.verification?.bank?.upi || profile?.verification?.bank?.accountNumber || profile?.verification?.bank?.payoutPhone ? "Saved payout method" : "No payout details added"} styles={styles} onPress={() => setShowBankDetails(true)} />
+        <InfoRow icon="card-outline" title="Payment Details" value={profile?.verification?.bank?.accountHolder || profile?.verification?.bank?.accountNumber || profile?.verification?.bank?.ifsc || profile?.verification?.bank?.upi || profile?.verification?.bank?.payoutPhone ? "Saved payout details" : "No payout details added"} styles={styles} onPress={() => setShowBankDetails(true)} />
         <InfoRow icon="images-outline" title="Sample Photos" value={`${(profile?.sampleGallery ?? []).length} uploaded, ${sampleDrafts.length} ready to submit`} styles={styles} onPress={() => setShowSampleWork(true)} />
       </Section>
 
@@ -815,8 +815,8 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
                 <Ionicons name="chevron-back" size={22} color={palette.text} />
               </Pressable>
               <View style={styles.rowMain}>
-                <Text style={styles.title}>Bank Account</Text>
-                <Text style={styles.meta}>Payout banking details</Text>
+                <Text style={styles.title}>Payment Details</Text>
+                <Text style={styles.meta}>Your saved payout information</Text>
               </View>
             </View>
 
@@ -824,16 +824,14 @@ export function TailorProfileScreen({ me, token, orders, refresh, showDialog, on
               <View style={styles.profileDetailEyebrow}>
                 <Text style={[styles.profileDetailEyebrowText, { color: profileAccent }]}>CURRENT DETAILS</Text>
               </View>
-              <InfoRow accent={profileAccent} icon="card-outline" title="Payout Option" value={[
-                profile?.verification?.bank?.accountNumber ? "Bank transfer" : "",
-                profile?.verification?.bank?.upi ? "UPI" : "",
-                profile?.verification?.bank?.payoutPhone ? "Phone payout" : ""
-              ].filter(Boolean).join(" + ") || "Not added"} styles={styles} />
-              <InfoRow accent={profileAccent} icon="business-outline" title="Bank Account" value={profile?.verification?.bank?.accountNumber ? `••••${profile.verification.bank.accountNumber.slice(-4)} · ${profile.verification.bank.bankName || profile.verification.bank.ifsc || "Bank details saved"}` : "Not added"} styles={styles} />
-              <InfoRow accent={profileAccent} icon="person-circle-outline" title="Account Holder" value={profile?.verification?.bank?.accountHolder || "Not added"} styles={styles} />
-              <InfoRow accent={profileAccent} icon="business-outline" title="Bank Name" value={profile?.verification?.bank?.bankName || "Not added"} styles={styles} />
+              <Text style={{ color: profileAccent, fontSize: 12, fontWeight: "900", marginTop: 8, marginBottom: 4 }}>BANK ACCOUNT</Text>
+              <InfoRow accent={profileAccent} icon="person-circle-outline" title="Account Holder Name" value={profile?.verification?.bank?.accountHolder || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="card-outline" title="Account Number" value={profile?.verification?.bank?.accountNumber || "Not added"} styles={styles} />
+              <InfoRow accent={profileAccent} icon="business-outline" title="IFSC Code" value={profile?.verification?.bank?.ifsc || "Not added"} styles={styles} />
+              <Text style={{ color: profileAccent, fontSize: 12, fontWeight: "900", marginTop: 18, marginBottom: 4 }}>UPI DETAILS</Text>
               <InfoRow accent={profileAccent} icon="wallet-outline" title="UPI ID" value={profile?.verification?.bank?.upi || "Not added"} styles={styles} />
-              <InfoRow accent={profileAccent} icon="call-outline" title="Payout Phone" value={profile?.verification?.bank?.payoutPhone || "Not added"} styles={styles} />
+              <Text style={{ color: profileAccent, fontSize: 12, fontWeight: "900", marginTop: 18, marginBottom: 4 }}>PAY ON PHONE NUMBER</Text>
+              <InfoRow accent={profileAccent} icon="call-outline" title="Phone Number" value={profile?.verification?.bank?.payoutPhone || "Not added"} styles={styles} />
               <InfoRow accent={profileAccent} icon="wallet-outline" title="Status" value="Verified for weekly payouts" styles={styles} />
             </View>
 
@@ -2298,7 +2296,6 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
   const [accountHolder, setAccountHolder] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
-  const [bankName, setBankName] = useState("");
   const [upiId, setUpiId] = useState("");
   const [payoutPhone, setPayoutPhone] = useState("");
   const [addressField, setAddressField] = useState("");
@@ -2389,7 +2386,7 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
         Alert.alert("Invalid Input", "Please enter valid bank account details.");
         return;
       }
-      requestedValues = { accountHolder: accountHolder.trim(), accountNumber: accountNumber.trim(), ifsc: ifsc.trim(), ...(bankName.trim() ? { bankName: bankName.trim() } : {}) };
+      requestedValues = { accountHolder: accountHolder.trim(), accountNumber: accountNumber.trim(), ifsc: ifsc.trim() };
     } else if (type === "UPI") {
       if ((upiId.trim() && (upiId.trim().length < 3 || !upiId.includes("@"))) || (payoutPhone.trim() && !/^[6-9]\d{9}$/.test(payoutPhone.trim())) || (!upiId.trim() && !payoutPhone.trim())) {
         Alert.alert("Invalid Input", "Enter a valid UPI ID or a 10 digit payout phone number.");
@@ -2440,7 +2437,6 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
       setAccountHolder("");
       setAccountNumber("");
       setIfsc("");
-      setBankName("");
       setUpiId("");
       setPayoutPhone("");
       setAddressField("");
@@ -2528,10 +2524,6 @@ function TailorAccountRequestsScreen({ initialType, setScreen, palette, styles, 
                     placeholder="Holder name..."
                     placeholderTextColor={palette.muted}
                   />
-                </View>
-                <View>
-                  <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Bank Name</Text>
-                  <TextInput style={[styles.input, { backgroundColor: palette.bg }]} value={bankName} onChangeText={setBankName} placeholder="Bank name..." placeholderTextColor={palette.muted} />
                 </View>
                 <View>
                   <Text style={{ color: palette.muted, fontSize: 11, fontWeight: "900", marginBottom: 6 }}>Account Number</Text>

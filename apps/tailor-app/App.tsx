@@ -395,7 +395,7 @@ type VerificationDraft = {
   step: number;
   personal: { name: string; address: string; addressLine?: string; area?: string; city?: string; state?: string; pincode?: string; dob: string; email: string; location?: { lat: number; lng: number } };
   shop: { workFromHome: boolean; shopName: string; shopAddress: string; shopAddressLine?: string; shopArea?: string; shopCity?: string; shopState?: string; shopPincode?: string; gstNumber: string; employeeCount: string; yearsExperience: string; machinery?: string[]; shopPhotos: VerificationMediaDraft[] };
-  bank?: { accountHolder: string; accountNumber: string; ifsc: string; bankName?: string; upi: string; payoutPhone?: string };
+  bank?: { accountHolder: string; accountNumber: string; ifsc: string; upi: string; payoutPhone?: string };
   category: "Men" | "Women" | "Both";
   rows: SpecializationRow[];
   confirmedRows: boolean;
@@ -417,7 +417,7 @@ type VerificationDraft = {
 type TailorVerificationPayload = {
   personal: { name: string; address: string; dob: string; email?: string; location?: { lat: number; lng: number } };
   shop: { workFromHome?: boolean; shopName: string; shopAddress: string; gstNumber?: string; employeeCount: number; yearsExperience: number; shopPhotos: string[] };
-  bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; bankName?: string; upi?: string; payoutPhone?: string };
+  bank?: { accountHolder?: string; accountNumber?: string; ifsc?: string; upi?: string; payoutPhone?: string };
   specializationRows: Array<{ gender: "Men" | "Women" | "Both"; clothType: string; stitchingType: string; price: number }>;
   specialties?: string[];
   idVerification: {
@@ -4484,7 +4484,7 @@ function TailorVerificationFlow({
   const [showShopPhotoSheet, setShowShopPhotoSheet] = useState(false);
   const [personal, setPersonal] = useState({ name: me?.name ?? "", address: "", addressLine: "", area: "", city: "", state: "", pincode: "", dob: "", email: "", location: undefined as { lat: number; lng: number } | undefined });
   const [shop, setShop] = useState({ workFromHome: false, shopName: me?.tailorProfile?.shopName ?? "", shopAddress: "", shopAddressLine: "", shopArea: "", shopCity: "", shopState: "", shopPincode: "", gstNumber: "", employeeCount: "1", yearsExperience: "", shopPhotos: [] as VerificationMediaDraft[] });
-  const [verificationBank, setVerificationBank] = useState({ accountHolder: "", accountNumber: "", ifsc: "", bankName: "", upi: "", payoutPhone: "" });
+  const [verificationBank, setVerificationBank] = useState({ accountHolder: "", accountNumber: "", ifsc: "", upi: "", payoutPhone: "" });
   const [category, setCategory] = useState<"Men" | "Women" | "Both">("Both");
   const [rows, setRows] = useState<SpecializationRow[]>([newSpecializationRow()]);
   const [confirmedRows, setConfirmedRows] = useState(false);
@@ -4548,7 +4548,10 @@ function TailorVerificationFlow({
     if (!draft) return;
     if (draft.step && status !== "PENDING" && status !== "REJECTED" && status !== "REUPLOAD_REQUIRED") setStep(Math.min(Math.max(draft.step, 1), VERIFICATION_FORM_STEPS));
     if (draft.personal) setPersonal((current) => ({ ...current, ...draft.personal, location: draft.personal?.location ?? current.location }));
-    if (draft.shop) setShop((current) => ({ ...current, ...draft.shop, shopPhotos: draft.shop?.shopPhotos ?? current.shopPhotos }));
+    if (draft.shop) {
+      const draftShop = draft.shop;
+      setShop((current) => ({ ...current, ...draftShop, shopPhotos: draftShop.workFromHome ? [] : draftShop.shopPhotos ?? current.shopPhotos }));
+    }
     if (draft.bank) setVerificationBank((current) => ({ ...current, ...draft.bank }));
     if (draft.category) setCategory(draft.category);
     if (draft.rows?.length) setRows(draft.rows);
@@ -4593,9 +4596,9 @@ function TailorVerificationFlow({
       gstNumber: verification.shop.gstNumber ?? "",
       employeeCount: String(verification.shop.employeeCount ?? "1"),
       yearsExperience: String(verification.shop.yearsExperience ?? ""),
-      shopPhotos: (verification.shop.shopPhotos ?? []).map((url, index) => ({ uri: url, name: `Shop photo ${index + 1}`, uploadedUrl: url }))
+      shopPhotos: verification.shop.workFromHome ? [] : (verification.shop.shopPhotos ?? []).map((url, index) => ({ uri: url, name: `Shop photo ${index + 1}`, uploadedUrl: url }))
     });
-    setVerificationBank({ accountHolder: verification.bank?.accountHolder ?? "", accountNumber: verification.bank?.accountNumber ?? "", ifsc: verification.bank?.ifsc ?? "", bankName: verification.bank?.bankName ?? "", upi: verification.bank?.upi ?? "", payoutPhone: verification.bank?.payoutPhone ?? "" });
+    setVerificationBank({ accountHolder: verification.bank?.accountHolder ?? "", accountNumber: verification.bank?.accountNumber ?? "", ifsc: verification.bank?.ifsc ?? "", upi: verification.bank?.upi ?? "", payoutPhone: verification.bank?.payoutPhone ?? "" });
     if (verification.specializationRows?.length) {
       setRows(
         verification.specializationRows.map((row, index) => ({
@@ -4966,12 +4969,12 @@ function TailorVerificationFlow({
       if (!shop.employeeCount.trim() || !Number.isInteger(Number(shop.employeeCount)) || Number(shop.employeeCount) < 0 || Number(shop.employeeCount) > 500) return localize(language, "Enter the number of employees as a whole number from 0 to 500.", "कर्मचारियों की संख्या 0 से 500 के बीच पूर्ण अंक में दर्ज करें।");
       if (!shop.yearsExperience.trim() || !Number.isInteger(Number(shop.yearsExperience)) || Number(shop.yearsExperience) < 0 || Number(shop.yearsExperience) > 80) return localize(language, "Enter years of experience as a whole number from 0 to 80.", "अनुभव के वर्ष 0 से 80 के बीच पूर्ण अंक में दर्ज करें।");
       const bank = Object.fromEntries(Object.entries(verificationBank).map(([key, value]) => [key, value.trim()]));
-      if ((bank.accountHolder || bank.accountNumber || bank.ifsc || bank.bankName) && !(bank.bankName && bank.accountNumber && bank.ifsc)) return localize(language, "Enter bank name, account number and IFSC together, or leave bank details blank. UPI and payout phone are optional.", "बैंक नाम, खाता संख्या और IFSC एक साथ भरें, या बैंक विवरण खाली छोड़ें। UPI और भुगतान फ़ोन वैकल्पिक हैं।");
+      if ((bank.accountHolder || bank.accountNumber || bank.ifsc) && !(bank.accountHolder && bank.accountNumber && bank.ifsc)) return localize(language, "Enter account holder name, account number and IFSC together, or leave the bank account details blank.", "खाताधारक का नाम, खाता संख्या और IFSC एक साथ भरें, या बैंक विवरण खाली छोड़ें।");
       if ((bank.accountHolder && (bank.accountHolder.length < 2 || bank.accountHolder.length > 80)) || (bank.accountNumber && (bank.accountNumber.length < 6 || bank.accountNumber.length > 30)) || (bank.ifsc && (bank.ifsc.length < 4 || bank.ifsc.length > 20))) return localize(language, "Check your bank account holder, account number and IFSC before continuing.", "आगे बढ़ने से पहले खाताधारक का नाम, खाता संख्या और IFSC जाँचें।");
-      if ((bank.bankName && (bank.bankName.length < 2 || bank.bankName.length > 100)) || (bank.payoutPhone && !/^[6-9]\d{9}$/.test(bank.payoutPhone))) return localize(language, "Check your bank name and payout phone number.", "बैंक नाम और भुगतान फ़ोन नंबर जाँचें।");
+      if (bank.payoutPhone && !/^[6-9]\d{9}$/.test(bank.payoutPhone)) return localize(language, "Check your payout phone number.", "भुगतान फ़ोन नंबर जाँचें।");
       const selectedSpecialties = [...specialties.filter((item) => item !== "Other"), ...customSpecialties];
       if (selectedSpecialties.length > 50 || selectedSpecialties.some((item) => item.trim().length < 2 || item.trim().length > 80)) return localize(language, "Choose up to 50 specialties, with 2 to 80 characters in each specialty.", "अधिकतम 50 विशेषताएँ चुनें और हर विशेषता 2 से 80 अक्षरों में लिखें।");
-      if (shop.shopPhotos.length < 1) return localize(language, "Upload at least 1 shop photo.", "दुकान की कम से कम 1 फोटो अपलोड करें।");
+      if (!shop.workFromHome && shop.shopPhotos.length < 1) return localize(language, "Upload at least 1 shop photo.", "दुकान की कम से कम 1 फोटो अपलोड करें।");
       if (shop.shopPhotos.length > 3) return localize(language, "Upload no more than 3 shop photos.", "दुकान की अधिकतम 3 फोटो ही अपलोड करें।");
       return "";
     }
@@ -5187,7 +5190,6 @@ function TailorVerificationFlow({
           ...(verificationBank.accountHolder.trim() ? { accountHolder: verificationBank.accountHolder.trim() } : {}),
           ...(verificationBank.accountNumber.trim() ? { accountNumber: verificationBank.accountNumber.trim() } : {}),
           ...(verificationBank.ifsc.trim() ? { ifsc: verificationBank.ifsc.trim() } : {}),
-          ...(verificationBank.bankName.trim() ? { bankName: verificationBank.bankName.trim() } : {}),
           ...(verificationBank.upi.trim() ? { upi: verificationBank.upi.trim() } : {}),
           ...(verificationBank.payoutPhone.trim() ? { payoutPhone: verificationBank.payoutPhone.trim() } : {})
         } : undefined,
@@ -5508,7 +5510,17 @@ function TailorVerificationFlow({
         {step === 2 ? (
           <View style={styles.whiteCard}>
             <Text style={styles.cardLabel}>{localize(language, "SHOP DETAILS", "दुकान की जानकारी")}</Text>
-            <Pressable style={[styles.toggleChoiceRow, styles.verificationHomeToggle]} onPress={() => !isLocked && setShop((current) => ({ ...current, workFromHome: !current.workFromHome, shopName: !current.workFromHome && !current.shopName ? "Home" : current.shopName }))} disabled={isLocked}>
+            <Pressable style={[styles.toggleChoiceRow, styles.verificationHomeToggle]} onPress={() => {
+              if (isLocked) return;
+              const nextWorkFromHome = !shop.workFromHome;
+              if (nextWorkFromHome) setShowShopPhotoSheet(false);
+              setShop((current) => ({
+                ...current,
+                workFromHome: nextWorkFromHome,
+                shopName: nextWorkFromHome && !current.shopName ? "Home" : current.shopName,
+                shopPhotos: nextWorkFromHome ? [] : current.shopPhotos
+              }));
+            }} disabled={isLocked}>
               <Ionicons name={shop.workFromHome ? "checkbox" : "square-outline"} size={21} color={isLocked ? "#9aa6b8" : "#111111"} />
               <View style={styles.cardMain}>
                 <Text style={styles.cardTitle}>{localize(language, "I work from home", "मैं घर से काम करता/करती हूँ")}</Text>
@@ -5621,16 +5633,26 @@ function TailorVerificationFlow({
                 <View style={styles.verificationSectionIcon}><Ionicons name="wallet-outline" size={21} color="#ffffff" /></View>
                 <View style={styles.cardMain}>
                   <Text style={styles.verificationSectionTitle}>{localize(language, "Payout details", "भुगतान और पेआउट विवरण")}</Text>
-                  <Text style={styles.verificationSectionCopy}>{localize(language, "Add a bank account, UPI ID, or both for your payouts.", "पेआउट पाने के लिए बैंक खाता, UPI ID या दोनों जोड़ें।")}</Text>
+                  <Text style={styles.verificationSectionCopy}>{localize(language, "Add any payout details now, or skip and add them later.", "भुगतान विवरण अभी जोड़ें या छोड़कर बाद में जोड़ें।")}</Text>
                 </View>
               </View>
-              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountHolder} onChangeText={(accountHolder) => setVerificationBank((current) => ({ ...current, accountHolder }))} placeholder="Bank account holder (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
-              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.bankName} onChangeText={(bankName) => setVerificationBank((current) => ({ ...current, bankName }))} placeholder="Bank name (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
-              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountNumber} onChangeText={(accountNumber) => setVerificationBank((current) => ({ ...current, accountNumber: accountNumber.replace(/\s/g, "").slice(0, 30) }))} placeholder="Bank account number (optional)" placeholderTextColor="#9aa6b8" keyboardType="number-pad" editable={!isLocked} />
-              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.ifsc} onChangeText={(ifsc) => setVerificationBank((current) => ({ ...current, ifsc: ifsc.toUpperCase().slice(0, 20) }))} placeholder="IFSC code (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="characters" editable={!isLocked} />
-              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.upi} onChangeText={(upi) => setVerificationBank((current) => ({ ...current, upi: upi.slice(0, 80) }))} placeholder="UPI ID (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="none" editable={!isLocked} />
-              <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.payoutPhone} onChangeText={(payoutPhone) => setVerificationBank((current) => ({ ...current, payoutPhone: payoutPhone.replace(/\D/g, "").slice(0, 10) }))} placeholder="Payout phone number (optional)" placeholderTextColor="#9aa6b8" keyboardType="phone-pad" editable={!isLocked} />
+              <View style={styles.verificationPayoutGroup}>
+                <Text style={styles.verificationPayoutGroupTitle}>{localize(language, "Bank Account", "बैंक खाता")}</Text>
+                <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountHolder} onChangeText={(accountHolder) => setVerificationBank((current) => ({ ...current, accountHolder }))} placeholder="Account holder name (optional)" placeholderTextColor="#9aa6b8" editable={!isLocked} />
+                <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.accountNumber} onChangeText={(accountNumber) => setVerificationBank((current) => ({ ...current, accountNumber: accountNumber.replace(/\s/g, "").slice(0, 30) }))} placeholder="Account number (optional)" placeholderTextColor="#9aa6b8" keyboardType="number-pad" editable={!isLocked} />
+                <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.ifsc} onChangeText={(ifsc) => setVerificationBank((current) => ({ ...current, ifsc: ifsc.toUpperCase().slice(0, 20) }))} placeholder="IFSC code (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="characters" editable={!isLocked} />
+              </View>
+              <View style={styles.verificationPayoutGroup}>
+                <Text style={styles.verificationPayoutGroupTitle}>{localize(language, "UPI Details", "UPI विवरण")}</Text>
+                <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.upi} onChangeText={(upi) => setVerificationBank((current) => ({ ...current, upi: upi.slice(0, 80) }))} placeholder="UPI ID (optional)" placeholderTextColor="#9aa6b8" autoCapitalize="none" editable={!isLocked} />
+              </View>
+              <View style={styles.verificationPayoutGroup}>
+                <Text style={styles.verificationPayoutGroupTitle}>{localize(language, "Pay on Phone Number", "फ़ोन नंबर पर भुगतान")}</Text>
+                <TextInput style={[styles.input, styles.verificationPayoutInput, isLocked && styles.inputReadOnly]} value={verificationBank.payoutPhone} onChangeText={(payoutPhone) => setVerificationBank((current) => ({ ...current, payoutPhone: payoutPhone.replace(/\D/g, "").slice(0, 10) }))} placeholder="Enter phone number (optional)" placeholderTextColor="#9aa6b8" keyboardType="phone-pad" editable={!isLocked} />
+              </View>
             </View>
+            {!shop.workFromHome ? (
+              <>
             <View style={styles.rowBetween}>
               <Text style={styles.formLabel}>{localize(language, "Shop Photos", "दुकान की फोटो")}</Text>
               <Text style={styles.cardMeta}>{shop.shopPhotos.length}/3</Text>
@@ -5695,6 +5717,8 @@ function TailorVerificationFlow({
                 </View>
               </View>
             </Modal>
+              </>
+            ) : null}
           </View>
         ) : null}
 
@@ -8232,6 +8256,8 @@ const styles = StyleSheet.create({
   verificationSectionIcon: { width: 44, height: 44, borderRadius: 10, backgroundColor: "#111111", alignItems: "center", justifyContent: "center" },
   verificationSectionTitle: { color: "#111111", fontSize: 18, lineHeight: 23, fontWeight: "900" },
   verificationSectionCopy: { color: "#667085", fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 3 },
+  verificationPayoutGroup: { marginTop: 16 },
+  verificationPayoutGroupTitle: { color: "#344054", fontSize: 14, fontWeight: "900" },
   verificationSpecialtyGrid: { marginTop: 16 },
   verificationOtherSpecialtyInput: { minHeight: 54, borderRadius: 12, marginTop: 14, backgroundColor: "#ffffff" },
   customSpecialtyList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },

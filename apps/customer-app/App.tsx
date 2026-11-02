@@ -8089,6 +8089,7 @@ function OnboardingScreen({
   language: AppLanguage;
   setLanguagePreference: (language: AppLanguage) => void;
 }) {
+  const signOut = useAppStore((state) => state.signOut);
   const [name, setName] = useState(profile.name.startsWith("Customer ") ? "" : profile.name);
   const [gender, setGender] = useState<ProfileGender>(profile.gender ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile.dateOfBirth ?? "");
@@ -8140,6 +8141,9 @@ function OnboardingScreen({
           <Pressable style={styles.onboardingContinueButton} onPress={save}>
             <Text style={styles.primaryWideButtonText}>{t(language, "continue")}</Text>
             <Ionicons name="arrow-forward" size={20} color="#111111" />
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={signOut} style={styles.onboardingDifferentNumber}>
+            <Text style={styles.onboardingDifferentNumberText}>{localize(language, "Log in with a different number", "दूसरे नंबर से लॉग इन करें")}</Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -14243,6 +14247,8 @@ function createStyles(isDark = false, festivalTheme?: FestivalThemeState) {
   requestFlowCtaArrow: { position: "absolute", right: 7, width: 40, height: 40, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.32)", alignItems: "center", justifyContent: "center" },
   requestFlowCtaArrowDisabled: { backgroundColor: isDark ? "#242424" : "#dde2e8" },
   onboardingContinueButton: { height: 48, borderRadius: 9, backgroundColor: BRAND_ORANGE, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 16, marginTop: 14 },
+  onboardingDifferentNumber: { alignSelf: "center", paddingVertical: 14, paddingHorizontal: 12 },
+  onboardingDifferentNumberText: { color: "#8b929e", fontSize: 13, fontWeight: "700", textDecorationLine: "underline" },
   emptyActionButton: { alignSelf: "stretch", paddingHorizontal: 18 },
   twoCol: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   optionButton: { width: "47.8%", minHeight: 64, borderRadius: 13, borderWidth: 1.2, borderColor: border, backgroundColor: surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 10 },

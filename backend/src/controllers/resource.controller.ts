@@ -156,7 +156,11 @@ const tailorVerificationSchema = z.object({
     gstNumber: z.string().trim().max(30).optional().or(z.literal("")),
     employeeCount: z.number().int().min(0).max(500),
     yearsExperience: z.number().int().min(0).max(80),
-    shopPhotos: z.array(z.string().url()).min(1).max(3)
+    shopPhotos: z.array(z.string().url()).max(3)
+  }).superRefine((shop, ctx) => {
+    if (!shop.workFromHome && shop.shopPhotos.length < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["shopPhotos"], message: "Upload at least one shop photo unless you work from home" });
+    }
   }),
   bank: z.object({
     accountHolder: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(2).max(80).optional()),
@@ -166,9 +170,9 @@ const tailorVerificationSchema = z.object({
     upi: z.string().trim().max(80).optional().or(z.literal("")),
     payoutPhone: z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().regex(/^[6-9]\d{9}$/).optional())
   }).optional().default({}).superRefine((bank, ctx) => {
-    const hasBankEntry = Boolean(bank.accountHolder || bank.accountNumber || bank.ifsc || bank.bankName);
-    if (hasBankEntry && !(bank.accountNumber && bank.ifsc && bank.bankName)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Add bank name, account number, and IFSC together" });
+    const hasBankEntry = Boolean(bank.accountHolder || bank.accountNumber || bank.ifsc);
+    if (hasBankEntry && !(bank.accountHolder && bank.accountNumber && bank.ifsc)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Add account holder name, account number, and IFSC together" });
     }
   }),
   specialties: z.array(z.string().trim().min(2).max(80)).max(50).optional(),
@@ -729,19 +733,20 @@ export async function submitTailorVerificationController(req: Request, res: Resp
       "personal.dob": "date of birth", "personal.email": "email address", "personal.location": "saved location",
       "shop.shopName": "workshop name (2 to 100 characters)", "shop.shopAddress": "workshop address (8 to 500 characters)",
       "shop.gstNumber": "GST number", "shop.employeeCount": "employee count (a whole number from 0 to 500)",
-      "shop.yearsExperience": "years of experience (a whole number from 0 to 80)", "shop.shopPhotos": "workshop photos (1 to 3 uploaded photos)",
+      "shop.yearsExperience": "years of experience (a whole number from 0 to 80)", "shop.shopPhotos": "workshop photos (1 to 3 uploaded photos, unless you work from home)",
       "bank.accountHolder": "bank account holder (2 to 80 characters)", "bank.accountNumber": "bank account number (6 to 30 characters)",
-      "bank.ifsc": "IFSC code (4 to 20 characters)", "bank.bankName": "bank name", "bank.upi": "UPI ID (up to 80 characters)", "bank.payoutPhone": "payout phone number (10 digits)",
+      "bank.ifsc": "IFSC code (4 to 20 characters)", "bank.upi": "UPI ID (up to 80 characters)", "bank.payoutPhone": "payout phone number (10 digits)",
       "idVerification.idNumber": "ID number", "idVerification.aadhaarFrontUrl": "Aadhaar front photo",
       "idVerification.aadhaarBackUrl": "Aadhaar back photo", "idVerification.panUrl": "ID card photo", "idVerification.facePhotoUrl": "face verification photo"
     };
-    const message = field === "bank" ? "Enter bank name, account number and IFSC together, or leave bank details blank. UPI and payout phone are optional."
+    const message = field === "bank" ? "Enter account holder name, account number and IFSC together, or leave the bank account details blank. UPI and payout phone are optional."
       : field.startsWith("specialties") ? "Choose up to 50 specialties, with 2 to 80 characters in each specialty."
         : field.startsWith("specializationRows") ? "Check your stitching specialties and prices. Each price must be between 0 and 100000."
           : `Please check your ${labels[field] ?? labels[issue.path.slice(0, 2).map(String).join(".")] ?? "registration details"} and submit again.`;
     throw new AppError(400, message);
   }
   const input = parsed.data;
+  if (input.shop.workFromHome) input.shop.shopPhotos = [];
   const specialization = input.specialties?.length
     ? [...new Set(input.specialties.map((item) => item.trim()).filter(Boolean))]
     : input.specializationRows.map((row) => `${row.gender} ${row.clothType} ${row.stitchingType}`);
