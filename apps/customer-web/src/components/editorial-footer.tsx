@@ -21,7 +21,8 @@ const footerNavigation = {
   quickLinks: [
     { label: "Home", href: "/" },
     { label: "Services", href: "/#services" },
-    { label: "How It Works", href: "/about#ecosystem" }
+    { label: "How It Works", href: "/about#ecosystem" },
+    { label: "Download Darji", href: "/download" }
   ],
   story: [
     { label: "About Darji", href: "/about" },

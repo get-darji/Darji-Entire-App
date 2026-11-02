@@ -17,16 +17,25 @@ const supportPhone = "+91 96259 17902";
 const supportPhoneUrl = "tel:+919625917902";
 
 export const metadata: Metadata = {
-  title: "Darji for iPhone is coming soon",
-  description: "Darji is preparing to launch on the Apple App Store. Explore our website, download the Android app, or call us to place an order.",
+  title: "Darji App for iPhone | App Store Download Updates",
+  description: "Looking for the Darji iPhone app? See Apple App Store launch updates, explore Darji for doorstep tailoring, and download the Android app on Google Play.",
+  keywords: ["Darji download", "Get Darji", "Darji iPhone app", "Darji App Store", "tailoring app", "doorstep tailoring app"],
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
   alternates: { canonical: "https://www.getdarji.in/applestore" },
   openGraph: {
-    title: "Darji for iPhone is coming soon",
-    description: "Explore Darji on the web, get the Android app on Google Play, or call us to create an order.",
+    title: "Darji App for iPhone | App Store Download Updates",
+    description: "Find out about Darji for iPhone, explore doorstep tailoring, and get the Android app from Google Play.",
     url: "https://www.getdarji.in/applestore",
     siteName: "Darji",
     locale: "en_IN",
-    type: "website"
+    type: "website",
+    images: [{ url: "https://www.getdarji.in/og-image.jpg", width: 1200, height: 630, alt: "Get the Darji tailoring app" }]
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Darji App for iPhone | App Store Download Updates",
+    description: "Find out about Darji for iPhone, explore doorstep tailoring, and get the Android app from Google Play.",
+    images: ["https://www.getdarji.in/og-image.jpg"]
   }
 };
 
