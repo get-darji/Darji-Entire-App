@@ -650,6 +650,7 @@ export function AdminPortal() {
   useEffect(() => {
     if (!hydrated || !urlSectionSyncReadyRef.current) return;
     const url = new URL(window.location.href);
+    if (activeSection !== "alerts") url.searchParams.delete("alertId");
     if (url.searchParams.get("section") === activeSection) return;
     url.searchParams.set("section", activeSection);
     window.history.pushState({ ...window.history.state, darjiAdminSection: activeSection }, "", `${url.pathname}${url.search}${url.hash}`);
@@ -5718,10 +5719,14 @@ function LiveAlertsPage({ alerts, onBack }: { alerts: AdminAlert[]; onBack: () =
   const [category, setCategory] = useState("all");
   const [severity, setSeverity] = useState("all");
   const [sortBy, setSortBy] = useState("priority");
+  useEffect(() => {
+    const alertId = new URLSearchParams(window.location.search).get("alertId");
+    if (alertId) setSearch(alertId);
+  }, []);
   const filteredAlerts = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return alerts
-      .filter((alert) => !needle || `${alert.title} ${alert.detail} ${getAlertCategory(alert)}`.toLowerCase().includes(needle))
+      .filter((alert) => !needle || `${alert.id} ${alert.title} ${alert.detail} ${getAlertCategory(alert)}`.toLowerCase().includes(needle))
       .filter((alert) => category === "all" || getAlertCategory(alert) === category)
       .filter((alert) => severity === "all" || getAlertSeverity(alert) === severity)
       .sort((left, right) => {

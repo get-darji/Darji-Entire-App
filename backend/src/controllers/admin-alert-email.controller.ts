@@ -7,6 +7,7 @@ import { OperationalAlertModel, SettingModel } from "../models.js";
 import {
   LIVE_ALERT_CATEGORIES,
   OPERATIONAL_ALERT_EMAIL_SETTINGS_KEY,
+  isOperationalAlertEmailConfigured,
   sendOperationalAlertEmailTest
 } from "../services/email-alert.service.js";
 import { emitToAdmins } from "../services/socket.service.js";
@@ -53,8 +54,8 @@ export async function updateAdminLiveAlertEmailSettingsController(req: Request, 
 }
 
 export async function createAdminLiveAlertEmailTestController(_req: Request, res: Response) {
-  if (!env.ALERT_EMAIL_WEBHOOK_URL) {
-    throw new AppError(503, "Alert email delivery is not configured on the backend");
+  if (!isOperationalAlertEmailConfigured()) {
+    throw new AppError(503, "Gmail SMTP is not configured. Add SMTP_USER and SMTP_PASS to the backend environment.");
   }
 
   const testToken = randomUUID();
@@ -90,7 +91,7 @@ export async function createAdminLiveAlertEmailTestController(_req: Request, res
     if (delivery.recipients === 0) {
       throw new AppError(409, "No alert email recipients are configured. Add a recipient in Alert Emails and try again.");
     }
-    throw new AppError(502, "The email provider did not accept the test message. Check the backend webhook and try again.");
+    throw new AppError(502, "Gmail SMTP did not accept the test message. Check the backend SMTP settings and try again.");
   }
 
   await OperationalAlertModel.updateOne(

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createTransport } from "nodemailer";
 import { env } from "../env.js";
 import { OperationalAlertEmailDispatchModel, SettingModel } from "../models.js";
 
@@ -27,7 +28,25 @@ export function operationalAlertCategory(type: string, title: string): LiveAlert
 }
 
 type RecipientRule = { email: string; mode: "ALL" | "SELECTED"; categories: LiveAlertCategory[] };
-let warnedMissingAlertWebhook = false;
+let warnedMissingAlertSmtp = false;
+let smtpTransporter: ReturnType<typeof createTransport> | null = null;
+
+export function isOperationalAlertEmailConfigured() {
+  return Boolean(env.SMTP_USER && env.SMTP_PASS);
+}
+
+function getSmtpTransporter() {
+  if (!isOperationalAlertEmailConfigured()) return null;
+  if (!smtpTransporter) {
+    smtpTransporter = createTransport({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      secure: env.SMTP_SECURE,
+      auth: { user: env.SMTP_USER!, pass: env.SMTP_PASS! }
+    });
+  }
+  return smtpTransporter;
+}
 
 function escapeHtml(value: unknown) {
   const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" };
@@ -75,6 +94,7 @@ function emailMarkup(input: LiveAlertEmailInput) {
     : new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }).format(date) + " IST";
   const adminBase = new URL(env.ADMIN_PANEL_URL);
   adminBase.search = "?section=alerts";
+  adminBase.searchParams.set("alertId", input.incidentKey);
   adminBase.hash = "";
   const adminUrl = escapeHtml(adminBase.toString());
   const logoUrl = escapeHtml(new URL("/darji-alert-logo.png", adminBase.origin).toString());
@@ -105,18 +125,16 @@ async function dispatchToRecipient(input: LiveAlertEmailInput, recipient: string
   try {
     const adminUrl = new URL(env.ADMIN_PANEL_URL);
     adminUrl.search = "?section=alerts";
-    const response = await fetch(env.ALERT_EMAIL_WEBHOOK_URL!, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: [recipient],
-        subject: `[Darji ${input.severity.toUpperCase()}] ${input.title}`,
-        text: `${input.title}\n\n${input.description}\n\nCategory: ${readableCategory(input.category)}\nAlert ID: ${input.incidentKey}\nDetected at: ${input.detectedAt ?? now.toISOString()}\n\n${adminUrl.toString()}`,
-        html: emailMarkup(input),
-        metadata: { alertId: input.incidentKey, category: input.category, severity: input.severity, source: input.source, adminUrl: adminUrl.toString() }
-      })
+    adminUrl.searchParams.set("alertId", input.incidentKey);
+    const transporter = getSmtpTransporter();
+    if (!transporter) throw new Error("Alert email SMTP is not configured");
+    await transporter.sendMail({
+      from: env.SMTP_FROM || env.SMTP_USER,
+      to: recipient,
+      subject: `[Darji ${input.severity.toUpperCase()}] ${input.title}`,
+      text: `${input.title}\n\n${input.description}\n\nCategory: ${readableCategory(input.category)}\nAlert ID: ${input.incidentKey}\nDetected at: ${input.detectedAt ?? now.toISOString()}\n\n${adminUrl.toString()}`,
+      html: emailMarkup(input)
     });
-    if (!response.ok) throw new Error(`Alert email webhook returned ${response.status}`);
     await OperationalAlertEmailDispatchModel.updateOne({ dedupeKey, leaseToken }, { $set: { status: "SENT", sentAt: new Date() }, $unset: { leaseToken: 1, leaseUntil: 1, lastError: 1 } });
     return true;
   } catch (error) {
@@ -127,9 +145,9 @@ async function dispatchToRecipient(input: LiveAlertEmailInput, recipient: string
 }
 
 export async function sendOperationalAlertEmails(inputs: LiveAlertEmailInput[]) {
-  if (!env.ALERT_EMAIL_WEBHOOK_URL) {
-    if (!warnedMissingAlertWebhook) console.warn("[alerts] ALERT_EMAIL_WEBHOOK_URL is not configured; skipping live alert emails");
-    warnedMissingAlertWebhook = true;
+  if (!isOperationalAlertEmailConfigured()) {
+    if (!warnedMissingAlertSmtp) console.warn("[alerts] SMTP_USER and SMTP_PASS are not configured; skipping live alert emails");
+    warnedMissingAlertSmtp = true;
     return { skipped: true, sent: 0, failed: 0 };
   }
   const configured = await configuredRecipients();
@@ -159,9 +177,9 @@ export async function sendOperationalAlertEmail(input: LiveAlertEmailInput) {
 }
 
 export async function sendOperationalAlertEmailTest(input: LiveAlertEmailInput) {
-  if (!env.ALERT_EMAIL_WEBHOOK_URL) {
-    if (!warnedMissingAlertWebhook) console.warn("[alerts] ALERT_EMAIL_WEBHOOK_URL is not configured; skipping live alert email tests");
-    warnedMissingAlertWebhook = true;
+  if (!isOperationalAlertEmailConfigured()) {
+    if (!warnedMissingAlertSmtp) console.warn("[alerts] SMTP_USER and SMTP_PASS are not configured; skipping live alert email tests");
+    warnedMissingAlertSmtp = true;
     return { skipped: true, sent: 0, failed: 0, recipients: 0 };
   }
 
