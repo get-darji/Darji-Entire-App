@@ -152,6 +152,9 @@ import {
   getSettings,
   getLiveAlertEmailSettings,
   updateLiveAlertEmailSettings,
+  getLiveAlertEmailGmailStatus,
+  getLiveAlertEmailGmailAuthorizationUrl,
+  disconnectLiveAlertEmailGmail,
   sendLiveAlertEmailTest,
   resetEverythingDevelopment,
   resetOrdersRequestsBatches,
@@ -888,6 +891,11 @@ export function AdminPortal() {
     queryFn: getLiveAlertEmailSettings,
     enabled: needsSection("settings")
   });
+  const liveAlertEmailGmailStatusQuery = useQuery({
+    queryKey: ["admin", "live-alert-email-gmail-status"],
+    queryFn: getLiveAlertEmailGmailStatus,
+    enabled: needsSection("settings")
+  });
   const marketingSignupsQuery = useQuery({
     queryKey: ["admin", "marketing-signups"],
     queryFn: getMarketingSignups,
@@ -1254,6 +1262,38 @@ export function AdminPortal() {
     },
     onError: (error) => toast.error(extractError(error))
   });
+  const liveAlertEmailGmailConnectMutation = useMutation({
+    mutationFn: getLiveAlertEmailGmailAuthorizationUrl,
+    onSuccess: ({ authorizationUrl }) => window.location.assign(authorizationUrl),
+    onError: (error) => toast.error(extractError(error))
+  });
+  const liveAlertEmailGmailDisconnectMutation = useMutation({
+    mutationFn: disconnectLiveAlertEmailGmail,
+    onSuccess: async () => {
+      toast.success("Gmail disconnected");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "live-alert-email-gmail-status"] });
+    },
+    onError: (error) => toast.error(extractError(error))
+  });
+
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const result = url.searchParams.get("gmail_oauth");
+    if (!result) return;
+    setActiveSection("settings");
+    setSettingsPage("alert-email");
+    if (result === "connected") {
+      toast.success("Gmail connected. Live alert emails are ready.");
+      void queryClient.invalidateQueries({ queryKey: ["admin", "live-alert-email-gmail-status"] });
+    } else if (result === "denied") {
+      toast.error("Gmail access was not granted. Connect Gmail to enable alert emails.");
+    } else {
+      toast.error("Gmail connection failed. Check the OAuth setup and try again.");
+    }
+    url.searchParams.delete("gmail_oauth");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [hydrated, queryClient, setActiveSection]);
 
   const platformStatusMutation = useMutation({
     mutationFn: updatePlatformStatus,
@@ -3679,10 +3719,14 @@ export function AdminPortal() {
             {settingsPage === "alert-email" ? (
               <LiveAlertEmailSettingsCard
                 settings={liveAlertEmailSettingsQuery.data}
+                gmailStatus={liveAlertEmailGmailStatusQuery.data}
                 pending={liveAlertEmailSettingsMutation.isPending || liveAlertEmailSettingsQuery.isLoading}
                 testPending={liveAlertEmailTestMutation.isPending}
-                canSendTest={Boolean(liveAlertEmailSettingsQuery.data?.recipients.length)}
+                gmailPending={liveAlertEmailGmailStatusQuery.isLoading || liveAlertEmailGmailConnectMutation.isPending || liveAlertEmailGmailDisconnectMutation.isPending}
+                canSendTest={Boolean(liveAlertEmailSettingsQuery.data?.recipients.length && liveAlertEmailGmailStatusQuery.data?.connected)}
                 onTest={() => liveAlertEmailTestMutation.mutate()}
+                onConnectGmail={() => liveAlertEmailGmailConnectMutation.mutate()}
+                onDisconnectGmail={() => liveAlertEmailGmailDisconnectMutation.mutate()}
                 onSave={(value) => liveAlertEmailSettingsMutation.mutate(value)}
               />
             ) : null}
@@ -8795,17 +8839,25 @@ function OtpFallbackSettingsCard({
 
 function LiveAlertEmailSettingsCard({
   settings,
+  gmailStatus,
   pending,
   testPending,
+  gmailPending,
   canSendTest,
   onTest,
+  onConnectGmail,
+  onDisconnectGmail,
   onSave
 }: {
   settings?: LiveAlertEmailSettings;
+  gmailStatus?: { configured: boolean; connected: boolean; email?: string };
   pending: boolean;
   testPending: boolean;
+  gmailPending: boolean;
   canSendTest: boolean;
   onTest: () => void;
+  onConnectGmail: () => void;
+  onDisconnectGmail: () => void;
   onSave: (value: LiveAlertEmailSettings) => void;
 }) {
   const [draft, setDraft] = useState<LiveAlertEmailRecipient[]>([]);
@@ -8860,6 +8912,19 @@ function LiveAlertEmailSettingsCard({
         <div>
           <h3 className="text-lg font-semibold">Live alert email recipients</h3>
           <p className="mt-1 text-sm text-[var(--muted)]">Add multiple recipients and choose which alert categories each address receives. New incidents are emailed once per recipient; the same open alert is not resent on each refresh.</p>
+        </div>
+        <div className="flex flex-col gap-3 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel)] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold">Gmail sender</div>
+            <div className="mt-1 text-sm text-[var(--muted)]">
+              {gmailStatus?.connected ? `Connected as ${gmailStatus.email}` : gmailStatus?.configured ? "Connect the Gmail account that will send operational alerts." : "Google OAuth is not configured on the backend yet. Add the Google OAuth values in Railway first."}
+            </div>
+          </div>
+          {gmailStatus?.connected ? (
+            <ActionButton disabled={gmailPending} onClick={onDisconnectGmail}>Disconnect Gmail</ActionButton>
+          ) : (
+            <ActionButton disabled={gmailPending || !gmailStatus?.configured} onClick={onConnectGmail}>{gmailPending ? "Loading..." : "Connect Gmail"}</ActionButton>
+          )}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
@@ -8921,7 +8986,7 @@ function LiveAlertEmailSettingsCard({
         ) : <EmptyState message="No recipients yet. Add an email address to begin routing live alerts." />}
         {hasInvalidRecipient || hasDuplicateRecipients ? <p className="text-sm font-semibold text-rose-700">Correct invalid, duplicate, or empty alert assignments before saving.</p> : null}
         <div className="flex flex-col gap-3 border-t border-[var(--panel-border)] pt-4">
-          <p className="max-w-2xl text-xs leading-5 text-[var(--muted)]">Email delivery requires the backend alert email webhook to be configured. Category assignments are saved on the server and apply to new alert incidents. The test sends to each saved email address and creates a clearly labeled test alert without using an order or customer.</p>
+          <p className="max-w-2xl text-xs leading-5 text-[var(--muted)]">Connect Gmail to send notifications through the Gmail API. Category assignments are saved on the server and apply to new alert incidents. The test sends to each saved email address and creates a clearly labeled test alert without using an order or customer.</p>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <ActionButton disabled={pending || testPending || !canSendTest} onClick={onTest}>
               <Mail className="mr-1 inline h-4 w-4" /> {testPending ? "Sending test..." : "Create test alert and email"}

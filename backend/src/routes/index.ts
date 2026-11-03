@@ -3,6 +3,7 @@ import { otpRuntimeStatus } from "../services/otp.service.js";
 import { adminMeasurementVisitDetailController, tailorActivityController } from "../controllers/tailor-activity.controller.js";
 import { otpDeliveryCallbackController, otpDeliveryCallbackSetupController, otpDeliveryHistoryController } from "../controllers/otp-delivery.controller.js";
 import { createAdminLiveAlertEmailTestController, getAdminLiveAlertEmailSettingsController, updateAdminLiveAlertEmailSettingsController } from "../controllers/admin-alert-email.controller.js";
+import { completeAdminLiveAlertGmailOAuthController, disconnectAdminLiveAlertGmailController, getAdminLiveAlertGmailStatusController, startAdminLiveAlertGmailOAuthController } from "../controllers/admin-alert-email-gmail.controller.js";
 import { env } from "../env.js";
 import { logoutController, meController, refreshController, requestOtpController, verifyOtpController, updateMeController } from "../controllers/auth.controller.js";
 import {
@@ -295,6 +296,10 @@ router.get("/admin/operational-alerts", requireAuth, requireRole("ADMIN", "SUPER
 router.get("/admin/live-alert-email-settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getAdminLiveAlertEmailSettingsController);
 router.put("/admin/live-alert-email-settings", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateAdminLiveAlertEmailSettingsController);
 router.post("/admin/live-alert-email-test", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), createAdminLiveAlertEmailTestController);
+router.get("/admin/live-alert-email-gmail/callback", completeAdminLiveAlertGmailOAuthController);
+router.get("/admin/live-alert-email-gmail/status", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), getAdminLiveAlertGmailStatusController);
+router.get("/admin/live-alert-email-gmail/connect", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), startAdminLiveAlertGmailOAuthController);
+router.delete("/admin/live-alert-email-gmail", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), disconnectAdminLiveAlertGmailController);
 router.patch("/admin/operational-alerts/:id", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), updateOperationalAlertController);
 router.post("/admin/development/reset-orders", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetOrderRequestBatchDataController);
 router.post("/admin/development/reset-everything", requireAuth, requireRole("ADMIN", "SUPER_ADMIN"), resetEverythingDataController);

@@ -639,6 +639,20 @@ export async function updateLiveAlertEmailSettings(settings: LiveAlertEmailSetti
   return unwrap<LiveAlertEmailSettings>(api.put("/admin/live-alert-email-settings", settings));
 }
 
+export type LiveAlertEmailGmailStatus = { configured: boolean; connected: boolean; email?: string };
+
+export async function getLiveAlertEmailGmailStatus() {
+  return unwrap<LiveAlertEmailGmailStatus>(api.get("/admin/live-alert-email-gmail/status"));
+}
+
+export async function getLiveAlertEmailGmailAuthorizationUrl() {
+  return unwrap<{ authorizationUrl: string }>(api.get("/admin/live-alert-email-gmail/connect"));
+}
+
+export async function disconnectLiveAlertEmailGmail() {
+  await api.delete("/admin/live-alert-email-gmail");
+}
+
 export async function sendLiveAlertEmailTest() {
   return unwrap<{
     alert: OperationalAlert & { emailSentAt?: string };
