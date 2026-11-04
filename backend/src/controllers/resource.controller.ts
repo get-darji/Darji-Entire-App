@@ -58,6 +58,7 @@ import { z } from "zod";
 import { env } from "../env.js";
 import { AppError } from "../middleware/error.js";
 import { auditRequestContext } from "../middleware/admin-audit.js";
+import { releaseOwnerEmailFromOtherAccounts } from "../services/admin-owner.service.js";
 import { assignOrder, createOrder, getOrder, listOrders, updateOrderStatus } from "../services/order.service.js";
 import { pushRuntimeStatus, saveFcmToken, sendPushToUsers } from "../services/push.service.js";
 import { nextDarjiId } from "../utils/darji-id.js";
@@ -1446,8 +1447,12 @@ export async function updateAdminGoogleEmailController(req: Request, res: Respon
     throw new AppError(409, "The owner email can only be linked to the protected owner account");
   }
   if (email) {
-    const existing = await UserModel.findOne({ email, _id: { $ne: userId } }).select("_id").lean();
-    if (existing) throw new AppError(409, "This email is already attached to another Darji account");
+    if (email === OWNER_ADMIN_EMAIL && admin.phone === PROTECTED_ADMIN_PHONE) {
+      await releaseOwnerEmailFromOtherAccounts(admin.id);
+    } else {
+      const existing = await UserModel.findOne({ email, _id: { $ne: userId } }).select("_id").lean();
+      if (existing) throw new AppError(409, "This email is already attached to another Darji account");
+    }
     admin.email = email;
   } else {
     admin.email = undefined;

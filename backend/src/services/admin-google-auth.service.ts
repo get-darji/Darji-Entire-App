@@ -9,6 +9,7 @@ import { auditRequestContext } from "../middleware/admin-audit.js";
 import type { Request } from "express";
 import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
 import { OWNER_ADMIN_EMAIL, PROTECTED_ADMIN_PHONE } from "../utils/admin-access.js";
+import { releaseOwnerEmailFromOtherAccounts } from "./admin-owner.service.js";
 
 const STATE_PURPOSE = "darji-admin-google-sign-in";
 
@@ -79,14 +80,10 @@ export async function completeAdminGoogleSignIn(code: string, state: string, req
   let user;
   if (email === OWNER_ADMIN_EMAIL) {
     user = await UserModel.findOne({ phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN" });
-    if (user?.email && user.email.trim().toLowerCase() !== OWNER_ADMIN_EMAIL) {
-      throw new AppError(403, "The protected owner account is linked to a different email");
+    if (user) {
+      await releaseOwnerEmailFromOtherAccounts(user.id);
+      user.email = OWNER_ADMIN_EMAIL;
     }
-    const emailCollision = user
-      ? await UserModel.findOne({ email, _id: { $ne: user.id } }).select("_id").lean()
-      : null;
-    if (emailCollision) throw new AppError(409, "The owner email is linked to another Darji account");
-    if (user) user.email = OWNER_ADMIN_EMAIL;
   } else {
     user = await UserModel.findOne({ email, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
   }
