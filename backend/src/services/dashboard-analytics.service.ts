@@ -267,7 +267,7 @@ function buildSeries(
 
 export async function getDashboardAnalytics(startValue?: unknown, endValue?: unknown, lifetime = false) {
   const { current, previous } = parseDashboardPeriod(startValue, endValue, lifetime);
-  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, otpMetric] = await Promise.all([
+  const [legacyOrders, tailoringRequests, payments, earnings, walletCredits, payoutHistory, wallets, tailors, partners, deliveryRequests, deliveryBatches, measurementVisits, otpMetric, totalCustomers] = await Promise.all([
     OrderModel.find().select("_id orderNumber customerId tailorId status totalAmount createdAt timelineEvents").lean(),
     TailoringRequestModel.find().select("_id customerId assignedTailorId selectedQuoteId status orderStatus workStatus cancellationFee quoteAmount homeMeasurementBooked homeMeasurementFee createdAt timelineEvents").lean(),
     PaymentModel.find().select("_id orderId method amount status providerRef paidAt refundedAt createdAt updatedAt").lean(),
@@ -280,7 +280,8 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
     DeliveryRequestModel.find().select("_id taskId orderId type batchId assignedDeliveryPartnerId taskStatus finalPayout deliveredAt").lean(),
     DeliveryBatchModel.find().select("batchId deliveryPartnerId status finalPayout").lean(),
     MeasurementVisitModel.find().select("_id requestId assignedTailorId status visitPayout submittedAt updatedAt").lean(),
-    OtpMetricModel.findById("twofactor-successful-sends").lean()
+    OtpMetricModel.findById("twofactor-successful-sends").lean(),
+    UserModel.countDocuments({ role: "CUSTOMER", createdAt: { $gte: current.start, $lt: current.endExclusive } })
   ]);
 
   const completionByOrder = new Map<string, Date>();
@@ -725,6 +726,7 @@ export async function getDashboardAnalytics(startValue?: unknown, endValue?: unk
       lifetime
     },
     orders: currentOrders,
+    customers: { total: totalCustomers },
     finance: {
       ...currentFinance,
       netRevenue: currentRealized.netRevenue,

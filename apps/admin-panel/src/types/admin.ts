@@ -129,6 +129,7 @@ export type CatalogService = {
 
 export type DashboardAnalytics = {
   period: { start: string; endExclusive: string; previousStart: string | null; previousEndExclusive: string | null; lifetime: boolean };
+  customers: { total: number };
   orders: {
     total: number;
     pending: number;

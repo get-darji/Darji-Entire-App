@@ -2218,6 +2218,16 @@ export function AdminPortal() {
   });
   const dashboardStats = [
     {
+      icon: Users,
+      label: "Total Customers",
+      note: dashboardPeriod === "lifetime" ? "All-time registered customers" : `Registered ${dateRangeLabel}`,
+      tone: "violet" as const,
+      value: dashboardAnalytics.customers.total.toLocaleString("en-IN"),
+      change: "",
+      changeTone: "neutral" as const,
+      target: "users" as SectionId
+    },
+    {
       icon: LayoutGrid,
       label: "Total Orders",
       note: dateRangeLabel,
