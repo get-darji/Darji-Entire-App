@@ -1,4 +1,5 @@
-export const PROTECTED_ADMIN_PHONE = "9971416471";
+export const PROTECTED_ADMIN_PHONE = "9625917902";
+export const OWNER_ADMIN_EMAIL = "amankumarschool7@gmail.com";
 
 export function nonAdminLoginUpdate(phone: string, role: string) {
   // A mobile-app login must not overwrite the owner's persisted admin access.

@@ -8,10 +8,9 @@ import { AppError } from "../middleware/error.js";
 import { auditRequestContext } from "../middleware/admin-audit.js";
 import type { Request } from "express";
 import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
-import { PROTECTED_ADMIN_PHONE } from "../utils/admin-access.js";
+import { OWNER_ADMIN_EMAIL, PROTECTED_ADMIN_PHONE } from "../utils/admin-access.js";
 
 const STATE_PURPOSE = "darji-admin-google-sign-in";
-const OWNER_ADMIN_EMAIL = "amankumarschool7@gmail.com";
 
 function getAdminGoogleOAuthCredentials() {
   return {

@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import archiver from "archiver";
 import PDFDocument from "pdfkit";
-import { PROTECTED_ADMIN_PHONE, adminInviteRole } from "../utils/admin-access.js";
+import { OWNER_ADMIN_EMAIL, PROTECTED_ADMIN_PHONE, adminInviteRole } from "../utils/admin-access.js";
 import {
   CUSTOMER_WEBSITE_SLIDER_SETTING_KEY,
   addressSchema,
@@ -1439,11 +1439,10 @@ export async function updateAdminGoogleEmailController(req: Request, res: Respon
   }
   const admin = await UserModel.findOne({ _id: userId, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
   if (!admin) throw new AppError(404, "Admin account not found");
-  const ownerEmail = "amankumarschool7@gmail.com";
-  if (admin.phone === PROTECTED_ADMIN_PHONE && email !== ownerEmail) {
+  if (admin.phone === PROTECTED_ADMIN_PHONE && email !== OWNER_ADMIN_EMAIL) {
     throw new AppError(409, "The owner account is locked to its verified owner email");
   }
-  if (email === ownerEmail && admin.phone !== PROTECTED_ADMIN_PHONE) {
+  if (email === OWNER_ADMIN_EMAIL && admin.phone !== PROTECTED_ADMIN_PHONE) {
     throw new AppError(409, "The owner email can only be linked to the protected owner account");
   }
   if (email) {

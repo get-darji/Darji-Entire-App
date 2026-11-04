@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { serviceCatalog } from "@darji/shared";
 import { connectDatabase, disconnectDatabase } from "./db.js";
+import { PROTECTED_ADMIN_PHONE } from "./utils/admin-access.js";
 import {
   AddressModel,
   CouponModel,
@@ -43,7 +44,7 @@ async function upsertUser(phone: string, data: { name: string; role: string }) {
 }
 
 export async function seedDatabase() {
-  const admin = await upsertUser("9971416471", { name: "Darji Admin", role: "SUPER_ADMIN" });
+  const admin = await upsertUser(PROTECTED_ADMIN_PHONE, { name: "Darji Admin", role: "SUPER_ADMIN" });
   const customer = await upsertUser("9876543210", { name: "Aarav Sharma", role: "CUSTOMER" });
   const tailorUser = await upsertUser("9876500001", { name: "Imran Khan", role: "TAILOR" });
   const deliveryUser = await upsertUser("9876500002", { name: "Rohit Verma", role: "DELIVERY_PARTNER" });
