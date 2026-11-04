@@ -8,8 +8,10 @@ import { AppError } from "../middleware/error.js";
 import { auditRequestContext } from "../middleware/admin-audit.js";
 import type { Request } from "express";
 import { signAccessToken, signRefreshToken } from "../utils/tokens.js";
+import { PROTECTED_ADMIN_PHONE } from "../utils/admin-access.js";
 
 const STATE_PURPOSE = "darji-admin-google-sign-in";
+const OWNER_ADMIN_EMAIL = "amankumarschool7@gmail.com";
 
 function getAdminGoogleOAuthCredentials() {
   return {
@@ -75,7 +77,9 @@ export async function completeAdminGoogleSignIn(code: string, state: string, req
   }
 
   const email = profile.email.trim().toLowerCase();
-  const user = await UserModel.findOne({ email, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
+  const user = email === OWNER_ADMIN_EMAIL
+    ? await UserModel.findOne({ email, phone: PROTECTED_ADMIN_PHONE, role: "SUPER_ADMIN" })
+    : await UserModel.findOne({ email, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
   if (!user) throw new AppError(403, "This verified email has not been approved for an admin account");
   if (user.accountStatus === "BANNED") throw new AppError(403, "This admin account is banned");
   if (user.accountStatus === "SUSPENDED") {

@@ -1433,8 +1433,19 @@ export async function updateAdminGoogleEmailController(req: Request, res: Respon
   const userId = String(req.params.id ?? "").trim();
   const input = z.object({ email: z.string().trim().email().max(254).or(z.literal("")) }).strict().parse(req.body);
   const email = input.email.toLowerCase();
+  const actor = await UserModel.findById(req.user!.id).select("phone role").lean();
+  if (!actor || actor.phone !== PROTECTED_ADMIN_PHONE || actor.role !== "SUPER_ADMIN") {
+    throw new AppError(403, "Only the protected owner account can manage approved Google sign-in emails");
+  }
   const admin = await UserModel.findOne({ _id: userId, role: { $in: ["ADMIN", "SUPER_ADMIN"] } });
   if (!admin) throw new AppError(404, "Admin account not found");
+  const ownerEmail = "amankumarschool7@gmail.com";
+  if (admin.phone === PROTECTED_ADMIN_PHONE && email !== ownerEmail) {
+    throw new AppError(409, "The owner account is locked to its verified owner email");
+  }
+  if (email === ownerEmail && admin.phone !== PROTECTED_ADMIN_PHONE) {
+    throw new AppError(409, "The owner email can only be linked to the protected owner account");
+  }
   if (email) {
     const existing = await UserModel.findOne({ email, _id: { $ne: userId } }).select("_id").lean();
     if (existing) throw new AppError(409, "This email is already attached to another Darji account");

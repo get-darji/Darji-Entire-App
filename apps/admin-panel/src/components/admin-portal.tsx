@@ -6592,6 +6592,7 @@ function SampleWorkModule({
 }
 
 const PROTECTED_ADMIN_PHONE = "9971416471";
+const PROTECTED_OWNER_EMAIL = "amankumarschool7@gmail.com";
 
 function RolesModule({
   admins,
@@ -6659,6 +6660,7 @@ function RolesModule({
             <tbody>
               {rows.map((admin, adminIndex) => {
                 const protectedOwner = admin.phone === PROTECTED_ADMIN_PHONE;
+                const googleEmail = protectedOwner ? PROTECTED_OWNER_EMAIL : (emailDrafts[admin.id] ?? admin.email ?? "");
                 return (
                   <tr key={admin.id} className="border-b border-[var(--panel-border)]">
                     <td className="px-4 py-3 font-semibold tabular-nums text-[var(--muted)]">{adminIndex + 1}</td>
@@ -6670,16 +6672,17 @@ function RolesModule({
                           autoComplete="off"
                           className="min-w-0 flex-1 rounded-xl border border-[var(--panel-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)] dark:bg-white/5"
                           disabled={pendingGoogleEmail}
+                          readOnly={protectedOwner}
                           onChange={(event) => setEmailDrafts((current) => ({ ...current, [admin.id]: event.target.value }))}
                           placeholder="name@example.com"
                           type="email"
-                          value={emailDrafts[admin.id] ?? admin.email ?? ""}
+                          value={googleEmail}
                         />
                         <ActionButton
                           className="px-3 py-2 text-xs"
-                          disabled={pendingGoogleEmail || (emailDrafts[admin.id] ?? admin.email ?? "") === (admin.email ?? "")}
+                          disabled={pendingGoogleEmail || googleEmail === (admin.email ?? "")}
                           onClick={() => {
-                            const email = (emailDrafts[admin.id] ?? "").trim().toLowerCase();
+                            const email = googleEmail.trim().toLowerCase();
                             if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
                               toast.error("Enter a valid Google email address");
                               return;
@@ -6688,7 +6691,7 @@ function RolesModule({
                           }}
                         >Save</ActionButton>
                       </div>
-                      <p className="mt-1 text-[11px] text-[var(--muted)]">Google verifies this email at sign-in.</p>
+                      <p className="mt-1 text-[11px] text-[var(--muted)]">{protectedOwner ? "Owner sign-in is locked to this verified Google email." : "Google verifies this email at sign-in."}</p>
                     </td>
                     <td className="px-4 py-3"><Badge tone={protectedOwner ? "amber" : "emerald"}>{protectedOwner ? "Full access · Owner" : "Full access"}</Badge></td>
                     <td className="px-4 py-3"><StatusBadge value={admin.accountStatus ?? "ACTIVE"} /></td>
